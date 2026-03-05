@@ -1,0 +1,17 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aec-directory-about",
+	"account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
+	"compatibility_date": "2025-09-27",
+	"compatibility_flags": ["nodejs_compat"],
+	"observability": { "enabled": true },
+  "assets": {
+    "directory": "./assets"
+  },
+  "routes": [
+    {
+      "pattern": "directory-concept.thewbsproject.com",
+      "custom_domain": true
+    }
+  ]
+}
