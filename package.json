@@ -1,5 +1,8 @@
 {
   "private": true,
+  "scripts": {
+    "start": "pnpm --filter landing dev"
+  },
   "pnpm": {
     "onlyBuiltDependencies": ["esbuild", "sharp", "workerd"]
   }
