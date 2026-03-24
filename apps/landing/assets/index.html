@@ -4,6 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>A/E/C Directory — A Better Way to Evaluate AEC Technology</title>
+  <meta name="description" content="Find and evaluate AEC software by project phase and discipline — with honest reviews, verified integrations, and pricing data you can trust.">
+  <meta property="og:title" content="A/E/C Directory — A Better Way to Evaluate AEC Technology">
+  <meta property="og:description" content="Find and evaluate AEC software by project phase and discipline — with honest reviews, verified integrations, and pricing data you can trust.">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://directory-concept.thewbsproject.com">
+  <meta name="theme-color" content="#faf9f6">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
@@ -18,9 +24,13 @@
       --accent-light: #2e6b8a;
       --accent-wash: #eef3f7;
       --warm: #c7915b;
+      --radius: 4px;
+      --on-dark: rgba(255, 255, 255, 0.82);
+      --on-dark-muted: rgba(255, 255, 255, 0.65);
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
 
     body {
       font-family: 'Instrument Sans', sans-serif;
@@ -51,10 +61,21 @@
       font-size: 13px; font-weight: 600;
       color: var(--accent); text-decoration: none;
       border: 1.5px solid var(--accent);
-      padding: 8px 20px; border-radius: 3px;
-      transition: all 0.2s;
+      padding: 8px 20px; border-radius: var(--radius);
     }
     .nav-cta:hover { background: var(--accent); color: #fff; }
+    .skip-link {
+      position: absolute; left: -9999px; top: auto;
+      width: 1px; height: 1px; overflow: hidden;
+      font-size: 14px; padding: 12px 24px;
+      background: var(--accent); color: #fff;
+      text-decoration: none; z-index: 200;
+      border-radius: 0 0 var(--radius) var(--radius);
+    }
+    .skip-link:focus-visible {
+      position: fixed; top: 0; left: 16px;
+      width: auto; height: auto;
+    }
 
     /* ── HERO ── */
     .hero {
@@ -110,10 +131,10 @@
     .section-inner p:last-child { margin-bottom: 0; }
 
     /* ── PROBLEM SECTION ── */
-    .problem { background: var(--accent); color: rgba(255,255,255,0.88); }
+    .problem { background: var(--accent); color: var(--on-dark); }
     .problem .section-label { color: var(--warm); }
     .problem h2 { color: #fff; }
-    .problem p { color: rgba(255,255,255,0.78); }
+    .problem p { color: var(--on-dark); }
 
     .stat-row {
       display: grid;
@@ -124,7 +145,7 @@
       text-align: center; padding: 32px 20px;
       background: rgba(255,255,255,0.07);
       border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 4px;
+      border-radius: var(--radius);
     }
     .stat-card .number {
       font-family: 'DM Serif Display', serif;
@@ -132,7 +153,7 @@
       display: block; margin-bottom: 8px;
     }
     .stat-card .desc {
-      font-size: 13px; color: rgba(255,255,255,0.6);
+      font-size: 13px; color: var(--on-dark);
       line-height: 1.5;
     }
 
@@ -154,14 +175,14 @@
       margin-bottom: 14px;
     }
     .feature-block p {
-      font-size: 15px; line-height: 1.8;
+      font-size: 16px; line-height: 1.8;
       max-width: 640px;
     }
 
     .feature-detail {
       margin-top: 20px; padding: 20px 24px;
       background: var(--accent-wash);
-      border-radius: 4px;
+      border-radius: var(--radius);
       font-size: 14px; line-height: 1.7;
       color: var(--accent);
     }
@@ -177,9 +198,9 @@
       padding: 28px 24px;
       background: var(--card);
       border: 1px solid var(--rule);
-      border-radius: 4px;
+      border-radius: var(--radius);
     }
-    .trust-item h4 {
+    .trust-item h3 {
       font-size: 15px; font-weight: 600;
       color: var(--ink); margin-bottom: 8px;
     }
@@ -198,27 +219,31 @@
       padding: 8px 18px;
       background: var(--card);
       border: 1px solid var(--rule);
-      border-radius: 3px; color: var(--ink);
+      border-radius: var(--radius); color: var(--ink);
     }
+
+    /* ── TRUST SECTION ── */
+    .trust-section { background: var(--accent-wash); }
 
     /* ── CTA SECTION ── */
     .cta-section {
       background: var(--ink); color: #fff;
       text-align: center;
     }
+    .cta-section .section-inner { max-width: 600px; }
     .cta-section .section-label { color: var(--warm); }
     .cta-section h2 { color: #fff; }
-    .cta-section p { color: rgba(255,255,255,0.6); }
+    .cta-section p { color: var(--on-dark); }
     .cta-section a.btn {
       display: inline-block; margin-top: 28px;
       padding: 14px 36px;
       background: var(--warm); color: #fff;
       text-decoration: none; font-weight: 600;
-      font-size: 14px; border-radius: 3px;
+      font-size: 14px; border-radius: var(--radius);
       letter-spacing: 0.3px;
-      transition: opacity 0.2s;
     }
     .cta-section a.btn:hover { opacity: 0.85; }
+    .cta-footnote { margin-top: 20px; font-size: 13px; }
 
     /* ── FOOTER ── */
     footer {
@@ -229,40 +254,228 @@
 
     /* ── ANIMATION ── */
     .reveal {
-      opacity: 0; transform: translateY(20px);
-      animation: fadeUp 0.6s ease forwards;
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.7s cubic-bezier(0.25, 1, 0.5, 1),
+                  transform 0.7s cubic-bezier(0.25, 1, 0.5, 1);
     }
-    @keyframes fadeUp {
-      to { opacity: 1; transform: translateY(0); }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
     }
-    .delay-1 { animation-delay: 0.1s; }
-    .delay-2 { animation-delay: 0.2s; }
-    .delay-3 { animation-delay: 0.3s; }
-    .delay-4 { animation-delay: 0.4s; }
+    .delay-1 { transition-delay: 0.1s; }
+    .delay-2 { transition-delay: 0.2s; }
+    .delay-3 { transition-delay: 0.3s; }
+    .delay-4 { transition-delay: 0.4s; }
 
+    /* Hero divider grows from center */
+    .hero-divider {
+      transform: scaleX(0);
+      transition: transform 0.8s cubic-bezier(0.25, 1, 0.5, 1) 0.5s;
+    }
+    .hero-divider.visible { transform: scaleX(1); }
+
+    /* Stat cards */
+    .stat-card {
+      transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+                  box-shadow 0.3s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+    .stat-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+    }
+
+    /* Trust items lift on hover */
+    .trust-item {
+      transition: transform 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+                  box-shadow 0.3s cubic-bezier(0.25, 1, 0.5, 1),
+                  border-color 0.3s;
+    }
+    .trust-item:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 6px 20px rgba(0,0,0,0.06);
+      border-color: var(--accent-light);
+    }
+
+    /* Audience tags stagger in */
+    .audience-tags span {
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+                  transform 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+                  background 0.2s, border-color 0.2s, color 0.2s;
+    }
+    .audience-tags.visible span { opacity: 1; transform: translateY(0); }
+    .audience-tags span:hover {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* Nav scroll shadow */
+    nav {
+      transition: box-shadow 0.3s;
+    }
+    nav.scrolled {
+      box-shadow: 0 1px 8px rgba(0,0,0,0.06);
+    }
+
+    /* Button hover refinements */
+    .nav-cta {
+      transition: background 0.25s cubic-bezier(0.25, 1, 0.5, 1),
+                  color 0.25s cubic-bezier(0.25, 1, 0.5, 1),
+                  transform 0.2s cubic-bezier(0.25, 1, 0.5, 1);
+    }
+    .nav-cta:hover { transform: translateY(-1px); }
+    .nav-cta:active { transform: translateY(0); }
+
+    .cta-section a.btn {
+      transition: transform 0.25s cubic-bezier(0.25, 1, 0.5, 1),
+                  box-shadow 0.25s cubic-bezier(0.25, 1, 0.5, 1),
+                  opacity 0.2s;
+    }
+    .cta-section a.btn:hover {
+      opacity: 1;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(199, 145, 91, 0.3);
+    }
+    .cta-section a.btn:active { transform: translateY(0); box-shadow: none; }
+
+    /* Feature numbers */
+    .feature-number {
+      transition: color 0.4s;
+    }
+    .feature-block:hover .feature-number {
+      color: var(--warm);
+    }
+
+    /* ── FOCUS ── */
+    :focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+    .nav-cta:focus-visible,
+    .cta-section a.btn:focus-visible {
+      outline-color: var(--warm);
+    }
+
+    /* ── REDUCED MOTION ── */
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      .reveal {
+        opacity: 1;
+        transform: none;
+        transition: none;
+      }
+      .hero-divider {
+        transform: none;
+        transition: none;
+      }
+      .audience-tags span {
+        opacity: 1;
+        transform: none;
+        transition-property: background, border-color, color;
+      }
+      .stat-card,
+      .trust-item,
+      .nav-cta,
+      .cta-section a.btn {
+        transition: none;
+      }
+    }
+
+    /* ── TABLET (≤1024px) ── */
+    @media (max-width: 1024px) {
+      .hero { padding: 140px 32px 80px; }
+      .section-inner { max-width: 720px; }
+      .hero { max-width: 720px; }
+    }
+
+    /* ── SMALL TABLET / LARGE PHONE (≤820px) ── */
+    @media (max-width: 820px) {
+      .trust-grid { grid-template-columns: repeat(2, 1fr); }
+      .stat-row { gap: 16px; }
+      .stat-card { padding: 24px 16px; }
+      .stat-card .number { font-size: 30px; }
+      .feature-number { font-size: 40px; }
+      .section-inner h2 { font-size: 26px; }
+    }
+
+    /* ── PHONE (≤640px) ── */
     @media (max-width: 640px) {
-      .hero { padding: 140px 20px 72px; }
-      section { padding: 56px 20px; }
+      .hero { padding: 112px 20px 56px; }
+      .hero h1 { font-size: clamp(28px, 7vw, 36px); }
+      .hero p { font-size: 16px; }
+      .hero-label { font-size: 10px; letter-spacing: 2.5px; }
+      section { padding: 48px 20px; }
       .nav-inner { padding: 14px 20px; }
-      .stat-row { grid-template-columns: 1fr; }
+      /* Touch-friendly nav CTA: min 44px tap target */
+      .nav-cta { padding: 12px 20px; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center; }
+      .stat-row { grid-template-columns: 1fr; gap: 12px; }
+      .stat-card .number { font-size: 28px; }
+      .stat-card .desc { font-size: 14px; }
+      .trust-grid { grid-template-columns: 1fr; gap: 12px; }
+      .trust-item { padding: 24px 20px; }
+      .trust-item h3 { font-size: 16px; }
+      .trust-item p { font-size: 15px; }
+      .section-inner h2 { font-size: 24px; }
+      .section-inner p { font-size: 15px; }
+      .section-label { font-size: 10px; letter-spacing: 2px; }
+      /* Touch-friendly audience tags: min 44px tap height */
+      .audience-tags { gap: 8px; }
+      .audience-tags span { padding: 12px 18px; font-size: 14px; min-height: 44px; display: inline-flex; align-items: center; }
+      .feature-block { padding: 40px 0; }
+      .feature-number { font-size: 36px; }
+      .feature-block h3 { font-size: 20px; }
+      .feature-block p { font-size: 15px; }
+      .feature-detail { padding: 16px 20px; font-size: 14px; }
+      /* CTA section mobile */
+      .cta-section a.btn { padding: 16px 32px; font-size: 15px; min-height: 48px; display: inline-flex; align-items: center; }
+      .cta-footnote { font-size: 14px; }
+      .hero-divider { margin-top: 36px; }
+      footer { padding: 24px 20px; font-size: 13px; }
+    }
+
+    /* ── SMALL PHONE (≤380px) ── */
+    @media (max-width: 380px) {
+      .hero { padding: 100px 16px 48px; }
+      section { padding: 40px 16px; }
+      .nav-inner { padding: 12px 16px; }
+      .nav-logo { font-size: 16px; }
+      .nav-cta { padding: 10px 16px; font-size: 13px; }
+      .hero h1 { font-size: 26px; }
+      .stat-card { padding: 20px 14px; }
+      .feature-detail { padding: 14px 16px; }
+      .cta-section a.btn { padding: 14px 24px; width: 100%; justify-content: center; }
+    }
+
+    /* ── LANDSCAPE PHONE ── */
+    @media (max-height: 500px) and (orientation: landscape) {
+      .hero { padding: 80px 32px 48px; }
+      section { padding: 40px 32px; }
+      .stat-row { grid-template-columns: repeat(3, 1fr); }
+      .trust-grid { grid-template-columns: repeat(2, 1fr); }
     }
   </style>
 </head>
 <body>
 
+  <a href="#main" class="skip-link">Skip to content</a>
+
   <!-- NAV -->
-  <nav>
+  <nav aria-label="Primary">
     <div class="nav-inner">
-      <a href="#" class="nav-logo">A/E/C Directory (Name Coming Soon...)</a>
+      <a href="#main" class="nav-logo">A/E/C Directory</a>
       <a href="mailto:founders@thewbsproject.com?subject=AEC%20Directory%20Feedback" class="nav-cta">Share Feedback</a>
     </div>
   </nav>
 
   <!-- HERO -->
+  <main id="main">
   <div class="hero">
     <p class="hero-label reveal">Coming Soon</p>
     <h1 class="reveal delay-1">A Better Way to Evaluate AEC Technology</h1>
-    <p class="reveal delay-2">A place to find and evaluate software and AI solutions for the AEC industry — categorized by project phase and discipline, with honest reviews and verified integration data you can actually trust.</p>
+    <p class="reveal delay-2">Find and evaluate AEC software by project phase and discipline — with honest reviews, verified integrations, and pricing data you can trust.</p>
     <div class="hero-divider reveal delay-3"></div>
   </div>
 
@@ -277,15 +490,15 @@
       <div class="stat-row reveal delay-4">
         <div class="stat-card">
           <span class="number">~34%</span>
-          <span class="desc">of reviews on major platforms estimated to be AI-generated</span>
+          <span class="desc">of reviews on major platforms are estimated to be AI-generated</span>
         </div>
         <div class="stat-card">
           <span class="number">$87K</span>
-          <span class="desc">per year for top-tier vendor packages on leading review sites</span>
+          <span class="desc">per year — what vendors pay to boost their ranking on leading review sites</span>
         </div>
         <div class="stat-card">
           <span class="number">900+</span>
-          <span class="desc">undifferentiated listings in generic categories — unhelpful for specialized firms</span>
+          <span class="desc">tools lumped into generic categories with no way to filter by AEC discipline or workflow</span>
         </div>
       </div>
     </div>
@@ -294,10 +507,10 @@
   <!-- WHAT WE'RE BUILDING -->
   <section>
     <div class="section-inner">
-      <p class="section-label">What We're Building</p>
-      <h2>Three ideas at the core</h2>
+      <p class="section-label reveal">What We're Building</p>
+      <h2 class="reveal delay-1">Three ideas at the core</h2>
 
-      <div class="feature-block">
+      <div class="feature-block reveal">
         <div class="feature-number">01</div>
         <h3>Reviewable Integrations</h3>
         <p>"We integrate with 200+ tools" means nothing if half of those integrations are shallow, broken, or one-directional. Our model is different: both sides of every integration verify that it exists and describe what it actually does. Then users can review the integration itself — not just the products on either end.</p>
@@ -306,19 +519,19 @@
         </div>
       </div>
 
-      <div class="feature-block">
+      <div class="feature-block reveal">
         <div class="feature-number">02</div>
-        <h3>Split Reviews: Product vs. Onboarding</h3>
+        <h3>Separate Ratings for Product and Onboarding</h3>
         <p>In AEC, implementation cycles can stretch 12–18 months. A brilliant product with a painful onboarding experience is a very different proposition than one that's merely adequate but deploys in weeks. Every existing platform collapses these into a single score. We separate them.</p>
         <div class="feature-detail">
           <strong>What you'll see:</strong> Distinct ratings and written reviews for the product experience and the implementation/onboarding experience. We also plan to support ratings for implementation consultants — the firms you hire to help get software running.
         </div>
       </div>
 
-      <div class="feature-block">
+      <div class="feature-block reveal">
         <div class="feature-number">03</div>
-        <h3>Trust as a Foundation, Not a Feature</h3>
-        <p>We're not building another platform that sells rankings to the highest bidder. There are no pay-for-placement schemes. Listings aren't boosted by spend. Reviews are verified. The directory exists to serve AEC firms making purchase decisions — not to extract revenue from vendors through visibility anxiety.</p>
+        <h3>No Pay-to-Rank. Ever.</h3>
+        <p>Listings aren't boosted by spend. Reviews are verified. The directory exists to serve AEC firms making purchase decisions — not to extract revenue from vendors who pay for visibility.</p>
         <div class="feature-detail">
           <strong>Our commitment:</strong> Verified reviewer identities, timestamped and version-tagged reviews, transparent methodology for any rankings or scores, and vendor responses displayed alongside criticism — not instead of it.
         </div>
@@ -327,27 +540,27 @@
   </section>
 
   <!-- TRUST SIGNALS -->
-  <section style="background: var(--accent-wash);">
+  <section class="trust-section">
     <div class="section-inner">
-      <p class="section-label">Built for AEC</p>
-      <h2>Details that matter in this industry</h2>
-      <p>Generic software directories treat all industries the same. AEC has specific needs that deserve first-class treatment.</p>
+      <p class="section-label reveal">Built for AEC</p>
+      <h2 class="reveal delay-1">Details that matter in this industry</h2>
+      <p class="reveal delay-2">Generic software directories treat all industries the same. AEC has specific needs that deserve first-class treatment.</p>
 
-      <div class="trust-grid">
+      <div class="trust-grid reveal delay-3">
         <div class="trust-item">
-          <h4>Organized by Workflow</h4>
+          <h3>Organized by Workflow</h3>
           <p>Browse by project stage — preconstruction, design, construction, operations — not just generic software categories.</p>
         </div>
         <div class="trust-item">
-          <h4>Role-Specific Views</h4>
+          <h3>Role-Specific Views</h3>
           <p>A structural engineer, a GC project manager, and an architect have very different needs. Filter and view accordingly.</p>
         </div>
         <div class="trust-item">
-          <h4>Security &amp; Compliance</h4>
+          <h3>Security &amp; Compliance</h3>
           <p>Our goal is to provide transparency in deployment model, data privacy posture, and compliance certifications — information that matters in AEC but is rarely easy to find.</p>
         </div>
         <div class="trust-item">
-          <h4>Pricing Transparency</h4>
+          <h3>Pricing Transparency</h3>
           <p>User-reported pricing data alongside official tiers, so you know what a tool actually costs — not just what the sales page says.</p>
         </div>
       </div>
@@ -357,9 +570,9 @@
   <!-- WHO IT'S FOR -->
   <section>
     <div class="section-inner">
-      <p class="section-label">Who This Is For</p>
-      <h2>Every firm evaluating AEC tech</h2>
-      <p>Whether you're a 5-person specialty trade contractor or a top-100 ENR firm, the goal is the same: find the right tools, avoid the wrong ones, and stop relying on vendor demos and Google searches to make critical technology decisions.</p>
+      <p class="section-label reveal">Who This Is For</p>
+      <h2 class="reveal delay-1">Every firm evaluating AEC tech</h2>
+      <p class="reveal delay-2">Whether you're a 5-person specialty trade contractor or a top-100 ENR firm, the goal is the same: find the right tools, avoid the wrong ones, and stop relying on vendor demos and Google searches to make critical technology decisions.</p>
 
       <div class="audience-tags">
         <span>Architects</span>
@@ -378,19 +591,118 @@
 
   <!-- CTA -->
   <section class="cta-section">
-    <div class="section-inner" style="max-width: 600px;">
-      <p class="section-label">We Want Your Feedback</p>
-      <h2>Help us build this right</h2>
-      <p style="margin-top: 12px;">We're in the early stages and talking to people across the industry before we go heads-down building. If you have thoughts, frustrations, or ideas about how AEC firms should be discovering and evaluating technology — we'd genuinely love to hear them.</p>
-      <a href="mailto:founders@thewbsproject.com?subject=AEC%20Directory%20Feedback" class="btn">Share Your Thoughts</a>
-      <p style="margin-top: 20px; font-size: 13px;">Or reply to the email that brought you here — a one-line response is just as valuable as a detailed one.</p>
+    <div class="section-inner">
+      <p class="section-label reveal">Shape What Gets Built</p>
+      <h2 class="reveal delay-1">Tell us what you actually need</h2>
+      <p class="reveal delay-2">We're talking to people across the industry before we build. If you have thoughts, frustrations, or ideas about how AEC firms should discover and evaluate technology — we'd genuinely love to hear them.</p>
+      <a href="mailto:founders@thewbsproject.com?subject=AEC%20Directory%20Feedback" class="btn reveal delay-3">Share Your Thoughts</a>
+      <p class="cta-footnote reveal delay-4">Or reply to the email that brought you here — even a one-line reply helps.</p>
     </div>
   </section>
 
-  <!-- FOOTER
+  </main>
+
   <footer>
-    <p>&copy; 2026 A/E/C Directory (Name tbd). All rights reserved.</p>
-  </footer> -->
+    <p>&copy; 2026 A/E/C Directory. All rights reserved.</p>
+  </footer>
+
+  <script>
+    // Scroll-triggered reveal animations
+    (function () {
+      const prefersReduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // Nav shadow on scroll
+      const nav = document.querySelector('nav');
+      addEventListener('scroll', function () {
+        nav.classList.toggle('scrolled', scrollY > 20);
+      }, { passive: true });
+
+      if (prefersReduced) {
+        document.querySelectorAll('.reveal, .hero-divider, .audience-tags').forEach(function (el) {
+          el.classList.add('visible');
+        });
+        return;
+      }
+
+      // IntersectionObserver for .reveal elements
+      const revealObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            revealObserver.unobserve(entry.target);
+          }
+        });
+      }, { threshold: 0.15 });
+
+      document.querySelectorAll('.reveal, .hero-divider, .audience-tags').forEach(function (el) {
+        revealObserver.observe(el);
+      });
+
+      // Stagger audience tags when parent becomes visible
+      const tagsContainer = document.querySelector('.audience-tags');
+      if (tagsContainer) {
+        const tagsObserver = new IntersectionObserver(function (entries) {
+          entries.forEach(function (entry) {
+            if (entry.isIntersecting) {
+              var tags = entry.target.querySelectorAll('span');
+              tags.forEach(function (tag, i) {
+                tag.style.transitionDelay = (i * 0.06) + 's';
+              });
+              entry.target.classList.add('visible');
+              tagsObserver.unobserve(entry.target);
+            }
+          });
+        }, { threshold: 0.2 });
+        tagsObserver.observe(tagsContainer);
+      }
+
+      // Count-up for stat numbers
+      function animateCount(el, target, suffix) {
+        var duration = 1200;
+        var start = performance.now();
+        function tick(now) {
+          var t = Math.min((now - start) / duration, 1);
+          t = 1 - Math.pow(1 - t, 4); // ease-out-quart
+          var current;
+          if (target >= 100) {
+            current = Math.round(t * target);
+          } else {
+            current = (t * target).toFixed(0);
+          }
+          el.textContent = suffix === '%' ? '~' + current + '%' : suffix === '+' ? current + '+' : '$' + current.toLocaleString() + 'K';
+          if (t < 1) requestAnimationFrame(tick);
+        }
+        requestAnimationFrame(tick);
+      }
+
+      var statCards = document.querySelectorAll('.stat-card .number');
+      var statsAnimated = false;
+      var statsObserver = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          if (entry.isIntersecting && !statsAnimated) {
+            statsAnimated = true;
+            statCards.forEach(function (el) {
+              var text = el.textContent.trim();
+              if (text.indexOf('%') !== -1) {
+                el.textContent = '~0%';
+                animateCount(el, 34, '%');
+              } else if (text.indexOf('$') !== -1) {
+                el.textContent = '$0K';
+                animateCount(el, 87, '$');
+              } else if (text.indexOf('+') !== -1) {
+                el.textContent = '0+';
+                animateCount(el, 900, '+');
+              }
+            });
+            statsObserver.disconnect();
+          }
+        });
+      }, { threshold: 0.3 });
+
+      var statRow = document.querySelector('.stat-row');
+      if (statRow) statsObserver.observe(statRow);
+    })();
+  </script>
 
   <!-- Cloudflare Web Analytics -->
   <script
