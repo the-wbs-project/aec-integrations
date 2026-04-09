@@ -1,25 +1,26 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "aec-directory-about",
-	"account_id": "004dc1af737b22a8aa83b3550fa9b9d3",
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "landing-page",
+	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
 	"main": "src/index.ts",
-	"compatibility_date": "2025-09-27",
+	"compatibility_date": "2026-04-07",
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
-  "assets": {
-    "directory": "./assets",
-    "binding": "ASSETS"
-  },
-  "analytics_engine_datasets": [
-    {
-      "binding": "ANALYTICS",
-      "dataset": "aec_directory_pageviews"
-    }
-  ],
-  "routes": [
-    {
-      "pattern": "directory-concept.thewbsproject.com",
-      "custom_domain": true
-    }
-  ]
+	"assets": {
+		"directory": "./assets",
+		"binding": "ASSETS"
+	},
+	"analytics_engine_datasets": [
+		{ "binding": "ANALYTICS_LANDING", "dataset": "landing-page" }
+	],
+	"routes": [
+		{
+			"pattern": "www.aecintegrations.com",
+			"custom_domain": true
+		},
+		{
+			"pattern": "aecintegrations.com",
+			"custom_domain": true
+		}
+	]
 }
