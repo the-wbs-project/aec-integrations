@@ -1,0 +1,8 @@
+<svg viewBox="0 0 280 80" width="1120" height="320" xmlns="http://www.w3.org/2000/svg">
+  <rect width="280" height="80" fill="#F5F2EA"/>
+  <text x="10" y="47" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22" font-weight="600" fill="#1E3A2F" letter-spacing="-0.3">AEC</text>
+  <circle cx="65.25" cy="40" r="2.5" fill="#E89668"/>
+  <line x1="68.75" y1="40" x2="75.75" y2="40" stroke="#E89668" stroke-width="1.5"/>
+  <circle cx="79.25" cy="40" r="2.5" fill="#E89668"/>
+  <text x="86.5" y="47" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="22" font-weight="300" fill="#1E3A2F" letter-spacing="-0.3">Integrations</text>
+</svg>

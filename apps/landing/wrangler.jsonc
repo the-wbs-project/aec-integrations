@@ -7,7 +7,7 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": { "enabled": true },
 	"assets": {
-		"directory": "./assets",
+		"directory": "./public",
 		"binding": "ASSETS"
 	},
 	"analytics_engine_datasets": [
