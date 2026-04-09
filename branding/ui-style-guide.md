@@ -30,6 +30,7 @@ All tokens are defined as CSS custom properties on `:root` for light mode and `[
   --color-bg-elevated: #FFFFFF;    /* Paper — cards, modals, panels */
   --color-bg-recessed: #EDE9DE;    /* Bone 600 — input fields, code blocks */
   --color-bg-overlay: rgba(15, 20, 25, 0.45); /* Modal backdrops */
+  --color-bg-forest-elevated: #2A4A3D;       /* Forest 600 — cards/elements on forest backgrounds in light mode */
 
   /* Text */
   --color-text-primary: #1E3A2F;   /* Forest — headings, primary text */
@@ -37,12 +38,16 @@ All tokens are defined as CSS custom properties on `:root` for light mode and `[
   --color-text-secondary: #6B6B63; /* Stone — captions, labels, metadata */
   --color-text-tertiary: #9A9A8E;  /* Stone 400 — placeholders, disabled */
   --color-text-inverse: #F5F2EA;   /* Bone — text on dark surfaces */
+  --color-text-inverse-secondary: rgba(245, 242, 234, 0.8);  /* Muted bone — body text on forest backgrounds */
+  --color-text-inverse-tertiary: rgba(245, 242, 234, 0.6);   /* Subtle bone — captions on forest backgrounds */
   --color-text-accent: #C97A4F;    /* Clay 700 — links, accent text on light bg */
 
   /* Borders */
   --color-border-default: rgba(30, 58, 47, 0.12);  /* Default 0.5px borders */
   --color-border-strong: rgba(30, 58, 47, 0.24);   /* Hover state, dividers */
   --color-border-focus: #1E3A2F;                    /* Focus ring */
+  --color-border-inverse-default: rgba(245, 242, 234, 0.12); /* Borders on forest backgrounds */
+  --color-border-inverse-strong: rgba(245, 242, 234, 0.24);  /* Hover borders on forest backgrounds */
 
   /* Accent (clay) — interactive states */
   --color-accent: #E89668;
@@ -105,6 +110,7 @@ All tokens are defined as CSS custom properties on `:root` for light mode and `[
 - Pure white (`#FFFFFF`) is reserved for `--color-bg-elevated` only. Don't introduce it elsewhere.
 - Pure black is never used. Use `--color-text-body` (`#0F1419`) for long-form text.
 - Clay only appears as an accent. Never use it for body text, page backgrounds, or large surface fills.
+- **Inverse tokens exist for forest-background sections in light mode.** When placing text or borders on `--color-brand-forest` or `--color-bg-forest-elevated`, use `--color-text-inverse-*` and `--color-border-inverse-*` — never raw `rgba(245, 242, 234, ...)` values. This keeps the palette consistent if brand colors change.
 
 ### Type tokens
 
@@ -124,6 +130,8 @@ The brand uses a single sans-serif typeface. Inter is the default; the system st
   --text-xl: 24px;       /* H3 */
   --text-2xl: 30px;      /* H2 */
   --text-3xl: 38px;      /* H1 */
+  --text-10: 40px;       /* Decorative numerals, small viewports */
+  --text-11: 48px;       /* Decorative numerals, large viewports */
   --text-display: 52px;  /* Hero only */
 
   /* Font weights — only two */
@@ -275,6 +283,90 @@ Use CSS Grid for layouts, not Flexbox. Flexbox is for component-internal arrange
 ```
 
 **Critical:** `grid-template-columns: 1fr` defaults to `min-width: auto`, which lets children with large content push columns past the container. Always use `minmax(0, 1fr)` for grid columns inside constrained layouts.
+
+### Responsive
+
+Four breakpoints, mobile-first:
+
+| Name | Query | Typical devices |
+|------|-------|-----------------|
+| Base | (no query) | Phones <640px |
+| Phone+ | `min-width: 640px` | Large phones, small tablets |
+| Tablet | `min-width: 820px` | Tablets, portrait iPads |
+| Desktop | `min-width: 1024px` | Laptops, desktops |
+| Landscape | `max-height: 500px` + `orientation: landscape` | Landscape phones |
+
+**Responsive rules:**
+
+- **Prefer `clamp()` over breakpoint-per-breakpoint overrides.** For values that scale fluidly (hero headings, hero padding), use a single `clamp(min, preferred, max)` instead of three media-query steps. This eliminates jarring size jumps at breakpoint boundaries.
+- **All hard-coded pixel values must come from the token system.** No `14px`, `26px`, or `100px` in media queries — use spacing/type tokens or `clamp()`. The only exceptions are `max-width` constraints on layout containers and media query thresholds.
+- **Use `safe-area-inset-*` via `env()` for all page-edge padding.** Wrap in `max()` with the desired spacing token: `max(var(--space-4), env(safe-area-inset-left))`.
+- **Gate touch-target reductions behind `pointer: fine`.** Never reduce `min-height: 44px` on interactive elements at a viewport-width breakpoint alone — touch laptops exist at 1024px+. Use `@media (min-width: 1024px) and (pointer: fine)` for mouse-only reductions.
+- **Include a print stylesheet.** Hide nav, CTA sections, and scripts. Force dark-background sections to light for ink savings. Expand animations to their final state. Show `mailto:` URLs inline via `::after` pseudo-elements.
+
+### Spatial rhythm
+
+Not every section should breathe the same. Vary vertical padding to create a rhythm of emphasis. Use the semantic section classes to enforce this:
+
+- **Anchor sections** (`.anchor-section` — the main argument, the closing CTA): `--space-12` at base → `--space-16` at phone/tablet → `--space-24` at desktop. These are the emotional peaks — give them more air.
+- **Supporting sections** (no extra class — trust signals, details): default section padding (`--space-10` → `--space-12` → `--space-20`). These are connective tissue.
+- **Transitional sections** (`.transitional-section` — short "who it's for" type sections): `--space-8` at base → `--space-10` at phone/tablet → `--space-12` at desktop. They bridge topics, not anchor them.
+
+```css
+/* Base */
+section.anchor-section { padding-top: var(--space-12); padding-bottom: var(--space-12); }
+section.transitional-section { padding-top: var(--space-8); padding-bottom: var(--space-8); }
+
+/* Tablet+ */
+section.anchor-section { padding-top: var(--space-16); padding-bottom: var(--space-16); }
+section.transitional-section { padding-top: var(--space-10); padding-bottom: var(--space-10); }
+
+/* Desktop */
+section.anchor-section { padding-top: var(--space-24); padding-bottom: var(--space-24); }
+section.transitional-section { padding-top: var(--space-12); padding-bottom: var(--space-12); }
+```
+
+**Feature blocks with numbered anchors** use a two-column grid at tablet+ to break vertical monotony:
+
+```css
+@media (min-width: 820px) {
+  .feature-block {
+    display: grid;
+    grid-template-columns: var(--space-16) 1fr;
+    gap: 0 var(--space-6);
+  }
+  .feature-number {
+    grid-row: 1 / -1;  /* Span all content rows */
+  }
+}
+```
+
+This places the large decorative number as a left-aligned anchor with the heading, body, and detail flowing on the right. At mobile, everything stacks vertically.
+
+**Callout blocks** (like "How it works" detail panels) use a `border-left: 2px solid var(--color-accent)` with `border-radius: 0` and `background: var(--color-bg-recessed)`. The clay left border is one of the few allowed uses of clay outside CTAs — it signals "key highlight" and adds visual punctuation between otherwise uniform text blocks.
+
+**Two-column sections** break the stacked-content monotony on pages with many sections. When a section has a short text block paired with a visual or list element (e.g., audience tags, feature previews), split them side-by-side at tablet+. Prefer asymmetric columns — weight the side with more visual content:
+
+```css
+@media (min-width: 820px) {
+  .section-inner {
+    display: grid;
+    grid-template-columns: 5fr 7fr;
+    gap: var(--space-8);
+    align-items: start;
+  }
+}
+```
+
+The `5fr 7fr` split gives the visual-heavy column (tags, previews, lists) ~58% of the width while the text column stays comfortably narrow for reading. Use `1fr 1fr` only when both columns carry equal weight. This works best when the text content is short enough that neither column scrolls internally. If the text is long, keep it stacked.
+
+**Container width variation** is a tool for hierarchy. Not every section needs the same `max-width`. Use `.section-inner--wide` (`max-width: 960px`) for sections with card grids or multi-column feature blocks — they need room to breathe. The default `.section-inner` stays at 820px for long-form text. The CTA section uses 600px to focus attention. Vary intentionally — each width should have a reason.
+
+**Hero spacing pattern** uses tighter coupling between label and heading (`--space-4`) than between heading and body (`--space-8`). The label is a caption for the heading (semantic pair), while the body paragraph is a distinct content level. This 1:2 ratio creates a visual group-then-separate rhythm. The hero bottom padding uses `clamp(48px, 4vw + 32px, 96px)` so it scales fluidly rather than jumping at breakpoints — this creates a smoother transition into the first content section.
+
+**Stat row layout** uses a 2-column grid on mobile (not single-column) since stat cards are compact enough to sit side-by-side. When an odd number of stat cards exists, the last card spans full width via `.stat-row > :last-child:nth-child(odd) { grid-column: 1 / -1; }`. At phone+ (640px), the row switches to 3 equal columns. At desktop, the grid expands and gap increases.
+
+**Trust grid** uses 2 columns at tablet and expands to 4 columns at desktop (1024px+) when all items are compact enough to read in a single row. This reduces vertical space and breaks the 2×2 monotony.
 
 ---
 
@@ -665,6 +757,11 @@ Non-negotiable rules. The product is read-heavy and used by professionals — ac
 - **All form inputs have associated labels.** Use `<label for="x">` or wrap the input in a `<label>`. Placeholder text is not a label.
 - **Icon-only buttons need an `aria-label`.** "Close", "Search", "Filter" — describe the action.
 - **Skip-to-content link required at the top of every page.** Hidden until focused.
+- **Decorative elements get `aria-hidden="true"`.** Feature numbers, ornamental icons, or visual accents that duplicate information already conveyed by adjacent text must be hidden from screen readers.
+- **Touch targets stay ≥44px unless `pointer: fine`.** Only shrink interactive element hit areas inside a `@media (pointer: fine)` query. Desktop viewports alone aren't sufficient — touch laptops exist.
+- **Support `prefers-contrast: more`.** On forest-background sections, bump inverse text to full `--color-text-inverse` so high-contrast users get solid white, not alpha-reduced bone.
+- **Support `forced-colors: active` (Windows High Contrast).** Interactive elements need visible `ButtonText` borders. Focus rings switch from `box-shadow` to `outline: 2px solid Highlight` since box-shadows are suppressed.
+- **Provide `color-mix()` fallbacks.** When using `color-mix(in srgb, ...)` for translucent backgrounds, add a `rgba()` fallback on the preceding line for browsers that don't support it.
 
 ---
 
