@@ -11,7 +11,7 @@
 		"binding": "ASSETS"
 	},
 	"analytics_engine_datasets": [
-		{ "binding": "ANALYTICS_LANDING", "dataset": "landing-page" }
+		{ "binding": "ANALYTICS", "dataset": "landing-page" }
 	],
 	"routes": [
 		{
