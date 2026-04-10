@@ -5,7 +5,16 @@
 	"main": "src/index.ts",
 	"compatibility_date": "2026-04-07",
 	"compatibility_flags": ["nodejs_compat"],
-	"observability": { "enabled": true },
+	"workers_dev": false,
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		},
+		"traces": {
+			"enabled": false
+		}
+	},
 	"assets": {
 		"directory": "./public",
 		"binding": "ASSETS"
@@ -18,6 +27,7 @@
 	},
 	"env": {
 		"production": {
+			"name": "landing-page",
 			"analytics_engine_datasets": [
 				{ "binding": "ANALYTICS", "dataset": "landing-page" }
 			],
@@ -27,6 +37,10 @@
 			"routes": [
 				{
 					"pattern": "www.aecintegrations.com",
+					"custom_domain": true
+				},
+				{
+					"pattern": "aecintegrations.com",
 					"custom_domain": true
 				}
 			]

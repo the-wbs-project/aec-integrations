@@ -7,6 +7,16 @@ import { feedback } from "./services/feedback";
 
 const app = new Hono<{ Bindings: Env }>();
 
+// Redirect apex domain to www
+app.use("*", async (c, next) => {
+	const url = new URL(c.req.url);
+	if (url.hostname === "aecintegrations.com") {
+		url.hostname = "www.aecintegrations.com";
+		return c.redirect(url.toString(), 301);
+	}
+	await next();
+});
+
 // Security and cache headers
 app.use("*", async (c, next) => {
 	await next();
