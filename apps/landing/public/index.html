@@ -551,6 +551,93 @@
         font-size: var(--text-sm);
       }
 
+      /* ── SCREEN-READER ONLY ── */
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+
+      /* ── SUBSCRIBE FORM ── */
+      .subscribe-form {
+        margin-top: var(--space-6);
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+        max-width: 440px;
+        margin-left: auto;
+        margin-right: auto;
+      }
+      .subscribe-row {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+      }
+      .subscribe-form input[type="email"] {
+        flex: 1;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-sans);
+        font-size: var(--text-base);
+        background: var(--color-bg-forest-elevated);
+        color: var(--color-text-inverse);
+        border: 1px solid var(--color-border-inverse-strong);
+        border-radius: var(--radius-md);
+        min-height: 48px;
+        outline: none;
+        transition: border-color var(--duration-fast) var(--easing-default);
+      }
+      .subscribe-form input[type="email"]::placeholder {
+        color: var(--color-text-inverse-tertiary);
+      }
+      .subscribe-form input[type="email"]:focus-visible {
+        border-color: var(--color-accent);
+        box-shadow: var(--shadow-focus-ring);
+      }
+      .subscribe-form button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-3) var(--space-6);
+        background: var(--color-accent);
+        color: var(--color-brand-forest);
+        font-family: var(--font-sans);
+        font-weight: var(--font-weight-medium);
+        font-size: var(--text-base);
+        border-radius: var(--radius-md);
+        border: none;
+        min-height: 48px;
+        cursor: pointer;
+        transition: background var(--duration-fast) var(--easing-default);
+      }
+      @media (hover: hover) {
+        .subscribe-form button:hover {
+          background: var(--color-accent-hover);
+        }
+      }
+      .subscribe-form button:active {
+        background: var(--color-accent-active);
+      }
+      .subscribe-form button:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+      .subscribe-msg {
+        font-size: var(--text-sm);
+        min-height: 1.4em;
+      }
+      .subscribe-msg[data-status="success"] {
+        color: #8fcfa8;
+      }
+      .subscribe-msg[data-status="error"] {
+        color: #f0a8a0;
+      }
+
       /* ── FOOTER ── */
       footer {
         padding: max(var(--space-6), env(safe-area-inset-bottom))
@@ -640,7 +727,11 @@
       /* ── FORCED COLORS (Windows High Contrast) ── */
       @media (forced-colors: active) {
         .nav-cta,
-        .cta-section a.btn {
+        .cta-section a.btn,
+        .subscribe-form button {
+          border: 2px solid ButtonText;
+        }
+        .subscribe-form input[type="email"] {
           border: 2px solid ButtonText;
         }
         :focus-visible {
@@ -732,6 +823,12 @@
         .cta-section a.btn {
           padding: var(--space-4) var(--space-8);
           width: auto;
+        }
+        .subscribe-row {
+          flex-direction: row;
+        }
+        .subscribe-form button {
+          flex-shrink: 0;
         }
         .cta-footnote {
           font-size: var(--text-sm);
@@ -1211,19 +1308,29 @@
       <!-- CTA -->
       <section class="cta-section">
         <div class="section-inner">
-          <p class="section-label reveal">Shape what gets built</p>
-          <h2 class="reveal delay-1">Tell us what you actually need</h2>
+          <p class="section-label reveal">Stay in the loop</p>
+          <h2 class="reveal delay-1">Get notified when we launch</h2>
           <p class="reveal delay-2">
-            We're talking to people across the industry before we build. If you
-            have thoughts, frustrations, or ideas about how AEC firms should
-            discover and evaluate technology — we'd genuinely love to hear them.
+            We're building this in the open. Drop your email and we'll send you
+            updates as we hit milestones — no spam, just progress.
           </p>
-          <a
-            href="mailto:founders@thewbsproject.com?subject=AEC%20Integrations%20Feedback"
-            class="btn reveal delay-3"
-          >Share your thoughts</a>
+          <form class="subscribe-form reveal delay-3" id="subscribe-form">
+            <div class="subscribe-row">
+              <label for="subscribe-email" class="sr-only">Email address</label>
+              <input
+                type="email"
+                id="subscribe-email"
+                name="email"
+                placeholder="you@yourfirm.com"
+                required
+                autocomplete="email"
+              >
+              <button type="submit">Subscribe</button>
+            </div>
+            <p class="subscribe-msg" id="subscribe-msg" aria-live="polite"></p>
+          </form>
           <p class="cta-footnote reveal delay-4">
-            Or email us directly at <a
+            Or email us at <a
               href="mailto:founders@thewbsproject.com?subject=AEC%20Integrations%20Feedback"
               style="color: var(--color-text-inverse); text-underline-offset: 3px"
             >founders@thewbsproject.com</a>
@@ -1287,6 +1394,56 @@
           );
           tagsObserver.observe(tagsContainer);
         }
+      })();
+    </script>
+
+    <script>
+      (function () {
+        var form = document.getElementById("subscribe-form");
+        var msg = document.getElementById("subscribe-msg");
+        if (!form) return;
+
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          var input = form.querySelector('input[name="email"]');
+          var btn = form.querySelector("button");
+          var email = input.value.trim();
+          if (!email) return;
+
+          btn.disabled = true;
+          btn.textContent = "Subscribing\u2026";
+          msg.textContent = "";
+          msg.removeAttribute("data-status");
+
+          fetch("/api/subscribe" + window.location.search, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: email }),
+          })
+            .then(function (res) {
+              return res.json().then(function (data) {
+                return { ok: res.ok, status: res.status, data: data };
+              });
+            })
+            .then(function (result) {
+              if (result.ok) {
+                msg.textContent = "You\u2019re on the list. We\u2019ll be in touch.";
+                msg.setAttribute("data-status", "success");
+                input.value = "";
+              } else {
+                msg.textContent = result.data.error || "Something went wrong.";
+                msg.setAttribute("data-status", "error");
+              }
+            })
+            .catch(function () {
+              msg.textContent = "Network error. Please try again.";
+              msg.setAttribute("data-status", "error");
+            })
+            .finally(function () {
+              btn.disabled = false;
+              btn.textContent = "Subscribe";
+            });
+        });
       })();
     </script>
 

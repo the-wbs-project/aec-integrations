@@ -2,4 +2,5 @@ node_modules
 .wrangler
 dist
 .context
+.dev.vars
 .DS_Store

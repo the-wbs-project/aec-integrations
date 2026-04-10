@@ -13,14 +13,23 @@
 	"analytics_engine_datasets": [
 		{ "binding": "ANALYTICS", "dataset": "landing-page" }
 	],
-	"routes": [
-		{
-			"pattern": "www.aecintegrations.com",
-			"custom_domain": true
-		},
-		{
-			"pattern": "aecintegrations.com",
-			"custom_domain": true
+	"vars": {
+		"SUPABASE_URL": "http://127.0.0.1:54321"
+	},
+	"env": {
+		"production": {
+			"analytics_engine_datasets": [
+				{ "binding": "ANALYTICS", "dataset": "landing-page" }
+			],
+			"vars": {
+				"SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co"
+			},
+			"routes": [
+				{
+					"pattern": "www.aecintegrations.com",
+					"custom_domain": true
+				}
+			]
 		}
-	]
+	}
 }
