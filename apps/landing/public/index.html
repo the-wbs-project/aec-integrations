@@ -75,8 +75,9 @@
         --color-border-inverse-default: rgba(245, 242, 234, 0.12);
         --color-border-inverse-strong: rgba(245, 242, 234, 0.24);
 
-        /* Forest surface variant */
+        /* Forest surface variants */
         --color-bg-forest-elevated: #2a4a3d;
+        --color-bg-forest-pressed: #162e24;
 
         /* Semantic */
         --color-success: #2d7a4f;
@@ -199,20 +200,20 @@
         font-family: var(--font-sans);
         font-size: var(--text-sm);
         font-weight: var(--font-weight-medium);
-        color: var(--color-text-primary);
+        color: var(--color-brand-forest);
         text-decoration: none;
-        border: var(--border-strong);
-        padding: var(--space-2) var(--space-4);
+        background: var(--color-accent);
+        border: none;
+        padding: var(--space-2) var(--space-5);
         border-radius: var(--radius-md);
         min-height: 44px;
         display: inline-flex;
         align-items: center;
-        transition: all var(--duration-fast) var(--easing-default);
+        cursor: pointer;
+        transition: background var(--duration-fast) var(--easing-default);
       }
       .nav-cta:hover {
-        background: var(--color-brand-forest);
-        color: var(--color-text-inverse);
-        border-color: var(--color-brand-forest);
+        background: var(--color-accent-hover);
       }
       .skip-link {
         position: absolute;
@@ -500,6 +501,193 @@
         }
       }
 
+      /* ── FEEDBACK MODAL ── */
+      .feedback-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 200;
+        background: var(--color-bg-overlay);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-4);
+        opacity: 0;
+        visibility: hidden;
+        transition:
+          opacity var(--duration-slow) var(--easing-default),
+          visibility var(--duration-slow) var(--easing-default);
+      }
+      .feedback-overlay.open {
+        opacity: 1;
+        visibility: visible;
+      }
+      .feedback-modal {
+        background: var(--color-bg-elevated);
+        border-radius: var(--radius-xl);
+        border: var(--border-thin);
+        width: 100%;
+        max-width: 480px;
+        max-height: calc(100vh - var(--space-8));
+        max-height: calc(100dvh - var(--space-8));
+        overflow-y: auto;
+        padding: var(--space-8) var(--space-6);
+        position: relative;
+        transform: translateY(12px);
+        transition: transform var(--duration-slow) var(--easing-default);
+      }
+      .feedback-overlay.open .feedback-modal {
+        transform: translateY(0);
+      }
+      .feedback-modal h2 {
+        font-size: var(--text-lg);
+        font-weight: var(--font-weight-medium);
+        color: var(--color-text-primary);
+        line-height: var(--leading-tight);
+        margin-bottom: var(--space-1);
+      }
+      .feedback-modal > p {
+        font-size: var(--text-sm);
+        color: var(--color-text-secondary);
+        line-height: var(--leading-normal);
+        margin-bottom: var(--space-6);
+      }
+      .feedback-close {
+        position: absolute;
+        top: var(--space-2);
+        right: var(--space-2);
+        width: 44px;
+        height: 44px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: none;
+        border: none;
+        color: var(--color-text-secondary);
+        cursor: pointer;
+        border-radius: var(--radius-sm);
+        font-size: var(--text-lg);
+        line-height: 1;
+        transition: color var(--duration-fast) var(--easing-default);
+      }
+      .feedback-close:hover {
+        color: var(--color-text-primary);
+      }
+      .feedback-close:focus-visible {
+        outline: 2px solid var(--color-border-focus);
+        outline-offset: 2px;
+      }
+      .feedback-form {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-5);
+      }
+      .feedback-field {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+      .feedback-field label {
+        font-size: var(--text-sm);
+        font-weight: var(--font-weight-medium);
+        color: var(--color-text-primary);
+      }
+      .feedback-field label .optional {
+        font-weight: var(--font-weight-regular);
+        color: var(--color-text-tertiary);
+      }
+      .feedback-form input[type="email"],
+      .feedback-form textarea {
+        width: 100%;
+        padding: var(--space-3) var(--space-4);
+        font-family: var(--font-sans);
+        font-size: var(--text-sm);
+        color: var(--color-text-body);
+        background: var(--color-bg-page);
+        border: var(--border-strong);
+        border-radius: var(--radius-md);
+        outline: none;
+        transition: border-color var(--duration-fast) var(--easing-default);
+      }
+      .feedback-form textarea[aria-invalid="true"] {
+        border-color: var(--color-danger);
+      }
+      .feedback-form input[type="email"] {
+        min-height: 44px;
+      }
+      .feedback-form textarea {
+        resize: vertical;
+        min-height: 80px;
+        line-height: var(--leading-normal);
+      }
+      .feedback-form input::placeholder,
+      .feedback-form textarea::placeholder {
+        color: var(--color-text-tertiary);
+      }
+      .feedback-form input:focus-visible,
+      .feedback-form textarea:focus-visible {
+        border-color: var(--color-border-focus);
+        box-shadow: var(--shadow-focus-ring);
+      }
+      .feedback-checkbox {
+        display: flex;
+        align-items: center;
+        gap: var(--space-3);
+        min-height: 44px;
+        cursor: pointer;
+      }
+      .feedback-checkbox input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        flex-shrink: 0;
+        accent-color: var(--color-brand-forest);
+        cursor: pointer;
+      }
+      .feedback-checkbox span {
+        font-size: var(--text-sm);
+        color: var(--color-text-secondary);
+        line-height: var(--leading-normal);
+      }
+      .feedback-form button[type="submit"] {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: var(--space-3) var(--space-5);
+        background: var(--color-brand-forest);
+        color: var(--color-text-inverse);
+        font-family: var(--font-sans);
+        font-weight: var(--font-weight-medium);
+        font-size: var(--text-base);
+        border-radius: var(--radius-md);
+        border: none;
+        min-height: 48px;
+        cursor: pointer;
+        margin-top: var(--space-2);
+        transition: background var(--duration-fast) var(--easing-default);
+      }
+      @media (hover: hover) {
+        .feedback-form button[type="submit"]:hover {
+          background: var(--color-bg-forest-elevated);
+        }
+      }
+      .feedback-form button[type="submit"]:active {
+        background: var(--color-bg-forest-pressed);
+      }
+      .feedback-form button[type="submit"]:disabled {
+        opacity: 0.7;
+        cursor: not-allowed;
+      }
+      .feedback-msg {
+        font-size: var(--text-sm);
+        min-height: 1.4em;
+        text-align: center;
+      }
+      .feedback-msg[data-status="success"] {
+        color: var(--color-success);
+      }
+      .feedback-msg[data-status="error"] {
+        color: var(--color-danger);
+      }
+
       /* ── CTA SECTION ── */
       .cta-section {
         background: var(--color-brand-forest);
@@ -743,6 +931,16 @@
         }
         .trust-item {
           border: 1px solid CanvasText;
+        }
+        .feedback-modal {
+          border: 1px solid CanvasText;
+        }
+        .feedback-form input,
+        .feedback-form textarea {
+          border: 2px solid ButtonText;
+        }
+        .feedback-form button[type="submit"] {
+          border: 2px solid ButtonText;
         }
       }
 
@@ -1111,10 +1309,12 @@
             </text>
           </svg>
         </a>
-        <a
-          href="mailto:founders@thewbsproject.com?subject=AEC%20Integrations%20Feedback"
+        <button
+          type="button"
           class="nav-cta"
-        >Share feedback</a>
+          id="open-feedback"
+          aria-haspopup="dialog"
+        >Share feedback</button>
       </div>
     </nav>
 
@@ -1339,6 +1539,73 @@
       </section>
     </main>
 
+    <!-- FEEDBACK MODAL -->
+    <div
+      class="feedback-overlay"
+      id="feedback-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="feedback-title"
+    >
+      <div class="feedback-modal">
+        <button
+          type="button"
+          class="feedback-close"
+          id="feedback-close"
+          aria-label="Close"
+        >&times;</button>
+        <h2 id="feedback-title">Share feedback</h2>
+        <p>
+          Help us build the right thing. All fields are optional — share as
+          much or as little as you'd like.
+        </p>
+        <form class="feedback-form" id="feedback-form">
+          <div class="feedback-field">
+            <label for="feedback-features"
+              >Feature suggestions <span class="optional">optional</span></label
+            >
+            <textarea
+              id="feedback-features"
+              name="features"
+              placeholder="What capabilities would be most useful to you?"
+              rows="3"
+              aria-describedby="feedback-msg"
+            ></textarea>
+          </div>
+          <div class="feedback-field">
+            <label for="feedback-tools"
+              >Tool suggestions <span class="optional">optional</span></label
+            >
+            <textarea
+              id="feedback-tools"
+              name="tools"
+              placeholder="Which AEC tools should we cover? e.g. Procore, Bluebeam, Revit..."
+              rows="3"
+              aria-describedby="feedback-msg"
+            ></textarea>
+          </div>
+          <div class="feedback-field">
+            <label for="feedback-email"
+              >Email <span class="optional">optional</span></label
+            >
+            <input
+              type="email"
+              id="feedback-email"
+              name="email"
+              placeholder="you@yourfirm.com"
+              autocomplete="email"
+            >
+          </div>
+          <label class="feedback-checkbox">
+            <input type="checkbox" name="subscribe" id="feedback-subscribe">
+            <span>Join our mailing list for launch updates</span>
+          </label>
+          <button type="submit">Send feedback</button>
+          <p class="feedback-msg" id="feedback-msg" aria-live="polite"></p>
+        </form>
+      </div>
+    </div>
+
     <footer>
       <p>&copy; 2026 The WBS Project. All rights reserved.</p>
     </footer>
@@ -1442,6 +1709,134 @@
             .finally(function () {
               btn.disabled = false;
               btn.textContent = "Subscribe";
+            });
+        });
+      })();
+    </script>
+
+    <script>
+      (function () {
+        var overlay = document.getElementById("feedback-overlay");
+        var form = document.getElementById("feedback-form");
+        var msg = document.getElementById("feedback-msg");
+        var openBtn = document.getElementById("open-feedback");
+        var closeBtn = document.getElementById("feedback-close");
+        var featuresEl = document.getElementById("feedback-features");
+        var toolsEl = document.getElementById("feedback-tools");
+        var prevFocus = null;
+        var inertTargets = document.querySelectorAll("nav, main, footer");
+
+        function open() {
+          prevFocus = document.activeElement;
+          overlay.classList.add("open");
+          document.body.style.overflow = "hidden";
+          inertTargets.forEach(function (el) { el.inert = true; });
+          closeBtn.focus();
+        }
+
+        function close() {
+          overlay.classList.remove("open");
+          document.body.style.overflow = "";
+          inertTargets.forEach(function (el) { el.inert = false; });
+          clearValidation();
+          form.reset();
+          msg.textContent = "";
+          msg.removeAttribute("data-status");
+          if (prevFocus) prevFocus.focus();
+        }
+
+        function clearValidation() {
+          featuresEl.removeAttribute("aria-invalid");
+          toolsEl.removeAttribute("aria-invalid");
+        }
+
+        openBtn.addEventListener("click", open);
+        closeBtn.addEventListener("click", close);
+
+        overlay.addEventListener("click", function (e) {
+          if (e.target === overlay) close();
+        });
+
+        document.addEventListener("keydown", function (e) {
+          if (!overlay.classList.contains("open")) return;
+          if (e.key === "Escape") { close(); return; }
+          if (e.key === "Tab") {
+            var focusable = overlay.querySelectorAll(
+              'button, [href], input, textarea, select, [tabindex]:not([tabindex="-1"])'
+            );
+            if (!focusable.length) return;
+            var first = focusable[0];
+            var last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+              e.preventDefault();
+              last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+              e.preventDefault();
+              first.focus();
+            }
+          }
+        });
+
+        form.addEventListener("submit", function (e) {
+          e.preventDefault();
+          var features = featuresEl.value.trim();
+          var tools = toolsEl.value.trim();
+          var email = form.querySelector('[name="email"]').value.trim();
+          var subscribe = form.querySelector('[name="subscribe"]').checked;
+
+          clearValidation();
+
+          if (!features && !tools) {
+            msg.textContent =
+              "Please share at least one suggestion.";
+            msg.setAttribute("data-status", "error");
+            featuresEl.setAttribute("aria-invalid", "true");
+            toolsEl.setAttribute("aria-invalid", "true");
+            featuresEl.focus();
+            return;
+          }
+
+          var btn = form.querySelector('button[type="submit"]');
+          btn.disabled = true;
+          btn.textContent = "Sending\u2026";
+          msg.textContent = "";
+          msg.removeAttribute("data-status");
+
+          var payload = {};
+          if (features) payload.features = features;
+          if (tools) payload.tools = tools;
+          if (email) payload.email = email;
+          if (subscribe) payload.subscribe = true;
+
+          fetch("/api/feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+            .then(function (res) {
+              return res.json().then(function (data) {
+                return { ok: res.ok, data: data };
+              });
+            })
+            .then(function (result) {
+              if (result.ok) {
+                msg.textContent = "Thanks for your feedback!";
+                msg.setAttribute("data-status", "success");
+                form.reset();
+                setTimeout(close, 1800);
+              } else {
+                msg.textContent =
+                  result.data.error || "Something went wrong.";
+                msg.setAttribute("data-status", "error");
+              }
+            })
+            .catch(function () {
+              msg.textContent = "Network error. Please try again.";
+              msg.setAttribute("data-status", "error");
+            })
+            .finally(function () {
+              btn.disabled = false;
+              btn.textContent = "Send feedback";
             });
         });
       })();
