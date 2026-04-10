@@ -3,6 +3,7 @@ import { cors } from "hono/cors";
 import type { Env } from "./types";
 import { logPageview } from "./services/analytics";
 import { subscribe } from "./services/subscribe";
+import { feedback } from "./services/feedback";
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -32,6 +33,7 @@ app.use("*", async (c, next) => {
 });
 
 app.post("/api/subscribe", cors(), subscribe);
+app.post("/api/feedback", cors(), feedback);
 
 app.all("*", async (c) => {
 	logPageview(c);

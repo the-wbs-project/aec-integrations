@@ -5,7 +5,12 @@
     "ship": "pnpm --filter landing run deploy",
     "db:migrate": "supabase db push",
     "db:reset": "supabase db reset",
-    "db:new": "supabase migration new"
+    "db:new": "supabase migration new",
+    "sync:secrets:local": "cd apps/landing && bash sync-secrets.sh local",
+    "setup:install": "pnpm install",
+    "setup:secrets": "pnpm run sync:secrets:local",
+    "setup:supabase": "supabase start",
+    "setup": "pnpm run setup:install && pnpm run setup:secrets && pnpm run setup:supabase"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
