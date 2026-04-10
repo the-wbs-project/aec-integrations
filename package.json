@@ -7,6 +7,7 @@
     "db:reset": "supabase db reset",
     "db:new": "supabase migration new",
     "sync:secrets:local": "cd apps/landing && bash sync-secrets.sh local",
+    "sync:secrets:production": "cd apps/landing && bash sync-secrets.sh production",
     "setup:install": "pnpm install",
     "setup:secrets": "pnpm run sync:secrets:local",
     "setup:supabase": "supabase start",
