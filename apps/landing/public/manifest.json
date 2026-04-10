@@ -1,0 +1,16 @@
+{
+  "name": "AEC Integrations",
+  "short_name": "AEC Integrations",
+  "description": "Find and evaluate AEC software by project phase and discipline.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#F5F2EA",
+  "theme_color": "#1e3a2f",
+  "icons": [
+    {
+      "src": "/assets/images/monogram-light-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
