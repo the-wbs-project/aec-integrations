@@ -2,9 +2,16 @@
   "private": true,
   "scripts": {
     "start": "pnpm --filter landing dev",
-    "ship": "pnpm --filter landing run deploy"
+    "ship": "pnpm --filter landing run deploy",
+    "db:migrate": "supabase db push",
+    "db:reset": "supabase db reset",
+    "db:new": "supabase migration new"
   },
   "pnpm": {
-    "onlyBuiltDependencies": ["esbuild", "sharp", "workerd"]
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "workerd"
+    ]
   }
 }
