@@ -16,6 +16,8 @@ if [ $# -lt 2 ]; then
   echo "Keychain keys used by this project:" >&2
   echo "  aec-integrations-supabase-anon-key       (local dev)" >&2
   echo "  aec-integrations-supabase-anon-key-prod   (production)" >&2
+  echo "  aec-integrations-resend-api-key          (local dev)" >&2
+  echo "  aec-integrations-resend-api-key-prod     (production)" >&2
   exit 1
 fi
 

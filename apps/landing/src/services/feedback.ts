@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { Env } from "../types";
+import { sendNotification } from "./email";
 
 interface FeedbackBody {
 	features?: string;
@@ -53,6 +54,34 @@ export async function feedback(c: Context<{ Bindings: Env }>) {
 		console.error("Supabase error:", res.status, text);
 		return c.json({ error: "Something went wrong. Please try again." }, 500);
 	}
+
+	c.executionCtx.waitUntil(
+		sendNotification(c.env, {
+			subject: "[AEC] New feedback submitted",
+			bodyText: [
+				email ? `From: ${email}` : "From: (anonymous)",
+				"",
+				"Features requested:",
+				features ?? "(none)",
+				"",
+				"Tools/software used:",
+				tools ?? "(none)",
+				"",
+				`Subscribed: ${subscribe ? "yes" : "no"}`,
+				`Location: ${row.city ?? "—"}, ${row.region ?? "—"}, ${row.country ?? "—"}`,
+			].join("\n"),
+			bodyHtml: `
+<p>Someone just submitted feedback on AEC Integrations.</p>
+<table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse;font-family:sans-serif;font-size:14px;">
+  <tr><td><strong>From</strong></td><td>${email ?? "(anonymous)"}</td></tr>
+  <tr><td><strong>Features requested</strong></td><td>${features ?? "(none)"}</td></tr>
+  <tr><td><strong>Tools/software</strong></td><td>${tools ?? "(none)"}</td></tr>
+  <tr><td><strong>Subscribed</strong></td><td>${subscribe ? "yes" : "no"}</td></tr>
+  <tr><td><strong>Location</strong></td><td>${row.city ?? "—"}, ${row.region ?? "—"}, ${row.country ?? "—"}</td></tr>
+  <tr><td><strong>Referrer</strong></td><td>${row.referrer ?? "—"}</td></tr>
+</table>`,
+		}).catch((err) => console.error("Notification error:", err)),
+	);
 
 	// Also add to mailing list if they opted in and provided an email
 	if (subscribe && email) {

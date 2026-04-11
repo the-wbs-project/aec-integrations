@@ -23,7 +23,9 @@
 		{ "binding": "ANALYTICS", "dataset": "landing-page" }
 	],
 	"vars": {
-		"SUPABASE_URL": "http://127.0.0.1:54321"
+		"SUPABASE_URL": "http://127.0.0.1:54321",
+		"NOTIFICATION_FROM": "notifications@aecintegrations.com",
+		"NOTIFICATION_TO": "chrisw@thewbsproject.com"
 	},
 	"env": {
 		"production": {
@@ -32,7 +34,9 @@
 				{ "binding": "ANALYTICS", "dataset": "landing-page" }
 			],
 			"vars": {
-				"SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co"
+				"SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+				"NOTIFICATION_FROM": "notifications@aecintegrations.com",
+				"NOTIFICATION_TO": "chrisw@thewbsproject.com"
 			},
 			"routes": [
 				{
