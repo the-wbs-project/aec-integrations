@@ -1,55 +1,419 @@
 {
-  "name": "AECi-W-GitHub",
+  "name": "AECi-W-ErrorHandler",
   "nodes": [
     {
       "parameters": {},
-      "id": "7400a78b-9c89-4d71-86d8-3cfbc26f2017",
-      "name": "Manual Trigger (Test)",
-      "type": "n8n-nodes-base.manualTrigger",
+      "id": "3a6d8f8d-0121-4ea1-a90c-1f45f537e9ce",
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
       "typeVersion": 1,
       "position": [
-        -5136,
-        704
+        -800,
+        176
       ]
     },
     {
       "parameters": {
-        "fields": {
-          "values": [
+        "jsCode": "const err = $input.item.json;\nconst execution = err.execution || {};\nconst workflow = err.workflow || {};\n\n// Error details\nconst errorObj = execution.error || {};\nconst errorMessage = errorObj.message || 'Unknown error';\nconst errorStack = errorObj.stack || '';\nconst nodeName = errorObj.node?.name || 'unknown';\n\n// Extract record_id and vendor_name by walking the execution data\nlet recordId = null;\nlet vendorName = null;\ntry {\n  const runData = execution.data?.resultData?.runData || {};\n  for (const [nName, runs] of Object.entries(runData)) {\n    if (!runs || !runs.length) continue;\n    const lastRun = runs[runs.length - 1];\n    const items = lastRun?.data?.main?.[0] || [];\n    for (const item of items) {\n      const json = item?.json || {};\n      if (!recordId && typeof json.record_id === 'string' && json.record_id.startsWith('rec')) {\n        recordId = json.record_id;\n      }\n      if (!vendorName && typeof json.company_name === 'string') {\n        vendorName = json.company_name;\n      }\n      if (recordId && vendorName) break;\n    }\n    if (recordId && vendorName) break;\n  }\n} catch (e) {}\n\n// Classify error type from message\nlet errorType = 'unknown';\nconst msg = errorMessage.toLowerCase();\nif (msg.includes('401') || msg.includes('403') || msg.includes('unauthorized') || msg.includes('forbidden')) {\n  errorType = 'auth_error';\n} else if (msg.includes('429') || msg.includes('rate limit')) {\n  errorType = 'rate_limit';\n} else if (msg.includes('timeout') || msg.includes('etimedout')) {\n  errorType = 'timeout';\n} else if (msg.includes('parse') || msg.includes('json') || msg.includes('unexpected token')) {\n  errorType = 'parse_error';\n} else if (msg.match(/\\b[45]\\d\\d\\b/)) {\n  errorType = 'http_error';\n} else if (msg.includes('missing') || msg.includes('undefined') || msg.includes('null')) {\n  errorType = 'missing_data';\n}\n\n// Classify severity\nlet severity = 'error';\nif (errorType === 'auth_error') severity = 'critical';\nelse if (errorType === 'rate_limit') severity = 'warning';\n\nconst workflowName = workflow.name || 'Other';\nconst occurredAt = new Date().toISOString();\nconst errorRef = `${workflowName}/${recordId || 'no-record'}/${occurredAt}`;\n\nreturn {\n  error_ref: errorRef,\n  occurred_at: occurredAt,\n  workflow_name: workflowName,\n  workflow_execution_id: execution.id || '',\n  record_id: recordId,\n  vendor_name: vendorName,\n  node_name: nodeName,\n  error_type: errorType,\n  error_message: errorMessage,\n  error_stack: errorStack.substring(0, 4000),\n  severity\n};"
+      },
+      "id": "8ecee981-59aa-4fd3-ade0-2637d5e61e82",
+      "name": "Parse Error Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -576,
+        176
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "create",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tblZs3rksWG2J2L3j",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "error_ref": "={{ $json.error_ref }}",
+            "occurred_at": "={{ $json.occurred_at }}",
+            "workflow_name": "={{ $json.workflow_name }}",
+            "workflow_execution_id": "={{ $json.workflow_execution_id.toString() }}",
+            "record_id": "={{ $json.record_id }}",
+            "vendor_name": "={{ $json.vendor_name }}",
+            "node_name": "={{ $json.node_name }}",
+            "error_type": "={{ $json.error_type }}",
+            "error_message": "={{ $json.error_message }}",
+            "error_stack": "={{ $json.error_stack }}",
+            "severity": "={{ $json.severity }}"
+          },
+          "matchingColumns": [],
+          "schema": [
             {
-              "name": "record_id",
-              "stringValue": "recyPyhW3fe9p73Qe"
+              "id": "error_ref",
+              "displayName": "error_ref",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "occurred_at",
+              "displayName": "occurred_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "workflow_name",
+              "displayName": "workflow_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "W-GitHub",
+                  "value": "W-GitHub"
+                },
+                {
+                  "name": "W-IntegrationPage",
+                  "value": "W-IntegrationPage"
+                },
+                {
+                  "name": "W-PartnerProgram",
+                  "value": "W-PartnerProgram"
+                },
+                {
+                  "name": "W-LinkedIn",
+                  "value": "W-LinkedIn"
+                },
+                {
+                  "name": "W-CompanySize",
+                  "value": "W-CompanySize"
+                },
+                {
+                  "name": "W-Funding",
+                  "value": "W-Funding"
+                },
+                {
+                  "name": "W-Press",
+                  "value": "W-Press"
+                },
+                {
+                  "name": "W-BlogRecency",
+                  "value": "W-BlogRecency"
+                },
+                {
+                  "name": "W-VendorOrchestrator",
+                  "value": "W-VendorOrchestrator"
+                },
+                {
+                  "name": "Other",
+                  "value": "Other"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "workflow_execution_id",
+              "displayName": "workflow_execution_id",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "vendor_name",
+              "displayName": "vendor_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "node_name",
+              "displayName": "node_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "error_type",
+              "displayName": "error_type",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "http_error",
+                  "value": "http_error"
+                },
+                {
+                  "name": "auth_error",
+                  "value": "auth_error"
+                },
+                {
+                  "name": "rate_limit",
+                  "value": "rate_limit"
+                },
+                {
+                  "name": "parse_error",
+                  "value": "parse_error"
+                },
+                {
+                  "name": "missing_data",
+                  "value": "missing_data"
+                },
+                {
+                  "name": "timeout",
+                  "value": "timeout"
+                },
+                {
+                  "name": "handled_empty",
+                  "value": "handled_empty"
+                },
+                {
+                  "name": "unknown",
+                  "value": "unknown"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "severity",
+              "displayName": "severity",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "info",
+                  "value": "info"
+                },
+                {
+                  "name": "warning",
+                  "value": "warning"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                },
+                {
+                  "name": "critical",
+                  "value": "critical"
+                }
+              ],
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "error_message",
+              "displayName": "error_message",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "error_stack",
+              "displayName": "error_stack",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "resolved",
+              "displayName": "resolved",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "notes",
+              "displayName": "notes",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
             }
-          ]
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "a9be5297-e9b4-45d6-9d5a-479860837ba7",
+      "name": "Log to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -368,
+        176
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "is-critical",
+              "leftValue": "={{ $('Parse Error Payload').item.json.severity }}",
+              "rightValue": "critical",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
         },
         "options": {}
       },
-      "id": "690567b6-6b89-4ccb-9e04-49c6daa652d6",
-      "name": "Test Data (record_id only)",
-      "type": "n8n-nodes-base.set",
-      "typeVersion": 3,
+      "id": "d4aa09bd-9e50-44fc-bcc3-67df410e2e17",
+      "name": "Is Critical?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
       "position": [
-        -4912,
-        704
+        -144,
+        176
       ]
     },
     {
       "parameters": {
-        "workflowInputs": {
-          "values": [
-            {
-              "name": "record_id"
-            }
-          ]
-        }
+        "sendTo": "aecintegrations@example.com",
+        "subject": "=[AEC Enrichment CRITICAL] {{ $('Parse Error Payload').item.json.workflow_name }} failed",
+        "emailType": "text",
+        "message": "=A critical error occurred in AEC Integrations enrichment.\n\nWorkflow: {{ $('Parse Error Payload').item.json.workflow_name }}\nNode: {{ $('Parse Error Payload').item.json.node_name }}\nError type: {{ $('Parse Error Payload').item.json.error_type }}\nOccurred at: {{ $('Parse Error Payload').item.json.occurred_at }}\n\nRecord ID: {{ $('Parse Error Payload').item.json.record_id }}\nVendor: {{ $('Parse Error Payload').item.json.vendor_name }}\n\nError message:\n{{ $('Parse Error Payload').item.json.error_message }}\n\nn8n execution ID: {{ $('Parse Error Payload').item.json.workflow_execution_id }}\n\nView full log in the Enrichment Errors table:\nhttps://airtable.com/appy81IdGJY6Fngf9/tblZs3rksWG2J2L3j",
+        "options": {}
       },
-      "id": "3e68e939-6984-462d-a7d4-88b5db790649",
-      "name": "Execute Workflow Trigger",
-      "type": "n8n-nodes-base.executeWorkflowTrigger",
-      "typeVersion": 1.1,
+      "id": "05a1c4c8-8ca0-4ad5-9f6c-bc152c008fca",
+      "name": "Gmail: Critical Alert",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
       "position": [
-        -4912,
-        896
+        80,
+        64
+      ],
+      "webhookId": "93e221ac-588a-40cf-9dc1-abdd7329c91f",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "tv2GW50t15838s7f",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $('Parse Error Payload').item.json;\nconst recordId = parsed.record_id;\n\nif (!recordId) {\n  return { skip: true };\n}\n\nreturn {\n  record_id: recordId,\n  error_line: `[${parsed.occurred_at}] [${parsed.workflow_name}] [${parsed.node_name}] ${parsed.error_message}`\n};"
+      },
+      "id": "6561cc0b-eef8-4e2e-9efe-a6e6e7d1ee6b",
+      "name": "Prepare Vendor Update",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        80,
+        272
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-record",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "22dd34ea-8a85-4a82-becc-7b48d08f0c02",
+      "name": "Has record_id?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        304,
+        272
       ]
     },
     {
@@ -67,13 +431,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "ec014856-6479-4320-b852-d834a39a1957",
-      "name": "Get Vendor Record",
+      "id": "06e43b71-27aa-41b9-8730-22b95078d29b",
+      "name": "Get Current Error Log",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -4688,
-        800
+        544,
+        256
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -84,241 +448,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').item.json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
+        "jsCode": "const vendor = $input.item.json;\nconst fields = vendor.fields || vendor;\nconst updateData = $('Prepare Vendor Update').item.json;\n\nconst existingLog = fields.enrichment_error_log || '';\nconst newEntry = updateData.error_line;\n\nconst lines = (existingLog ? existingLog.split('\\n') : []).concat(newEntry);\nconst trimmed = lines.slice(-20).join('\\n');\n\nreturn {\n  record_id: updateData.record_id,\n  enrichment_error_log: trimmed,\n  needs_manual_review: true\n};"
       },
-      "id": "ab169854-b64d-452e-bc1b-7f41c21fe89e",
-      "name": "Normalize Input",
+      "id": "54c9baee-036a-4c9c-925f-99cea474f5b8",
+      "name": "Append to Error Log",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -4464,
-        800
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "has-required",
-              "leftValue": "={{ $json._has_required }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "aa246562-a1d1-4c19-8d27-5fa7970965ec",
-      "name": "Has Required Fields?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -4240,
-        800
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const parsed = $input.item.json.output || $input.item.json;\nconst previous = $('Normalize Input').item.json;\n\nreturn {\n  ...previous,\n  candidate_slugs: parsed.candidate_slugs || [],\n  claude_confidence: parsed.confidence || 'low',\n  claude_reasoning: parsed.reasoning || ''\n};"
-      },
-      "id": "afd61c82-209a-4980-a7aa-631f480a0c79",
-      "name": "Merge with Context",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -3664,
-        672
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "has-candidates",
-              "leftValue": "={{ $json.candidate_slugs.length }}",
-              "rightValue": 0,
-              "operator": {
-                "type": "number",
-                "operation": "gt"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "ce03a5e5-57e2-4489-809e-b18669cf5d0e",
-      "name": "Has Candidates?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -3440,
-        672
-      ]
-    },
-    {
-      "parameters": {
-        "fieldToSplitOut": "candidate_slugs",
-        "include": "allOtherFields",
-        "options": {}
-      },
-      "id": "fcc011f1-f0ca-4859-af5b-79226a72d78a",
-      "name": "Split Candidate Slugs",
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
-      "position": [
-        -3216,
-        576
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.candidate_slugs }}",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/vnd.github+json"
-            },
-            {
-              "name": "X-GitHub-Api-Version",
-              "value": "2022-11-28"
-            }
-          ]
-        },
-        "options": {
-          "response": {
-            "response": {
-              "fullResponse": true,
-              "neverError": true
-            }
-          }
-        }
-      },
-      "id": "dbf66cb8-209c-4b8c-a50f-0292396ebcd0",
-      "name": "GitHub: Check Org Exists",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -2992,
-        576
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "org-found",
-              "leftValue": "={{ $json.statusCode }}",
-              "rightValue": 200,
-              "operator": {
-                "type": "number",
-                "operation": "equals"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "4883e98b-e7a4-457d-bacf-f090235034f2",
-      "name": "Org Found?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -2768,
-        576
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.body.login }}/repos?per_page=100&sort=updated&type=public",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/vnd.github+json"
-            },
-            {
-              "name": "X-GitHub-Api-Version",
-              "value": "2022-11-28"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "id": "44f64d95-856a-4206-a23d-2da040225a6d",
-      "name": "GitHub: Fetch Repos",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [
-        -2512,
-        560
-      ],
-      "alwaysOutputData": true
-    },
-    {
-      "parameters": {
-        "jsCode": "const inputItems = $input.all();\nconst orgData = $('GitHub: Check Org Exists').item.json.body;\nconst context = $('Normalize Input').item.json;\n\n// Flatten: when the HTTP node returns an array, n8n may produce one item\n// per array element, OR a single item with the array as its json property.\n// Handle both.\nlet allRepos = [];\nfor (const item of inputItems) {\n  const val = item.json;\n  if (Array.isArray(val)) {\n    allRepos.push(...val);\n  } else if (val && typeof val === 'object' && val.id && val.name) {\n    // Looks like a single repo object\n    allRepos.push(val);\n  }\n  // Otherwise it's the empty-output sentinel — skip it\n}\n\nconst ownRepos = allRepos.filter(r => r && !r.fork);\n\nconst totalStars = ownRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);\nconst repoCount = ownRepos.length;\n\nconst sdkRegex = /sdk|api[-_]?client|plugin|library|integration/i;\nconst hasSdkRepo = ownRepos.some(r =>\n  sdkRegex.test(r.name || '') || sdkRegex.test(r.description || '')\n);\n\nconst pushDates = ownRepos\n  .map(r => r.pushed_at ? new Date(r.pushed_at).getTime() : 0)\n  .filter(t => t > 0);\nconst lastPush = pushDates.length ? Math.max(...pushDates) : null;\nconst daysAgo = lastPush ? Math.floor((Date.now() - lastPush) / 86400000) : null;\n\nconst domain = context.vendor_domain;\nconst isVerified = !!(domain && ownRepos.some(r =>\n  (r.description || '').toLowerCase().includes(domain) ||\n  (r.homepage || '').toLowerCase().includes(domain)\n));\n\nreturn {\n  record_id: context.record_id,\n  github_org: orgData.login,\n  github_org_verified: isVerified,\n  github_repo_count: repoCount,\n  github_stars_total: totalStars,\n  has_sdk_repo: hasSdkRepo,\n  github_last_commit_days_ago: daysAgo,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_org','github_org_verified','github_repo_count','github_stars_total','has_sdk_repo','github_last_commit_days_ago','github_checked_at'],\n  note: repoCount === 0 ? 'Org exists but has no public repos' : null\n};"
-      },
-      "id": "ea4665a4-38df-4841-9caa-7c270551c5f6",
-      "name": "Aggregate GitHub Stats",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -2320,
-        576
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const context = $('Normalize Input').item.json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_checked_at'],\n  note: 'No GitHub org found for this vendor'\n};"
-      },
-      "id": "641883ab-8d17-4acf-aa43-572c2b0262b3",
-      "name": "Write Empty Result",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -2320,
-        768
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const context = $('Normalize Input').item.json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['github_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
-      },
-      "id": "0588dc31-e711-4ee5-a85e-ee9817258b8f",
-      "name": "Missing Required Fields",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -2096,
-        976
+        752,
+        272
       ]
     },
     {
@@ -337,14 +475,9 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "github_org": "={{ $json.github_org }}",
-            "github_org_verified": "={{ $json.github_org_verified }}",
-            "github_repo_count": "={{ $json.github_repo_count }}",
-            "github_stars_total": "={{ $json.github_stars_total }}",
-            "has_sdk_repo": "={{ $json.has_sdk_repo }}",
-            "github_last_commit_days_ago": "={{ $json.github_last_commit_days_ago }}",
-            "id": "={{ $json.record_id }}",
-            "github_checked_at": "={{ $json.github_checked_at }}"
+            "enrichment_error_log": "={{ $json.enrichment_error_log }}",
+            "needs_manual_review": "={{ $json.needs_manual_review }}",
+            "id": "= {{ $json.record_id }}"
           },
           "matchingColumns": [
             "id"
@@ -556,7 +689,7 @@
               "display": true,
               "type": "string",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_org_verified",
@@ -567,7 +700,7 @@
               "display": true,
               "type": "boolean",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_repo_count",
@@ -578,7 +711,7 @@
               "display": true,
               "type": "number",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_stars_total",
@@ -589,7 +722,7 @@
               "display": true,
               "type": "number",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "has_sdk_repo",
@@ -600,7 +733,7 @@
               "display": true,
               "type": "boolean",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_last_commit_days_ago",
@@ -611,7 +744,7 @@
               "display": true,
               "type": "number",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_checked_at",
@@ -622,7 +755,7 @@
               "display": true,
               "type": "dateTime",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "has_integration_page",
@@ -1038,7 +1171,7 @@
               "display": true,
               "type": "string",
               "readOnly": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "needs_manual_review",
@@ -1049,7 +1182,7 @@
               "display": true,
               "type": "boolean",
               "readOnly": false,
-              "removed": true
+              "removed": false
             }
           ],
           "attemptToConvertTypes": false,
@@ -1059,13 +1192,13 @@
           "typecast": true
         }
       },
-      "id": "a73e53eb-f211-4e7d-a74b-be90eafd8cd7",
+      "id": "38d4061a-41f6-404c-8b24-35b676339b05",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -2096,
-        672
+        960,
+        272
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -1073,297 +1206,104 @@
           "name": "Airtable - The WBS Project"
         }
       }
-    },
-    {
-      "parameters": {
-        "jsCode": "const input = $input.item.json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-GitHub',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
-      },
-      "id": "4d1f3bcc-4997-4bd5-b98a-693c983945e3",
-      "name": "Format Return Value",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -1872,
-        800
-      ]
-    },
-    {
-      "parameters": {
-        "promptType": "define",
-        "text": "=The vendor is '{{ $json.company_name }}' with domain '{{ $json.vendor_domain }}'. What is the most likely GitHub organization slug for this company? Consider: exact company name, company name without spaces/special chars, domain root. Return ONLY a JSON object with this exact shape: {\"candidate_slugs\": [\"slug1\",\"slug2\",\"slug3\"], \"confidence\": \"low|medium|high\", \"reasoning\": \"short\"}. If the company is unlikely to have a GitHub org (small consultancy, legacy ERP, etc.), return {\"candidate_slugs\": [], \"confidence\": \"low\", \"reasoning\": \"why\"}. Order candidates most likely first, max 3.",
-        "hasOutputParser": true,
-        "options": {}
-      },
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 3.1,
-      "position": [
-        -4016,
-        672
-      ],
-      "id": "a05d03a2-41c5-48a8-80d7-4a0eaf243877",
-      "name": "AI Agent"
-    },
-    {
-      "parameters": {
-        "model": {
-          "__rl": true,
-          "value": "claude-haiku-4-5-20251001",
-          "mode": "list",
-          "cachedResultName": "Claude Haiku 4.5"
-        },
-        "options": {
-          "maxTokensToSample": 1024,
-          "temperature": 0
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
-      "typeVersion": 1.3,
-      "position": [
-        -4016,
-        896
-      ],
-      "id": "d2e9d75a-f889-403b-bdf9-17a8218dc96e",
-      "name": "Anthropic Chat Model1",
-      "credentials": {
-        "anthropicApi": {
-          "id": "9R2GWOKQyrJz9XW0",
-          "name": "Anthropic - AECi"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "jsonSchemaExample": "{\n  \"candidate_slugs\": [\"Autodesk\", \"autodesk-platform-services\"],\n  \"confidence\": \"high\",\n  \"reasoning\": \"Company name matches GitHub org convention\"\n}"
-      },
-      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
-      "typeVersion": 1.3,
-      "position": [
-        -3888,
-        896
-      ],
-      "id": "863f69c0-a8c1-4a4a-88f3-0d07aca13284",
-      "name": "Structured Output Parser1"
     }
   ],
   "connections": {
-    "Manual Trigger (Test)": {
+    "Error Trigger": {
       "main": [
         [
           {
-            "node": "Test Data (record_id only)",
+            "node": "Parse Error Payload",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Test Data (record_id only)": {
+    "Parse Error Payload": {
       "main": [
         [
           {
-            "node": "Get Vendor Record",
+            "node": "Log to Airtable",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Execute Workflow Trigger": {
+    "Log to Airtable": {
       "main": [
         [
           {
-            "node": "Get Vendor Record",
+            "node": "Is Critical?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get Vendor Record": {
+    "Is Critical?": {
       "main": [
         [
           {
-            "node": "Normalize Input",
+            "node": "Gmail: Critical Alert",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Normalize Input": {
-      "main": [
-        [
+          },
           {
-            "node": "Has Required Fields?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Has Required Fields?": {
-      "main": [
-        [
-          {
-            "node": "AI Agent",
+            "node": "Prepare Vendor Update",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "Missing Required Fields",
+            "node": "Prepare Vendor Update",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Merge with Context": {
+    "Prepare Vendor Update": {
       "main": [
         [
           {
-            "node": "Has Candidates?",
+            "node": "Has record_id?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has Candidates?": {
+    "Has record_id?": {
       "main": [
         [
           {
-            "node": "Split Candidate Slugs",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Write Empty Result",
+            "node": "Get Current Error Log",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Split Candidate Slugs": {
+    "Get Current Error Log": {
       "main": [
         [
           {
-            "node": "GitHub: Check Org Exists",
+            "node": "Append to Error Log",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "GitHub: Check Org Exists": {
-      "main": [
-        [
-          {
-            "node": "Org Found?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Org Found?": {
-      "main": [
-        [
-          {
-            "node": "GitHub: Fetch Repos",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "GitHub: Fetch Repos": {
-      "main": [
-        [
-          {
-            "node": "Aggregate GitHub Stats",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Aggregate GitHub Stats": {
+    "Append to Error Log": {
       "main": [
         [
           {
             "node": "Update Vendor Record",
             "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Write Empty Result": {
-      "main": [
-        [
-          {
-            "node": "Update Vendor Record",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Missing Required Fields": {
-      "main": [
-        [
-          {
-            "node": "Format Return Value",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update Vendor Record": {
-      "main": [
-        [
-          {
-            "node": "Format Return Value",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "AI Agent": {
-      "main": [
-        [
-          {
-            "node": "Merge with Context",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Anthropic Chat Model1": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Structured Output Parser1": {
-      "ai_outputParser": [
-        [
-          {
-            "node": "AI Agent",
-            "type": "ai_outputParser",
             "index": 0
           }
         ]
@@ -1372,15 +1312,11 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate",
-    "timeSavedMode": "fixed",
-    "errorWorkflow": "86rEn9WgLNb61C4M",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false
+    "binaryMode": "separate"
   },
   "staticData": null,
   "pinData": {},
   "meta": {
-    "n8n_id": "cNVa9oKXkJD9vxcV"
+    "n8n_id": "86rEn9WgLNb61C4M"
   }
 }
