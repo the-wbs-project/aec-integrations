@@ -1,0 +1,899 @@
+{
+  "name": "AECi-W-BlogRecency",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1ecaab2d-2280-43e5-a30a-d927644fc593",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -32,
+        1728
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recCUTBsCtopTwDG7"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d5ad5e8d-ac2c-424c-b27a-2fed92eeaf71",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        192,
+        1728
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "40e04ec3-8b4b-4d1b-ace0-f115a064676c",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        192,
+        1920
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "313dd1f2-5cfc-43b4-809c-37d5d4c3abef",
+      "name": "Get Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        416,
+        1824
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-rss-check",
+              "leftValue": "={{ $json.blog_rss_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c362f5b1-5308-4830-92f6-f0e5d73e18fc",
+      "name": "IF Has RSS URL",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        640,
+        1824
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.blog_rss_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 5000
+        }
+      },
+      "id": "b7561bf5-b830-4046-9f08-74d5cdad18df",
+      "name": "Fetch Stored RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        864,
+        1552
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const vendor = $('Get Vendor Record').first().json;\nconst response = $input.first().json;\nconst body = response.data || '';\nconst rssUrl = vendor.blog_rss_url;\n\nif (typeof body !== 'string' || body.length < 50 || !/<(rss|feed|channel)[\\s>]/i.test(body)) {\n  return { valid: false };\n}\n\nconst datePatterns = [\n  /<pubDate>([^<]+)<\\/pubDate>/gi,\n  /<published>([^<]+)<\\/published>/gi,\n  /<updated>([^<]+)<\\/updated>/gi,\n  /<dc:date>([^<]+)<\\/dc:date>/gi\n];\n\nlet bestDate = null;\nlet bestDateObj = null;\n\nfor (const pattern of datePatterns) {\n  let match;\n  while ((match = pattern.exec(body)) !== null) {\n    const d = new Date(match[1].trim());\n    if (!isNaN(d.getTime())) {\n      if (!bestDateObj || d > bestDateObj) {\n        bestDateObj = d;\n        bestDate = d.toISOString().split('T')[0];\n      }\n    }\n  }\n}\n\nif (bestDate) {\n  return {\n    valid: true,\n    blog_url: vendor.blog_url,\n    blog_rss_url: rssUrl,\n    latest_post_date: bestDate,\n    confidence: 'high',\n    notes: 'Date from stored RSS feed'\n  };\n} else {\n  return { valid: false };\n}"
+      },
+      "id": "4f0d7b61-8859-4d7f-babe-de9a11f4f4de",
+      "name": "Parse Stored RSS",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        1552
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "stored-rss-valid-check",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "92b68362-a465-48a6-9211-008e2ee3030b",
+      "name": "IF Stored RSS Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1312,
+        1552
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Find the blog or news page for '{{ $('Get Vendor Record').first().json.company_name }}' (website: {{ $('Get Vendor Record').first().json.website }}).\n\nUse the search tool to find their blog. Try queries like:\n- {{ $('Get Vendor Record').first().json.company_name }} ({{ $('Get Vendor Record').first().json.website }}) blog\n\nReturn the URL of their blog LISTING page, not an individual post.\n\nThe blog might be:\n- A path on their main site: example.com/blog, example.com/news, example.com/insights\n- A subdomain: blog.example.com, news.example.com\n- A section with a different name: /resources, /articles, /posts\n\nReturn the root of the blog (e.g. example.com/blog not example.com/blog/some-post-title).\nIf the blog is on a subdomain, return the subdomain root (e.g. https://blog.example.com).\nIf no blog exists, return null for blog_url.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "5c19c54f-3c44-402f-845f-9eb9ba10a09a",
+      "name": "Find Blog URL",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1600,
+        1952
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 512,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1536,
+        2176
+      ],
+      "id": "0ace85c8-be25-4af7-9893-4ddd233694bf",
+      "name": "Anthropic Chat Model (Blog)",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"blog_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"URL of the blog listing page, or null if no blog exists\"\n    }\n  },\n  \"required\": [\"blog_url\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1792,
+        2176
+      ],
+      "id": "cd78b3c8-74a9-49e0-930b-74f24702dfe6",
+      "name": "Blog URL Parser"
+    },
+    {
+      "parameters": {
+        "url": "https://serpapi.com/search.json",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpQueryAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        1664,
+        2176
+      ],
+      "id": "c979dfb2-3c9a-4e6d-a637-1c67423b9488",
+      "name": "SerpAPI Search",
+      "credentials": {
+        "httpQueryAuth": {
+          "id": "tcKAetSZG794jPG3",
+          "name": "SerpApi HTTP"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nreturn { blog_url: parsed.blog_url || null };"
+      },
+      "id": "6d41bbcd-cada-4a05-8917-d6f0fef37392",
+      "name": "Extract Blog URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        1952
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "ba0a0391-0dd0-4ec7-9097-68421cf083f5",
+              "leftValue": "={{ $json.blog_url }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2208,
+        1952
+      ],
+      "id": "1a71f150-78d9-43aa-972a-9d0f5a0770e3",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.blog_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 10000
+        }
+      },
+      "id": "1d31a934-5da3-4595-a2d4-c3edec6b5aec",
+      "name": "Fetch Blog Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2448,
+        1808
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const blogUrl = $('Extract Blog URL').first().json.blog_url;\nconst response = $input.first().json;\nconst html = response.data || '';\n\n// Parse <link> tags for RSS/Atom feeds\nconst linkTags = html.match(/<link[^>]+>/gi) || [];\nlet rssFromTag = null;\n\nfor (const tag of linkTags) {\n  if (/type\\s*=\\s*[\"']application\\/(rss|atom)\\+xml[\"']/i.test(tag)) {\n    const hrefMatch = tag.match(/href\\s*=\\s*[\"']([^\"']+)[\"']/i);\n    if (hrefMatch) {\n      rssFromTag = hrefMatch[1];\n      break;\n    }\n  }\n}\n\nconst candidates = [];\n\nif (rssFromTag) {\n  // Resolve relative URL\n  let fullUrl = rssFromTag;\n  if (rssFromTag.startsWith('/')) {\n    try {\n      const base = new URL(blogUrl);\n      fullUrl = base.origin + rssFromTag;\n    } catch (e) {}\n  } else if (!rssFromTag.startsWith('http')) {\n    fullUrl = blogUrl.replace(/\\/+$/, '') + '/' + rssFromTag;\n  }\n  candidates.push({ rss_url: fullUrl, source: 'link_tag' });\n} else {\n  // Try common RSS paths\n  const base = blogUrl.replace(/\\/+$/, '');\n  let origin;\n  try { origin = new URL(blogUrl).origin; } catch (e) { origin = base; }\n\n  const paths = [\n    origin + '/feed/',\n    origin + '/feed',\n    base + '/feed/',\n    base + '/feed',\n    origin + '/blog/feed/',\n    origin + '/blog/feed',\n    base + '/rss',\n    base + '/rss.xml',\n    base + '/feed.xml',\n    base + '/atom.xml',\n    origin + '/feed.xml',\n    origin + '/rss'\n  ];\n\n  // Deduplicate\n  const seen = new Set();\n  for (const p of paths) {\n    if (!seen.has(p)) {\n      seen.add(p);\n      candidates.push({ rss_url: p, source: 'common_path' });\n    }\n  }\n}\n\nreturn candidates;"
+      },
+      "id": "11f524d5-7ec0-4622-b243-366eddd94949",
+      "name": "Discover RSS Candidates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2672,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.rss_url }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 5000
+        }
+      },
+      "id": "9a8e392b-5d3d-446b-837c-f13ab67b466b",
+      "name": "Try RSS Feed",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        2896,
+        1808
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst candidates = $('Discover RSS Candidates').all();\nconst blogUrl = $('Extract Blog URL').first().json.blog_url;\n\n// Collect RSS responses with their candidate URLs\nconst feeds = [];\nfor (let i = 0; i < items.length; i++) {\n  const data = items[i].json.data || '';\n  const error = items[i].json.error?.message || '';\n  const url = candidates[i]?.json?.rss_url || 'unknown';\n  if (data && typeof data === 'string' && data.length > 50) {\n    feeds.push({ url: url, content: data.substring(0, 3000) });\n  }\n}\n\n// Get blog page HTML as fallback\nlet html = '';\ntry {\n  const pageData = $('Fetch Blog Page').first().json;\n  html = (pageData.data || '').substring(0, 12000);\n} catch (e) {}\n\nreturn {\n  blog_url: blogUrl,\n  feeds: JSON.stringify(feeds, null, 2),\n  html: html\n};"
+      },
+      "id": "eae04acd-4913-49b7-819d-546ca2a7d687",
+      "name": "Prepare Feed Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3120,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are determining the most recent blog post date for '{{ $('Get Vendor Record').first().json.company_name }}'.\n\nBlog URL: {{ $json.blog_url }}\n\nI fetched several potential RSS/Atom feed URLs. Here are the responses:\n\n{{ $json.feeds }}\n\nYour task:\n1. Check each feed response. A VALID post feed must:\n   - Be RSS or Atom XML (not an HTML error page)\n   - Contain actual <item> or <entry> elements with post content (not just <channel> metadata)\n   - NOT be a comment feed (WordPress comment feeds have titles like \"Comments on: ...\" and no <item> elements)\n2. If you find a valid post feed, extract the most recent <pubDate>, <published>, or <updated> date from the items.\n   Also return the URL of the feed that worked as blog_rss_url.\n3. If NO valid RSS/Atom feed was found among the candidates, use this blog page HTML instead to find the most recent post date:\n\n{{ $json.html }}\n\n   When reading HTML, scan ALL visible dates and return the MOST RECENT one.\n   Do not use copyright years, footer dates, or non-post metadata.\n\nReturn blog_rss_url as the working feed URL (or null if you used HTML instead).\nReturn latest_post_date in YYYY-MM-DD format, or null if no date was found.\nReturn confidence as \"high\" (clear date from RSS), \"medium\" (date from HTML), or \"low\" (uncertain).",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "c1f29a36-ebda-4ca5-ac69-b9d9c8d20e6a",
+      "name": "Evaluate & Extract Date",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        3344,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1024,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        3280,
+        2032
+      ],
+      "id": "68b96335-66a2-4fa5-8719-674fb4eafe95",
+      "name": "Anthropic Chat Model (Evaluate)",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"blog_rss_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"URL of the working RSS/Atom feed, or null if date was extracted from HTML\"\n    },\n    \"latest_post_date\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"Most recent post date in YYYY-MM-DD format, or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"high = clear RSS date, medium = date from HTML, low = uncertain\"\n    },\n    \"notes\": {\n      \"type\": \"string\",\n      \"description\": \"Brief explanation of how the date was determined\"\n    }\n  },\n  \"required\": [\"blog_rss_url\", \"latest_post_date\", \"confidence\", \"notes\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        3408,
+        2032
+      ],
+      "id": "b79ff498-4e9f-4ba2-b6d9-b6d5f222df71",
+      "name": "Date Output Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "return {\n  blog_url: null,\n  blog_rss_url: null,\n  latest_post_date: null,\n  confidence: 'high',\n  notes: 'No blog found for this vendor',\n  needs_ai: false\n};"
+      },
+      "id": "b84bb534-8040-40a2-ba5e-a8b517b507df",
+      "name": "No Blog Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3776,
+        2448
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\n\n// Handle different input shapes:\n// - From stored RSS path: {blog_url, blog_rss_url, latest_post_date, ...}\n// - From agent path: {output: {blog_rss_url, latest_post_date, confidence, notes}}\n// - From no-blog path: {blog_url: null, ...}\nlet parsed;\nif (raw.output && typeof raw.output === 'object') {\n  parsed = raw.output;\n} else {\n  parsed = raw;\n}\n\n// Resolve blog_url from available sources\nlet blogUrl = parsed.blog_url || null;\nif (!blogUrl) {\n  try { blogUrl = $('Extract Blog URL').first().json.blog_url; } catch (e) {}\n}\nif (!blogUrl) {\n  blogUrl = vendor.blog_url || null;\n}\n\nlet blogRssUrl = parsed.blog_rss_url || null;\nlet dateStr = null;\nlet daysAgo = null;\n\nif (parsed.latest_post_date && /^\\d{4}-\\d{2}-\\d{2}$/.test(parsed.latest_post_date)) {\n  dateStr = parsed.latest_post_date;\n  const d = new Date(dateStr + 'T00:00:00Z').getTime();\n  if (!isNaN(d)) {\n    daysAgo = Math.floor((Date.now() - d) / 86400000);\n    if (daysAgo < 0) daysAgo = 0;\n    if (daysAgo > 3650) daysAgo = 3650;\n  }\n}\n\nconst noBlog = !blogUrl;\n\nreturn {\n  record_id: vendor.id,\n  blog_url: blogUrl,\n  blog_rss_url: blogRssUrl,\n  blog_last_post_date: dateStr,\n  blog_last_post_days_ago: daysAgo,\n  blog_checked_at: new Date().toISOString(),\n  status: noBlog ? 'success' : (daysAgo !== null ? 'success' : 'partial'),\n  fields_updated: blogUrl\n    ? ['blog_url','blog_rss_url','blog_last_post_date','blog_last_post_days_ago','blog_checked_at']\n    : ['blog_checked_at'],\n  note: noBlog ? 'No blog found for this vendor' : (parsed.notes || null)\n};"
+      },
+      "id": "ffe5c5b3-8cc9-4a5e-9a72-24709c747549",
+      "name": "Build Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3920,
+        1808
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "blog_url": "={{ $json.blog_url }}",
+            "blog_rss_url": "={{ $json.blog_rss_url }}",
+            "blog_last_post_date": "={{ $json.blog_last_post_date }}",
+            "blog_last_post_days_ago": "={{ $json.blog_last_post_days_ago }}",
+            "blog_checked_at": "={{ $json.blog_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "blog_url",
+              "displayName": "blog_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "blog_rss_url",
+              "displayName": "blog_rss_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "blog_last_post_date",
+              "displayName": "blog_last_post_date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "blog_last_post_days_ago",
+              "displayName": "blog_last_post_days_ago",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "blog_checked_at",
+              "displayName": "blog_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "989e84f4-7230-4f87-ae80-da846162775b",
+      "name": "Update Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        4144,
+        1808
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-BlogRecency',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+      },
+      "id": "2c204e04-bf3c-460b-9667-d89966e7a81c",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        4368,
+        1808
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "IF Has RSS URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Has RSS URL": {
+      "main": [
+        [
+          {
+            "node": "Fetch Stored RSS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find Blog URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Stored RSS": {
+      "main": [
+        [
+          {
+            "node": "Parse Stored RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Stored RSS": {
+      "main": [
+        [
+          {
+            "node": "IF Stored RSS Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Stored RSS Valid": {
+      "main": [
+        [
+          {
+            "node": "Build Result",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find Blog URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Blog URL": {
+      "main": [
+        [
+          {
+            "node": "Extract Blog URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (Blog)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Find Blog URL",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Blog URL Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Find Blog URL",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SerpAPI Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "Find Blog URL",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Blog URL": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Fetch Blog Page",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Blog Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Blog Page": {
+      "main": [
+        [
+          {
+            "node": "Discover RSS Candidates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Discover RSS Candidates": {
+      "main": [
+        [
+          {
+            "node": "Try RSS Feed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Try RSS Feed": {
+      "main": [
+        [
+          {
+            "node": "Prepare Feed Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Feed Data": {
+      "main": [
+        [
+          {
+            "node": "Evaluate & Extract Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate & Extract Date": {
+      "main": [
+        [
+          {
+            "node": "Build Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (Evaluate)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Evaluate & Extract Date",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Date Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Evaluate & Extract Date",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "No Blog Result": {
+      "main": [
+        [
+          {
+            "node": "Build Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Result": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "n8n_id": "FcAXhWfxMJTLzM7q"
+  }
+}
