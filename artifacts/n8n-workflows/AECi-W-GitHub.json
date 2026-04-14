@@ -1,0 +1,1390 @@
+{
+  "name": "AECi-W-GitHub",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "7400a78b-9c89-4d71-86d8-3cfbc26f2017",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -5136,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recyPyhW3fe9p73Qe"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "690567b6-6b89-4ccb-9e04-49c6daa652d6",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        -4912,
+        704
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "3e68e939-6984-462d-a7d4-88b5db790649",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -4912,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "ec014856-6479-4320-b852-d834a39a1957",
+      "name": "Get Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -4688,
+        800
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').item.json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
+      },
+      "id": "ab169854-b64d-452e-bc1b-7f41c21fe89e",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4464,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-required",
+              "leftValue": "={{ $json._has_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "aa246562-a1d1-4c19-8d27-5fa7970965ec",
+      "name": "Has Required Fields?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -4240,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.item.json.output || $input.item.json;\nconst previous = $('Normalize Input').item.json;\n\nreturn {\n  ...previous,\n  candidate_slugs: parsed.candidate_slugs || [],\n  claude_confidence: parsed.confidence || 'low',\n  claude_reasoning: parsed.reasoning || ''\n};"
+      },
+      "id": "afd61c82-209a-4980-a7aa-631f480a0c79",
+      "name": "Merge with Context",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3664,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "has-candidates",
+              "leftValue": "={{ $json.candidate_slugs.length }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "ce03a5e5-57e2-4489-809e-b18669cf5d0e",
+      "name": "Has Candidates?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -3440,
+        672
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "candidate_slugs",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "id": "fcc011f1-f0ca-4859-af5b-79226a72d78a",
+      "name": "Split Candidate Slugs",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -3216,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/orgs/{{ $json.candidate_slugs }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true,
+              "neverError": true
+            }
+          }
+        }
+      },
+      "id": "dbf66cb8-209c-4b8c-a50f-0292396ebcd0",
+      "name": "GitHub: Check Org Exists",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2992,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "org-found",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "4883e98b-e7a4-457d-bacf-f090235034f2",
+      "name": "Org Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        -2768,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/orgs/{{ $json.body.login }}/repos?per_page=100&sort=updated&type=public",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Accept",
+              "value": "application/vnd.github+json"
+            },
+            {
+              "name": "X-GitHub-Api-Version",
+              "value": "2022-11-28"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "44f64d95-856a-4206-a23d-2da040225a6d",
+      "name": "GitHub: Fetch Repos",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -2512,
+        560
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputItems = $input.all();\nconst orgData = $('GitHub: Check Org Exists').item.json.body;\nconst context = $('Normalize Input').item.json;\n\n// Flatten: when the HTTP node returns an array, n8n may produce one item\n// per array element, OR a single item with the array as its json property.\n// Handle both.\nlet allRepos = [];\nfor (const item of inputItems) {\n  const val = item.json;\n  if (Array.isArray(val)) {\n    allRepos.push(...val);\n  } else if (val && typeof val === 'object' && val.id && val.name) {\n    // Looks like a single repo object\n    allRepos.push(val);\n  }\n  // Otherwise it's the empty-output sentinel — skip it\n}\n\nconst ownRepos = allRepos.filter(r => r && !r.fork);\n\nconst totalStars = ownRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);\nconst repoCount = ownRepos.length;\n\nconst sdkRegex = /sdk|api[-_]?client|plugin|library|integration/i;\nconst hasSdkRepo = ownRepos.some(r =>\n  sdkRegex.test(r.name || '') || sdkRegex.test(r.description || '')\n);\n\nconst pushDates = ownRepos\n  .map(r => r.pushed_at ? new Date(r.pushed_at).getTime() : 0)\n  .filter(t => t > 0);\nconst lastPush = pushDates.length ? Math.max(...pushDates) : null;\nconst daysAgo = lastPush ? Math.floor((Date.now() - lastPush) / 86400000) : null;\n\nconst domain = context.vendor_domain;\nconst isVerified = !!(domain && ownRepos.some(r =>\n  (r.description || '').toLowerCase().includes(domain) ||\n  (r.homepage || '').toLowerCase().includes(domain)\n));\n\nreturn {\n  record_id: context.record_id,\n  github_org: orgData.login,\n  github_org_verified: isVerified,\n  github_repo_count: repoCount,\n  github_stars_total: totalStars,\n  has_sdk_repo: hasSdkRepo,\n  github_last_commit_days_ago: daysAgo,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_org','github_org_verified','github_repo_count','github_stars_total','has_sdk_repo','github_last_commit_days_ago','github_checked_at'],\n  note: repoCount === 0 ? 'Org exists but has no public repos' : null\n};"
+      },
+      "id": "ea4665a4-38df-4841-9caa-7c270551c5f6",
+      "name": "Aggregate GitHub Stats",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2320,
+        576
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Normalize Input').item.json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_checked_at'],\n  note: 'No GitHub org found for this vendor'\n};"
+      },
+      "id": "641883ab-8d17-4acf-aa43-572c2b0262b3",
+      "name": "Write Empty Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2320,
+        768
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Normalize Input').item.json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['github_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
+      },
+      "id": "0588dc31-e711-4ee5-a85e-ee9817258b8f",
+      "name": "Missing Required Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2096,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "github_org": "={{ $json.github_org }}",
+            "github_org_verified": "={{ $json.github_org_verified }}",
+            "github_repo_count": "={{ $json.github_repo_count }}",
+            "github_stars_total": "={{ $json.github_stars_total }}",
+            "has_sdk_repo": "={{ $json.has_sdk_repo }}",
+            "github_last_commit_days_ago": "={{ $json.github_last_commit_days_ago }}",
+            "id": "={{ $json.record_id }}",
+            "github_checked_at": "={{ $json.github_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "company_name",
+              "displayName": "company_name",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "website",
+              "displayName": "website",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "headquarters",
+              "displayName": "headquarters",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "founded_year",
+              "displayName": "founded_year",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "company_size",
+              "displayName": "company_size",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "1-10",
+                  "value": "1-10"
+                },
+                {
+                  "name": "11-50",
+                  "value": "11-50"
+                },
+                {
+                  "name": "51-200",
+                  "value": "51-200"
+                },
+                {
+                  "name": "201-1000",
+                  "value": "201-1000"
+                },
+                {
+                  "name": "1001-5000",
+                  "value": "1001-5000"
+                },
+                {
+                  "name": "5000+",
+                  "value": "5000+"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "public_private",
+              "displayName": "public_private",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Public",
+                  "value": "Public"
+                },
+                {
+                  "name": "Private",
+                  "value": "Private"
+                },
+                {
+                  "name": "Acquired",
+                  "value": "Acquired"
+                },
+                {
+                  "name": "Subsidiary",
+                  "value": "Subsidiary"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "parent_company",
+              "displayName": "parent_company",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "linkedin_url",
+              "displayName": "linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "crunchbase_url",
+              "displayName": "crunchbase_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "source_url",
+              "displayName": "source_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "tools",
+              "displayName": "tools",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "array",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "logo_url",
+              "displayName": "logo_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": true
+            },
+            {
+              "id": "github_org",
+              "displayName": "github_org",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "github_org_verified",
+              "displayName": "github_org_verified",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "github_repo_count",
+              "displayName": "github_repo_count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "github_stars_total",
+              "displayName": "github_stars_total",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "has_sdk_repo",
+              "displayName": "has_sdk_repo",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "github_last_commit_days_ago",
+              "displayName": "github_last_commit_days_ago",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "github_checked_at",
+              "displayName": "github_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "has_integration_page",
+              "displayName": "has_integration_page",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "integration_page_url",
+              "displayName": "integration_page_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "self_reported_partner_count",
+              "displayName": "self_reported_partner_count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "integration_page_checked_at",
+              "displayName": "integration_page_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "has_partner_program",
+              "displayName": "has_partner_program",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "partner_program_url",
+              "displayName": "partner_program_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "has_affiliate_program",
+              "displayName": "has_affiliate_program",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "affiliate_program_url",
+              "displayName": "affiliate_program_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "partner_program_checked_at",
+              "displayName": "partner_program_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "linkedin_followers",
+              "displayName": "linkedin_followers",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "linkedin_checked_at",
+              "displayName": "linkedin_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "employee_count_exact",
+              "displayName": "employee_count_exact",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "employee_source",
+              "displayName": "employee_source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "linkedin",
+                  "value": "linkedin"
+                },
+                {
+                  "name": "crunchbase",
+                  "value": "crunchbase"
+                },
+                {
+                  "name": "website",
+                  "value": "website"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                },
+                {
+                  "name": "unknown",
+                  "value": "unknown"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "employee_checked_at",
+              "displayName": "employee_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "funding_stage",
+              "displayName": "funding_stage",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "Bootstrapped",
+                  "value": "Bootstrapped"
+                },
+                {
+                  "name": "Pre-seed",
+                  "value": "Pre-seed"
+                },
+                {
+                  "name": "Seed",
+                  "value": "Seed"
+                },
+                {
+                  "name": "Series A",
+                  "value": "Series A"
+                },
+                {
+                  "name": "Series B",
+                  "value": "Series B"
+                },
+                {
+                  "name": "Series C",
+                  "value": "Series C"
+                },
+                {
+                  "name": "Series D+",
+                  "value": "Series D+"
+                },
+                {
+                  "name": "Public",
+                  "value": "Public"
+                },
+                {
+                  "name": "Acquired",
+                  "value": "Acquired"
+                },
+                {
+                  "name": "Unknown",
+                  "value": "Unknown"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "total_funding_usd",
+              "displayName": "total_funding_usd",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_funding_date",
+              "displayName": "last_funding_date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "funding_source_url",
+              "displayName": "funding_source_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "funding_checked_at",
+              "displayName": "funding_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "press_count_12mo",
+              "displayName": "press_count_12mo",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "press_latest_date",
+              "displayName": "press_latest_date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "press_checked_at",
+              "displayName": "press_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "blog_url",
+              "displayName": "blog_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "blog_last_post_date",
+              "displayName": "blog_last_post_date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "blog_last_post_days_ago",
+              "displayName": "blog_last_post_days_ago",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "blog_checked_at",
+              "displayName": "blog_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "vendor_enrichment_status",
+              "displayName": "vendor_enrichment_status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "options",
+              "options": [
+                {
+                  "name": "pending",
+                  "value": "pending"
+                },
+                {
+                  "name": "enriching",
+                  "value": "enriching"
+                },
+                {
+                  "name": "enriched",
+                  "value": "enriched"
+                },
+                {
+                  "name": "partial",
+                  "value": "partial"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
+              ],
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "vendor_data_completeness",
+              "displayName": "vendor_data_completeness",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "last_enriched_at",
+              "displayName": "last_enriched_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "enrichment_error_log",
+              "displayName": "enrichment_error_log",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": true
+            },
+            {
+              "id": "needs_manual_review",
+              "displayName": "needs_manual_review",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "a73e53eb-f211-4e7d-a74b-be90eafd8cd7",
+      "name": "Update Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -2096,
+        672
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.item.json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-GitHub',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+      },
+      "id": "4d1f3bcc-4997-4bd5-b98a-693c983945e3",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1872,
+        800
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=The vendor is '{{ $json.company_name }}' with domain '{{ $json.vendor_domain }}'. What is the most likely GitHub organization slug for this company? Consider: exact company name, company name without spaces/special chars, domain root. Return ONLY a JSON object with this exact shape: {\"candidate_slugs\": [\"slug1\",\"slug2\",\"slug3\"], \"confidence\": \"low|medium|high\", \"reasoning\": \"short\"}. If the company is unlikely to have a GitHub org (small consultancy, legacy ERP, etc.), return {\"candidate_slugs\": [], \"confidence\": \"low\", \"reasoning\": \"why\"}. Order candidates most likely first, max 3.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -4016,
+        672
+      ],
+      "id": "a05d03a2-41c5-48a8-80d7-4a0eaf243877",
+      "name": "AI Agent"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1024,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -4016,
+        896
+      ],
+      "id": "d2e9d75a-f889-403b-bdf9-17a8218dc96e",
+      "name": "Anthropic Chat Model1",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"candidate_slugs\": [\"Autodesk\", \"autodesk-platform-services\"],\n  \"confidence\": \"high\",\n  \"reasoning\": \"Company name matches GitHub org convention\"\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -3888,
+        896
+      ],
+      "id": "863f69c0-a8c1-4a4a-88f3-0d07aca13284",
+      "name": "Structured Output Parser1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Has Required Fields?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Required Fields?": {
+      "main": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Missing Required Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge with Context": {
+      "main": [
+        [
+          {
+            "node": "Has Candidates?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Candidates?": {
+      "main": [
+        [
+          {
+            "node": "Split Candidate Slugs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write Empty Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Candidate Slugs": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Check Org Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Check Org Exists": {
+      "main": [
+        [
+          {
+            "node": "Org Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Org Found?": {
+      "main": [
+        [
+          {
+            "node": "GitHub: Fetch Repos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GitHub: Fetch Repos": {
+      "main": [
+        [
+          {
+            "node": "Aggregate GitHub Stats",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate GitHub Stats": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Empty Result": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missing Required Fields": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge with Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "6b1f7e66-f5d5-4049-a28f-fb239319d709",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "bf911f2e0442c88157c1214dac6825751c1bde5523d5a42c3a39e8b74aaea4c4"
+  },
+  "id": "cNVa9oKXkJD9vxcV",
+  "tags": []
+}
