@@ -27,8 +27,8 @@ function buildCsp(nonce: string): string {
 	return [
 		"default-src 'none'",
 		`script-src 'nonce-${nonce}' 'strict-dynamic'`,
-		"style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-		"font-src https://fonts.gstatic.com",
+		"style-src 'self' 'unsafe-inline'",
+		"font-src 'self'",
 		"img-src 'self'",
 		"connect-src 'self' https://us.i.posthog.com",
 		"manifest-src 'self'",
