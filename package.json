@@ -11,7 +11,9 @@
     "setup:install": "pnpm install",
     "setup:secrets": "pnpm run sync:secrets:local",
     "setup:supabase": "supabase start",
-    "setup": "pnpm run setup:install && pnpm run setup:secrets && pnpm run setup:supabase"
+    "setup": "pnpm run setup:install && pnpm run setup:secrets && pnpm run setup:supabase",
+    "dev:review": "pnpm --filter review-app dev",
+    "ship:review": "pnpm --filter review-app deploy"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
