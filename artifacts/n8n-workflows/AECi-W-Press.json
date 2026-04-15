@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "f1a1b2c3-0001-4000-a000-000000000001",
+      "id": "fde12f0b-9128-4569-9128-9fd084fd554b",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        176,
-        -144
+        1856,
+        -228
       ]
     },
     {
@@ -24,13 +24,13 @@
         },
         "options": {}
       },
-      "id": "f1a1b2c3-0002-4000-a000-000000000002",
+      "id": "b11c13f2-392c-467a-91cb-29e410b6eed0",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        400,
-        -144
+        2080,
+        -228
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "f1a1b2c3-0003-4000-a000-000000000003",
+      "id": "5f5cf08c-066e-4166-985f-8a6fb3b08b08",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        400,
-        48
+        2080,
+        -36
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "f1a1b2c3-0004-4000-a000-000000000004",
+      "id": "92f565f4-870a-428a-adec-dbb1818130ef",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        624,
-        -48
+        2304,
+        -132
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -86,13 +86,13 @@
       "parameters": {
         "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').first().json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
       },
-      "id": "f1a1b2c3-0005-4000-a000-000000000005",
+      "id": "0a2148b2-9dfe-44af-9e20-6adbda083ba6",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        848,
-        -48
+        2528,
+        -132
       ]
     },
     {
@@ -119,42 +119,41 @@
         },
         "options": {}
       },
-      "id": "f1a1b2c3-0006-4000-a000-000000000006",
+      "id": "184ce929-c1ab-480a-80ad-efdccf7a39dd",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        1072,
-        -48
+        2752,
+        -132
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  press_count_12mo: null,\n  press_latest_date: null,\n  press_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['press_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
       },
-      "id": "f1a1b2c3-0007-4000-a000-000000000007",
+      "id": "90bce655-f4dd-4bc8-aa6c-14fe3af5ee22",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1296,
-        144
+        4000,
+        -8
       ]
     },
     {
       "parameters": {
         "promptType": "define",
         "text": "=Is '{{ $('Normalize Input').first().json.company_name }}' a distinctive company name, or does it overlap with common words, other companies, or unrelated entities?\n\nReturn JSON:\n{\n  \"is_distinctive\": true | false,\n  \"suggested_query\": \"query string\"\n}\n\nIf distinctive, suggested_query = company name in double quotes.\nIf ambiguous, suggested_query = company name in quotes plus a disambiguating qualifier that reflects the AEC/construction software context, e.g. \"Sage construction software\" or \"Bentley Systems engineering\".\n\nUse quotes around the company name to force exact match.",
-        "hasOutputParser": true,
-        "options": {}
+        "hasOutputParser": true
       },
-      "id": "f1a1b2c3-0008-4000-a000-000000000008",
+      "id": "2a427303-9a62-490c-89d2-64b8d5ced23c",
       "name": "Is Name Distinctive?",
       "type": "@n8n/n8n-nodes-langchain.chainLlm",
       "typeVersion": 1.4,
       "position": [
-        1296,
-        -48
+        2976,
+        -256
       ]
     },
     {
@@ -173,10 +172,10 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        1240,
-        176
+        2984,
+        -32
       ],
-      "id": "f1a1b2c3-0009-4000-a000-000000000009",
+      "id": "90ed9dd7-74ac-492d-a231-da9b12565f6f",
       "name": "Anthropic Chat Model (Press)",
       "credentials": {
         "anthropicApi": {
@@ -193,23 +192,23 @@
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        1368,
-        176
+        3112,
+        -32
       ],
-      "id": "f1a1b2c3-0010-4000-a000-000000000010",
+      "id": "8701c786-e2a7-4b2f-9811-7c4790cc5766",
       "name": "Distinctiveness Parser"
     },
     {
       "parameters": {
         "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\n\nconst query = parsed.suggested_query || `\"${context.company_name}\"`;\nconst encoded = encodeURIComponent(query);\n\nreturn {\n  ...context,\n  google_news_url: `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en&when=1y`,\n  query_used: query\n};"
       },
-      "id": "f1a1b2c3-0011-4000-a000-000000000011",
+      "id": "7a653fbc-3da1-4fa6-b3ad-f842d6382340",
       "name": "Build Google News Query",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1520,
-        -48
+        3328,
+        -256
       ]
     },
     {
@@ -237,13 +236,13 @@
           "timeout": 30000
         }
       },
-      "id": "f1a1b2c3-0012-4000-a000-000000000012",
+      "id": "091a80cd-69cf-422f-aced-8a9aeedae91d",
       "name": "HTTP Request: Google News RSS",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1744,
-        -48
+        3552,
+        -256
       ],
       "onError": "continueRegularOutput"
     },
@@ -251,26 +250,26 @@
       "parameters": {
         "jsCode": "const response = $input.first().json;\nconst xml = response.data || '';\nconst context = $('Build Google News Query').first().json;\n\n// Extract <item> blocks\nconst items = xml.match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n\nconst parsed = items.map(block => {\n  const title = (block.match(/<title>([\\s\\S]*?)<\\/title>/) || [])[1] || '';\n  const pubDate = (block.match(/<pubDate>([\\s\\S]*?)<\\/pubDate>/) || [])[1] || '';\n  const source = (block.match(/<source[^>]*>([\\s\\S]*?)<\\/source>/) || [])[1] || '';\n  return {\n    title: title.replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim(),\n    pubDate: pubDate.trim(),\n    source: source.trim()\n  };\n});\n\nreturn {\n  ...context,\n  items: parsed\n};"
       },
-      "id": "f1a1b2c3-0013-4000-a000-000000000013",
+      "id": "3dec667b-9d0e-4e5c-bb8b-7fb1329a737b",
       "name": "Parse XML",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1968,
-        -48
+        3776,
+        -256
       ]
     },
     {
       "parameters": {
         "jsCode": "const input = $input.first().json;\nconst items = input.items || [];\nconst companyName = input.company_name.toLowerCase();\nconst domain = input.vendor_domain.toLowerCase().split('.')[0];\n\n// Keep only items that mention the company name (or its domain root) in the title\nconst matched = items.filter(i =>\n  i.title.toLowerCase().includes(companyName) ||\n  i.title.toLowerCase().includes(domain)\n);\n\n// Parse dates\nconst dated = matched.map(i => {\n  const d = new Date(i.pubDate);\n  return { ...i, timestamp: d.getTime() };\n}).filter(i => !isNaN(i.timestamp));\n\nconst latestTs = dated.length ? Math.max(...dated.map(i => i.timestamp)) : null;\nconst latestDate = latestTs ? new Date(latestTs).toISOString().substring(0, 10) : null;\n\nreturn {\n  record_id: input.record_id,\n  press_count_12mo: matched.length,\n  press_latest_date: latestDate,\n  press_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['press_count_12mo', 'press_latest_date', 'press_checked_at']\n};"
       },
-      "id": "f1a1b2c3-0014-4000-a000-000000000014",
+      "id": "b1af664c-4462-47ef-96fe-15249094410a",
       "name": "Filter + Count",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2192,
-        -48
+        4000,
+        -256
       ]
     },
     {
@@ -349,13 +348,13 @@
           "typecast": true
         }
       },
-      "id": "f1a1b2c3-0015-4000-a000-000000000015",
+      "id": "5fc56b92-0cf3-41b3-a7be-716054fe9c76",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        2416,
-        -48
+        4224,
+        -132
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -368,13 +367,13 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-Press',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "f1a1b2c3-0016-4000-a000-000000000016",
+      "id": "08b2762f-a2e9-4ef3-b56e-8e8de0950f41",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2640,
-        -48
+        4448,
+        -132
       ]
     }
   ],
@@ -563,5 +562,7 @@
   },
   "staticData": null,
   "pinData": {},
-  "meta": {}
+  "meta": {
+    "n8n_id": "sd8377VAW25lvGMj"
+  }
 }

@@ -1,0 +1,940 @@
+{
+  "name": "AECi-W-VendorOrchestrator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1ad88c21-2c79-4899-b445-e1f0df87774e",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        5808,
+        2784
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "1c323e31-7de9-4705-9a75-ccab679b4c50",
+      "name": "Schedule Trigger (Weekly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        5808,
+        2976
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "filterByFormula": "OR({vendor_enrichment_status} = 'pending', {vendor_enrichment_status} = 'partial', IS_BEFORE({last_enriched_at}, DATEADD(TODAY(), -90, 'days')))",
+        "returnAll": false,
+        "limit": 5,
+        "options": {
+          "fields": [
+            "company_name"
+          ]
+        }
+      },
+      "id": "32f6bc79-cc59-49d3-833a-80af0e81845c",
+      "name": "Query Vendors to Enrich",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        6032,
+        2880
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "vendor_enrichment_status": "enriching"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "vendor_enrichment_status",
+              "displayName": "vendor_enrichment_status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "93b9f31b-c918-47c8-8fc8-ff6df64c8acf",
+      "name": "Mark as Enriching",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        6032,
+        3776
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "vLmF77XaxnbG1Ebk",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "025ebde3-6992-43d6-8dd6-6ac48b407848",
+      "name": "Execute W-LinkedIn",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6256,
+        3776
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "cNVa9oKXkJD9vxcV",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "dd6557a9-d33c-4038-8002-73ea3b29b823",
+      "name": "Execute W-GitHub",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6480,
+        3200
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "JktaEorfiYHtkJQh",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "3d15ffbb-a585-444c-a450-0c56ade6f4d1",
+      "name": "Execute W-IntegrationPage",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6480,
+        3392
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "tKevgYUwVoZMeGbz",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "7488ed75-cb7e-4938-9ab2-55db9af7ee53",
+      "name": "Execute W-PartnerProgram",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6480,
+        3584
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "2avFAdmPuCC0tvDY",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "fa1d9095-7ee3-4da3-8c93-7f0f5c33d287",
+      "name": "Execute W-CompanySize",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6480,
+        3776
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "wxPnGKbRN8N3brBg",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "af10cd64-1190-4345-8a1b-c98ebd420787",
+      "name": "Execute W-Funding",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6480,
+        3968
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "sd8377VAW25lvGMj",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "ca349888-7de1-4c47-88b3-99ac510305b2",
+      "name": "Execute W-Press",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6480,
+        4160
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "FcAXhWfxMJTLzM7q",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "a7781489-623b-4671-9605-04970ed418ef",
+      "name": "Execute W-BlogRecency",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        6480,
+        4352
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ $('Mark as Enriching').item.json.id }}",
+        "options": {}
+      },
+      "id": "3309f30d-7627-4e51-a1d9-ada02f7f804e",
+      "name": "Re-fetch Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        6928,
+        3776
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst enrichmentFields = [\n  'github_org',\n  'has_integration_page',\n  'has_partner_program',\n  'linkedin_followers',\n  'company_size',\n  'funding_stage',\n  'press_count_12mo',\n  'blog_last_post_days_ago'\n];\n\nconst populated = enrichmentFields.filter(f => {\n  const v = fields[f];\n  return v !== null && v !== undefined && v !== '';\n}).length;\n\nconst completeness = populated / enrichmentFields.length;\n\nlet status;\nif (completeness >= 0.75) status = 'enriched';\nelse if (completeness >= 0.40) status = 'partial';\nelse status = 'error';\n\nreturn {\n  record_id: record.id,\n  vendor_data_completeness: completeness,\n  vendor_enrichment_status: status,\n  last_enriched_at: new Date().toISOString()\n};"
+      },
+      "id": "2c10d28c-ed0b-4ac5-8284-34c3723f14da",
+      "name": "Compute Completeness",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7152,
+        3776
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "vendor_enrichment_status": "={{ $json.vendor_enrichment_status }}",
+            "vendor_data_completeness": "={{ $json.vendor_data_completeness }}",
+            "last_enriched_at": "={{ $json.last_enriched_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "vendor_enrichment_status",
+              "displayName": "vendor_enrichment_status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "vendor_data_completeness",
+              "displayName": "vendor_data_completeness",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_enriched_at",
+              "displayName": "last_enriched_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "bf84bb81-6dda-43d6-a836-d96ba55b61de",
+      "name": "Update Orchestration Fields",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        7376,
+        3776
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 7,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        6704,
+        3696
+      ],
+      "id": "a413d277-d221-4837-9979-322fa4d70c2a",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "id"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        5808,
+        3776
+      ],
+      "id": "1621e095-44fe-430a-bbb4-719cd6373cc6",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "X441Xqtsa4hk09W7",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/X441Xqtsa4hk09W7",
+          "cachedResultName": "The WBS Project — AECi-W-VendorOrchestrator"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id  }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        6256,
+        2880
+      ],
+      "id": "be9f9eda-d6a2-42db-a86e-b8c15262d10c",
+      "name": "Call 'AECi-W-VendorOrchestrator'"
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Query Vendors to Enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Query Vendors to Enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Vendors to Enrich": {
+      "main": [
+        [
+          {
+            "node": "Call 'AECi-W-VendorOrchestrator'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Enriching": {
+      "main": [
+        [
+          {
+            "node": "Execute W-LinkedIn",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute W-LinkedIn": {
+      "main": [
+        [
+          {
+            "node": "Execute W-GitHub",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute W-IntegrationPage",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute W-PartnerProgram",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute W-CompanySize",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute W-Funding",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute W-Press",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Execute W-BlogRecency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute W-GitHub": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute W-IntegrationPage": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Execute W-PartnerProgram": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Execute W-CompanySize": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Execute W-Funding": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Execute W-Press": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Execute W-BlogRecency": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "Re-fetch Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Compute Completeness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Completeness": {
+      "main": [
+        [
+          {
+            "node": "Update Orchestration Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Re-fetch Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Mark as Enriching",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger (Weekly)": {
+      "recurrenceRules": []
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "n8n_id": "X441Xqtsa4hk09W7"
+  }
+}

@@ -162,10 +162,10 @@ Usage: $0 <command> [args]
 
 Commands:
   list                    List all workflows on the n8n instance
-  pull <id> [file]        Download a workflow by ID to a local JSON file
-  push <file>             Upload a local JSON file to n8n (creates or updates)
-  pull-all                Pull all workflows from n8n
-  push-all                Push all local JSON files to n8n
+  pull <id|all> [file]    Download a workflow by ID (or all) to local JSON
+  push <file|all>         Upload a local JSON file (or all) to n8n
+  pull-all                Alias for: pull all
+  push-all                Alias for: push all
 
 Environment:
   N8N_URL       Base URL of your n8n instance
@@ -199,17 +199,25 @@ case "$COMMAND" in
   list)     cmd_list ;;
   pull)
     if [ $# -lt 1 ]; then
-      echo "Error: 'pull' requires a workflow ID." >&2
+      echo "Error: 'pull' requires a workflow ID or 'all'." >&2
       exit 1
     fi
-    cmd_pull "$@"
+    if [ "$1" = "all" ]; then
+      cmd_pull_all
+    else
+      cmd_pull "$@"
+    fi
     ;;
   push)
     if [ $# -lt 1 ]; then
-      echo "Error: 'push' requires a file path." >&2
+      echo "Error: 'push' requires a file path or 'all'." >&2
       exit 1
     fi
-    cmd_push "$@"
+    if [ "$1" = "all" ]; then
+      cmd_push_all
+    else
+      cmd_push "$@"
+    fi
     ;;
   pull-all) cmd_pull_all ;;
   push-all) cmd_push_all ;;

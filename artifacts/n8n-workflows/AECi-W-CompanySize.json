@@ -94,7 +94,7 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        904,
+        912,
         -48
       ]
     },
@@ -128,7 +128,7 @@
     },
     {
       "parameters": {
-        "url": "https://serp-cache.aec-integrations.workers.dev",
+        "url": "https://n8n-utils.aec-integrations.workers.dev/serp",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBearerAuth",
         "sendQuery": true,

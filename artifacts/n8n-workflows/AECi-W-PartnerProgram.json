@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "a1b2c3d4-0001-4000-8000-000000000001",
+      "id": "cda4c071-d7d4-470f-97bc-15f4f5be0254",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -2208,
-        -68
+        -2944,
+        128
       ]
     },
     {
@@ -24,13 +24,13 @@
         },
         "options": {}
       },
-      "id": "a1b2c3d4-0002-4000-8000-000000000002",
+      "id": "721e7ec5-5900-49d3-98c1-7ee2c3403ff3",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        -1984,
-        -68
+        -2720,
+        128
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "a1b2c3d4-0003-4000-8000-000000000003",
+      "id": "298ab34c-6d92-4081-ad81-27786d24ad6d",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -1984,
-        124
+        -2720,
+        320
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "a1b2c3d4-0004-4000-8000-000000000004",
+      "id": "47fdf922-b7b5-4b43-9d12-b42ef4399dee",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -1760,
-        28
+        -2496,
+        224
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -86,13 +86,13 @@
       "parameters": {
         "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').item.json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
       },
-      "id": "a1b2c3d4-0005-4000-8000-000000000005",
+      "id": "91a3d25b-b9de-4959-99c6-5d4d5dfd5cb6",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1536,
-        28
+        -2272,
+        224
       ]
     },
     {
@@ -119,41 +119,39 @@
         },
         "options": {}
       },
-      "id": "a1b2c3d4-0006-4000-8000-000000000006",
+      "id": "70f9be95-098a-48fe-b939-20417a02b6b8",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1312,
-        28
+        -2048,
+        224
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\nconst partnerPaths = ['/partners','/partner-program','/partnerships','/become-a-partner','/channel-partners','/reseller','/resellers'];\nconst affiliatePaths = ['/affiliate','/affiliates','/affiliate-program','/referral','/referrals','/referral-program'];\n\nconst all = [\n  ...partnerPaths.map(p => ({ kind: 'partner', path: p })),\n  ...affiliatePaths.map(p => ({ kind: 'affiliate', path: p }))\n];\n\nreturn all.map(x => ({\n  json: {\n    ...context,\n    candidate_kind: x.kind,\n    candidate_url: `https://${context.vendor_domain}${x.path}`\n  }\n}));"
       },
-      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "id": "5dcdd486-5724-4725-9430-39b3fec8d85f",
       "name": "Build Candidate URLs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1088,
-        -68
+        -1824,
+        128
       ]
     },
     {
       "parameters": {
-        "url": "={{ $json.candidate_url }}",
-        "sendHeaders": true,
-        "headerParameters": {
+        "url": "https://n8n-utils.aec-integrations.workers.dev/render",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
           "parameters": [
             {
-              "name": "User-Agent",
-              "value": "Mozilla/5.0 (compatible; AEC-Integrations-Bot/1.0; +https://aec-integrations.com)"
-            },
-            {
-              "name": "Accept-Language",
-              "value": "en-US,en;q=0.9"
+              "name": "url",
+              "value": "={{ $json.candidate_url }}"
             }
           ]
         },
@@ -161,34 +159,41 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "neverError": true
+              "neverError": true,
+              "responseFormat": "text"
             }
           },
-          "timeout": 30000
+          "timeout": 45000
         }
       },
-      "id": "a1b2c3d4-0008-4000-8000-000000000008",
+      "id": "7bdc4822-3142-45fa-8f27-58dea69f53a0",
       "name": "Check URLs",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -864,
-        -68
+        -1600,
+        128
       ],
       "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      },
       "onError": "continueRegularOutput"
     },
     {
       "parameters": {
         "jsCode": "const responses = $input.all().map(i => i.json);\nconst context = $('Normalize Input').first().json;\n\nconst partnerMatch = responses.find(r =>\n  r.statusCode === 200 &&\n  typeof r.data === 'string' &&\n  r.data.length > 2000 &&\n  r.candidate_kind === 'partner'\n);\n\nconst affiliateMatch = responses.find(r =>\n  r.statusCode === 200 &&\n  typeof r.data === 'string' &&\n  r.data.length > 2000 &&\n  r.candidate_kind === 'affiliate'\n);\n\nfunction clean(html) {\n  return html\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, '')\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, '')\n    .substring(0, 8000);\n}\n\nreturn {\n  ...context,\n  partner_page_found: !!partnerMatch,\n  partner_page_url: partnerMatch?.candidate_url || null,\n  partner_page_html: partnerMatch ? clean(partnerMatch.data) : null,\n  affiliate_page_found: !!affiliateMatch,\n  affiliate_page_url: affiliateMatch?.candidate_url || null,\n  affiliate_page_html: affiliateMatch ? clean(affiliateMatch.data) : null,\n  any_page_found: !!(partnerMatch || affiliateMatch)\n};"
       },
-      "id": "a1b2c3d4-0009-4000-8000-000000000009",
+      "id": "6f52f70d-0b15-4bd2-a2bd-5a8b2b4ded3d",
       "name": "Classify Matches",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -640,
-        -68
+        -1376,
+        128
       ]
     },
     {
@@ -216,13 +221,13 @@
         },
         "options": {}
       },
-      "id": "a1b2c3d4-000a-4000-8000-000000000010",
+      "id": "ea3ae83e-f555-4a9b-b55d-5bed4ce50b21",
       "name": "Any Page Found?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -416,
-        -68
+        -1152,
+        128
       ]
     },
     {
@@ -235,10 +240,10 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        -192,
-        -192
+        -928,
+        0
       ],
-      "id": "a1b2c3d4-000b-4000-8000-000000000011",
+      "id": "ad4ea551-d16e-4608-9433-b90b0595701e",
       "name": "Claude: Is It a Formal Program?"
     },
     {
@@ -254,10 +259,10 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        -184,
-        32
+        -928,
+        224
       ],
-      "id": "a1b2c3d4-000c-4000-8000-000000000012",
+      "id": "dc40bf92-5825-4ed7-85f8-29fd2e8df81d",
       "name": "Anthropic Chat Model",
       "credentials": {
         "anthropicApi": {
@@ -274,49 +279,49 @@
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        -56,
-        32
+        -800,
+        224
       ],
-      "id": "a1b2c3d4-000d-4000-8000-000000000013",
+      "id": "80d74837-29b0-41c8-9b2f-6f9a1a2906a4",
       "name": "Structured Output Parser"
     },
     {
       "parameters": {
         "jsCode": "const parsed = $input.first().json.output || $input.first().json;\nconst classified = $('Classify Matches').first().json;\n\nreturn {\n  record_id: classified.record_id,\n  has_partner_program: parsed.is_formal_partner_program === true && parsed.confidence !== 'low',\n  partner_program_url: parsed.is_formal_partner_program ? classified.partner_page_url : null,\n  has_affiliate_program: parsed.is_affiliate_program === true && parsed.confidence !== 'low',\n  affiliate_program_url: parsed.is_affiliate_program ? classified.affiliate_page_url : null,\n  partner_program_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_partner_program','partner_program_url','has_affiliate_program','affiliate_program_url','partner_program_checked_at']\n};"
       },
-      "id": "a1b2c3d4-000e-4000-8000-000000000014",
+      "id": "7ec9d9c4-3451-4c1c-94c9-4f893d6f1c7d",
       "name": "Build Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        160,
-        -192
+        -576,
+        0
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  has_partner_program: false,\n  partner_program_url: null,\n  has_affiliate_program: false,\n  affiliate_program_url: null,\n  partner_program_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_partner_program','has_affiliate_program','partner_program_checked_at'],\n  note: 'No partner or affiliate pages found'\n};"
       },
-      "id": "a1b2c3d4-000f-4000-8000-000000000015",
+      "id": "286ea021-5a87-48b4-a1b2-68e41b80b072",
       "name": "Write Empty Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        160,
-        56
+        -576,
+        256
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  has_partner_program: false,\n  partner_program_url: null,\n  has_affiliate_program: false,\n  affiliate_program_url: null,\n  partner_program_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['partner_program_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
       },
-      "id": "a1b2c3d4-0010-4000-8000-000000000016",
+      "id": "0db8664b-636d-4e1e-83fd-6ae43c4989f4",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        384,
-        224
+        -352,
+        416
       ]
     },
     {
@@ -409,12 +414,30 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "1-10", "value": "1-10" },
-                { "name": "11-50", "value": "11-50" },
-                { "name": "51-200", "value": "51-200" },
-                { "name": "201-1000", "value": "201-1000" },
-                { "name": "1001-5000", "value": "1001-5000" },
-                { "name": "5000+", "value": "5000+" }
+                {
+                  "name": "1-10",
+                  "value": "1-10"
+                },
+                {
+                  "name": "11-50",
+                  "value": "11-50"
+                },
+                {
+                  "name": "51-200",
+                  "value": "51-200"
+                },
+                {
+                  "name": "201-1000",
+                  "value": "201-1000"
+                },
+                {
+                  "name": "1001-5000",
+                  "value": "1001-5000"
+                },
+                {
+                  "name": "5000+",
+                  "value": "5000+"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -428,10 +451,22 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "Public", "value": "Public" },
-                { "name": "Private", "value": "Private" },
-                { "name": "Acquired", "value": "Acquired" },
-                { "name": "Subsidiary", "value": "Subsidiary" }
+                {
+                  "name": "Public",
+                  "value": "Public"
+                },
+                {
+                  "name": "Private",
+                  "value": "Private"
+                },
+                {
+                  "name": "Acquired",
+                  "value": "Acquired"
+                },
+                {
+                  "name": "Subsidiary",
+                  "value": "Subsidiary"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -731,11 +766,26 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "linkedin", "value": "linkedin" },
-                { "name": "crunchbase", "value": "crunchbase" },
-                { "name": "website", "value": "website" },
-                { "name": "manual", "value": "manual" },
-                { "name": "unknown", "value": "unknown" }
+                {
+                  "name": "linkedin",
+                  "value": "linkedin"
+                },
+                {
+                  "name": "crunchbase",
+                  "value": "crunchbase"
+                },
+                {
+                  "name": "website",
+                  "value": "website"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                },
+                {
+                  "name": "unknown",
+                  "value": "unknown"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -760,16 +810,46 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "Bootstrapped", "value": "Bootstrapped" },
-                { "name": "Pre-seed", "value": "Pre-seed" },
-                { "name": "Seed", "value": "Seed" },
-                { "name": "Series A", "value": "Series A" },
-                { "name": "Series B", "value": "Series B" },
-                { "name": "Series C", "value": "Series C" },
-                { "name": "Series D+", "value": "Series D+" },
-                { "name": "Public", "value": "Public" },
-                { "name": "Acquired", "value": "Acquired" },
-                { "name": "Unknown", "value": "Unknown" }
+                {
+                  "name": "Bootstrapped",
+                  "value": "Bootstrapped"
+                },
+                {
+                  "name": "Pre-seed",
+                  "value": "Pre-seed"
+                },
+                {
+                  "name": "Seed",
+                  "value": "Seed"
+                },
+                {
+                  "name": "Series A",
+                  "value": "Series A"
+                },
+                {
+                  "name": "Series B",
+                  "value": "Series B"
+                },
+                {
+                  "name": "Series C",
+                  "value": "Series C"
+                },
+                {
+                  "name": "Series D+",
+                  "value": "Series D+"
+                },
+                {
+                  "name": "Public",
+                  "value": "Public"
+                },
+                {
+                  "name": "Acquired",
+                  "value": "Acquired"
+                },
+                {
+                  "name": "Unknown",
+                  "value": "Unknown"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -904,11 +984,26 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "pending", "value": "pending" },
-                { "name": "enriching", "value": "enriching" },
-                { "name": "enriched", "value": "enriched" },
-                { "name": "partial", "value": "partial" },
-                { "name": "error", "value": "error" }
+                {
+                  "name": "pending",
+                  "value": "pending"
+                },
+                {
+                  "name": "enriching",
+                  "value": "enriching"
+                },
+                {
+                  "name": "enriched",
+                  "value": "enriched"
+                },
+                {
+                  "name": "partial",
+                  "value": "partial"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -965,13 +1060,13 @@
           "typecast": true
         }
       },
-      "id": "a1b2c3d4-0011-4000-8000-000000000017",
+      "id": "d766961a-4803-4f13-a86f-9d0ac21548bc",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        384,
-        -68
+        -352,
+        128
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -984,13 +1079,13 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-PartnerProgram',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "a1b2c3d4-0012-4000-8000-000000000018",
+      "id": "6c1635eb-c0fb-44ba-ada8-1cc417b8e5d4",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        608,
-        28
+        -128,
+        224
       ]
     }
   ],
@@ -1199,11 +1294,16 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate"
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 12
   },
   "staticData": null,
   "pinData": {},
   "meta": {
-    "n8n_id": "JktaEorfiYHtkJQh"
+    "n8n_id": "tKevgYUwVoZMeGbz"
   }
 }

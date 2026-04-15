@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "a1b2c3d4-1001-4000-a000-000000000001",
+      "id": "90c282ed-515c-433e-89cc-f8e534f3fc21",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        6096,
-        2688
+        -416,
+        -256
       ]
     },
     {
@@ -24,13 +24,13 @@
         },
         "options": {}
       },
-      "id": "a1b2c3d4-1001-4000-a000-000000000002",
+      "id": "491e4eb3-163d-499d-b1d5-f147e46c2e25",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        6320,
-        2688
+        -192,
+        -256
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "a1b2c3d4-1001-4000-a000-000000000003",
+      "id": "5b64d2fa-679d-4d61-b473-224f222afe43",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        6320,
-        2880
+        -192,
+        -64
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "a1b2c3d4-1001-4000-a000-000000000004",
+      "id": "150e58f5-c16a-4625-887b-a4be992e3e54",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        6544,
-        2784
+        32,
+        -160
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -89,13 +89,13 @@
         "hasOutputParser": true,
         "options": {}
       },
-      "id": "a1b2c3d4-1001-4000-a000-000000000005",
+      "id": "00febff0-d860-4a02-806f-15007f019216",
       "name": "Find LinkedIn Data",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        6768,
-        2784
+        320,
+        -160
       ]
     },
     {
@@ -114,10 +114,10 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        6712,
-        3008
+        256,
+        64
       ],
-      "id": "a1b2c3d4-1001-4000-a000-000000000006",
+      "id": "2f96518e-c255-4db4-9c9a-a80e225b08a0",
       "name": "Anthropic Chat Model (LinkedIn)",
       "credentials": {
         "anthropicApi": {
@@ -128,7 +128,7 @@
     },
     {
       "parameters": {
-        "url": "https://serp-cache.aec-integrations.workers.dev",
+        "url": "https://n8n-utils.aec-integrations.workers.dev/serp",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBearerAuth",
         "sendQuery": true,
@@ -145,10 +145,10 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.4,
       "position": [
-        6840,
-        3008
+        384,
+        64
       ],
-      "id": "a1b2c3d4-1001-4000-a000-000000000007",
+      "id": "10c28bbf-282c-44bb-8bb4-21334bf2aa82",
       "name": "SerpAPI Search",
       "credentials": {
         "httpHeaderAuth": {
@@ -169,23 +169,23 @@
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        6968,
-        3008
+        512,
+        64
       ],
-      "id": "a1b2c3d4-1001-4000-a000-000000000008",
+      "id": "292b3431-d339-4536-8beb-a9ec266c9291",
       "name": "LinkedIn Data Parser"
     },
     {
       "parameters": {
         "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst parsed = raw.output || raw;\n\nconst linkedinUrl = parsed.linkedin_url || null;\nconst followers = (typeof parsed.linkedin_followers === 'number' && parsed.linkedin_followers >= 0)\n  ? parsed.linkedin_followers : null;\nconst low = parsed.confidence === 'low';\n\n// If confidence is low, discard the URL\nconst finalUrl = low ? null : linkedinUrl;\n\nconst fieldsUpdated = ['linkedin_checked_at'];\nif (finalUrl) fieldsUpdated.push('linkedin_url');\nif (followers !== null) fieldsUpdated.push('linkedin_followers');\n\nreturn {\n  record_id: vendor.id,\n  linkedin_url: finalUrl,\n  linkedin_followers: followers,\n  linkedin_checked_at: new Date().toISOString(),\n  status: finalUrl ? 'success' : 'partial',\n  fields_updated: fieldsUpdated,\n  note: !finalUrl ? 'No LinkedIn page found' : (followers === null ? 'URL found but no follower count in SERP' : null)\n};"
       },
-      "id": "a1b2c3d4-1001-4000-a000-000000000009",
+      "id": "31f72110-3b01-4096-86a7-29f5d41319d4",
       "name": "Build Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        6992,
-        2784
+        720,
+        -160
       ]
     },
     {
@@ -264,13 +264,13 @@
           "typecast": true
         }
       },
-      "id": "a1b2c3d4-1001-4000-a000-000000000010",
+      "id": "6fd62345-40a7-4c47-b826-10e44024fb8b",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        7216,
-        2784
+        944,
+        -160
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -283,13 +283,13 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-LinkedIn',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "a1b2c3d4-1001-4000-a000-000000000011",
+      "id": "1a7dfe8e-a193-4806-a431-c1fe6c33ef8c",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        7440,
-        2784
+        1168,
+        -160
       ]
     }
   ],
@@ -410,8 +410,13 @@
     "binaryMode": "separate",
     "timeSavedMode": "fixed",
     "errorWorkflow": "86rEn9WgLNb61C4M",
-    "callerPolicy": "workflowsFromSameOwner"
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 5
   },
   "staticData": null,
-  "meta": {}
+  "pinData": {},
+  "meta": {
+    "n8n_id": "vLmF77XaxnbG1Ebk"
+  }
 }

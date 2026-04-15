@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "1ed74245-18f3-484f-afd3-2526807d4b58",
+      "id": "df733024-9f6d-44f1-886a-7f2835b5247e",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -1216,
-        -260
+        -1872,
+        -64
       ]
     },
     {
@@ -18,19 +18,19 @@
           "values": [
             {
               "name": "record_id",
-              "stringValue": "recCUTBsCtopTwDG7"
+              "stringValue": "rec2cpSXH4P0oqSMU"
             }
           ]
         },
         "options": {}
       },
-      "id": "05143a00-c186-457a-9bd9-291ede64e324",
+      "id": "8aa68f21-25c8-4fec-974d-80c012d1b5b2",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        -992,
-        -260
+        -1648,
+        -64
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "c95ae006-bf98-4721-b61f-3b2339644afa",
+      "id": "853abc26-ecc0-48c4-8d4a-4fc09969c050",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -992,
-        -68
+        -1648,
+        128
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "bf7bfeb9-a334-40ef-936c-c49df61770eb",
+      "id": "4d500f75-6afa-4977-846c-7d539924df87",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -768,
-        -164
+        -1424,
+        32
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -105,26 +105,26 @@
         },
         "options": {}
       },
-      "id": "88c9a373-25e0-45ab-97f9-5fbc3558b8d8",
+      "id": "f5d5b510-cae1-44a8-a04e-0e550b933f94",
       "name": "Check Public",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2.2,
       "position": [
-        -544,
-        -164
+        -1200,
+        32
       ]
     },
     {
       "parameters": {
         "jsCode": "const vendor = $('Get Vendor Record').first().json;\n\nreturn {\n  record_id: vendor.id,\n  funding_stage: 'Public',\n  total_funding_usd: null,\n  last_funding_date: null,\n  funding_source_url: null,\n  funding_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['funding_stage', 'funding_checked_at'],\n  note: 'Stage inferred from existing public_private field'\n};"
       },
-      "id": "80be0010-eee6-41b6-9a72-fa8dfc7d7464",
+      "id": "bef73e34-e629-417f-a0b3-3cbf1b761b2a",
       "name": "Skip to Public",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        144,
-        -288
+        -512,
+        -96
       ]
     },
     {
@@ -134,13 +134,13 @@
         "hasOutputParser": true,
         "options": {}
       },
-      "id": "46a9d10e-53ed-4df2-9df4-a917210a8d34",
+      "id": "395ba35b-a77e-451e-9eb0-719585c963a6",
       "name": "Find Funding",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        -264,
-        -40
+        -928,
+        160
       ]
     },
     {
@@ -152,17 +152,17 @@
           "cachedResultName": "Claude Haiku 4.5"
         },
         "options": {
-          "maxTokensToSample": 512,
+          "maxTokensToSample": 1024,
           "temperature": 0
         }
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        -320,
-        184
+        -976,
+        384
       ],
-      "id": "a922d72d-6c66-4833-b547-116af6bef686",
+      "id": "17ae0071-69ba-4a8e-aee7-d898ace52b72",
       "name": "Anthropic Chat Model (Funding)",
       "credentials": {
         "anthropicApi": {
@@ -173,7 +173,7 @@
     },
     {
       "parameters": {
-        "url": "https://serp-cache.aec-integrations.workers.dev",
+        "url": "https://n8n-utils.aec-integrations.workers.dev/serp",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBearerAuth",
         "sendQuery": true,
@@ -181,7 +181,7 @@
           "parameters": [
             {
               "name": "q",
-              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Search_Query', `The full Google search query to run, e.g. \"Procore\" funding crunchbase. Must be a descriptive search phrase, NOT a bare URL or domain.`, 'string') }}"
             }
           ]
         },
@@ -190,10 +190,10 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.4,
       "position": [
-        -192,
-        184
+        -848,
+        384
       ],
-      "id": "bd945b56-16da-4d9b-97c0-af50301cad7a",
+      "id": "1996be4f-febd-44ee-a2f5-d1156a35ec48",
       "name": "SerpAPI Search",
       "credentials": {
         "httpHeaderAuth": {
@@ -214,23 +214,23 @@
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        -64,
-        184
+        -720,
+        384
       ],
-      "id": "8de5e15e-6a56-4afd-8d97-1e10a58ef218",
+      "id": "94b1ebfc-e98a-4af8-b18a-8d29a1b06dc1",
       "name": "Funding Data Parser"
     },
     {
       "parameters": {
         "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst parsed = raw.output || raw;\n\nconst VALID_STAGES = ['Bootstrapped', 'Pre-seed', 'Seed', 'Series A', 'Series B', 'Series C', 'Series D+', 'Public', 'Acquired', 'Unknown'];\n\nconst stage = VALID_STAGES.includes(parsed.funding_stage) ? parsed.funding_stage : 'Unknown';\n\n// Validate date format\nlet lastDate = null;\nif (parsed.last_funding_date && /^\\d{4}-\\d{2}-\\d{2}$/.test(parsed.last_funding_date)) {\n  lastDate = parsed.last_funding_date;\n}\n\n// Validate total funding\nconst totalFunding = (typeof parsed.total_funding_usd === 'number' && parsed.total_funding_usd > 0)\n  ? parsed.total_funding_usd : null;\n\nconst confidence = parsed.confidence || 'low';\nconst low = confidence === 'low' || stage === 'Unknown';\n\nconst fieldsUpdated = ['funding_checked_at'];\nif (stage !== 'Unknown') fieldsUpdated.push('funding_stage');\nif (totalFunding) fieldsUpdated.push('total_funding_usd');\nif (lastDate) fieldsUpdated.push('last_funding_date');\nif (parsed.source_url) fieldsUpdated.push('funding_source_url');\n\nreturn {\n  record_id: vendor.id,\n  funding_stage: stage,\n  total_funding_usd: totalFunding,\n  last_funding_date: lastDate,\n  funding_source_url: parsed.source_url || null,\n  funding_checked_at: new Date().toISOString(),\n  status: low ? 'partial' : 'success',\n  fields_updated: fieldsUpdated,\n  note: parsed.notes || null\n};"
       },
-      "id": "963a5d11-4411-4a71-9d8b-5fff3d464249",
+      "id": "e85ba6b1-5f55-4ae2-b53f-a08ff562f69b",
       "name": "Parse Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        144,
-        -40
+        -512,
+        160
       ]
     },
     {
@@ -333,13 +333,13 @@
           "typecast": true
         }
       },
-      "id": "aa2f18f3-6ccd-4122-998a-c694547d8de0",
+      "id": "26ec0a09-3d3a-4806-9e73-799ef3b44cbc",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        368,
-        -164
+        -288,
+        32
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -352,13 +352,13 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-Funding',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "c4de49e0-dac1-490e-8030-49c6e454354d",
+      "id": "d7c9a454-3458-4168-903c-4dc9d2c81eef",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        592,
-        -164
+        -64,
+        32
       ]
     }
   ],
@@ -505,10 +505,26 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate"
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 6
   },
   "staticData": null,
-  "pinData": {},
+  "pinData": {
+    "Execute Workflow Trigger": [
+      {
+        "json": {
+          "record_id": "rec1ZdRECb4YXN7HO"
+        },
+        "pairedItem": {
+          "item": 0
+        }
+      }
+    ]
+  },
   "meta": {
     "n8n_id": "wxPnGKbRN8N3brBg"
   }

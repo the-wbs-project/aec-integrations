@@ -1,6 +1,6 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "serp-cache",
+	"name": "n8n-utils",
 	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-04-07",
@@ -14,10 +14,13 @@
 	},
 	"kv_namespaces": [
 		{
-			"binding": "SERP_CACHE",
-			"id": "2b6b644ad79e4cd4b9931abd0d80a060"
+			"binding": "KV_CACHE",
+			"id": "29d16f75b68046468eafe9fb7c8bfa8b"
 		}
-	]
+	],
+	"browser": {
+		"binding": "BROWSER"
+	}
 	// Secrets (set via `wrangler secret put`):
 	//   AUTH_TOKEN   – the bearer token clients must send
 	//   SERP_API_KEY – your SerpApi key

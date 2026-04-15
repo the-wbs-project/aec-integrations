@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "c92001d5-f8dd-459d-a718-a533bab8c322",
+      "id": "e10f6876-5a23-4f55-ab4e-ab8c061fa76b",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -2208,
-        -68
+        -3088,
+        128
       ]
     },
     {
@@ -24,13 +24,13 @@
         },
         "options": {}
       },
-      "id": "b2ecb957-fa78-47a4-9a56-9fd9f07df9ad",
+      "id": "23f202e0-9108-4729-b136-cc2bec79e5b2",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        -1984,
-        -68
+        -2864,
+        128
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "bb28f1fc-4cba-46b6-ab43-6b8464397f09",
+      "id": "d1b804ee-5b8c-4bd8-bf55-8f7894fcd32f",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -1984,
-        124
+        -2864,
+        320
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "f4bf3e01-0aa7-4445-a76f-842ad3682d18",
+      "id": "c7ddd7de-b20b-4f48-9e7e-c21ced9c116f",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -1760,
-        28
+        -2640,
+        224
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -86,13 +86,13 @@
       "parameters": {
         "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').item.json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
       },
-      "id": "1c347ab9-99bb-401a-9c99-c283e25db2db",
+      "id": "2c7d0b5c-05f9-4088-9f55-748ba2d7ec5f",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1536,
-        28
+        -2416,
+        224
       ]
     },
     {
@@ -119,41 +119,39 @@
         },
         "options": {}
       },
-      "id": "27d72edd-cb64-4a37-bb25-9605cb633829",
+      "id": "8b5b472d-1de8-40f2-ba47-76167f561518",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -1312,
-        28
+        -2192,
+        224
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').item.json;\nconst paths = [\n  '/integrations','/integration','/partners','/partner',\n  '/marketplace','/apps','/app-marketplace','/ecosystem','/connect'\n];\n\nreturn paths.map(p => ({\n  json: {\n    ...context,\n    candidate_path: p,\n    candidate_url: `https://${context.vendor_domain}${p}`\n  }\n}));"
       },
-      "id": "acb19538-4e92-4811-aca5-8c53d3f7bab8",
+      "id": "a495260e-83ae-4618-bf00-53945be49c03",
       "name": "Build Candidate URLs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -1088,
-        -68
+        -1968,
+        128
       ]
     },
     {
       "parameters": {
-        "url": "={{ $json.candidate_url }}",
-        "sendHeaders": true,
-        "headerParameters": {
+        "url": "https://n8n-utils.aec-integrations.workers.dev/render",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
           "parameters": [
             {
-              "name": "User-Agent",
-              "value": "Mozilla/5.0 (compatible; AEC-Integrations-Bot/1.0; +https://aec-integrations.com)"
-            },
-            {
-              "name": "Accept-Language",
-              "value": "en-US,en;q=0.9"
+              "name": "url",
+              "value": "={{ $json.candidate_url }}"
             }
           ]
         },
@@ -161,34 +159,40 @@
           "response": {
             "response": {
               "fullResponse": true,
-              "neverError": true
+              "neverError": true,
+              "responseFormat": "text"
             }
           },
-          "timeout": 30000
+          "timeout": 120000
         }
       },
-      "id": "c7144ad5-45ac-4256-a5b1-9540a0111f6b",
+      "id": "d8b4ef1c-20ca-4c16-b69d-439b7d128232",
       "name": "Check URLs",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -864,
-        -68
+        -1744,
+        128
       ],
       "alwaysOutputData": true,
-      "onError": "continueRegularOutput"
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const responses = $input.all().map(i => i.json);\nconst context = $('Normalize Input').item.json;\n\nconst valid = responses.find(r =>\n  r.statusCode === 200 &&\n  typeof r.data === 'string' &&\n  r.data.length > 2000\n);\n\nif (!valid) {\n  return { ...context, found: false };\n}\n\n// Strip scripts and styles to reduce token load for Claude\nconst cleanHtml = valid.data\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, '')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, '')\n  .substring(0, 8000);\n\nreturn {\n  ...context,\n  found: true,\n  matched_url: valid.url || valid.headers?.['content-location'] || '',\n  page_html: cleanHtml\n};"
+        "jsCode": "const responses = $input.all().map(i => i.json);\nconst context = $('Normalize Input').item.json;\n\nconst valid = responses.find(r =>\n  r.statusCode === 200 &&\n  typeof r.data === 'string' &&\n  r.data.length > 2000\n);\n\nif (!valid) {\n  return { ...context, found: false };\n}\n\n// Strip scripts and styles to reduce token load for Claude\nconst cleanHtml = valid.data\n  .replace(/<script[\\s\\S]*?<\\/script>/gi, '')\n  .replace(/<style[\\s\\S]*?<\\/style>/gi, '')\n  .substring(0, 12000);\n\nreturn {\n  ...context,\n  found: true,\n  matched_url: valid.url || valid.headers?.['content-location'] || '',\n  page_html: cleanHtml\n};"
       },
-      "id": "590dad33-1d19-4e16-9cf5-6f1989b8d19a",
+      "id": "859511f5-b811-42da-ae49-c356fe820af4",
       "name": "Pick First Valid Response",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -640,
-        -68
+        -1520,
+        128
       ]
     },
     {
@@ -216,13 +220,13 @@
         },
         "options": {}
       },
-      "id": "0a452999-5379-4fe4-a17b-08c06dc7d7e2",
+      "id": "cf5e9d79-c348-4518-8026-5ceb1944d086",
       "name": "Found a Page?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -416,
-        -68
+        -1296,
+        128
       ]
     },
     {
@@ -235,63 +239,62 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        -192,
-        -192
+        -1072,
+        0
       ],
-      "id": "25b61112-7466-4edd-98a1-aa14d170741d",
+      "id": "6f866322-d447-49d7-a72c-41e5644d75ba",
       "name": "Claude: Validate & Extract"
     },
     {
       "parameters": {
-        "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"is_integrations_page\": {\n      \"type\": \"boolean\",\n      \"description\": \"Whether this is a legitimate integrations/partners listing page\"\n    },\n    \"partner_count\": {\n      \"type\": \"integer\",\n      \"description\": \"Number of distinct third-party integration partners listed\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"]\n    },\n    \"notes\": {\n      \"type\": \"string\",\n      \"description\": \"Brief explanation\"\n    }\n  },\n  \"required\": [\"is_integrations_page\", \"partner_count\", \"confidence\", \"notes\"]\n}"
+        "jsonSchemaExample": "{\n  \"is_integrations_page\": true,\n  \"partner_count\": 42,\n  \"confidence\": \"high\",\n  \"notes\": \"clean partner grid\"\n}"
       },
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        -56,
-        32
+        -944,
+        224
       ],
-      "id": "7f317705-af5f-4132-babd-5331664944a0",
+      "id": "201dcc34-d0d3-4905-a487-13a721026670",
       "name": "Structured Output Parser"
     },
     {
       "parameters": {
         "jsCode": "const parsed = $input.item.json.output || $input.item.json;\nconst context = $('Normalize Input').item.json;\nconst matched = $('Pick First Valid Response').item.json;\n\nconst isPage = parsed.is_integrations_page === true && parsed.confidence !== 'low';\n\nreturn {\n  record_id: context.record_id,\n  has_integration_page: isPage,\n  integration_page_url: isPage ? matched.matched_url : null,\n  self_reported_partner_count: isPage ? (parsed.partner_count || 0) : null,\n  integration_page_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_integration_page','integration_page_url','self_reported_partner_count','integration_page_checked_at'],\n  note: isPage ? null : (parsed.notes || 'No valid integrations page found')\n};"
       },
-      "id": "555171b5-a19b-4e8f-8d05-cee5f385922f",
+      "id": "facb864c-7931-4349-9c97-03b16397a079",
       "name": "Merge Extracted",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        160,
-        -192
+        -720,
+        0
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').item.json;\n\nreturn {\n  record_id: context.record_id,\n  has_integration_page: false,\n  integration_page_url: null,\n  self_reported_partner_count: null,\n  integration_page_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_integration_page','integration_page_checked_at'],\n  note: 'No integrations page found at common paths'\n};"
       },
-      "id": "9b15d882-702f-4b44-8103-36dffc02a143",
+      "id": "971697ae-e318-401f-ba23-9ecb3daf9744",
       "name": "Write Empty Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        160,
-        56
+        -720,
+        256
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').item.json;\n\nreturn {\n  record_id: context.record_id,\n  has_integration_page: false,\n  integration_page_url: null,\n  self_reported_partner_count: null,\n  integration_page_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['integration_page_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
       },
-      "id": "3fb7ccb2-2849-4891-8d58-354ea65d268f",
+      "id": "b8cac923-4e84-48ac-a1bf-9f5b9a1f1d96",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        384,
-        224
+        -496,
+        416
       ]
     },
     {
@@ -1029,13 +1032,13 @@
           "typecast": true
         }
       },
-      "id": "b6664bdb-1ffa-4264-b462-44da4e7d993a",
+      "id": "68deb3e4-db40-4901-82a9-1395bd0d4904",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        384,
-        -68
+        -496,
+        128
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -1048,13 +1051,13 @@
       "parameters": {
         "jsCode": "const input = $input.item.json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-IntegrationPage',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "3758c2ea-d66f-4c16-9859-75eb11bae581",
+      "id": "89c418e8-6c80-451d-8474-7973d70c0c10",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        608,
-        28
+        -272,
+        224
       ]
     },
     {
@@ -1070,10 +1073,10 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        -184,
-        32
+        -1072,
+        224
       ],
-      "id": "a3473769-7e40-4aea-8186-c4dc16dacbb3",
+      "id": "5cdfd97b-cc8f-4900-a546-c17943c9bbd8",
       "name": "Anthropic Chat Model",
       "credentials": {
         "anthropicApi": {
