@@ -1,0 +1,24 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "serp-cache",
+	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-07",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		}
+	},
+	"kv_namespaces": [
+		{
+			"binding": "SERP_CACHE",
+			"id": "2b6b644ad79e4cd4b9931abd0d80a060"
+		}
+	]
+	// Secrets (set via `wrangler secret put`):
+	//   AUTH_TOKEN   – the bearer token clients must send
+	//   SERP_API_KEY – your SerpApi key
+}
