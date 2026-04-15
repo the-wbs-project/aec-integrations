@@ -1,0 +1,567 @@
+{
+  "name": "AECi-W-Press",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "f1a1b2c3-0001-4000-a000-000000000001",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recCUTBsCtopTwDG7"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "f1a1b2c3-0002-4000-a000-000000000002",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        400,
+        -144
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "f1a1b2c3-0003-4000-a000-000000000003",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        48
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "f1a1b2c3-0004-4000-a000-000000000004",
+      "name": "Get Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        624,
+        -48
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').first().json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
+      },
+      "id": "f1a1b2c3-0005-4000-a000-000000000005",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        848,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-required-check",
+              "leftValue": "={{ $json._has_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "f1a1b2c3-0006-4000-a000-000000000006",
+      "name": "Has Required Fields?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1072,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  press_count_12mo: null,\n  press_latest_date: null,\n  press_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['press_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
+      },
+      "id": "f1a1b2c3-0007-4000-a000-000000000007",
+      "name": "Missing Required Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1296,
+        144
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Is '{{ $('Normalize Input').first().json.company_name }}' a distinctive company name, or does it overlap with common words, other companies, or unrelated entities?\n\nReturn JSON:\n{\n  \"is_distinctive\": true | false,\n  \"suggested_query\": \"query string\"\n}\n\nIf distinctive, suggested_query = company name in double quotes.\nIf ambiguous, suggested_query = company name in quotes plus a disambiguating qualifier that reflects the AEC/construction software context, e.g. \"Sage construction software\" or \"Bentley Systems engineering\".\n\nUse quotes around the company name to force exact match.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "f1a1b2c3-0008-4000-a000-000000000008",
+      "name": "Is Name Distinctive?",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [
+        1296,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1024,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1240,
+        176
+      ],
+      "id": "f1a1b2c3-0009-4000-a000-000000000009",
+      "name": "Anthropic Chat Model (Press)",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"is_distinctive\": {\n      \"type\": \"boolean\",\n      \"description\": \"Whether the company name is distinctive enough for unambiguous search\"\n    },\n    \"suggested_query\": {\n      \"type\": \"string\",\n      \"description\": \"Search query string with company name in quotes, plus optional disambiguator\"\n    }\n  },\n  \"required\": [\"is_distinctive\", \"suggested_query\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1368,
+        176
+      ],
+      "id": "f1a1b2c3-0010-4000-a000-000000000010",
+      "name": "Distinctiveness Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\n\nconst query = parsed.suggested_query || `\"${context.company_name}\"`;\nconst encoded = encodeURIComponent(query);\n\nreturn {\n  ...context,\n  google_news_url: `https://news.google.com/rss/search?q=${encoded}&hl=en-US&gl=US&ceid=US:en&when=1y`,\n  query_used: query\n};"
+      },
+      "id": "f1a1b2c3-0011-4000-a000-000000000011",
+      "name": "Build Google News Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1520,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.google_news_url }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; AEC-Integrations-Bot/1.0; +https://aec-integrations.com)"
+            },
+            {
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "f1a1b2c3-0012-4000-a000-000000000012",
+      "name": "HTTP Request: Google News RSS",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1744,
+        -48
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst xml = response.data || '';\nconst context = $('Build Google News Query').first().json;\n\n// Extract <item> blocks\nconst items = xml.match(/<item>[\\s\\S]*?<\\/item>/g) || [];\n\nconst parsed = items.map(block => {\n  const title = (block.match(/<title>([\\s\\S]*?)<\\/title>/) || [])[1] || '';\n  const pubDate = (block.match(/<pubDate>([\\s\\S]*?)<\\/pubDate>/) || [])[1] || '';\n  const source = (block.match(/<source[^>]*>([\\s\\S]*?)<\\/source>/) || [])[1] || '';\n  return {\n    title: title.replace(/<!\\[CDATA\\[|\\]\\]>/g, '').trim(),\n    pubDate: pubDate.trim(),\n    source: source.trim()\n  };\n});\n\nreturn {\n  ...context,\n  items: parsed\n};"
+      },
+      "id": "f1a1b2c3-0013-4000-a000-000000000013",
+      "name": "Parse XML",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1968,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nconst items = input.items || [];\nconst companyName = input.company_name.toLowerCase();\nconst domain = input.vendor_domain.toLowerCase().split('.')[0];\n\n// Keep only items that mention the company name (or its domain root) in the title\nconst matched = items.filter(i =>\n  i.title.toLowerCase().includes(companyName) ||\n  i.title.toLowerCase().includes(domain)\n);\n\n// Parse dates\nconst dated = matched.map(i => {\n  const d = new Date(i.pubDate);\n  return { ...i, timestamp: d.getTime() };\n}).filter(i => !isNaN(i.timestamp));\n\nconst latestTs = dated.length ? Math.max(...dated.map(i => i.timestamp)) : null;\nconst latestDate = latestTs ? new Date(latestTs).toISOString().substring(0, 10) : null;\n\nreturn {\n  record_id: input.record_id,\n  press_count_12mo: matched.length,\n  press_latest_date: latestDate,\n  press_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['press_count_12mo', 'press_latest_date', 'press_checked_at']\n};"
+      },
+      "id": "f1a1b2c3-0014-4000-a000-000000000014",
+      "name": "Filter + Count",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2192,
+        -48
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "press_count_12mo": "={{ $json.press_count_12mo }}",
+            "press_latest_date": "={{ $json.press_latest_date }}",
+            "press_checked_at": "={{ $json.press_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "press_count_12mo",
+              "displayName": "press_count_12mo",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "press_latest_date",
+              "displayName": "press_latest_date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "press_checked_at",
+              "displayName": "press_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "f1a1b2c3-0015-4000-a000-000000000015",
+      "name": "Update Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2416,
+        -48
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-Press',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+      },
+      "id": "f1a1b2c3-0016-4000-a000-000000000016",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        -48
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Has Required Fields?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Required Fields?": {
+      "main": [
+        [
+          {
+            "node": "Is Name Distinctive?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Missing Required Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missing Required Fields": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Name Distinctive?": {
+      "main": [
+        [
+          {
+            "node": "Build Google News Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (Press)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Is Name Distinctive?",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Distinctiveness Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Is Name Distinctive?",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Google News Query": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request: Google News RSS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request: Google News RSS": {
+      "main": [
+        [
+          {
+            "node": "Parse XML",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse XML": {
+      "main": [
+        [
+          {
+            "node": "Filter + Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter + Count": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "timeSavedPerExecution": 5
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {}
+}

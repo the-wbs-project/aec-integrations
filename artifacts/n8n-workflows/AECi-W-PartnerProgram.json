@@ -1,15 +1,15 @@
 {
-  "name": "AECi-W-GitHub",
+  "name": "AECi-W-PartnerProgram",
   "nodes": [
     {
       "parameters": {},
-      "id": "7400a78b-9c89-4d71-86d8-3cfbc26f2017",
+      "id": "a1b2c3d4-0001-4000-8000-000000000001",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -5136,
-        704
+        -2208,
+        -68
       ]
     },
     {
@@ -18,19 +18,19 @@
           "values": [
             {
               "name": "record_id",
-              "stringValue": "recyPyhW3fe9p73Qe"
+              "stringValue": "recH6fuIYPHJ6XWpe"
             }
           ]
         },
         "options": {}
       },
-      "id": "690567b6-6b89-4ccb-9e04-49c6daa652d6",
+      "id": "a1b2c3d4-0002-4000-8000-000000000002",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        -4912,
-        704
+        -1984,
+        -68
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "3e68e939-6984-462d-a7d4-88b5db790649",
+      "id": "a1b2c3d4-0003-4000-8000-000000000003",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -4912,
-        896
+        -1984,
+        124
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "ec014856-6479-4320-b852-d834a39a1957",
+      "id": "a1b2c3d4-0004-4000-8000-000000000004",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -4688,
-        800
+        -1760,
+        28
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -86,13 +86,13 @@
       "parameters": {
         "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').item.json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
       },
-      "id": "ab169854-b64d-452e-bc1b-7f41c21fe89e",
+      "id": "a1b2c3d4-0005-4000-8000-000000000005",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -4464,
-        800
+        -1536,
+        28
       ]
     },
     {
@@ -119,166 +119,41 @@
         },
         "options": {}
       },
-      "id": "aa246562-a1d1-4c19-8d27-5fa7970965ec",
+      "id": "a1b2c3d4-0006-4000-8000-000000000006",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -4240,
-        800
+        -1312,
+        28
       ]
     },
     {
       "parameters": {
-        "promptType": "define",
-        "text": "=Find the GitHub organization page for '{{ $('Get Vendor Record').first().json.company_name }}' (website: {{ $('Get Vendor Record').first().json.website }}).\n\nUse the search tool. Try this query:\n\"{{ $('Get Vendor Record').first().json.company_name }}\" site:github.com\n\nFrom the search results:\n1. Find the GitHub organization page URL (format: https://github.com/ORG_SLUG)\n2. Extract the org slug from the URL\n\nImportant:\n- Only return organization pages, NOT individual repository URLs (e.g. github.com/org/repo)\n- The org page should belong to this specific company, not a similarly-named unrelated project\n- Look for clues in the search snippet that link the GitHub org to the company's domain or product\n- If multiple candidates appear, prefer the one whose description or pinned repos mention the company's domain\n\nReturn null for github_org if you cannot confidently identify the organization.",
-        "hasOutputParser": true,
-        "options": {}
+        "jsCode": "const context = $('Normalize Input').first().json;\nconst partnerPaths = ['/partners','/partner-program','/partnerships','/become-a-partner','/channel-partners','/reseller','/resellers'];\nconst affiliatePaths = ['/affiliate','/affiliates','/affiliate-program','/referral','/referrals','/referral-program'];\n\nconst all = [\n  ...partnerPaths.map(p => ({ kind: 'partner', path: p })),\n  ...affiliatePaths.map(p => ({ kind: 'affiliate', path: p }))\n];\n\nreturn all.map(x => ({\n  json: {\n    ...context,\n    candidate_kind: x.kind,\n    candidate_url: `https://${context.vendor_domain}${x.path}`\n  }\n}));"
       },
-      "id": "a05d03a2-41c5-48a8-80d7-4a0eaf243877",
-      "name": "Find GitHub Org",
-      "type": "@n8n/n8n-nodes-langchain.agent",
-      "typeVersion": 3.1,
-      "position": [
-        -4016,
-        672
-      ]
-    },
-    {
-      "parameters": {
-        "model": {
-          "__rl": true,
-          "value": "claude-haiku-4-5-20251001",
-          "mode": "list",
-          "cachedResultName": "Claude Haiku 4.5"
-        },
-        "options": {
-          "maxTokensToSample": 512,
-          "temperature": 0
-        }
-      },
-      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
-      "typeVersion": 1.3,
-      "position": [
-        -4072,
-        896
-      ],
-      "id": "d2e9d75a-f889-403b-bdf9-17a8218dc96e",
-      "name": "Anthropic Chat Model (GitHub)",
-      "credentials": {
-        "anthropicApi": {
-          "id": "9R2GWOKQyrJz9XW0",
-          "name": "Anthropic - AECi"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "url": "https://serp-cache.aec-integrations.workers.dev",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "q",
-              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequestTool",
-      "typeVersion": 4.4,
-      "position": [
-        -3944,
-        896
-      ],
-      "id": "3d0d008d-f34f-452a-8717-github-serp",
-      "name": "SerpAPI Search",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "tcKAetSZG794jPG3",
-          "name": "SERP Cache Bearer"
-        },
-        "httpBearerAuth": {
-          "id": "svEdy4ASukdpjdOg",
-          "name": "SERP Cache Bearer"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"github_org\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"GitHub organization slug (e.g. 'autodesk' from github.com/autodesk), or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence that this is the correct GitHub org for this company\"\n    }\n  },\n  \"required\": [\"github_org\", \"confidence\"]\n}"
-      },
-      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
-      "typeVersion": 1.3,
-      "position": [
-        -3816,
-        896
-      ],
-      "id": "863f69c0-a8c1-4a4a-88f3-0d07aca13284",
-      "name": "GitHub Org Parser"
-    },
-    {
-      "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst context = $('Normalize Input').first().json;\nconst parsed = raw.output || raw;\n\nconst slug = parsed.github_org || null;\nconst low = parsed.confidence === 'low';\n\n// If confidence is low, discard the slug\nconst finalSlug = low ? null : slug;\n\nreturn {\n  ...context,\n  github_org_slug: finalSlug\n};"
-      },
-      "id": "afd61c82-209a-4980-a7aa-631f480a0c79",
-      "name": "Build Org Slug",
+      "id": "a1b2c3d4-0007-4000-8000-000000000007",
+      "name": "Build Candidate URLs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3664,
-        672
+        -1088,
+        -68
       ]
     },
     {
       "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "strict"
-          },
-          "conditions": [
-            {
-              "id": "has-slug",
-              "leftValue": "={{ $json.github_org_slug }}",
-              "rightValue": "",
-              "operator": {
-                "type": "string",
-                "operation": "isNotEmpty"
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "ce03a5e5-57e2-4489-809e-b18669cf5d0e",
-      "name": "Has Org Slug?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        -3440,
-        672
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.github_org_slug }}",
+        "url": "={{ $json.candidate_url }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
             {
-              "name": "Accept",
-              "value": "application/vnd.github+json"
+              "name": "User-Agent",
+              "value": "Mozilla/5.0 (compatible; AEC-Integrations-Bot/1.0; +https://aec-integrations.com)"
             },
             {
-              "name": "X-GitHub-Api-Version",
-              "value": "2022-11-28"
+              "name": "Accept-Language",
+              "value": "en-US,en;q=0.9"
             }
           ]
         },
@@ -288,16 +163,32 @@
               "fullResponse": true,
               "neverError": true
             }
-          }
+          },
+          "timeout": 30000
         }
       },
-      "id": "dbf66cb8-209c-4b8c-a50f-0292396ebcd0",
-      "name": "GitHub: Verify Org",
+      "id": "a1b2c3d4-0008-4000-8000-000000000008",
+      "name": "Check URLs",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -3216,
-        576
+        -864,
+        -68
+      ],
+      "alwaysOutputData": true,
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const responses = $input.all().map(i => i.json);\nconst context = $('Normalize Input').first().json;\n\nconst partnerMatch = responses.find(r =>\n  r.statusCode === 200 &&\n  typeof r.data === 'string' &&\n  r.data.length > 2000 &&\n  r.candidate_kind === 'partner'\n);\n\nconst affiliateMatch = responses.find(r =>\n  r.statusCode === 200 &&\n  typeof r.data === 'string' &&\n  r.data.length > 2000 &&\n  r.candidate_kind === 'affiliate'\n);\n\nfunction clean(html) {\n  return html\n    .replace(/<script[\\s\\S]*?<\\/script>/gi, '')\n    .replace(/<style[\\s\\S]*?<\\/style>/gi, '')\n    .substring(0, 8000);\n}\n\nreturn {\n  ...context,\n  partner_page_found: !!partnerMatch,\n  partner_page_url: partnerMatch?.candidate_url || null,\n  partner_page_html: partnerMatch ? clean(partnerMatch.data) : null,\n  affiliate_page_found: !!affiliateMatch,\n  affiliate_page_url: affiliateMatch?.candidate_url || null,\n  affiliate_page_html: affiliateMatch ? clean(affiliateMatch.data) : null,\n  any_page_found: !!(partnerMatch || affiliateMatch)\n};"
+      },
+      "id": "a1b2c3d4-0009-4000-8000-000000000009",
+      "name": "Classify Matches",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -640,
+        -68
       ]
     },
     {
@@ -306,16 +197,18 @@
           "options": {
             "caseSensitive": true,
             "leftValue": "",
-            "typeValidation": "strict"
+            "typeValidation": "strict",
+            "version": 1
           },
           "conditions": [
             {
-              "id": "org-verified",
-              "leftValue": "={{ $json.statusCode }}",
-              "rightValue": 200,
+              "id": "any-page-found",
+              "leftValue": "={{ $json.any_page_found }}",
+              "rightValue": true,
               "operator": {
-                "type": "number",
-                "operation": "equals"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],
@@ -323,80 +216,107 @@
         },
         "options": {}
       },
-      "id": "f1a2b3c4-5678-4abc-9def-orgverified01",
-      "name": "Org Verified?",
+      "id": "a1b2c3d4-000a-4000-8000-000000000010",
+      "name": "Any Page Found?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -2992,
-        576
+        -416,
+        -68
       ]
     },
     {
       "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.data.login }}/repos?per_page=100&sort=updated&type=public",
-        "sendHeaders": true,
-        "headerParameters": {
-          "parameters": [
-            {
-              "name": "Accept",
-              "value": "application/vnd.github+json"
-            },
-            {
-              "name": "X-GitHub-Api-Version",
-              "value": "2022-11-28"
-            }
-          ]
+        "promptType": "define",
+        "text": "=Vendor: {{ $json.company_name }} ({{ $json.vendor_domain }})\n\nI found two potential pages. Classify each:\n- A \"formal partner program\" has tiers (Gold/Silver), application process, partner benefits, or \"become a partner\" CTA. A page that just lists existing partners does NOT count as a formal program.\n- An \"affiliate program\" offers commission/revenue share for referrals.\n\nPartner page ({{ $json.partner_page_url }}):\n{{ $json.partner_page_html }}\n\nAffiliate page ({{ $json.affiliate_page_url }}):\n{{ $json.affiliate_page_html }}\n\nReturn JSON:\n{\n  \"is_formal_partner_program\": true | false,\n  \"partner_has_application\": true | false,\n  \"is_affiliate_program\": true | false,\n  \"confidence\": \"low\" | \"medium\" | \"high\",\n  \"notes\": \"brief\"\n}\n\nIf a page is null/empty, set its boolean false.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -192,
+        -192
+      ],
+      "id": "a1b2c3d4-000b-4000-8000-000000000011",
+      "name": "Claude: Is It a Formal Program?"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
         },
         "options": {}
       },
-      "id": "44f64d95-856a-4206-a23d-2da040225a6d",
-      "name": "GitHub: Fetch Repos",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
       "position": [
-        -2768,
-        480
+        -184,
+        32
       ],
-      "alwaysOutputData": true
+      "id": "a1b2c3d4-000c-4000-8000-000000000012",
+      "name": "Anthropic Chat Model",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const inputItems = $input.all();\nconst orgData = $('GitHub: Verify Org').first().json.data;\nconst context = $('Normalize Input').first().json;\n\nlet allRepos = [];\nfor (const item of inputItems) {\n  const val = item.json;\n  if (Array.isArray(val)) {\n    allRepos.push(...val);\n  } else if (val && typeof val === 'object' && val.id && val.name) {\n    allRepos.push(val);\n  }\n}\n\nconst ownRepos = allRepos.filter(r => r && !r.fork);\n\nconst totalStars = ownRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);\nconst repoCount = ownRepos.length;\n\nconst sdkRegex = /sdk|api[-_]?client|plugin|library|integration/i;\nconst hasSdkRepo = ownRepos.some(r =>\n  sdkRegex.test(r.name || '') || sdkRegex.test(r.description || '')\n);\n\nconst pushDates = ownRepos\n  .map(r => r.pushed_at ? new Date(r.pushed_at).getTime() : 0)\n  .filter(t => t > 0);\nconst lastPush = pushDates.length ? Math.max(...pushDates) : null;\nconst daysAgo = lastPush ? Math.floor((Date.now() - lastPush) / 86400000) : null;\n\nconst domain = context.vendor_domain;\nconst isVerified = !!(domain && (\n  (orgData.blog || '').toLowerCase().includes(domain) ||\n  (orgData.description || '').toLowerCase().includes(domain) ||\n  ownRepos.some(r =>\n    (r.description || '').toLowerCase().includes(domain) ||\n    (r.homepage || '').toLowerCase().includes(domain)\n  )\n));\n\nreturn {\n  record_id: context.record_id,\n  github_org: orgData.login,\n  github_org_verified: isVerified,\n  github_repo_count: repoCount,\n  github_stars_total: totalStars,\n  has_sdk_repo: hasSdkRepo,\n  github_last_commit_days_ago: daysAgo,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_org','github_org_verified','github_repo_count','github_stars_total','has_sdk_repo','github_last_commit_days_ago','github_checked_at'],\n  note: repoCount === 0 ? 'Org exists but has no public repos' : null\n};"
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"is_formal_partner_program\": {\n      \"type\": \"boolean\",\n      \"description\": \"Whether this is a formal partner program with tiers, application process, or partner benefits\"\n    },\n    \"partner_has_application\": {\n      \"type\": \"boolean\",\n      \"description\": \"Whether the partner program has an application process\"\n    },\n    \"is_affiliate_program\": {\n      \"type\": \"boolean\",\n      \"description\": \"Whether an affiliate or referral program exists offering commission or revenue share\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"]\n    },\n    \"notes\": {\n      \"type\": \"string\",\n      \"description\": \"Brief explanation of classification\"\n    }\n  },\n  \"required\": [\"is_formal_partner_program\", \"partner_has_application\", \"is_affiliate_program\", \"confidence\", \"notes\"]\n}"
       },
-      "id": "ea4665a4-38df-4841-9caa-7c270551c5f6",
-      "name": "Aggregate GitHub Stats",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -56,
+        32
+      ],
+      "id": "a1b2c3d4-000d-4000-8000-000000000013",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.first().json.output || $input.first().json;\nconst classified = $('Classify Matches').first().json;\n\nreturn {\n  record_id: classified.record_id,\n  has_partner_program: parsed.is_formal_partner_program === true && parsed.confidence !== 'low',\n  partner_program_url: parsed.is_formal_partner_program ? classified.partner_page_url : null,\n  has_affiliate_program: parsed.is_affiliate_program === true && parsed.confidence !== 'low',\n  affiliate_program_url: parsed.is_affiliate_program ? classified.affiliate_page_url : null,\n  partner_program_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_partner_program','partner_program_url','has_affiliate_program','affiliate_program_url','partner_program_checked_at']\n};"
+      },
+      "id": "a1b2c3d4-000e-4000-8000-000000000014",
+      "name": "Build Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2544,
-        480
+        160,
+        -192
       ]
     },
     {
       "parameters": {
-        "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_checked_at'],\n  note: 'No GitHub org found for this vendor'\n};"
+        "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  has_partner_program: false,\n  partner_program_url: null,\n  has_affiliate_program: false,\n  affiliate_program_url: null,\n  partner_program_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_partner_program','has_affiliate_program','partner_program_checked_at'],\n  note: 'No partner or affiliate pages found'\n};"
       },
-      "id": "641883ab-8d17-4acf-aa43-572c2b0262b3",
+      "id": "a1b2c3d4-000f-4000-8000-000000000015",
       "name": "Write Empty Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2768,
-        768
+        160,
+        56
       ]
     },
     {
       "parameters": {
-        "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['github_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
+        "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  has_partner_program: false,\n  partner_program_url: null,\n  has_affiliate_program: false,\n  affiliate_program_url: null,\n  partner_program_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['partner_program_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
       },
-      "id": "0588dc31-e711-4ee5-a85e-ee9817258b8f",
+      "id": "a1b2c3d4-0010-4000-8000-000000000016",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2320,
-        976
+        384,
+        224
       ]
     },
     {
@@ -415,14 +335,12 @@
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
-            "github_org": "={{ $json.github_org }}",
-            "github_org_verified": "={{ $json.github_org_verified }}",
-            "github_repo_count": "={{ $json.github_repo_count }}",
-            "github_stars_total": "={{ $json.github_stars_total }}",
-            "has_sdk_repo": "={{ $json.has_sdk_repo }}",
-            "github_last_commit_days_ago": "={{ $json.github_last_commit_days_ago }}",
             "id": "={{ $json.record_id }}",
-            "github_checked_at": "={{ $json.github_checked_at }}"
+            "has_partner_program": "={{ $json.has_partner_program }}",
+            "partner_program_url": "={{ $json.partner_program_url }}",
+            "has_affiliate_program": "={{ $json.has_affiliate_program }}",
+            "affiliate_program_url": "={{ $json.affiliate_program_url }}",
+            "partner_program_checked_at": "={{ $json.partner_program_checked_at }}"
           },
           "matchingColumns": [
             "id"
@@ -604,7 +522,7 @@
               "display": true,
               "type": "string",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_org_verified",
@@ -615,7 +533,7 @@
               "display": true,
               "type": "boolean",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_repo_count",
@@ -626,7 +544,7 @@
               "display": true,
               "type": "number",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_stars_total",
@@ -637,7 +555,7 @@
               "display": true,
               "type": "number",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "has_sdk_repo",
@@ -648,7 +566,7 @@
               "display": true,
               "type": "boolean",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_last_commit_days_ago",
@@ -659,7 +577,7 @@
               "display": true,
               "type": "number",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "github_checked_at",
@@ -670,7 +588,7 @@
               "display": true,
               "type": "dateTime",
               "readOnly": false,
-              "removed": false
+              "removed": true
             },
             {
               "id": "has_integration_page",
@@ -725,7 +643,7 @@
               "display": true,
               "type": "boolean",
               "readOnly": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "partner_program_url",
@@ -736,7 +654,7 @@
               "display": true,
               "type": "string",
               "readOnly": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "has_affiliate_program",
@@ -747,7 +665,7 @@
               "display": true,
               "type": "boolean",
               "readOnly": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "affiliate_program_url",
@@ -758,7 +676,7 @@
               "display": true,
               "type": "string",
               "readOnly": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "partner_program_checked_at",
@@ -769,7 +687,7 @@
               "display": true,
               "type": "dateTime",
               "readOnly": false,
-              "removed": true
+              "removed": false
             },
             {
               "id": "linkedin_followers",
@@ -1047,13 +965,13 @@
           "typecast": true
         }
       },
-      "id": "a73e53eb-f211-4e7d-a74b-be90eafd8cd7",
+      "id": "a1b2c3d4-0011-4000-8000-000000000017",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -2320,
-        672
+        384,
+        -68
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -1064,15 +982,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-GitHub',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-PartnerProgram',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "4d1f3bcc-4997-4bd5-b98a-693c983945e3",
+      "id": "a1b2c3d4-0012-4000-8000-000000000018",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2096,
-        800
+        608,
+        28
       ]
     }
   ],
@@ -1136,7 +1054,7 @@
       "main": [
         [
           {
-            "node": "Find GitHub Org",
+            "node": "Build Candidate URLs",
             "type": "main",
             "index": 0
           }
@@ -1150,66 +1068,44 @@
         ]
       ]
     },
-    "Anthropic Chat Model (GitHub)": {
-      "ai_languageModel": [
-        [
-          {
-            "node": "Find GitHub Org",
-            "type": "ai_languageModel",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "SerpAPI Search": {
-      "ai_tool": [
-        [
-          {
-            "node": "Find GitHub Org",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "GitHub Org Parser": {
-      "ai_outputParser": [
-        [
-          {
-            "node": "Find GitHub Org",
-            "type": "ai_outputParser",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Find GitHub Org": {
+    "Build Candidate URLs": {
       "main": [
         [
           {
-            "node": "Build Org Slug",
+            "node": "Check URLs",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Org Slug": {
+    "Check URLs": {
       "main": [
         [
           {
-            "node": "Has Org Slug?",
+            "node": "Classify Matches",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has Org Slug?": {
+    "Classify Matches": {
       "main": [
         [
           {
-            "node": "GitHub: Verify Org",
+            "node": "Any Page Found?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Page Found?": {
+      "main": [
+        [
+          {
+            "node": "Claude: Is It a Formal Program?",
             "type": "main",
             "index": 0
           }
@@ -1223,47 +1119,18 @@
         ]
       ]
     },
-    "GitHub: Verify Org": {
+    "Claude: Is It a Formal Program?": {
       "main": [
         [
           {
-            "node": "Org Verified?",
+            "node": "Build Result",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Org Verified?": {
-      "main": [
-        [
-          {
-            "node": "GitHub: Fetch Repos",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Write Empty Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "GitHub: Fetch Repos": {
-      "main": [
-        [
-          {
-            "node": "Aggregate GitHub Stats",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Aggregate GitHub Stats": {
+    "Build Result": {
       "main": [
         [
           {
@@ -1285,6 +1152,17 @@
         ]
       ]
     },
+    "Update Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Missing Required Fields": {
       "main": [
         [
@@ -1296,12 +1174,23 @@
         ]
       ]
     },
-    "Update Vendor Record": {
-      "main": [
+    "Structured Output Parser": {
+      "ai_outputParser": [
         [
           {
-            "node": "Format Return Value",
-            "type": "main",
+            "node": "Claude: Is It a Formal Program?",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Claude: Is It a Formal Program?",
+            "type": "ai_languageModel",
             "index": 0
           }
         ]
@@ -1310,16 +1199,11 @@
   },
   "settings": {
     "executionOrder": "v1",
-    "binaryMode": "separate",
-    "timeSavedMode": "fixed",
-    "errorWorkflow": "86rEn9WgLNb61C4M",
-    "callerPolicy": "workflowsFromSameOwner",
-    "availableInMCP": false,
-    "timeSavedPerExecution": 5
+    "binaryMode": "separate"
   },
   "staticData": null,
   "pinData": {},
   "meta": {
-    "n8n_id": "cNVa9oKXkJD9vxcV"
+    "n8n_id": "JktaEorfiYHtkJQh"
   }
 }
