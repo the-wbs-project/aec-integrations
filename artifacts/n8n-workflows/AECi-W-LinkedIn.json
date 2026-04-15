@@ -1,0 +1,417 @@
+{
+  "name": "AECi-W-LinkedIn",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a1b2c3d4-1001-4000-a000-000000000001",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        6096,
+        2688
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recCUTBsCtopTwDG7"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1b2c3d4-1001-4000-a000-000000000002",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        6320,
+        2688
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "a1b2c3d4-1001-4000-a000-000000000003",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        6320,
+        2880
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "a1b2c3d4-1001-4000-a000-000000000004",
+      "name": "Get Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        6544,
+        2784
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Find the LinkedIn company page for '{{ $('Get Vendor Record').first().json.company_name }}' (website: {{ $('Get Vendor Record').first().json.website }}).\n\nUse the search tool. Try this query:\n\"{{ $('Get Vendor Record').first().json.company_name }}\" site:linkedin.com/company\n\nFrom the search results:\n1. Find the LinkedIn company page URL (format: https://www.linkedin.com/company/SLUG/)\n2. Extract the follower count from the search snippet (e.g., \"1,234 followers on LinkedIn\")\n\nIf the company already has a known LinkedIn URL: {{ $('Get Vendor Record').first().json.linkedin_url || 'none' }}\n— still search to get the current follower count.\n\nReturn null for linkedin_url if you cannot find the company page with confidence.\nReturn null for linkedin_followers if the follower count is not visible in the search results.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "a1b2c3d4-1001-4000-a000-000000000005",
+      "name": "Find LinkedIn Data",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        6768,
+        2784
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 512,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        6712,
+        3008
+      ],
+      "id": "a1b2c3d4-1001-4000-a000-000000000006",
+      "name": "Anthropic Chat Model (LinkedIn)",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://serp-cache.aec-integrations.workers.dev",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        6840,
+        3008
+      ],
+      "id": "a1b2c3d4-1001-4000-a000-000000000007",
+      "name": "SerpAPI Search",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "tcKAetSZG794jPG3",
+          "name": "SERP Cache Bearer"
+        },
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"linkedin_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"LinkedIn company page URL (https://www.linkedin.com/company/SLUG/), or null\"\n    },\n    \"linkedin_followers\": {\n      \"type\": [\"integer\", \"null\"],\n      \"description\": \"Follower count as a number (no commas), or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence that this is the correct company page\"\n    }\n  },\n  \"required\": [\"linkedin_url\", \"linkedin_followers\", \"confidence\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        6968,
+        3008
+      ],
+      "id": "a1b2c3d4-1001-4000-a000-000000000008",
+      "name": "LinkedIn Data Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst parsed = raw.output || raw;\n\nconst linkedinUrl = parsed.linkedin_url || null;\nconst followers = (typeof parsed.linkedin_followers === 'number' && parsed.linkedin_followers >= 0)\n  ? parsed.linkedin_followers : null;\nconst low = parsed.confidence === 'low';\n\n// If confidence is low, discard the URL\nconst finalUrl = low ? null : linkedinUrl;\n\nconst fieldsUpdated = ['linkedin_checked_at'];\nif (finalUrl) fieldsUpdated.push('linkedin_url');\nif (followers !== null) fieldsUpdated.push('linkedin_followers');\n\nreturn {\n  record_id: vendor.id,\n  linkedin_url: finalUrl,\n  linkedin_followers: followers,\n  linkedin_checked_at: new Date().toISOString(),\n  status: finalUrl ? 'success' : 'partial',\n  fields_updated: fieldsUpdated,\n  note: !finalUrl ? 'No LinkedIn page found' : (followers === null ? 'URL found but no follower count in SERP' : null)\n};"
+      },
+      "id": "a1b2c3d4-1001-4000-a000-000000000009",
+      "name": "Build Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6992,
+        2784
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "linkedin_url": "={{ $json.linkedin_url }}",
+            "linkedin_followers": "={{ $json.linkedin_followers }}",
+            "linkedin_checked_at": "={{ $json.linkedin_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "linkedin_url",
+              "displayName": "linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "linkedin_followers",
+              "displayName": "linkedin_followers",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "linkedin_checked_at",
+              "displayName": "linkedin_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "a1b2c3d4-1001-4000-a000-000000000010",
+      "name": "Update Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        7216,
+        2784
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-LinkedIn',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+      },
+      "id": "a1b2c3d4-1001-4000-a000-000000000011",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        7440,
+        2784
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Find LinkedIn Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (LinkedIn)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Find LinkedIn Data",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SerpAPI Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "Find LinkedIn Data",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LinkedIn Data Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Find LinkedIn Data",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find LinkedIn Data": {
+      "main": [
+        [
+          {
+            "node": "Build Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Result": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "staticData": null,
+  "meta": {}
+}
