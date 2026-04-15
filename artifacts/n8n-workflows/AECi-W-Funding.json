@@ -1,0 +1,515 @@
+{
+  "name": "AECi-W-Funding",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "1ed74245-18f3-484f-afd3-2526807d4b58",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -1216,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recCUTBsCtopTwDG7"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "05143a00-c186-457a-9bd9-291ede64e324",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        -992,
+        -260
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "c95ae006-bf98-4721-b61f-3b2339644afa",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -992,
+        -68
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "bf7bfeb9-a334-40ef-936c-c49df61770eb",
+      "name": "Get Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        -768,
+        -164
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "fd-cond-public",
+              "leftValue": "={{ $('Get Vendor Record').first().json.public_private }}",
+              "rightValue": "Public",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "88c9a373-25e0-45ab-97f9-5fbc3558b8d8",
+      "name": "Check Public",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -544,
+        -164
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const vendor = $('Get Vendor Record').first().json;\n\nreturn {\n  record_id: vendor.id,\n  funding_stage: 'Public',\n  total_funding_usd: null,\n  last_funding_date: null,\n  funding_source_url: null,\n  funding_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['funding_stage', 'funding_checked_at'],\n  note: 'Stage inferred from existing public_private field'\n};"
+      },
+      "id": "80be0010-eee6-41b6-9a72-fa8dfc7d7464",
+      "name": "Skip to Public",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -288
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=What is the funding status of '{{ $('Get Vendor Record').first().json.company_name }}' ({{ $('Get Vendor Record').first().json.website }})?\n\nUse the search tool. Try these queries:\n1. \"{{ $('Get Vendor Record').first().json.company_name }}\" funding crunchbase\n2. \"{{ $('Get Vendor Record').first().json.company_name }}\" series round raised\n\nFrom the search results, determine:\n- Funding stage (Bootstrapped, Pre-seed, Seed, Series A, Series B, Series C, Series D+, Public, Acquired, or Unknown)\n- Total funding raised in USD (if disclosed)\n- Date of the most recent funding round (YYYY-MM-DD)\n- A source URL for the funding information\n\nNotes:\n- Use \"Public\" if the company is publicly traded on any exchange.\n- Use \"Acquired\" if acquired by another company (note the acquirer).\n- Use \"Bootstrapped\" only if you find explicit evidence (founder statements, \"never raised\", etc.), NOT just absence of funding data.\n- Use \"Unknown\" if you cannot determine with medium+ confidence.\n- total_funding_usd should be total disclosed funding across all rounds.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "46a9d10e-53ed-4df2-9df4-a917210a8d34",
+      "name": "Find Funding",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        -264,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 512,
+          "temperature": 0
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        -320,
+        184
+      ],
+      "id": "a922d72d-6c66-4833-b547-116af6bef686",
+      "name": "Anthropic Chat Model (Funding)",
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://serp-cache.aec-integrations.workers.dev",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        -192,
+        184
+      ],
+      "id": "bd945b56-16da-4d9b-97c0-af50301cad7a",
+      "name": "SerpAPI Search",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "tcKAetSZG794jPG3",
+          "name": "SERP Cache Bearer"
+        },
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"funding_stage\": {\n      \"type\": \"string\",\n      \"enum\": [\"Bootstrapped\", \"Pre-seed\", \"Seed\", \"Series A\", \"Series B\", \"Series C\", \"Series D+\", \"Public\", \"Acquired\", \"Unknown\"],\n      \"description\": \"The company's funding stage\"\n    },\n    \"total_funding_usd\": {\n      \"type\": [\"number\", \"null\"],\n      \"description\": \"Total funding raised in USD, or null if unknown\"\n    },\n    \"last_funding_date\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"Date of most recent round in YYYY-MM-DD format, or null\"\n    },\n    \"source_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"URL where funding info was found, or null\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence in the funding data\"\n    },\n    \"notes\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"Brief notes (e.g. acquirer name, lead investor)\"\n    }\n  },\n  \"required\": [\"funding_stage\", \"total_funding_usd\", \"last_funding_date\", \"source_url\", \"confidence\", \"notes\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        -64,
+        184
+      ],
+      "id": "8de5e15e-6a56-4afd-8d97-1e10a58ef218",
+      "name": "Funding Data Parser"
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst parsed = raw.output || raw;\n\nconst VALID_STAGES = ['Bootstrapped', 'Pre-seed', 'Seed', 'Series A', 'Series B', 'Series C', 'Series D+', 'Public', 'Acquired', 'Unknown'];\n\nconst stage = VALID_STAGES.includes(parsed.funding_stage) ? parsed.funding_stage : 'Unknown';\n\n// Validate date format\nlet lastDate = null;\nif (parsed.last_funding_date && /^\\d{4}-\\d{2}-\\d{2}$/.test(parsed.last_funding_date)) {\n  lastDate = parsed.last_funding_date;\n}\n\n// Validate total funding\nconst totalFunding = (typeof parsed.total_funding_usd === 'number' && parsed.total_funding_usd > 0)\n  ? parsed.total_funding_usd : null;\n\nconst confidence = parsed.confidence || 'low';\nconst low = confidence === 'low' || stage === 'Unknown';\n\nconst fieldsUpdated = ['funding_checked_at'];\nif (stage !== 'Unknown') fieldsUpdated.push('funding_stage');\nif (totalFunding) fieldsUpdated.push('total_funding_usd');\nif (lastDate) fieldsUpdated.push('last_funding_date');\nif (parsed.source_url) fieldsUpdated.push('funding_source_url');\n\nreturn {\n  record_id: vendor.id,\n  funding_stage: stage,\n  total_funding_usd: totalFunding,\n  last_funding_date: lastDate,\n  funding_source_url: parsed.source_url || null,\n  funding_checked_at: new Date().toISOString(),\n  status: low ? 'partial' : 'success',\n  fields_updated: fieldsUpdated,\n  note: parsed.notes || null\n};"
+      },
+      "id": "963a5d11-4411-4a71-9d8b-5fff3d464249",
+      "name": "Parse Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        144,
+        -40
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "funding_stage": "={{ $json.funding_stage }}",
+            "total_funding_usd": "={{ $json.total_funding_usd }}",
+            "last_funding_date": "={{ $json.last_funding_date }}",
+            "funding_source_url": "={{ $json.funding_source_url }}",
+            "funding_checked_at": "={{ $json.funding_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "funding_stage",
+              "displayName": "funding_stage",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "total_funding_usd",
+              "displayName": "total_funding_usd",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_funding_date",
+              "displayName": "last_funding_date",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "funding_source_url",
+              "displayName": "funding_source_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "funding_checked_at",
+              "displayName": "funding_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "aa2f18f3-6ccd-4122-998a-c694547d8de0",
+      "name": "Update Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        368,
+        -164
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-Funding',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+      },
+      "id": "c4de49e0-dac1-490e-8030-49c6e454354d",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        592,
+        -164
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Check Public",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Public": {
+      "main": [
+        [
+          {
+            "node": "Skip to Public",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Find Funding",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Skip to Public": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model (Funding)": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Find Funding",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SerpAPI Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "Find Funding",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Funding Data Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Find Funding",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find Funding": {
+      "main": [
+        [
+          {
+            "node": "Parse Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Response": {
+      "main": [
+        [
+          {
+            "node": "Update Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "n8n_id": "wxPnGKbRN8N3brBg"
+  }
+}
