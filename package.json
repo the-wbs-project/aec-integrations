@@ -18,8 +18,8 @@
     "n8n:list": "bash artifacts/n8n-workflows/sync-n8n.sh list",
     "n8n:pull-all": "bash artifacts/n8n-workflows/sync-n8n.sh pull-all",
     "n8n:push-all": "bash artifacts/n8n-workflows/sync-n8n.sh push-all",
-    "dev:serp": "pnpm --filter serp-cache dev",
-    "ship:serp": "pnpm --filter serp-cache deploy"
+    "dev:n8n-utils": "pnpm --filter n8n-utils dev",
+    "ship:n8n-utils": "pnpm --filter n8n-utils deploy"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

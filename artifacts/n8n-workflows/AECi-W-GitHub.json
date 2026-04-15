@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "7400a78b-9c89-4d71-86d8-3cfbc26f2017",
+      "id": "6c20b82c-f0a2-4f85-89b2-750dacf90836",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -5136,
-        704
+        -6976,
+        996
       ]
     },
     {
@@ -24,13 +24,13 @@
         },
         "options": {}
       },
-      "id": "690567b6-6b89-4ccb-9e04-49c6daa652d6",
+      "id": "df8f2635-ef25-45f2-b19e-cf5aa94346cd",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        -4912,
-        704
+        -6752,
+        996
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "3e68e939-6984-462d-a7d4-88b5db790649",
+      "id": "cb392edf-5fcc-461e-ab32-5c1a2a109cd5",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -4912,
-        896
+        -6752,
+        1188
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "ec014856-6479-4320-b852-d834a39a1957",
+      "id": "1e9a3f59-88ea-44ee-b48a-7f20a0a260ff",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -4688,
-        800
+        -6528,
+        1092
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -86,13 +86,13 @@
       "parameters": {
         "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').item.json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
       },
-      "id": "ab169854-b64d-452e-bc1b-7f41c21fe89e",
+      "id": "573ec54c-5600-4ef4-a382-edf4aaef75d5",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -4464,
-        800
+        -6304,
+        1092
       ]
     },
     {
@@ -119,30 +119,30 @@
         },
         "options": {}
       },
-      "id": "aa246562-a1d1-4c19-8d27-5fa7970965ec",
+      "id": "21b5e4ac-3f93-4f9a-a3e9-5a438c67c077",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -4240,
-        800
+        -6080,
+        1092
       ]
     },
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Find the GitHub organization page for '{{ $('Get Vendor Record').first().json.company_name }}' (website: {{ $('Get Vendor Record').first().json.website }}).\n\nUse the search tool. Try this query:\n\"{{ $('Get Vendor Record').first().json.company_name }}\" site:github.com\n\nFrom the search results:\n1. Find the GitHub organization page URL (format: https://github.com/ORG_SLUG)\n2. Extract the org slug from the URL\n\nImportant:\n- Only return organization pages, NOT individual repository URLs (e.g. github.com/org/repo)\n- The org page should belong to this specific company, not a similarly-named unrelated project\n- Look for clues in the search snippet that link the GitHub org to the company's domain or product\n- If multiple candidates appear, prefer the one whose description or pinned repos mention the company's domain\n\nReturn null for github_org if you cannot confidently identify the organization.",
+        "text": "=The vendor is '{{ $json.company_name }}' with domain '{{ $json.vendor_domain }}'. What is the most likely GitHub organization slug for this company? Consider: exact company name, company name without spaces/special chars, domain root. Return ONLY a JSON object with this exact shape: {\"candidate_slugs\": [\"slug1\",\"slug2\",\"slug3\"], \"confidence\": \"low|medium|high\", \"reasoning\": \"short\"}. If the company is unlikely to have a GitHub org (small consultancy, legacy ERP, etc.), return {\"candidate_slugs\": [], \"confidence\": \"low\", \"reasoning\": \"why\"}. Order candidates most likely first, max 3.",
         "hasOutputParser": true,
         "options": {}
       },
-      "id": "a05d03a2-41c5-48a8-80d7-4a0eaf243877",
-      "name": "Find GitHub Org",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        -4016,
-        672
-      ]
+        -5856,
+        968
+      ],
+      "id": "0c250c6a-8615-4b23-ab8f-eabac5cf8127",
+      "name": "AI Agent"
     },
     {
       "parameters": {
@@ -153,18 +153,18 @@
           "cachedResultName": "Claude Haiku 4.5"
         },
         "options": {
-          "maxTokensToSample": 512,
+          "maxTokensToSample": 1024,
           "temperature": 0
         }
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        -4072,
-        896
+        -5848,
+        1192
       ],
-      "id": "d2e9d75a-f889-403b-bdf9-17a8218dc96e",
-      "name": "Anthropic Chat Model (GitHub)",
+      "id": "924b8f82-2194-494c-a2b0-a3fbcbd38465",
+      "name": "Anthropic Chat Model1",
       "credentials": {
         "anthropicApi": {
           "id": "9R2GWOKQyrJz9XW0",
@@ -174,64 +174,28 @@
     },
     {
       "parameters": {
-        "url": "https://serp-cache.aec-integrations.workers.dev",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpBearerAuth",
-        "sendQuery": true,
-        "queryParameters": {
-          "parameters": [
-            {
-              "name": "q",
-              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
-            }
-          ]
-        },
-        "options": {}
-      },
-      "type": "n8n-nodes-base.httpRequestTool",
-      "typeVersion": 4.4,
-      "position": [
-        -3944,
-        896
-      ],
-      "id": "3d0d008d-f34f-452a-8717-github-serp",
-      "name": "SerpAPI Search",
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "tcKAetSZG794jPG3",
-          "name": "SERP Cache Bearer"
-        },
-        "httpBearerAuth": {
-          "id": "svEdy4ASukdpjdOg",
-          "name": "SERP Cache Bearer"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"github_org\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"GitHub organization slug (e.g. 'autodesk' from github.com/autodesk), or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence that this is the correct GitHub org for this company\"\n    }\n  },\n  \"required\": [\"github_org\", \"confidence\"]\n}"
+        "jsonSchemaExample": "{\n  \"candidate_slugs\": [\"Autodesk\", \"autodesk-platform-services\"],\n  \"confidence\": \"high\",\n  \"reasoning\": \"Company name matches GitHub org convention\"\n}"
       },
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        -3816,
-        896
+        -5720,
+        1192
       ],
-      "id": "863f69c0-a8c1-4a4a-88f3-0d07aca13284",
-      "name": "GitHub Org Parser"
+      "id": "081aaa00-ec2a-422a-bbd1-69abecb9402c",
+      "name": "Structured Output Parser1"
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst context = $('Normalize Input').first().json;\nconst parsed = raw.output || raw;\n\nconst slug = parsed.github_org || null;\nconst low = parsed.confidence === 'low';\n\n// If confidence is low, discard the slug\nconst finalSlug = low ? null : slug;\n\nreturn {\n  ...context,\n  github_org_slug: finalSlug\n};"
+        "jsCode": "const parsed = $input.first().json.output || $input.first().json;\nconst previous = $('Normalize Input').first().json;\n\nreturn {\n  ...previous,\n  candidate_slugs: parsed.candidate_slugs || [],\n  claude_confidence: parsed.confidence || 'low',\n  claude_reasoning: parsed.reasoning || ''\n};"
       },
-      "id": "afd61c82-209a-4980-a7aa-631f480a0c79",
-      "name": "Build Org Slug",
+      "id": "33502858-5911-4f22-9893-ac5b11349ce9",
+      "name": "Merge with Context",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3664,
-        672
+        -5504,
+        968
       ]
     },
     {
@@ -244,12 +208,12 @@
           },
           "conditions": [
             {
-              "id": "has-slug",
-              "leftValue": "={{ $json.github_org_slug }}",
-              "rightValue": "",
+              "id": "has-candidates",
+              "leftValue": "={{ $json.candidate_slugs.length }}",
+              "rightValue": 0,
               "operator": {
-                "type": "string",
-                "operation": "isNotEmpty"
+                "type": "number",
+                "operation": "gt"
               }
             }
           ],
@@ -257,18 +221,33 @@
         },
         "options": {}
       },
-      "id": "ce03a5e5-57e2-4489-809e-b18669cf5d0e",
-      "name": "Has Org Slug?",
+      "id": "6eae806c-a4f9-4869-bc4c-941dc921fa07",
+      "name": "Has Candidates?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -3440,
-        672
+        -5280,
+        968
       ]
     },
     {
       "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.github_org_slug }}",
+        "fieldToSplitOut": "candidate_slugs",
+        "include": "allOtherFields",
+        "options": {}
+      },
+      "id": "089c7a73-7366-4aac-a443-5195b9b020f8",
+      "name": "Split Candidate Slugs",
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -5056,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "url": "=https://api.github.com/orgs/{{ $json.candidate_slugs }}",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -291,13 +270,26 @@
           }
         }
       },
-      "id": "dbf66cb8-209c-4b8c-a50f-0292396ebcd0",
-      "name": "GitHub: Verify Org",
+      "id": "f86b8dae-1014-4c2f-8799-5e4c8a0d253e",
+      "name": "GitHub: Check Org Exists",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -3216,
-        576
+        -4832,
+        896
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all().map(i => i.json);\nconst context = $('Normalize Input').first().json;\n\n// Filter to successful org lookups (status 200)\nconst found = items.filter(r => r.statusCode === 200 && r.data);\n\nif (found.length === 0) {\n  return { found: false, ...context };\n}\n\n// Pick the best match: prefer org whose blog/description mentions vendor domain\nconst domain = context.vendor_domain;\nlet best = found[0];\n\nif (domain && found.length > 1) {\n  const domainMatch = found.find(r => {\n    const org = r.data;\n    const desc = (org.description || '').toLowerCase();\n    const blog = (org.blog || '').toLowerCase();\n    return desc.includes(domain) || blog.includes(domain);\n  });\n  if (domainMatch) best = domainMatch;\n}\n\nconst org = best.data;\nreturn {\n  found: true,\n  ...context,\n  org_login: org.login,\n  org_description: org.description || null,\n  org_blog: org.blog || null\n};"
+      },
+      "id": "6aee885d-2d9e-4eb6-9dd1-87e0b0dfb23f",
+      "name": "Pick Best Org",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4608,
+        896
       ]
     },
     {
@@ -310,12 +302,13 @@
           },
           "conditions": [
             {
-              "id": "org-verified",
-              "leftValue": "={{ $json.statusCode }}",
-              "rightValue": 200,
+              "id": "found-valid-org",
+              "leftValue": "={{ $json.found }}",
+              "rightValue": true,
               "operator": {
-                "type": "number",
-                "operation": "equals"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],
@@ -323,18 +316,18 @@
         },
         "options": {}
       },
-      "id": "f1a2b3c4-5678-4abc-9def-orgverified01",
-      "name": "Org Verified?",
+      "id": "27125667-3cc5-49ef-b717-5078f937c835",
+      "name": "Found Valid Org?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -2992,
-        576
+        -4384,
+        896
       ]
     },
     {
       "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.data.login }}/repos?per_page=100&sort=updated&type=public",
+        "url": "=https://api.github.com/orgs/{{ $json.org_login }}/repos?per_page=100&sort=updated&type=public",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -350,53 +343,53 @@
         },
         "options": {}
       },
-      "id": "44f64d95-856a-4206-a23d-2da040225a6d",
+      "id": "51231369-275c-4488-a215-e8aea9ad1975",
       "name": "GitHub: Fetch Repos",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -2768,
-        480
+        -4160,
+        848
       ],
       "alwaysOutputData": true
     },
     {
       "parameters": {
-        "jsCode": "const inputItems = $input.all();\nconst orgData = $('GitHub: Verify Org').first().json.data;\nconst context = $('Normalize Input').first().json;\n\nlet allRepos = [];\nfor (const item of inputItems) {\n  const val = item.json;\n  if (Array.isArray(val)) {\n    allRepos.push(...val);\n  } else if (val && typeof val === 'object' && val.id && val.name) {\n    allRepos.push(val);\n  }\n}\n\nconst ownRepos = allRepos.filter(r => r && !r.fork);\n\nconst totalStars = ownRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);\nconst repoCount = ownRepos.length;\n\nconst sdkRegex = /sdk|api[-_]?client|plugin|library|integration/i;\nconst hasSdkRepo = ownRepos.some(r =>\n  sdkRegex.test(r.name || '') || sdkRegex.test(r.description || '')\n);\n\nconst pushDates = ownRepos\n  .map(r => r.pushed_at ? new Date(r.pushed_at).getTime() : 0)\n  .filter(t => t > 0);\nconst lastPush = pushDates.length ? Math.max(...pushDates) : null;\nconst daysAgo = lastPush ? Math.floor((Date.now() - lastPush) / 86400000) : null;\n\nconst domain = context.vendor_domain;\nconst isVerified = !!(domain && (\n  (orgData.blog || '').toLowerCase().includes(domain) ||\n  (orgData.description || '').toLowerCase().includes(domain) ||\n  ownRepos.some(r =>\n    (r.description || '').toLowerCase().includes(domain) ||\n    (r.homepage || '').toLowerCase().includes(domain)\n  )\n));\n\nreturn {\n  record_id: context.record_id,\n  github_org: orgData.login,\n  github_org_verified: isVerified,\n  github_repo_count: repoCount,\n  github_stars_total: totalStars,\n  has_sdk_repo: hasSdkRepo,\n  github_last_commit_days_ago: daysAgo,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_org','github_org_verified','github_repo_count','github_stars_total','has_sdk_repo','github_last_commit_days_ago','github_checked_at'],\n  note: repoCount === 0 ? 'Org exists but has no public repos' : null\n};"
+        "jsCode": "const inputItems = $input.all();\nconst orgLogin = $('Pick Best Org').first().json.org_login;\nconst context = $('Normalize Input').first().json;\n\n// Flatten: when the HTTP node returns an array, n8n may produce one item\n// per array element, OR a single item with the array as its json property.\n// Handle both.\nlet allRepos = [];\nfor (const item of inputItems) {\n  const val = item.json;\n  if (Array.isArray(val)) {\n    allRepos.push(...val);\n  } else if (val && typeof val === 'object' && val.id && val.name) {\n    // Looks like a single repo object\n    allRepos.push(val);\n  }\n  // Otherwise it's the empty-output sentinel — skip it\n}\n\nconst ownRepos = allRepos.filter(r => r && !r.fork);\n\nconst totalStars = ownRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);\nconst repoCount = ownRepos.length;\n\nconst sdkRegex = /sdk|api[-_]?client|plugin|library|integration/i;\nconst hasSdkRepo = ownRepos.some(r =>\n  sdkRegex.test(r.name || '') || sdkRegex.test(r.description || '')\n);\n\nconst pushDates = ownRepos\n  .map(r => r.pushed_at ? new Date(r.pushed_at).getTime() : 0)\n  .filter(t => t > 0);\nconst lastPush = pushDates.length ? Math.max(...pushDates) : null;\nconst daysAgo = lastPush ? Math.floor((Date.now() - lastPush) / 86400000) : null;\n\nconst domain = context.vendor_domain;\nconst isVerified = !!(domain && ownRepos.some(r =>\n  (r.description || '').toLowerCase().includes(domain) ||\n  (r.homepage || '').toLowerCase().includes(domain)\n));\n\nreturn {\n  record_id: context.record_id,\n  github_org: orgLogin,\n  github_org_verified: isVerified,\n  github_repo_count: repoCount,\n  github_stars_total: totalStars,\n  has_sdk_repo: hasSdkRepo,\n  github_last_commit_days_ago: daysAgo,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_org','github_org_verified','github_repo_count','github_stars_total','has_sdk_repo','github_last_commit_days_ago','github_checked_at'],\n  note: repoCount === 0 ? 'Org exists but has no public repos' : null\n};"
       },
-      "id": "ea4665a4-38df-4841-9caa-7c270551c5f6",
+      "id": "477d66cf-9548-4f28-9aa0-2e363b50f71a",
       "name": "Aggregate GitHub Stats",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2544,
-        480
+        -3936,
+        848
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_checked_at'],\n  note: 'No GitHub org found for this vendor'\n};"
       },
-      "id": "641883ab-8d17-4acf-aa43-572c2b0262b3",
+      "id": "ac00770c-9d42-4a86-91c6-ad6d0e942016",
       "name": "Write Empty Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2768,
-        768
+        -4160,
+        1064
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['github_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
       },
-      "id": "0588dc31-e711-4ee5-a85e-ee9817258b8f",
+      "id": "8facfc8d-362b-4f24-91ce-19d26ed67914",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2320,
-        976
+        -3712,
+        1284
       ]
     },
     {
@@ -491,12 +484,30 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "1-10", "value": "1-10" },
-                { "name": "11-50", "value": "11-50" },
-                { "name": "51-200", "value": "51-200" },
-                { "name": "201-1000", "value": "201-1000" },
-                { "name": "1001-5000", "value": "1001-5000" },
-                { "name": "5000+", "value": "5000+" }
+                {
+                  "name": "1-10",
+                  "value": "1-10"
+                },
+                {
+                  "name": "11-50",
+                  "value": "11-50"
+                },
+                {
+                  "name": "51-200",
+                  "value": "51-200"
+                },
+                {
+                  "name": "201-1000",
+                  "value": "201-1000"
+                },
+                {
+                  "name": "1001-5000",
+                  "value": "1001-5000"
+                },
+                {
+                  "name": "5000+",
+                  "value": "5000+"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -510,10 +521,22 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "Public", "value": "Public" },
-                { "name": "Private", "value": "Private" },
-                { "name": "Acquired", "value": "Acquired" },
-                { "name": "Subsidiary", "value": "Subsidiary" }
+                {
+                  "name": "Public",
+                  "value": "Public"
+                },
+                {
+                  "name": "Private",
+                  "value": "Private"
+                },
+                {
+                  "name": "Acquired",
+                  "value": "Acquired"
+                },
+                {
+                  "name": "Subsidiary",
+                  "value": "Subsidiary"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -813,11 +836,26 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "linkedin", "value": "linkedin" },
-                { "name": "crunchbase", "value": "crunchbase" },
-                { "name": "website", "value": "website" },
-                { "name": "manual", "value": "manual" },
-                { "name": "unknown", "value": "unknown" }
+                {
+                  "name": "linkedin",
+                  "value": "linkedin"
+                },
+                {
+                  "name": "crunchbase",
+                  "value": "crunchbase"
+                },
+                {
+                  "name": "website",
+                  "value": "website"
+                },
+                {
+                  "name": "manual",
+                  "value": "manual"
+                },
+                {
+                  "name": "unknown",
+                  "value": "unknown"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -842,16 +880,46 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "Bootstrapped", "value": "Bootstrapped" },
-                { "name": "Pre-seed", "value": "Pre-seed" },
-                { "name": "Seed", "value": "Seed" },
-                { "name": "Series A", "value": "Series A" },
-                { "name": "Series B", "value": "Series B" },
-                { "name": "Series C", "value": "Series C" },
-                { "name": "Series D+", "value": "Series D+" },
-                { "name": "Public", "value": "Public" },
-                { "name": "Acquired", "value": "Acquired" },
-                { "name": "Unknown", "value": "Unknown" }
+                {
+                  "name": "Bootstrapped",
+                  "value": "Bootstrapped"
+                },
+                {
+                  "name": "Pre-seed",
+                  "value": "Pre-seed"
+                },
+                {
+                  "name": "Seed",
+                  "value": "Seed"
+                },
+                {
+                  "name": "Series A",
+                  "value": "Series A"
+                },
+                {
+                  "name": "Series B",
+                  "value": "Series B"
+                },
+                {
+                  "name": "Series C",
+                  "value": "Series C"
+                },
+                {
+                  "name": "Series D+",
+                  "value": "Series D+"
+                },
+                {
+                  "name": "Public",
+                  "value": "Public"
+                },
+                {
+                  "name": "Acquired",
+                  "value": "Acquired"
+                },
+                {
+                  "name": "Unknown",
+                  "value": "Unknown"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -986,11 +1054,26 @@
               "display": true,
               "type": "options",
               "options": [
-                { "name": "pending", "value": "pending" },
-                { "name": "enriching", "value": "enriching" },
-                { "name": "enriched", "value": "enriched" },
-                { "name": "partial", "value": "partial" },
-                { "name": "error", "value": "error" }
+                {
+                  "name": "pending",
+                  "value": "pending"
+                },
+                {
+                  "name": "enriching",
+                  "value": "enriching"
+                },
+                {
+                  "name": "enriched",
+                  "value": "enriched"
+                },
+                {
+                  "name": "partial",
+                  "value": "partial"
+                },
+                {
+                  "name": "error",
+                  "value": "error"
+                }
               ],
               "readOnly": false,
               "removed": true
@@ -1047,13 +1130,13 @@
           "typecast": true
         }
       },
-      "id": "a73e53eb-f211-4e7d-a74b-be90eafd8cd7",
+      "id": "19729982-19f4-48ac-bd3d-f52eb79a5743",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -2320,
-        672
+        -3712,
+        968
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -1066,13 +1149,13 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-GitHub',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "4d1f3bcc-4997-4bd5-b98a-693c983945e3",
+      "id": "1be1bfa1-19ec-4910-9b5c-541ece1c14d0",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -2096,
-        800
+        -3488,
+        1092
       ]
     }
   ],
@@ -1136,7 +1219,7 @@
       "main": [
         [
           {
-            "node": "Find GitHub Org",
+            "node": "AI Agent",
             "type": "main",
             "index": 0
           }
@@ -1150,66 +1233,55 @@
         ]
       ]
     },
-    "Anthropic Chat Model (GitHub)": {
+    "AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge with Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model1": {
       "ai_languageModel": [
         [
           {
-            "node": "Find GitHub Org",
+            "node": "AI Agent",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "SerpAPI Search": {
-      "ai_tool": [
-        [
-          {
-            "node": "Find GitHub Org",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "GitHub Org Parser": {
+    "Structured Output Parser1": {
       "ai_outputParser": [
         [
           {
-            "node": "Find GitHub Org",
+            "node": "AI Agent",
             "type": "ai_outputParser",
             "index": 0
           }
         ]
       ]
     },
-    "Find GitHub Org": {
+    "Merge with Context": {
       "main": [
         [
           {
-            "node": "Build Org Slug",
+            "node": "Has Candidates?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Org Slug": {
+    "Has Candidates?": {
       "main": [
         [
           {
-            "node": "Has Org Slug?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Has Org Slug?": {
-      "main": [
-        [
-          {
-            "node": "GitHub: Verify Org",
+            "node": "Split Candidate Slugs",
             "type": "main",
             "index": 0
           }
@@ -1223,18 +1295,40 @@
         ]
       ]
     },
-    "GitHub: Verify Org": {
+    "Split Candidate Slugs": {
       "main": [
         [
           {
-            "node": "Org Verified?",
+            "node": "GitHub: Check Org Exists",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Org Verified?": {
+    "GitHub: Check Org Exists": {
+      "main": [
+        [
+          {
+            "node": "Pick Best Org",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick Best Org": {
+      "main": [
+        [
+          {
+            "node": "Found Valid Org?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Found Valid Org?": {
       "main": [
         [
           {
@@ -1315,7 +1409,7 @@
     "errorWorkflow": "86rEn9WgLNb61C4M",
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false,
-    "timeSavedPerExecution": 5
+    "timeSavedPerExecution": 15
   },
   "staticData": null,
   "pinData": {},
