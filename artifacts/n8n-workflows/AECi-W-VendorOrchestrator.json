@@ -8,8 +8,8 @@
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        5808,
-        2784
+        5280,
+        3760
       ]
     },
     {
@@ -28,8 +28,8 @@
       "type": "n8n-nodes-base.scheduleTrigger",
       "typeVersion": 1.2,
       "position": [
-        5808,
-        2976
+        5280,
+        3984
       ]
     },
     {
@@ -59,8 +59,8 @@
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        6032,
-        2880
+        5504,
+        3984
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -126,8 +126,8 @@
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        6032,
-        3776
+        5520,
+        4272
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -176,8 +176,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6256,
-        3776
+        5744,
+        4272
       ],
       "onError": "continueRegularOutput"
     },
@@ -221,98 +221,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6480,
-        3200
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "value": "JktaEorfiYHtkJQh",
-          "mode": "id"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
-          },
-          "matchingColumns": [
-            "record_id"
-          ],
-          "schema": [
-            {
-              "id": "record_id",
-              "displayName": "record_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
-        },
-        "mode": "each",
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "id": "3d15ffbb-a585-444c-a450-0c56ade6f4d1",
-      "name": "Execute W-IntegrationPage",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        6480,
-        3392
-      ],
-      "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "value": "tKevgYUwVoZMeGbz",
-          "mode": "id"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "record_id": "={{ $('Mark as Enriching').item.json.id }}"
-          },
-          "matchingColumns": [
-            "record_id"
-          ],
-          "schema": [
-            {
-              "id": "record_id",
-              "displayName": "record_id",
-              "required": false,
-              "defaultMatch": false,
-              "display": true,
-              "canBeUsedToMatch": true,
-              "type": "string",
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
-        },
-        "mode": "each",
-        "options": {
-          "waitForSubWorkflow": true
-        }
-      },
-      "id": "7488ed75-cb7e-4938-9ab2-55db9af7ee53",
-      "name": "Execute W-PartnerProgram",
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
-      "position": [
-        6480,
-        3584
+        5968,
+        4000
       ],
       "onError": "continueRegularOutput"
     },
@@ -356,8 +266,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6480,
-        3776
+        5968,
+        4176
       ],
       "onError": "continueRegularOutput"
     },
@@ -401,8 +311,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6480,
-        3968
+        5968,
+        4368
       ],
       "onError": "continueRegularOutput"
     },
@@ -446,8 +356,8 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6480,
-        4160
+        5968,
+        4560
       ],
       "onError": "continueRegularOutput"
     },
@@ -491,145 +401,10 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        6480,
-        4352
+        5968,
+        4752
       ],
       "onError": "continueRegularOutput"
-    },
-    {
-      "parameters": {
-        "base": {
-          "__rl": true,
-          "value": "appy81IdGJY6Fngf9",
-          "mode": "list"
-        },
-        "table": {
-          "__rl": true,
-          "value": "tbln8aZjwPI3Am4TF",
-          "mode": "list"
-        },
-        "id": "={{ $('Mark as Enriching').item.json.id }}",
-        "options": {}
-      },
-      "id": "3309f30d-7627-4e51-a1d9-ada02f7f804e",
-      "name": "Re-fetch Vendor Record",
-      "type": "n8n-nodes-base.airtable",
-      "typeVersion": 2.1,
-      "position": [
-        6928,
-        3776
-      ],
-      "credentials": {
-        "airtableTokenApi": {
-          "id": "jtGhDJetnti9mATh",
-          "name": "Airtable - The WBS Project"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "mode": "runOnceForEachItem",
-        "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst enrichmentFields = [\n  'github_org',\n  'has_integration_page',\n  'has_partner_program',\n  'linkedin_followers',\n  'company_size',\n  'funding_stage',\n  'press_count_12mo',\n  'blog_last_post_days_ago'\n];\n\nconst populated = enrichmentFields.filter(f => {\n  const v = fields[f];\n  return v !== null && v !== undefined && v !== '';\n}).length;\n\nconst completeness = populated / enrichmentFields.length;\n\nlet status;\nif (completeness >= 0.75) status = 'enriched';\nelse if (completeness >= 0.40) status = 'partial';\nelse status = 'error';\n\nreturn {\n  record_id: record.id,\n  vendor_data_completeness: completeness,\n  vendor_enrichment_status: status,\n  last_enriched_at: new Date().toISOString()\n};"
-      },
-      "id": "2c10d28c-ed0b-4ac5-8284-34c3723f14da",
-      "name": "Compute Completeness",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        7152,
-        3776
-      ]
-    },
-    {
-      "parameters": {
-        "operation": "update",
-        "base": {
-          "__rl": true,
-          "value": "appy81IdGJY6Fngf9",
-          "mode": "list"
-        },
-        "table": {
-          "__rl": true,
-          "value": "tbln8aZjwPI3Am4TF",
-          "mode": "list"
-        },
-        "columns": {
-          "mappingMode": "defineBelow",
-          "value": {
-            "id": "={{ $json.record_id }}",
-            "vendor_enrichment_status": "={{ $json.vendor_enrichment_status }}",
-            "vendor_data_completeness": "={{ $json.vendor_data_completeness }}",
-            "last_enriched_at": "={{ $json.last_enriched_at }}"
-          },
-          "matchingColumns": [
-            "id"
-          ],
-          "schema": [
-            {
-              "id": "id",
-              "displayName": "id",
-              "required": false,
-              "defaultMatch": true,
-              "display": true,
-              "type": "string",
-              "readOnly": true,
-              "removed": false
-            },
-            {
-              "id": "vendor_enrichment_status",
-              "displayName": "vendor_enrichment_status",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "string",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "vendor_data_completeness",
-              "displayName": "vendor_data_completeness",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "last_enriched_at",
-              "displayName": "last_enriched_at",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "dateTime",
-              "readOnly": false,
-              "removed": false
-            }
-          ],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": false
-        },
-        "options": {
-          "typecast": true
-        }
-      },
-      "id": "bf84bb81-6dda-43d6-a836-d96ba55b61de",
-      "name": "Update Orchestration Fields",
-      "type": "n8n-nodes-base.airtable",
-      "typeVersion": 2.1,
-      "position": [
-        7376,
-        3776
-      ],
-      "credentials": {
-        "airtableTokenApi": {
-          "id": "jtGhDJetnti9mATh",
-          "name": "Airtable - The WBS Project"
-        }
-      }
     },
     {
       "parameters": {
@@ -641,8 +416,8 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        6704,
-        3696
+        6192,
+        4192
       ],
       "id": "a413d277-d221-4837-9979-322fa4d70c2a",
       "name": "Merge"
@@ -660,8 +435,8 @@
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        5808,
-        3776
+        5296,
+        4272
       ],
       "id": "1621e095-44fe-430a-bbb4-719cd6373cc6",
       "name": "When Executed by Another Workflow"
@@ -706,11 +481,137 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
       "position": [
-        6256,
-        2880
+        5728,
+        3984
       ],
       "id": "be9f9eda-d6a2-42db-a86e-b8c15262d10c",
       "name": "Call 'AECi-W-VendorOrchestrator'"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "filterByFormula": "OR({vendor_enrichment_status} = 'pending')",
+        "returnAll": false,
+        "limit": 15,
+        "options": {
+          "fields": [
+            "company_name"
+          ]
+        }
+      },
+      "id": "03891820-73ac-4305-8dac-72b10815c4ee",
+      "name": "Query Vendors to Enrich1",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        5504,
+        3760
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "X441Xqtsa4hk09W7",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/X441Xqtsa4hk09W7",
+          "cachedResultName": "The WBS Project — AECi-W-VendorOrchestrator"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id  }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        5728,
+        3760
+      ],
+      "id": "9960e201-2e77-4f19-b404-9d4115435567",
+      "name": "Call 'AECi-W-VendorOrchestrator'1"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "zSFNXSOQPx6747O5",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/zSFNXSOQPx6747O5",
+          "cachedResultName": "The WBS Project — AECi-W-VendorRecalculate"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('When Executed by Another Workflow').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        6416,
+        4272
+      ],
+      "id": "387faad2-389e-4873-9cbd-7e3b79321bed",
+      "name": "Call 'AECi-W-VendorRecalculate'"
     }
   ],
   "connections": {
@@ -718,7 +619,7 @@
       "main": [
         [
           {
-            "node": "Query Vendors to Enrich",
+            "node": "Query Vendors to Enrich1",
             "type": "main",
             "index": 0
           }
@@ -767,16 +668,6 @@
             "index": 0
           },
           {
-            "node": "Execute W-IntegrationPage",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Execute W-PartnerProgram",
-            "type": "main",
-            "index": 0
-          },
-          {
             "node": "Execute W-CompanySize",
             "type": "main",
             "index": 0
@@ -795,6 +686,16 @@
             "node": "Execute W-BlogRecency",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
           }
         ]
       ]
@@ -806,28 +707,6 @@
             "node": "Merge",
             "type": "main",
             "index": 0
-          }
-        ]
-      ]
-    },
-    "Execute W-IntegrationPage": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 1
-          }
-        ]
-      ]
-    },
-    "Execute W-PartnerProgram": {
-      "main": [
-        [
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 2
           }
         ]
       ]
@@ -876,33 +755,11 @@
         ]
       ]
     },
-    "Re-fetch Vendor Record": {
-      "main": [
-        [
-          {
-            "node": "Compute Completeness",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Compute Completeness": {
-      "main": [
-        [
-          {
-            "node": "Update Orchestration Fields",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Merge": {
       "main": [
         [
           {
-            "node": "Re-fetch Vendor Record",
+            "node": "Call 'AECi-W-VendorRecalculate'",
             "type": "main",
             "index": 0
           }
@@ -918,6 +775,22 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "Query Vendors to Enrich1": {
+      "main": [
+        [
+          {
+            "node": "Call 'AECi-W-VendorOrchestrator'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'AECi-W-VendorRecalculate'": {
+      "main": [
+        []
       ]
     }
   },
