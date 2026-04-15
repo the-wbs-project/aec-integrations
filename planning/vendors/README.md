@@ -11,14 +11,12 @@ This directory contains specs for each n8n workflow in the vendor-enrichment pip
 | # | Spec | Purpose | Cost/1K | Depends on | Status |
 |---|---|---|---|---|---|
 | 1 | `W-GitHub.md` (already built) | GitHub org, repos, stars, SDK presence | $2 | — | ✅ Built in n8n |
-| 2 | `W-IntegrationPage.md` | Detect /integrations or /partners listing page | $2 | — | 📝 Spec only |
-| 3 | `W-PartnerProgram.md` | Detect formal partner/affiliate programs | $2 | — | 📝 Spec only |
-| 4 | `W-LinkedIn.md` | Company page URL + follower count | $7 | — | 📝 Spec only |
-| 5 | `W-CompanySize.md` | Employee count bucket | $10 | W-LinkedIn (recommended) | 📝 Spec only |
-| 6 | `W-Funding.md` | Funding stage, total raised, last round | $30 | — | 📝 Spec only |
-| 7 | `W-Press.md` | News mentions in last 12 months | $2 | — | 📝 Spec only |
-| 8 | `W-BlogRecency.md` | Date of most recent blog post | $1.50 | — | 📝 Spec only |
-| 9 | `W-VendorOrchestrator.md` | Dispatches all of the above | ~$57 full | All 8 above | 📝 Spec only |
+| 2 | `W-LinkedIn.md` | Company page URL + follower count | $7 | — | 📝 Spec only |
+| 3 | `W-CompanySize.md` | Employee count bucket | $10 | W-LinkedIn (recommended) | 📝 Spec only |
+| 4 | `W-Funding.md` | Funding stage, total raised, last round | $30 | — | 📝 Spec only |
+| 5 | `W-Press.md` | News mentions in last 12 months | $2 | — | 📝 Spec only |
+| 6 | `W-BlogRecency.md` | Date of most recent blog post | $1.50 | — | 📝 Spec only |
+| 7 | `W-VendorOrchestrator.md` | Dispatches all of the above | ~$53 full | All 6 above | 📝 Spec only |
 
 ## Recommended build order
 
@@ -30,12 +28,10 @@ Already done:
 To build next:
 1. **W-Press** — simplest, free, good for proving the standard workflow pattern on a new workflow
 2. **W-BlogRecency** — next simplest, exercises HTTP loop + Claude extraction
-3. **W-IntegrationPage** — builds on blog pattern with richer Claude prompt
-4. **W-PartnerProgram** — similar HTTP+Claude pattern, two page types
-5. **W-LinkedIn** — introduces Apify; validate actor choice on real vendors
-6. **W-CompanySize** — depends on W-LinkedIn; dual-path logic
-7. **W-Funding** — most expensive, uses Sonnet + web_search; build last to validate cost assumptions
-8. **W-VendorOrchestrator** — only after all 8 above are working individually
+3. **W-LinkedIn** — introduces Apify; validate actor choice on real vendors
+4. **W-CompanySize** — depends on W-LinkedIn; dual-path logic
+5. **W-Funding** — most expensive, uses Sonnet + web_search; build last to validate cost assumptions
+6. **W-VendorOrchestrator** — only after all 6 above are working individually
 
 ## Test vendors
 

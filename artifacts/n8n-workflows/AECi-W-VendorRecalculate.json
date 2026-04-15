@@ -1,0 +1,324 @@
+{
+  "name": "AECi-W-VendorRecalculate",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "4d81653c-027b-4b6b-8367-a34b64a03b20",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        5920,
+        3072
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst enrichmentFields = [\n  'github_org',\n  'linkedin_followers',\n  'company_size',\n  'funding_stage',\n  'press_count_12mo',\n  'blog_last_post_days_ago'\n];\n\nconst populated = enrichmentFields.filter(f => {\n  const v = fields[f];\n  return v !== null && v !== undefined && v !== '';\n}).length;\n\nconst completeness = populated / enrichmentFields.length;\n\nlet status;\nif (completeness >= 0.75) status = 'enriched';\nelse if (completeness >= 0.40) status = 'partial';\nelse status = 'error';\n\nreturn {\n  record_id: record.id,\n  vendor_data_completeness: completeness,\n  vendor_enrichment_status: status,\n  last_enriched_at: new Date().toISOString()\n};"
+      },
+      "id": "df7ed19c-f6c9-43f2-aef9-b2b43dd4c618",
+      "name": "Compute Completeness",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        6368,
+        3296
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "vendor_enrichment_status": "={{ $json.vendor_enrichment_status }}",
+            "vendor_data_completeness": "={{ $json.vendor_data_completeness }}",
+            "last_enriched_at": "={{ $json.last_enriched_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "vendor_enrichment_status",
+              "displayName": "vendor_enrichment_status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "vendor_data_completeness",
+              "displayName": "vendor_data_completeness",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_enriched_at",
+              "displayName": "last_enriched_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "3ee152a1-0ec7-4e77-8afc-3841a6ef476e",
+      "name": "Update Orchestration Fields",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        6592,
+        3296
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "id"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        5920,
+        3296
+      ],
+      "id": "733b0ef2-42d4-4cac-bf6f-6e53bf950115",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "zSFNXSOQPx6747O5",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/zSFNXSOQPx6747O5",
+          "cachedResultName": "The WBS Project — AECi-W-VendorRecalculate"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": false
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        6368,
+        3072
+      ],
+      "id": "bb774003-12cc-491e-9f38-2fc76c5863b3",
+      "name": "Call 'AECi-W-VendorOrchestrator'1"
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ $json.id }}",
+        "options": {}
+      },
+      "id": "a9c92c5c-2112-407b-846c-7a0c00c7eb32",
+      "name": "Fetch Vendor Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        6144,
+        3296
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "filterByFormula": "NOT({vendor_enrichment_status} = 'pending')",
+        "options": {
+          "fields": [
+            "company_name"
+          ]
+        }
+      },
+      "id": "85e4befd-500e-4e04-9125-f64dfa78f4e8",
+      "name": "Vendors to Recalculate",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        6144,
+        3072
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Vendors to Recalculate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Completeness": {
+      "main": [
+        [
+          {
+            "node": "Update Orchestration Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Fetch Vendor Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Vendor Record": {
+      "main": [
+        [
+          {
+            "node": "Compute Completeness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vendors to Recalculate": {
+      "main": [
+        [
+          {
+            "node": "Call 'AECi-W-VendorOrchestrator'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger (Weekly)": {
+      "recurrenceRules": []
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "n8n_id": "zSFNXSOQPx6747O5"
+  }
+}

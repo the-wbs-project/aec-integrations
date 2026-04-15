@@ -3,13 +3,13 @@
   "nodes": [
     {
       "parameters": {},
-      "id": "6c20b82c-f0a2-4f85-89b2-750dacf90836",
+      "id": "18a6d92a-46f3-4c3a-9c75-14eff1286bfb",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -6976,
-        996
+        -10400,
+        1360
       ]
     },
     {
@@ -18,19 +18,19 @@
           "values": [
             {
               "name": "record_id",
-              "stringValue": "recyPyhW3fe9p73Qe"
+              "stringValue": "recAUZ1pjNczhfpe1"
             }
           ]
         },
         "options": {}
       },
-      "id": "df8f2635-ef25-45f2-b19e-cf5aa94346cd",
+      "id": "36baea09-aea6-433f-8df3-bcac8e7427f6",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        -6752,
-        996
+        -10272,
+        1568
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "cb392edf-5fcc-461e-ab32-5c1a2a109cd5",
+      "id": "6f50eb76-e26c-4ec1-9dc6-b1d6056f48e6",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -6752,
-        1188
+        -10272,
+        1760
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "1e9a3f59-88ea-44ee-b48a-7f20a0a260ff",
+      "id": "b9c5d9ca-c7a0-4969-95a9-e11be7f4cb7e",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -6528,
-        1092
+        -10048,
+        1664
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -84,15 +84,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const record = $input.item.json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').item.json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
+        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\n\nconst company_name = fields.company_name || null;\nconst website = fields.website || null;\n\nlet vendor_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    vendor_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\n\nreturn {\n  record_id: record.id || $('Get Vendor Record').first().json.id,\n  company_name,\n  website,\n  vendor_domain,\n  _has_required: !!(company_name && vendor_domain)\n};"
       },
-      "id": "573ec54c-5600-4ef4-a382-edf4aaef75d5",
+      "id": "0488a9bd-7d2f-4427-8b60-fb8baf928c01",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -6304,
-        1092
+        -9824,
+        1664
       ]
     },
     {
@@ -119,30 +119,30 @@
         },
         "options": {}
       },
-      "id": "21b5e4ac-3f93-4f9a-a3e9-5a438c67c077",
+      "id": "95a28591-a1ba-4a34-b634-8048314375fd",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -6080,
-        1092
+        -9600,
+        1664
       ]
     },
     {
       "parameters": {
         "promptType": "define",
-        "text": "=The vendor is '{{ $json.company_name }}' with domain '{{ $json.vendor_domain }}'. What is the most likely GitHub organization slug for this company? Consider: exact company name, company name without spaces/special chars, domain root. Return ONLY a JSON object with this exact shape: {\"candidate_slugs\": [\"slug1\",\"slug2\",\"slug3\"], \"confidence\": \"low|medium|high\", \"reasoning\": \"short\"}. If the company is unlikely to have a GitHub org (small consultancy, legacy ERP, etc.), return {\"candidate_slugs\": [], \"confidence\": \"low\", \"reasoning\": \"why\"}. Order candidates most likely first, max 3.",
+        "text": "=Find the GitHub organization page for '{{ $json.company_name }}' (website: {{ $json.website }}).\n\nUse the search tool. Try:\n- \"{{ $json.company_name }}\" site:github.com\n\nLook for the organization's main GitHub page (github.com/org-name), not individual repositories.\n\nReturn the org slug (the part after github.com/) and your confidence level.\nIf no GitHub org is found, return null for github_org_slug.\n\nLimit to 2 search attempts.",
         "hasOutputParser": true,
         "options": {}
       },
+      "id": "6cc1ec25-ba85-4d66-a31c-b2a9e668389c",
+      "name": "Find GitHub Org",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        -5856,
-        968
-      ],
-      "id": "0c250c6a-8615-4b23-ab8f-eabac5cf8127",
-      "name": "AI Agent"
+        -9328,
+        1536
+      ]
     },
     {
       "parameters": {
@@ -153,18 +153,18 @@
           "cachedResultName": "Claude Haiku 4.5"
         },
         "options": {
-          "maxTokensToSample": 1024,
+          "maxTokensToSample": 512,
           "temperature": 0
         }
       },
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        -5848,
-        1192
+        -9376,
+        1760
       ],
-      "id": "924b8f82-2194-494c-a2b0-a3fbcbd38465",
-      "name": "Anthropic Chat Model1",
+      "id": "e9e33667-4885-494c-b76d-109a859183ec",
+      "name": "Anthropic Chat Model",
       "credentials": {
         "anthropicApi": {
           "id": "9R2GWOKQyrJz9XW0",
@@ -174,28 +174,60 @@
     },
     {
       "parameters": {
-        "jsonSchemaExample": "{\n  \"candidate_slugs\": [\"Autodesk\", \"autodesk-platform-services\"],\n  \"confidence\": \"high\",\n  \"reasoning\": \"Company name matches GitHub org convention\"\n}"
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"github_org_slug\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"GitHub organization slug (the part after github.com/), or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence level of the match\"\n    }\n  },\n  \"required\": [\"github_org_slug\", \"confidence\"]\n}"
       },
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        -5720,
-        1192
+        -9120,
+        1760
       ],
-      "id": "081aaa00-ec2a-422a-bbd1-69abecb9402c",
-      "name": "Structured Output Parser1"
+      "id": "dc14ab24-64e2-41f6-97fb-137f705aebd0",
+      "name": "GitHub Org Parser"
     },
     {
       "parameters": {
-        "jsCode": "const parsed = $input.first().json.output || $input.first().json;\nconst previous = $('Normalize Input').first().json;\n\nreturn {\n  ...previous,\n  candidate_slugs: parsed.candidate_slugs || [],\n  claude_confidence: parsed.confidence || 'low',\n  claude_reasoning: parsed.reasoning || ''\n};"
+        "url": "https://n8n-utils.aec-integrations.workers.dev/serp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
       },
-      "id": "33502858-5911-4f22-9893-ac5b11349ce9",
-      "name": "Merge with Context",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        -9248,
+        1760
+      ],
+      "id": "ccd0e16c-0af7-4e7e-9074-b472e950b03f",
+      "name": "SerpAPI Search",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const parsed = $input.first().json.output || $input.first().json;\nconst context = $('Normalize Input').first().json;\n\nconst slug = parsed.github_org_slug || null;\nconst confidence = parsed.confidence || 'low';\n\nreturn {\n  ...context,\n  github_org_slug: slug,\n  confidence,\n  _has_valid_org: !!(slug && confidence !== 'low')\n};"
+      },
+      "id": "b7bfac93-790b-46c7-bb84-cd741e2dfeb5",
+      "name": "Extract Slug",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -5504,
-        968
+        -8912,
+        1536
       ]
     },
     {
@@ -208,12 +240,13 @@
           },
           "conditions": [
             {
-              "id": "has-candidates",
-              "leftValue": "={{ $json.candidate_slugs.length }}",
-              "rightValue": 0,
+              "id": "has-valid-org",
+              "leftValue": "={{ $json._has_valid_org }}",
+              "rightValue": true,
               "operator": {
-                "type": "number",
-                "operation": "gt"
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
               }
             }
           ],
@@ -221,33 +254,20 @@
         },
         "options": {}
       },
-      "id": "6eae806c-a4f9-4869-bc4c-941dc921fa07",
-      "name": "Has Candidates?",
+      "id": "4bd5e268-cc54-4b50-a021-31317ae4e7c6",
+      "name": "Has Valid Org?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -5280,
-        968
+        -8688,
+        1536
       ]
     },
     {
       "parameters": {
-        "fieldToSplitOut": "candidate_slugs",
-        "include": "allOtherFields",
-        "options": {}
-      },
-      "id": "089c7a73-7366-4aac-a443-5195b9b020f8",
-      "name": "Split Candidate Slugs",
-      "type": "n8n-nodes-base.splitOut",
-      "typeVersion": 1,
-      "position": [
-        -5056,
-        896
-      ]
-    },
-    {
-      "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.candidate_slugs }}",
+        "url": "=https://api.github.com/orgs/{{ $json.github_org_slug }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -270,27 +290,20 @@
           }
         }
       },
-      "id": "f86b8dae-1014-4c2f-8799-5e4c8a0d253e",
-      "name": "GitHub: Check Org Exists",
+      "id": "7ec3d10c-fb49-459c-b18c-7132bb4f7e24",
+      "name": "GitHub: Verify Org",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -4832,
-        896
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const items = $input.all().map(i => i.json);\nconst context = $('Normalize Input').first().json;\n\n// Filter to successful org lookups (status 200)\nconst found = items.filter(r => r.statusCode === 200 && r.data);\n\nif (found.length === 0) {\n  return { found: false, ...context };\n}\n\n// Pick the best match: prefer org whose blog/description mentions vendor domain\nconst domain = context.vendor_domain;\nlet best = found[0];\n\nif (domain && found.length > 1) {\n  const domainMatch = found.find(r => {\n    const org = r.data;\n    const desc = (org.description || '').toLowerCase();\n    const blog = (org.blog || '').toLowerCase();\n    return desc.includes(domain) || blog.includes(domain);\n  });\n  if (domainMatch) best = domainMatch;\n}\n\nconst org = best.data;\nreturn {\n  found: true,\n  ...context,\n  org_login: org.login,\n  org_description: org.description || null,\n  org_blog: org.blog || null\n};"
-      },
-      "id": "6aee885d-2d9e-4eb6-9dd1-87e0b0dfb23f",
-      "name": "Pick Best Org",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        -4608,
-        896
-      ]
+        -8464,
+        1456
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "TG8wwd687HM3qDxi",
+          "name": "Github API Token"
+        }
+      }
     },
     {
       "parameters": {
@@ -302,13 +315,12 @@
           },
           "conditions": [
             {
-              "id": "found-valid-org",
-              "leftValue": "={{ $json.found }}",
-              "rightValue": true,
+              "id": "org-exists",
+              "leftValue": "={{ $json.statusCode }}",
+              "rightValue": 200,
               "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
+                "type": "number",
+                "operation": "equals"
               }
             }
           ],
@@ -316,18 +328,20 @@
         },
         "options": {}
       },
-      "id": "27125667-3cc5-49ef-b717-5078f937c835",
-      "name": "Found Valid Org?",
+      "id": "11d5c064-3dfa-4fe4-b579-e8763392a077",
+      "name": "Org Exists?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        -4384,
-        896
+        -8240,
+        1456
       ]
     },
     {
       "parameters": {
-        "url": "=https://api.github.com/orgs/{{ $json.org_login }}/repos?per_page=100&sort=updated&type=public",
+        "url": "=https://api.github.com/orgs/{{ $('Extract Slug').first().json.github_org_slug }}/repos?per_page=100&sort=updated&type=public",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
         "sendHeaders": true,
         "headerParameters": {
           "parameters": [
@@ -343,53 +357,59 @@
         },
         "options": {}
       },
-      "id": "51231369-275c-4488-a215-e8aea9ad1975",
+      "id": "f14f7f30-2f74-459f-9000-63ea3d12bf3b",
       "name": "GitHub: Fetch Repos",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        -4160,
-        848
+        -8016,
+        1408
       ],
-      "alwaysOutputData": true
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "TG8wwd687HM3qDxi",
+          "name": "Github API Token"
+        }
+      }
     },
     {
       "parameters": {
-        "jsCode": "const inputItems = $input.all();\nconst orgLogin = $('Pick Best Org').first().json.org_login;\nconst context = $('Normalize Input').first().json;\n\n// Flatten: when the HTTP node returns an array, n8n may produce one item\n// per array element, OR a single item with the array as its json property.\n// Handle both.\nlet allRepos = [];\nfor (const item of inputItems) {\n  const val = item.json;\n  if (Array.isArray(val)) {\n    allRepos.push(...val);\n  } else if (val && typeof val === 'object' && val.id && val.name) {\n    // Looks like a single repo object\n    allRepos.push(val);\n  }\n  // Otherwise it's the empty-output sentinel — skip it\n}\n\nconst ownRepos = allRepos.filter(r => r && !r.fork);\n\nconst totalStars = ownRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);\nconst repoCount = ownRepos.length;\n\nconst sdkRegex = /sdk|api[-_]?client|plugin|library|integration/i;\nconst hasSdkRepo = ownRepos.some(r =>\n  sdkRegex.test(r.name || '') || sdkRegex.test(r.description || '')\n);\n\nconst pushDates = ownRepos\n  .map(r => r.pushed_at ? new Date(r.pushed_at).getTime() : 0)\n  .filter(t => t > 0);\nconst lastPush = pushDates.length ? Math.max(...pushDates) : null;\nconst daysAgo = lastPush ? Math.floor((Date.now() - lastPush) / 86400000) : null;\n\nconst domain = context.vendor_domain;\nconst isVerified = !!(domain && ownRepos.some(r =>\n  (r.description || '').toLowerCase().includes(domain) ||\n  (r.homepage || '').toLowerCase().includes(domain)\n));\n\nreturn {\n  record_id: context.record_id,\n  github_org: orgLogin,\n  github_org_verified: isVerified,\n  github_repo_count: repoCount,\n  github_stars_total: totalStars,\n  has_sdk_repo: hasSdkRepo,\n  github_last_commit_days_ago: daysAgo,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_org','github_org_verified','github_repo_count','github_stars_total','has_sdk_repo','github_last_commit_days_ago','github_checked_at'],\n  note: repoCount === 0 ? 'Org exists but has no public repos' : null\n};"
+        "jsCode": "const inputItems = $input.all();\nconst orgSlug = $('Extract Slug').first().json.github_org_slug;\nconst context = $('Normalize Input').first().json;\n\n// Flatten: when the HTTP node returns an array, n8n may produce one item\n// per array element, OR a single item with the array as its json property.\n// Handle both.\nlet allRepos = [];\nfor (const item of inputItems) {\n  const val = item.json;\n  if (Array.isArray(val)) {\n    allRepos.push(...val);\n  } else if (val && typeof val === 'object' && val.id && val.name) {\n    // Looks like a single repo object\n    allRepos.push(val);\n  }\n  // Otherwise it's the empty-output sentinel — skip it\n}\n\nconst ownRepos = allRepos.filter(r => r && !r.fork);\n\nconst totalStars = ownRepos.reduce((sum, r) => sum + (r.stargazers_count || 0), 0);\nconst repoCount = ownRepos.length;\n\nconst sdkRegex = /sdk|api[-_]?client|plugin|library|integration/i;\nconst hasSdkRepo = ownRepos.some(r =>\n  sdkRegex.test(r.name || '') || sdkRegex.test(r.description || '')\n);\n\nconst pushDates = ownRepos\n  .map(r => r.pushed_at ? new Date(r.pushed_at).getTime() : 0)\n  .filter(t => t > 0);\nconst lastPush = pushDates.length ? Math.max(...pushDates) : null;\nconst daysAgo = lastPush ? Math.floor((Date.now() - lastPush) / 86400000) : null;\n\nconst domain = context.vendor_domain;\nconst isVerified = !!(domain && ownRepos.some(r =>\n  (r.description || '').toLowerCase().includes(domain) ||\n  (r.homepage || '').toLowerCase().includes(domain)\n));\n\nreturn {\n  record_id: context.record_id,\n  github_org: orgSlug,\n  github_org_verified: isVerified,\n  github_repo_count: repoCount,\n  github_stars_total: totalStars,\n  has_sdk_repo: hasSdkRepo,\n  github_last_commit_days_ago: daysAgo,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_org','github_org_verified','github_repo_count','github_stars_total','has_sdk_repo','github_last_commit_days_ago','github_checked_at'],\n  note: repoCount === 0 ? 'Org exists but has no public repos' : null\n};"
       },
-      "id": "477d66cf-9548-4f28-9aa0-2e363b50f71a",
+      "id": "33f8c485-9670-48d7-9d03-59b797f6aefc",
       "name": "Aggregate GitHub Stats",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3936,
-        848
+        -7792,
+        1408
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['github_checked_at'],\n  note: 'No GitHub org found for this vendor'\n};"
       },
-      "id": "ac00770c-9d42-4a86-91c6-ad6d0e942016",
+      "id": "606fe6ca-6e15-4c1a-bce5-1e93f44693f3",
       "name": "Write Empty Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -4160,
-        1064
+        -8016,
+        1632
       ]
     },
     {
       "parameters": {
         "jsCode": "const context = $('Normalize Input').first().json;\n\nreturn {\n  record_id: context.record_id,\n  github_org: null,\n  github_org_verified: false,\n  github_repo_count: 0,\n  github_stars_total: 0,\n  has_sdk_repo: false,\n  github_last_commit_days_ago: null,\n  github_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['github_checked_at'],\n  error: `Missing required fields on vendor record (company_name and/or website). record_id=${context.record_id}`\n};"
       },
-      "id": "8facfc8d-362b-4f24-91ce-19d26ed67914",
+      "id": "1f309b87-c0e7-4c45-838a-a85899c77dfd",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3712,
-        1284
+        -7568,
+        1856
       ]
     },
     {
@@ -1130,13 +1150,13 @@
           "typecast": true
         }
       },
-      "id": "19729982-19f4-48ac-bd3d-f52eb79a5743",
+      "id": "1efb42fd-bea6-4372-8209-5ab485d46d30",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        -3712,
-        968
+        -7568,
+        1536
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -1149,14 +1169,93 @@
       "parameters": {
         "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-GitHub',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "1be1bfa1-19ec-4910-9b5c-541ece1c14d0",
+      "id": "627bc1f7-c20b-43e1-a7e9-9f95302af8ff",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        -3488,
-        1092
+        -7344,
+        1664
       ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list",
+          "cachedResultName": "AEC Integrations",
+          "cachedResultUrl": "https://airtable.com/appy81IdGJY6Fngf9"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list",
+          "cachedResultName": "Vendors",
+          "cachedResultUrl": "https://airtable.com/appy81IdGJY6Fngf9/tbln8aZjwPI3Am4TF"
+        },
+        "filterByFormula": "NOT({vendor_enrichment_status}='pending')",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.2,
+      "position": [
+        -10192,
+        1360
+      ],
+      "id": "767ea542-0e6e-4827-98a1-9d965fe537ef",
+      "name": "Search records",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "cNVa9oKXkJD9vxcV",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/cNVa9oKXkJD9vxcV",
+          "cachedResultName": "The WBS Project — AECi-W-GitHub"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -9984,
+        1360
+      ],
+      "id": "8ba37f6d-b28b-4820-b594-ec0118bfbd25",
+      "name": "Call 'AECi-W-GitHub'"
     }
   ],
   "connections": {
@@ -1164,7 +1263,7 @@
       "main": [
         [
           {
-            "node": "Test Data (record_id only)",
+            "node": "Search records",
             "type": "main",
             "index": 0
           }
@@ -1219,7 +1318,7 @@
       "main": [
         [
           {
-            "node": "AI Agent",
+            "node": "Find GitHub Org",
             "type": "main",
             "index": 0
           }
@@ -1233,55 +1332,66 @@
         ]
       ]
     },
-    "AI Agent": {
+    "Find GitHub Org": {
       "main": [
         [
           {
-            "node": "Merge with Context",
+            "node": "Extract Slug",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Anthropic Chat Model1": {
+    "Anthropic Chat Model": {
       "ai_languageModel": [
         [
           {
-            "node": "AI Agent",
+            "node": "Find GitHub Org",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "Structured Output Parser1": {
+    "GitHub Org Parser": {
       "ai_outputParser": [
         [
           {
-            "node": "AI Agent",
+            "node": "Find GitHub Org",
             "type": "ai_outputParser",
             "index": 0
           }
         ]
       ]
     },
-    "Merge with Context": {
+    "SerpAPI Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "Find GitHub Org",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Slug": {
       "main": [
         [
           {
-            "node": "Has Candidates?",
+            "node": "Has Valid Org?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Has Candidates?": {
+    "Has Valid Org?": {
       "main": [
         [
           {
-            "node": "Split Candidate Slugs",
+            "node": "GitHub: Verify Org",
             "type": "main",
             "index": 0
           }
@@ -1295,40 +1405,18 @@
         ]
       ]
     },
-    "Split Candidate Slugs": {
+    "GitHub: Verify Org": {
       "main": [
         [
           {
-            "node": "GitHub: Check Org Exists",
+            "node": "Org Exists?",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "GitHub: Check Org Exists": {
-      "main": [
-        [
-          {
-            "node": "Pick Best Org",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Pick Best Org": {
-      "main": [
-        [
-          {
-            "node": "Found Valid Org?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Found Valid Org?": {
+    "Org Exists?": {
       "main": [
         [
           {
@@ -1395,6 +1483,17 @@
         [
           {
             "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search records": {
+      "main": [
+        [
+          {
+            "node": "Call 'AECi-W-GitHub'",
             "type": "main",
             "index": 0
           }
