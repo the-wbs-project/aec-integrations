@@ -36,12 +36,11 @@ export async function searchProvider(url: URL, env: Env): Promise<Response> {
   }
 
   const raw = (await serpResponse.json()) as Record<string, unknown>;
-  const body = JSON.stringify({
-    organic_results: raw.organic_results,
-    knowledge_graph: raw.knowledge_graph,
-  });
+  const body = JSON.stringify(raw);
 
-  await env.KV_CACHE.put(cacheKey, body, { expirationTtl: CACHE_TTL });
+  if (body !== "{}") {
+    await env.KV_CACHE.put(cacheKey, body, { expirationTtl: CACHE_TTL });
+  }
 
   return new Response(body, {
     headers: {

@@ -1,5 +1,5 @@
 {
-  "name": "AECi-W-VendorOrchestrator",
+  "name": "AECi-V-VendorOrchestrator",
   "nodes": [
     {
       "parameters": {},
@@ -71,6 +71,31 @@
     },
     {
       "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "config-days",
+              "name": "days_until_recalculate",
+              "value": 14,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {
+          "include": "all"
+        }
+      },
+      "id": "c0f19a01-set1-4000-a000-000000000001",
+      "name": "Set Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        5480,
+        4272
+      ]
+    },
+    {
+      "parameters": {
         "operation": "update",
         "base": {
           "__rl": true,
@@ -126,7 +151,7 @@
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        5520,
+        5660,
         4272
       ],
       "credentials": {
@@ -138,6 +163,37 @@
     },
     {
       "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-linkedin",
+              "leftValue": "={{ $('Mark as Enriching').first().json.last_linkedin_enriched_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.last_linkedin_enriched_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f000001-if01-4000-a000-000000000001",
+      "name": "IF LinkedIn Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        5860,
+        4272
+      ]
+    },
+    {
+      "parameters": {
         "workflowId": {
           "__rl": true,
           "value": "vLmF77XaxnbG1Ebk",
@@ -146,7 +202,7 @@
         "workflowInputs": {
           "mappingMode": "defineBelow",
           "value": {
-            "record_id": "={{ $json.id }}"
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
           },
           "matchingColumns": [
             "record_id"
@@ -176,10 +232,165 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5744,
+        6060,
         4272
       ],
       "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-github",
+              "leftValue": "={{ $('Mark as Enriching').first().json.last_github_enriched_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.last_github_enriched_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f000002-if02-4000-a000-000000000002",
+      "name": "IF GitHub Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6280,
+        4000
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-companysize",
+              "leftValue": "={{ $('Mark as Enriching').first().json.last_company_size_enriched_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.last_company_size_enriched_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f000003-if03-4000-a000-000000000003",
+      "name": "IF CompanySize Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6280,
+        4176
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-funding",
+              "leftValue": "={{ $('Mark as Enriching').first().json.last_funding_enriched_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.last_funding_enriched_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f000004-if04-4000-a000-000000000004",
+      "name": "IF Funding Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6280,
+        4368
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-press",
+              "leftValue": "={{ $('Mark as Enriching').first().json.last_press_enriched_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.last_press_enriched_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f000005-if05-4000-a000-000000000005",
+      "name": "IF Press Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6280,
+        4560
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-blogrecency",
+              "leftValue": "={{ $('Mark as Enriching').first().json.last_blog_recency_enriched_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.last_blog_recency_enriched_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "1f000006-if06-4000-a000-000000000006",
+      "name": "IF BlogRecency Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        6280,
+        4752
+      ]
     },
     {
       "parameters": {
@@ -221,7 +432,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5968,
+        6500,
         4000
       ],
       "onError": "continueRegularOutput"
@@ -266,7 +477,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5968,
+        6500,
         4176
       ],
       "onError": "continueRegularOutput"
@@ -311,7 +522,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5968,
+        6500,
         4368
       ],
       "onError": "continueRegularOutput"
@@ -356,7 +567,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5968,
+        6500,
         4560
       ],
       "onError": "continueRegularOutput"
@@ -401,7 +612,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.2,
       "position": [
-        5968,
+        6500,
         4752
       ],
       "onError": "continueRegularOutput"
@@ -416,7 +627,7 @@
       "type": "n8n-nodes-base.merge",
       "typeVersion": 3.2,
       "position": [
-        6192,
+        6720,
         4192
       ],
       "id": "a413d277-d221-4837-9979-322fa4d70c2a",
@@ -607,7 +818,7 @@
       "type": "n8n-nodes-base.executeWorkflow",
       "typeVersion": 1.3,
       "position": [
-        6416,
+        6940,
         4272
       ],
       "id": "387faad2-389e-4873-9cbd-7e3b79321bed",
@@ -648,13 +859,83 @@
         ]
       ]
     },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Set Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Config": {
+      "main": [
+        [
+          {
+            "node": "Mark as Enriching",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
     "Mark as Enriching": {
+      "main": [
+        [
+          {
+            "node": "IF LinkedIn Stale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF LinkedIn Stale": {
       "main": [
         [
           {
             "node": "Execute W-LinkedIn",
             "type": "main",
             "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IF GitHub Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF CompanySize Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Funding Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Press Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF BlogRecency Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
           }
         ]
       ]
@@ -663,39 +944,129 @@
       "main": [
         [
           {
-            "node": "Execute W-GitHub",
+            "node": "IF GitHub Stale",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Execute W-CompanySize",
+            "node": "IF CompanySize Stale",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Execute W-Funding",
+            "node": "IF Funding Stale",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Execute W-Press",
+            "node": "IF Press Stale",
             "type": "main",
             "index": 0
           },
           {
-            "node": "Execute W-BlogRecency",
+            "node": "IF BlogRecency Stale",
             "type": "main",
             "index": 0
-          },
-          {
-            "node": "Merge",
-            "type": "main",
-            "index": 2
           },
           {
             "node": "Merge",
             "type": "main",
             "index": 1
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "IF GitHub Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute W-GitHub",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF CompanySize Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute W-CompanySize",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "IF Funding Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute W-Funding",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "IF Press Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute W-Press",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "IF BlogRecency Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute W-BlogRecency",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 6
           }
         ]
       ]
@@ -760,17 +1131,6 @@
         [
           {
             "node": "Call 'AECi-W-VendorRecalculate'",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "When Executed by Another Workflow": {
-      "main": [
-        [
-          {
-            "node": "Mark as Enriching",
             "type": "main",
             "index": 0
           }

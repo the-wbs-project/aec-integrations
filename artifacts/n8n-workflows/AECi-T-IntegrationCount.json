@@ -1,0 +1,269 @@
+{
+  "name": "AECi-T-IntegrationCount",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a1000001-0001-4000-a000-000000000001",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recH6fuIYPHJ6XWpe"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000001-0002-4000-a000-000000000002",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        424,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "a1000001-0003-4000-a000-000000000003",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        424,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "a1000001-0004-4000-a000-000000000004",
+      "name": "Get Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        648,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\n\nconst sourceLinks = fields.tool_integrations_source || [];\nconst targetLinks = fields.tool_integrations_target || [];\n\nconst sourceCount = Array.isArray(sourceLinks) ? sourceLinks.length : 0;\nconst targetCount = Array.isArray(targetLinks) ? targetLinks.length : 0;\nconst integrationCount = sourceCount + targetCount;\n\nreturn {\n  record_id: record.id,\n  integration_count: integrationCount,\n  integration_count_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['integration_count', 'integration_count_checked_at']\n};"
+      },
+      "id": "a1000001-0005-4000-a000-000000000005",
+      "name": "Count Integrations",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        872,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "integration_count": "={{ $json.integration_count }}",
+            "integration_count_checked_at": "={{ $json.integration_count_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "integration_count",
+              "displayName": "integration_count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "integration_count_checked_at",
+              "displayName": "integration_count_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "a1000001-0006-4000-a000-000000000006",
+      "name": "Update Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1096,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-IntegrationCount',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
+      },
+      "id": "a1000001-0007-4000-a000-000000000007",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        300
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Count Integrations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Count Integrations": {
+      "main": [
+        [
+          {
+            "node": "Update Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {}
+}
