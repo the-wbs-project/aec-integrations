@@ -6,6 +6,8 @@ export interface Env {
   KV_CACHE: KVNamespace;
   AUTH_TOKEN: string;
   SERP_API_KEY: string;
+  SEARCHAPI_API_KEY: string;
+  SEARCH_PROVIDER: "serpapi" | "searchapi";
   BROWSER: puppeteer.BrowserWorker;
 }
 
