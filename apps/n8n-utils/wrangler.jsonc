@@ -20,8 +20,13 @@
 	],
 	"browser": {
 		"binding": "BROWSER"
+	},
+	"vars": {
+		// Switch between "serpapi" and "searchapi" to change search provider.
+		"SEARCH_PROVIDER": "serpapi"
 	}
 	// Secrets (set via `wrangler secret put`):
-	//   AUTH_TOKEN   – the bearer token clients must send
-	//   SERP_API_KEY – your SerpApi key
+	//   AUTH_TOKEN        – the bearer token clients must send
+	//   SERP_API_KEY      – SerpAPI key       (required when SEARCH_PROVIDER=serpapi)
+	//   SEARCHAPI_API_KEY – SearchAPI.io key  (required when SEARCH_PROVIDER=searchapi)
 }
