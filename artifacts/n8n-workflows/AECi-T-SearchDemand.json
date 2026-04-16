@@ -1,0 +1,497 @@
+{
+  "name": "AECi-T-SearchDemand",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a6000001-0001-4000-a000-000000000001",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recH6fuIYPHJ6XWpe"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a6000001-0002-4000-a000-000000000002",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        424,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "a6000001-0003-4000-a000-000000000003",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        424,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "a6000001-0004-4000-a000-000000000004",
+      "name": "Get Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        648,
+        300
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\nconst tool_name = fields.Name || fields.name || null;\nreturn {\n  record_id: record.id || $('Get Tool Record').first().json.id,\n  tool_name,\n  _has_required: !!tool_name\n};"
+      },
+      "id": "a6000001-0005-4000-a000-000000000005",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        872,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-required",
+              "leftValue": "={{ $json._has_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a6000001-0006-4000-a000-000000000006",
+      "name": "Has Required Fields?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1096,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://n8n-utils.aec-integrations.workers.dev/serp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google_trends"
+            },
+            {
+              "name": "q",
+              "value": "={{ $('Normalize Input').item.json.tool_name }}"
+            },
+            {
+              "name": "date",
+              "value": "today 12-m"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "a6000001-0007-4000-a000-000000000007",
+      "name": "Google Trends Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        200
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://n8n-utils.aec-integrations.workers.dev/serp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "engine",
+              "value": "google"
+            },
+            {
+              "name": "q",
+              "value": "={{ $('Normalize Input').item.json.tool_name }} software"
+            }
+          ]
+        },
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "a6000001-0008-4000-a000-000000000008",
+      "name": "Search Volume Request",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        400
+      ],
+      "alwaysOutputData": true,
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const trendsRaw = $('Google Trends Request').first().json;\nconst searchRaw = $('Search Volume Request').first().json;\nconst context = $('Normalize Input').item.json;\n\nlet trendsIndex = null;\ntry {\n  const data = trendsRaw.data || trendsRaw;\n  const timelines = data?.interest_over_time?.timeline_data;\n  if (Array.isArray(timelines) && timelines.length > 0) {\n    const values = timelines.map(t => t.values?.[0]?.extracted_value || 0);\n    trendsIndex = Math.round(values.reduce((a, b) => a + b, 0) / values.length);\n  }\n} catch (e) {}\n\nlet searchVolume = null;\ntry {\n  const data = searchRaw.data || searchRaw;\n  const totalResults = data?.search_information?.total_results;\n  if (totalResults && totalResults > 0) {\n    searchVolume = Math.round(Math.log10(totalResults + 1) * 100);\n  }\n} catch (e) {}\n\nreturn {\n  record_id: context.record_id,\n  search_volume_monthly: searchVolume,\n  google_trends_index: trendsIndex,\n  search_checked_at: new Date().toISOString(),\n  status: (trendsIndex !== null || searchVolume !== null) ? 'success' : 'partial',\n  fields_updated: ['search_volume_monthly', 'google_trends_index', 'search_checked_at'],\n  note: (trendsIndex === null && searchVolume === null) ? 'No search demand data available' : null\n};"
+      },
+      "id": "a6000001-0009-4000-a000-000000000009",
+      "name": "Parse Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1544,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Normalize Input').item.json;\nreturn {\n  record_id: context.record_id,\n  search_volume_monthly: null,\n  google_trends_index: null,\n  search_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['search_checked_at'],\n  error: `Missing required fields. record_id=${context.record_id}`\n};"
+      },
+      "id": "a6000001-0010-4000-a000-000000000010",
+      "name": "Missing Required Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        560
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "search_volume_monthly": "={{ $json.search_volume_monthly }}",
+            "google_trends_index": "={{ $json.google_trends_index }}",
+            "search_checked_at": "={{ $json.search_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "search_volume_monthly",
+              "displayName": "search_volume_monthly",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "google_trends_index",
+              "displayName": "google_trends_index",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "search_checked_at",
+              "displayName": "search_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "a6000001-0011-4000-a000-000000000011",
+      "name": "Update Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1768,
+        400
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-SearchDemand',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
+      },
+      "id": "a6000001-0012-4000-a000-000000000012",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1992,
+        400
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Has Required Fields?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Required Fields?": {
+      "main": [
+        [
+          {
+            "node": "Google Trends Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Search Volume Request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Missing Required Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Trends Request": {
+      "main": [
+        [
+          {
+            "node": "Parse Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Volume Request": {
+      "main": [
+        [
+          {
+            "node": "Parse Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Results": {
+      "main": [
+        [
+          {
+            "node": "Update Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missing Required Fields": {
+      "main": [
+        [
+          {
+            "node": "Update Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {}
+}
