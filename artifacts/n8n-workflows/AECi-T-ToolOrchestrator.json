@@ -1,0 +1,1603 @@
+{
+  "name": "AECi-T-ToolOrchestrator",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "c0a00001-0001-4000-a000-000000000001",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        200,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 3 * * 0"
+            }
+          ]
+        }
+      },
+      "id": "c0a00001-0002-4000-a000-000000000002",
+      "name": "Schedule Trigger (Weekly)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "filterByFormula": "OR({tool_enrichment_status} = 'pending', {tool_enrichment_status} = 'partial', IS_BEFORE({last_tool_enriched_at}, DATEADD(TODAY(), -90, 'days')))",
+        "returnAll": false,
+        "limit": 5,
+        "options": {
+          "fields": [
+            "Name"
+          ]
+        }
+      },
+      "id": "c0a00001-0003-4000-a000-000000000003",
+      "name": "Query Tools to Enrich",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        424,
+        400
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "filterByFormula": "OR({tool_enrichment_status} = 'pending')",
+        "returnAll": false,
+        "limit": 15,
+        "options": {
+          "fields": [
+            "Name"
+          ]
+        }
+      },
+      "id": "c0a00001-0003b-4000-a000-000000000003",
+      "name": "Query Pending Tools",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        424,
+        200
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_TOOLORCHESTRATOR",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-call-self-manual",
+      "name": "Call Self Per Record (Manual)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        648,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_TOOLORCHESTRATOR",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-call-self-schedule",
+      "name": "Call Self Per Record (Scheduled)",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        648,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "id"
+            }
+          ]
+        }
+      },
+      "id": "c0a00001-0004-4000-a000-000000000004",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "id": "={{ $json.id }}",
+        "options": {}
+      },
+      "id": "c0a00001-get-record",
+      "name": "Get Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        424,
+        700
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-has-vendor",
+              "leftValue": "={{ Array.isArray($json.vendors) && $json.vendors.length > 0 }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if-has-vendor",
+      "name": "Has Vendor Link?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        648,
+        700
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ ($json.vendors && $json.vendors[0]) || '' }}",
+        "options": {}
+      },
+      "id": "c0a00001-get-vendor",
+      "name": "Get Linked Vendor",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        872,
+        620
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "cond-vendor-enriched",
+              "leftValue": "={{ $json.vendor_enrichment_status === 'enriched' || $json.vendor_enrichment_status === 'partial' }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if-vendor-enriched",
+      "name": "Vendor Enriched?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1096,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const record = $('Get Tool Record').first().json;\nconst reason = (Array.isArray(record.vendors) && record.vendors.length > 0) ? 'vendor not enriched yet' : 'no vendor linked';\nreturn [{ json: {\n  record_id: record.id,\n  workflow: 'WT-ToolOrchestrator',\n  status: 'skipped',\n  note: `Skipped: ${reason}`,\n  tool_enrichment_status: 'pending',\n  last_tool_enriched_at: null\n} }];"
+      },
+      "id": "c0a00001-skip-reason",
+      "name": "Skip (Vendor Gate)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1096,
+        820
+      ]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "config-days",
+              "name": "days_until_recalculate",
+              "value": 14,
+              "type": "number"
+            }
+          ]
+        },
+        "options": {
+          "include": "all"
+        }
+      },
+      "id": "c0a00001-0005-4000-a000-000000000005",
+      "name": "Set Config",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1320,
+        620
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Get Tool Record').first().json.id }}",
+            "tool_enrichment_status": "enriching"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "tool_enrichment_status",
+              "displayName": "tool_enrichment_status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "c0a00001-0006-4000-a000-000000000006",
+      "name": "Mark as Enriching",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1544,
+        620
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-apicheck",
+              "leftValue": "={{ $('Mark as Enriching').first().json.api_docs_checked_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.api_docs_checked_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if01-4000-a000-000000000001",
+      "name": "IF APICheck Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1768,
+        260
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_APICHECK",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-exec-apicheck",
+      "name": "Execute WT-APICheck",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1992,
+        260
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-marketplace",
+              "leftValue": "={{ $('Mark as Enriching').first().json.marketplace_checked_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.marketplace_checked_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if02-4000-a000-000000000002",
+      "name": "IF Marketplace Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1768,
+        420
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_MARKETPLACE",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-exec-marketplace",
+      "name": "Execute WT-Marketplace",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1992,
+        420
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-ipaas",
+              "leftValue": "={{ $('Mark as Enriching').first().json.ipaas_checked_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.ipaas_checked_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if03-4000-a000-000000000003",
+      "name": "IF iPaaS Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1768,
+        580
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_IPAAS",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-exec-ipaas",
+      "name": "Execute WT-iPaaS",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1992,
+        580
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-reviews",
+              "leftValue": "={{ $('Mark as Enriching').first().json.reviews_checked_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.reviews_checked_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if04-4000-a000-000000000004",
+      "name": "IF Reviews Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1768,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_REVIEWS",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-exec-reviews",
+      "name": "Execute WT-Reviews",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1992,
+        740
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-search",
+              "leftValue": "={{ $('Mark as Enriching').first().json.search_checked_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.search_checked_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if05-4000-a000-000000000005",
+      "name": "IF SearchDemand Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1768,
+        900
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_SEARCHDEMAND",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-exec-searchdemand",
+      "name": "Execute WT-SearchDemand",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1992,
+        900
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-reddit",
+              "leftValue": "={{ $('Mark as Enriching').first().json.reddit_checked_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.reddit_checked_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if06-4000-a000-000000000006",
+      "name": "IF Reddit Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1768,
+        1060
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_REDDIT",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-exec-reddit",
+      "name": "Execute WT-Reddit",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1992,
+        1060
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": ""
+          },
+          "conditions": [
+            {
+              "id": "cond-intcount",
+              "leftValue": "={{ $('Mark as Enriching').first().json.integration_count_checked_at ? Math.floor((Date.now() - new Date($('Mark as Enriching').first().json.integration_count_checked_at).getTime()) / 86400000) : 9999 }}",
+              "rightValue": "={{ $('Set Config').first().json.days_until_recalculate }}",
+              "operator": {
+                "type": "number",
+                "operation": "gte"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "c0a00001-if07-4000-a000-000000000007",
+      "name": "IF IntegrationCount Stale",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1768,
+        1220
+      ]
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_INTEGRATIONCOUNT",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Mark as Enriching').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-exec-integrationcount",
+      "name": "Execute WT-IntegrationCount",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1992,
+        1220
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "numberInputs": 7,
+        "options": {}
+      },
+      "id": "c0a00001-merge-4000-a000-000000000001",
+      "name": "Merge All Results",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2216,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "id": "={{ $('Get Tool Record').first().json.id }}",
+        "options": {}
+      },
+      "id": "c0a00001-refetch",
+      "name": "Re-Fetch Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2440,
+        740
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Compute tool_data_completeness from the actual re-fetched Airtable record.\n// The 10 enrichment signals from the plan:\n//   has_api_docs, marketplace_count, ipaas_count,\n//   g2_review_count, g2_rating, search_volume_monthly,\n//   google_trends_index, reddit_mentions_24mo,\n//   integration_count, + vendor outreach data available\n\nconst rec = $input.first().json;\nconst f = rec.fields || rec;\n\nconst signals = [\n  'has_api_docs',\n  'marketplace_count',\n  'ipaas_count',\n  'g2_review_count',\n  'g2_rating',\n  'search_volume_monthly',\n  'google_trends_index',\n  'reddit_mentions_24mo',\n  'integration_count'\n];\n\nlet populated = 0;\nfor (const s of signals) {\n  const v = f[s];\n  // Accept 0 and false as populated values (meaningful data)\n  if (v !== null && v !== undefined && v !== '') populated++;\n}\n\n// Vendor outreach availability: vendor linked AND at least one vendor field populated via lookup\nconst vendorAvailable =\n  (Array.isArray(f.vendors) && f.vendors.length > 0)\n  && (f.vendor_company_size || f.vendor_funding_stage || f.vendor_has_partner_program != null);\nif (vendorAvailable) populated++;\n\nconst completeness = populated / 10;\n\nlet status;\nif (completeness >= 0.75) status = 'enriched';\nelse if (completeness >= 0.40) status = 'partial';\nelse status = 'error';\n\nreturn [{ json: {\n  record_id: rec.id,\n  tool_data_completeness: Math.round(completeness * 100) / 100,\n  tool_enrichment_status: status,\n  last_tool_enriched_at: new Date().toISOString()\n} }];"
+      },
+      "id": "c0a00001-completeness",
+      "name": "Compute Completeness",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2664,
+        740
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "tool_data_completeness": "={{ $json.tool_data_completeness }}",
+            "tool_enrichment_status": "={{ $json.tool_enrichment_status }}",
+            "last_tool_enriched_at": "={{ $json.last_tool_enriched_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "tool_data_completeness",
+              "displayName": "tool_data_completeness",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "tool_enrichment_status",
+              "displayName": "tool_enrichment_status",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_tool_enriched_at",
+              "displayName": "last_tool_enriched_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "c0a00001-update-orch",
+      "name": "Update Orchestration Fields",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        2888,
+        740
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "PLACEHOLDER_WT_SCORE",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $('Get Tool Record').first().json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "id": "c0a00001-call-score",
+      "name": "Call WT-Score",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        3112,
+        740
+      ],
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Query Pending Tools",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger (Weekly)": {
+      "main": [
+        [
+          {
+            "node": "Query Tools to Enrich",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Pending Tools": {
+      "main": [
+        [
+          {
+            "node": "Call Self Per Record (Manual)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Tools to Enrich": {
+      "main": [
+        [
+          {
+            "node": "Call Self Per Record (Scheduled)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Has Vendor Link?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Vendor Link?": {
+      "main": [
+        [
+          {
+            "node": "Get Linked Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip (Vendor Gate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Linked Vendor": {
+      "main": [
+        [
+          {
+            "node": "Vendor Enriched?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vendor Enriched?": {
+      "main": [
+        [
+          {
+            "node": "Set Config",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Skip (Vendor Gate)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Config": {
+      "main": [
+        [
+          {
+            "node": "Mark as Enriching",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark as Enriching": {
+      "main": [
+        [
+          {
+            "node": "IF APICheck Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Marketplace Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF iPaaS Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Reviews Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF SearchDemand Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF Reddit Stale",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "IF IntegrationCount Stale",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF APICheck Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute WT-APICheck",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute WT-APICheck": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Marketplace Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute WT-Marketplace",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Execute WT-Marketplace": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "IF iPaaS Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute WT-iPaaS",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Execute WT-iPaaS": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "IF Reviews Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute WT-Reviews",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Execute WT-Reviews": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "IF SearchDemand Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute WT-SearchDemand",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Execute WT-SearchDemand": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "IF Reddit Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute WT-Reddit",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "Execute WT-Reddit": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 5
+          }
+        ]
+      ]
+    },
+    "IF IntegrationCount Stale": {
+      "main": [
+        [
+          {
+            "node": "Execute WT-IntegrationCount",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "Execute WT-IntegrationCount": {
+      "main": [
+        [
+          {
+            "node": "Merge All Results",
+            "type": "main",
+            "index": 6
+          }
+        ]
+      ]
+    },
+    "Merge All Results": {
+      "main": [
+        [
+          {
+            "node": "Re-Fetch Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Re-Fetch Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Compute Completeness",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Completeness": {
+      "main": [
+        [
+          {
+            "node": "Update Orchestration Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Orchestration Fields": {
+      "main": [
+        [
+          {
+            "node": "Call WT-Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": {
+    "node:Schedule Trigger (Weekly)": {
+      "recurrenceRules": []
+    }
+  },
+  "pinData": {},
+  "meta": {}
+}

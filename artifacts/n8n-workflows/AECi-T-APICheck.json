@@ -1,0 +1,512 @@
+{
+  "name": "AECi-T-APICheck",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "9547e59b-c3ac-4d21-bb3c-5e657517c909",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        28
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recxgGwHqms9mSB5N"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ac786bbd-f925-4d2e-9515-d9c341f7707f",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        224,
+        28
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "fc4c5923-7620-4c86-ab87-e78683c5e30b",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "95050c5e-492f-4c6d-a721-eb623a4cae37",
+      "name": "Get Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        448,
+        124
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\nconst tool_name = fields.Name || fields.name || null;\nconst website = fields.website || null;\nlet tool_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    tool_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\nreturn {\n  record_id: record.id || $('Get Tool Record').first().json.id,\n  tool_name, website, tool_domain,\n  _has_required: !!(tool_name && tool_domain)\n};"
+      },
+      "id": "ab57263b-02a2-4f7f-b1d8-ab7252aafcfa",
+      "name": "Normalize Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        672,
+        124
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "has-required",
+              "leftValue": "={{ $json._has_required }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "567fc8f4-7ed8-426e-90a5-05f653243d65",
+      "name": "Has Required Fields?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        896,
+        124
+      ]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Find the official API / developer documentation page for the tool \"{{ $json.tool_name }}\" (website: {{ $json.website }}, domain: {{ $json.tool_domain }}).\n\nUse the search tool. Try queries like:\n- \"{{ $json.tool_name }}\" API documentation\n- \"{{ $json.tool_name }}\" developer docs\n- site:{{ $json.tool_domain }} API documentation\n- site:docs.{{ $json.tool_domain }}\n\nLook for a real developer portal, API reference, or SDK documentation page — NOT marketing, pricing, blog, or support pages. The URL should clearly be on the vendor's own domain (or a docs subdomain) and must reference an HTTP/REST API, SDK, or webhooks. Public-facing integrations marketplaces (e.g. Zapier listings) do NOT count.\n\nReturn has_api_docs=true only if you found a genuine developer documentation URL. Otherwise return has_api_docs=false and api_docs_url=null.\n\nLimit to 3 search attempts.",
+        "hasOutputParser": true,
+        "options": {}
+      },
+      "id": "7b062813-9ca3-414a-93c6-cbf3b4f8fc85",
+      "name": "Find API Docs",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        1176,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "claude-haiku-4-5-20251001",
+          "mode": "list",
+          "cachedResultName": "Claude Haiku 4.5"
+        },
+        "options": {
+          "maxTokensToSample": 1024,
+          "temperature": 0
+        }
+      },
+      "id": "24e7e5e7-31cb-494b-8794-ff3f6752daf6",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.3,
+      "position": [
+        1120,
+        224
+      ],
+      "credentials": {
+        "anthropicApi": {
+          "id": "9R2GWOKQyrJz9XW0",
+          "name": "Anthropic - AECi - Tool Research"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://n8n-utils.aec-integrations.workers.dev/serp",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('parameters0_Value', ``, 'string') }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "bec959e4-e1b8-462b-8814-6f5c17fce65f",
+      "name": "SerpAPI Search",
+      "type": "n8n-nodes-base.httpRequestTool",
+      "typeVersion": 4.4,
+      "position": [
+        1248,
+        224
+      ],
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "svEdy4ASukdpjdOg",
+          "name": "SERP Cache Bearer"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\nconst isApiDocs = parsed.has_api_docs === true && parsed.confidence !== 'low' && !!parsed.api_docs_url;\nreturn [{ json: {\n  record_id: context.record_id,\n  has_api_docs: isApiDocs,\n  api_docs_url: isApiDocs ? parsed.api_docs_url : null,\n  api_docs_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_api_docs', 'api_docs_url', 'api_docs_checked_at'],\n  note: isApiDocs ? (parsed.notes || null) : (parsed.notes || 'No valid API docs found')\n} }];"
+      },
+      "id": "97be92de-55fa-4ff5-a6cf-d2867357d61b",
+      "name": "Map API Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1584,
+        0
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Normalize Input').first().json;\nreturn [{ json: { record_id: context.record_id, has_api_docs: false, api_docs_url: null, api_docs_checked_at: new Date().toISOString(), status: 'error', fields_updated: ['api_docs_checked_at'], error: `Missing required fields. record_id=${context.record_id}` } }];"
+      },
+      "id": "031dfe97-0602-4e4e-8fb3-6014fb16107c",
+      "name": "Missing Required Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1808,
+        248
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.record_id }}",
+            "has_api_docs": "={{ $json.has_api_docs }}",
+            "api_docs_url": "={{ $json.api_docs_url }}",
+            "api_docs_checked_at": "={{ $json.api_docs_checked_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "has_api_docs",
+              "displayName": "has_api_docs",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "api_docs_url",
+              "displayName": "api_docs_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "api_docs_checked_at",
+              "displayName": "api_docs_checked_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "4a363b08-3642-4900-865e-844f1dfe88bd",
+      "name": "Update Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1808,
+        0
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-APICheck',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
+      },
+      "id": "6a21538e-e946-4c73-b1b8-910e007494c3",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2032,
+        124
+      ]
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"has_api_docs\": {\n      \"type\": \"boolean\",\n      \"description\": \"Whether a real API/developer documentation page was found\"\n    },\n    \"api_docs_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"Canonical URL of the API/developer docs page, or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence level\"\n    },\n    \"notes\": {\n      \"type\": \"string\",\n      \"description\": \"Brief notes about what was found\"\n    }\n  },\n  \"required\": [\"has_api_docs\", \"api_docs_url\", \"confidence\", \"notes\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1376,
+        224
+      ],
+      "id": "c0c8afe0-a5fc-4e51-8e75-2c087771b286",
+      "name": "Structured Output Parser"
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Normalize Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Input": {
+      "main": [
+        [
+          {
+            "node": "Has Required Fields?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Required Fields?": {
+      "main": [
+        [
+          {
+            "node": "Find API Docs",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Missing Required Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Find API Docs": {
+      "main": [
+        [
+          {
+            "node": "Map API Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Find API Docs",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SerpAPI Search": {
+      "ai_tool": [
+        [
+          {
+            "node": "Find API Docs",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map API Result": {
+      "main": [
+        [
+          {
+            "node": "Update Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Missing Required Fields": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Find API Docs",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "n8n_id": "C6hxQljEzIchjvgr"
+  }
+}

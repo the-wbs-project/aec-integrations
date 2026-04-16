@@ -1,0 +1,371 @@
+{
+  "name": "AECi-T-Score",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "b0a00001-0001-4000-a000-000000000001",
+      "name": "Manual Trigger (Test)",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        28
+      ]
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "record_id",
+              "stringValue": "recxgGwHqms9mSB5N"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "b0a00001-0001b-4000-a000-000000000001",
+      "name": "Test Data (record_id only)",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [
+        224,
+        28
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "record_id"
+            }
+          ]
+        }
+      },
+      "id": "b0a00001-0002-4000-a000-000000000002",
+      "name": "Execute Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        224,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "id": "={{ $json.record_id }}",
+        "options": {}
+      },
+      "id": "b0a00001-0003-4000-a000-000000000003",
+      "name": "Get Tool Record",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        448,
+        124
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbln8aZjwPI3Am4TF",
+          "mode": "list"
+        },
+        "id": "={{ ($json.vendors && $json.vendors[0]) || '' }}",
+        "options": {}
+      },
+      "id": "b0a00001-0004-4000-a000-000000000004",
+      "name": "Get Linked Vendor",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        672,
+        124
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== WT-Score: Per-tool scoring =====\n// Scores ONE tool. Takes the tool record + its linked vendor, computes\n// integration/demand/outreach/priority scores on 0-100, assigns tier by\n// absolute threshold, writes results back.\n//\n// Normalization: fixed log-scale caps (not per-category min/max) so each\n// tool can be scored independently without the full population.\n\nconst tool = $('Get Tool Record').first().json;\nconst vendorItem = $input.first()?.json || {};\n\n// Get Linked Vendor uses onError: continueRegularOutput. If that node errored\n// (no vendor linked, bad id), the input item (the tool record) passes through.\n// Detect real vendor data by the presence of vendor-only fields.\nconst hasVendor = !!(\n  vendorItem && (\n    vendorItem.company_name != null ||\n    vendorItem.company_size != null ||\n    vendorItem.funding_stage != null\n  )\n);\nconst vendor = hasVendor ? vendorItem : {};\n\n// --- Fixed-cap log normalization ---\n// value at/above `cap` → 100. Caps are realistic upper bounds for AEC tools.\nfunction logNorm(value, cap) {\n  const v = Math.log((Number(value) || 0) + 1);\n  const max = Math.log(cap + 1);\n  if (max <= 0) return 0;\n  return Math.max(0, Math.min(100, (v / max) * 100));\n}\n\nfunction norm(value, min, max) {\n  if (max <= min) return 50;\n  const v = Number(value) || 0;\n  return Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));\n}\n\nfunction bayesianRating(rating, count) {\n  const m = 15; const C = 4.1;\n  const v = count || 0; const R = rating || C;\n  const wr = (v / (v + m)) * R + (m / (v + m)) * C;\n  return (wr / 5) * 100;\n}\n\nfunction employeeSweetSpot(sizeStr) {\n  const map = { '1-10': 20, '11-50': 50, '51-200': 100, '201-1000': 90, '1001-5000': 60, '5000+': 30 };\n  return map[sizeStr] != null ? map[sizeStr] : 50;\n}\n\nfunction fundingScoreFn(stage) {\n  const map = { 'Bootstrapped': 40, 'Pre-seed': 30, 'Seed': 50, 'Series A': 80, 'Series B': 90, 'Series C': 100, 'Series D+': 85, 'Public': 50, 'Acquired': 40, 'Unknown': 30 };\n  return map[stage] != null ? map[stage] : 30;\n}\n\nfunction blogRecency(daysAgo) {\n  if (daysAgo == null) return 30;\n  if (daysAgo <= 7) return 100;\n  if (daysAgo <= 30) return 80;\n  if (daysAgo <= 90) return 60;\n  if (daysAgo <= 180) return 40;\n  if (daysAgo <= 365) return 20;\n  return 10;\n}\n\n// --- Integration Score (0-100) — tool-level signals ---\nconst integrationScore =\n  0.30 * logNorm(tool.marketplace_count, 4) +\n  0.25 * (tool.has_api_docs ? 100 : 0) +\n  0.20 * logNorm(tool.integration_count, 100) +\n  0.15 * logNorm(tool.ipaas_count, 3) +\n  0.10 * logNorm(tool.zapier_trigger_count, 50);\n\n// --- Demand Score (0-100) — tool-level signals ---\nconst totalReviews = (Number(tool.g2_review_count) || 0) + (Number(tool.capterra_review_count) || 0);\nconst bestRating = Number(tool.g2_rating) || Number(tool.capterra_rating) || null;\nconst demandScore =\n  0.30 * logNorm(totalReviews, 5000) +\n  0.25 * bayesianRating(bestRating, totalReviews) +\n  0.20 * logNorm(tool.search_volume_monthly, 100000) +\n  0.15 * norm(tool.google_trends_index, 0, 100) +\n  0.10 * logNorm(tool.reddit_mentions_24mo, 500);\n\n// --- Outreach Score (0-100) — vendor-level signals ---\nconst outreachScore =\n  0.30 * employeeSweetSpot(vendor.company_size) +\n  0.25 * (vendor.has_partner_program ? 100 : 0) +\n  0.20 * fundingScoreFn(vendor.funding_stage) +\n  0.15 * logNorm(vendor.press_count_12mo, 50) +\n  0.10 * blogRecency(vendor.blog_last_post_days_ago != null ? Number(vendor.blog_last_post_days_ago) : null);\n\n// --- Priority Score ---\nconst priorityScore =\n  0.40 * integrationScore +\n  0.35 * demandScore +\n  0.25 * outreachScore;\n\n// --- Emerging flag ---\nconst currentYear = new Date().getFullYear();\nconst foundedYear = Number(vendor.founded_year) || 0;\nconst isYoung = foundedYear > (currentYear - 4);\nconst emergingFlag = !!(isYoung && tool.has_api_docs && (Number(tool.marketplace_count) || 0) >= 1);\n\n// --- Tier by absolute threshold (scoring plan, §Tiering) ---\nlet priorityTier;\nif (priorityScore >= 80) priorityTier = '1';\nelse if (priorityScore >= 55) priorityTier = '2';\nelse if (priorityScore >= 30) priorityTier = '3';\nelse priorityTier = '4';\n\n// Emerging flag forces minimum Tier 2\nif (emergingFlag && priorityTier > '2') priorityTier = '2';\n\nreturn [{ json: {\n  id: tool.id,\n  integration_score: Math.round(integrationScore * 10) / 10,\n  demand_score: Math.round(demandScore * 10) / 10,\n  outreach_score: Math.round(outreachScore * 10) / 10,\n  priority_score: Math.round(priorityScore * 10) / 10,\n  priority_tier: priorityTier,\n  emerging_flag: emergingFlag,\n  last_scored_at: new Date().toISOString()\n} }];"
+      },
+      "id": "b0a00001-0005-4000-a000-000000000005",
+      "name": "Compute Score",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        896,
+        124
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "integration_score": "={{ $json.integration_score }}",
+            "demand_score": "={{ $json.demand_score }}",
+            "outreach_score": "={{ $json.outreach_score }}",
+            "priority_score": "={{ $json.priority_score }}",
+            "priority_tier": "={{ $json.priority_tier }}",
+            "emerging_flag": "={{ $json.emerging_flag }}",
+            "last_scored_at": "={{ $json.last_scored_at }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": true,
+              "removed": false
+            },
+            {
+              "id": "integration_score",
+              "displayName": "integration_score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "demand_score",
+              "displayName": "demand_score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "outreach_score",
+              "displayName": "outreach_score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "priority_score",
+              "displayName": "priority_score",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "priority_tier",
+              "displayName": "priority_tier",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "emerging_flag",
+              "displayName": "emerging_flag",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "boolean",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "last_scored_at",
+              "displayName": "last_scored_at",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "dateTime",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "typecast": true
+        }
+      },
+      "id": "b0a00001-0006-4000-a000-000000000006",
+      "name": "Update Tool Scores",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        1120,
+        124
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const scored = $('Compute Score').first().json;\n\nreturn [{ json: {\n  record_id: scored.id,\n  workflow: 'WT-Score',\n  status: 'success',\n  priority_score: scored.priority_score,\n  priority_tier: scored.priority_tier,\n  emerging_flag: scored.emerging_flag,\n  note: `Scored tool (tier ${scored.priority_tier}, score ${scored.priority_score})`\n} }];"
+      },
+      "id": "b0a00001-0007-4000-a000-000000000007",
+      "name": "Format Return Value",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1344,
+        124
+      ]
+    }
+  ],
+  "connections": {
+    "Manual Trigger (Test)": {
+      "main": [
+        [
+          {
+            "node": "Test Data (record_id only)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Test Data (record_id only)": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Tool Record",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Tool Record": {
+      "main": [
+        [
+          {
+            "node": "Get Linked Vendor",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Linked Vendor": {
+      "main": [
+        [
+          {
+            "node": "Compute Score",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Compute Score": {
+      "main": [
+        [
+          {
+            "node": "Update Tool Scores",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Tool Scores": {
+      "main": [
+        [
+          {
+            "node": "Format Return Value",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {}
+}
