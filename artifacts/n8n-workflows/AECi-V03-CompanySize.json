@@ -1,15 +1,15 @@
 {
-  "name": "AECi-W-LinkedIn",
+  "name": "AECi-V03-CompanySize",
   "nodes": [
     {
       "parameters": {},
-      "id": "90c282ed-515c-433e-89cc-f8e534f3fc21",
+      "id": "eb8d02ac-1260-412c-901c-c09f0ae82b96",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        -416,
-        -256
+        176,
+        -144
       ]
     },
     {
@@ -24,13 +24,13 @@
         },
         "options": {}
       },
-      "id": "491e4eb3-163d-499d-b1d5-f147e46c2e25",
+      "id": "a24f75da-5d91-4588-9640-ebc6620ad78e",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        -192,
-        -256
+        400,
+        -144
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "5b64d2fa-679d-4d61-b473-224f222afe43",
+      "id": "ecf5766c-bb7c-4bef-9c31-b7d0066012fb",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        -192,
-        -64
+        400,
+        48
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "150e58f5-c16a-4625-887b-a4be992e3e54",
+      "id": "644024c8-7281-4cb6-8422-2425d0c70076",
       "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        32,
-        -160
+        624,
+        -48
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -85,17 +85,17 @@
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Find the LinkedIn company page for '{{ $('Get Vendor Record').first().json.company_name }}' (website: {{ $('Get Vendor Record').first().json.website }}).\n\nUse the search tool. Try this query:\n\"{{ $('Get Vendor Record').first().json.company_name }}\" site:linkedin.com/company\n\nFrom the search results:\n1. Find the LinkedIn company page URL (format: https://www.linkedin.com/company/SLUG/)\n2. Extract the follower count from the search snippet (e.g., \"1,234 followers on LinkedIn\")\n\nIf the company already has a known LinkedIn URL: {{ $('Get Vendor Record').first().json.linkedin_url || 'none' }}\n— still search to get the current follower count.\n\nReturn null for linkedin_url if you cannot find the company page with confidence.\nReturn null for linkedin_followers if the follower count is not visible in the search results.\n\nLimit the use of the search tool to twice (2 times).",
+        "text": "=How many employees does '{{ $('Get Vendor Record').first().json.company_name }}' ({{ $('Get Vendor Record').first().json.website }}) have?\n\nKnown LinkedIn URL: {{ $('Get Vendor Record').first().json.linkedin_url || 'none' }}\n\nUse the search tool. Try these queries:\n1. \"{{ $('Get Vendor Record').first().json.company_name }}\" employees site:linkedin.com/company\n2. \"{{ $('Get Vendor Record').first().json.company_name }}\" number of employees\n\nFrom the search results, find the employee count. Prefer LinkedIn's \"employees on LinkedIn\" count if available. Also check for Crunchbase or company website mentions.\n\nReturn the employee count range using one of these exact buckets:\n- \"1-10\"\n- \"11-50\"\n- \"51-200\"\n- \"201-1000\"\n- \"1001-5000\"\n- \"5000+\"\n\nIf you find an exact number, also return it. If you cannot determine the employee count with medium or higher confidence, return your best guess with confidence=\"low\".\n\nLimit the use of the search tool to twice (2 times).",
         "hasOutputParser": true,
         "options": {}
       },
-      "id": "00febff0-d860-4a02-806f-15007f019216",
-      "name": "Find LinkedIn Data",
+      "id": "e29b8704-c4df-4952-92c7-6013bcb3b620",
+      "name": "Find Employee Count",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        320,
-        -160
+        912,
+        -48
       ]
     },
     {
@@ -114,11 +114,11 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        256,
-        64
+        848,
+        176
       ],
-      "id": "2f96518e-c255-4db4-9c9a-a80e225b08a0",
-      "name": "Anthropic Chat Model (LinkedIn)",
+      "id": "aafed9bd-5cde-4e56-bd21-cb91b6c586c1",
+      "name": "Anthropic Chat Model (CompanySize)",
       "credentials": {
         "anthropicApi": {
           "id": "9R2GWOKQyrJz9XW0",
@@ -145,10 +145,10 @@
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.4,
       "position": [
-        384,
-        64
+        976,
+        176
       ],
-      "id": "10c28bbf-282c-44bb-8bb4-21334bf2aa82",
+      "id": "3d0d008d-f34f-452a-8717-51d5cecafeb3",
       "name": "SerpAPI Search",
       "credentials": {
         "httpHeaderAuth": {
@@ -164,28 +164,28 @@
     {
       "parameters": {
         "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"linkedin_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"LinkedIn company page URL (https://www.linkedin.com/company/SLUG/), or null\"\n    },\n    \"linkedin_followers\": {\n      \"type\": [\"integer\", \"null\"],\n      \"description\": \"Follower count as a number (no commas), or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence that this is the correct company page\"\n    }\n  },\n  \"required\": [\"linkedin_url\", \"linkedin_followers\", \"confidence\"]\n}"
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"employee_range\": {\n      \"type\": [\"string\", \"null\"],\n      \"enum\": [\"1-10\", \"11-50\", \"51-200\", \"201-1000\", \"1001-5000\", \"5000+\", null],\n      \"description\": \"Employee count bucket\"\n    },\n    \"employee_count_exact\": {\n      \"type\": [\"integer\", \"null\"],\n      \"description\": \"Exact employee count if known, or null\"\n    },\n    \"source\": {\n      \"type\": \"string\",\n      \"description\": \"Where the employee data came from (e.g. linkedin, crunchbase, website, wikipedia, glassdoor, unknown)\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence in the employee count\"\n    }\n  },\n  \"required\": [\"employee_range\", \"employee_count_exact\", \"source\", \"confidence\"]\n}"
       },
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        512,
-        64
+        1104,
+        176
       ],
-      "id": "292b3431-d339-4536-8beb-a9ec266c9291",
-      "name": "LinkedIn Data Parser"
+      "id": "55b0a9dc-c3c6-4bb1-96d9-ba94c19a1e1d",
+      "name": "Employee Data Parser"
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst parsed = raw.output || raw;\n\nconst linkedinUrl = parsed.linkedin_url || null;\nconst followers = (typeof parsed.linkedin_followers === 'number' && parsed.linkedin_followers >= 0)\n  ? parsed.linkedin_followers : null;\nconst low = parsed.confidence === 'low';\n\n// If confidence is low, discard the URL\nconst finalUrl = low ? null : linkedinUrl;\n\nconst fieldsUpdated = ['linkedin_checked_at'];\nif (finalUrl) fieldsUpdated.push('linkedin_url');\nif (followers !== null) fieldsUpdated.push('linkedin_followers');\n\nreturn {\n  record_id: vendor.id,\n  linkedin_url: finalUrl,\n  linkedin_followers: followers,\n  linkedin_checked_at: new Date().toISOString(),\n  status: finalUrl ? 'success' : 'partial',\n  fields_updated: fieldsUpdated,\n  note: !finalUrl ? 'No LinkedIn page found' : (followers === null ? 'URL found but no follower count in SERP' : null)\n};"
+        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst parsed = raw.output || raw;\n\nconst VALID_BUCKETS = ['1-10', '11-50', '51-200', '201-1000', '1001-5000', '5000+'];\n\nfunction exactToBucket(n) {\n  if (n <= 10) return '1-10';\n  if (n <= 50) return '11-50';\n  if (n <= 200) return '51-200';\n  if (n <= 1000) return '201-1000';\n  if (n <= 5000) return '1001-5000';\n  return '5000+';\n}\n\nlet range = parsed.employee_range || null;\nlet exact = (typeof parsed.employee_count_exact === 'number' && parsed.employee_count_exact > 0)\n  ? parsed.employee_count_exact : null;\nconst source = parsed.source || 'unknown';\nconst confidence = parsed.confidence || 'low';\n\n// If we have an exact count, derive the bucket from it (more reliable than LLM's bucket choice)\nif (exact) {\n  range = exactToBucket(exact);\n}\n\n// Validate bucket is one of our allowed values\nif (range && !VALID_BUCKETS.includes(range)) {\n  // Try to normalize common LinkedIn ranges\n  const map = {\n    '1-10': '1-10', '2-10': '1-10',\n    '11-50': '11-50',\n    '51-200': '51-200',\n    '201-500': '201-1000', '501-1000': '201-1000',\n    '1001-5000': '1001-5000',\n    '5001-10000': '5000+', '10001+': '5000+', '10,001+': '5000+'\n  };\n  range = map[range] || null;\n}\n\nconst fieldsUpdated = ['employee_checked_at'];\nif (range) {\n  fieldsUpdated.push('company_size');\n  fieldsUpdated.push('employee_source');\n}\nif (exact) fieldsUpdated.push('employee_count_exact');\n\nreturn {\n  record_id: vendor.id,\n  company_size: range,\n  employee_count_exact: exact,\n  employee_source: source,\n  employee_checked_at: new Date().toISOString(),\n  status: range ? 'success' : 'partial',\n  fields_updated: fieldsUpdated,\n  note: range ? null : 'Could not determine employee count'\n};"
       },
-      "id": "31f72110-3b01-4096-86a7-29f5d41319d4",
-      "name": "Build Result",
+      "id": "22ceb114-e416-44bc-a464-e7d90db728b5",
+      "name": "Map to Bucket",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        720,
-        -160
+        1312,
+        -48
       ]
     },
     {
@@ -205,9 +205,10 @@
           "mappingMode": "defineBelow",
           "value": {
             "id": "={{ $json.record_id }}",
-            "linkedin_url": "={{ $json.linkedin_url }}",
-            "linkedin_followers": "={{ $json.linkedin_followers }}",
-            "linkedin_checked_at": "={{ $json.linkedin_checked_at }}"
+            "company_size": "={{ $json.company_size }}",
+            "employee_count_exact": "={{ $json.employee_count_exact }}",
+            "employee_source": "={{ $json.employee_source }}",
+            "employee_checked_at": "={{ $json.employee_checked_at }}"
           },
           "matchingColumns": [
             "id"
@@ -224,8 +225,8 @@
               "removed": false
             },
             {
-              "id": "linkedin_url",
-              "displayName": "linkedin_url",
+              "id": "company_size",
+              "displayName": "company_size",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -235,8 +236,8 @@
               "removed": false
             },
             {
-              "id": "linkedin_followers",
-              "displayName": "linkedin_followers",
+              "id": "employee_count_exact",
+              "displayName": "employee_count_exact",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -246,8 +247,19 @@
               "removed": false
             },
             {
-              "id": "linkedin_checked_at",
-              "displayName": "linkedin_checked_at",
+              "id": "employee_source",
+              "displayName": "employee_source",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "employee_checked_at",
+              "displayName": "employee_checked_at",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -264,13 +276,13 @@
           "typecast": true
         }
       },
-      "id": "6fd62345-40a7-4c47-b826-10e44024fb8b",
+      "id": "140a31ae-79d3-4c9a-8e5a-5dfb61c449a1",
       "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        944,
-        -160
+        1536,
+        -48
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -281,15 +293,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-LinkedIn',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-CompanySize',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "1a7dfe8e-a193-4806-a431-c1fe6c33ef8c",
+      "id": "818e1e8d-4e2a-4f5e-88d8-f424e7bc270d",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1168,
-        -160
+        1760,
+        -48
       ]
     }
   ],
@@ -331,18 +343,18 @@
       "main": [
         [
           {
-            "node": "Find LinkedIn Data",
+            "node": "Find Employee Count",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Anthropic Chat Model (LinkedIn)": {
+    "Anthropic Chat Model (CompanySize)": {
       "ai_languageModel": [
         [
           {
-            "node": "Find LinkedIn Data",
+            "node": "Find Employee Count",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -353,36 +365,36 @@
       "ai_tool": [
         [
           {
-            "node": "Find LinkedIn Data",
+            "node": "Find Employee Count",
             "type": "ai_tool",
             "index": 0
           }
         ]
       ]
     },
-    "LinkedIn Data Parser": {
+    "Employee Data Parser": {
       "ai_outputParser": [
         [
           {
-            "node": "Find LinkedIn Data",
+            "node": "Find Employee Count",
             "type": "ai_outputParser",
             "index": 0
           }
         ]
       ]
     },
-    "Find LinkedIn Data": {
+    "Find Employee Count": {
       "main": [
         [
           {
-            "node": "Build Result",
+            "node": "Map to Bucket",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Build Result": {
+    "Map to Bucket": {
       "main": [
         [
           {
@@ -417,6 +429,6 @@
   "staticData": null,
   "pinData": {},
   "meta": {
-    "n8n_id": "vLmF77XaxnbG1Ebk"
+    "n8n_id": "2avFAdmPuCC0tvDY"
   }
 }

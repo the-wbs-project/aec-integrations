@@ -1,18 +1,39 @@
 import puppeteer from "@cloudflare/puppeteer";
 import type { Env } from "./index";
-import { json, CACHE_TTL } from "./index";
+import { CACHE_TTL } from "./index";
 
 const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5 MB
+
+interface RenderResponse {
+  successful: boolean;
+  results: string | null;
+  error: string | null;
+}
+
+function renderJson(payload: RenderResponse): Response {
+  return new Response(JSON.stringify(payload), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
 
 export async function handleRender(url: URL, env: Env): Promise<Response> {
   const targetUrl = url.searchParams.get("url");
 
   if (!targetUrl) {
-    return json({ error: "Missing required 'url' parameter" }, 400);
+    return renderJson({
+      successful: false,
+      results: null,
+      error: "Missing required 'url' parameter",
+    });
   }
 
   if (!targetUrl.startsWith("https://")) {
-    return json({ error: "Only https:// URLs are accepted" }, 400);
+    return renderJson({
+      successful: false,
+      results: null,
+      error: "Only https:// URLs are accepted",
+    });
   }
 
   const mode = url.searchParams.get("mode");
@@ -22,14 +43,7 @@ export async function handleRender(url: URL, env: Env): Promise<Response> {
 
   const cached = await env.KV_CACHE.get(cacheKey);
   if (cached !== null) {
-    const contentType =
-      mode === "text" ? "text/plain; charset=utf-8" : "text/html; charset=utf-8";
-    return new Response(cached, {
-      headers: {
-        "Content-Type": contentType,
-        "X-Cache": "HIT",
-      },
-    });
+    return renderJson({ successful: true, results: cached, error: null });
   }
 
   let browser: puppeteer.Browser | null = null;
@@ -53,12 +67,15 @@ export async function handleRender(url: URL, env: Env): Promise<Response> {
 
     const status = response?.status() ?? 502;
 
-    // Return a 200 with an error message so downstream tools don't hard-fail
     if (status < 200 || status >= 300) {
-      return json(
-        { error: `Target page returned HTTP ${status}`, status, url: targetUrl },
-        200
+      console.error(
+        `render: target ${targetUrl} returned HTTP ${status}`
       );
+      return renderJson({
+        successful: false,
+        results: null,
+        error: `Target page returned HTTP ${status}`,
+      });
     }
 
     let body: string;
@@ -84,7 +101,14 @@ export async function handleRender(url: URL, env: Env): Promise<Response> {
     }
 
     if (body.length > MAX_HTML_SIZE) {
-      return json({ error: "Rendered page exceeds 5 MB limit" }, 413);
+      console.error(
+        `render: ${targetUrl} body size ${body.length} exceeds ${MAX_HTML_SIZE}`
+      );
+      return renderJson({
+        successful: false,
+        results: null,
+        error: "Rendered page exceeds 5 MB limit",
+      });
     }
 
     if (maxChars > 0 && body.length > maxChars) {
@@ -95,18 +119,15 @@ export async function handleRender(url: URL, env: Env): Promise<Response> {
       expirationTtl: CACHE_TTL,
     });
 
-    return new Response(body, {
-      headers: {
-        "Content-Type":
-          mode === "text"
-            ? "text/plain; charset=utf-8"
-            : "text/html; charset=utf-8",
-        "X-Cache": "MISS",
-      },
-    });
+    return renderJson({ successful: true, results: body, error: null });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return json({ error: "Browser rendering failed", detail: message }, 502);
+    console.error(`render: browser rendering ${targetUrl} failed:`, err);
+    return renderJson({
+      successful: false,
+      results: null,
+      error: `Browser rendering failed: ${message}`,
+    });
   } finally {
     if (browser) {
       await browser.close();

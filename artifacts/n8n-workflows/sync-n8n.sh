@@ -51,7 +51,7 @@ n8n_api() {
 cmd_list() {
   echo "Workflows on $N8N_URL:"
   echo ""
-  n8n_api GET /workflows | jq -r '.data[] | select(.name | startswith("AECi-")) | "  \(.id)\t\(.name)"'
+  n8n_api GET /workflows | jq -r '[.data[] | select(.name | startswith("AECi-"))] | sort_by(.name) | .[] | "  \(.id)\t\(.name)"'
 }
 
 cmd_pull() {

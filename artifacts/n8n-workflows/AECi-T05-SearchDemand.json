@@ -1,15 +1,15 @@
 {
-  "name": "AECi-T-SearchDemand",
+  "name": "AECi-T05-SearchDemand",
   "nodes": [
     {
       "parameters": {},
-      "id": "a6000001-0001-4000-a000-000000000001",
+      "id": "69d4d1d5-69be-432b-91a8-3216f56968e7",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        200,
-        200
+        0,
+        0
       ]
     },
     {
@@ -18,19 +18,19 @@
           "values": [
             {
               "name": "record_id",
-              "stringValue": "recH6fuIYPHJ6XWpe"
+              "stringValue": "recvm3gJmUFLMzVIL"
             }
           ]
         },
         "options": {}
       },
-      "id": "a6000001-0002-4000-a000-000000000002",
+      "id": "792b7681-75a3-4a1f-a6d8-7ebb2c3ec2c9",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        424,
-        200
+        224,
+        0
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "a6000001-0003-4000-a000-000000000003",
+      "id": "b6be34d2-9b2f-4ddc-a732-79bc6ae8b5d9",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        424,
-        400
+        224,
+        208
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "a6000001-0004-4000-a000-000000000004",
+      "id": "c6b2b7f2-b666-46d9-a435-1fcda4f285ea",
       "name": "Get Tool Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        648,
-        300
+        448,
+        112
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -86,13 +86,13 @@
       "parameters": {
         "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\nconst tool_name = fields.Name || fields.name || null;\nreturn {\n  record_id: record.id || $('Get Tool Record').first().json.id,\n  tool_name,\n  _has_required: !!tool_name\n};"
       },
-      "id": "a6000001-0005-4000-a000-000000000005",
+      "id": "2b7dded7-fa5e-472c-9b02-3241fcbc01ea",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        872,
-        300
+        672,
+        112
       ]
     },
     {
@@ -119,13 +119,13 @@
         },
         "options": {}
       },
-      "id": "a6000001-0006-4000-a000-000000000006",
+      "id": "a1ad288c-39a2-4283-a432-b40095f7860d",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        1096,
-        300
+        896,
+        112
       ]
     },
     {
@@ -159,13 +159,13 @@
           "timeout": 30000
         }
       },
-      "id": "a6000001-0007-4000-a000-000000000007",
+      "id": "b737ff28-dae5-40b3-b960-bb8c9d0d47b9",
       "name": "Google Trends Request",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
-        200
+        1120,
+        0
       ],
       "alwaysOutputData": true,
       "credentials": {
@@ -202,13 +202,13 @@
           "timeout": 30000
         }
       },
-      "id": "a6000001-0008-4000-a000-000000000008",
+      "id": "534434f1-7aca-4fe4-86af-23e8ba5e0ebb",
       "name": "Search Volume Request",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.2,
       "position": [
-        1320,
-        400
+        1120,
+        208
       ],
       "alwaysOutputData": true,
       "credentials": {
@@ -220,28 +220,28 @@
     },
     {
       "parameters": {
-        "jsCode": "const trendsRaw = $('Google Trends Request').first().json;\nconst searchRaw = $('Search Volume Request').first().json;\nconst context = $('Normalize Input').item.json;\n\nlet trendsIndex = null;\ntry {\n  const data = trendsRaw.data || trendsRaw;\n  const timelines = data?.interest_over_time?.timeline_data;\n  if (Array.isArray(timelines) && timelines.length > 0) {\n    const values = timelines.map(t => t.values?.[0]?.extracted_value || 0);\n    trendsIndex = Math.round(values.reduce((a, b) => a + b, 0) / values.length);\n  }\n} catch (e) {}\n\nlet searchVolume = null;\ntry {\n  const data = searchRaw.data || searchRaw;\n  const totalResults = data?.search_information?.total_results;\n  if (totalResults && totalResults > 0) {\n    searchVolume = Math.round(Math.log10(totalResults + 1) * 100);\n  }\n} catch (e) {}\n\nreturn {\n  record_id: context.record_id,\n  search_volume_monthly: searchVolume,\n  google_trends_index: trendsIndex,\n  search_checked_at: new Date().toISOString(),\n  status: (trendsIndex !== null || searchVolume !== null) ? 'success' : 'partial',\n  fields_updated: ['search_volume_monthly', 'google_trends_index', 'search_checked_at'],\n  note: (trendsIndex === null && searchVolume === null) ? 'No search demand data available' : null\n};"
+        "jsCode": "let trendsRaw = null;\nlet searchRaw = null;\ntry { trendsRaw = $('Google Trends Request').all()[0]?.json; } catch (e) {}\ntry { searchRaw = $('Search Volume Request').all()[0]?.json; } catch (e) {}\nconst context = $('Normalize Input').first().json;\n\nlet trendsIndex = null;\ntry {\n  const data = trendsRaw?.data || trendsRaw;\n  const timelines = data?.interest_over_time?.timeline_data;\n  if (Array.isArray(timelines) && timelines.length > 0) {\n    const values = timelines.map(t => t.values?.[0]?.extracted_value || 0);\n    trendsIndex = Math.round(values.reduce((a, b) => a + b, 0) / values.length);\n  }\n} catch (e) {}\n\nlet searchVolume = null;\ntry {\n  const data = searchRaw?.data || searchRaw;\n  const totalResults = data?.search_information?.total_results;\n  if (totalResults && totalResults > 0) {\n    searchVolume = Math.round(Math.log10(totalResults + 1) * 100);\n  }\n} catch (e) {}\n\nreturn {\n  record_id: context.record_id,\n  search_volume_monthly: searchVolume,\n  google_trends_index: trendsIndex,\n  search_checked_at: new Date().toISOString(),\n  status: (trendsIndex !== null || searchVolume !== null) ? 'success' : 'partial',\n  fields_updated: ['search_volume_monthly', 'google_trends_index', 'search_checked_at'],\n  note: (trendsIndex === null && searchVolume === null) ? 'No search demand data available' : null\n};"
       },
-      "id": "a6000001-0009-4000-a000-000000000009",
+      "id": "8d21736c-80e8-4f72-b672-9b83fc71d23b",
       "name": "Parse Results",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1544,
-        300
+        1344,
+        112
       ]
     },
     {
       "parameters": {
-        "jsCode": "const context = $('Normalize Input').item.json;\nreturn {\n  record_id: context.record_id,\n  search_volume_monthly: null,\n  google_trends_index: null,\n  search_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['search_checked_at'],\n  error: `Missing required fields. record_id=${context.record_id}`\n};"
+        "jsCode": "const context = $('Normalize Input').first().json;\nreturn {\n  record_id: context.record_id,\n  search_volume_monthly: null,\n  google_trends_index: null,\n  search_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['search_checked_at'],\n  error: `Missing required fields. record_id=${context.record_id}`\n};"
       },
-      "id": "a6000001-0010-4000-a000-000000000010",
+      "id": "09af41ee-4b83-43e5-ae0f-00fd19a5676a",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1320,
-        560
+        1120,
+        368
       ]
     },
     {
@@ -320,13 +320,13 @@
           "typecast": true
         }
       },
-      "id": "a6000001-0011-4000-a000-000000000011",
+      "id": "0a7373ff-b269-4e42-88ff-d26e541edf60",
       "name": "Update Tool Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        1768,
-        400
+        1568,
+        208
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -337,16 +337,109 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-SearchDemand',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'WT-SearchDemand',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "a6000001-0012-4000-a000-000000000012",
+      "id": "a9c9c46d-9859-49b0-9efc-cbc684c6d0a3",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1992,
-        400
+        1792,
+        208
       ]
+    },
+    {
+      "parameters": {
+        "content": "## Missing Info",
+        "height": 240,
+        "width": 464
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        208,
+        -288
+      ],
+      "typeVersion": 1,
+      "id": "1a957244-50f8-4896-9b8e-73d6756fd1d6",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "operation": "search",
+        "base": {
+          "__rl": true,
+          "value": "appy81IdGJY6Fngf9",
+          "mode": "list"
+        },
+        "table": {
+          "__rl": true,
+          "value": "tbleVEZV0H5RigtHN",
+          "mode": "list",
+          "cachedResultName": "Tools",
+          "cachedResultUrl": "https://airtable.com/appy81IdGJY6Fngf9/tbleVEZV0H5RigtHN"
+        },
+        "filterByFormula": "LEN({search_checked_at})=0",
+        "options": {}
+      },
+      "id": "c5282e7e-5146-4c25-999a-40d09fd98ea9",
+      "name": "Search For Missing",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2.1,
+      "position": [
+        272,
+        -224
+      ],
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "jtGhDJetnti9mATh",
+          "name": "Airtable - The WBS Project"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "fVIVetcPgQXmLlKL",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/fVIVetcPgQXmLlKL",
+          "cachedResultName": "The WBS Project — AECi-T05-SearchDemand"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "record_id": "={{ $json.id }}"
+          },
+          "matchingColumns": [
+            "record_id"
+          ],
+          "schema": [
+            {
+              "id": "record_id",
+              "displayName": "record_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "each",
+        "options": {
+          "waitForSubWorkflow": true
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        480,
+        -224
+      ],
+      "id": "2267dc09-5fa6-4268-a4fd-e60fc3c55368",
+      "name": "Call Sub-Workflow"
     }
   ],
   "connections": {
@@ -354,7 +447,7 @@
       "main": [
         [
           {
-            "node": "Test Data (record_id only)",
+            "node": "Search For Missing",
             "type": "main",
             "index": 0
           }
@@ -482,16 +575,31 @@
           }
         ]
       ]
+    },
+    "Search For Missing": {
+      "main": [
+        [
+          {
+            "node": "Call Sub-Workflow",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
     "errorWorkflow": "86rEn9WgLNb61C4M",
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false,
-    "binaryMode": "separate"
+    "timeSavedPerExecution": 7
   },
   "staticData": null,
   "pinData": {},
-  "meta": {}
+  "meta": {
+    "n8n_id": "fVIVetcPgQXmLlKL"
+  }
 }

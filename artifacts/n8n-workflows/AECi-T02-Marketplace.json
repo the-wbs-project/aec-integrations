@@ -1,15 +1,15 @@
 {
-  "name": "AECi-T-iPaaS",
+  "name": "AECi-T02-Marketplace",
   "nodes": [
     {
       "parameters": {},
-      "id": "453e5c7d-bfef-4862-a01e-784fe8f2d46e",
+      "id": "a3000001-0001-4000-a000-000000000001",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        0,
-        32
+        200,
+        200
       ]
     },
     {
@@ -18,19 +18,19 @@
           "values": [
             {
               "name": "record_id",
-              "stringValue": "recvm3gJmUFLMzVIL"
+              "stringValue": "recH6fuIYPHJ6XWpe"
             }
           ]
         },
         "options": {}
       },
-      "id": "b771c39b-335f-4c4a-8044-bbccdf2e7dd2",
+      "id": "a3000001-0002-4000-a000-000000000002",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        224,
-        32
+        424,
+        200
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "71b65720-72aa-4d2e-922f-20873bcdea81",
+      "id": "a3000001-0003-4000-a000-000000000003",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        224,
-        224
+        424,
+        400
       ]
     },
     {
@@ -62,20 +62,18 @@
         "table": {
           "__rl": true,
           "value": "tbleVEZV0H5RigtHN",
-          "mode": "list",
-          "cachedResultName": "Tools",
-          "cachedResultUrl": "https://airtable.com/appy81IdGJY6Fngf9/tbleVEZV0H5RigtHN"
+          "mode": "list"
         },
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "c0c1f58a-d164-45ef-b8e9-134db1c4be71",
+      "id": "a3000001-0004-4000-a000-000000000004",
       "name": "Get Tool Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        448,
-        128
+        648,
+        300
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -88,13 +86,13 @@
       "parameters": {
         "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\nconst tool_name = fields.Name || fields.name || null;\nreturn {\n  record_id: record.id || $('Get Tool Record').first().json.id,\n  tool_name,\n  _has_required: !!tool_name\n};"
       },
-      "id": "02ab75fb-97b3-4567-ba0b-0c5b221365ab",
+      "id": "a3000001-0012-4000-a000-000000000012",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        672,
-        128
+        872,
+        300
       ]
     },
     {
@@ -121,29 +119,29 @@
         },
         "options": {}
       },
-      "id": "bb1e016e-6958-457b-abf3-ce16b7947dbc",
+      "id": "a3000001-0013-4000-a000-000000000013",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        896,
-        128
+        1096,
+        300
       ]
     },
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Search for \"{{ $('Normalize Input').first().json.tool_name }}\" on these iPaaS platforms:\n1. \"{{ $('Normalize Input').first().json.tool_name }}\" site:zapier.com/apps\n2. \"{{ $('Normalize Input').first().json.tool_name }}\" site:make.com/en/integrations\n3. \"{{ $('Normalize Input').first().json.tool_name }}\" site:workato.com/integrations\n\nFor Zapier results, also count triggers and actions listed. Limit searches to 4.",
+        "text": "=Search for \"{{ $('Normalize Input').first().json.tool_name }}\" on these AEC construction software marketplaces. For each, do ONE search:\n1. \"{{ $('Normalize Input').first().json.tool_name }}\" site:marketplace.procore.com\n2. \"{{ $('Normalize Input').first().json.tool_name }}\" site:construction.autodesk.com marketplace\n3. \"{{ $('Normalize Input').first().json.tool_name }}\" site:app.connect.trimble.com\n4. \"{{ $('Normalize Input').first().json.tool_name }}\" site:marketplace.bluebeam.com\n\nOnly include a marketplace if you find a clear product listing. Limit searches to 4.",
         "hasOutputParser": true,
         "options": {}
       },
-      "id": "4762e3f9-e87b-4d29-b6ff-54502e682797",
-      "name": "Search iPaaS Platforms",
+      "id": "a3000001-0005-4000-a000-000000000005",
+      "name": "Search Marketplaces",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        1184,
-        0
+        1320,
+        200
       ]
     },
     {
@@ -159,18 +157,18 @@
           "temperature": 0
         }
       },
-      "id": "a1b1c563-461e-4764-999a-9847b4846db5",
+      "id": "a3000001-0006-4000-a000-000000000006",
       "name": "Anthropic Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        1120,
-        224
+        1272,
+        420
       ],
       "credentials": {
         "anthropicApi": {
           "id": "9R2GWOKQyrJz9XW0",
-          "name": "Anthropic - AECi - Tool Research"
+          "name": "Anthropic - AECi"
         }
       }
     },
@@ -190,13 +188,13 @@
         },
         "options": {}
       },
-      "id": "32f6d12b-c4fc-4b75-ab90-ba30253fcb47",
+      "id": "a3000001-0007-4000-a000-000000000007",
       "name": "SerpAPI Search",
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.4,
       "position": [
-        1248,
-        224
+        1400,
+        420
       ],
       "credentials": {
         "httpBearerAuth": {
@@ -208,41 +206,41 @@
     {
       "parameters": {
         "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"platforms\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\", \"enum\": [\"Zapier\", \"Make\", \"Workato\"] },\n      \"description\": \"List of iPaaS platforms where the tool was found\"\n    },\n    \"zapier_trigger_count\": {\n      \"type\": \"integer\",\n      \"description\": \"Number of Zapier triggers and actions (0 if not found on Zapier)\"\n    },\n    \"details\": {\n      \"type\": \"object\",\n      \"description\": \"Additional details per platform\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence level\"\n    }\n  },\n  \"required\": [\"platforms\", \"confidence\"]\n}"
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"marketplaces\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\", \"enum\": [\"Procore\", \"ACC\", \"Trimble\", \"Bluebeam\"] },\n      \"description\": \"List of marketplaces where the tool was found\"\n    },\n    \"details\": {\n      \"type\": \"object\",\n      \"description\": \"Additional details per marketplace\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence level\"\n    }\n  },\n  \"required\": [\"marketplaces\", \"confidence\"]\n}"
       },
-      "id": "a7a86857-0463-494e-aabb-eb1de7d1671a",
+      "id": "a3000001-0008-4000-a000-000000000008",
       "name": "Output Parser",
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        1376,
-        224
+        1528,
+        420
       ]
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\nconst validNames = ['Zapier', 'Make', 'Workato'];\nconst platforms = (parsed.platforms || []).filter(p => validNames.includes(p));\nconst zapierCount = typeof parsed.zapier_trigger_count === 'number' ? parsed.zapier_trigger_count : null;\nreturn [{ json: {\n  record_id: context.record_id,\n  ipaas_platforms: platforms.length > 0 ? platforms : null,\n  ipaas_count: platforms.length,\n  zapier_trigger_count: zapierCount,\n  ipaas_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['ipaas_platforms', 'ipaas_count', 'zapier_trigger_count', 'ipaas_checked_at'],\n  note: platforms.length > 0 ? `Found on: ${platforms.join(', ')}` : 'No iPaaS listings found'\n} }];"
+        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\nconst validNames = ['Procore', 'ACC', 'Trimble', 'Bluebeam'];\nconst marketplaces = (parsed.marketplaces || []).filter(m => validNames.includes(m));\nreturn [{ json: {\n  record_id: context.record_id,\n  source_marketplaces: marketplaces.length > 0 ? marketplaces : null,\n  marketplace_count: marketplaces.length,\n  marketplace_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['source_marketplaces', 'marketplace_count', 'marketplace_checked_at'],\n  note: marketplaces.length > 0 ? `Found on: ${marketplaces.join(', ')}` : 'No marketplace listings found'\n} }];"
       },
-      "id": "7142015a-0f4c-4af6-9760-54e36f293def",
+      "id": "a3000001-0009-4000-a000-000000000009",
       "name": "Map Results",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1584,
-        0
+        1544,
+        200
       ]
     },
     {
       "parameters": {
-        "jsCode": "const context = $('Normalize Input').first().json;\nreturn [{ json: {\n  record_id: context.record_id,\n  ipaas_platforms: null,\n  ipaas_count: null,\n  zapier_trigger_count: null,\n  ipaas_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['ipaas_checked_at'],\n  error: `Missing required fields. record_id=${context.record_id}`\n} }];"
+        "jsCode": "const context = $('Normalize Input').first().json;\nreturn [{ json: {\n  record_id: context.record_id,\n  source_marketplaces: null,\n  marketplace_count: null,\n  marketplace_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['marketplace_checked_at'],\n  error: `Missing required fields. record_id=${context.record_id}`\n} }];"
       },
-      "id": "0bcaaede-9772-45f1-a943-52a9268a4cf5",
+      "id": "a3000001-0014-4000-a000-000000000014",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1808,
-        256
+        1320,
+        460
       ]
     },
     {
@@ -262,10 +260,9 @@
           "mappingMode": "defineBelow",
           "value": {
             "id": "={{ $json.record_id }}",
-            "ipaas_platforms": "={{ $json.ipaas_platforms }}",
-            "ipaas_count": "={{ $json.ipaas_count }}",
-            "zapier_trigger_count": "={{ $json.zapier_trigger_count }}",
-            "ipaas_checked_at": "={{ $json.ipaas_checked_at }}"
+            "source_marketplaces": "={{ $json.source_marketplaces }}",
+            "marketplace_count": "={{ $json.marketplace_count }}",
+            "marketplace_checked_at": "={{ $json.marketplace_checked_at }}"
           },
           "matchingColumns": [
             "id"
@@ -282,8 +279,8 @@
               "removed": false
             },
             {
-              "id": "ipaas_platforms",
-              "displayName": "ipaas_platforms",
+              "id": "source_marketplaces",
+              "displayName": "source_marketplaces",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -293,8 +290,8 @@
               "removed": false
             },
             {
-              "id": "ipaas_count",
-              "displayName": "ipaas_count",
+              "id": "marketplace_count",
+              "displayName": "marketplace_count",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -304,19 +301,8 @@
               "removed": false
             },
             {
-              "id": "zapier_trigger_count",
-              "displayName": "zapier_trigger_count",
-              "required": false,
-              "defaultMatch": false,
-              "canBeUsedToMatch": true,
-              "display": true,
-              "type": "number",
-              "readOnly": false,
-              "removed": false
-            },
-            {
-              "id": "ipaas_checked_at",
-              "displayName": "ipaas_checked_at",
+              "id": "marketplace_checked_at",
+              "displayName": "marketplace_checked_at",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -333,13 +319,13 @@
           "typecast": true
         }
       },
-      "id": "58e254c8-8db5-41e2-ab87-d5dd30e20089",
+      "id": "a3000001-0010-4000-a000-000000000010",
       "name": "Update Tool Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        1808,
-        0
+        1768,
+        200
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -350,15 +336,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'WT-iPaaS',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
+        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-Marketplace',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
       },
-      "id": "0779ad21-acf9-4dbe-a9fe-452311a01ccc",
+      "id": "a3000001-0011-4000-a000-000000000011",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2032,
-        128
+        1992,
+        200
       ]
     }
   ],
@@ -422,7 +408,7 @@
       "main": [
         [
           {
-            "node": "Search iPaaS Platforms",
+            "node": "Search Marketplaces",
             "type": "main",
             "index": 0
           }
@@ -440,7 +426,7 @@
       "ai_languageModel": [
         [
           {
-            "node": "Search iPaaS Platforms",
+            "node": "Search Marketplaces",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -451,7 +437,7 @@
       "ai_tool": [
         [
           {
-            "node": "Search iPaaS Platforms",
+            "node": "Search Marketplaces",
             "type": "ai_tool",
             "index": 0
           }
@@ -462,14 +448,14 @@
       "ai_outputParser": [
         [
           {
-            "node": "Search iPaaS Platforms",
+            "node": "Search Marketplaces",
             "type": "ai_outputParser",
             "index": 0
           }
         ]
       ]
     },
-    "Search iPaaS Platforms": {
+    "Search Marketplaces": {
       "main": [
         [
           {
@@ -516,11 +502,12 @@
   },
   "settings": {
     "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
     "binaryMode": "separate"
   },
   "staticData": null,
   "pinData": {},
-  "meta": {
-    "n8n_id": "1C3CFzaO7RXgvpCS"
-  }
+  "meta": {}
 }

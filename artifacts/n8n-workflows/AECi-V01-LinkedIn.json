@@ -1,15 +1,15 @@
 {
-  "name": "AECi-T-Reddit",
+  "name": "AECi-V01-LinkedIn",
   "nodes": [
     {
       "parameters": {},
-      "id": "a7000001-0001-4000-a000-000000000001",
+      "id": "90c282ed-515c-433e-89cc-f8e534f3fc21",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        200,
-        200
+        -416,
+        -256
       ]
     },
     {
@@ -18,19 +18,19 @@
           "values": [
             {
               "name": "record_id",
-              "stringValue": "recH6fuIYPHJ6XWpe"
+              "stringValue": "recCUTBsCtopTwDG7"
             }
           ]
         },
         "options": {}
       },
-      "id": "a7000001-0002-4000-a000-000000000002",
+      "id": "491e4eb3-163d-499d-b1d5-f147e46c2e25",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        424,
-        200
+        -192,
+        -256
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "a7000001-0003-4000-a000-000000000003",
+      "id": "5b64d2fa-679d-4d61-b473-224f222afe43",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        424,
-        400
+        -192,
+        -64
       ]
     },
     {
@@ -61,19 +61,19 @@
         },
         "table": {
           "__rl": true,
-          "value": "tbleVEZV0H5RigtHN",
+          "value": "tbln8aZjwPI3Am4TF",
           "mode": "list"
         },
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "a7000001-0004-4000-a000-000000000004",
-      "name": "Get Tool Record",
+      "id": "150e58f5-c16a-4625-887b-a4be992e3e54",
+      "name": "Get Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        648,
-        300
+        32,
+        -160
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -84,64 +84,18 @@
     },
     {
       "parameters": {
-        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\nconst tool_name = fields.Name || fields.name || null;\nreturn {\n  record_id: record.id || $('Get Tool Record').first().json.id,\n  tool_name,\n  _has_required: !!tool_name\n};"
-      },
-      "id": "a7000001-0012-4000-a000-000000000012",
-      "name": "Normalize Input",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        872,
-        300
-      ]
-    },
-    {
-      "parameters": {
-        "conditions": {
-          "options": {
-            "caseSensitive": true,
-            "leftValue": "",
-            "typeValidation": "loose"
-          },
-          "conditions": [
-            {
-              "id": "has-required",
-              "leftValue": "={{ $json._has_required }}",
-              "rightValue": true,
-              "operator": {
-                "type": "boolean",
-                "operation": "true",
-                "singleValue": true
-              }
-            }
-          ],
-          "combinator": "and"
-        },
-        "options": {}
-      },
-      "id": "a7000001-0013-4000-a000-000000000013",
-      "name": "Has Required Fields?",
-      "type": "n8n-nodes-base.if",
-      "typeVersion": 2,
-      "position": [
-        1096,
-        300
-      ]
-    },
-    {
-      "parameters": {
         "promptType": "define",
-        "text": "=Search Reddit for mentions of \"{{ $('Normalize Input').first().json.tool_name }}\" in construction and AEC communities.\n\nSearch: \"{{ $('Normalize Input').first().json.tool_name }}\" site:reddit.com (r/Construction OR r/AEC OR r/Revit OR r/civilengineering OR r/ConstructionManagement)\n\nCount distinct Reddit posts or discussions mentioning this specific tool. Only count results clearly about this software. Limit searches to 1.",
+        "text": "=Find the LinkedIn company page for '{{ $('Get Vendor Record').first().json.company_name }}' (website: {{ $('Get Vendor Record').first().json.website }}).\n\nUse the search tool. Try this query:\n\"{{ $('Get Vendor Record').first().json.company_name }}\" site:linkedin.com/company\n\nFrom the search results:\n1. Find the LinkedIn company page URL (format: https://www.linkedin.com/company/SLUG/)\n2. Extract the follower count from the search snippet (e.g., \"1,234 followers on LinkedIn\")\n\nIf the company already has a known LinkedIn URL: {{ $('Get Vendor Record').first().json.linkedin_url || 'none' }}\n— still search to get the current follower count.\n\nReturn null for linkedin_url if you cannot find the company page with confidence.\nReturn null for linkedin_followers if the follower count is not visible in the search results.\n\nLimit the use of the search tool to twice (2 times).",
         "hasOutputParser": true,
         "options": {}
       },
-      "id": "a7000001-0005-4000-a000-000000000005",
-      "name": "Search Reddit",
+      "id": "00febff0-d860-4a02-806f-15007f019216",
+      "name": "Find LinkedIn Data",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        1320,
-        200
+        320,
+        -160
       ]
     },
     {
@@ -153,18 +107,18 @@
           "cachedResultName": "Claude Haiku 4.5"
         },
         "options": {
-          "maxTokensToSample": 1024,
+          "maxTokensToSample": 512,
           "temperature": 0
         }
       },
-      "id": "a7000001-0006-4000-a000-000000000006",
-      "name": "Anthropic Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        1272,
-        420
+        256,
+        64
       ],
+      "id": "2f96518e-c255-4db4-9c9a-a80e225b08a0",
+      "name": "Anthropic Chat Model (LinkedIn)",
       "credentials": {
         "anthropicApi": {
           "id": "9R2GWOKQyrJz9XW0",
@@ -188,15 +142,19 @@
         },
         "options": {}
       },
-      "id": "a7000001-0007-4000-a000-000000000007",
-      "name": "SerpAPI Search",
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.4,
       "position": [
-        1400,
-        420
+        384,
+        64
       ],
+      "id": "10c28bbf-282c-44bb-8bb4-21334bf2aa82",
+      "name": "SerpAPI Search",
       "credentials": {
+        "httpHeaderAuth": {
+          "id": "tcKAetSZG794jPG3",
+          "name": "SERP Cache Bearer"
+        },
         "httpBearerAuth": {
           "id": "svEdy4ASukdpjdOg",
           "name": "SERP Cache Bearer"
@@ -206,41 +164,28 @@
     {
       "parameters": {
         "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"reddit_mentions_24mo\": {\n      \"type\": \"integer\",\n      \"description\": \"Number of distinct Reddit posts or discussions mentioning this tool\"\n    },\n    \"sample_urls\": {\n      \"type\": \"array\",\n      \"items\": { \"type\": \"string\" },\n      \"description\": \"Sample Reddit URLs found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence level\"\n    }\n  },\n  \"required\": [\"reddit_mentions_24mo\", \"confidence\"]\n}"
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"linkedin_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"LinkedIn company page URL (https://www.linkedin.com/company/SLUG/), or null\"\n    },\n    \"linkedin_followers\": {\n      \"type\": [\"integer\", \"null\"],\n      \"description\": \"Follower count as a number (no commas), or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence that this is the correct company page\"\n    }\n  },\n  \"required\": [\"linkedin_url\", \"linkedin_followers\", \"confidence\"]\n}"
       },
-      "id": "a7000001-0008-4000-a000-000000000008",
-      "name": "Output Parser",
       "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
       "typeVersion": 1.3,
       "position": [
-        1528,
-        420
-      ]
+        512,
+        64
+      ],
+      "id": "292b3431-d339-4536-8beb-a9ec266c9291",
+      "name": "LinkedIn Data Parser"
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\nconst mentions = typeof parsed.reddit_mentions_24mo === 'number' ? parsed.reddit_mentions_24mo : 0;\nreturn [{ json: {\n  record_id: context.record_id,\n  reddit_mentions_24mo: mentions,\n  reddit_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['reddit_mentions_24mo', 'reddit_checked_at'],\n  note: mentions > 0 ? `Found ${mentions} Reddit mentions` : 'No Reddit mentions found'\n} }];"
+        "jsCode": "const raw = $input.first().json;\nconst vendor = $('Get Vendor Record').first().json;\nconst parsed = raw.output || raw;\n\nconst linkedinUrl = parsed.linkedin_url || null;\nconst followers = (typeof parsed.linkedin_followers === 'number' && parsed.linkedin_followers >= 0)\n  ? parsed.linkedin_followers : null;\nconst low = parsed.confidence === 'low';\n\n// If confidence is low, discard the URL\nconst finalUrl = low ? null : linkedinUrl;\n\nconst fieldsUpdated = ['linkedin_checked_at'];\nif (finalUrl) fieldsUpdated.push('linkedin_url');\nif (followers !== null) fieldsUpdated.push('linkedin_followers');\n\nreturn {\n  record_id: vendor.id,\n  linkedin_url: finalUrl,\n  linkedin_followers: followers,\n  linkedin_checked_at: new Date().toISOString(),\n  status: finalUrl ? 'success' : 'partial',\n  fields_updated: fieldsUpdated,\n  note: !finalUrl ? 'No LinkedIn page found' : (followers === null ? 'URL found but no follower count in SERP' : null)\n};"
       },
-      "id": "a7000001-0009-4000-a000-000000000009",
-      "name": "Map Results",
+      "id": "31f72110-3b01-4096-86a7-29f5d41319d4",
+      "name": "Build Result",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1544,
-        200
-      ]
-    },
-    {
-      "parameters": {
-        "jsCode": "const context = $('Normalize Input').first().json;\nreturn [{ json: {\n  record_id: context.record_id,\n  reddit_mentions_24mo: null,\n  reddit_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['reddit_checked_at'],\n  error: `Missing required fields. record_id=${context.record_id}`\n} }];"
-      },
-      "id": "a7000001-0014-4000-a000-000000000014",
-      "name": "Missing Required Fields",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
-      "position": [
-        1320,
-        460
+        720,
+        -160
       ]
     },
     {
@@ -253,15 +198,16 @@
         },
         "table": {
           "__rl": true,
-          "value": "tbleVEZV0H5RigtHN",
+          "value": "tbln8aZjwPI3Am4TF",
           "mode": "list"
         },
         "columns": {
           "mappingMode": "defineBelow",
           "value": {
             "id": "={{ $json.record_id }}",
-            "reddit_mentions_24mo": "={{ $json.reddit_mentions_24mo }}",
-            "reddit_checked_at": "={{ $json.reddit_checked_at }}"
+            "linkedin_url": "={{ $json.linkedin_url }}",
+            "linkedin_followers": "={{ $json.linkedin_followers }}",
+            "linkedin_checked_at": "={{ $json.linkedin_checked_at }}"
           },
           "matchingColumns": [
             "id"
@@ -278,8 +224,19 @@
               "removed": false
             },
             {
-              "id": "reddit_mentions_24mo",
-              "displayName": "reddit_mentions_24mo",
+              "id": "linkedin_url",
+              "displayName": "linkedin_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "linkedin_followers",
+              "displayName": "linkedin_followers",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -289,8 +246,8 @@
               "removed": false
             },
             {
-              "id": "reddit_checked_at",
-              "displayName": "reddit_checked_at",
+              "id": "linkedin_checked_at",
+              "displayName": "linkedin_checked_at",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -307,13 +264,13 @@
           "typecast": true
         }
       },
-      "id": "a7000001-0010-4000-a000-000000000010",
-      "name": "Update Tool Record",
+      "id": "6fd62345-40a7-4c47-b826-10e44024fb8b",
+      "name": "Update Vendor Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        1768,
-        200
+        944,
+        -160
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -324,15 +281,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-Reddit',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
+        "jsCode": "const input = $input.first().json;\n\nreturn {\n  record_id: input.record_id,\n  workflow: 'W-LinkedIn',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n};"
       },
-      "id": "a7000001-0011-4000-a000-000000000011",
+      "id": "1a7dfe8e-a193-4806-a431-c1fe6c33ef8c",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1992,
-        200
+        1168,
+        -160
       ]
     }
   ],
@@ -352,7 +309,7 @@
       "main": [
         [
           {
-            "node": "Get Tool Record",
+            "node": "Get Vendor Record",
             "type": "main",
             "index": 0
           }
@@ -363,58 +320,29 @@
       "main": [
         [
           {
-            "node": "Get Tool Record",
+            "node": "Get Vendor Record",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Get Tool Record": {
+    "Get Vendor Record": {
       "main": [
         [
           {
-            "node": "Normalize Input",
+            "node": "Find LinkedIn Data",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Normalize Input": {
-      "main": [
-        [
-          {
-            "node": "Has Required Fields?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Has Required Fields?": {
-      "main": [
-        [
-          {
-            "node": "Search Reddit",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Missing Required Fields",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Anthropic Chat Model": {
+    "Anthropic Chat Model (LinkedIn)": {
       "ai_languageModel": [
         [
           {
-            "node": "Search Reddit",
+            "node": "Find LinkedIn Data",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -425,58 +353,47 @@
       "ai_tool": [
         [
           {
-            "node": "Search Reddit",
+            "node": "Find LinkedIn Data",
             "type": "ai_tool",
             "index": 0
           }
         ]
       ]
     },
-    "Output Parser": {
+    "LinkedIn Data Parser": {
       "ai_outputParser": [
         [
           {
-            "node": "Search Reddit",
+            "node": "Find LinkedIn Data",
             "type": "ai_outputParser",
             "index": 0
           }
         ]
       ]
     },
-    "Search Reddit": {
+    "Find LinkedIn Data": {
       "main": [
         [
           {
-            "node": "Map Results",
+            "node": "Build Result",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Map Results": {
+    "Build Result": {
       "main": [
         [
           {
-            "node": "Update Tool Record",
+            "node": "Update Vendor Record",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Missing Required Fields": {
-      "main": [
-        [
-          {
-            "node": "Format Return Value",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Update Tool Record": {
+    "Update Vendor Record": {
       "main": [
         [
           {
@@ -490,12 +407,16 @@
   },
   "settings": {
     "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
     "errorWorkflow": "86rEn9WgLNb61C4M",
     "callerPolicy": "workflowsFromSameOwner",
     "availableInMCP": false,
-    "binaryMode": "separate"
+    "timeSavedPerExecution": 5
   },
   "staticData": null,
   "pinData": {},
-  "meta": {}
+  "meta": {
+    "n8n_id": "vLmF77XaxnbG1Ebk"
+  }
 }
