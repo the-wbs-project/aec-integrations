@@ -47,10 +47,45 @@ export interface Tool {
   phases: LinkRef[];
   researchStatus?: string;
   integrationCount: number;
+
+  // Enrichment signals
+  hasApiDocs?: boolean;
+  apiDocsUrl?: string;
+  toolIntegrationsUrl?: string;
+  sourceMarketplaces?: string[];
+  marketplaceCount?: number;
+  ipaasPlatforms?: string[];
+  ipaasCount?: number;
+  zapierTriggerCount?: number;
+
+  // Market signals
+  g2ReviewCount?: number;
+  g2Rating?: number;
+  g2Url?: string;
+  capterraReviewCount?: number;
+  capterraRating?: number;
+  capterraUrl?: string;
+  searchVolumeMonthly?: number;
+  googleTrendsIndex?: number;
+  redditMentions24mo?: number;
+
+  // Scoring
+  integrationScore?: number;
+  demandScore?: number;
+  outreachScore?: number;
+  priorityScore?: number;
+  priorityTier?: string;
+  emergingFlag?: boolean;
+  toolDataCompleteness?: number;
+  toolEnrichmentStatus?: string;
+  lastToolEnrichedAt?: string;
+  lastScoredAt?: string;
 }
 
 export interface ToolDetail extends Tool {
   researchNotes?: string;
+  toolIntegrationCheckNotes?: string;
+  toolIntegrationCheckedAt?: string;
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
 }
@@ -78,6 +113,12 @@ export interface Vendor {
   parentCompany?: string;
   logoUrl?: string;
   toolCount: number;
+
+  // Enrichment-derived summary fields for list views
+  employeeCountExact?: number;
+  fundingStage?: string;
+  githubStarsTotal?: number;
+  vendorEnrichmentStatus?: string;
 }
 
 export interface VendorDetail extends Vendor {
@@ -86,6 +127,39 @@ export interface VendorDetail extends Vendor {
   crunchbaseUrl?: string;
   sourceUrl?: string;
   tools: LinkRef[];
+
+  // GitHub
+  githubOrg?: string;
+  githubOrgVerified?: boolean;
+  githubRepoCount?: number;
+  hasSdkRepo?: boolean;
+  githubLastCommitDaysAgo?: number;
+  githubCheckedAt?: string;
+
+  // Funding
+  totalFundingUsd?: number;
+  lastFundingDate?: string;
+  fundingSourceUrl?: string;
+  fundingCheckedAt?: string;
+
+  // Press & activity
+  pressCount12mo?: number;
+  pressLatestDate?: string;
+  pressCheckedAt?: string;
+  blogUrl?: string;
+  blogLastPostDate?: string;
+  blogLastPostDaysAgo?: number;
+  blogCheckedAt?: string;
+  linkedinFollowers?: number;
+  linkedinCheckedAt?: string;
+
+  // Employees
+  employeeSource?: string;
+  employeeCheckedAt?: string;
+
+  // Orchestrator
+  vendorDataCompleteness?: number;
+  lastEnrichedAt?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -96,4 +170,6 @@ export interface MetaResponse {
   disciplines: LinkRef[];
   phases: LinkRef[];
   researchStatuses: string[];
+  priorityTiers: string[];
+  toolEnrichmentStatuses: string[];
 }

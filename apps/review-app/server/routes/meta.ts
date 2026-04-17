@@ -5,7 +5,6 @@ import {
   fetchProjectPhases,
   fetchTools,
 } from '../airtable';
-import { buildNameMap } from '../hydrate';
 import type { Env, MetaResponse } from '../types';
 
 const meta = new Hono<{ Bindings: Env }>();
@@ -20,11 +19,17 @@ meta.get('/', async (c) => {
     fetchTools(env),
   ]);
 
-  // Collect unique research statuses from the Tools table
+  // Collect unique singleSelect values from the Tools table
   const statusSet = new Set<string>();
+  const tierSet = new Set<string>();
+  const enrichmentSet = new Set<string>();
   for (const r of toolRecs) {
-    const s = r.get('Research Status');
+    const s = r.get('research_status');
     if (typeof s === 'string' && s.length > 0) statusSet.add(s);
+    const t = r.get('priority_tier');
+    if (typeof t === 'string' && t.length > 0) tierSet.add(t);
+    const e = r.get('tool_enrichment_status');
+    if (typeof e === 'string' && e.length > 0) enrichmentSet.add(e);
   }
 
   const toLinks = (
@@ -41,6 +46,8 @@ meta.get('/', async (c) => {
     disciplines: toLinks(discRecs, 'Name'),
     phases: toLinks(phaseRecs, 'Name'),
     researchStatuses: [...statusSet].sort(),
+    priorityTiers: [...tierSet].sort(),
+    toolEnrichmentStatuses: [...enrichmentSet].sort(),
   };
 
   return c.json(body);

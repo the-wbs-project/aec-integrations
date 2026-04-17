@@ -39,13 +39,13 @@ import { Vendor } from '../../types';
             <tr>
               @for (col of columns; track col.key) {
                 <th
-                  class="sortable"
-                  [class.sorted]="sortColumn() === col.sortKey"
-                  (click)="toggleSort(col.sortKey)"
+                  [class.sortable]="!!col.sortKey"
+                  [class.sorted]="col.sortKey && sortColumn() === col.sortKey"
+                  (click)="col.sortKey ? toggleSort(col.sortKey) : null"
                   [attr.aria-sort]="getAriaSort(col.sortKey)"
                 >
                   {{ col.label }}
-                  @if (sortColumn() === col.sortKey) {
+                  @if (col.sortKey && sortColumn() === col.sortKey) {
                     <span class="sort-indicator">{{ sortDirection() === 'asc' ? '\u2191' : '\u2193' }}</span>
                   }
                 </th>
@@ -63,13 +63,21 @@ import { Vendor } from '../../types';
                 <td>{{ vendor.headquarters }}</td>
                 <td>{{ vendor.foundedYear }}</td>
                 <td>{{ vendor.companySize }}</td>
+                <td class="text-center">{{ vendor.employeeCountExact ?? '—' }}</td>
+                <td>{{ vendor.fundingStage }}</td>
+                <td class="text-center">{{ vendor.githubStarsTotal ?? '—' }}</td>
+                <td>
+                  @if (vendor.vendorEnrichmentStatus) {
+                    <span class="badge badge--neutral">{{ vendor.vendorEnrichmentStatus }}</span>
+                  }
+                </td>
                 <td>{{ vendor.publicPrivate }}</td>
                 <td>{{ vendor.parentCompany }}</td>
                 <td class="text-center">{{ vendor.toolCount }}</td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="7" class="empty-state">
+                <td colspan="11" class="empty-state">
                   @if (loading()) {
                     Loading vendors...
                   } @else {
@@ -205,13 +213,18 @@ export class VendorsListComponent implements OnInit {
     Math.min(this.offset() + this.limit(), this.total())
   );
 
-  columns = [
+  // Only columns backed by a server-side sort case get a sortKey.
+  columns: { key: string; label: string; sortKey?: string }[] = [
     { key: 'companyName', label: 'Company name', sortKey: 'companyName' },
-    { key: 'headquarters', label: 'Headquarters', sortKey: 'headquarters' },
+    { key: 'headquarters', label: 'Headquarters' },
     { key: 'foundedYear', label: 'Founded', sortKey: 'foundedYear' },
-    { key: 'companySize', label: 'Size', sortKey: 'companySize' },
-    { key: 'publicPrivate', label: 'Public / private', sortKey: 'publicPrivate' },
-    { key: 'parentCompany', label: 'Parent company', sortKey: 'parentCompany' },
+    { key: 'companySize', label: 'Size' },
+    { key: 'employees', label: 'Employees', sortKey: 'employees' },
+    { key: 'fundingStage', label: 'Funding stage' },
+    { key: 'githubStars', label: 'GitHub ★', sortKey: 'githubStars' },
+    { key: 'vendorEnrichmentStatus', label: 'Enrichment' },
+    { key: 'publicPrivate', label: 'Public / private' },
+    { key: 'parentCompany', label: 'Parent company' },
     { key: 'toolCount', label: 'Tools', sortKey: 'toolCount' },
   ];
 
@@ -278,8 +291,8 @@ export class VendorsListComponent implements OnInit {
     this.fetchVendors();
   }
 
-  getAriaSort(sortKey: string): string | null {
-    if (this.sortColumn() !== sortKey) return null;
+  getAriaSort(sortKey?: string): string | null {
+    if (!sortKey || this.sortColumn() !== sortKey) return null;
     return this.sortDirection() === 'asc' ? 'ascending' : 'descending';
   }
 

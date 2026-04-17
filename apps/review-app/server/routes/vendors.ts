@@ -36,21 +36,33 @@ vendors.get('/', async (c) => {
   }
 
   // --- Sort ----------------------------------------------------------------
+  // For numeric fields, always push missing values to the end regardless of direction.
+  const numericCompare = (a: number | undefined, b: number | undefined): number => {
+    if (a === undefined && b === undefined) return 0;
+    if (a === undefined) return 1;
+    if (b === undefined) return -1;
+    const delta = a - b;
+    return sortDir === 'desc' ? -delta : delta;
+  };
+
   const compare = (a: Vendor, b: Vendor): number => {
-    let result = 0;
     switch (sortCol) {
-      case 'toolCount':
-        result = a.toolCount - b.toolCount;
-        break;
+      case 'toolCount': {
+        const r = a.toolCount - b.toolCount;
+        return sortDir === 'desc' ? -r : r;
+      }
       case 'foundedYear':
-        result = (a.foundedYear ?? 0) - (b.foundedYear ?? 0);
-        break;
+        return numericCompare(a.foundedYear, b.foundedYear);
+      case 'githubStars':
+        return numericCompare(a.githubStarsTotal, b.githubStarsTotal);
+      case 'employees':
+        return numericCompare(a.employeeCountExact, b.employeeCountExact);
       case 'companyName':
-      default:
-        result = a.companyName.localeCompare(b.companyName);
-        break;
+      default: {
+        const r = a.companyName.localeCompare(b.companyName);
+        return sortDir === 'desc' ? -r : r;
+      }
     }
-    return sortDir === 'desc' ? -result : result;
   };
 
   hydrated.sort(compare);

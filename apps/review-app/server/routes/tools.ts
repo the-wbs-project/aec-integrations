@@ -22,6 +22,8 @@ tools.get('/', async (c) => {
   const disciplineFilter = c.req.query('discipline') ?? '';
   const phaseFilter = c.req.query('phase') ?? '';
   const statusFilter = c.req.query('status') ?? '';
+  const tierFilter = c.req.query('tier') ?? '';
+  const enrichmentFilter = c.req.query('enrichmentStatus') ?? '';
   const sortCol = c.req.query('sort') ?? 'name';
   const sortDir = c.req.query('direction') === 'desc' ? 'desc' : 'asc';
 
@@ -69,29 +71,59 @@ tools.get('/', async (c) => {
     hydrated = hydrated.filter((t) => t.researchStatus === statusFilter);
   }
 
+  if (tierFilter) {
+    hydrated = hydrated.filter((t) => t.priorityTier === tierFilter);
+  }
+
+  if (enrichmentFilter) {
+    hydrated = hydrated.filter((t) => t.toolEnrichmentStatus === enrichmentFilter);
+  }
+
   // --- Sorting -------------------------------------------------------------
+  // For numeric fields, always push missing values to the end regardless of direction.
+  const numericCompare = (a: number | undefined, b: number | undefined): number => {
+    if (a === undefined && b === undefined) return 0;
+    if (a === undefined) return 1;
+    if (b === undefined) return -1;
+    const delta = a - b;
+    return sortDir === 'desc' ? -delta : delta;
+  };
+
   const compare = (a: Tool, b: Tool): number => {
-    let result = 0;
     switch (sortCol) {
-      case 'vendor':
-        result = (a.vendors[0]?.name ?? '').localeCompare(
-          b.vendors[0]?.name ?? '',
+      case 'vendor': {
+        const r = (a.vendors[0]?.name ?? '').localeCompare(b.vendors[0]?.name ?? '');
+        return sortDir === 'desc' ? -r : r;
+      }
+      case 'integrationCount': {
+        const r = a.integrationCount - b.integrationCount;
+        return sortDir === 'desc' ? -r : r;
+      }
+      case 'researchStatus': {
+        const r = (a.researchStatus ?? '').localeCompare(b.researchStatus ?? '');
+        return sortDir === 'desc' ? -r : r;
+      }
+      case 'priorityScore':
+        return numericCompare(a.priorityScore, b.priorityScore);
+      case 'integrationScore':
+        return numericCompare(a.integrationScore, b.integrationScore);
+      case 'demandScore':
+        return numericCompare(a.demandScore, b.demandScore);
+      case 'outreachScore':
+        return numericCompare(a.outreachScore, b.outreachScore);
+      case 'dataCompleteness':
+        return numericCompare(a.toolDataCompleteness, b.toolDataCompleteness);
+      case 'priorityTier':
+        return numericCompare(
+          a.priorityTier ? Number(a.priorityTier) : undefined,
+          b.priorityTier ? Number(b.priorityTier) : undefined,
         );
-        break;
-      case 'integrationCount':
-        result = a.integrationCount - b.integrationCount;
-        break;
-      case 'researchStatus':
-        result = (a.researchStatus ?? '').localeCompare(
-          b.researchStatus ?? '',
-        );
-        break;
       case 'name':
-      default:
-        result = a.name.localeCompare(b.name);
-        break;
+      default: {
+        const r = a.name.localeCompare(b.name);
+        return sortDir === 'desc' ? -r : r;
+      }
     }
-    return sortDir === 'desc' ? -result : result;
   };
 
   hydrated.sort(compare);
