@@ -1,15 +1,15 @@
 {
-  "name": "AECi-T-APICheck",
+  "name": "AECi-T04-Reviews",
   "nodes": [
     {
       "parameters": {},
-      "id": "9547e59b-c3ac-4d21-bb3c-5e657517c909",
+      "id": "a5000001-0001-4000-a000-000000000001",
       "name": "Manual Trigger (Test)",
       "type": "n8n-nodes-base.manualTrigger",
       "typeVersion": 1,
       "position": [
-        0,
-        28
+        200,
+        200
       ]
     },
     {
@@ -18,19 +18,19 @@
           "values": [
             {
               "name": "record_id",
-              "stringValue": "recxgGwHqms9mSB5N"
+              "stringValue": "recH6fuIYPHJ6XWpe"
             }
           ]
         },
         "options": {}
       },
-      "id": "ac786bbd-f925-4d2e-9515-d9c341f7707f",
+      "id": "a5000001-0002-4000-a000-000000000002",
       "name": "Test Data (record_id only)",
       "type": "n8n-nodes-base.set",
       "typeVersion": 3,
       "position": [
-        224,
-        28
+        424,
+        200
       ]
     },
     {
@@ -43,13 +43,13 @@
           ]
         }
       },
-      "id": "fc4c5923-7620-4c86-ab87-e78683c5e30b",
+      "id": "a5000001-0003-4000-a000-000000000003",
       "name": "Execute Workflow Trigger",
       "type": "n8n-nodes-base.executeWorkflowTrigger",
       "typeVersion": 1.1,
       "position": [
-        224,
-        220
+        424,
+        400
       ]
     },
     {
@@ -67,13 +67,13 @@
         "id": "={{ $json.record_id }}",
         "options": {}
       },
-      "id": "95050c5e-492f-4c6d-a721-eb623a4cae37",
+      "id": "a5000001-0004-4000-a000-000000000004",
       "name": "Get Tool Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        448,
-        124
+        648,
+        300
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -84,15 +84,15 @@
     },
     {
       "parameters": {
-        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\nconst tool_name = fields.Name || fields.name || null;\nconst website = fields.website || null;\nlet tool_domain = null;\nif (website) {\n  const match = website.match(/^(?:https?:\\/\\/)?([^\\/\\?#:]+)/i);\n  if (match && match[1] && match[1].includes('.')) {\n    tool_domain = match[1].replace(/^www\\./i, '').toLowerCase();\n  }\n}\nreturn {\n  record_id: record.id || $('Get Tool Record').first().json.id,\n  tool_name, website, tool_domain,\n  _has_required: !!(tool_name && tool_domain)\n};"
+        "jsCode": "const record = $input.first().json;\nconst fields = record.fields || record;\nconst tool_name = fields.Name || fields.name || null;\nreturn {\n  record_id: record.id || $('Get Tool Record').first().json.id,\n  tool_name,\n  _has_required: !!tool_name\n};"
       },
-      "id": "ab57263b-02a2-4f7f-b1d8-ab7252aafcfa",
+      "id": "a5000001-0012-4000-a000-000000000012",
       "name": "Normalize Input",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        672,
-        124
+        872,
+        300
       ]
     },
     {
@@ -119,29 +119,29 @@
         },
         "options": {}
       },
-      "id": "567fc8f4-7ed8-426e-90a5-05f653243d65",
+      "id": "a5000001-0013-4000-a000-000000000013",
       "name": "Has Required Fields?",
       "type": "n8n-nodes-base.if",
       "typeVersion": 2,
       "position": [
-        896,
-        124
+        1096,
+        300
       ]
     },
     {
       "parameters": {
         "promptType": "define",
-        "text": "=Find the official API / developer documentation page for the tool \"{{ $json.tool_name }}\" (website: {{ $json.website }}, domain: {{ $json.tool_domain }}).\n\nUse the search tool. Try queries like:\n- \"{{ $json.tool_name }}\" API documentation\n- \"{{ $json.tool_name }}\" developer docs\n- site:{{ $json.tool_domain }} API documentation\n- site:docs.{{ $json.tool_domain }}\n\nLook for a real developer portal, API reference, or SDK documentation page — NOT marketing, pricing, blog, or support pages. The URL should clearly be on the vendor's own domain (or a docs subdomain) and must reference an HTTP/REST API, SDK, or webhooks. Public-facing integrations marketplaces (e.g. Zapier listings) do NOT count.\n\nReturn has_api_docs=true only if you found a genuine developer documentation URL. Otherwise return has_api_docs=false and api_docs_url=null.\n\nLimit to 3 search attempts.",
+        "text": "=Find G2 and Capterra review data for \"{{ $('Normalize Input').first().json.tool_name }}\" software.\n1. Search: \"{{ $('Normalize Input').first().json.tool_name }}\" site:g2.com/products\n2. Search: \"{{ $('Normalize Input').first().json.tool_name }}\" site:capterra.com/software\n\nExtract review count, average rating (out of 5.0), and product page URL from snippets. Limit searches to 2.",
         "hasOutputParser": true,
         "options": {}
       },
-      "id": "7b062813-9ca3-414a-93c6-cbf3b4f8fc85",
-      "name": "Find API Docs",
+      "id": "a5000001-0005-4000-a000-000000000005",
+      "name": "Search Reviews",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 3.1,
       "position": [
-        1176,
-        0
+        1320,
+        200
       ]
     },
     {
@@ -157,18 +157,18 @@
           "temperature": 0
         }
       },
-      "id": "24e7e5e7-31cb-494b-8794-ff3f6752daf6",
+      "id": "a5000001-0006-4000-a000-000000000006",
       "name": "Anthropic Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
       "typeVersion": 1.3,
       "position": [
-        1120,
-        224
+        1272,
+        420
       ],
       "credentials": {
         "anthropicApi": {
           "id": "9R2GWOKQyrJz9XW0",
-          "name": "Anthropic - AECi - Tool Research"
+          "name": "Anthropic - AECi"
         }
       }
     },
@@ -188,13 +188,13 @@
         },
         "options": {}
       },
-      "id": "bec959e4-e1b8-462b-8814-6f5c17fce65f",
+      "id": "a5000001-0007-4000-a000-000000000007",
       "name": "SerpAPI Search",
       "type": "n8n-nodes-base.httpRequestTool",
       "typeVersion": 4.4,
       "position": [
-        1248,
-        224
+        1400,
+        420
       ],
       "credentials": {
         "httpBearerAuth": {
@@ -205,28 +205,42 @@
     },
     {
       "parameters": {
-        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\nconst isApiDocs = parsed.has_api_docs === true && parsed.confidence !== 'low' && !!parsed.api_docs_url;\nreturn [{ json: {\n  record_id: context.record_id,\n  has_api_docs: isApiDocs,\n  api_docs_url: isApiDocs ? parsed.api_docs_url : null,\n  api_docs_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['has_api_docs', 'api_docs_url', 'api_docs_checked_at'],\n  note: isApiDocs ? (parsed.notes || null) : (parsed.notes || 'No valid API docs found')\n} }];"
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"g2_review_count\": {\n      \"type\": [\"integer\", \"null\"],\n      \"description\": \"Number of G2 reviews\"\n    },\n    \"g2_rating\": {\n      \"type\": [\"number\", \"null\"],\n      \"description\": \"G2 average rating out of 5.0\"\n    },\n    \"g2_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"G2 product page URL\"\n    },\n    \"capterra_review_count\": {\n      \"type\": [\"integer\", \"null\"],\n      \"description\": \"Number of Capterra reviews\"\n    },\n    \"capterra_rating\": {\n      \"type\": [\"number\", \"null\"],\n      \"description\": \"Capterra average rating out of 5.0\"\n    },\n    \"capterra_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"Capterra product page URL\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence level\"\n    }\n  },\n  \"required\": [\"confidence\"]\n}"
       },
-      "id": "97be92de-55fa-4ff5-a6cf-d2867357d61b",
-      "name": "Map API Result",
-      "type": "n8n-nodes-base.code",
-      "typeVersion": 2,
+      "id": "a5000001-0008-4000-a000-000000000008",
+      "name": "Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
       "position": [
-        1584,
-        0
+        1528,
+        420
       ]
     },
     {
       "parameters": {
-        "jsCode": "const context = $('Normalize Input').first().json;\nreturn [{ json: { record_id: context.record_id, has_api_docs: false, api_docs_url: null, api_docs_checked_at: new Date().toISOString(), status: 'error', fields_updated: ['api_docs_checked_at'], error: `Missing required fields. record_id=${context.record_id}` } }];"
+        "jsCode": "const raw = $input.first().json;\nconst parsed = raw.output || raw;\nconst context = $('Normalize Input').first().json;\nreturn [{ json: {\n  record_id: context.record_id,\n  g2_review_count: typeof parsed.g2_review_count === 'number' ? parsed.g2_review_count : null,\n  g2_rating: typeof parsed.g2_rating === 'number' ? Math.round(parsed.g2_rating * 10) / 10 : null,\n  g2_url: parsed.g2_url || null,\n  capterra_review_count: typeof parsed.capterra_review_count === 'number' ? parsed.capterra_review_count : null,\n  capterra_rating: typeof parsed.capterra_rating === 'number' ? Math.round(parsed.capterra_rating * 10) / 10 : null,\n  capterra_url: parsed.capterra_url || null,\n  reviews_checked_at: new Date().toISOString(),\n  status: 'success',\n  fields_updated: ['g2_review_count', 'g2_rating', 'g2_url', 'capterra_review_count', 'capterra_rating', 'capterra_url', 'reviews_checked_at']\n} }];"
       },
-      "id": "031dfe97-0602-4e4e-8fb3-6014fb16107c",
+      "id": "a5000001-0009-4000-a000-000000000009",
+      "name": "Map Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1544,
+        200
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const context = $('Normalize Input').first().json;\nreturn [{ json: {\n  record_id: context.record_id,\n  g2_review_count: null,\n  g2_rating: null,\n  g2_url: null,\n  capterra_review_count: null,\n  capterra_rating: null,\n  capterra_url: null,\n  reviews_checked_at: new Date().toISOString(),\n  status: 'error',\n  fields_updated: ['reviews_checked_at'],\n  error: `Missing required fields. record_id=${context.record_id}`\n} }];"
+      },
+      "id": "a5000001-0014-4000-a000-000000000014",
       "name": "Missing Required Fields",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        1808,
-        248
+        1320,
+        460
       ]
     },
     {
@@ -246,9 +260,13 @@
           "mappingMode": "defineBelow",
           "value": {
             "id": "={{ $json.record_id }}",
-            "has_api_docs": "={{ $json.has_api_docs }}",
-            "api_docs_url": "={{ $json.api_docs_url }}",
-            "api_docs_checked_at": "={{ $json.api_docs_checked_at }}"
+            "g2_review_count": "={{ $json.g2_review_count }}",
+            "g2_rating": "={{ $json.g2_rating }}",
+            "g2_url": "={{ $json.g2_url }}",
+            "capterra_review_count": "={{ $json.capterra_review_count }}",
+            "capterra_rating": "={{ $json.capterra_rating }}",
+            "capterra_url": "={{ $json.capterra_url }}",
+            "reviews_checked_at": "={{ $json.reviews_checked_at }}"
           },
           "matchingColumns": [
             "id"
@@ -265,19 +283,30 @@
               "removed": false
             },
             {
-              "id": "has_api_docs",
-              "displayName": "has_api_docs",
+              "id": "g2_review_count",
+              "displayName": "g2_review_count",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
               "display": true,
-              "type": "boolean",
+              "type": "number",
               "readOnly": false,
               "removed": false
             },
             {
-              "id": "api_docs_url",
-              "displayName": "api_docs_url",
+              "id": "g2_rating",
+              "displayName": "g2_rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "g2_url",
+              "displayName": "g2_url",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -287,8 +316,41 @@
               "removed": false
             },
             {
-              "id": "api_docs_checked_at",
-              "displayName": "api_docs_checked_at",
+              "id": "capterra_review_count",
+              "displayName": "capterra_review_count",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "capterra_rating",
+              "displayName": "capterra_rating",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "capterra_url",
+              "displayName": "capterra_url",
+              "required": false,
+              "defaultMatch": false,
+              "canBeUsedToMatch": true,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "reviews_checked_at",
+              "displayName": "reviews_checked_at",
               "required": false,
               "defaultMatch": false,
               "canBeUsedToMatch": true,
@@ -305,13 +367,13 @@
           "typecast": true
         }
       },
-      "id": "4a363b08-3642-4900-865e-844f1dfe88bd",
+      "id": "a5000001-0010-4000-a000-000000000010",
       "name": "Update Tool Record",
       "type": "n8n-nodes-base.airtable",
       "typeVersion": 2.1,
       "position": [
-        1808,
-        0
+        1768,
+        200
       ],
       "credentials": {
         "airtableTokenApi": {
@@ -322,30 +384,16 @@
     },
     {
       "parameters": {
-        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-APICheck',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
+        "jsCode": "const input = $input.first().json;\n\nreturn [{ json: {\n  record_id: input.record_id,\n  workflow: 'WT-Reviews',\n  status: input.status || 'success',\n  fields_updated: input.fields_updated || [],\n  error: input.error || null,\n  note: input.note || null\n} }];"
       },
-      "id": "6a21538e-e946-4c73-b1b8-910e007494c3",
+      "id": "a5000001-0011-4000-a000-000000000011",
       "name": "Format Return Value",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
-        2032,
-        124
+        1992,
+        200
       ]
-    },
-    {
-      "parameters": {
-        "schemaType": "manual",
-        "inputSchema": "{\n  \"type\": \"object\",\n  \"properties\": {\n    \"has_api_docs\": {\n      \"type\": \"boolean\",\n      \"description\": \"Whether a real API/developer documentation page was found\"\n    },\n    \"api_docs_url\": {\n      \"type\": [\"string\", \"null\"],\n      \"description\": \"Canonical URL of the API/developer docs page, or null if not found\"\n    },\n    \"confidence\": {\n      \"type\": \"string\",\n      \"enum\": [\"high\", \"medium\", \"low\"],\n      \"description\": \"Confidence level\"\n    },\n    \"notes\": {\n      \"type\": \"string\",\n      \"description\": \"Brief notes about what was found\"\n    }\n  },\n  \"required\": [\"has_api_docs\", \"api_docs_url\", \"confidence\", \"notes\"]\n}"
-      },
-      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
-      "typeVersion": 1.3,
-      "position": [
-        1376,
-        224
-      ],
-      "id": "c0c8afe0-a5fc-4e51-8e75-2c087771b286",
-      "name": "Structured Output Parser"
     }
   ],
   "connections": {
@@ -408,7 +456,7 @@
       "main": [
         [
           {
-            "node": "Find API Docs",
+            "node": "Search Reviews",
             "type": "main",
             "index": 0
           }
@@ -422,22 +470,11 @@
         ]
       ]
     },
-    "Find API Docs": {
-      "main": [
-        [
-          {
-            "node": "Map API Result",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Anthropic Chat Model": {
       "ai_languageModel": [
         [
           {
-            "node": "Find API Docs",
+            "node": "Search Reviews",
             "type": "ai_languageModel",
             "index": 0
           }
@@ -448,14 +485,36 @@
       "ai_tool": [
         [
           {
-            "node": "Find API Docs",
+            "node": "Search Reviews",
             "type": "ai_tool",
             "index": 0
           }
         ]
       ]
     },
-    "Map API Result": {
+    "Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Search Reviews",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Reviews": {
+      "main": [
+        [
+          {
+            "node": "Map Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Map Results": {
       "main": [
         [
           {
@@ -487,26 +546,16 @@
           }
         ]
       ]
-    },
-    "Structured Output Parser": {
-      "ai_outputParser": [
-        [
-          {
-            "node": "Find API Docs",
-            "type": "ai_outputParser",
-            "index": 0
-          }
-        ]
-      ]
     }
   },
   "settings": {
     "executionOrder": "v1",
+    "errorWorkflow": "86rEn9WgLNb61C4M",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
     "binaryMode": "separate"
   },
   "staticData": null,
   "pinData": {},
-  "meta": {
-    "n8n_id": "C6hxQljEzIchjvgr"
-  }
+  "meta": {}
 }

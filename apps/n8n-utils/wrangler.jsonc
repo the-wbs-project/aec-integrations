@@ -23,7 +23,7 @@
 	},
 	"vars": {
 		// Switch between "serpapi" and "searchapi" to change search provider.
-		"SEARCH_PROVIDER": "serpapi"
+		"SEARCH_PROVIDER": "searchapi"
 	}
 	// Secrets (set via `wrangler secret put`):
 	//   AUTH_TOKEN        – the bearer token clients must send

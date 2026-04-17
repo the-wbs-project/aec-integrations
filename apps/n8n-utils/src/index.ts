@@ -22,27 +22,34 @@ export function json(data: unknown, status = 200): Response {
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    if (request.method !== "GET") {
-      return json({ error: "Method not allowed" }, 405);
-    }
+    try {
+      if (request.method !== "GET") {
+        return json({ error: "Method not allowed" }, 405);
+      }
 
-    const authHeader = request.headers.get("Authorization");
-    const token = authHeader?.startsWith("Bearer ")
-      ? authHeader.slice(7)
-      : null;
+      const authHeader = request.headers.get("Authorization");
+      const token = authHeader?.startsWith("Bearer ")
+        ? authHeader.slice(7)
+        : null;
 
-    if (token !== env.AUTH_TOKEN) {
-      return json({ error: "Unauthorized" }, 401);
-    }
+      if (token !== env.AUTH_TOKEN) {
+        return json({ error: "Unauthorized" }, 401);
+      }
 
-    const url = new URL(request.url);
-    switch (url.pathname) {
-      case "/serp":
-        return handleSerp(url, env);
-      case "/render":
-        return handleRender(url, env);
-      default:
-        return json({ error: "Not found" }, 404);
+      const url = new URL(request.url);
+      switch (url.pathname) {
+        case "/serp":
+          return handleSerp(url, env);
+        case "/render":
+          return handleRender(url, env);
+        default:
+          return json({ error: "Not found" }, 404);
+      }
+    } catch (err) {
+      console.error("Unhandled error in fetch handler:", err);
+      const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      return json({ error: `Internal error: ${message}`, stack }, 500);
     }
   },
 } satisfies ExportedHandler<Env>;

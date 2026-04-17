@@ -1,5 +1,6 @@
 import type { Env } from "../index";
 import { json, CACHE_TTL } from "../index";
+import { stripFavicons } from "../serp";
 
 const SERP_API_BASE = "https://serpapi.com/search";
 
@@ -29,13 +30,22 @@ export async function searchProvider(url: URL, env: Env): Promise<Response> {
   const serpResponse = await fetch(serpUrl.toString());
 
   if (!serpResponse.ok) {
+    const errorBody = await serpResponse.text().catch(() => "<unreadable>");
+    console.error(
+      `serpapi: request failed status=${serpResponse.status} query=${query} body=${errorBody}`
+    );
     return json(
-      { error: "SerpApi request failed", status: serpResponse.status },
+      {
+        error: "SerpApi request failed",
+        status: serpResponse.status,
+        upstream: errorBody,
+      },
       502
     );
   }
 
   const raw = (await serpResponse.json()) as Record<string, unknown>;
+  stripFavicons(raw);
   const body = JSON.stringify(raw);
 
   if (body !== "{}") {
