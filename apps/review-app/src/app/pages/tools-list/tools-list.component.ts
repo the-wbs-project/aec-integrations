@@ -80,6 +80,28 @@ import {
             <option [value]="s">{{ s }}</option>
           }
         </select>
+        <select
+          class="input filter-bar__select"
+          [value]="filterTier()"
+          (change)="onFilterChange('tier', $event)"
+          aria-label="Filter by priority tier"
+        >
+          <option value="">All tiers</option>
+          @for (t of meta()?.priorityTiers ?? []; track t) {
+            <option [value]="t">Tier {{ t }}</option>
+          }
+        </select>
+        <select
+          class="input filter-bar__select"
+          [value]="filterEnrichment()"
+          (change)="onFilterChange('enrichmentStatus', $event)"
+          aria-label="Filter by enrichment status"
+        >
+          <option value="">Any enrichment</option>
+          @for (e of meta()?.toolEnrichmentStatuses ?? []; track e) {
+            <option [value]="e">{{ e }}</option>
+          }
+        </select>
       </div>
 
       <!-- Table -->
@@ -135,6 +157,19 @@ import {
                   </span>
                 </td>
                 <td class="text-center">{{ tool.integrationCount }}</td>
+                <td class="text-center">
+                  @if (tool.priorityTier) {
+                    <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">
+                      {{ tool.priorityTier }}
+                    </span>
+                  }
+                </td>
+                <td class="text-center">{{ tool.priorityScore ?? '—' }}</td>
+                <td>
+                  @if (tool.toolEnrichmentStatus) {
+                    <span class="badge badge--neutral">{{ tool.toolEnrichmentStatus }}</span>
+                  }
+                </td>
                 <td>
                   @if (tool.researchStatus) {
                     <span class="badge" [class]="statusBadgeClass(tool.researchStatus)">
@@ -153,10 +188,34 @@ import {
                     </a>
                   }
                 </td>
+                <td>
+                  @if (tool.hasApiDocs && tool.apiDocsUrl) {
+                    <a [href]="tool.apiDocsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Visit API docs">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </a>
+                  } @else if (tool.hasApiDocs) {
+                    <span class="external-link" aria-label="Has API docs">API</span>
+                  }
+                </td>
+                <td>
+                  @if (tool.toolIntegrationsUrl) {
+                    <a [href]="tool.toolIntegrationsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Visit integrations page">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                        <polyline points="15 3 21 3 21 9" />
+                        <line x1="10" y1="14" x2="21" y2="3" />
+                      </svg>
+                    </a>
+                  }
+                </td>
               </tr>
             } @empty {
               <tr>
-                <td colspan="8" class="empty-state">
+                <td colspan="13" class="empty-state">
                   @if (loading()) {
                     Loading tools...
                   } @else {
@@ -316,6 +375,8 @@ export class ToolsListComponent implements OnInit {
   filterDiscipline = signal('');
   filterPhase = signal('');
   filterStatus = signal('');
+  filterTier = signal('');
+  filterEnrichment = signal('');
 
   rangeStart = computed(() => (this.total() === 0 ? 0 : this.offset() + 1));
   rangeEnd = computed(() =>
@@ -335,12 +396,27 @@ export class ToolsListComponent implements OnInit {
       sortKey: 'integrationCount',
     },
     {
+      key: 'priorityTier',
+      label: 'Tier',
+      sortable: true,
+      sortKey: 'priorityTier',
+    },
+    {
+      key: 'priorityScore',
+      label: 'Priority',
+      sortable: true,
+      sortKey: 'priorityScore',
+    },
+    { key: 'enrichment', label: 'Enrichment', sortable: false },
+    {
       key: 'researchStatus',
       label: 'Research status',
       sortable: true,
       sortKey: 'researchStatus',
     },
     { key: 'website', label: 'Website', sortable: false },
+    { key: 'apiDocs', label: 'API', sortable: false },
+    { key: 'integrationsUrl', label: 'Integrations page', sortable: false },
   ];
 
   constructor() {
@@ -379,6 +455,8 @@ export class ToolsListComponent implements OnInit {
         discipline: this.filterDiscipline() || undefined,
         phase: this.filterPhase() || undefined,
         status: this.filterStatus() || undefined,
+        tier: this.filterTier() || undefined,
+        enrichmentStatus: this.filterEnrichment() || undefined,
         sort: this.sortColumn() || undefined,
         direction: this.sortColumn() ? this.sortDirection() : undefined,
       })
@@ -402,7 +480,13 @@ export class ToolsListComponent implements OnInit {
   }
 
   onFilterChange(
-    filter: 'category' | 'discipline' | 'phase' | 'status',
+    filter:
+      | 'category'
+      | 'discipline'
+      | 'phase'
+      | 'status'
+      | 'tier'
+      | 'enrichmentStatus',
     event: Event
   ): void {
     const value = (event.target as HTMLSelectElement).value;
@@ -418,6 +502,12 @@ export class ToolsListComponent implements OnInit {
         break;
       case 'status':
         this.filterStatus.set(value);
+        break;
+      case 'tier':
+        this.filterTier.set(value);
+        break;
+      case 'enrichmentStatus':
+        this.filterEnrichment.set(value);
         break;
     }
     this.offset.set(0);
@@ -443,6 +533,19 @@ export class ToolsListComponent implements OnInit {
   getAriaSort(sortKey?: string): string | null {
     if (!sortKey || this.sortColumn() !== sortKey) return null;
     return this.sortDirection() === 'asc' ? 'ascending' : 'descending';
+  }
+
+  tierBadgeClass(tier: string): string {
+    switch (tier) {
+      case '1':
+        return 'badge--success';
+      case '2':
+        return 'badge--info';
+      case '3':
+        return 'badge--warning';
+      default:
+        return 'badge--neutral';
+    }
   }
 
   statusBadgeClass(status: string): string {

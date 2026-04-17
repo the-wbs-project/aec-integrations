@@ -18,6 +18,8 @@ export interface ToolQueryParams {
   discipline?: string;
   phase?: string;
   status?: string;
+  tier?: string;
+  enrichmentStatus?: string;
   sort?: string;
   direction?: 'asc' | 'desc';
 }

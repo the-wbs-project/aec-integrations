@@ -13,7 +13,7 @@
 		}
 	},
 	"assets": {
-		"directory": "./dist",
+		"directory": "./dist/browser",
 		"binding": "ASSETS"
 	},
 	"kv_namespaces": [
