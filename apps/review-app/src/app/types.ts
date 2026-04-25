@@ -131,7 +131,33 @@ export interface MetaResponse {
   categories: LinkRef[];
   disciplines: LinkRef[];
   phases: LinkRef[];
+  vendors: LinkRef[];
   researchStatuses: string[];
   priorityTiers: string[];
   toolEnrichmentStatuses: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Write payloads (mirror server/types.ts)
+// ---------------------------------------------------------------------------
+export interface CreateToolRequest {
+  name: string;
+  description?: string;
+  website?: string;
+}
+
+export interface UpdateToolRequest {
+  name?: string;
+  description?: string;
+  website?: string;
+  toolIntegrationsUrl?: string;
+  apiDocsUrl?: string;
+  hasApiDocs?: boolean;
+  researchStatus?: string;
+  researchNotes?: string;
+  toolIntegrationCheckNotes?: string;
+  categories?: string[];
+  disciplines?: string[];
+  phases?: string[];
+  vendors?: string[];
 }

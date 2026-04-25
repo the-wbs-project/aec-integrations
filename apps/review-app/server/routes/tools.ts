@@ -1,11 +1,29 @@
 import { Hono } from 'hono';
-import { fetchIntegrations, fetchTools } from '../airtable';
+import {
+  createRecord,
+  fetchIntegrations,
+  fetchTools,
+  updateRecord,
+} from '../airtable';
+import { cacheInvalidate } from '../cache';
 import {
   buildLookupMaps,
   hydrateTool,
   hydrateToolDetail,
 } from '../hydrate';
-import type { Env, PaginatedResponse, Tool, ToolDetail } from '../types';
+import type {
+  CreateToolRequest,
+  Env,
+  PaginatedResponse,
+  Tool,
+  ToolDetail,
+  UpdateToolRequest,
+} from '../types';
+
+// ---------------------------------------------------------------------------
+// NOTE: write endpoints (POST, PATCH) require AIRTABLE_TOKEN to have the
+// `data.records:write` scope on the configured base. Read tokens will 401.
+// ---------------------------------------------------------------------------
 
 const tools = new Hono<{ Bindings: Env }>();
 
@@ -89,20 +107,44 @@ tools.get('/', async (c) => {
     return sortDir === 'desc' ? -delta : delta;
   };
 
+  // Strings: empty values pushed to the end, like numerics.
+  const stringCompare = (a: string | undefined, b: string | undefined): number => {
+    const aEmpty = !a;
+    const bEmpty = !b;
+    if (aEmpty && bEmpty) return 0;
+    if (aEmpty) return 1;
+    if (bEmpty) return -1;
+    const r = a!.localeCompare(b!);
+    return sortDir === 'desc' ? -r : r;
+  };
+
+  // Booleans: true first when asc, false first when desc.
+  const booleanCompare = (a: boolean | undefined, b: boolean | undefined): number => {
+    const aVal = a === true ? 1 : 0;
+    const bVal = b === true ? 1 : 0;
+    const delta = bVal - aVal; // true (1) sorts before false (0) in asc
+    return sortDir === 'desc' ? -delta : delta;
+  };
+
   const compare = (a: Tool, b: Tool): number => {
     switch (sortCol) {
-      case 'vendor': {
-        const r = (a.vendors[0]?.name ?? '').localeCompare(b.vendors[0]?.name ?? '');
-        return sortDir === 'desc' ? -r : r;
-      }
+      case 'vendor':
+        return stringCompare(a.vendors[0]?.name, b.vendors[0]?.name);
       case 'integrationCount': {
         const r = a.integrationCount - b.integrationCount;
         return sortDir === 'desc' ? -r : r;
       }
-      case 'researchStatus': {
-        const r = (a.researchStatus ?? '').localeCompare(b.researchStatus ?? '');
-        return sortDir === 'desc' ? -r : r;
-      }
+      case 'researchStatus':
+        return stringCompare(a.researchStatus, b.researchStatus);
+      case 'enrichmentStatus':
+        return stringCompare(a.toolEnrichmentStatus, b.toolEnrichmentStatus);
+      case 'website':
+        return stringCompare(a.website, b.website);
+      case 'apiDocsUrl':
+      case 'hasApiDocs':
+        return booleanCompare(a.hasApiDocs, b.hasApiDocs);
+      case 'integrationsUrl':
+        return stringCompare(a.toolIntegrationsUrl, b.toolIntegrationsUrl);
       case 'priorityScore':
         return numericCompare(a.priorityScore, b.priorityScore);
       case 'integrationScore':
@@ -119,10 +161,8 @@ tools.get('/', async (c) => {
           b.priorityTier ? Number(b.priorityTier) : undefined,
         );
       case 'name':
-      default: {
-        const r = a.name.localeCompare(b.name);
-        return sortDir === 'desc' ? -r : r;
-      }
+      default:
+        return stringCompare(a.name, b.name);
     }
   };
 
@@ -161,6 +201,89 @@ tools.get('/:id', async (c) => {
   }
 
   const detail: ToolDetail = hydrateToolDetail(record, maps, integrationRecs);
+  return c.json(detail);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/tools — create a new tool record
+// Body: { name, description?, website? }
+// New records default to research_status="Pending".
+// ---------------------------------------------------------------------------
+tools.post('/', async (c) => {
+  const env = c.env;
+  const body = (await c.req.json().catch(() => ({}))) as CreateToolRequest;
+
+  const name = (body.name ?? '').trim();
+  if (!name) {
+    return c.json({ error: 'name is required' }, 400);
+  }
+
+  const fields: Record<string, unknown> = {
+    Name: name,
+    research_status: 'Pending',
+  };
+  if (body.description?.trim()) fields.description = body.description.trim();
+  if (body.website?.trim()) fields.website = body.website.trim();
+
+  let created;
+  try {
+    created = await createRecord(env, env.AIRTABLE_TABLES.tools, fields);
+  } catch (err) {
+    return c.json({ error: (err as Error).message ?? 'Airtable create failed' }, 502);
+  }
+
+  await cacheInvalidate(env.CACHE, `table:${env.AIRTABLE_TABLES.tools}`);
+
+  const maps = await buildLookupMaps(env);
+  const tool = hydrateTool(created, maps);
+  return c.json(tool, 201);
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/tools/:id — partial update of a tool record
+// ---------------------------------------------------------------------------
+tools.patch('/:id', async (c) => {
+  const env = c.env;
+  const toolId = c.req.param('id');
+  const body = (await c.req.json().catch(() => ({}))) as UpdateToolRequest;
+
+  const fields: Record<string, unknown> = {};
+  // Scalars
+  if (body.name !== undefined) fields['Name'] = body.name;
+  if (body.description !== undefined) fields['description'] = body.description;
+  if (body.website !== undefined) fields['website'] = body.website;
+  if (body.toolIntegrationsUrl !== undefined)
+    fields['tool_integrations_url'] = body.toolIntegrationsUrl;
+  if (body.apiDocsUrl !== undefined) fields['api_docs_url'] = body.apiDocsUrl;
+  if (body.hasApiDocs !== undefined) fields['has_api_docs'] = body.hasApiDocs;
+  if (body.researchStatus !== undefined) fields['research_status'] = body.researchStatus;
+  if (body.researchNotes !== undefined) fields['research_notes'] = body.researchNotes;
+  if (body.toolIntegrationCheckNotes !== undefined)
+    fields['tool_integration_check_notes'] = body.toolIntegrationCheckNotes;
+  // Linked records (arrays of record IDs)
+  if (body.categories !== undefined) fields['category'] = body.categories;
+  if (body.disciplines !== undefined) fields['supported_disciplines'] = body.disciplines;
+  if (body.phases !== undefined) fields['supported_project_phases'] = body.phases;
+  if (body.vendors !== undefined) fields['vendors'] = body.vendors;
+
+  if (Object.keys(fields).length === 0) {
+    return c.json({ error: 'no editable fields in body' }, 400);
+  }
+
+  let updated;
+  try {
+    updated = await updateRecord(env, env.AIRTABLE_TABLES.tools, toolId, fields);
+  } catch (err) {
+    return c.json({ error: (err as Error).message ?? 'Airtable update failed' }, 502);
+  }
+
+  await cacheInvalidate(env.CACHE, `table:${env.AIRTABLE_TABLES.tools}`);
+
+  const [integrationRecs, maps] = await Promise.all([
+    fetchIntegrations(env),
+    buildLookupMaps(env),
+  ]);
+  const detail = hydrateToolDetail(updated, maps, integrationRecs);
   return c.json(detail);
 });
 

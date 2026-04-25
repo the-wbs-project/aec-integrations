@@ -169,7 +169,37 @@ export interface MetaResponse {
   categories: LinkRef[];
   disciplines: LinkRef[];
   phases: LinkRef[];
+  vendors: LinkRef[];
   researchStatuses: string[];
   priorityTiers: string[];
   toolEnrichmentStatuses: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Write payloads
+// ---------------------------------------------------------------------------
+export interface CreateToolRequest {
+  name: string;
+  description?: string;
+  website?: string;
+}
+
+/**
+ * Partial update payload. Linked-record fields accept arrays of Airtable
+ * record IDs (the form sends IDs, not LinkRefs).
+ */
+export interface UpdateToolRequest {
+  name?: string;
+  description?: string;
+  website?: string;
+  toolIntegrationsUrl?: string;
+  apiDocsUrl?: string;
+  hasApiDocs?: boolean;
+  researchStatus?: string;
+  researchNotes?: string;
+  toolIntegrationCheckNotes?: string;
+  categories?: string[];
+  disciplines?: string[];
+  phases?: string[];
+  vendors?: string[];
 }

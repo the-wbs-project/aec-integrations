@@ -10,6 +10,13 @@ export const routes: Routes = [
       ),
   },
   {
+    path: 'tools/new',
+    loadComponent: () =>
+      import('./pages/tool-create/tool-create.component').then(
+        (m) => m.ToolCreateComponent
+      ),
+  },
+  {
     path: 'tools/:id',
     loadComponent: () =>
       import('./pages/tool-detail/tool-detail.component').then(

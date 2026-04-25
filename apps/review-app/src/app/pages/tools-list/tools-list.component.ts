@@ -24,7 +24,10 @@ import {
   imports: [RouterLink, FormsModule],
   template: `
     <div class="page-container--wide">
-      <h1 class="page-heading">Tools</h1>
+      <div class="page-header">
+        <h1 class="page-heading">Tools</h1>
+        <a routerLink="/tools/new" class="btn btn--primary btn--sm">+ New tool</a>
+      </div>
 
       <!-- Filter bar -->
       <div class="filter-bar">
@@ -137,22 +140,64 @@ import {
                 </td>
                 <td>
                   <span class="chip-list">
-                    @for (c of tool.categories; track c.id) {
+                    @for (c of visibleRefs(tool.categories); track c.id) {
                       <span class="badge badge--neutral">{{ c.name }}</span>
                     }
-                  </span>
-                </td>
-                <td>
-                  <span class="chip-list">
-                    @for (d of tool.disciplines; track d.id) {
-                      <span class="badge badge--neutral">{{ d.name }}</span>
+                    @if (overflowRefs(tool.categories); as extra) {
+                      <span
+                        class="badge badge--neutral pill-overflow"
+                        tabindex="0"
+                        [attr.aria-label]="extra.length + ' more categories'"
+                      >
+                        +{{ extra.length }}
+                        <span class="pill-overflow__menu" role="tooltip">
+                          @for (c of extra; track c.id) {
+                            <span class="pill-overflow__item">{{ c.name }}</span>
+                          }
+                        </span>
+                      </span>
                     }
                   </span>
                 </td>
                 <td>
                   <span class="chip-list">
-                    @for (p of tool.phases; track p.id) {
+                    @for (d of visibleRefs(tool.disciplines); track d.id) {
+                      <span class="badge badge--neutral">{{ d.name }}</span>
+                    }
+                    @if (overflowRefs(tool.disciplines); as extra) {
+                      <span
+                        class="badge badge--neutral pill-overflow"
+                        tabindex="0"
+                        [attr.aria-label]="extra.length + ' more disciplines'"
+                      >
+                        +{{ extra.length }}
+                        <span class="pill-overflow__menu" role="tooltip">
+                          @for (d of extra; track d.id) {
+                            <span class="pill-overflow__item">{{ d.name }}</span>
+                          }
+                        </span>
+                      </span>
+                    }
+                  </span>
+                </td>
+                <td>
+                  <span class="chip-list">
+                    @for (p of visibleRefs(tool.phases); track p.id) {
                       <span class="badge badge--neutral">{{ p.name }}</span>
+                    }
+                    @if (overflowRefs(tool.phases); as extra) {
+                      <span
+                        class="badge badge--neutral pill-overflow"
+                        tabindex="0"
+                        [attr.aria-label]="extra.length + ' more phases'"
+                      >
+                        +{{ extra.length }}
+                        <span class="pill-overflow__menu" role="tooltip">
+                          @for (p of extra; track p.id) {
+                            <span class="pill-overflow__item">{{ p.name }}</span>
+                          }
+                        </span>
+                      </span>
                     }
                   </span>
                 </td>
@@ -255,11 +300,53 @@ import {
     </div>
   `,
   styles: `
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+    }
+
     .page-heading {
       font-size: var(--text-xl);
       font-weight: 500;
       color: var(--color-text-primary);
-      margin-bottom: var(--space-5);
+      margin: 0;
+    }
+
+    .pill-overflow {
+      position: relative;
+      cursor: default;
+    }
+
+    .pill-overflow__menu {
+      display: none;
+      position: absolute;
+      top: calc(100% + var(--space-1));
+      left: 0;
+      z-index: 10;
+      min-width: 160px;
+      max-width: 280px;
+      padding: var(--space-2);
+      background: var(--color-bg-elevated);
+      border: 0.5px solid var(--color-border-default);
+      border-radius: var(--radius-md);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+    }
+
+    .pill-overflow:hover .pill-overflow__menu,
+    .pill-overflow:focus-within .pill-overflow__menu {
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-1);
+    }
+
+    .pill-overflow__item {
+      font-size: var(--text-xs);
+      color: var(--color-text-body);
+      white-space: normal;
+      line-height: 1.4;
     }
 
     .filter-bar {
@@ -407,17 +494,39 @@ export class ToolsListComponent implements OnInit {
       sortable: true,
       sortKey: 'priorityScore',
     },
-    { key: 'enrichment', label: 'Enrichment', sortable: false },
+    {
+      key: 'enrichment',
+      label: 'Enrichment',
+      sortable: true,
+      sortKey: 'enrichmentStatus',
+    },
     {
       key: 'researchStatus',
       label: 'Research status',
       sortable: true,
       sortKey: 'researchStatus',
     },
-    { key: 'website', label: 'Website', sortable: false },
-    { key: 'apiDocs', label: 'API', sortable: false },
-    { key: 'integrationsUrl', label: 'Integrations page', sortable: false },
+    { key: 'website', label: 'Website', sortable: true, sortKey: 'website' },
+    { key: 'apiDocs', label: 'API', sortable: true, sortKey: 'hasApiDocs' },
+    {
+      key: 'integrationsUrl',
+      label: 'Integrations page',
+      sortable: true,
+      sortKey: 'integrationsUrl',
+    },
   ];
+
+  // ---- Pill overflow helpers ---------------------------------------------
+  static readonly PILL_LIMIT = 3;
+  visibleRefs(refs: LinkRef[] | undefined): LinkRef[] {
+    if (!refs) return [];
+    return refs.slice(0, ToolsListComponent.PILL_LIMIT);
+  }
+  /** Returns the overflow list, or null when there is no overflow (so @if hides the pill). */
+  overflowRefs(refs: LinkRef[] | undefined): LinkRef[] | null {
+    if (!refs || refs.length <= ToolsListComponent.PILL_LIMIT) return null;
+    return refs.slice(ToolsListComponent.PILL_LIMIT);
+  }
 
   constructor() {
     this.destroyRef.onDestroy(() => {

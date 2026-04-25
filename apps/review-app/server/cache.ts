@@ -21,3 +21,8 @@ export async function cacheFetch<T>(
   await kv.put(key, JSON.stringify(data), { expirationTtl: ttlSeconds });
   return data;
 }
+
+/** Drop a cache entry so the next read goes back to the source. */
+export async function cacheInvalidate(kv: KVNamespace, key: string): Promise<void> {
+  await kv.delete(key);
+}
