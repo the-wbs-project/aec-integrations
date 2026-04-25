@@ -4,6 +4,7 @@ import {
   fetchDisciplines,
   fetchProjectPhases,
   fetchTools,
+  fetchVendors,
 } from '../airtable';
 import type { Env, MetaResponse } from '../types';
 
@@ -12,11 +13,12 @@ const meta = new Hono<{ Bindings: Env }>();
 meta.get('/', async (c) => {
   const env = c.env;
 
-  const [catRecs, discRecs, phaseRecs, toolRecs] = await Promise.all([
+  const [catRecs, discRecs, phaseRecs, toolRecs, vendorRecs] = await Promise.all([
     fetchCategories(env),
     fetchDisciplines(env),
     fetchProjectPhases(env),
     fetchTools(env),
+    fetchVendors(env),
   ]);
 
   // Collect unique singleSelect values from the Tools table
@@ -45,6 +47,7 @@ meta.get('/', async (c) => {
     categories: toLinks(catRecs, 'Name'),
     disciplines: toLinks(discRecs, 'Name'),
     phases: toLinks(phaseRecs, 'Name'),
+    vendors: toLinks(vendorRecs, 'company_name'),
     researchStatuses: [...statusSet].sort(),
     priorityTiers: [...tierSet].sort(),
     toolEnrichmentStatuses: [...enrichmentSet].sort(),

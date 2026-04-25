@@ -75,3 +75,27 @@ export function fetchProjectPhases(env: Env) {
 export function fetchIntegrations(env: Env) {
   return fetchAll(env, env.AIRTABLE_TABLES.toolIntegrations);
 }
+
+// ---------------------------------------------------------------------------
+// Write helpers — require AIRTABLE_TOKEN to have data.records:write scope.
+// Callers are responsible for invalidating any affected `table:*` cache keys.
+// ---------------------------------------------------------------------------
+export async function createRecord(
+  env: Env,
+  tableId: string,
+  fields: Record<string, unknown>,
+): Promise<AirtableRecord<FieldSet>> {
+  const base = getBase(env);
+  const created = await base(tableId).create([{ fields: fields as FieldSet }]);
+  return created[0];
+}
+
+export async function updateRecord(
+  env: Env,
+  tableId: string,
+  recordId: string,
+  fields: Record<string, unknown>,
+): Promise<AirtableRecord<FieldSet>> {
+  const base = getBase(env);
+  return base(tableId).update(recordId, fields as FieldSet);
+}

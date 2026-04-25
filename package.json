@@ -13,6 +13,7 @@
     "setup:supabase": "supabase start",
     "setup": "pnpm run setup:install && pnpm run setup:secrets && pnpm run setup:supabase",
     "dev:review": "pnpm --filter review-app dev",
+    "review:start": "pnpm --filter review-app dev",
     "ship:review": "pnpm --filter review-app deploy",
     "n8n": "bash artifacts/n8n-workflows/sync-n8n.sh",
     "n8n:list": "bash artifacts/n8n-workflows/sync-n8n.sh list",

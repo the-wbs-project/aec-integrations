@@ -8,6 +8,8 @@ import {
   Vendor,
   VendorDetail,
   MetaResponse,
+  CreateToolRequest,
+  UpdateToolRequest,
 } from '../types';
 
 export interface ToolQueryParams {
@@ -45,6 +47,14 @@ export class ApiService {
 
   getTool(id: string): Observable<ToolDetail> {
     return this.http.get<ToolDetail>(`${this.baseUrl}/tools/${id}`);
+  }
+
+  createTool(body: CreateToolRequest): Observable<Tool> {
+    return this.http.post<Tool>(`${this.baseUrl}/tools`, body);
+  }
+
+  updateTool(id: string, patch: UpdateToolRequest): Observable<ToolDetail> {
+    return this.http.patch<ToolDetail>(`${this.baseUrl}/tools/${id}`, patch);
   }
 
   getVendors(
