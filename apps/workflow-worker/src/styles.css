@@ -1,0 +1,20 @@
+@import url('@syncfusion/ej2-base/styles/tailwind.css');
+@import url('@syncfusion/ej2-buttons/styles/tailwind.css');
+@import url('@syncfusion/ej2-popups/styles/tailwind.css');
+@import url('@syncfusion/ej2-inputs/styles/tailwind.css');
+@import url('@syncfusion/ej2-lists/styles/tailwind.css');
+@import url('@syncfusion/ej2-dropdowns/styles/tailwind.css');
+
+:root {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: #1a1a1a;
+  background: #fafafa;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, input, select, textarea { font: inherit; }
+button { cursor: pointer; }
+a { color: #2c5fd9; }
+code, pre { font-family: 'JetBrains Mono', 'SF Mono', ui-monospace, monospace; }
