@@ -23,6 +23,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -97,7 +98,7 @@ Return the employee count range using one of these exact buckets:
 
 If you find an exact number, also return it. If you cannot determine the employee count with medium or higher confidence, return your best guess with confidence="low".
 
-Limit the use of the search tool to twice (2 times). When done, call emit_result.`,
+When done, call emit_result.`,
     outputSchema: {
       type: 'object',
       properties: {
@@ -196,6 +197,7 @@ export class VendorCompanySizeWorkflow extends WorkflowEntrypoint<Env, RunParams
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

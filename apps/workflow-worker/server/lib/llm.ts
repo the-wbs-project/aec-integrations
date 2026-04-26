@@ -53,12 +53,12 @@ export function buildInitialBatchRequest(
     custom_id: input.customId,
     params: {
       model: input.model,
-      max_tokens: input.maxTokens ?? 1024,
+      max_tokens: input.maxTokens ?? 8192,
       temperature: 0,
       system: input.systemPrompt,
       messages: [{ role: 'user', content: input.userPrompt }],
       tools: tools as unknown as SdkToolArray,
-      tool_choice: { type: 'any' },
+      tool_choice: { type: 'auto' },
     },
   };
 }
@@ -80,7 +80,7 @@ export function buildContinuationBatchRequest(
     custom_id: input.customId,
     params: {
       model: input.model,
-      max_tokens: input.maxTokens ?? 1024,
+      max_tokens: input.maxTokens ?? 8192,
       temperature: 0,
       system: input.systemPrompt,
       messages: input.priorMessages,
@@ -132,6 +132,18 @@ export async function getBatchResults(
 // Response interpretation
 // ---------------------------------------------------------------------------
 
+/**
+ * One built-in web_search invocation, paired with its result. Populated for
+ * Anthropic's server-side `web_search_20250305` tool. Errors come back as
+ * `web_search_tool_result_error` blocks (max_uses_exceeded, too_many_requests,
+ * invalid_tool_input, etc.) — captured in `error`.
+ */
+export interface SearchActivity {
+  query: string;
+  resultCount: number;
+  error?: string;
+}
+
 export interface InterpretedResult {
   /** Set when the model called emit_result — final structured answer. */
   emitted?: Record<string, unknown>;
@@ -140,6 +152,8 @@ export interface InterpretedResult {
   /** True when the model returned without calling any tool. */
   noTool?: boolean;
   stopReason?: string | null;
+  /** Built-in web_search activity for this turn, in invocation order. */
+  searches: SearchActivity[];
   /** Full assistant message — append to the conversation before next turn. */
   assistantMessage: MessageParam;
 }
@@ -147,16 +161,48 @@ export interface InterpretedResult {
 export function interpretMessage(message: Message): InterpretedResult {
   let emitted: Record<string, unknown> | undefined;
   let pendingSearch: { toolUseId: string; query: string } | undefined;
+  const queriesById = new Map<string, string>();
+  const searches: SearchActivity[] = [];
 
-  for (const block of message.content) {
-    if (block.type !== 'tool_use') continue;
-    const tu = block as ToolUseBlock;
-    if (tu.name === 'emit_result') {
-      emitted = tu.input as Record<string, unknown>;
-    } else if (tu.name === 'web_search') {
-      const input = tu.input as { query?: unknown };
-      if (typeof input.query === 'string') {
-        pendingSearch = { toolUseId: tu.id, query: input.query };
+  // SDK 0.36.x doesn't yet type `server_tool_use` / `web_search_tool_result`
+  // in the ContentBlock union, so we widen here to read them off the wire.
+  // The shapes match the Anthropic Messages API server-tool spec.
+  type WideBlock = { type: string; [k: string]: unknown };
+  for (const block of message.content as unknown as WideBlock[]) {
+    if (block.type === 'tool_use') {
+      const tu = block as unknown as ToolUseBlock;
+      if (tu.name === 'emit_result') {
+        emitted = tu.input as Record<string, unknown>;
+      } else if (tu.name === 'web_search') {
+        const input = tu.input as { query?: unknown };
+        if (typeof input.query === 'string') {
+          pendingSearch = { toolUseId: tu.id, query: input.query };
+        }
+      }
+    } else if (block.type === 'server_tool_use') {
+      const name = block['name'];
+      const id = block['id'];
+      const input = block['input'] as { query?: unknown } | undefined;
+      if (name === 'web_search' && typeof id === 'string' && typeof input?.query === 'string') {
+        queriesById.set(id, input.query);
+      }
+    } else if (block.type === 'web_search_tool_result') {
+      const toolUseId = block['tool_use_id'];
+      const content = block['content'];
+      const query = typeof toolUseId === 'string' ? (queriesById.get(toolUseId) ?? '') : '';
+      if (Array.isArray(content)) {
+        searches.push({ query, resultCount: content.length });
+      } else if (
+        content &&
+        typeof content === 'object' &&
+        (content as { type?: string }).type === 'web_search_tool_result_error'
+      ) {
+        const errorCode = (content as { error_code?: unknown }).error_code;
+        searches.push({
+          query,
+          resultCount: 0,
+          error: typeof errorCode === 'string' ? errorCode : 'unknown_error',
+        });
       }
     }
   }
@@ -166,8 +212,37 @@ export function interpretMessage(message: Message): InterpretedResult {
     pendingSearch,
     noTool: !emitted && !pendingSearch,
     stopReason: message.stop_reason,
+    searches,
     assistantMessage: { role: 'assistant', content: message.content },
   };
+}
+
+/**
+ * Emit a single structured log line summarising one model turn — searches
+ * issued, results returned, errors, stop reason, whether emit_result fired.
+ * Cloudflare observability ties these to the worker invocation. This is the
+ * canonical visibility hook for built-in web_search activity; tail
+ * `wrangler tail` or filter on `[llm-turn]` in the dashboard.
+ */
+export function logTurnSummary(
+  ctx: BatchContext,
+  turn: number,
+  interpreted: InterpretedResult,
+): void {
+  const summary = {
+    runId: ctx.runId,
+    workflow: ctx.workflow,
+    turn,
+    stopReason: interpreted.stopReason,
+    emitted: Boolean(interpreted.emitted),
+    searches: interpreted.searches.map((s) => ({
+      query: s.query,
+      resultCount: s.resultCount,
+      ...(s.error ? { error: s.error } : {}),
+    })),
+    pendingSerp: interpreted.pendingSearch?.query,
+  };
+  console.log(`[llm-turn] ${JSON.stringify(summary)}`);
 }
 
 /**

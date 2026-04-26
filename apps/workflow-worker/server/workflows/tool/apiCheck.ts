@@ -18,6 +18,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -60,7 +61,7 @@ Look for a real developer portal, API reference, or SDK documentation page — N
 
 Return has_api_docs=true only if you found a genuine developer documentation URL. Otherwise return has_api_docs=false and api_docs_url=null.
 
-Limit to 3 search attempts. When done, call emit_result.`,
+When done, call emit_result.`,
     outputSchema: {
       type: 'object',
       properties: {
@@ -146,6 +147,7 @@ export class ToolApiCheckWorkflow extends WorkflowEntrypoint<Env, RunParams> {
       }
 
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

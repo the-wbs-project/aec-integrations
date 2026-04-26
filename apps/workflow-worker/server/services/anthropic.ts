@@ -25,9 +25,10 @@ export interface BatchClientContext {
 export class AnthropicBatchClient {
   private client: Anthropic;
   private cfMetadata: BatchClientContext;
+  private baseURL: string;
 
   constructor(env: Env, ctx: BatchClientContext = {}) {
-    const baseURL = `https://gateway.ai.cloudflare.com/v1/${env.CF_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/anthropic`;
+    this.baseURL = `https://gateway.ai.cloudflare.com/v1/${env.CF_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/anthropic`;
     this.cfMetadata = ctx;
     this.client = new Anthropic({
       // With BYOK on the gateway, the upstream Anthropic key is stored in CF
@@ -35,14 +36,14 @@ export class AnthropicBatchClient {
       // The SDK still requires *some* api key, so use a placeholder when no
       // ANTHROPIC_API_KEY secret is set.
       apiKey: env.ANTHROPIC_API_KEY ?? 'cf-ai-gateway-byok',
-      baseURL,
+      baseURL: this.baseURL,
       defaultHeaders: this.gatewayHeaders(env),
     });
   }
 
   private gatewayHeaders(env: Env): Record<string, string> {
     const headers: Record<string, string> = {
-      'cf-aig-authorization': `Bearer ${env.CF_AI_GATEWAY_TOKEN}`,
+      //'cf-aig-authorization': `Bearer ${env.CF_AI_GATEWAY_TOKEN}`,
     };
     if (this.cfMetadata.runId) {
       headers['cf-aig-metadata'] = JSON.stringify(this.cfMetadata);
@@ -67,7 +68,9 @@ export class AnthropicBatchClient {
    */
   async results(batchId: string): Promise<MessageBatchIndividualResponse[]> {
     const responses: MessageBatchIndividualResponse[] = [];
-    for await (const r of await this.client.messages.batches.results(batchId)) {
+    for await (const r of await this.client.messages.batches.results(batchId, {
+      path: `${this.baseURL}/v1/messages/batches/${batchId}/results`,
+    })) {
       responses.push(r);
     }
     return responses;

@@ -22,6 +22,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -31,6 +32,11 @@ export const meta: WorkflowMeta = {
   slug: 'vendor-linkedin',
   description: 'Find LinkedIn URL + follower count for a vendor.',
   table: 'vendors',
+  options: {
+    primaryField: 'linkedin_url',
+    stalenessField: 'linkedin_checked_at',
+    labelField: 'company_name',
+  },
 };
 
 const MAX_TURNS = 3;
@@ -62,7 +68,7 @@ If the company already has a known LinkedIn URL: ${knownLinkedin} — still sear
 Return null for linkedin_url if you cannot find the company page with confidence.
 Return null for linkedin_followers if the follower count is not visible in the search results.
 
-Limit your use of the search tool to twice (2 times). When done, call emit_result.`,
+When done, call emit_result.`,
     outputSchema: {
       type: 'object',
       properties: {
@@ -150,6 +156,7 @@ export class VendorLinkedinWorkflow extends WorkflowEntrypoint<Env, RunParams> {
       }
 
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {
