@@ -21,6 +21,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -30,6 +31,11 @@ export const meta: WorkflowMeta = {
   slug: 'vendor-blog-recency',
   description: 'Find vendor blog URL, locate its RSS feed, and read the most recent post date.',
   table: 'vendors',
+  options: {
+    primaryField: 'blog_url',
+    stalenessField: 'blog_checked_at',
+    labelField: 'company_name',
+  },
 };
 
 const RSS_LINK_RE = /<link[^>]+type\s*=\s*["']application\/(?:rss|atom)\+xml["'][^>]*>/i;
@@ -75,7 +81,7 @@ Return the root of the blog (e.g. example.com/blog not example.com/blog/some-pos
 If the blog is on a subdomain, return the subdomain root (e.g. https://blog.example.com).
 If no blog exists, return null for blog_url.
 
-Limit to using the search tool to 2 tries. After that assume no blog exists. When done, call emit_result.`,
+When done, call emit_result.`,
     outputSchema: {
       type: 'object',
       properties: { blog_url: { type: ['string', 'null'] } },
@@ -130,6 +136,7 @@ export class VendorBlogRecencyWorkflow extends WorkflowEntrypoint<Env, RunParams
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

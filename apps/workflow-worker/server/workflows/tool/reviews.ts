@@ -23,6 +23,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -55,7 +56,7 @@ function buildPrompt(record: AirtableRecord): {
 1. Search: "${toolName}" site:g2.com/products
 2. Search: "${toolName}" site:capterra.com/software
 
-Extract review count, average rating (out of 5.0), and product page URL from snippets. Limit searches to 2. When done, call emit_result.`,
+Extract review count, average rating (out of 5.0), and product page URL from snippets. When done, call emit_result.`,
     outputSchema: {
       type: 'object',
       properties: {
@@ -143,6 +144,7 @@ export class ToolReviewsWorkflow extends WorkflowEntrypoint<Env, RunParams> {
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

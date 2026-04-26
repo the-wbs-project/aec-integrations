@@ -23,6 +23,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -52,7 +53,7 @@ function buildPrompt(record: AirtableRecord): {
 2. "${toolName}" site:make.com/en/integrations
 3. "${toolName}" site:workato.com/integrations
 
-For Zapier results, also count triggers and actions listed. Limit searches to 4. When done, call emit_result.
+For Zapier results, also count triggers and actions listed. When done, call emit_result.
 
 Keep "details" compact: only {zapier: {found, count}, make: {found}, workato: {found}}. Do not include search_query, result strings, or a summary field.`,
     outputSchema: {
@@ -142,6 +143,7 @@ export class ToolIpaasWorkflow extends WorkflowEntrypoint<Env, RunParams> {
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

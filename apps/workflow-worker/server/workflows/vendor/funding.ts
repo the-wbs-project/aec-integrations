@@ -25,6 +25,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -34,6 +35,11 @@ export const meta: WorkflowMeta = {
   slug: 'vendor-funding',
   description: "Find a vendor's funding stage, total raised, and last round date.",
   table: 'vendors',
+  options: {
+    primaryField: 'funding_stage',
+    stalenessField: 'funding_checked_at',
+    labelField: 'company_name',
+  },
 };
 
 const VALID_STAGES = [
@@ -89,7 +95,8 @@ Notes:
 - Use "Bootstrapped" only if you find explicit evidence (founder statements, "never raised", etc.), NOT just absence of funding data.
 - Use "Unknown" if you cannot determine with medium+ confidence.
 - total_funding_usd should be total disclosed funding across all rounds.
-- Limit the use of the search tool to twice (2 times). When done, call emit_result.`;
+
+When done, call emit_result.`;
 
   return {
     systemPrompt:
@@ -205,6 +212,7 @@ export class VendorFundingWorkflow extends WorkflowEntrypoint<Env, RunParams> {
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

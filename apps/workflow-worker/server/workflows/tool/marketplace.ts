@@ -17,6 +17,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -47,7 +48,7 @@ function buildPrompt(record: AirtableRecord): {
 3. "${toolName}" site:app.connect.trimble.com
 4. "${toolName}" site:marketplace.bluebeam.com
 
-Only include a marketplace if you find a clear product listing. Limit searches to 4. When done, call emit_result.
+Only include a marketplace if you find a clear product listing. When done, call emit_result.
 
 Marketplace names to use:
 - Procore (marketplace.procore.com)
@@ -138,6 +139,7 @@ export class ToolMarketplaceWorkflow extends WorkflowEntrypoint<Env, RunParams> 
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

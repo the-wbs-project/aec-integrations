@@ -18,6 +18,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -27,6 +28,11 @@ export const meta: WorkflowMeta = {
   slug: 'vendor-github',
   description: "Find vendor's GitHub org slug, verify it, and aggregate public-repo stats.",
   table: 'vendors',
+  options: {
+    primaryField: 'github_org',
+    stalenessField: 'github_checked_at',
+    labelField: 'company_name',
+  },
 };
 
 const MAX_TURNS = 3;
@@ -138,6 +144,7 @@ export class VendorGithubWorkflow extends WorkflowEntrypoint<Env, RunParams> {
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

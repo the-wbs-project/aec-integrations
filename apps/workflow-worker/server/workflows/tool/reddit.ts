@@ -23,6 +23,7 @@ import {
   pollBatch,
   getBatchResults,
   interpretMessage,
+  logTurnSummary,
   executeSearchTool,
   type MessageParam,
   type OutputSchema,
@@ -50,7 +51,7 @@ function buildPrompt(record: AirtableRecord): {
 
 Search: "${toolName}" site:reddit.com (r/Construction OR r/AEC OR r/Revit OR r/civilengineering OR r/ConstructionManagement)
 
-Count distinct Reddit posts or discussions mentioning this specific tool. Only count results clearly about this software. Limit searches to 1. When done, call emit_result.`,
+Count distinct Reddit posts or discussions mentioning this specific tool. Only count results clearly about this software. When done, call emit_result.`,
     outputSchema: {
       type: 'object',
       properties: {
@@ -121,6 +122,7 @@ export class ToolRedditWorkflow extends WorkflowEntrypoint<Env, RunParams> {
         throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
       }
       const interpreted = interpretMessage(response.result.message);
+      logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
       if (interpreted.emitted) {

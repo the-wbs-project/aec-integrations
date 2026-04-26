@@ -17,6 +17,11 @@ export const meta: WorkflowMeta = {
   slug: 'vendor-press',
   description: 'Count vendor press mentions in the last 12 months from Google News RSS.',
   table: 'vendors',
+  options: {
+    primaryField: 'press_count_12mo',
+    stalenessField: 'press_checked_at',
+    labelField: 'company_name',
+  },
 };
 
 function vendorDomain(website: string | undefined): string | undefined {
