@@ -2,6 +2,7 @@
 // Cloudflare Worker environment bindings, vars, and secrets.
 // ---------------------------------------------------------------------------
 import type puppeteer from '@cloudflare/puppeteer';
+import type { RunParams } from './lib/workflow-meta';
 
 /**
  * Type of the BROWSER binding accepted by puppeteer.launch(). Computed from
@@ -23,11 +24,31 @@ export type SearchProvider = 'serpapi' | 'searchapi';
 export type SearchTool = 'web' | 'serpapi';
 
 export interface Env {
-  // Bindings
+  // Static bindings
   ASSETS: Fetcher;
   KV_CACHE: KVNamespace;
   BROWSER: BrowserBinding;
-  WORKFLOW_RUN: DurableObjectNamespace;
+
+  // Workflow bindings — one per WorkflowEntrypoint class, declared in
+  // wrangler.jsonc. The route layer dispatches via env[bindingName] using
+  // the registry → binding map in `workflows/registry.ts`.
+  WF_VENDOR_LINKEDIN: Workflow<RunParams>;
+  WF_VENDOR_GITHUB: Workflow<RunParams>;
+  WF_VENDOR_COMPANY_SIZE: Workflow<RunParams>;
+  WF_VENDOR_FUNDING: Workflow<RunParams>;
+  WF_VENDOR_PRESS: Workflow<RunParams>;
+  WF_VENDOR_BLOG_RECENCY: Workflow<RunParams>;
+  WF_VENDOR_SCORE: Workflow<RunParams>;
+  WF_VENDOR_ORCHESTRATOR: Workflow<RunParams>;
+  WF_TOOL_API_CHECK: Workflow<RunParams>;
+  WF_TOOL_MARKETPLACE: Workflow<RunParams>;
+  WF_TOOL_IPAAS: Workflow<RunParams>;
+  WF_TOOL_REVIEWS: Workflow<RunParams>;
+  WF_TOOL_SEARCH_DEMAND: Workflow<RunParams>;
+  WF_TOOL_REDDIT: Workflow<RunParams>;
+  WF_TOOL_INTEGRATION_COUNT: Workflow<RunParams>;
+  WF_TOOL_SCORE: Workflow<RunParams>;
+  WF_TOOL_ORCHESTRATOR: Workflow<RunParams>;
 
   // Vars
   SEARCH_PROVIDER: SearchProvider;

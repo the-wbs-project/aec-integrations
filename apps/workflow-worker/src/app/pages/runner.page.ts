@@ -9,8 +9,8 @@ import { TextBoxModule } from '@syncfusion/ej2-angular-inputs';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
 import {
   WorkflowClient,
+  type InstanceStatus,
   type OptionsResponse,
-  type RunStatus,
 } from '../services/workflow-client';
 import { WORKFLOWS } from '../workflows';
 
@@ -24,6 +24,20 @@ interface Choice<T extends string> {
   value: T;
   label: string;
 }
+
+interface RunRow {
+  runId: string;
+  recordId: string;
+  status: InstanceStatus['status'] | 'pending';
+  error?: string;
+  output?: unknown;
+}
+
+const TERMINAL_STATUSES = new Set<InstanceStatus['status']>([
+  'complete',
+  'errored',
+  'terminated',
+]);
 
 @Component({
   selector: 'page-runner',
@@ -114,24 +128,20 @@ interface Choice<T extends string> {
       <p class="error">{{ errorMsg() }}</p>
     }
 
-    @if (status(); as s) {
+    @if (runs().length > 0) {
       <section class="status">
-        <h2>Run {{ s.runId }} · {{ s.status }}</h2>
-        <p>
-          step {{ s.step }} · started {{ s.startedAt }}
-          @if (s.finishedAt) { · finished {{ s.finishedAt }} }
-        </p>
+        <h2>Runs ({{ runs().length }})</h2>
         <ul class="records">
-          @for (r of s.records; track r.recordId) {
+          @for (r of runs(); track r.runId) {
             <li>
               <code>{{ r.recordId }}</code>
               · {{ r.status }}
-              · turns {{ r.turns }}
-              @if (r.fieldsUpdated?.length) {
-                · updated [{{ r.fieldsUpdated!.join(', ') }}]
-              }
+              · <code class="runid">{{ r.runId.slice(0, 8) }}</code>
               @if (r.error) {
                 · <span class="error">{{ r.error }}</span>
+              }
+              @if (r.output) {
+                · <details><summary>output</summary><pre>{{ formatOutput(r.output) }}</pre></details>
               }
             </li>
           }
@@ -150,6 +160,8 @@ interface Choice<T extends string> {
     .records { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
     .records li { font-size: 14px; }
     code { background: #f0f0f0; padding: 1px 6px; border-radius: 4px; }
+    .runid { font-size: 11px; color: #888; }
+    pre { background: #f7f7f7; padding: 8px; border-radius: 4px; font-size: 12px; overflow-x: auto; }
   `],
 })
 export class RunnerPage implements OnInit, OnDestroy {
@@ -164,7 +176,7 @@ export class RunnerPage implements OnInit, OnDestroy {
   searchTool: 'web' | 'serpapi' = 'web';
   searchProvider: 'searchapi' | 'serpapi' = 'searchapi';
   busy = signal(false);
-  status = signal<RunStatus | null>(null);
+  runs = signal<RunRow[]>([]);
   errorMsg = signal<string | null>(null);
   optionsLoading = signal(false);
   pickerItems = signal<PickerItem[] | null>(null);
@@ -232,7 +244,7 @@ export class RunnerPage implements OnInit, OnDestroy {
 
   start(): void {
     this.errorMsg.set(null);
-    this.status.set(null);
+    this.runs.set([]);
 
     let ids: string[];
     if (this.pickerItems()) {
@@ -268,7 +280,10 @@ export class RunnerPage implements OnInit, OnDestroy {
       .subscribe({
         next: (res) => {
           this.busy.set(false);
-          this.startPolling(res.runId);
+          this.runs.set(
+            res.runs.map((r) => ({ ...r, status: 'pending' as const })),
+          );
+          this.startPolling();
         },
         error: (err) => {
           this.busy.set(false);
@@ -277,19 +292,47 @@ export class RunnerPage implements OnInit, OnDestroy {
       });
   }
 
-  private startPolling(runId: string): void {
+  private startPolling(): void {
     this.stopPolling();
     const tick = () => {
-      this.client.getStatus(runId).subscribe({
-        next: (s) => {
-          this.status.set(s);
-          if (s.status === 'completed' || s.status === 'failed') this.stopPolling();
-        },
-        error: (err) => {
-          this.errorMsg.set(err?.error?.error ?? 'Failed to load status.');
-          this.stopPolling();
-        },
-      });
+      const current = this.runs();
+      const pending = current.filter((r) => !TERMINAL_STATUSES.has(r.status as InstanceStatus['status']));
+      if (pending.length === 0) {
+        this.stopPolling();
+        return;
+      }
+      // Fan out one status request per still-running instance and merge results.
+      for (const row of pending) {
+        this.client.getStatus(this.slug, row.runId).subscribe({
+          next: (s) => {
+            this.runs.update((rows) =>
+              rows.map((r) =>
+                r.runId === row.runId
+                  ? {
+                      ...r,
+                      status: s.status,
+                      error: s.error?.message,
+                      output: s.output,
+                    }
+                  : r,
+              ),
+            );
+          },
+          error: (err) => {
+            this.runs.update((rows) =>
+              rows.map((r) =>
+                r.runId === row.runId
+                  ? {
+                      ...r,
+                      status: 'errored' as const,
+                      error: err?.error?.error ?? 'Failed to load status.',
+                    }
+                  : r,
+              ),
+            );
+          },
+        });
+      }
     };
     tick();
     this.pollHandle = setInterval(tick, 3000);
@@ -298,5 +341,13 @@ export class RunnerPage implements OnInit, OnDestroy {
   private stopPolling(): void {
     if (this.pollHandle) clearInterval(this.pollHandle);
     this.pollHandle = null;
+  }
+
+  formatOutput(o: unknown): string {
+    try {
+      return JSON.stringify(o, null, 2);
+    } catch {
+      return String(o);
+    }
   }
 }

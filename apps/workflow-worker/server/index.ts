@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // Cloudflare Worker entry — Hono app for the API + Angular SPA, plus the
-// WorkflowRun Durable Object class export.
+// per-workflow WorkflowEntrypoint class exports.
 // ---------------------------------------------------------------------------
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
@@ -17,12 +17,28 @@ app.route('/api/health', health);
 app.route('/api/tools', tools);
 app.route('/api/workflows', workflows);
 
-// ---------------------------------------------------------------------------
-// Static assets + SPA fallback. Wrangler's `not_found_handling: "single-page-application"`
-// already rewrites missing routes to index.html, so this is just a passthrough
-// to the ASSETS binding.
-// ---------------------------------------------------------------------------
+// SPA fallback — wrangler's `not_found_handling: "single-page-application"`
+// rewrites missing routes to index.html, so this is just a passthrough.
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
 
-export { WorkflowRun } from './durable-objects/WorkflowRun';
+// One Cloudflare Workflow class per workflow. Each is bound under its own
+// WORKFLOW_RUNNER-style binding in wrangler.jsonc.
+export { VendorLinkedinWorkflow } from './workflows/vendor/linkedin';
+export { VendorGithubWorkflow } from './workflows/vendor/github';
+export { VendorCompanySizeWorkflow } from './workflows/vendor/companySize';
+export { VendorFundingWorkflow } from './workflows/vendor/funding';
+export { VendorPressWorkflow } from './workflows/vendor/press';
+export { VendorBlogRecencyWorkflow } from './workflows/vendor/blogRecency';
+export { VendorScoreWorkflow } from './workflows/vendor/score';
+export { VendorOrchestratorWorkflow } from './workflows/vendor/orchestrator';
+export { ToolApiCheckWorkflow } from './workflows/tool/apiCheck';
+export { ToolMarketplaceWorkflow } from './workflows/tool/marketplace';
+export { ToolIpaasWorkflow } from './workflows/tool/ipaas';
+export { ToolReviewsWorkflow } from './workflows/tool/reviews';
+export { ToolSearchDemandWorkflow } from './workflows/tool/searchDemand';
+export { ToolRedditWorkflow } from './workflows/tool/reddit';
+export { ToolIntegrationCountWorkflow } from './workflows/tool/integrationCount';
+export { ToolScoreWorkflow } from './workflows/tool/score';
+export { ToolOrchestratorWorkflow } from './workflows/tool/orchestrator';
+
 export default app;

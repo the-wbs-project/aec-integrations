@@ -7,13 +7,19 @@
 //   2. engine=google,         q="<tool> software"
 // From (1) we average the timeline_data values to a 0-100 trends index.
 // From (2) we apply log10(total_results + 1) * 100 to estimate monthly volume.
-//
-// Inputs (from tools table): name (or Name)
-// Outputs: search_volume_monthly, google_trends_index, search_checked_at
 // ---------------------------------------------------------------------------
-import type { CustomWorkflow } from '../types';
-import { asString, type AirtableRecord } from '../../services/airtable';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { Env } from '../../env';
+import { checkpoint } from '../../lib/checkpoint';
+import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
+import { getRecord, updateRecord, asString } from '../../services/airtable';
 import { runSerpSearch } from '../../services/search';
+
+export const meta: WorkflowMeta = {
+  slug: 'tool-search-demand',
+  description: 'Compute google_trends_index + search_volume_monthly via SerpAPI.',
+  table: 'tools',
+};
 
 interface TrendsTimelinePoint {
   values?: Array<{ extracted_value?: number }>;
@@ -28,8 +34,7 @@ function extractTrendsIndex(body: Record<string, unknown>): number | null {
     return typeof v === 'number' && Number.isFinite(v) ? v : 0;
   });
   if (values.length === 0) return null;
-  const avg = values.reduce((a, b) => a + b, 0) / values.length;
-  return Math.round(avg);
+  return Math.round(values.reduce((a, b) => a + b, 0) / values.length);
 }
 
 function extractSearchVolume(body: Record<string, unknown>): number | null {
@@ -39,45 +44,54 @@ function extractSearchVolume(body: Record<string, unknown>): number | null {
   return Math.round(Math.log10(totalResults + 1) * 100);
 }
 
-export const workflow: CustomWorkflow = {
-  kind: 'custom',
-  description: 'Compute google_trends_index + search_volume_monthly via SerpAPI.',
-  table: 'tools',
-
-  async run(env, record: AirtableRecord) {
+export class ToolSearchDemandWorkflow extends WorkflowEntrypoint<Env, RunParams> {
+  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+    const { recordId } = event.payload;
     const checkedAt = new Date().toISOString();
-    const toolName =
-      asString(record.fields['Name']) ?? asString(record.fields['name']);
+
+    const record = await checkpoint(step, 'fetch-record', () =>
+      getRecord(this.env, 'tools', recordId),
+    );
+
+    const toolName = asString(record.fields['Name']) ?? asString(record.fields['name']);
     if (!toolName) {
+      const fields = { search_checked_at: checkedAt };
+      await checkpoint(step, 'write-checked-at', () =>
+        updateRecord(this.env, 'tools', recordId, fields),
+      );
       return {
-        fields: { search_checked_at: checkedAt },
+        fields,
         fieldsUpdated: ['search_checked_at'],
-        status: 'error',
-        note: `Missing required fields. record_id=${record.id}`,
+        status: 'error' as const,
+        note: `Missing required fields. record_id=${recordId}`,
       };
     }
 
     const q = `${toolName} software`;
 
-    let trendsIndex: number | null = null;
-    try {
-      const trends = await runSerpSearch(env, {
-        engine: 'google_trends',
-        q,
-        date: 'today 12-m',
-      });
-      if (trends.status === 200) trendsIndex = extractTrendsIndex(trends.body);
-    } catch (err) {
-      console.error('searchDemand: trends call failed:', err);
-    }
+    const trendsIndex = await checkpoint(step, 'google-trends', async () => {
+      try {
+        const trends = await runSerpSearch(this.env, {
+          engine: 'google_trends',
+          q,
+          date: 'today 12-m',
+        });
+        return trends.status === 200 ? extractTrendsIndex(trends.body) : null;
+      } catch (err) {
+        console.error('searchDemand: trends call failed:', err);
+        return null;
+      }
+    });
 
-    let searchVolume: number | null = null;
-    try {
-      const google = await runSerpSearch(env, { engine: 'google', q });
-      if (google.status === 200) searchVolume = extractSearchVolume(google.body);
-    } catch (err) {
-      console.error('searchDemand: google call failed:', err);
-    }
+    const searchVolume = await checkpoint(step, 'google-search', async () => {
+      try {
+        const google = await runSerpSearch(this.env, { engine: 'google', q });
+        return google.status === 200 ? extractSearchVolume(google.body) : null;
+      } catch (err) {
+        console.error('searchDemand: google call failed:', err);
+        return null;
+      }
+    });
 
     const fields: Record<string, unknown> = { search_checked_at: checkedAt };
     const fieldsUpdated = ['search_checked_at'];
@@ -90,12 +104,16 @@ export const workflow: CustomWorkflow = {
       fieldsUpdated.push('google_trends_index');
     }
 
+    await checkpoint(step, 'write-fields', () =>
+      updateRecord(this.env, 'tools', recordId, fields),
+    );
+
     const haveAny = trendsIndex !== null || searchVolume !== null;
     return {
       fields,
       fieldsUpdated,
-      status: haveAny ? 'success' : 'partial',
+      status: haveAny ? ('success' as const) : ('partial' as const),
       note: haveAny ? undefined : 'No search demand data available',
     };
-  },
-};
+  }
+}

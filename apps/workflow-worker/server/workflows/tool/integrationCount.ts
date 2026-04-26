@@ -5,32 +5,46 @@
 // NO LLM. Sums lengths of the linked-record arrays in tool_integrations_source
 // and tool_integrations_target on the tool record, then writes back a single
 // rolled-up integer.
-//
-// Inputs (from tools table): tool_integrations_source, tool_integrations_target
-// Outputs: integration_count, integration_count_checked_at
 // ---------------------------------------------------------------------------
-import type { CustomWorkflow } from '../types';
-import { asStringArray, type AirtableRecord } from '../../services/airtable';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { Env } from '../../env';
+import { checkpoint } from '../../lib/checkpoint';
+import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
+import { getRecord, updateRecord, asStringArray } from '../../services/airtable';
 
-export const workflow: CustomWorkflow = {
-  kind: 'custom',
-  description: 'Sum the linked-record arrays on tool_integrations_source/target into integration_count.',
+export const meta: WorkflowMeta = {
+  slug: 'tool-integration-count',
+  description:
+    'Sum the linked-record arrays on tool_integrations_source/target into integration_count.',
   table: 'tools',
+};
 
-  async run(_env, record: AirtableRecord) {
-    const checkedAt = new Date().toISOString();
+export class ToolIntegrationCountWorkflow extends WorkflowEntrypoint<Env, RunParams> {
+  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+    const { recordId } = event.payload;
+
+    const record = await checkpoint(step, 'fetch-record', () =>
+      getRecord(this.env, 'tools', recordId),
+    );
+
     const sourceLinks = asStringArray(record.fields['tool_integrations_source']);
     const targetLinks = asStringArray(record.fields['tool_integrations_target']);
     const integrationCount = sourceLinks.length + targetLinks.length;
 
+    const fields = {
+      integration_count: integrationCount,
+      integration_count_checked_at: new Date().toISOString(),
+    };
+
+    await checkpoint(step, 'write-fields', () =>
+      updateRecord(this.env, 'tools', recordId, fields),
+    );
+
     return {
-      fields: {
-        integration_count: integrationCount,
-        integration_count_checked_at: checkedAt,
-      },
+      fields,
       fieldsUpdated: ['integration_count', 'integration_count_checked_at'],
-      status: 'success',
+      status: 'success' as const,
       note: `${sourceLinks.length} source + ${targetLinks.length} target = ${integrationCount}`,
     };
-  },
-};
+  }
+}

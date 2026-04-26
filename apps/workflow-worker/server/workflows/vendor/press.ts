@@ -2,18 +2,22 @@
 // V05 — Vendor press / news mentions over the last 12 months.
 // Source: artifacts/n8n-workflows/AECi-V05-Press.json
 //
-// NO LLM. We're skipping the n8n distinctiveness check for v1 simplicity:
-// the prompt always uses `"<company>" construction software` as the Google
-// News query. We then filter feed items to those mentioning the company name
-// (or the root of its domain) within the last 365 days, count them, and
-// record the most recent pubDate.
-//
-// Inputs (from vendors table): company_name, website
-// Outputs: press_count_12mo, press_latest_date, press_checked_at
+// NO LLM. Fetches a Google News RSS feed for `"<company>" construction
+// software`, filters items mentioning the company name (or domain root) within
+// the last 365 days, counts them, and records the most recent pubDate.
 // ---------------------------------------------------------------------------
-import type { CustomWorkflow } from '../types';
-import { asString, type AirtableRecord } from '../../services/airtable';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { Env } from '../../env';
+import { checkpoint } from '../../lib/checkpoint';
+import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
+import { getRecord, updateRecord, asString } from '../../services/airtable';
 import { fetchFeed, parseRssOrAtom, googleNewsRssUrl } from '../../services/feeds';
+
+export const meta: WorkflowMeta = {
+  slug: 'vendor-press',
+  description: 'Count vendor press mentions in the last 12 months from Google News RSS.',
+  table: 'vendors',
+};
 
 function vendorDomain(website: string | undefined): string | undefined {
   if (!website) return undefined;
@@ -24,53 +28,37 @@ function vendorDomain(website: string | undefined): string | undefined {
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-export const workflow: CustomWorkflow = {
-  kind: 'custom',
-  description: 'Count vendor press mentions in the last 12 months from Google News RSS.',
-  table: 'vendors',
-
-  async run(_env, record: AirtableRecord) {
+export class VendorPressWorkflow extends WorkflowEntrypoint<Env, RunParams> {
+  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+    const { recordId } = event.payload;
     const checkedAt = new Date().toISOString();
+
+    const record = await checkpoint(step, 'fetch-record', () =>
+      getRecord(this.env, 'vendors', recordId),
+    );
+
     const companyName = asString(record.fields['company_name']);
     const website = asString(record.fields['website']);
     const domain = vendorDomain(website);
 
     if (!companyName || !domain) {
+      const fields = { press_checked_at: checkedAt };
+      await checkpoint(step, 'write-checked-at', () =>
+        updateRecord(this.env, 'vendors', recordId, fields),
+      );
       return {
-        fields: { press_checked_at: checkedAt },
+        fields,
         fieldsUpdated: ['press_checked_at'],
-        status: 'error',
-        note: `Missing required fields on vendor record (company_name and/or website). record_id=${record.id}`,
+        status: 'error' as const,
+        note: `Missing required fields on vendor record (company_name and/or website). record_id=${recordId}`,
       };
     }
 
-    const query = `"${companyName}" construction software`;
-    const feedUrl = googleNewsRssUrl(query);
+    const xml = await checkpoint(step, 'fetch-feed', () =>
+      fetchFeed(googleNewsRssUrl(`"${companyName}" construction software`)),
+    );
 
-    let xml = '';
-    try {
-      xml = await fetchFeed(feedUrl);
-    } catch (err) {
-      return {
-        fields: { press_checked_at: checkedAt },
-        fieldsUpdated: ['press_checked_at'],
-        status: 'error',
-        note: `Google News RSS fetch failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-
-    let items: ReturnType<typeof parseRssOrAtom> = [];
-    try {
-      items = parseRssOrAtom(xml);
-    } catch (err) {
-      return {
-        fields: { press_checked_at: checkedAt },
-        fieldsUpdated: ['press_checked_at'],
-        status: 'error',
-        note: `Google News RSS parse failed: ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-
+    const items = parseRssOrAtom(xml);
     const nameLower = companyName.toLowerCase();
     const domainRoot = domain.split('.')[0];
     const cutoff = Date.now() - ONE_YEAR_MS;
@@ -86,8 +74,7 @@ export const workflow: CustomWorkflow = {
       if (!mentions) return false;
       if (!it.pubDate) return false;
       const ts = new Date(it.pubDate).getTime();
-      if (!Number.isFinite(ts)) return false;
-      return ts >= cutoff;
+      return Number.isFinite(ts) && ts >= cutoff;
     });
 
     const dateMs = matched
@@ -106,11 +93,15 @@ export const workflow: CustomWorkflow = {
       fieldsUpdated.push('press_latest_date');
     }
 
+    await checkpoint(step, 'write-fields', () =>
+      updateRecord(this.env, 'vendors', recordId, fields),
+    );
+
     return {
       fields,
       fieldsUpdated,
-      status: 'success',
+      status: 'success' as const,
       note: `Found ${matched.length} press mention(s) in the last 12 months`,
     };
-  },
-};
+  }
+}
