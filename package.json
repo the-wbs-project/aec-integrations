@@ -21,7 +21,10 @@
     "n8n:push-all": "bash artifacts/n8n-workflows/sync-n8n.sh push-all",
     "dev:n8n-utils": "pnpm --filter n8n-utils dev",
     "ship:n8n-utils": "pnpm --filter n8n-utils deploy",
-    "tail:n8n-utils": "pnpm --filter n8n-utils tail"
+    "tail:n8n-utils": "pnpm --filter n8n-utils tail",
+    "dev:workflow-worker": "pnpm --filter workflow-worker dev",
+    "ship:workflow-worker": "pnpm --filter workflow-worker deploy",
+    "tail:workflow-worker": "pnpm --filter workflow-worker tail"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

@@ -1,0 +1,71 @@
+{
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "prosspect-workflows",
+	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+	"main": "server/index.ts",
+	"compatibility_date": "2026-04-07",
+	"compatibility_flags": ["nodejs_compat"],
+	"workers_dev": true,
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		}
+	},
+	"assets": {
+		"directory": "./dist/browser",
+		"binding": "ASSETS",
+		"not_found_handling": "single-page-application"
+	},
+	"kv_namespaces": [
+		{
+			"binding": "KV_CACHE",
+			"id": "d9d5317a144c420786d041b3b14d2d8c"
+		}
+	],
+	"browser": {
+		"binding": "BROWSER"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "WORKFLOW_RUN",
+				"class_name": "WorkflowRun"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["WorkflowRun"]
+		}
+	],
+	"vars": {
+		// Search provider for the SerpAPI custom tool. "serpapi" or "searchapi".
+		"SEARCH_PROVIDER": "searchapi",
+		// Search tool exposed to Claude. "web" = Anthropic built-in web_search; "serpapi" = our custom tool.
+		"SEARCH_TOOL": "web",
+		"AIRTABLE_BASE_ID": "appy81IdGJY6Fngf9",
+		"AIRTABLE_TABLES": {
+			"tools": "tbleVEZV0H5RigtHN",
+			"vendors": "tbln8aZjwPI3Am4TF",
+			"categories": "tbl0xEW7FPousftNs",
+			"projectPhases": "tblkv9fmq2nUnjwE7",
+			"disciplines": "tbl0pNJbWBiA080o7",
+			"toolIntegrations": "tbl6PBPsGJuPcrZZi"
+		},
+		"DEFAULT_MODEL": "claude-haiku-4-5-20251001",
+		"CF_ACCOUNT_ID": "e62ec9d8012c3e0c225f8e4dbab76b79",
+		"AI_GATEWAY_ID": "aeci-cf-workflows"
+	}
+	// Secrets (set via `wrangler secret put`):
+	//   CF_AI_GATEWAY_TOKEN – Cloudflare AI Gateway token (cf-aig-authorization).
+	//                         With BYOK on the gateway, this is the only auth we send
+	//                         and the Anthropic key is stored in the gateway itself.
+	//   ANTHROPIC_API_KEY   – optional. Only set if BYOK is *not* configured on the
+	//                         gateway; otherwise the SDK uses a placeholder.
+	//   SERP_API_KEY        – SerpAPI key       (when SEARCH_PROVIDER=serpapi)
+	//   SEARCHAPI_API_KEY   – SearchAPI.io key  (when SEARCH_PROVIDER=searchapi)
+	//   AIRTABLE_TOKEN      – Airtable PAT with data.records:write scope
+	//   GITHUB_TOKEN        – optional, raises GitHub REST rate limit for V02
+}
