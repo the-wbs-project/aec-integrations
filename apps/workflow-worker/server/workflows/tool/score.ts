@@ -5,30 +5,47 @@
 // Reads the tool record, fetches its linked vendor (if any), runs the same
 // scoring math n8n's Code node uses, writes the four scores + tier.
 // ---------------------------------------------------------------------------
-import type { CustomWorkflow } from '../types';
-import { getRecord, asStringArray, type AirtableRecord } from '../../services/airtable';
-import { computePriorityScore, type ToolFields, type VendorFields } from '../../tasks/computePriorityScore';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { Env } from '../../env';
+import { checkpoint } from '../../lib/checkpoint';
+import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
+import { getRecord, updateRecord, asStringArray } from '../../services/airtable';
+import {
+  computePriorityScore,
+  type ToolFields,
+  type VendorFields,
+} from '../../tasks/computePriorityScore';
 
-export const workflow: CustomWorkflow = {
-  kind: 'custom',
+export const meta: WorkflowMeta = {
+  slug: 'tool-score',
   description: 'Recompute integration/demand/outreach/priority scores for a tool.',
   table: 'tools',
+};
 
-  async run(env, record: AirtableRecord) {
+export class ToolScoreWorkflow extends WorkflowEntrypoint<Env, RunParams> {
+  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+    const { recordId } = event.payload;
+
+    const record = await checkpoint(step, 'fetch-tool', () =>
+      getRecord(this.env, 'tools', recordId),
+    );
+
     const tool = record.fields as ToolFields & Record<string, unknown>;
     const vendorIds = asStringArray(record.fields['vendors']);
+
     let vendor: VendorFields | null = null;
     if (vendorIds.length > 0) {
-      try {
-        const v = await getRecord(env, 'vendors', vendorIds[0]);
-        vendor = v.fields as VendorFields;
-      } catch {
-        vendor = null;
-      }
+      vendor = await checkpoint(step, 'fetch-vendor', async () => {
+        try {
+          const v = await getRecord(this.env, 'vendors', vendorIds[0]);
+          return v.fields as VendorFields;
+        } catch {
+          return null;
+        }
+      });
     }
 
     const score = computePriorityScore(tool, vendor);
-
     const fields = {
       integration_score: score.integration_score,
       demand_score: score.demand_score,
@@ -38,11 +55,16 @@ export const workflow: CustomWorkflow = {
       emerging_flag: score.emerging_flag,
       last_scored_at: new Date().toISOString(),
     };
+
+    await checkpoint(step, 'write-fields', () =>
+      updateRecord(this.env, 'tools', recordId, fields),
+    );
+
     return {
       fields,
       fieldsUpdated: Object.keys(fields),
       status: 'success' as const,
       note: `tier ${score.priority_tier}, priority ${score.priority_score}`,
     };
-  },
-};
+  }
+}

@@ -14,7 +14,7 @@
 // names so this code isn't coupled to SDK version churn. The shapes are
 // validated against the Anthropic API surface, not the SDK type tree.
 // ---------------------------------------------------------------------------
-import type { OutputSchema } from '../workflows/types';
+import type { OutputSchema } from '../lib/llm';
 
 export interface CustomTool {
   name: string;

@@ -26,18 +26,104 @@
 	"browser": {
 		"binding": "BROWSER"
 	},
-	"durable_objects": {
-		"bindings": [
-			{
-				"name": "WORKFLOW_RUN",
-				"class_name": "WorkflowRun"
-			}
-		]
-	},
+	"workflows": [
+		// Vendor workflows
+		{
+			"name": "prosspect-vendor-linkedin",
+			"binding": "WF_VENDOR_LINKEDIN",
+			"class_name": "VendorLinkedinWorkflow"
+		},
+		{
+			"name": "prosspect-vendor-github",
+			"binding": "WF_VENDOR_GITHUB",
+			"class_name": "VendorGithubWorkflow"
+		},
+		{
+			"name": "prosspect-vendor-company-size",
+			"binding": "WF_VENDOR_COMPANY_SIZE",
+			"class_name": "VendorCompanySizeWorkflow"
+		},
+		{
+			"name": "prosspect-vendor-funding",
+			"binding": "WF_VENDOR_FUNDING",
+			"class_name": "VendorFundingWorkflow"
+		},
+		{
+			"name": "prosspect-vendor-press",
+			"binding": "WF_VENDOR_PRESS",
+			"class_name": "VendorPressWorkflow"
+		},
+		{
+			"name": "prosspect-vendor-blog-recency",
+			"binding": "WF_VENDOR_BLOG_RECENCY",
+			"class_name": "VendorBlogRecencyWorkflow"
+		},
+		{
+			"name": "prosspect-vendor-score",
+			"binding": "WF_VENDOR_SCORE",
+			"class_name": "VendorScoreWorkflow"
+		},
+		{
+			"name": "prosspect-vendor-orchestrator",
+			"binding": "WF_VENDOR_ORCHESTRATOR",
+			"class_name": "VendorOrchestratorWorkflow"
+		},
+		// Tool workflows
+		{
+			"name": "prosspect-tool-api-check",
+			"binding": "WF_TOOL_API_CHECK",
+			"class_name": "ToolApiCheckWorkflow"
+		},
+		{
+			"name": "prosspect-tool-marketplace",
+			"binding": "WF_TOOL_MARKETPLACE",
+			"class_name": "ToolMarketplaceWorkflow"
+		},
+		{
+			"name": "prosspect-tool-ipaas",
+			"binding": "WF_TOOL_IPAAS",
+			"class_name": "ToolIpaasWorkflow"
+		},
+		{
+			"name": "prosspect-tool-reviews",
+			"binding": "WF_TOOL_REVIEWS",
+			"class_name": "ToolReviewsWorkflow"
+		},
+		{
+			"name": "prosspect-tool-search-demand",
+			"binding": "WF_TOOL_SEARCH_DEMAND",
+			"class_name": "ToolSearchDemandWorkflow"
+		},
+		{
+			"name": "prosspect-tool-reddit",
+			"binding": "WF_TOOL_REDDIT",
+			"class_name": "ToolRedditWorkflow"
+		},
+		{
+			"name": "prosspect-tool-integration-count",
+			"binding": "WF_TOOL_INTEGRATION_COUNT",
+			"class_name": "ToolIntegrationCountWorkflow"
+		},
+		{
+			"name": "prosspect-tool-score",
+			"binding": "WF_TOOL_SCORE",
+			"class_name": "ToolScoreWorkflow"
+		},
+		{
+			"name": "prosspect-tool-orchestrator",
+			"binding": "WF_TOOL_ORCHESTRATOR",
+			"class_name": "ToolOrchestratorWorkflow"
+		}
+	],
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["WorkflowRun"]
+		},
+		{
+			// Drop the old DO — orchestration moved fully to Cloudflare Workflows.
+			"tag": "v2",
+			"deleted_classes": ["WorkflowRun"]
 		}
 	],
 	"vars": {

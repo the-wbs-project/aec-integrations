@@ -1,13 +1,18 @@
 // ---------------------------------------------------------------------------
 // Workflow endpoints
-//   POST /api/workflows/:name/run   → start a run, return runId
-//   GET  /api/workflows/runs/:runId → return current state
-//   GET  /api/workflows             → list available workflow names
+//   GET  /api/workflows                       → list available workflows
+//   GET  /api/workflows/:name/options         → grouped record picker
+//   POST /api/workflows/:name/run             → spawn one instance per record
+//   GET  /api/workflows/:name/runs/:runId     → instance.status() for one run
+//
+// Every workflow is its own Cloudflare Workflow class with its own binding.
+// The route layer dispatches via `env[bindingName]` looked up in the registry.
+// One instance handles a single record_id; multi-record runs spawn N instances.
 // ---------------------------------------------------------------------------
 import { Hono } from 'hono';
 import type { Env } from '../env';
-import { WORKFLOWS, type WorkflowName } from '../workflows/registry';
-import type { StartRunInput } from '../durable-objects/WorkflowRun';
+import { WORKFLOWS, workflowBinding, type WorkflowName } from '../workflows/registry';
+import type { RunParams } from '../lib/workflow-meta';
 import { listRecords, asString } from '../services/airtable';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -16,16 +21,17 @@ const VALID_MODEL = /^claude-(opus|sonnet|haiku)-[\w.-]+$/;
 
 app.get('/', (c) => {
   return c.json({
-    workflows: Object.keys(WORKFLOWS).map((name) => ({
-      name,
-      description: WORKFLOWS[name as WorkflowName].description,
+    workflows: Object.values(WORKFLOWS).map(({ meta }) => ({
+      name: meta.slug,
+      description: meta.description,
     })),
   });
 });
 
 app.post('/:name/run', async (c) => {
   const name = c.req.param('name');
-  if (!(name in WORKFLOWS)) {
+  const entry = WORKFLOWS[name];
+  if (!entry) {
     return c.json({ error: `Unknown workflow: ${name}` }, 404);
   }
 
@@ -47,51 +53,46 @@ app.post('/:name/run', async (c) => {
     return c.json({ error: `Invalid model: ${model}` }, 400);
   }
 
-  const runId = crypto.randomUUID();
-  const stub = c.env.WORKFLOW_RUN.get(c.env.WORKFLOW_RUN.idFromName(runId));
-
-  const input: StartRunInput = {
-    runId,
-    workflow: name as WorkflowName,
-    model,
-    searchTool: body.search_tool ?? c.env.SEARCH_TOOL,
-    searchProvider: body.search_provider ?? c.env.SEARCH_PROVIDER,
-    recordIds,
-  };
-
-  const startRes = await stub.fetch('https://workflow-run/start', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(input),
-  });
-
-  if (!startRes.ok) {
-    const errBody = await startRes.text();
-    return c.json({ error: 'Failed to start run', details: errBody }, 500);
+  const binding = workflowBinding(c.env, name);
+  if (!binding) {
+    // Should be impossible — entry exists but binding doesn't.
+    return c.json({ error: `Workflow binding missing: ${name}` }, 500);
   }
 
-  return c.json({ runId, workflow: name, recordIds, model });
+  const searchTool = body.search_tool ?? c.env.SEARCH_TOOL;
+  const searchProvider = body.search_provider ?? c.env.SEARCH_PROVIDER;
+
+  // Spawn one workflow instance per record. Errors creating any single
+  // instance fail the whole request — no partial-spawn cleanup.
+  const runs: Array<{ runId: string; recordId: string }> = [];
+  try {
+    for (const recordId of recordIds) {
+      const runId = crypto.randomUUID();
+      const params: RunParams = { recordId, model, searchTool, searchProvider };
+      await binding.create({ id: runId, params });
+      runs.push({ runId, recordId });
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: 'Failed to start run', details: message, runs }, 500);
+  }
+
+  return c.json({ workflow: name as WorkflowName, model, runs });
 });
 
 // ---------------------------------------------------------------------------
 // GET /api/workflows/:name/options
-// Returns the workflow's records bucketed into missing / stale / recent groups
-// for the runner-page picker. Workflows opt in by declaring `options` on their
-// definition; without it we return { supported: false } so the UI can fall
-// back to the comma-separated text input.
-//
-// Response is cached in the Worker Cache API for 5 minutes; pass ?refresh=1
-// to bypass and repopulate.
 // ---------------------------------------------------------------------------
 const OPTIONS_CACHE_TTL_SECONDS = 300;
 
 app.get('/:name/options', async (c) => {
   const name = c.req.param('name');
-  if (!(name in WORKFLOWS)) {
+  const entry = WORKFLOWS[name];
+  if (!entry) {
     return c.json({ error: `Unknown workflow: ${name}` }, 404);
   }
-  const workflow = WORKFLOWS[name as WorkflowName];
-  if (!workflow.options) {
+  const meta = entry.meta;
+  if (!meta.options) {
     return c.json({ supported: false });
   }
 
@@ -106,8 +107,8 @@ app.get('/:name/options', async (c) => {
     if (hit) return new Response(hit.body, hit);
   }
 
-  const { primaryField, stalenessField, labelField, staleAfterDays = 60 } = workflow.options;
-  const records = await listRecords(c.env, workflow.table, {
+  const { primaryField, stalenessField, labelField, staleAfterDays = 60 } = meta.options;
+  const records = await listRecords(c.env, meta.table, {
     fields: [labelField, primaryField, stalenessField],
   });
 
@@ -141,7 +142,7 @@ app.get('/:name/options', async (c) => {
 
   const payload = {
     supported: true as const,
-    table: workflow.table,
+    table: meta.table,
     primaryField,
     stalenessField,
     staleAfterDays,
@@ -163,14 +164,27 @@ app.get('/:name/options', async (c) => {
   return response;
 });
 
-app.get('/runs/:runId', async (c) => {
+// ---------------------------------------------------------------------------
+// GET /api/workflows/:name/runs/:runId — instance.status() for one run.
+//
+// Workflow name is in the path (rather than a query param) because each
+// workflow has its own binding; the runId alone doesn't tell us which.
+// ---------------------------------------------------------------------------
+app.get('/:name/runs/:runId', async (c) => {
+  const name = c.req.param('name');
   const runId = c.req.param('runId');
-  const stub = c.env.WORKFLOW_RUN.get(c.env.WORKFLOW_RUN.idFromName(runId));
-  const res = await stub.fetch('https://workflow-run/status');
-  return new Response(res.body, {
-    status: res.status,
-    headers: { 'Content-Type': 'application/json' },
-  });
+  const binding = workflowBinding(c.env, name);
+  if (!binding) {
+    return c.json({ error: `Unknown workflow: ${name}` }, 404);
+  }
+  try {
+    const instance = await binding.get(runId);
+    const status = await instance.status();
+    return c.json({ runId, workflow: name, ...status });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return c.json({ error: 'Run not found', details: message }, 404);
+  }
 });
 
 export default app;

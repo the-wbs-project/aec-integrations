@@ -3,10 +3,21 @@
 // Source: artifacts/n8n-workflows/AECi-V07-ScoreRecalculate.json
 //
 // Pure function — no LLM, no external APIs. Counts how many of six enrichment
-// signals are populated and classifies the vendor as enriched/partial/error.
+// signals are populated, classifies the vendor as enriched/partial/error, and
+// writes the result back to Airtable.
 // ---------------------------------------------------------------------------
-import type { CustomWorkflow } from '../types';
-import type { AirtableRecord } from '../../services/airtable';
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { Env } from '../../env';
+import { checkpoint } from '../../lib/checkpoint';
+import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
+import { getRecord, updateRecord } from '../../services/airtable';
+
+export const meta: WorkflowMeta = {
+  slug: 'vendor-score',
+  description:
+    'Recompute vendor_data_completeness + vendor_enrichment_status from the six enrichment signals.',
+  table: 'vendors',
+};
 
 const SIGNAL_FIELDS = [
   'github_org',
@@ -17,33 +28,40 @@ const SIGNAL_FIELDS = [
   'blog_last_post_days_ago',
 ] as const;
 
-export const workflow: CustomWorkflow = {
-  kind: 'custom',
-  description: 'Recompute vendor_data_completeness + vendor_enrichment_status from the six enrichment signals.',
-  table: 'vendors',
+export class VendorScoreWorkflow extends WorkflowEntrypoint<Env, RunParams> {
+  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+    const { recordId } = event.payload;
 
-  async run(_env, record: AirtableRecord) {
+    const record = await checkpoint(step, 'fetch-record', () =>
+      getRecord(this.env, 'vendors', recordId),
+    );
+
     const populated = SIGNAL_FIELDS.filter((f) => {
       const v = record.fields[f];
       return v !== null && v !== undefined && v !== '';
     }).length;
     const completeness = populated / SIGNAL_FIELDS.length;
 
-    let status: 'enriched' | 'partial' | 'error';
-    if (completeness >= 0.75) status = 'enriched';
-    else if (completeness >= 0.4) status = 'partial';
-    else status = 'error';
+    let enrichmentStatus: 'enriched' | 'partial' | 'error';
+    if (completeness >= 0.75) enrichmentStatus = 'enriched';
+    else if (completeness >= 0.4) enrichmentStatus = 'partial';
+    else enrichmentStatus = 'error';
 
     const fields = {
       vendor_data_completeness: completeness,
-      vendor_enrichment_status: status,
+      vendor_enrichment_status: enrichmentStatus,
       last_enriched_at: new Date().toISOString(),
     };
+
+    await checkpoint(step, 'write-fields', () =>
+      updateRecord(this.env, 'vendors', recordId, fields),
+    );
+
     return {
       fields,
-      fieldsUpdated: ['vendor_data_completeness', 'vendor_enrichment_status', 'last_enriched_at'],
+      fieldsUpdated: Object.keys(fields),
       status: 'success' as const,
       note: `${populated}/${SIGNAL_FIELDS.length} signals populated`,
     };
-  },
-};
+  }
+}

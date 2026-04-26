@@ -1,49 +1,54 @@
 // ---------------------------------------------------------------------------
-// searchWithLlm — the core reusable task type. Workflows feed it a record +
-// prompt + output schema; it produces:
-//   - a single batch request (initial submission)
-//   - helpers to interpret the model's response
-//   - helpers to build a follow-up turn when the model called the custom
-//     SerpAPI tool
-//
-// This task abstracts the difference between the Anthropic built-in
-// web_search tool (server-side, single batch round-trip) and our custom
-// SerpAPI tool (client-side loop, multiple batch round-trips).
+// LLM helpers: batch request building, response interpretation, SerpAPI tool
+// execution. Each workflow composes these inside its run() method.
 // ---------------------------------------------------------------------------
 import type Anthropic from '@anthropic-ai/sdk';
 import type { Env, SearchTool } from '../env';
-import type { OutputSchema } from '../workflows/types';
-import { WEB_SEARCH_TOOL, serpToolSchema, emitResultTool, type Tool } from '../services/llm-tools';
+import {
+  WEB_SEARCH_TOOL,
+  serpToolSchema,
+  emitResultTool,
+  type Tool,
+} from '../services/llm-tools';
 import { runSerpSearch, pickOrganicResults } from '../services/search';
+import {
+  AnthropicBatchClient,
+  type MessageBatchIndividualResponse,
+  type AnthropicMessageBatch,
+} from '../services/anthropic';
 
-// SDK doesn't always export a `ToolUnion` name across versions — we cast at
-// the boundary into the SDK's accepted shape. The tools are runtime-valid
-// either way; the cast just lets us pass our typed objects through.
+export type BatchRequest = Anthropic.Messages.BatchCreateParams.Request;
+export type Message = Anthropic.Messages.Message;
+export type MessageParam = Anthropic.Messages.MessageParam;
+export type ContentBlockParam = Anthropic.Messages.ContentBlockParam;
+export type ToolUseBlock = Anthropic.Messages.ToolUseBlock;
+
 type SdkToolArray = Anthropic.Messages.BatchCreateParams.Request['params']['tools'];
 
-export interface BuildRequestInput {
+export interface OutputSchema {
+  type: 'object';
+  properties: Record<string, unknown>;
+  required: string[];
+  additionalProperties?: boolean;
+}
+
+export interface BuildInitialBatchRequestInput {
   customId: string;
   model: string;
   systemPrompt: string;
   userPrompt: string;
   outputSchema: OutputSchema;
   searchTool: SearchTool;
-  /** Override max_tokens. Default 1024. */
   maxTokens?: number;
 }
 
-export type BatchRequest = Anthropic.Messages.BatchCreateParams.Request;
-export type ToolUseBlock = Anthropic.Messages.ToolUseBlock;
-export type Message = Anthropic.Messages.Message;
-export type MessageParam = Anthropic.Messages.MessageParam;
-export type ContentBlockParam = Anthropic.Messages.ContentBlockParam;
-
-export function buildInitialBatchRequest(input: BuildRequestInput): BatchRequest {
+export function buildInitialBatchRequest(
+  input: BuildInitialBatchRequestInput,
+): BatchRequest {
   const tools: Tool[] = [
     input.searchTool === 'web' ? WEB_SEARCH_TOOL : serpToolSchema(),
     emitResultTool(input.outputSchema),
   ];
-
   return {
     custom_id: input.customId,
     params: {
@@ -58,29 +63,27 @@ export function buildInitialBatchRequest(input: BuildRequestInput): BatchRequest
   };
 }
 
-/**
- * Build a follow-up batch request after the model called the custom SerpAPI
- * tool. The conversation history is `priorMessages` (assistant + user
- * tool_result blocks alternating); we just submit it as-is and let the model
- * continue.
- */
-export function buildContinuationBatchRequest(args: {
+export interface BuildContinuationBatchRequestInput {
   customId: string;
   model: string;
   systemPrompt: string;
   outputSchema: OutputSchema;
   priorMessages: MessageParam[];
   maxTokens?: number;
-}): BatchRequest {
-  const tools: Tool[] = [serpToolSchema(), emitResultTool(args.outputSchema)];
+}
+
+export function buildContinuationBatchRequest(
+  input: BuildContinuationBatchRequestInput,
+): BatchRequest {
+  const tools: Tool[] = [serpToolSchema(), emitResultTool(input.outputSchema)];
   return {
-    custom_id: args.customId,
+    custom_id: input.customId,
     params: {
-      model: args.model,
-      max_tokens: args.maxTokens ?? 1024,
+      model: input.model,
+      max_tokens: input.maxTokens ?? 1024,
       temperature: 0,
-      system: args.systemPrompt,
-      messages: args.priorMessages,
+      system: input.systemPrompt,
+      messages: input.priorMessages,
       tools: tools as unknown as SdkToolArray,
       tool_choice: { type: 'any' },
     },
@@ -88,19 +91,56 @@ export function buildContinuationBatchRequest(args: {
 }
 
 // ---------------------------------------------------------------------------
+// Batch I/O — small wrappers around the AnthropicBatchClient with workflow
+// metadata baked in.
+// ---------------------------------------------------------------------------
+
+export interface BatchContext {
+  runId: string;
+  workflow: string;
+}
+
+export async function submitBatch(
+  env: Env,
+  ctx: BatchContext,
+  requests: BatchRequest[],
+): Promise<{ batchId: string }> {
+  const client = new AnthropicBatchClient(env, ctx);
+  const batch = await client.create(requests);
+  return { batchId: batch.id };
+}
+
+export async function pollBatch(
+  env: Env,
+  ctx: BatchContext,
+  batchId: string,
+): Promise<AnthropicMessageBatch> {
+  const client = new AnthropicBatchClient(env, ctx);
+  return client.retrieve(batchId);
+}
+
+export async function getBatchResults(
+  env: Env,
+  ctx: BatchContext,
+  batchId: string,
+): Promise<MessageBatchIndividualResponse[]> {
+  const client = new AnthropicBatchClient(env, ctx);
+  return client.results(batchId);
+}
+
+// ---------------------------------------------------------------------------
 // Response interpretation
 // ---------------------------------------------------------------------------
 
 export interface InterpretedResult {
-  /** True when the model called emit_result — final answer. */
+  /** Set when the model called emit_result — final structured answer. */
   emitted?: Record<string, unknown>;
   /** Set when the model called the custom 'web_search' tool. */
   pendingSearch?: { toolUseId: string; query: string };
-  /** Set when the model returned without calling any tool (error case). */
+  /** True when the model returned without calling any tool. */
   noTool?: boolean;
-  /** Set when stop_reason indicates an error or the model gave up. */
   stopReason?: string | null;
-  /** The full assistant message, ready to append to the conversation. */
+  /** Full assistant message — append to the conversation before next turn. */
   assistantMessage: MessageParam;
 }
 
@@ -131,8 +171,8 @@ export function interpretMessage(message: Message): InterpretedResult {
 }
 
 /**
- * Execute the SerpAPI tool for one tool_use block and return the
- * tool_result message that should be appended before the next batch turn.
+ * Run the SerpAPI custom tool for one tool_use block. Returns the
+ * tool_result message that gets appended before the next turn.
  */
 export async function executeSearchTool(
   env: Env,
@@ -141,7 +181,11 @@ export async function executeSearchTool(
   const result = await runSerpSearch(env, { q: search.query });
   let content: string;
   if (result.status !== 200) {
-    content = JSON.stringify({ error: 'search_failed', status: result.status, body: result.body });
+    content = JSON.stringify({
+      error: 'search_failed',
+      status: result.status,
+      body: result.body,
+    });
   } else {
     const organic = pickOrganicResults(result.body, 5);
     content = JSON.stringify({
