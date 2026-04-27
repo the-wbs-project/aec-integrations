@@ -8,6 +8,10 @@
 // Every workflow is its own Cloudflare Workflow class with its own binding.
 // The route layer dispatches via `env[bindingName]` looked up in the registry.
 // One instance handles a single record_id; multi-record runs spawn N instances.
+//
+// On a successful POST /run we push each spawned runId onto the
+// shared `runs:recent` list in KV so the notification bell can surface it
+// without the client having to remember runIds across page loads.
 // ---------------------------------------------------------------------------
 import { Hono } from 'hono';
 import type { Env } from '../env';
@@ -15,6 +19,8 @@ import { WORKFLOWS, workflowBinding, type WorkflowName } from '../workflows/regi
 import type { RunParams } from '../lib/workflow-meta';
 import { listRecords, asString } from '../services/airtable';
 import { resolveSearchTool } from '../lib/llm';
+import { pushRuns, type RecentRun } from '../services/recent-runs';
+import { buildLookupMaps } from '../hydrate';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +31,7 @@ app.get('/', (c) => {
     workflows: Object.values(WORKFLOWS).map(({ meta }) => ({
       name: meta.slug,
       description: meta.description,
+      table: meta.table,
     })),
   });
 });
@@ -76,6 +83,26 @@ app.post('/:name/run', async (c) => {
     const message = err instanceof Error ? err.message : String(err);
     return c.json({ error: 'Failed to start run', details: message, runs }, 500);
   }
+
+  // Best-effort label lookup so the bell can show "Acme Co." instead of
+  // "recXXXX". buildLookupMaps caches in KV (60s) so this is cheap on hot paths.
+  let labels: Map<string, string> | undefined;
+  try {
+    const maps = await buildLookupMaps(c.env);
+    labels = entry.meta.table === 'vendors' ? maps.vendors : entry.meta.table === 'tools' ? maps.tools : undefined;
+  } catch {
+    labels = undefined;
+  }
+
+  const startedAt = new Date().toISOString();
+  const recent: RecentRun[] = runs.map((r) => ({
+    runId: r.runId,
+    workflow: name,
+    recordId: r.recordId,
+    recordLabel: labels?.get(r.recordId),
+    startedAt,
+  }));
+  c.executionCtx.waitUntil(pushRuns(c.env, recent));
 
   return c.json({ workflow: name as WorkflowName, model, runs });
 });

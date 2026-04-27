@@ -1,9 +1,7 @@
 // ---------------------------------------------------------------------------
 // Record hydration — converts raw Airtable records into typed API shapes.
 // ---------------------------------------------------------------------------
-import type { FieldSet, Record as AirtableRecord } from 'airtable';
 import type {
-  Env,
   IntegrationSummary,
   LinkRef,
   Tool,
@@ -11,14 +9,16 @@ import type {
   Vendor,
   VendorDetail,
 } from './types';
+import type { Env } from './env';
 import {
+  type AirtableRecord,
   fetchCategories,
   fetchDisciplines,
   fetchIntegrations,
   fetchProjectPhases,
   fetchTools,
   fetchVendors,
-} from './airtable';
+} from './services/airtable';
 
 // ---------------------------------------------------------------------------
 // Lookup-map builders
@@ -27,7 +27,7 @@ export type NameMap = Map<string, string>;
 
 /** Build a Map<recordId, primaryFieldValue> from an array of Airtable records. */
 export function buildNameMap(
-  records: AirtableRecord<FieldSet>[],
+  records: AirtableRecord[],
   field: string,
 ): NameMap {
   const map = new Map<string, string>();
@@ -108,7 +108,7 @@ export async function buildLookupMaps(env: Env): Promise<LookupMaps> {
 // Tool hydration
 // ---------------------------------------------------------------------------
 export function hydrateTool(
-  record: AirtableRecord<FieldSet>,
+  record: AirtableRecord,
   maps: LookupMaps,
 ): Tool {
   const sourceIds = record.get('tool_integrations_source');
@@ -162,9 +162,9 @@ export function hydrateTool(
 }
 
 export function hydrateToolDetail(
-  record: AirtableRecord<FieldSet>,
+  record: AirtableRecord,
   maps: LookupMaps,
-  integrationRecords: AirtableRecord<FieldSet>[],
+  integrationRecords: AirtableRecord[],
 ): ToolDetail {
   const base = hydrateTool(record, maps);
   const toolId = record.id;
@@ -207,8 +207,8 @@ export function hydrateToolDetail(
 // Vendor hydration
 // ---------------------------------------------------------------------------
 export function hydrateVendor(
-  record: AirtableRecord<FieldSet>,
-  maps: LookupMaps,
+  record: AirtableRecord,
+  _maps: LookupMaps,
 ): Vendor {
   const toolIds = record.get('tools');
   return {
@@ -231,7 +231,7 @@ export function hydrateVendor(
 }
 
 export function hydrateVendorDetail(
-  record: AirtableRecord<FieldSet>,
+  record: AirtableRecord,
   maps: LookupMaps,
 ): VendorDetail {
   const base = hydrateVendor(record, maps);

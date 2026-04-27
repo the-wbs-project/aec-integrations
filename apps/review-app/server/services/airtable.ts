@@ -1,12 +1,18 @@
 // ---------------------------------------------------------------------------
-// Minimal Airtable REST client. Just the operations the workflows need:
-//   - getRecord(table, id)
-//   - updateRecord(table, id, fields)
-//   - listRecords(table, { filterByFormula, pageSize, fields, view })
+// Airtable client.
 //
-// We don't use the airtable npm package because we want full control over the
-// HTTP boundary (rate-limit retries, typecasting, partial-page iteration).
+// One client serves two callers:
+//   1. The data API (routes/tools.ts, vendors.ts, meta.ts, hydrate.ts) — wants
+//      "give me all records from a table, cached" semantics, plus CRUD on
+//      individual records. Hydration code reads fields via record.get(field).
+//   2. The workflow runners (workflows/**) — fetch/update single records by
+//      id, list records with filterByFormula/views. They read via
+//      record.fields[key].
+//
+// Both styles share one `AirtableRecord` shape that exposes both `.fields` and
+// `.get(field)`, so neither caller has to change shape.
 // ---------------------------------------------------------------------------
+import { cacheFetch } from './cache';
 import type { Env, AirtableTables } from '../env';
 
 const API_BASE = 'https://api.airtable.com/v0';
@@ -15,6 +21,8 @@ export interface AirtableRecord {
   id: string;
   fields: Record<string, unknown>;
   createdTime?: string;
+  /** SDK-compatible field accessor. Returns undefined when the field is unset. */
+  get(field: string): unknown;
 }
 
 export interface ListOptions {
@@ -23,6 +31,25 @@ export interface ListOptions {
   view?: string;
   fields?: string[];
   maxRecords?: number;
+}
+
+interface RawRecord {
+  id: string;
+  fields: Record<string, unknown>;
+  createdTime?: string;
+}
+
+/** Wrap a raw REST record with a `.get(field)` accessor. */
+function withGetter(rec: RawRecord): AirtableRecord {
+  const fields = rec.fields ?? {};
+  return {
+    id: rec.id,
+    fields,
+    createdTime: rec.createdTime,
+    get(field: string) {
+      return fields[field];
+    },
+  };
 }
 
 function authHeaders(env: Env): Record<string, string> {
@@ -36,6 +63,10 @@ export function tableId(env: Env, key: keyof AirtableTables): string {
   return env.AIRTABLE_TABLES[key];
 }
 
+// ---------------------------------------------------------------------------
+// Single-record CRUD — used by workflow runners and the data API write paths.
+// ---------------------------------------------------------------------------
+
 export async function getRecord(
   env: Env,
   table: keyof AirtableTables,
@@ -47,7 +78,7 @@ export async function getRecord(
     const body = await res.text().catch(() => '<unreadable>');
     throw new Error(`Airtable getRecord ${table}/${recordId} failed: ${res.status} ${body}`);
   }
-  return (await res.json()) as AirtableRecord;
+  return withGetter((await res.json()) as RawRecord);
 }
 
 export async function updateRecord(
@@ -67,7 +98,7 @@ export async function updateRecord(
     const body = await res.text().catch(() => '<unreadable>');
     throw new Error(`Airtable updateRecord ${table}/${recordId} failed: ${res.status} ${body}`);
   }
-  return (await res.json()) as AirtableRecord;
+  return withGetter((await res.json()) as RawRecord);
 }
 
 export async function createRecord(
@@ -85,9 +116,14 @@ export async function createRecord(
     const body = await res.text().catch(() => '<unreadable>');
     throw new Error(`Airtable createRecord ${table} failed: ${res.status} ${body}`);
   }
-  return (await res.json()) as AirtableRecord;
+  return withGetter((await res.json()) as RawRecord);
 }
 
+// ---------------------------------------------------------------------------
+// Filtered list — used by workflows for grouped pickers and ad-hoc queries.
+// Returns ALL records matching the filter, paginating through Airtable
+// 100-at-a-time pages until exhausted (or maxRecords is reached).
+// ---------------------------------------------------------------------------
 export async function listRecords(
   env: Env,
   table: keyof AirtableTables,
@@ -108,8 +144,8 @@ export async function listRecords(
       const body = await res.text().catch(() => '<unreadable>');
       throw new Error(`Airtable listRecords ${table} failed: ${res.status} ${body}`);
     }
-    const page = (await res.json()) as { records: AirtableRecord[]; offset?: string };
-    records.push(...page.records);
+    const page = (await res.json()) as { records: RawRecord[]; offset?: string };
+    for (const r of page.records) records.push(withGetter(r));
     offset = page.offset;
     if (options.maxRecords && records.length >= options.maxRecords) {
       return records.slice(0, options.maxRecords);
@@ -119,8 +155,58 @@ export async function listRecords(
 }
 
 // ---------------------------------------------------------------------------
-// Utility helpers — workflows pull values from records with consistent
-// type coercion.
+// Cached "fetch entire table" helpers — back the data API.
+// Cache key namespaces stay `table:<tableId>` so existing invalidation paths
+// keep working.
+// ---------------------------------------------------------------------------
+
+interface StoredRecord {
+  id: string;
+  fields: Record<string, unknown>;
+}
+
+async function fetchAll(
+  env: Env,
+  table: keyof AirtableTables,
+): Promise<AirtableRecord[]> {
+  const id = tableId(env, table);
+  const stored = await cacheFetch<StoredRecord[]>(
+    env.KV_CACHE,
+    `table:${id}`,
+    async () => {
+      const records = await listRecords(env, table);
+      return records.map((r) => ({ id: r.id, fields: r.fields }));
+    },
+  );
+  return stored.map(withGetter);
+}
+
+export function fetchTools(env: Env) {
+  return fetchAll(env, 'tools');
+}
+
+export function fetchVendors(env: Env) {
+  return fetchAll(env, 'vendors');
+}
+
+export function fetchCategories(env: Env) {
+  return fetchAll(env, 'categories');
+}
+
+export function fetchDisciplines(env: Env) {
+  return fetchAll(env, 'disciplines');
+}
+
+export function fetchProjectPhases(env: Env) {
+  return fetchAll(env, 'projectPhases');
+}
+
+export function fetchIntegrations(env: Env) {
+  return fetchAll(env, 'toolIntegrations');
+}
+
+// ---------------------------------------------------------------------------
+// Coercion helpers used by both hydrate.ts and the workflow runners.
 // ---------------------------------------------------------------------------
 export function asString(v: unknown): string | undefined {
   return typeof v === 'string' && v.length > 0 ? v : undefined;

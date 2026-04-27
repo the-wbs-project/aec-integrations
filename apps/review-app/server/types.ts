@@ -1,22 +1,11 @@
 // ---------------------------------------------------------------------------
-// Cloudflare Worker environment bindings
+// API response/request shapes for the data layer (vendors, tools, meta).
+//
+// Env / AirtableTables now live in `./env.ts` so the workflow runners share
+// a single source of truth. Re-exported here for backward compatibility with
+// existing route imports.
 // ---------------------------------------------------------------------------
-export interface AirtableTables {
-  tools: string;
-  vendors: string;
-  categories: string;
-  projectPhases: string;
-  disciplines: string;
-  toolIntegrations: string;
-}
-
-export interface Env {
-  AIRTABLE_TOKEN: string;
-  AIRTABLE_BASE_ID: string;
-  AIRTABLE_TABLES: AirtableTables;
-  ASSETS: Fetcher;
-  CACHE: KVNamespace;
-}
+export type { Env, AirtableTables } from './env';
 
 // ---------------------------------------------------------------------------
 // Shared response primitives

@@ -1,14 +1,15 @@
 import { Component, HostListener, inject, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { ThemeService, ThemeChoice } from '../services/theme.service';
+import { NotificationsBellComponent } from './notifications-bell.component';
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, NotificationsBellComponent],
   template: `
     <header class="shell-header" [class.shell-header--scrolled]="scrolled()">
       <div class="shell-header__inner">
-        <a routerLink="/tools" class="shell-header__brand" aria-label="AEC Integrations Review">
+        <a routerLink="/" class="shell-header__brand" aria-label="AEC Integrations Review">
           <span class="shell-header__brand-mark" aria-hidden="true"></span>
           <span class="shell-header__brand-text">
             <span class="shell-header__brand-name">AEC Integrations</span>
@@ -16,10 +17,13 @@ import { ThemeService, ThemeChoice } from '../services/theme.service';
           </span>
         </a>
         <nav class="nav" aria-label="Main navigation">
+          <a class="nav__item" routerLink="/" routerLinkActive="nav__item--active" [routerLinkActiveOptions]="{ exact: true }">Dashboard</a>
           <a class="nav__item" routerLink="/tools" routerLinkActive="nav__item--active">Tools</a>
           <a class="nav__item" routerLink="/vendors" routerLinkActive="nav__item--active">Vendors</a>
+          <a class="nav__item" routerLink="/runs" routerLinkActive="nav__item--active">Runs</a>
         </nav>
         <div class="shell-header__actions">
+          <app-notifications-bell />
           <button
             type="button"
             class="theme-toggle"

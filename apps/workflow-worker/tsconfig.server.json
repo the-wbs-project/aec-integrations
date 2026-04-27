@@ -1,9 +1,0 @@
-{
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "outDir": "./out-tsc/server",
-    "types": ["@cloudflare/workers-types"],
-    "noEmit": true
-  },
-  "include": ["server/**/*.ts"]
-}

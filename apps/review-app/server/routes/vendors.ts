@@ -1,5 +1,5 @@
 import { Hono } from 'hono';
-import { fetchVendors } from '../airtable';
+import { fetchVendors } from '../services/airtable';
 import {
   buildLookupMaps,
   hydrateVendor,

@@ -3,9 +3,10 @@ import {
   createRecord,
   fetchIntegrations,
   fetchTools,
+  tableId,
   updateRecord,
-} from '../airtable';
-import { cacheInvalidate } from '../cache';
+} from '../services/airtable';
+import { cacheInvalidate } from '../services/cache';
 import {
   buildLookupMaps,
   hydrateTool,
@@ -227,12 +228,12 @@ tools.post('/', async (c) => {
 
   let created;
   try {
-    created = await createRecord(env, env.AIRTABLE_TABLES.tools, fields);
+    created = await createRecord(env, 'tools', fields);
   } catch (err) {
     return c.json({ error: (err as Error).message ?? 'Airtable create failed' }, 502);
   }
 
-  await cacheInvalidate(env.CACHE, `table:${env.AIRTABLE_TABLES.tools}`);
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'tools')}`);
 
   const maps = await buildLookupMaps(env);
   const tool = hydrateTool(created, maps);
@@ -272,12 +273,12 @@ tools.patch('/:id', async (c) => {
 
   let updated;
   try {
-    updated = await updateRecord(env, env.AIRTABLE_TABLES.tools, toolId, fields);
+    updated = await updateRecord(env, 'tools', toolId, fields);
   } catch (err) {
     return c.json({ error: (err as Error).message ?? 'Airtable update failed' }, 502);
   }
 
-  await cacheInvalidate(env.CACHE, `table:${env.AIRTABLE_TABLES.tools}`);
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'tools')}`);
 
   const [integrationRecs, maps] = await Promise.all([
     fetchIntegrations(env),
