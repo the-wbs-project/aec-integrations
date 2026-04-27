@@ -3,6 +3,10 @@
 // ---------------------------------------------------------------------------
 import type puppeteer from '@cloudflare/puppeteer';
 import type { RunParams } from './lib/workflow-meta';
+import type { ReportJob } from './services/reports/types';
+// `SendEmail` is the runtime type of a `send_email` binding. The
+// @cloudflare/workers-types package exports it as a global, so we just
+// reference it without importing.
 
 /**
  * Type of the BROWSER binding accepted by puppeteer.launch(). Computed from
@@ -20,14 +24,26 @@ export interface AirtableTables {
   toolIntegrations: string;
 }
 
-export type SearchProvider = 'serpapi' | 'searchapi';
-export type SearchTool = 'web' | 'serpapi';
+/**
+ * Search tool exposed to Claude.
+ *   - 'searchapi' → custom `web_search` tool backed by SearchAPI.io. Cheap,
+ *     compact tool_results (just title/link/snippet). Default.
+ *   - 'web'       → Anthropic's built-in `web_search_20250305`. Fallback
+ *     when SEARCHAPI_API_KEY is unset.
+ */
+export type SearchTool = 'searchapi' | 'web';
 
 export interface Env {
   // Static bindings
   ASSETS: Fetcher;
   KV_CACHE: KVNamespace;
   BROWSER: BrowserBinding;
+  /**
+   * Workers AI binding. We use it via `env.AI.gateway(AI_GATEWAY_ID).run(...)`
+   * to issue universal-endpoint requests to Anthropic through the Cloudflare
+   * AI Gateway — no batch API, no SDK, no manual gateway URL.
+   */
+  AI: Ai;
 
   // Workflow bindings — one per WorkflowEntrypoint class, declared in
   // wrangler.jsonc. The route layer dispatches via env[bindingName] using
@@ -50,32 +66,31 @@ export interface Env {
   WF_TOOL_SCORE: Workflow<RunParams>;
   WF_TOOL_ORCHESTRATOR: Workflow<RunParams>;
 
+  // Email — `send_email` binding for the weekly cost report.
+  REPORT_EMAIL: SendEmail;
+
+  // Queue — produces + consumes weekly-cost-report jobs (cron + ad-hoc).
+  REPORTS_QUEUE: Queue<ReportJob>;
+
   // Vars
-  SEARCH_PROVIDER: SearchProvider;
   SEARCH_TOOL: SearchTool;
   AIRTABLE_BASE_ID: string;
   AIRTABLE_TABLES: AirtableTables;
   DEFAULT_MODEL: string;
-  CF_ACCOUNT_ID: string;
   AI_GATEWAY_ID: string;
+  CF_ACCOUNT_ID: string;
+  REPORT_FROM: string;
+  REPORT_FROM_NAME: string;
+  REPORT_REPLY_TO: string;
+  REPORT_TO: string;
+  /** USD cost per SearchAPI.io search. Stored as string in wrangler.jsonc; parseFloat at use site. */
+  SEARCHAPI_COST_PER_SEARCH: string;
 
   // Secrets
-  /**
-   * Cloudflare AI Gateway authentication token. Sent as
-   * `cf-aig-authorization: Bearer <token>`. With BYOK enabled on the gateway,
-   * the Anthropic key is stored in the gateway itself and we don't need to
-   * send it from the worker.
-   */
-  CF_AI_GATEWAY_TOKEN: string;
-  /**
-   * Optional fallback if BYOK isn't configured on the gateway. When unset
-   * the SDK is given a placeholder string (the gateway injects the real key).
-   */
-  ANTHROPIC_API_KEY?: string;
-  SERP_API_KEY: string;
   SEARCHAPI_API_KEY: string;
   AIRTABLE_TOKEN: string;
   GITHUB_TOKEN?: string;
+  CF_API_TOKEN: string;
 }
 
 export const CACHE_TTL_S = 60 * 60 * 24; // 1 day, matches n8n-utils

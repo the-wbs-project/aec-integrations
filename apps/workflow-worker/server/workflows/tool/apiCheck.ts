@@ -12,11 +12,9 @@ import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
 import { getRecord, updateRecord, asString, type AirtableRecord } from '../../services/airtable';
 import {
-  buildInitialBatchRequest,
-  buildContinuationBatchRequest,
-  submitBatch,
-  pollBatch,
-  getBatchResults,
+  buildInitialRequest,
+  buildContinuationRequest,
+  runTurn,
   interpretMessage,
   logTurnSummary,
   executeSearchTool,
@@ -31,7 +29,6 @@ export const meta: WorkflowMeta = {
 };
 
 const MAX_TURNS = 4;
-const POLL_TIMEOUT_ATTEMPTS = 60; // 60 attempts × 30s = 30 min
 
 function buildPrompt(record: AirtableRecord): {
   systemPrompt: string;
@@ -106,47 +103,19 @@ export class ToolApiCheckWorkflow extends WorkflowEntrypoint<Env, RunParams> {
     );
     const { systemPrompt, userPrompt, outputSchema } = buildPrompt(record);
 
-    // 2. Submit the initial batch
+    // 2. Run the LLM turn loop: call → interpret → emit/continue
     let messages: MessageParam[] = [{ role: 'user', content: userPrompt }];
-    const { batchId: initialBatchId } = await checkpoint(step, 'submit-batch-0', () =>
-      submitBatch(this.env, ctx, [
-        buildInitialBatchRequest({
-          customId: `${recordId}-t0`,
-          model,
-          systemPrompt,
-          userPrompt,
-          outputSchema,
-          searchTool,
-        }),
-      ]),
+    let response = await checkpoint(step, 'llm-turn-0', () =>
+      runTurn(
+        this.env,
+        ctx,
+        buildInitialRequest({ model, systemPrompt, userPrompt, outputSchema, searchTool }),
+      ),
     );
-    let batchId = initialBatchId;
 
-    // 3. Run the LLM turn loop: poll until ended → interpret → emit/continue
     let emitted: Record<string, unknown> | undefined;
     for (let turn = 0; turn < MAX_TURNS && !emitted; turn++) {
-      // Poll the batch until processing_status === 'ended'
-      let batch = await checkpoint(step, `poll-${turn}-1`, () =>
-        pollBatch(this.env, ctx, batchId),
-      );
-      for (let attempt = 2; batch.processing_status !== 'ended'; attempt++) {
-        if (attempt > POLL_TIMEOUT_ATTEMPTS) throw new Error(`Batch ${batchId} timed out`);
-        await step.sleep(`wait-${turn}-${attempt - 1}`, '30 seconds');
-        batch = await checkpoint(step, `poll-${turn}-${attempt}`, () =>
-          pollBatch(this.env, ctx, batchId),
-        );
-      }
-
-      // Get the result message
-      const responses = await checkpoint(step, `results-${turn}`, () =>
-        getBatchResults(this.env, ctx, batchId),
-      );
-      const response = responses[0];
-      if (!response || response.result.type !== 'succeeded') {
-        throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
-      }
-
-      const interpreted = interpretMessage(response.result.message);
+      const interpreted = interpretMessage(response);
       logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
@@ -155,24 +124,24 @@ export class ToolApiCheckWorkflow extends WorkflowEntrypoint<Env, RunParams> {
         break;
       }
 
-      // SerpAPI continuation — execute the tool, submit the next batch
-      if (interpreted.pendingSearch && searchTool === 'serpapi') {
+      // SearchAPI continuation — execute the tool, fire the next turn.
+      if (interpreted.pendingSearch && searchTool === 'searchapi') {
         const toolResult = await checkpoint(step, `serp-${turn}`, () =>
-          executeSearchTool(this.env, interpreted.pendingSearch!),
+          executeSearchTool(this.env, ctx, interpreted.pendingSearch!),
         );
         messages = [...messages, toolResult];
-        const next = await checkpoint(step, `submit-batch-${turn + 1}`, () =>
-          submitBatch(this.env, ctx, [
-            buildContinuationBatchRequest({
-              customId: `${recordId}-t${turn + 1}`,
+        response = await checkpoint(step, `llm-turn-${turn + 1}`, () =>
+          runTurn(
+            this.env,
+            ctx,
+            buildContinuationRequest({
               model,
               systemPrompt,
               outputSchema,
               priorMessages: messages,
             }),
-          ]),
+          ),
         );
-        batchId = next.batchId;
         continue;
       }
 
@@ -185,7 +154,7 @@ export class ToolApiCheckWorkflow extends WorkflowEntrypoint<Env, RunParams> {
       throw new Error(`Exceeded MAX_TURNS (${MAX_TURNS}) without emit_result`);
     }
 
-    // 4. Parse the structured output and write to Airtable
+    // 3. Parse the structured output and write to Airtable
     const parsed = parseEmitted(emitted);
     await checkpoint(step, 'write-fields', () =>
       updateRecord(this.env, 'tools', recordId, parsed.fields),

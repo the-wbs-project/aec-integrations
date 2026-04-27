@@ -1,78 +1,69 @@
 // ---------------------------------------------------------------------------
-// Anthropic Batch API wrapper — routes through Cloudflare AI Gateway.
+// Anthropic Messages API wrapper that routes through the Cloudflare AI Gateway
+// using the Workers `AI` binding (`env.AI.gateway(id).run(...)`).
 //
-// Why a wrapper instead of raw SDK calls everywhere:
-//   - Centralises the AI Gateway baseURL so callers can't accidentally hit
-//     api.anthropic.com directly.
-//   - Adds default cf-aig-* headers (runId, workflow) so we can filter
-//     analytics in the Cloudflare AI Gateway dashboard.
-//   - Hides the SDK's `Anthropic` class from callers.
+// Every call is synchronous — no Anthropic batch API, no polling — so workflow
+// turns map 1:1 to a single fetch through the gateway.
 // ---------------------------------------------------------------------------
-import Anthropic from '@anthropic-ai/sdk';
 import type { Env } from '../env';
 
-export type AnthropicMessageBatch = Anthropic.Messages.MessageBatch;
-export type BatchCreateParams = Anthropic.Messages.BatchCreateParams;
-export type BatchCreateRequest = Anthropic.Messages.BatchCreateParams.Request;
-export type Message = Anthropic.Messages.Message;
-export type MessageBatchIndividualResponse = Anthropic.Messages.MessageBatchIndividualResponse;
+const ANTHROPIC_VERSION = '2023-06-01';
 
-export interface BatchClientContext {
+export interface MessageRequestBody {
+  model: string;
+  max_tokens: number;
+  temperature?: number;
+  system?: string;
+  messages: unknown[];
+  tools?: unknown[];
+  tool_choice?: { type: 'auto' | 'any' };
+}
+
+/** Subset of the Anthropic Messages API response we read in this app. */
+export interface MessageResponse {
+  id: string;
+  type: 'message';
+  role: 'assistant';
+  model: string;
+  content: unknown[];
+  stop_reason: string | null;
+  stop_sequence: string | null;
+  usage?: { input_tokens: number; output_tokens: number };
+}
+
+export interface GatewayContext {
   runId?: string;
   workflow?: string;
 }
 
-export class AnthropicBatchClient {
-  private client: Anthropic;
-  private cfMetadata: BatchClientContext;
-  private baseURL: string;
+export async function runMessage(
+  env: Env,
+  ctx: GatewayContext,
+  body: MessageRequestBody,
+): Promise<MessageResponse> {
+  const headers: Record<string, string> = {
+    'anthropic-version': ANTHROPIC_VERSION,
+    'Content-Type': 'application/json',
+  };
 
-  constructor(env: Env, ctx: BatchClientContext = {}) {
-    this.baseURL = `https://gateway.ai.cloudflare.com/v1/${env.CF_ACCOUNT_ID}/${env.AI_GATEWAY_ID}/anthropic`;
-    this.cfMetadata = ctx;
-    this.client = new Anthropic({
-      // With BYOK on the gateway, the upstream Anthropic key is stored in CF
-      // and we only authenticate to the gateway via cf-aig-authorization.
-      // The SDK still requires *some* api key, so use a placeholder when no
-      // ANTHROPIC_API_KEY secret is set.
-      apiKey: env.ANTHROPIC_API_KEY ?? 'cf-ai-gateway-byok',
-      baseURL: this.baseURL,
-      defaultHeaders: this.gatewayHeaders(env),
-    });
-  }
+  const metadata: Record<string, string> = {};
+  if (ctx.runId) metadata['runId'] = ctx.runId;
+  if (ctx.workflow) metadata['workflow'] = ctx.workflow;
+  const hasMetadata = Object.keys(metadata).length > 0;
 
-  private gatewayHeaders(env: Env): Record<string, string> {
-    const headers: Record<string, string> = {
-      //'cf-aig-authorization': `Bearer ${env.CF_AI_GATEWAY_TOKEN}`,
-    };
-    if (this.cfMetadata.runId) {
-      headers['cf-aig-metadata'] = JSON.stringify(this.cfMetadata);
-    }
-    return headers;
-  }
+  const response = await env.AI.gateway(env.AI_GATEWAY_ID).run(
+    {
+      provider: 'anthropic',
+      endpoint: 'v1/messages',
+      headers,
+      query: body,
+    },
+    hasMetadata ? { gateway: { id: env.AI_GATEWAY_ID, metadata } } : undefined,
+  );
 
-  /** Submit a batch of message requests. */
-  async create(requests: BatchCreateRequest[]): Promise<AnthropicMessageBatch> {
-    return this.client.messages.batches.create({ requests });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`Anthropic via AI Gateway failed (${response.status}): ${text}`);
   }
-
-  /** Poll a batch by id; returns whatever the API returns (status + counts). */
-  async retrieve(batchId: string): Promise<AnthropicMessageBatch> {
-    return this.client.messages.batches.retrieve(batchId);
-  }
-
-  /**
-   * Stream individual responses for a completed batch. The SDK returns a
-   * pageable iterator; we collect all of them since our batches are small
-   * (≤ a few hundred records per run).
-   */
-  async results(batchId: string): Promise<MessageBatchIndividualResponse[]> {
-    const responses: MessageBatchIndividualResponse[] = [];
-    for await (const r of await this.client.messages.batches.results(batchId, {
-      path: `${this.baseURL}/v1/messages/batches/${batchId}/results`,
-    })) {
-      responses.push(r);
-    }
-    return responses;
-  }
+  return (await response.json()) as MessageResponse;
 }

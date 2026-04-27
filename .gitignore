@@ -6,3 +6,5 @@ dist
 .dev.vars
 .vars.dev
 .DS_Store
+out-tsc
+worker-configuration.d.ts

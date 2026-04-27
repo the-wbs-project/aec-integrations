@@ -7,8 +7,7 @@ import { HttpClient } from '@angular/common/http';
 export interface RunStartRequest {
   record_ids: string[];
   model: string;
-  search_tool?: 'web' | 'serpapi';
-  search_provider?: 'serpapi' | 'searchapi';
+  search_tool?: 'searchapi' | 'web';
 }
 
 export interface RunStartResponse {

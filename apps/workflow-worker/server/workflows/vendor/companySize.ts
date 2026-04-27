@@ -17,11 +17,9 @@ import {
   type AirtableRecord,
 } from '../../services/airtable';
 import {
-  buildInitialBatchRequest,
-  buildContinuationBatchRequest,
-  submitBatch,
-  pollBatch,
-  getBatchResults,
+  buildInitialRequest,
+  buildContinuationRequest,
+  runTurn,
   interpretMessage,
   logTurnSummary,
   executeSearchTool,
@@ -42,7 +40,6 @@ export const meta: WorkflowMeta = {
 
 const VALID_BUCKETS = ['1-10', '11-50', '51-200', '201-1000', '1001-5000', '5000+'] as const;
 const MAX_TURNS = 3;
-const POLL_TIMEOUT_ATTEMPTS = 60;
 
 function exactToBucket(n: number): (typeof VALID_BUCKETS)[number] {
   if (n <= 10) return '1-10';
@@ -163,40 +160,17 @@ export class VendorCompanySizeWorkflow extends WorkflowEntrypoint<Env, RunParams
     const { systemPrompt, userPrompt, outputSchema } = buildPrompt(record);
 
     let messages: MessageParam[] = [{ role: 'user', content: userPrompt }];
-    const { batchId: initialBatchId } = await checkpoint(step, 'submit-batch-0', () =>
-      submitBatch(this.env, ctx, [
-        buildInitialBatchRequest({
-          customId: `${recordId}-t0`,
-          model,
-          systemPrompt,
-          userPrompt,
-          outputSchema,
-          searchTool,
-        }),
-      ]),
+    let response = await checkpoint(step, 'llm-turn-0', () =>
+      runTurn(
+        this.env,
+        ctx,
+        buildInitialRequest({ model, systemPrompt, userPrompt, outputSchema, searchTool }),
+      ),
     );
-    let batchId = initialBatchId;
 
     let emitted: Record<string, unknown> | undefined;
     for (let turn = 0; turn < MAX_TURNS && !emitted; turn++) {
-      let batch = await checkpoint(step, `poll-${turn}-1`, () =>
-        pollBatch(this.env, ctx, batchId),
-      );
-      for (let attempt = 2; batch.processing_status !== 'ended'; attempt++) {
-        if (attempt > POLL_TIMEOUT_ATTEMPTS) throw new Error(`Batch ${batchId} timed out`);
-        await step.sleep(`wait-${turn}-${attempt - 1}`, '30 seconds');
-        batch = await checkpoint(step, `poll-${turn}-${attempt}`, () =>
-          pollBatch(this.env, ctx, batchId),
-        );
-      }
-      const responses = await checkpoint(step, `results-${turn}`, () =>
-        getBatchResults(this.env, ctx, batchId),
-      );
-      const response = responses[0];
-      if (!response || response.result.type !== 'succeeded') {
-        throw new Error(`Batch result ${response?.result.type ?? 'missing'}`);
-      }
-      const interpreted = interpretMessage(response.result.message);
+      const interpreted = interpretMessage(response);
       logTurnSummary(ctx, turn, interpreted);
       messages = [...messages, interpreted.assistantMessage];
 
@@ -204,23 +178,23 @@ export class VendorCompanySizeWorkflow extends WorkflowEntrypoint<Env, RunParams
         emitted = interpreted.emitted;
         break;
       }
-      if (interpreted.pendingSearch && searchTool === 'serpapi') {
+      if (interpreted.pendingSearch && searchTool === 'searchapi') {
         const toolResult = await checkpoint(step, `serp-${turn}`, () =>
-          executeSearchTool(this.env, interpreted.pendingSearch!),
+          executeSearchTool(this.env, ctx, interpreted.pendingSearch!),
         );
         messages = [...messages, toolResult];
-        const next = await checkpoint(step, `submit-batch-${turn + 1}`, () =>
-          submitBatch(this.env, ctx, [
-            buildContinuationBatchRequest({
-              customId: `${recordId}-t${turn + 1}`,
+        response = await checkpoint(step, `llm-turn-${turn + 1}`, () =>
+          runTurn(
+            this.env,
+            ctx,
+            buildContinuationRequest({
               model,
               systemPrompt,
               outputSchema,
               priorMessages: messages,
             }),
-          ]),
+          ),
         );
-        batchId = next.batchId;
         continue;
       }
       throw new Error(
