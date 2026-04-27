@@ -2,7 +2,7 @@
 // T05 — Tool search demand (Google Trends + Google total-results).
 // Source: artifacts/n8n-workflows/AECi-T05-SearchDemand.json
 //
-// NO LLM. Two SerpAPI-style calls via the search service:
+// NO LLM. Two SearchAPI.io calls via the search service:
 //   1. engine=google_trends, q="<tool> software", date='today 12-m'
 //   2. engine=google,         q="<tool> software"
 // From (1) we average the timeline_data values to a 0-100 trends index.
@@ -17,7 +17,7 @@ import { runSerpSearch } from '../../services/search';
 
 export const meta: WorkflowMeta = {
   slug: 'tool-search-demand',
-  description: 'Compute google_trends_index + search_volume_monthly via SerpAPI.',
+  description: 'Compute google_trends_index + search_volume_monthly via SearchAPI.io.',
   table: 'tools',
 };
 
@@ -48,6 +48,7 @@ export class ToolSearchDemandWorkflow extends WorkflowEntrypoint<Env, RunParams>
   override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
     const checkedAt = new Date().toISOString();
+    const attribution = { runId: event.instanceId, workflow: meta.slug };
 
     const record = await checkpoint(step, 'fetch-record', () =>
       getRecord(this.env, 'tools', recordId),
@@ -71,11 +72,11 @@ export class ToolSearchDemandWorkflow extends WorkflowEntrypoint<Env, RunParams>
 
     const trendsIndex = await checkpoint(step, 'google-trends', async () => {
       try {
-        const trends = await runSerpSearch(this.env, {
-          engine: 'google_trends',
-          q,
-          date: 'today 12-m',
-        });
+        const trends = await runSerpSearch(
+          this.env,
+          { engine: 'google_trends', q, date: 'today 12-m' },
+          attribution,
+        );
         return trends.status === 200 ? extractTrendsIndex(trends.body) : null;
       } catch (err) {
         console.error('searchDemand: trends call failed:', err);
@@ -85,7 +86,7 @@ export class ToolSearchDemandWorkflow extends WorkflowEntrypoint<Env, RunParams>
 
     const searchVolume = await checkpoint(step, 'google-search', async () => {
       try {
-        const google = await runSerpSearch(this.env, { engine: 'google', q });
+        const google = await runSerpSearch(this.env, { engine: 'google', q }, attribution);
         return google.status === 200 ? extractSearchVolume(google.body) : null;
       } catch (err) {
         console.error('searchDemand: google call failed:', err);

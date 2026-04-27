@@ -15,7 +15,10 @@ app.get('/serp', async (c) => {
   if (!query) {
     return c.json({ error: "Missing required 'q' parameter" }, 400);
   }
-  const params = Object.fromEntries(url.searchParams.entries());
+  const params: Record<string, string> = {};
+  url.searchParams.forEach((value, key) => {
+    params[key] = value;
+  });
   const result = await runSerpSearch(c.env, params);
   return c.json(result.body, result.status as 200 | 502);
 });

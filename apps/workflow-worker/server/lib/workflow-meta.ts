@@ -36,6 +36,6 @@ export interface WorkflowMeta {
 export interface RunParams {
   recordId: string;
   model: string;
-  searchTool: 'web' | 'serpapi';
-  searchProvider: 'serpapi' | 'searchapi';
+  /** 'searchapi' = custom SearchAPI.io tool (default); 'web' = Anthropic web_search fallback. */
+  searchTool: 'searchapi' | 'web';
 }

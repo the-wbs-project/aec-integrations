@@ -14,6 +14,7 @@ import type { Env } from '../env';
 import { WORKFLOWS, workflowBinding, type WorkflowName } from '../workflows/registry';
 import type { RunParams } from '../lib/workflow-meta';
 import { listRecords, asString } from '../services/airtable';
+import { resolveSearchTool } from '../lib/llm';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -39,8 +40,7 @@ app.post('/:name/run', async (c) => {
     record_ids?: string[];
     record_id?: string;
     model?: string;
-    search_tool?: 'web' | 'serpapi';
-    search_provider?: 'serpapi' | 'searchapi';
+    search_tool?: 'searchapi' | 'web';
   }>();
 
   const recordIds = body.record_ids ?? (body.record_id ? [body.record_id] : []);
@@ -59,8 +59,8 @@ app.post('/:name/run', async (c) => {
     return c.json({ error: `Workflow binding missing: ${name}` }, 500);
   }
 
-  const searchTool = body.search_tool ?? c.env.SEARCH_TOOL;
-  const searchProvider = body.search_provider ?? c.env.SEARCH_PROVIDER;
+  const requestedSearchTool = body.search_tool ?? c.env.SEARCH_TOOL ?? 'searchapi';
+  const searchTool = resolveSearchTool(c.env, requestedSearchTool);
 
   // Spawn one workflow instance per record. Errors creating any single
   // instance fail the whole request — no partial-spawn cleanup.
@@ -68,7 +68,7 @@ app.post('/:name/run', async (c) => {
   try {
     for (const recordId of recordIds) {
       const runId = crypto.randomUUID();
-      const params: RunParams = { recordId, model, searchTool, searchProvider };
+      const params: RunParams = { recordId, model, searchTool };
       await binding.create({ id: runId, params });
       runs.push({ runId, recordId });
     }

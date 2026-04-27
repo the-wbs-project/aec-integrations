@@ -26,6 +26,36 @@
 	"browser": {
 		"binding": "BROWSER"
 	},
+	"ai": {
+		"binding": "AI"
+	},
+	"send_email": [
+		{
+			"name": "REPORT_EMAIL",
+			"destination_address": "chrisw@thewbsproject.com"
+		}
+	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "REPORTS_QUEUE",
+				"queue": "prospect-reports"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "prospect-reports",
+				"max_batch_size": 1,
+				"max_batch_timeout": 5,
+				"max_retries": 2,
+				"dead_letter_queue": "prospect-reports-dlq"
+			}
+		]
+	},
+	"triggers": {
+		// Weekly cost report — Mondays 14:00 UTC. Adjust as needed.
+		"crons": ["0 14 * * 1"]
+	},
 	"workflows": [
 		// Vendor workflows
 		{
@@ -127,10 +157,10 @@
 		}
 	],
 	"vars": {
-		// Search provider for the SerpAPI custom tool. "serpapi" or "searchapi".
-		"SEARCH_PROVIDER": "searchapi",
-		// Search tool exposed to Claude. "web" = Anthropic built-in web_search; "serpapi" = our custom tool.
-		"SEARCH_TOOL": "web",
+		// Search tool exposed to Claude.
+		//   "searchapi" = our custom web_search tool backed by SearchAPI.io (default — cheap, compact results).
+		//   "web"       = Anthropic built-in web_search_20250305 (fallback; auto-selected when SEARCHAPI_API_KEY is missing).
+		"SEARCH_TOOL": "searchapi",
 		"AIRTABLE_BASE_ID": "appy81IdGJY6Fngf9",
 		"AIRTABLE_TABLES": {
 			"tools": "tbleVEZV0H5RigtHN",
@@ -141,17 +171,26 @@
 			"toolIntegrations": "tbl6PBPsGJuPcrZZi"
 		},
 		"DEFAULT_MODEL": "claude-haiku-4-5-20251001",
+		"AI_GATEWAY_ID": "aeci-cf-workflows",
 		"CF_ACCOUNT_ID": "e62ec9d8012c3e0c225f8e4dbab76b79",
-		"AI_GATEWAY_ID": "aeci-cf-workflows"
+		// Weekly cost report — addresses are configurable. REPORT_FROM must be
+		// on a domain you've enabled Email Routing on in this Cloudflare account;
+		// REPORT_TO must be a verified destination address (matches send_email
+		// binding's destination_address above). REPORT_REPLY_TO is the human
+		// inbox replies should land in (Gmail is fine here).
+		"REPORT_FROM": "reports@aecintegrations.com",
+		"REPORT_FROM_NAME": "AECi Cost Report",
+		"REPORT_REPLY_TO": "aecintegrations@gmail.com",
+		"REPORT_TO": "chrisw@thewbsproject.com",
+		// USD cost per SearchAPI.io search, used by the weekly cost report.
+		// String so it survives jsonc → env without precision loss; parsed as Number.
+		"SEARCHAPI_COST_PER_SEARCH": "0.004"
 	}
 	// Secrets (set via `wrangler secret put`):
-	//   CF_AI_GATEWAY_TOKEN – Cloudflare AI Gateway token (cf-aig-authorization).
-	//                         With BYOK on the gateway, this is the only auth we send
-	//                         and the Anthropic key is stored in the gateway itself.
-	//   ANTHROPIC_API_KEY   – optional. Only set if BYOK is *not* configured on the
-	//                         gateway; otherwise the SDK uses a placeholder.
-	//   SERP_API_KEY        – SerpAPI key       (when SEARCH_PROVIDER=serpapi)
-	//   SEARCHAPI_API_KEY   – SearchAPI.io key  (when SEARCH_PROVIDER=searchapi)
+	//   SEARCHAPI_API_KEY   – SearchAPI.io key. If unset the worker auto-falls back
+	//                         to Anthropic web_search_20250305.
 	//   AIRTABLE_TOKEN      – Airtable PAT with data.records:write scope
 	//   GITHUB_TOKEN        – optional, raises GitHub REST rate limit for V02
+	//   CF_API_TOKEN        – Cloudflare API token with `AI Gateway: Read` permission;
+	//                         used by the weekly cost report to fetch gateway logs.
 }

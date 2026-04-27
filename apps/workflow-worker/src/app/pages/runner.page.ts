@@ -107,18 +107,6 @@ const TERMINAL_STATUSES = new Set<InstanceStatus['status']>([
         </ejs-dropdownlist>
       </label>
 
-      @if (searchTool === 'serpapi') {
-        <label>
-          SerpAPI provider
-          <ejs-dropdownlist
-            [dataSource]="searchProviderChoices"
-            [fields]="choiceFields"
-            [(ngModel)]="searchProvider"
-            name="searchProvider">
-          </ejs-dropdownlist>
-        </label>
-      }
-
       <button ejs-button type="submit" isPrimary="true" [disabled]="busy()">
         {{ busy() ? 'Starting…' : 'Start run' }}
       </button>
@@ -173,8 +161,7 @@ export class RunnerPage implements OnInit, OnDestroy {
   recordIdsInput = '';
   selectedIds: string[] = [];
   model = 'claude-haiku-4-5-20251001';
-  searchTool: 'web' | 'serpapi' = 'web';
-  searchProvider: 'searchapi' | 'serpapi' = 'searchapi';
+  searchTool: 'searchapi' | 'web' = 'searchapi';
   busy = signal(false);
   runs = signal<RunRow[]>([]);
   errorMsg = signal<string | null>(null);
@@ -191,13 +178,9 @@ export class RunnerPage implements OnInit, OnDestroy {
     { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
     { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
   ];
-  searchToolChoices: Choice<'web' | 'serpapi'>[] = [
-    { value: 'web', label: 'Anthropic web_search (default)' },
-    { value: 'serpapi', label: 'Custom SerpAPI tool' },
-  ];
-  searchProviderChoices: Choice<'searchapi' | 'serpapi'>[] = [
-    { value: 'searchapi', label: 'SearchAPI.io' },
-    { value: 'serpapi', label: 'SerpAPI.com' },
+  searchToolChoices: Choice<'searchapi' | 'web'>[] = [
+    { value: 'searchapi', label: 'SearchAPI.io custom tool (default)' },
+    { value: 'web', label: 'Anthropic web_search (fallback)' },
   ];
 
   private pollHandle: ReturnType<typeof setInterval> | null = null;
@@ -275,7 +258,6 @@ export class RunnerPage implements OnInit, OnDestroy {
         record_ids: ids,
         model: this.model,
         search_tool: this.searchTool,
-        search_provider: this.searchProvider,
       })
       .subscribe({
         next: (res) => {

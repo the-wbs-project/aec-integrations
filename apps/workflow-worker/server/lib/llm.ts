@@ -1,29 +1,56 @@
 // ---------------------------------------------------------------------------
-// LLM helpers: batch request building, response interpretation, SerpAPI tool
+// LLM helpers: request building, response interpretation, SearchAPI tool
 // execution. Each workflow composes these inside its run() method.
+//
+// Each model turn is a single synchronous request to the Anthropic Messages
+// API routed through the Cloudflare AI Gateway worker binding. There is no
+// batch API and no polling.
 // ---------------------------------------------------------------------------
-import type Anthropic from '@anthropic-ai/sdk';
 import type { Env, SearchTool } from '../env';
 import {
   WEB_SEARCH_TOOL,
-  serpToolSchema,
+  searchApiToolSchema,
   emitResultTool,
+  MAX_TOOL_USES,
   type Tool,
 } from '../services/llm-tools';
 import { runSerpSearch, pickOrganicResults } from '../services/search';
 import {
-  AnthropicBatchClient,
-  type MessageBatchIndividualResponse,
-  type AnthropicMessageBatch,
+  runMessage,
+  type MessageRequestBody,
+  type MessageResponse,
+  type GatewayContext,
 } from '../services/anthropic';
 
-export type BatchRequest = Anthropic.Messages.BatchCreateParams.Request;
-export type Message = Anthropic.Messages.Message;
-export type MessageParam = Anthropic.Messages.MessageParam;
-export type ContentBlockParam = Anthropic.Messages.ContentBlockParam;
-export type ToolUseBlock = Anthropic.Messages.ToolUseBlock;
+// Locally-typed message primitives — kept loose so we don't drag in an SDK.
+// The Anthropic Messages API accepts these shapes verbatim and `interpretMessage`
+// widens content blocks at read time.
+export interface ToolUseBlock {
+  type: 'tool_use';
+  id: string;
+  name: string;
+  input: unknown;
+}
 
-type SdkToolArray = Anthropic.Messages.BatchCreateParams.Request['params']['tools'];
+export interface ToolResultBlock {
+  type: 'tool_result';
+  tool_use_id: string;
+  content: string | unknown[];
+  is_error?: boolean;
+}
+
+export type ContentBlockParam =
+  | { type: 'text'; text: string }
+  | ToolUseBlock
+  | ToolResultBlock
+  | { type: string; [k: string]: unknown };
+
+export interface MessageParam {
+  role: 'user' | 'assistant';
+  content: string | ContentBlockParam[] | unknown[];
+}
+
+export type Message = MessageResponse;
 
 export interface OutputSchema {
   type: 'object';
@@ -32,8 +59,7 @@ export interface OutputSchema {
   additionalProperties?: boolean;
 }
 
-export interface BuildInitialBatchRequestInput {
-  customId: string;
+export interface BuildInitialRequestInput {
   model: string;
   systemPrompt: string;
   userPrompt: string;
@@ -42,29 +68,23 @@ export interface BuildInitialBatchRequestInput {
   maxTokens?: number;
 }
 
-export function buildInitialBatchRequest(
-  input: BuildInitialBatchRequestInput,
-): BatchRequest {
+export function buildInitialRequest(input: BuildInitialRequestInput): MessageRequestBody {
   const tools: Tool[] = [
-    input.searchTool === 'web' ? WEB_SEARCH_TOOL : serpToolSchema(),
+    input.searchTool === 'web' ? WEB_SEARCH_TOOL : searchApiToolSchema(),
     emitResultTool(input.outputSchema),
   ];
   return {
-    custom_id: input.customId,
-    params: {
-      model: input.model,
-      max_tokens: input.maxTokens ?? 8192,
-      temperature: 0,
-      system: input.systemPrompt,
-      messages: [{ role: 'user', content: input.userPrompt }],
-      tools: tools as unknown as SdkToolArray,
-      tool_choice: { type: 'auto' },
-    },
+    model: input.model,
+    max_tokens: input.maxTokens ?? 8192,
+    temperature: 0,
+    system: input.systemPrompt,
+    messages: [{ role: 'user', content: input.userPrompt }],
+    tools,
+    tool_choice: { type: 'auto' },
   };
 }
 
-export interface BuildContinuationBatchRequestInput {
-  customId: string;
+export interface BuildContinuationRequestInput {
   model: string;
   systemPrompt: string;
   outputSchema: OutputSchema;
@@ -72,60 +92,54 @@ export interface BuildContinuationBatchRequestInput {
   maxTokens?: number;
 }
 
-export function buildContinuationBatchRequest(
-  input: BuildContinuationBatchRequestInput,
-): BatchRequest {
-  const tools: Tool[] = [serpToolSchema(), emitResultTool(input.outputSchema)];
+export function buildContinuationRequest(
+  input: BuildContinuationRequestInput,
+): MessageRequestBody {
+  const tools: Tool[] = [searchApiToolSchema(), emitResultTool(input.outputSchema)];
   return {
-    custom_id: input.customId,
-    params: {
-      model: input.model,
-      max_tokens: input.maxTokens ?? 8192,
-      temperature: 0,
-      system: input.systemPrompt,
-      messages: input.priorMessages,
-      tools: tools as unknown as SdkToolArray,
-      tool_choice: { type: 'any' },
-    },
+    model: input.model,
+    max_tokens: input.maxTokens ?? 8192,
+    temperature: 0,
+    system: input.systemPrompt,
+    messages: input.priorMessages,
+    tools,
+    tool_choice: { type: 'any' },
   };
 }
 
+/**
+ * Resolve the effective search tool for a run. If the caller asked for the
+ * SearchAPI custom tool but no key is configured, fall back to Anthropic's
+ * built-in web_search. Logs the downgrade so it's visible in `wrangler tail`.
+ */
+export function resolveSearchTool(env: Env, requested: SearchTool): SearchTool {
+  if (requested === 'searchapi' && !env.SEARCHAPI_API_KEY) {
+    console.warn(
+      '[search] SEARCHAPI_API_KEY missing — falling back to Anthropic web_search',
+    );
+    return 'web';
+  }
+  return requested;
+}
+
+export { MAX_TOOL_USES };
+
 // ---------------------------------------------------------------------------
-// Batch I/O — small wrappers around the AnthropicBatchClient with workflow
-// metadata baked in.
+// Single-turn request — direct call to the Anthropic Messages API via the
+// AI Gateway binding.
 // ---------------------------------------------------------------------------
 
-export interface BatchContext {
+export type LlmContext = GatewayContext & {
   runId: string;
   workflow: string;
-}
+};
 
-export async function submitBatch(
+export async function runTurn(
   env: Env,
-  ctx: BatchContext,
-  requests: BatchRequest[],
-): Promise<{ batchId: string }> {
-  const client = new AnthropicBatchClient(env, ctx);
-  const batch = await client.create(requests);
-  return { batchId: batch.id };
-}
-
-export async function pollBatch(
-  env: Env,
-  ctx: BatchContext,
-  batchId: string,
-): Promise<AnthropicMessageBatch> {
-  const client = new AnthropicBatchClient(env, ctx);
-  return client.retrieve(batchId);
-}
-
-export async function getBatchResults(
-  env: Env,
-  ctx: BatchContext,
-  batchId: string,
-): Promise<MessageBatchIndividualResponse[]> {
-  const client = new AnthropicBatchClient(env, ctx);
-  return client.results(batchId);
+  ctx: LlmContext,
+  request: MessageRequestBody,
+): Promise<MessageResponse> {
+  return runMessage(env, ctx, request);
 }
 
 // ---------------------------------------------------------------------------
@@ -164,11 +178,8 @@ export function interpretMessage(message: Message): InterpretedResult {
   const queriesById = new Map<string, string>();
   const searches: SearchActivity[] = [];
 
-  // SDK 0.36.x doesn't yet type `server_tool_use` / `web_search_tool_result`
-  // in the ContentBlock union, so we widen here to read them off the wire.
-  // The shapes match the Anthropic Messages API server-tool spec.
   type WideBlock = { type: string; [k: string]: unknown };
-  for (const block of message.content as unknown as WideBlock[]) {
+  for (const block of message.content as WideBlock[]) {
     if (block.type === 'tool_use') {
       const tu = block as unknown as ToolUseBlock;
       if (tu.name === 'emit_result') {
@@ -213,7 +224,7 @@ export function interpretMessage(message: Message): InterpretedResult {
     noTool: !emitted && !pendingSearch,
     stopReason: message.stop_reason,
     searches,
-    assistantMessage: { role: 'assistant', content: message.content },
+    assistantMessage: { role: 'assistant', content: message.content as ContentBlockParam[] },
   };
 }
 
@@ -225,7 +236,7 @@ export function interpretMessage(message: Message): InterpretedResult {
  * `wrangler tail` or filter on `[llm-turn]` in the dashboard.
  */
 export function logTurnSummary(
-  ctx: BatchContext,
+  ctx: LlmContext,
   turn: number,
   interpreted: InterpretedResult,
 ): void {
@@ -246,14 +257,19 @@ export function logTurnSummary(
 }
 
 /**
- * Run the SerpAPI custom tool for one tool_use block. Returns the
+ * Run the SearchAPI custom tool for one tool_use block. Returns the
  * tool_result message that gets appended before the next turn.
  */
 export async function executeSearchTool(
   env: Env,
+  ctx: LlmContext,
   search: { toolUseId: string; query: string },
 ): Promise<MessageParam> {
-  const result = await runSerpSearch(env, { q: search.query });
+  const result = await runSerpSearch(
+    env,
+    { q: search.query },
+    { runId: ctx.runId, workflow: ctx.workflow },
+  );
   let content: string;
   if (result.status !== 200) {
     content = JSON.stringify({
@@ -269,7 +285,7 @@ export async function executeSearchTool(
       cached: result.cached,
     });
   }
-  const toolResult: ContentBlockParam = {
+  const toolResult: ToolResultBlock = {
     type: 'tool_result',
     tool_use_id: search.toolUseId,
     content,

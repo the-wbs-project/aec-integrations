@@ -1,8 +1,11 @@
 // ---------------------------------------------------------------------------
-// SERP service — dispatch on env.SEARCH_PROVIDER.
+// SERP service — single-provider wrapper around SearchAPI.io.
+//
+// SerpAPI was removed; SearchAPI is the only provider. The function name
+// stays `runSerpSearch` because callers (workflows) use it as the generic
+// "run a Google search" entry point.
 // ---------------------------------------------------------------------------
-import type { Env, SearchProvider } from '../../env';
-import { searchSerpApi } from './serpapi';
+import type { Env } from '../../env';
 import { searchSearchApi } from './searchapi';
 
 export interface SerpResult {
@@ -11,21 +14,18 @@ export interface SerpResult {
   cached: boolean;
 }
 
+/** Optional attribution for usage tracking (workflow + runId). */
+export interface SerpAttribution {
+  runId: string;
+  workflow: string;
+}
+
 export async function runSerpSearch(
   env: Env,
   params: Record<string, string>,
-  providerOverride?: SearchProvider,
+  attribution?: SerpAttribution,
 ): Promise<SerpResult> {
-  const provider = providerOverride ?? env.SEARCH_PROVIDER ?? 'searchapi';
-  switch (provider) {
-    case 'searchapi':
-      return searchSearchApi(env, params);
-    case 'serpapi':
-      return searchSerpApi(env, params);
-    default:
-      console.error(`runSerpSearch: unknown provider=${provider}`);
-      return { status: 500, body: { error: `Unknown SEARCH_PROVIDER: ${provider}` }, cached: false };
-  }
+  return searchSearchApi(env, params, attribution);
 }
 
 /**
