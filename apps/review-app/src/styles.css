@@ -2,6 +2,16 @@
    AEC Integrations Review -- Global Design Tokens & Base Classes
    ============================================================ */
 
+/* Syncfusion theme — tailwind variant pairs cleanly with our token system */
+@import url('@syncfusion/ej2-base/styles/tailwind.css');
+@import url('@syncfusion/ej2-buttons/styles/tailwind.css');
+@import url('@syncfusion/ej2-popups/styles/tailwind.css');
+@import url('@syncfusion/ej2-inputs/styles/tailwind.css');
+@import url('@syncfusion/ej2-lists/styles/tailwind.css');
+@import url('@syncfusion/ej2-dropdowns/styles/tailwind.css');
+@import url('@syncfusion/ej2-grids/styles/tailwind.css');
+@import url('@syncfusion/ej2-splitbuttons/styles/tailwind.css');
+
 /* ----- Light mode (default) ----- */
 :root {
   color-scheme: light;

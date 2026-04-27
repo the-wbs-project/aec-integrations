@@ -27,7 +27,7 @@ function authHeaders(env: Env): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     'X-GitHub-Api-Version': API_VERSION,
-    'User-Agent': 'aec-workflow-worker',
+    'User-Agent': 'aeci-review',
   };
   if (env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`;
   return headers;

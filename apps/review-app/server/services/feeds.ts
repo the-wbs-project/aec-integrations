@@ -22,7 +22,7 @@ export async function fetchFeed(url: string, timeoutMs = 10_000): Promise<string
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { 'User-Agent': 'aec-workflow-worker' },
+      headers: { 'User-Agent': 'aeci-review' },
     });
     if (!res.ok) throw new Error(`Feed fetch ${url} failed: ${res.status}`);
     return await res.text();

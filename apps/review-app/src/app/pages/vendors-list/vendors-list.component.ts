@@ -13,13 +13,22 @@ import { Subject } from 'rxjs';
 import { debounceTime, takeUntil } from 'rxjs/operators';
 import { ApiService } from '../../services/api.service';
 import { Vendor } from '../../types';
+import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 
 @Component({
   selector: 'app-vendors-list',
-  imports: [RouterLink, FormsModule, DecimalPipe],
+  imports: [RouterLink, FormsModule, DecimalPipe, EnrichSplitButtonComponent],
   template: `
     <div class="page-container--wide">
-      <h1 class="page-heading">Vendors</h1>
+      <div class="page-header">
+        <h1 class="page-heading">Vendors</h1>
+        <div class="page-header__actions">
+          <app-enrich-split-button
+            family="vendor"
+            [filteredIds]="filteredIds()"
+          />
+        </div>
+      </div>
 
       <!-- Search -->
       <div class="filter-bar">
@@ -160,11 +169,25 @@ import { Vendor } from '../../types';
     </div>
   `,
   styles: `
+    .page-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: var(--space-3);
+      margin-bottom: var(--space-5);
+    }
+
     .page-heading {
       font-size: var(--text-xl);
       font-weight: 500;
       color: var(--color-text-primary);
-      margin-bottom: var(--space-5);
+      margin: 0;
+    }
+
+    .page-header__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
     }
 
     .filter-bar {
@@ -260,6 +283,9 @@ export class VendorsListComponent implements OnInit {
   rangeEnd = computed(() =>
     Math.min(this.offset() + this.limit(), this.total())
   );
+
+  // IDs of the vendors currently in view — feeds the bulk-enrich split-button.
+  filteredIds = computed(() => this.vendors().map((v) => v.id));
 
   // Only columns backed by a server-side sort case get a sortKey.
   columns: { key: string; label: string; sortKey?: string }[] = [

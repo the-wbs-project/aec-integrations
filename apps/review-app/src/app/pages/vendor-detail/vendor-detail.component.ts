@@ -1,13 +1,14 @@
-import { Component, OnInit, inject, signal, input } from '@angular/core';
+import { Component, OnInit, inject, signal, input, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { ApiService } from '../../services/api.service';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import { VendorDetail } from '../../types';
+import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 
 @Component({
   selector: 'app-vendor-detail',
-  imports: [RouterLink, CurrencyPipe, DecimalPipe],
+  imports: [RouterLink, CurrencyPipe, DecimalPipe, EnrichSplitButtonComponent],
   template: `
     @if (vendor(); as vendor) {
       <div class="page-container">
@@ -33,8 +34,14 @@ import { VendorDetail } from '../../types';
                 <span>{{ vendorInitials(vendor.companyName) }}</span>
               }
             </span>
-            <div>
-              <h1 class="detail-title">{{ vendor.companyName }}</h1>
+            <div class="detail-header__title-block">
+              <div class="detail-header__title-row">
+                <h1 class="detail-title">{{ vendor.companyName }}</h1>
+                <app-enrich-split-button
+                  family="vendor"
+                  [recordIds]="recordIds()"
+                />
+              </div>
               @if (vendor.website) {
                 <a [href]="vendor.website" target="_blank" rel="noopener noreferrer" class="external-link">
                   {{ vendor.website }}
@@ -382,12 +389,20 @@ import { VendorDetail } from '../../types';
       vertical-align: bottom;
     }
 
+    .detail-header__title-block { flex: 1; min-width: 0; }
+    .detail-header__title-row {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      flex-wrap: wrap;
+    }
+
     .detail-title {
       font-size: var(--text-2xl);
       font-weight: 500;
       color: var(--color-text-primary);
       line-height: var(--leading-tight);
-      margin-bottom: var(--space-1);
+      margin: 0 0 var(--space-1);
     }
 
     .external-link {
@@ -502,6 +517,7 @@ export class VendorDetailComponent implements OnInit {
   private api = inject(ApiService);
   vendor = signal<VendorDetail | null>(null);
   logoFailed = signal(false);
+  recordIds = computed(() => (this.vendor() ? [this.id()] : []));
 
   ngOnInit(): void {
     this.api.getVendor(this.id()).subscribe((vendor) => {

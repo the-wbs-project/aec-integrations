@@ -19,15 +19,22 @@ import {
   LinkRef,
   PaginatedResponse,
 } from '../../types';
+import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 
 @Component({
   selector: 'app-tools-list',
-  imports: [RouterLink, FormsModule, DecimalPipe],
+  imports: [RouterLink, FormsModule, DecimalPipe, EnrichSplitButtonComponent],
   template: `
     <div class="page-container--wide">
       <div class="page-header">
         <h1 class="page-heading">Tools</h1>
-        <a routerLink="/tools/new" class="btn btn--primary btn--sm">+ New tool</a>
+        <div class="page-header__actions">
+          <app-enrich-split-button
+            family="tool"
+            [filteredIds]="filteredIds()"
+          />
+          <a routerLink="/tools/new" class="btn btn--primary btn--sm">+ New tool</a>
+        </div>
       </div>
 
       <!-- Filter bar -->
@@ -320,6 +327,12 @@ import {
       margin: 0;
     }
 
+    .page-header__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
     .pill-overflow {
       position: relative;
       cursor: default;
@@ -530,6 +543,10 @@ export class ToolsListComponent implements OnInit {
   rangeEnd = computed(() =>
     Math.min(this.offset() + this.limit(), this.total())
   );
+
+  // IDs of the tools currently in view — feeds the bulk-enrich split-button
+  // when the user hasn't selected specific rows.
+  filteredIds = computed(() => this.tools().map((t) => t.id));
 
   columns: Array<{
     key: string;

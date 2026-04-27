@@ -1,9 +1,10 @@
-import { Component, OnInit, inject, signal, input } from '@angular/core';
+import { Component, OnInit, inject, signal, input, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 import { TagInputComponent } from '../../components/tag-input/tag-input.component';
+import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import {
   LinkRef,
@@ -45,7 +46,7 @@ interface DraftState {
 
 @Component({
   selector: 'app-tool-detail',
-  imports: [RouterLink, DecimalPipe, FormsModule, TagInputComponent],
+  imports: [RouterLink, DecimalPipe, FormsModule, TagInputComponent, EnrichSplitButtonComponent],
   template: `
     @if (tool(); as tool) {
       <div class="page-container">
@@ -79,7 +80,13 @@ interface DraftState {
           } @else {
             <div class="header-row">
               <h1 class="detail-title">{{ tool.name }}</h1>
-              <button class="btn btn--ghost btn--sm" (click)="startEdit('header', tool)">Edit</button>
+              <div class="header-row__actions">
+                <app-enrich-split-button
+                  family="tool"
+                  [recordIds]="recordIds()"
+                />
+                <button class="btn btn--ghost btn--sm" (click)="startEdit('header', tool)">Edit</button>
+              </div>
             </div>
             <div class="detail-meta">
               @for (v of tool.vendors; track v.id) {
@@ -675,6 +682,12 @@ interface DraftState {
       margin-bottom: var(--space-3);
     }
 
+    .header-row__actions {
+      display: flex;
+      align-items: center;
+      gap: var(--space-2);
+    }
+
     .detail-title {
       font-size: var(--text-2xl);
       font-weight: 500;
@@ -942,6 +955,7 @@ export class ToolDetailComponent implements OnInit {
   private api = inject(ApiService);
   tool = signal<ToolDetail | null>(null);
   meta = signal<MetaResponse | null>(null);
+  recordIds = computed(() => (this.tool() ? [this.id()] : []));
 
   activeTab = signal<'details' | 'notes'>('details');
   editingSection = signal<SectionKey | null>(null);

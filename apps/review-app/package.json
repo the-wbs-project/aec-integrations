@@ -6,7 +6,8 @@
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build",
     "dev": "ng build --watch & wrangler dev",
-    "deploy": "ng build && wrangler deploy"
+    "deploy": "ng build && wrangler deploy",
+    "tail": "wrangler tail"
   },
   "dependencies": {
     "@angular/common": "^21.0.0",
@@ -15,19 +16,36 @@
     "@angular/forms": "^21.0.0",
     "@angular/platform-browser": "^21.0.0",
     "@angular/router": "^21.0.0",
+    "@cloudflare/puppeteer": "^1.0.0",
+    "@syncfusion/ej2-angular-buttons": "^33.2.3",
+    "@syncfusion/ej2-angular-dropdowns": "^33.2.3",
+    "@syncfusion/ej2-angular-grids": "^33.2.3",
+    "@syncfusion/ej2-angular-inputs": "^33.2.3",
+    "@syncfusion/ej2-angular-navigations": "^33.2.3",
+    "@syncfusion/ej2-angular-notifications": "^33.2.3",
+    "@syncfusion/ej2-angular-popups": "^33.2.3",
+    "@syncfusion/ej2-angular-splitbuttons": "^33.2.3",
+    "@syncfusion/ej2-base": "^33.2.3",
+    "@syncfusion/ej2-buttons": "^33.2.3",
+    "@syncfusion/ej2-dropdowns": "^33.2.3",
+    "@syncfusion/ej2-grids": "^33.2.3",
+    "@syncfusion/ej2-inputs": "^33.2.3",
+    "@syncfusion/ej2-lists": "^33.2.3",
+    "@syncfusion/ej2-popups": "^33.2.3",
+    "@syncfusion/ej2-splitbuttons": "^33.2.3",
+    "fast-xml-parser": "^4.5.1",
     "hono": "^4.12.12",
-    "airtable": "^0.12.2",
     "lucide-angular": "^0.525.0",
     "rxjs": "^7.8.1",
-    "zone.js": "^0.15.0",
-    "tslib": "^2.8.0"
+    "tslib": "^2.8.0",
+    "zone.js": "^0.15.0"
   },
   "devDependencies": {
     "@angular/build": "^21.0.0",
     "@angular/cli": "^21.0.0",
     "@angular/compiler-cli": "^21.0.0",
-    "@cloudflare/workers-types": "^4.0.0",
+    "@cloudflare/workers-types": "^4.20260424.1",
     "typescript": "~5.9.0",
-    "wrangler": "^4.81.0"
+    "wrangler": "^4.85.0"
   }
 }

@@ -5,7 +5,7 @@ import {
   fetchProjectPhases,
   fetchTools,
   fetchVendors,
-} from '../airtable';
+} from '../services/airtable';
 import type { Env, MetaResponse } from '../types';
 
 const meta = new Hono<{ Bindings: Env }>();

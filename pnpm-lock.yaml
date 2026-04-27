@@ -48,64 +48,6 @@ importers:
       '@angular/router':
         specifier: ^21.0.0
         version: 21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(@angular/platform-browser@21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1)))(rxjs@7.8.2)
-      airtable:
-        specifier: ^0.12.2
-        version: 0.12.2
-      hono:
-        specifier: ^4.12.12
-        version: 4.12.12
-      lucide-angular:
-        specifier: ^0.525.0
-        version: 0.525.0(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))
-      rxjs:
-        specifier: ^7.8.1
-        version: 7.8.2
-      tslib:
-        specifier: ^2.8.0
-        version: 2.8.1
-      zone.js:
-        specifier: ^0.15.0
-        version: 0.15.1
-    devDependencies:
-      '@angular/build':
-        specifier: ^21.0.0
-        version: 21.2.7(@angular/compiler-cli@21.2.8(@angular/compiler@21.2.8)(typescript@5.9.3))(@angular/compiler@21.2.8)(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(@angular/platform-browser@21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1)))(@emnapi/core@1.9.2)(@emnapi/runtime@1.8.1)(chokidar@5.0.0)(postcss@8.5.9)(tslib@2.8.1)(typescript@5.9.3)
-      '@angular/cli':
-        specifier: ^21.0.0
-        version: 21.2.7(chokidar@5.0.0)
-      '@angular/compiler-cli':
-        specifier: ^21.0.0
-        version: 21.2.8(@angular/compiler@21.2.8)(typescript@5.9.3)
-      '@cloudflare/workers-types':
-        specifier: ^4.0.0
-        version: 4.20260413.1
-      typescript:
-        specifier: ~5.9.0
-        version: 5.9.3
-      wrangler:
-        specifier: ^4.81.0
-        version: 4.81.0(@cloudflare/workers-types@4.20260413.1)
-
-  apps/workflow-worker:
-    dependencies:
-      '@angular/common':
-        specifier: ^21.0.0
-        version: 21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2)
-      '@angular/compiler':
-        specifier: ^21.0.0
-        version: 21.2.8
-      '@angular/core':
-        specifier: ^21.0.0
-        version: 21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1)
-      '@angular/forms':
-        specifier: ^21.0.0
-        version: 21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(@angular/platform-browser@21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1)))(rxjs@7.8.2)
-      '@angular/platform-browser':
-        specifier: ^21.0.0
-        version: 21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))
-      '@angular/router':
-        specifier: ^21.0.0
-        version: 21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(@angular/platform-browser@21.2.8(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1)))(rxjs@7.8.2)
       '@cloudflare/puppeteer':
         specifier: ^1.0.0
         version: 1.1.0
@@ -115,7 +57,22 @@ importers:
       '@syncfusion/ej2-angular-dropdowns':
         specifier: ^33.2.3
         version: 33.2.3
+      '@syncfusion/ej2-angular-grids':
+        specifier: ^33.2.3
+        version: 33.2.3
       '@syncfusion/ej2-angular-inputs':
+        specifier: ^33.2.3
+        version: 33.2.3
+      '@syncfusion/ej2-angular-navigations':
+        specifier: ^33.2.3
+        version: 33.2.3
+      '@syncfusion/ej2-angular-notifications':
+        specifier: ^33.2.3
+        version: 33.2.3
+      '@syncfusion/ej2-angular-popups':
+        specifier: ^33.2.3
+        version: 33.2.3
+      '@syncfusion/ej2-angular-splitbuttons':
         specifier: ^33.2.3
         version: 33.2.3
       '@syncfusion/ej2-base':
@@ -127,6 +84,9 @@ importers:
       '@syncfusion/ej2-dropdowns':
         specifier: ^33.2.3
         version: 33.2.3
+      '@syncfusion/ej2-grids':
+        specifier: ^33.2.3
+        version: 33.2.3
       '@syncfusion/ej2-inputs':
         specifier: ^33.2.3
         version: 33.2.3
@@ -136,12 +96,18 @@ importers:
       '@syncfusion/ej2-popups':
         specifier: ^33.2.3
         version: 33.2.3
+      '@syncfusion/ej2-splitbuttons':
+        specifier: ^33.2.3
+        version: 33.2.3
       fast-xml-parser:
         specifier: ^4.5.1
         version: 4.5.6
       hono:
         specifier: ^4.12.12
         version: 4.12.12
+      lucide-angular:
+        specifier: ^0.525.0
+        version: 0.525.0(@angular/common@21.2.8(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))(rxjs@7.8.2))(@angular/core@21.2.8(@angular/compiler@21.2.8)(rxjs@7.8.2)(zone.js@0.15.1))
       rxjs:
         specifier: ^7.8.1
         version: 7.8.2
@@ -556,9 +522,6 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
-
-  '@cloudflare/workers-types@4.20260413.1':
-    resolution: {integrity: sha512-4FFHIVIk645Wf20eCVfe0eM3ERsEw98DFng76QZf1C1JMgIVlfSV2gZF1EyXxNVwOG0RM/CBlu07+u/Z/0Oq9Q==}
 
   '@cloudflare/workers-types@4.20260426.1':
     resolution: {integrity: sha512-cBYeQaWwv/jFV8ualmwp6wIxmAf0rDe2DPPQwPbslKmPHqgv861YpAvm45r05K40QboZgxNQVIPgNkmtHqZeJQ==}
@@ -1671,8 +1634,23 @@ packages:
   '@syncfusion/ej2-angular-dropdowns@33.2.3':
     resolution: {integrity: sha512-BjE1GlCecVE318WtJ/DVr8Oqqe4is+2Nmo8pMfwm0kB4rJ1xiucaofcWwjeFRL4Gg2ErTzNHiDYwrX/fmLyrDA==}
 
+  '@syncfusion/ej2-angular-grids@33.2.3':
+    resolution: {integrity: sha512-JkoE1IZosGUPdWxXqtA7aAkbCEfVPUTCGBr61d/7U6/JDFrqtuYuFa8wVd5UEFiHjjOB5ry9RcdVL44NF3PtyA==}
+
   '@syncfusion/ej2-angular-inputs@33.2.3':
     resolution: {integrity: sha512-+L5lHkLhxkXoOHc780ze/7UN32FngHipLUfC97Tf20TUlVmpZYenrgunuOU/mSWzZAIsXit/smQEfx7Qgz2akQ==}
+
+  '@syncfusion/ej2-angular-navigations@33.2.3':
+    resolution: {integrity: sha512-xH8jJF+Lgh8hk85ue4AChzEmxqp93FF+Hp9GspS3QCKbCgHuemFOjrpwAt71g53pCf+49Aaj/wbpLa/BWBh+LA==}
+
+  '@syncfusion/ej2-angular-notifications@33.2.3':
+    resolution: {integrity: sha512-ENr+5RXDCEp4iakdys91VAahGh13EDGmTe2qq3JIe2hmfLmN/d75iUm5gTT+9UzThbxVxkBLF9w6es4+6Bxo+A==}
+
+  '@syncfusion/ej2-angular-popups@33.2.3':
+    resolution: {integrity: sha512-N9waNgxQJtM6hL3tLYO8lqXWPB0W8oKwMFCUUnsn41Wp4IDExCTW2bxNTnr/2xvMnGoR0H5BKAESrmgh3EJLjA==}
+
+  '@syncfusion/ej2-angular-splitbuttons@33.2.3':
+    resolution: {integrity: sha512-P9JMKvgN9CLCeF+muriqMSSLcncPpgSG7L0K4ZJ2ku1vf+xk5+x9zU+ujNzuhJMZuEXLURQNDbG1TQ2EAmYTRg==}
 
   '@syncfusion/ej2-base@33.2.3':
     resolution: {integrity: sha512-EmBGfKdf+4qmqRPjjjiVnYM/3WEuHaoXNYqYp6bzrwQXARzqgLXgvo+hQkGnRE6ge7WbHMkPkCGyfFxJOufZcw==}
@@ -1681,11 +1659,26 @@ packages:
   '@syncfusion/ej2-buttons@33.2.3':
     resolution: {integrity: sha512-vz6BUQvSJcp40IFodO9DLI3cXNIoBxSFr+rBuv4QPXcqRYNAkXf1wSvfG4Do5pXSFcPvTBzsH33DagH0fXu+EA==}
 
+  '@syncfusion/ej2-calendars@33.2.3':
+    resolution: {integrity: sha512-J4CCfm2Flnq9N1p0C1/NTLWoWZTF8Soi4TM/vj97Z4te9URppKvQIVS1q2oLOx76+xd+FBB8nd95c7UeQzzf1g==}
+
+  '@syncfusion/ej2-compression@33.2.3':
+    resolution: {integrity: sha512-RCbWHyZN8FdLCZC/2Su/55mq9GWfLqvXXx5FjhXTsStUGmy1mdczsDswBVOe/HjSSzHAJF/99X9kcLa8rDTiSw==}
+
   '@syncfusion/ej2-data@33.2.3':
     resolution: {integrity: sha512-4dO/oJb9m5MwjG2ClPdpjVbx0WqXr2Ngo0xKdijgq0G6TBRjDu9/JxcRp6I6gL5VnBJKj/nkUfUJz8KKPzhbjA==}
 
   '@syncfusion/ej2-dropdowns@33.2.3':
     resolution: {integrity: sha512-DFiwpu8lL/XRxSm+p3VA6APj56xEwngF3EsS1g4gO1TMYm116b3n5HsscOSZh28mF84g1dh8wQpzW5Hsz4L0GQ==}
+
+  '@syncfusion/ej2-excel-export@33.2.3':
+    resolution: {integrity: sha512-QBaiucv6KSz3caOYcGd+zdL3nXnl2v41chvGTZNNtpcT8ijYjR6PW3WIRzpfXjgecU2LK4GVmfqaTKUqJbcgxA==}
+
+  '@syncfusion/ej2-file-utils@33.2.3':
+    resolution: {integrity: sha512-f4HClbAtDpz3iAJHAxxMib/wtS1xL2V3HHwnZXXNTieQx7OE2Gx6zRYLACskTrZxs2n78exK7LqZaWsJlFAP/A==}
+
+  '@syncfusion/ej2-grids@33.2.3':
+    resolution: {integrity: sha512-6vdeWCobD8FkjeywH/wc1AMmrQ1naQ/M/Y2yQnOU8aFnEyAIAZZbR8NXDhbfhE8a1/ihQZCg2PEUPwQcsbssvA==}
 
   '@syncfusion/ej2-icons@33.2.3':
     resolution: {integrity: sha512-9Y8zZPQCvQuk64p5J5Gp4uX1kH3pjNJd5Ho8qP8jOSfk90FBeSQ9O4CjcMbcNtZ9KLIajLU3gytV98R6FGE+OA==}
@@ -1701,6 +1694,9 @@ packages:
 
   '@syncfusion/ej2-notifications@33.2.3':
     resolution: {integrity: sha512-Nd7tjB6xNxVpjT8rLLxpzNrOxA7p2Pq2VDM/DA87tQkqx4C5GeifPob2+KFhM5o3sEmA9S3yvqa4vaD5JZ855w==}
+
+  '@syncfusion/ej2-pdf-export@33.2.3':
+    resolution: {integrity: sha512-+wj/v2asr9E5OQ9CS/ZKIWfa4J/kiPlWNg8PxxCcdhQL78HXcIfvXGmrfGLVzG/EtxWye3Ohs/d5Zhgq5zzCOg==}
 
   '@syncfusion/ej2-popups@33.2.3':
     resolution: {integrity: sha512-HKnJV8QBqdu1B0MWBdM7aEJ6ccu/50U2HVMgl/TP88cUlAI/YBSvVq1WRti/rcxCBvvGjPJmFiqVZT/nwoilTQ==}
@@ -1744,13 +1740,6 @@ packages:
     resolution: {integrity: sha512-a1wflyaL0tHtJSmLSOVybYhy22vRih4eduhhrkcjgrWGnRfrZtovJ2FRjxuTtkkj47O/baf0R86QU5OuYpz8fA==}
     engines: {node: ^20.17.0 || >=22.9.0}
 
-  abort-controller@3.0.0:
-    resolution: {integrity: sha512-h8lQ8tacZYnR3vNQTgibj+tODHI5/+l06Au2Pcriv/Gmet0eaj4TwWH41sO9wnHDiQsEj19q0drzdWdeAHtweg==}
-    engines: {node: '>=6.5'}
-
-  abortcontroller-polyfill@1.7.8:
-    resolution: {integrity: sha512-9f1iZ2uWh92VcrU9Y8x+LdM4DLj75VE0MJB8zuF1iUnroEptStw+DQ8EQPMUdfe5k+PkB1uUfDQfWbhstH8LrQ==}
-
   accepts@2.0.0:
     resolution: {integrity: sha512-5cvg6CtKwfgdmVqY1WIiXKc3Q1bkRqGLi+2W/6ao+6Y7gu/RCwRuAhGEzh5B4KlszSuTLgZYuqFqo5bImjNKng==}
     engines: {node: '>= 0.6'}
@@ -1758,10 +1747,6 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
-
-  airtable@0.12.2:
-    resolution: {integrity: sha512-HS3VytUBTKj8A0vPl7DDr5p/w3IOGv6RXL0fv7eczOWAtj9Xe8ri4TAiZRXoOyo+Z/COADCj+oARFenbxhmkIg==}
-    engines: {node: '>=8.0.0'}
 
   ajv-formats@3.0.1:
     resolution: {integrity: sha512-8iUql50EUR+uUcdRQ3HDqa6EVyo3docL8g5WJ3FNcWmu62IbkGUue/pEyLBW8VGKKucTPgqeks4fIU1DA4yowQ==}
@@ -2148,10 +2133,6 @@ packages:
     resolution: {integrity: sha512-aIL5Fx7mawVa300al2BnEE4iNvo1qETxLrPI/o05L7z6go7fCw1J6EQmbK4FmJ2AS7kgVF/KEZWufBfdClMcPg==}
     engines: {node: '>= 0.6'}
 
-  event-target-shim@5.0.1:
-    resolution: {integrity: sha512-i/2XbnSz/uxRCU6+NdVJgKWDTM427+MqYbkQzD321DuCQJUqOuJKIA0IM2+W2xtYHdKOmZ4dR6fExsd4SXL+WQ==}
-    engines: {node: '>=6'}
-
   eventemitter3@5.0.4:
     resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
 
@@ -2425,9 +2406,6 @@ packages:
     resolution: {integrity: sha512-NYHA0MRPjvNX+vSw8Xxg6FLKxzAG+e7Pt8RqAQA/EehzHVXq9SxDqJIN3JL1hK0dweb884y8kIh6rkWvPyg9Wg==}
     hasBin: true
 
-  lodash@4.18.1:
-    resolution: {integrity: sha512-dMInicTPVE8d1e5otfwmmjlxkZoUpiVLwyeTdUsi/Caj/gfzzblBcCE5sRHV/AsjuCmxWrte2TNGSYuCeCq+0Q==}
-
   log-symbols@7.0.1:
     resolution: {integrity: sha512-ja1E3yCr9i/0hmBVaM0bfwDjnGy8I/s6PP4DFp+yP+a+mrHO4Rm7DtmnqROTUkHIkqffC84YY7AeqX6oFk0WFg==}
     engines: {node: '>=18'}
@@ -2571,15 +2549,6 @@ packages:
 
   node-addon-api@7.1.1:
     resolution: {integrity: sha512-5m3bsyrjFWE1xf7nz7YXdN4udnVtXK6/Yfgn5qnahL6bCkf2yKt4k3nuTKAtT4r3IG8JNR2ncsIMdZuAzJjHQQ==}
-
-  node-fetch@2.7.0:
-    resolution: {integrity: sha512-c4FRfUm/dbcWZ7U+1Wq0AwCyFL+3nt2bEw05wfxSz+DWpWsitgmSgYmy2dQdWyKC1694ELPqMs/YzUSNozLt8A==}
-    engines: {node: 4.x || >=6.0.0}
-    peerDependencies:
-      encoding: ^0.1.0
-    peerDependenciesMeta:
-      encoding:
-        optional: true
 
   node-gyp-build-optional-packages@5.2.2:
     resolution: {integrity: sha512-s+w+rBWnpTMwSFbaE0UXsRlg7hU4FjekKU4eyAih5T8nJuNZT1nNsskXpxmeqSK9UzkBl6UgRlnKc8hz8IEqOw==}
@@ -2999,9 +2968,6 @@ packages:
     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
     engines: {node: '>=0.6'}
 
-  tr46@0.0.3:
-    resolution: {integrity: sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==}
-
   tslib@2.8.1:
     resolution: {integrity: sha512-oJFu94HQb+KVduSUQL7wnpmqnfmLsOA/nAh6b6EH0wCEoK0/mPeXU6c3wKDV83MkOuHPRHtSXKKU99IBazS/2w==}
 
@@ -3096,12 +3062,6 @@ packages:
 
   weak-lru-cache@1.2.2:
     resolution: {integrity: sha512-DEAoo25RfSYMuTGc9vPJzZcZullwIqRDSI9LOy+fkCJPi6hykCnfKaXTuPBDuXAUcqHXyOgFtHNp/kB2FjYHbw==}
-
-  webidl-conversions@3.0.1:
-    resolution: {integrity: sha512-2JAn3z8AR6rjK8Sm8orRC0h/bcl/DqL7tRPdGZ4I1CjdF+EaMLmYxBHyXuKL849eucPFhvBoxMsflfOb8kxaeQ==}
-
-  whatwg-url@5.0.0:
-    resolution: {integrity: sha512-saE57nupxk6v3HY35+jzBwYa0rKSy0XR8JSxZPwgLr7ys0IBzhGviA1/TUGJLmSVqs8pb9AnvICXEuOHLprYTw==}
 
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
@@ -3684,8 +3644,6 @@ snapshots:
 
   '@cloudflare/workerd-windows-64@1.20260424.1':
     optional: true
-
-  '@cloudflare/workers-types@4.20260413.1': {}
 
   '@cloudflare/workers-types@4.20260426.1': {}
 
@@ -4500,11 +4458,41 @@ snapshots:
       '@syncfusion/ej2-base': 33.2.3
       '@syncfusion/ej2-dropdowns': 33.2.3
 
+  '@syncfusion/ej2-angular-grids@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-angular-base': 33.2.3
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-grids': 33.2.3
+
   '@syncfusion/ej2-angular-inputs@33.2.3':
     dependencies:
       '@syncfusion/ej2-angular-base': 33.2.3
       '@syncfusion/ej2-base': 33.2.3
       '@syncfusion/ej2-inputs': 33.2.3
+
+  '@syncfusion/ej2-angular-navigations@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-angular-base': 33.2.3
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-navigations': 33.2.3
+
+  '@syncfusion/ej2-angular-notifications@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-angular-base': 33.2.3
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-notifications': 33.2.3
+
+  '@syncfusion/ej2-angular-popups@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-angular-base': 33.2.3
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-popups': 33.2.3
+
+  '@syncfusion/ej2-angular-splitbuttons@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-angular-base': 33.2.3
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-splitbuttons': 33.2.3
 
   '@syncfusion/ej2-base@33.2.3':
     dependencies:
@@ -4513,6 +4501,18 @@ snapshots:
   '@syncfusion/ej2-buttons@33.2.3':
     dependencies:
       '@syncfusion/ej2-base': 33.2.3
+
+  '@syncfusion/ej2-calendars@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-buttons': 33.2.3
+      '@syncfusion/ej2-inputs': 33.2.3
+      '@syncfusion/ej2-lists': 33.2.3
+      '@syncfusion/ej2-popups': 33.2.3
+
+  '@syncfusion/ej2-compression@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-file-utils': 33.2.3
 
   '@syncfusion/ej2-data@33.2.3':
     dependencies:
@@ -4527,6 +4527,31 @@ snapshots:
       '@syncfusion/ej2-navigations': 33.2.3
       '@syncfusion/ej2-notifications': 33.2.3
       '@syncfusion/ej2-popups': 33.2.3
+
+  '@syncfusion/ej2-excel-export@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-compression': 33.2.3
+
+  '@syncfusion/ej2-file-utils@33.2.3': {}
+
+  '@syncfusion/ej2-grids@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-base': 33.2.3
+      '@syncfusion/ej2-buttons': 33.2.3
+      '@syncfusion/ej2-calendars': 33.2.3
+      '@syncfusion/ej2-compression': 33.2.3
+      '@syncfusion/ej2-data': 33.2.3
+      '@syncfusion/ej2-dropdowns': 33.2.3
+      '@syncfusion/ej2-excel-export': 33.2.3
+      '@syncfusion/ej2-file-utils': 33.2.3
+      '@syncfusion/ej2-inputs': 33.2.3
+      '@syncfusion/ej2-lists': 33.2.3
+      '@syncfusion/ej2-navigations': 33.2.3
+      '@syncfusion/ej2-notifications': 33.2.3
+      '@syncfusion/ej2-pdf-export': 33.2.3
+      '@syncfusion/ej2-popups': 33.2.3
+      '@syncfusion/ej2-splitbuttons': 33.2.3
 
   '@syncfusion/ej2-icons@33.2.3': {}
 
@@ -4559,6 +4584,10 @@ snapshots:
       '@syncfusion/ej2-buttons': 33.2.3
       '@syncfusion/ej2-popups': 33.2.3
 
+  '@syncfusion/ej2-pdf-export@33.2.3':
+    dependencies:
+      '@syncfusion/ej2-compression': 33.2.3
+
   '@syncfusion/ej2-popups@33.2.3':
     dependencies:
       '@syncfusion/ej2-base': 33.2.3
@@ -4585,7 +4614,8 @@ snapshots:
 
   '@types/estree@1.0.8': {}
 
-  '@types/node@14.18.63': {}
+  '@types/node@14.18.63':
+    optional: true
 
   '@types/yauzl@2.10.3':
     dependencies:
@@ -4600,28 +4630,12 @@ snapshots:
 
   abbrev@4.0.0: {}
 
-  abort-controller@3.0.0:
-    dependencies:
-      event-target-shim: 5.0.1
-
-  abortcontroller-polyfill@1.7.8: {}
-
   accepts@2.0.0:
     dependencies:
       mime-types: 3.0.2
       negotiator: 1.0.0
 
   agent-base@7.1.4: {}
-
-  airtable@0.12.2:
-    dependencies:
-      '@types/node': 14.18.63
-      abort-controller: 3.0.0
-      abortcontroller-polyfill: 1.7.8
-      lodash: 4.18.1
-      node-fetch: 2.7.0
-    transitivePeerDependencies:
-      - encoding
 
   ajv-formats@3.0.1(ajv@8.18.0):
     optionalDependencies:
@@ -4998,8 +5012,6 @@ snapshots:
 
   etag@1.8.1: {}
 
-  event-target-shim@5.0.1: {}
-
   eventemitter3@5.0.4: {}
 
   events-universal@1.0.1:
@@ -5300,8 +5312,6 @@ snapshots:
       '@lmdb/lmdb-win32-x64': 3.5.1
     optional: true
 
-  lodash@4.18.1: {}
-
   log-symbols@7.0.1:
     dependencies:
       is-unicode-supported: 2.1.0
@@ -5472,10 +5482,6 @@ snapshots:
 
   node-addon-api@7.1.1:
     optional: true
-
-  node-fetch@2.7.0:
-    dependencies:
-      whatwg-url: 5.0.0
 
   node-gyp-build-optional-packages@5.2.2:
     dependencies:
@@ -6075,8 +6081,6 @@ snapshots:
 
   toidentifier@1.0.1: {}
 
-  tr46@0.0.3: {}
-
   tslib@2.8.1: {}
 
   tuf-js@4.1.0:
@@ -6140,13 +6144,6 @@ snapshots:
   weak-lru-cache@1.2.2:
     optional: true
 
-  webidl-conversions@3.0.1: {}
-
-  whatwg-url@5.0.0:
-    dependencies:
-      tr46: 0.0.3
-      webidl-conversions: 3.0.1
-
   which@2.0.2:
     dependencies:
       isexe: 2.0.0
@@ -6178,23 +6175,6 @@ snapshots:
       '@cloudflare/workerd-linux-64': 1.20260424.1
       '@cloudflare/workerd-linux-arm64': 1.20260424.1
       '@cloudflare/workerd-windows-64': 1.20260424.1
-
-  wrangler@4.81.0(@cloudflare/workers-types@4.20260413.1):
-    dependencies:
-      '@cloudflare/kv-asset-handler': 0.4.2
-      '@cloudflare/unenv-preset': 2.16.0(unenv@2.0.0-rc.24)(workerd@1.20260405.1)
-      blake3-wasm: 2.1.5
-      esbuild: 0.27.3
-      miniflare: 4.20260405.0
-      path-to-regexp: 6.3.0
-      unenv: 2.0.0-rc.24
-      workerd: 1.20260405.1
-    optionalDependencies:
-      '@cloudflare/workers-types': 4.20260413.1
-      fsevents: 2.3.3
-    transitivePeerDependencies:
-      - bufferutil
-      - utf-8-validate
 
   wrangler@4.81.0(@cloudflare/workers-types@4.20260426.1):
     dependencies:

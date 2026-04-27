@@ -1,12 +1,14 @@
 // ---------------------------------------------------------------------------
 // Cloudflare Worker environment bindings, vars, and secrets.
+//
+// Single source of truth for the merged aeci-review worker. Both the data
+// API (vendors/tools/meta) and the workflow API/runners reference this Env.
 // ---------------------------------------------------------------------------
 import type puppeteer from '@cloudflare/puppeteer';
 import type { RunParams } from './lib/workflow-meta';
 import type { ReportJob } from './services/reports/types';
-// `SendEmail` is the runtime type of a `send_email` binding. The
-// @cloudflare/workers-types package exports it as a global, so we just
-// reference it without importing.
+// `SendEmail` is the runtime type of a `send_email` binding, exposed as a
+// global by @cloudflare/workers-types.
 
 /**
  * Type of the BROWSER binding accepted by puppeteer.launch(). Computed from
