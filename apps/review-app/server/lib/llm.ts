@@ -158,11 +158,20 @@ export interface SearchActivity {
   error?: string;
 }
 
+export interface PendingSearch {
+  toolUseId: string;
+  query: string;
+}
+
 export interface InterpretedResult {
   /** Set when the model called emit_result — final structured answer. */
   emitted?: Record<string, unknown>;
-  /** Set when the model called the custom 'web_search' tool. */
-  pendingSearch?: { toolUseId: string; query: string };
+  /**
+   * All custom 'web_search' tool_use blocks emitted in this turn, in order.
+   * The model can issue several in parallel; every one needs a matching
+   * tool_result in the next user message or the API rejects the conversation.
+   */
+  pendingSearches: PendingSearch[];
   /** True when the model returned without calling any tool. */
   noTool?: boolean;
   stopReason?: string | null;
@@ -174,7 +183,7 @@ export interface InterpretedResult {
 
 export function interpretMessage(message: Message): InterpretedResult {
   let emitted: Record<string, unknown> | undefined;
-  let pendingSearch: { toolUseId: string; query: string } | undefined;
+  const pendingSearches: PendingSearch[] = [];
   const queriesById = new Map<string, string>();
   const searches: SearchActivity[] = [];
 
@@ -187,7 +196,7 @@ export function interpretMessage(message: Message): InterpretedResult {
       } else if (tu.name === 'web_search') {
         const input = tu.input as { query?: unknown };
         if (typeof input.query === 'string') {
-          pendingSearch = { toolUseId: tu.id, query: input.query };
+          pendingSearches.push({ toolUseId: tu.id, query: input.query });
         }
       }
     } else if (block.type === 'server_tool_use') {
@@ -220,8 +229,8 @@ export function interpretMessage(message: Message): InterpretedResult {
 
   return {
     emitted,
-    pendingSearch,
-    noTool: !emitted && !pendingSearch,
+    pendingSearches,
+    noTool: !emitted && pendingSearches.length === 0,
     stopReason: message.stop_reason,
     searches,
     assistantMessage: { role: 'assistant', content: message.content as ContentBlockParam[] },
@@ -251,44 +260,52 @@ export function logTurnSummary(
       resultCount: s.resultCount,
       ...(s.error ? { error: s.error } : {}),
     })),
-    pendingSerp: interpreted.pendingSearch?.query,
+    pendingSerps: interpreted.pendingSearches.map((s) => s.query),
   };
   console.log(`[llm-turn] ${JSON.stringify(summary)}`);
 }
 
 /**
- * Run the SearchAPI custom tool for one tool_use block. Returns the
- * tool_result message that gets appended before the next turn.
+ * Run the SearchAPI custom tool for every pending tool_use block from a
+ * single assistant turn, and return one user message bundling every
+ * tool_result in the same order. The Anthropic API requires a tool_result
+ * for every tool_use in the prior assistant message — even when the model
+ * issued multiple parallel web_search calls — so callers must pass the full
+ * `interpreted.pendingSearches` list.
  */
 export async function executeSearchTool(
   env: Env,
   ctx: LlmContext,
-  search: { toolUseId: string; query: string },
+  searches: PendingSearch | PendingSearch[],
 ): Promise<MessageParam> {
-  const result = await runSerpSearch(
-    env,
-    { q: search.query },
-    { runId: ctx.runId, workflow: ctx.workflow },
-  );
-  let content: string;
-  if (result.status !== 200) {
-    content = JSON.stringify({
-      error: 'search_failed',
-      status: result.status,
-      body: result.body,
-    });
-  } else {
-    const organic = pickOrganicResults(result.body, 5);
-    content = JSON.stringify({
-      query: search.query,
-      results: organic,
-      cached: result.cached,
+  const list = Array.isArray(searches) ? searches : [searches];
+  const blocks: ToolResultBlock[] = [];
+  for (const search of list) {
+    const result = await runSerpSearch(
+      env,
+      { q: search.query },
+      { runId: ctx.runId, workflow: ctx.workflow },
+    );
+    let content: string;
+    if (result.status !== 200) {
+      content = JSON.stringify({
+        error: 'search_failed',
+        status: result.status,
+        body: result.body,
+      });
+    } else {
+      const organic = pickOrganicResults(result.body, 5);
+      content = JSON.stringify({
+        query: search.query,
+        results: organic,
+        cached: result.cached,
+      });
+    }
+    blocks.push({
+      type: 'tool_result',
+      tool_use_id: search.toolUseId,
+      content,
     });
   }
-  const toolResult: ToolResultBlock = {
-    type: 'tool_result',
-    tool_use_id: search.toolUseId,
-    content,
-  };
-  return { role: 'user', content: [toolResult] };
+  return { role: 'user', content: blocks };
 }

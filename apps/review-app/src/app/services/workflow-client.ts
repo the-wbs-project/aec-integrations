@@ -8,6 +8,11 @@ export interface RunStartRequest {
   record_ids: string[];
   model: string;
   search_tool?: 'searchapi' | 'web';
+  /**
+   * For the vendor orchestrator: when true, every leaf is re-run regardless
+   * of its `*_checked_at` staleness field. Default false (respect dates).
+   */
+  force_refresh?: boolean;
 }
 
 export interface RunStartResponse {

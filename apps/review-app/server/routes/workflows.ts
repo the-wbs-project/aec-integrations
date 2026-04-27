@@ -48,6 +48,7 @@ app.post('/:name/run', async (c) => {
     record_id?: string;
     model?: string;
     search_tool?: 'searchapi' | 'web';
+    force_refresh?: boolean;
   }>();
 
   const recordIds = body.record_ids ?? (body.record_id ? [body.record_id] : []);
@@ -68,6 +69,7 @@ app.post('/:name/run', async (c) => {
 
   const requestedSearchTool = body.search_tool ?? c.env.SEARCH_TOOL ?? 'searchapi';
   const searchTool = resolveSearchTool(c.env, requestedSearchTool);
+  const forceRefresh = body.force_refresh === true;
 
   // Spawn one workflow instance per record. Errors creating any single
   // instance fail the whole request — no partial-spawn cleanup.
@@ -75,7 +77,7 @@ app.post('/:name/run', async (c) => {
   try {
     for (const recordId of recordIds) {
       const runId = crypto.randomUUID();
-      const params: RunParams = { recordId, model, searchTool };
+      const params: RunParams = { recordId, model, searchTool, forceRefresh };
       await binding.create({ id: runId, params });
       runs.push({ runId, recordId });
     }

@@ -227,6 +227,7 @@ export function hydrateVendor(
     fundingStage: asString(record.get('funding_stage')),
     githubStarsTotal: asNumber(record.get('github_stars_total')),
     vendorEnrichmentStatus: asString(record.get('vendor_enrichment_status')),
+    vendorDataCompleteness: asNumber(record.get('vendor_data_completeness')),
   };
 }
 
@@ -268,7 +269,6 @@ export function hydrateVendorDetail(
     employeeSource: asString(record.get('employee_source')),
     employeeCheckedAt: asString(record.get('employee_checked_at')),
 
-    vendorDataCompleteness: asNumber(record.get('vendor_data_completeness')),
     lastEnrichedAt: asString(record.get('last_enriched_at')),
   };
 }

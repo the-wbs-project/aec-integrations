@@ -42,14 +42,21 @@ interface RawRecord {
 /** Wrap a raw REST record with a `.get(field)` accessor. */
 function withGetter(rec: RawRecord): AirtableRecord {
   const fields = rec.fields ?? {};
-  return {
+  const record = {
     id: rec.id,
     fields,
     createdTime: rec.createdTime,
-    get(field: string) {
-      return fields[field];
-    },
   };
+  // Define .get() as non-enumerable so V8 structured-clone serialization
+  // (used by Cloudflare Workflows step.do checkpoints) skips it. Functions
+  // on enumerable own properties trigger DataCloneError.
+  Object.defineProperty(record, 'get', {
+    value: (field: string) => fields[field],
+    enumerable: false,
+    writable: false,
+    configurable: true,
+  });
+  return record as AirtableRecord;
 }
 
 function authHeaders(env: Env): Record<string, string> {

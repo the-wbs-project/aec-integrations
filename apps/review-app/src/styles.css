@@ -683,6 +683,207 @@ select.input {
 }
 
 /* ============================================================
+   Syncfusion — dark-mode override layer
+   ------------------------------------------------------------
+   The bundled tailwind theme is light-only (Syncfusion ships a
+   separate tailwind-dark.css, but swapping it at runtime would
+   require splitting bundles). We instead repaint the components
+   with our existing dark tokens so the grid follows the page.
+
+   Selectors mirror the upstream tailwind theme; the
+   [data-theme="dark"] prefix adds the specificity needed to win
+   the cascade.
+   ============================================================ */
+[data-theme="dark"] .e-grid,
+[data-theme="dark"] .e-grid .e-gridheader,
+[data-theme="dark"] .e-grid .e-gridcontent,
+[data-theme="dark"] .e-grid .e-content,
+[data-theme="dark"] .e-grid .e-table {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-body);
+  border-color: var(--color-border-default);
+}
+
+[data-theme="dark"] .e-grid {
+  border: 0.5px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+}
+
+[data-theme="dark"] .e-grid .e-gridheader,
+[data-theme="dark"] .e-grid .e-gridheader .e-headercontent,
+[data-theme="dark"] .e-grid .e-headercell,
+[data-theme="dark"] .e-grid .e-headercell.e-stackedheadercell,
+[data-theme="dark"] .e-grid .e-detailheadercell,
+[data-theme="dark"] .e-grid .e-filterbarcell {
+  background: var(--color-bg-recessed);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border-default);
+}
+
+[data-theme="dark"] .e-grid .e-headercelldiv,
+[data-theme="dark"] .e-grid .e-headertext {
+  color: var(--color-text-secondary);
+}
+
+[data-theme="dark"] .e-grid .e-headercell .e-sortfilterdiv,
+[data-theme="dark"] .e-grid .e-headercell .e-icons,
+[data-theme="dark"] .e-grid .e-icon-filter::before,
+[data-theme="dark"] .e-grid .e-excl-filter-icon::before {
+  color: var(--color-text-tertiary);
+}
+
+[data-theme="dark"] .e-grid .e-row,
+[data-theme="dark"] .e-grid .e-row .e-rowcell {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-body);
+  border-color: var(--color-border-default);
+}
+
+[data-theme="dark"] .e-grid .e-altrow,
+[data-theme="dark"] .e-grid .e-altrow .e-rowcell {
+  background: var(--color-bg-page);
+}
+
+[data-theme="dark"] .e-grid .e-row:hover .e-rowcell,
+[data-theme="dark"] .e-grid .e-altrow:hover .e-rowcell,
+[data-theme="dark"] .e-grid .e-row:hover {
+  background: var(--color-bg-recessed);
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-grid .e-row.e-rowselected .e-rowcell,
+[data-theme="dark"] .e-grid .e-row.e-rowselected,
+[data-theme="dark"] .e-grid .e-row .e-rowcell.e-selectionbackground,
+[data-theme="dark"] .e-grid .e-row.e-rowselected:hover .e-rowcell {
+  background: var(--color-accent-bg);
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-grid .e-emptyrow,
+[data-theme="dark"] .e-grid .e-emptyrow td {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-tertiary);
+}
+
+[data-theme="dark"] .e-grid .e-rhandler,
+[data-theme="dark"] .e-grid .e-rsuppress {
+  border-color: var(--color-border-default);
+}
+
+[data-theme="dark"] .e-grid .e-headercell.e-fltr-icon .e-sortfilter .e-headercelldiv {
+  color: var(--color-text-secondary);
+}
+
+/* ----- Filter popup (Excel-style) ----- */
+[data-theme="dark"] .e-popup,
+[data-theme="dark"] .e-popup.e-popup-open,
+[data-theme="dark"] .e-excelfilter,
+[data-theme="dark"] .e-excelfilter .e-footer-content,
+[data-theme="dark"] .e-checkboxfilter,
+[data-theme="dark"] .e-flmenu,
+[data-theme="dark"] .e-dropdownbase,
+[data-theme="dark"] .e-ddl.e-popup {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-body);
+  border: 0.5px solid var(--color-border-default);
+  box-shadow: var(--shadow-md);
+}
+
+[data-theme="dark"] .e-excelfilter .e-searchcontainer,
+[data-theme="dark"] .e-excelfilter .e-contextmenu-container,
+[data-theme="dark"] .e-excelfilter .e-menu-parent,
+[data-theme="dark"] .e-excelfilter .e-menu-parent .e-menu-item {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-body);
+  border-color: var(--color-border-default);
+}
+
+[data-theme="dark"] .e-excelfilter .e-menu-parent .e-menu-item:hover,
+[data-theme="dark"] .e-excelfilter .e-menu-parent .e-menu-item.e-focused,
+[data-theme="dark"] .e-dropdownbase .e-list-item:hover,
+[data-theme="dark"] .e-dropdownbase .e-list-item.e-hover {
+  background: var(--color-bg-recessed);
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-dropdownbase .e-list-item.e-active,
+[data-theme="dark"] .e-dropdownbase .e-list-item.e-active.e-hover {
+  background: var(--color-accent-bg);
+  color: var(--color-text-body);
+}
+
+/* ----- Inputs inside filter (search box, condition fields) ----- */
+[data-theme="dark"] .e-input-group,
+[data-theme="dark"] .e-input-group.e-control-wrapper,
+[data-theme="dark"] .e-input-group input.e-input,
+[data-theme="dark"] .e-input-group .e-input,
+[data-theme="dark"] .e-input-group textarea.e-input,
+[data-theme="dark"] .e-float-input input,
+[data-theme="dark"] .e-input {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-body);
+  border-color: var(--color-border-default);
+}
+
+[data-theme="dark"] .e-input-group:not(.e-success):not(.e-warning):not(.e-error):not(.e-disabled):hover:not(.e-float-icon-left):not(.e-input-focus),
+[data-theme="dark"] .e-input-group:not(.e-success):not(.e-warning):not(.e-error).e-input-focus {
+  border-color: var(--color-border-strong);
+}
+
+/* ----- Checkboxes (selection column + filter) ----- */
+[data-theme="dark"] .e-checkbox-wrapper .e-frame,
+[data-theme="dark"] .e-css.e-checkbox-wrapper .e-frame {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border-strong);
+}
+
+[data-theme="dark"] .e-checkbox-wrapper .e-frame.e-check,
+[data-theme="dark"] .e-css.e-checkbox-wrapper .e-frame.e-check,
+[data-theme="dark"] .e-checkbox-wrapper:hover .e-frame.e-check,
+[data-theme="dark"] .e-checkbox-wrapper .e-frame.e-stop {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+
+[data-theme="dark"] .e-checkbox-wrapper:hover .e-frame {
+  border-color: var(--color-border-focus);
+}
+
+[data-theme="dark"] .e-checkbox-wrapper .e-label,
+[data-theme="dark"] .e-css.e-checkbox-wrapper .e-label {
+  color: var(--color-text-body);
+}
+
+/* ----- Buttons inside Syncfusion popups (Apply / Clear) ----- */
+[data-theme="dark"] .e-btn,
+[data-theme="dark"] .e-css.e-btn {
+  background: transparent;
+  color: var(--color-text-body);
+  border-color: var(--color-border-strong);
+}
+
+[data-theme="dark"] .e-btn:hover,
+[data-theme="dark"] .e-css.e-btn:hover {
+  background: var(--color-bg-recessed);
+  border-color: var(--color-border-strong);
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-btn.e-primary,
+[data-theme="dark"] .e-css.e-btn.e-primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-text-inverse);
+}
+
+[data-theme="dark"] .e-btn.e-primary:hover,
+[data-theme="dark"] .e-css.e-btn.e-primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+/* ============================================================
    Avatar fallback (vendor logos, etc)
    ============================================================ */
 .avatar {

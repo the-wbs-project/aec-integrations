@@ -89,6 +89,7 @@ export interface Vendor {
   fundingStage?: string;
   githubStarsTotal?: number;
   vendorEnrichmentStatus?: string;
+  vendorDataCompleteness?: number;
 }
 
 export interface VendorDetail extends Vendor {
@@ -123,7 +124,6 @@ export interface VendorDetail extends Vendor {
   employeeSource?: string;
   employeeCheckedAt?: string;
 
-  vendorDataCompleteness?: number;
   lastEnrichedAt?: string;
 }
 

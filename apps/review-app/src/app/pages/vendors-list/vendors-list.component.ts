@@ -1,180 +1,226 @@
 import {
   Component,
   OnInit,
+  ViewChild,
   inject,
   signal,
-  computed,
   DestroyRef,
 } from '@angular/core';
-import { RouterLink } from '@angular/router';
-import { FormsModule } from '@angular/forms';
-import { DecimalPipe } from '@angular/common';
+import { Router } from '@angular/router';
+import { CommonModule } from '@angular/common';
 import { Subject } from 'rxjs';
-import { debounceTime, takeUntil } from 'rxjs/operators';
+import { takeUntil } from 'rxjs/operators';
+import {
+  GridModule,
+  GridComponent,
+  FilterService,
+  SortService,
+  SelectionService,
+  VirtualScrollService,
+  PageService,
+  type SelectionSettingsModel,
+  type FilterSettingsModel,
+  type PageSettingsModel,
+  type RowSelectEventArgs,
+  type RowDeselectEventArgs,
+} from '@syncfusion/ej2-angular-grids';
 import { ApiService } from '../../services/api.service';
 import { Vendor } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { enrichmentVariant } from '../../utils/enrichment';
+
+interface VendorRow extends Vendor {
+  /** Pre-formatted readiness % for the column template (avoids pipe in column). */
+  readinessPercent: number | null;
+}
 
 @Component({
   selector: 'app-vendors-list',
-  imports: [RouterLink, FormsModule, DecimalPipe, EnrichSplitButtonComponent],
+  imports: [CommonModule, GridModule, EnrichSplitButtonComponent],
+  providers: [
+    FilterService,
+    SortService,
+    SelectionService,
+    VirtualScrollService,
+    PageService,
+  ],
   template: `
-    <div class="page-container--wide">
+    <div class="vendors-page">
       <div class="page-header">
         <h1 class="page-heading">Vendors</h1>
         <div class="page-header__actions">
+          @if (selectedIds().length > 0) {
+            <span class="selection-count">
+              {{ selectedIds().length }} selected
+            </span>
+          }
           <app-enrich-split-button
             family="vendor"
-            [filteredIds]="filteredIds()"
+            [recordIds]="selectedIds()"
+            [filteredIds]="allIds()"
           />
         </div>
       </div>
 
-      <!-- Search -->
-      <div class="filter-bar">
-        <input
-          class="input filter-bar__search"
-          type="search"
-          placeholder="Search vendors..."
-          [value]="searchInput()"
-          (input)="onSearchInput($event)"
-          aria-label="Search vendors"
-        />
+      <div class="vendors-page__grid">
+        @if (loading()) {
+          <p class="loading-note loading-note--overlay">Loading vendors…</p>
+        } @else if (rows().length === 0) {
+          <p class="loading-note loading-note--overlay">No vendors found.</p>
+        }
+        <ejs-grid
+          #grid
+          [dataSource]="rows()"
+          [allowSorting]="true"
+          [allowFiltering]="true"
+          [allowResizing]="true"
+          [filterSettings]="filterSettings"
+          [selectionSettings]="selectionSettings"
+          [pageSettings]="pageSettings"
+          [enableVirtualization]="true"
+          [enableHover]="true"
+          [enableStickyHeader]="true"
+          height="100%"
+          rowHeight="40"
+          (rowSelected)="onRowSelected($event)"
+          (rowDeselected)="onRowDeselected($event)"
+          (recordClick)="onRecordClick($event)"
+        >
+        <e-columns>
+          <e-column
+            type="checkbox"
+            width="46"
+            [allowFiltering]="false"
+            [allowSorting]="false"
+            [allowResizing]="false"
+          ></e-column>
+          <e-column
+            field="companyName"
+            headerText="Company"
+            width="240"
+            clipMode="EllipsisWithTooltip"
+          >
+            <ng-template #template let-data>
+              <a class="vendor-name-link" (click)="goToVendor(data.id, $event)">
+                {{ data.companyName }}
+              </a>
+            </ng-template>
+          </e-column>
+          <e-column
+            field="headquarters"
+            headerText="Headquarters"
+            width="180"
+            clipMode="EllipsisWithTooltip"
+          ></e-column>
+          <e-column
+            field="foundedYear"
+            headerText="Founded"
+            width="110"
+            textAlign="Right"
+            type="number"
+          ></e-column>
+          <e-column
+            field="companySize"
+            headerText="Size"
+            width="140"
+            textAlign="Right"
+          ></e-column>
+          <e-column
+            field="employeeCountExact"
+            headerText="Employees"
+            width="130"
+            textAlign="Right"
+            type="number"
+            format="N0"
+          ></e-column>
+          <e-column
+            field="readinessPercent"
+            headerText="Readiness"
+            width="130"
+            textAlign="Right"
+            type="number"
+            format="N0"
+          >
+            <ng-template #template let-data>
+              @if (data.readinessPercent !== null) {
+                <span>{{ data.readinessPercent }}%</span>
+              } @else {
+                <span class="empty-cell">—</span>
+              }
+            </ng-template>
+          </e-column>
+          <e-column
+            field="githubStarsTotal"
+            headerText="GitHub ★"
+            width="120"
+            textAlign="Right"
+            type="number"
+            format="N0"
+          ></e-column>
+          <e-column
+            field="vendorEnrichmentStatus"
+            headerText="Enrichment"
+            width="140"
+          >
+            <ng-template #template let-data>
+              @if (data.vendorEnrichmentStatus) {
+                <span class="badge" [class]="'badge badge--' + enrichmentVariant(data.vendorEnrichmentStatus)">
+                  {{ data.vendorEnrichmentStatus }}
+                </span>
+              } @else {
+                <span class="empty-cell">—</span>
+              }
+            </ng-template>
+          </e-column>
+          <e-column
+            field="toolCount"
+            headerText="Tools"
+            width="100"
+            textAlign="Right"
+            type="number"
+            format="N0"
+          ></e-column>
+        </e-columns>
+        </ejs-grid>
       </div>
-
-      <!-- Table -->
-      <div class="table-wrapper">
-        <table class="table" aria-label="Vendors">
-          <thead>
-            <tr>
-              @for (col of columns; track col.key) {
-                <th
-                  [class.sortable]="!!col.sortKey"
-                  [class.sorted]="col.sortKey && sortColumn() === col.sortKey"
-                  (click)="col.sortKey ? toggleSort(col.sortKey) : null"
-                  [attr.aria-sort]="getAriaSort(col.sortKey)"
-                >
-                  {{ col.label }}
-                  @if (col.sortKey && sortColumn() === col.sortKey) {
-                    <span class="sort-indicator">{{ sortDirection() === 'asc' ? '\u2191' : '\u2193' }}</span>
-                  }
-                </th>
-              }
-            </tr>
-          </thead>
-          <tbody>
-            @if (loading() && vendors().length === 0) {
-              @for (_ of skeletonRows; track $index) {
-                <tr aria-hidden="true">
-                  @for (col of columns; track col.key) {
-                    <td><span class="skeleton skeleton--text"></span></td>
-                  }
-                </tr>
-              }
-            } @else {
-              @for (vendor of vendors(); track vendor.id) {
-                <tr>
-                  <td>
-                    <a [routerLink]="['/vendors', vendor.id]" class="vendor-name-link">
-                      {{ vendor.companyName }}
-                    </a>
-                  </td>
-                  <td>
-                    @if (vendor.headquarters) {
-                      {{ vendor.headquarters }}
-                    } @else {
-                      <span class="empty-cell">—</span>
-                    }
-                  </td>
-                  <td class="text-right">
-                    @if (vendor.foundedYear) {
-                      {{ vendor.foundedYear }}
-                    } @else {
-                      <span class="empty-cell">—</span>
-                    }
-                  </td>
-                  <td>
-                    @if (vendor.companySize) {
-                      {{ vendor.companySize }}
-                    } @else {
-                      <span class="empty-cell">—</span>
-                    }
-                  </td>
-                  <td class="text-right">
-                    @if (vendor.employeeCountExact !== undefined && vendor.employeeCountExact !== null) {
-                      {{ vendor.employeeCountExact | number:'1.0-0' }}
-                    } @else {
-                      <span class="empty-cell">—</span>
-                    }
-                  </td>
-                  <td>
-                    @if (vendor.fundingStage) {
-                      {{ vendor.fundingStage }}
-                    } @else {
-                      <span class="empty-cell">—</span>
-                    }
-                  </td>
-                  <td class="text-right">
-                    @if (vendor.githubStarsTotal !== undefined && vendor.githubStarsTotal !== null) {
-                      {{ vendor.githubStarsTotal | number:'1.0-0' }}
-                    } @else {
-                      <span class="empty-cell">—</span>
-                    }
-                  </td>
-                  <td>
-                    @if (vendor.vendorEnrichmentStatus) {
-                      <span class="badge badge--neutral">{{ vendor.vendorEnrichmentStatus }}</span>
-                    } @else {
-                      <span class="empty-cell">—</span>
-                    }
-                  </td>
-                  <td class="text-right">{{ vendor.toolCount | number:'1.0-0' }}</td>
-                </tr>
-              } @empty {
-                <tr>
-                  <td [attr.colspan]="columns.length" class="empty-state">
-                    No vendors found.
-                  </td>
-                </tr>
-              }
-            }
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Pagination -->
-      @if (total() > 0) {
-        <div class="pagination">
-          <span class="pagination__info">
-            Showing {{ rangeStart() }}–{{ rangeEnd() }} of {{ total() }}
-          </span>
-          <div class="pagination__controls">
-            <button
-              class="btn btn--ghost btn--sm"
-              [disabled]="offset() === 0"
-              (click)="prevPage()"
-            >
-              Previous
-            </button>
-            <button
-              class="btn btn--ghost btn--sm"
-              [disabled]="rangeEnd() >= total()"
-              (click)="nextPage()"
-            >
-              Next
-            </button>
-          </div>
-        </div>
-      }
     </div>
   `,
   styles: `
+    :host {
+      display: block;
+      /* Fill the viewport below the 52px sticky shell header. */
+      height: calc(100dvh - 52px);
+    }
+
+    .vendors-page {
+      display: flex;
+      flex-direction: column;
+      height: 100%;
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: var(--space-6);
+      gap: var(--space-5);
+    }
+
+    .vendors-page__grid {
+      flex: 1 1 auto;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+
+    .vendors-page__grid ejs-grid {
+      flex: 1 1 auto;
+      min-height: 0;
+    }
+
     .page-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: var(--space-3);
-      margin-bottom: var(--space-5);
+      flex-shrink: 0;
     }
 
     .page-heading {
@@ -187,120 +233,73 @@ import { EnrichSplitButtonComponent } from '../../components/enrich-split-button
     .page-header__actions {
       display: flex;
       align-items: center;
-      gap: var(--space-2);
+      gap: var(--space-3);
     }
 
-    .filter-bar {
-      display: flex;
-      gap: var(--space-2);
-      margin-bottom: var(--space-4);
-    }
-
-    .filter-bar__search {
-      width: 280px;
-    }
-
-    .table-wrapper {
-      overflow-x: auto;
-      border: 0.5px solid var(--color-border-default);
-      border-radius: var(--radius-lg);
-      background: var(--color-bg-elevated);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .table {
-      min-width: 880px;
-    }
-
-    th.sortable {
-      cursor: pointer;
-    }
-
-    th.sortable:hover {
-      color: var(--color-text-body);
-    }
-
-    th.sorted {
-      color: var(--color-text-primary);
-    }
-
-    .sort-indicator {
-      margin-left: var(--space-1);
-      font-size: var(--text-xs);
+    .selection-count {
+      font-size: var(--text-sm);
+      color: var(--color-text-secondary);
     }
 
     .vendor-name-link {
       font-weight: 500;
       color: var(--color-text-accent);
+      cursor: pointer;
     }
 
-    .text-center { text-align: center; }
-    .text-right { text-align: right; font-variant-numeric: tabular-nums; }
+    .vendor-name-link:hover {
+      text-decoration: underline;
+    }
+
     .empty-cell { color: var(--color-text-tertiary); }
 
-    .empty-state {
-      text-align: center;
-      color: var(--color-text-secondary);
-      padding: var(--space-10) var(--space-4) !important;
-    }
-
-    .pagination {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-top: var(--space-4);
-    }
-
-    .pagination__info {
+    .loading-note {
+      margin-top: var(--space-3);
       font-size: var(--text-sm);
       color: var(--color-text-secondary);
     }
 
-    .pagination__controls {
-      display: flex;
-      gap: var(--space-2);
+    /* Sits above the grid's empty body so it's visible during initial load. */
+    .loading-note--overlay {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      margin: 0;
+      z-index: 1;
+      pointer-events: none;
     }
   `,
 })
 export class VendorsListComponent implements OnInit {
   private api = inject(ApiService);
+  private router = inject(Router);
   private destroyRef = inject(DestroyRef);
   private destroy$ = new Subject<void>();
-  private searchSubject = new Subject<string>();
 
-  vendors = signal<Vendor[]>([]);
-  total = signal(0);
-  offset = signal(0);
-  limit = signal(50);
-  loading = signal(false);
+  @ViewChild('grid') grid?: GridComponent;
 
-  sortColumn = signal<string | undefined>(undefined);
-  sortDirection = signal<'asc' | 'desc'>('asc');
-  searchInput = signal('');
-  searchQuery = signal('');
+  protected readonly rows = signal<VendorRow[]>([]);
+  protected readonly loading = signal(false);
+  protected readonly selectedIds = signal<string[]>([]);
 
-  rangeStart = computed(() => (this.total() === 0 ? 0 : this.offset() + 1));
-  rangeEnd = computed(() =>
-    Math.min(this.offset() + this.limit(), this.total())
-  );
+  protected readonly filterSettings: FilterSettingsModel = {
+    type: 'Excel',
+  };
 
-  // IDs of the vendors currently in view — feeds the bulk-enrich split-button.
-  filteredIds = computed(() => this.vendors().map((v) => v.id));
+  protected readonly selectionSettings: SelectionSettingsModel = {
+    type: 'Multiple',
+    checkboxOnly: true,
+    persistSelection: true,
+  };
 
-  // Only columns backed by a server-side sort case get a sortKey.
-  columns: { key: string; label: string; sortKey?: string }[] = [
-    { key: 'companyName', label: 'Company name', sortKey: 'companyName' },
-    { key: 'headquarters', label: 'Headquarters' },
-    { key: 'foundedYear', label: 'Founded', sortKey: 'foundedYear' },
-    { key: 'companySize', label: 'Size' },
-    { key: 'employees', label: 'Employees', sortKey: 'employees' },
-    { key: 'fundingStage', label: 'Funding' },
-    { key: 'githubStars', label: 'GitHub ★', sortKey: 'githubStars' },
-    { key: 'vendorEnrichmentStatus', label: 'Enrichment' },
-    { key: 'toolCount', label: 'Tools', sortKey: 'toolCount' },
-  ];
+  /** Virtual-scroll chunk size — larger pages reduce row recycling thrash on long lists. */
+  protected readonly pageSettings: PageSettingsModel = {
+    pageSize: 100,
+  };
 
-  readonly skeletonRows = Array(8).fill(0);
+  /** All currently-loaded vendor IDs — feeds the "Enrich filtered" fallback. */
+  protected readonly allIds = (): string[] => this.rows().map((v) => v.id);
 
   constructor() {
     this.destroyRef.onDestroy(() => {
@@ -310,32 +309,18 @@ export class VendorsListComponent implements OnInit {
   }
 
   ngOnInit(): void {
-    this.searchSubject
-      .pipe(debounceTime(300), takeUntil(this.destroy$))
-      .subscribe((value) => {
-        this.searchQuery.set(value);
-        this.offset.set(0);
-        this.fetchVendors();
-      });
-
     this.fetchVendors();
   }
 
   fetchVendors(): void {
     this.loading.set(true);
+    // limit=0 → server returns the full set; the grid virtualizes client-side.
     this.api
-      .getVendors({
-        offset: this.offset(),
-        limit: this.limit(),
-        search: this.searchQuery() || undefined,
-        sort: this.sortColumn() || undefined,
-        direction: this.sortColumn() ? this.sortDirection() : undefined,
-      })
+      .getVendors({ limit: 0 })
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (res) => {
-          this.vendors.set(res.data);
-          this.total.set(res.total);
+          this.rows.set(res.data.map(toRow));
           this.loading.set(false);
         },
         error: () => {
@@ -344,39 +329,41 @@ export class VendorsListComponent implements OnInit {
       });
   }
 
-  onSearchInput(event: Event): void {
-    const value = (event.target as HTMLInputElement).value;
-    this.searchInput.set(value);
-    this.searchSubject.next(value);
+  onRowSelected(args: RowSelectEventArgs): void {
+    this.syncSelection();
+    void args;
   }
 
-  toggleSort(sortKey: string): void {
-    if (this.sortColumn() === sortKey) {
-      if (this.sortDirection() === 'asc') {
-        this.sortDirection.set('desc');
-      } else {
-        this.sortColumn.set(undefined);
-        this.sortDirection.set('asc');
-      }
-    } else {
-      this.sortColumn.set(sortKey);
-      this.sortDirection.set('asc');
-    }
-    this.fetchVendors();
+  onRowDeselected(args: RowDeselectEventArgs): void {
+    this.syncSelection();
+    void args;
   }
 
-  getAriaSort(sortKey?: string): string | null {
-    if (!sortKey || this.sortColumn() !== sortKey) return null;
-    return this.sortDirection() === 'asc' ? 'ascending' : 'descending';
+  private syncSelection(): void {
+    const records = (this.grid?.getSelectedRecords() ?? []) as VendorRow[];
+    this.selectedIds.set(records.map((r) => r.id));
   }
 
-  prevPage(): void {
-    this.offset.set(Math.max(0, this.offset() - this.limit()));
-    this.fetchVendors();
+  /** Native click on the company name cell — route without disturbing checkbox selection. */
+  goToVendor(id: string, event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.router.navigate(['/vendors', id]);
   }
 
-  nextPage(): void {
-    this.offset.set(this.offset() + this.limit());
-    this.fetchVendors();
+  /** Generic record click — ignore so plain-row clicks don't navigate or toggle selection. */
+  onRecordClick(_args: unknown): void {
+    // no-op: selection is checkbox-only; navigation is the explicit name link.
   }
+
+  /** Map an enrichment status string to a badge variant token. */
+  enrichmentVariant = enrichmentVariant;
+}
+
+function toRow(v: Vendor): VendorRow {
+  const pct =
+    typeof v.vendorDataCompleteness === 'number'
+      ? Math.round(v.vendorDataCompleteness * 100)
+      : null;
+  return { ...v, readinessPercent: pct };
 }

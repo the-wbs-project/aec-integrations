@@ -193,9 +193,9 @@ export class VendorFundingWorkflow extends WorkflowEntrypoint<Env, RunParams> {
         emitted = interpreted.emitted;
         break;
       }
-      if (interpreted.pendingSearch && searchTool === 'searchapi') {
+      if (interpreted.pendingSearches.length > 0 && searchTool === 'searchapi') {
         const toolResult = await checkpoint(step, `serp-${turn}`, () =>
-          executeSearchTool(this.env, ctx, interpreted.pendingSearch!),
+          executeSearchTool(this.env, ctx, interpreted.pendingSearches),
         );
         messages = [...messages, toolResult];
         response = await checkpoint(step, `llm-turn-${turn + 1}`, () =>

@@ -108,6 +108,7 @@ export interface Vendor {
   fundingStage?: string;
   githubStarsTotal?: number;
   vendorEnrichmentStatus?: string;
+  vendorDataCompleteness?: number;
 }
 
 export interface VendorDetail extends Vendor {
@@ -147,7 +148,6 @@ export interface VendorDetail extends Vendor {
   employeeCheckedAt?: string;
 
   // Orchestrator
-  vendorDataCompleteness?: number;
   lastEnrichedAt?: string;
 }
 

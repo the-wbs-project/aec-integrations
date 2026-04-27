@@ -11,7 +11,7 @@ import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
 import { getRecord, updateRecord, asString } from '../../services/airtable';
-import { fetchFeed, parseRssOrAtom, googleNewsRssUrl } from '../../services/feeds';
+import { fetchFeed, parseRssOrAtom, googleNewsRssUrl, FeedUnavailableError } from '../../services/feeds';
 
 export const meta: WorkflowMeta = {
   slug: 'vendor-press',
@@ -59,11 +59,37 @@ export class VendorPressWorkflow extends WorkflowEntrypoint<Env, RunParams> {
       };
     }
 
-    const xml = await checkpoint(step, 'fetch-feed', () =>
-      fetchFeed(googleNewsRssUrl(`"${companyName}" construction software`)),
-    );
+    let xml: string | null = null;
+    let feedError: { status: number; url: string } | null = null;
+    try {
+      xml = await checkpoint(step, 'fetch-feed', () =>
+        fetchFeed(googleNewsRssUrl(`"${companyName}" construction software`)),
+      );
+    } catch (err) {
+      if (err instanceof FeedUnavailableError) {
+        feedError = { status: err.status, url: err.url };
+      } else {
+        throw err;
+      }
+    }
 
-    const items = parseRssOrAtom(xml);
+    if (feedError) {
+      const fields: Record<string, unknown> = {
+        press_count_12mo: 0,
+        press_checked_at: checkedAt,
+      };
+      await checkpoint(step, 'write-fields', () =>
+        updateRecord(this.env, 'vendors', recordId, fields),
+      );
+      return {
+        fields,
+        fieldsUpdated: ['press_count_12mo', 'press_checked_at'],
+        status: 'error' as const,
+        note: `Google News RSS unavailable (HTTP ${feedError.status}); recorded 0 mentions`,
+      };
+    }
+
+    const items = parseRssOrAtom(xml as string);
     const nameLower = companyName.toLowerCase();
     const domainRoot = domain.split('.')[0];
     const cutoff = Date.now() - ONE_YEAR_MS;

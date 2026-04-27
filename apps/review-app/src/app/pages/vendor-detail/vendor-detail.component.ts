@@ -5,10 +5,12 @@ import { ApiService } from '../../services/api.service';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import { VendorDetail } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { InfoTooltipComponent } from '../../components/info-tooltip/info-tooltip.component';
+import { enrichmentVariant } from '../../utils/enrichment';
 
 @Component({
   selector: 'app-vendor-detail',
-  imports: [RouterLink, CurrencyPipe, DecimalPipe, EnrichSplitButtonComponent],
+  imports: [RouterLink, CurrencyPipe, DecimalPipe, EnrichSplitButtonComponent, InfoTooltipComponent],
   template: `
     @if (vendor(); as vendor) {
       <div class="page-container">
@@ -76,229 +78,356 @@ import { EnrichSplitButtonComponent } from '../../components/enrich-split-button
         <section class="detail-section">
           <h2 class="section-heading">Key facts</h2>
           <div class="facts-grid">
-            @if (vendor.headquarters) {
-              <div class="fact">
-                <span class="fact__label">Headquarters</span>
-                <span class="fact__value">{{ vendor.headquarters }}</span>
-              </div>
-            }
-            @if (vendor.foundedYear) {
-              <div class="fact">
-                <span class="fact__label">Founded</span>
-                <span class="fact__value">{{ vendor.foundedYear }}</span>
-              </div>
-            }
-            @if (vendor.companySize) {
-              <div class="fact">
-                <span class="fact__label">Company size</span>
-                <span class="fact__value">{{ vendor.companySize }}</span>
-              </div>
-            }
-            @if (vendor.publicPrivate) {
-              <div class="fact">
-                <span class="fact__label">Public / private</span>
-                <span class="fact__value">{{ vendor.publicPrivate }}</span>
-              </div>
-            }
-            @if (vendor.parentCompany) {
-              <div class="fact">
-                <span class="fact__label">Parent company</span>
-                <span class="fact__value">{{ vendor.parentCompany }}</span>
-              </div>
-            }
+            <div class="fact">
+              <span class="fact__label">Headquarters</span>
+              <span class="fact__value">
+                @if (vendor.headquarters) {
+                  {{ vendor.headquarters }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Founded</span>
+              <span class="fact__value">
+                @if (vendor.foundedYear) {
+                  {{ vendor.foundedYear }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Company size</span>
+              <span class="fact__value">
+                @if (vendor.companySize) {
+                  {{ vendor.companySize }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Public / private</span>
+              <span class="fact__value">
+                @if (vendor.publicPrivate) {
+                  {{ vendor.publicPrivate }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Parent company</span>
+              <span class="fact__value">
+                @if (vendor.parentCompany) {
+                  {{ vendor.parentCompany }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
           </div>
         </section>
 
         <!-- Description -->
-        @if (vendor.description) {
-          <section class="detail-section">
-            <h2 class="section-heading">Description</h2>
+        <section class="detail-section">
+          <h2 class="section-heading">Description</h2>
+          @if (vendor.description) {
             <p class="description-text">{{ vendor.description }}</p>
-          </section>
-        }
+          } @else {
+            <p class="description-text na">N/A</p>
+          }
+        </section>
 
         <!-- GitHub -->
-        @if (hasGithub(vendor)) {
-          <section class="detail-section">
-            <h2 class="section-heading">
-              GitHub
-              @if (vendor.githubOrgVerified) {
-                <span class="badge badge--success badge--sm">verified</span>
-              }
-            </h2>
-            <div class="facts-grid">
-              @if (vendor.githubOrg) {
-                <div class="fact">
-                  <span class="fact__label">Organization</span>
-                  <span class="fact__value">
-                    <a [href]="'https://github.com/' + vendor.githubOrg" target="_blank" rel="noopener noreferrer">
-                      {{ vendor.githubOrg }}
-                    </a>
-                  </span>
-                </div>
-              }
-              @if (vendor.githubRepoCount !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">Repos</span>
-                  <span class="fact__value">{{ vendor.githubRepoCount | number }}</span>
-                </div>
-              }
-              @if (vendor.githubStarsTotal !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">Total stars</span>
-                  <span class="fact__value">{{ vendor.githubStarsTotal | number }}</span>
-                </div>
-              }
-              @if (vendor.hasSdkRepo !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">SDK repo</span>
-                  <span class="fact__value">{{ vendor.hasSdkRepo ? 'Yes' : 'No' }}</span>
-                </div>
-              }
-              @if (vendor.githubLastCommitDaysAgo !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">Last commit</span>
-                  <span class="fact__value">{{ vendor.githubLastCommitDaysAgo }} days ago</span>
-                </div>
-              }
+        <section class="detail-section">
+          <h2 class="section-heading">
+            GitHub
+            @if (vendor.githubOrgVerified) {
+              <span class="badge badge--success badge--sm">verified</span>
+            }
+            @if (vendor.githubCheckedAt) {
+              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.githubCheckedAt)" />
+            }
+          </h2>
+          <div class="facts-grid">
+            <div class="fact">
+              <span class="fact__label">Organization</span>
+              <span class="fact__value">
+                @if (vendor.githubOrg) {
+                  <a [href]="'https://github.com/' + vendor.githubOrg" target="_blank" rel="noopener noreferrer">
+                    {{ vendor.githubOrg }}
+                  </a>
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
             </div>
-          </section>
-        }
+            <div class="fact">
+              <span class="fact__label">Repos</span>
+              <span class="fact__value">
+                @if (vendor.githubRepoCount !== undefined) {
+                  {{ vendor.githubRepoCount | number }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Total stars</span>
+              <span class="fact__value">
+                @if (vendor.githubStarsTotal !== undefined) {
+                  {{ vendor.githubStarsTotal | number }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">SDK repo</span>
+              <span class="fact__value">
+                @if (vendor.hasSdkRepo !== undefined) {
+                  {{ vendor.hasSdkRepo ? 'Yes' : 'No' }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Last commit</span>
+              <span class="fact__value">
+                @if (vendor.githubLastCommitDaysAgo !== undefined) {
+                  {{ vendor.githubLastCommitDaysAgo }} days ago
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+          </div>
+        </section>
 
         <!-- Funding -->
-        @if (hasFunding(vendor)) {
-          <section class="detail-section">
-            <h2 class="section-heading">Funding</h2>
-            <div class="facts-grid">
-              @if (vendor.fundingStage) {
-                <div class="fact">
-                  <span class="fact__label">Stage</span>
-                  <span class="fact__value">{{ vendor.fundingStage }}</span>
-                </div>
-              }
-              @if (vendor.totalFundingUsd !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">Total raised</span>
-                  <span class="fact__value">{{ vendor.totalFundingUsd | currency:'USD':'symbol':'1.0-0' }}</span>
-                </div>
-              }
-              @if (vendor.lastFundingDate) {
-                <div class="fact">
-                  <span class="fact__label">Last round</span>
-                  <span class="fact__value">{{ formatDateWithRelative(vendor.lastFundingDate) }}</span>
-                </div>
-              }
-              @if (vendor.fundingSourceUrl) {
-                <div class="fact">
-                  <span class="fact__label">Source</span>
-                  <span class="fact__value">
-                    <a [href]="vendor.fundingSourceUrl" target="_blank" rel="noopener noreferrer">View</a>
-                  </span>
-                </div>
-              }
+        <section class="detail-section">
+          <h2 class="section-heading">
+            Funding
+            @if (vendor.fundingCheckedAt) {
+              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.fundingCheckedAt)" />
+            }
+          </h2>
+          <div class="facts-grid">
+            <div class="fact">
+              <span class="fact__label">Stage</span>
+              <span class="fact__value">
+                @if (vendor.fundingStage) {
+                  {{ vendor.fundingStage }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
             </div>
-          </section>
-        }
+            <div class="fact">
+              <span class="fact__label">Total raised</span>
+              <span class="fact__value">
+                @if (vendor.totalFundingUsd !== undefined) {
+                  {{ vendor.totalFundingUsd | currency:'USD':'symbol':'1.0-0' }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Last round</span>
+              <span class="fact__value">
+                @if (vendor.lastFundingDate) {
+                  {{ formatDateWithRelative(vendor.lastFundingDate) }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Source</span>
+              <span class="fact__value">
+                @if (vendor.fundingSourceUrl) {
+                  <a [href]="vendor.fundingSourceUrl" target="_blank" rel="noopener noreferrer">View</a>
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+          </div>
+        </section>
 
         <!-- Activity -->
-        @if (hasActivity(vendor)) {
-          <section class="detail-section">
-            <h2 class="section-heading">Activity</h2>
-            <div class="facts-grid">
-              @if (vendor.pressCount12mo !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">Press (12mo)</span>
-                  <span class="fact__value">{{ vendor.pressCount12mo }}</span>
-                </div>
-              }
-              @if (vendor.pressLatestDate) {
-                <div class="fact">
-                  <span class="fact__label">Latest press</span>
-                  <span class="fact__value">{{ formatDateWithRelative(vendor.pressLatestDate) }}</span>
-                </div>
-              }
-              @if (vendor.blogUrl) {
-                <div class="fact">
-                  <span class="fact__label">Blog</span>
-                  <span class="fact__value">
-                    <a [href]="vendor.blogUrl" target="_blank" rel="noopener noreferrer">Visit</a>
-                  </span>
-                </div>
-              }
-              @if (vendor.blogLastPostDate) {
-                <div class="fact">
-                  <span class="fact__label">Latest post</span>
-                  <span class="fact__value">
-                    {{ formatDate(vendor.blogLastPostDate) }}
-                    @if (vendor.blogLastPostDaysAgo !== undefined) {
-                      <span class="muted"> ({{ vendor.blogLastPostDaysAgo }} days ago)</span>
-                    }
-                  </span>
-                </div>
-              }
-              @if (vendor.linkedinFollowers !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">LinkedIn followers</span>
-                  <span class="fact__value">{{ vendor.linkedinFollowers | number }}</span>
-                </div>
-              }
-              @if (vendor.employeeCountExact !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">Employees</span>
-                  <span class="fact__value">
-                    {{ vendor.employeeCountExact | number }}
-                    @if (vendor.employeeSource) {
-                      <!--
-                        Note: this Airtable singleSelect is currently polluted with
-                        long-form sentences as choice values (some 200+ chars).
-                        Truncate visually but expose the full value in a tooltip
-                        until upstream cleanup happens.
-                      -->
-                      <span class="muted truncate employee-source" [title]="vendor.employeeSource">
-                        · {{ truncate(vendor.employeeSource, 60) }}
-                      </span>
-                    }
-                  </span>
-                </div>
-              }
+        <section class="detail-section">
+          <h2 class="section-heading">Activity</h2>
+          <div class="facts-grid">
+            <div class="fact">
+              <span class="fact__label">
+                Press (12mo)
+                @if (vendor.pressCheckedAt) {
+                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.pressCheckedAt)" />
+                }
+              </span>
+              <span class="fact__value">
+                @if (vendor.pressCount12mo !== undefined) {
+                  {{ vendor.pressCount12mo }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
             </div>
-          </section>
-        }
+            <div class="fact">
+              <span class="fact__label">
+                Latest press
+                @if (vendor.pressCheckedAt) {
+                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.pressCheckedAt)" />
+                }
+              </span>
+              <span class="fact__value">
+                @if (vendor.pressLatestDate) {
+                  {{ formatDateWithRelative(vendor.pressLatestDate) }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">
+                Blog
+                @if (vendor.blogCheckedAt) {
+                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.blogCheckedAt)" />
+                }
+              </span>
+              <span class="fact__value">
+                @if (vendor.blogUrl) {
+                  <a [href]="vendor.blogUrl" target="_blank" rel="noopener noreferrer">Visit</a>
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">
+                Latest post
+                @if (vendor.blogCheckedAt) {
+                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.blogCheckedAt)" />
+                }
+              </span>
+              <span class="fact__value">
+                @if (vendor.blogLastPostDate) {
+                  {{ formatDate(vendor.blogLastPostDate) }}
+                  @if (vendor.blogLastPostDaysAgo !== undefined) {
+                    <span class="muted"> ({{ vendor.blogLastPostDaysAgo }} days ago)</span>
+                  }
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">
+                LinkedIn followers
+                @if (vendor.linkedinCheckedAt) {
+                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.linkedinCheckedAt)" />
+                }
+              </span>
+              <span class="fact__value">
+                @if (vendor.linkedinFollowers !== undefined) {
+                  {{ vendor.linkedinFollowers | number }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">
+                Employees
+                @if (vendor.employeeCheckedAt) {
+                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.employeeCheckedAt)" />
+                }
+              </span>
+              <span class="fact__value">
+                @if (vendor.employeeCountExact !== undefined) {
+                  {{ vendor.employeeCountExact | number }}
+                  @if (vendor.employeeSource) {
+                    <!--
+                      Note: this Airtable singleSelect is currently polluted with
+                      long-form sentences as choice values (some 200+ chars).
+                      Truncate visually but expose the full value in a tooltip
+                      until upstream cleanup happens.
+                    -->
+                    <span class="muted truncate employee-source" [title]="vendor.employeeSource">
+                      · {{ truncate(vendor.employeeSource, 60) }}
+                    </span>
+                  }
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+          </div>
+        </section>
 
         <!-- Enrichment status -->
-        @if (vendor.vendorEnrichmentStatus || vendor.vendorDataCompleteness !== undefined) {
-          <section class="detail-section">
-            <h2 class="section-heading">Enrichment</h2>
-            <div class="facts-grid">
-              @if (vendor.vendorEnrichmentStatus) {
-                <div class="fact">
-                  <span class="fact__label">Status</span>
-                  <span class="fact__value">
-                    <span class="badge badge--neutral">{{ vendor.vendorEnrichmentStatus }}</span>
-                  </span>
-                </div>
-              }
-              @if (vendor.vendorDataCompleteness !== undefined) {
-                <div class="fact">
-                  <span class="fact__label">Data completeness</span>
-                  <span class="fact__value">{{ formatPercent(vendor.vendorDataCompleteness) }}</span>
-                </div>
-              }
+        <section class="detail-section">
+          <h2 class="section-heading">
+            Enrichment
+            @if (vendor.lastEnrichedAt) {
+              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.lastEnrichedAt)" />
+            }
+          </h2>
+          <div class="facts-grid">
+            <div class="fact">
+              <span class="fact__label">Status</span>
+              <span class="fact__value">
+                @if (vendor.vendorEnrichmentStatus) {
+                  <span class="badge" [class]="'badge badge--' + enrichmentVariant(vendor.vendorEnrichmentStatus)">{{ vendor.vendorEnrichmentStatus }}</span>
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
             </div>
-          </section>
-        }
+            <div class="fact">
+              <span class="fact__label">Data completeness</span>
+              <span class="fact__value">
+                @if (vendor.vendorDataCompleteness !== undefined) {
+                  {{ formatPercent(vendor.vendorDataCompleteness) }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+          </div>
+        </section>
 
-        <!-- Tools published -->
+        <!-- Tools -->
         @if (vendor.tools.length) {
           <section class="detail-section">
-            <h2 class="section-heading">Tools published</h2>
-            <ul class="tools-list">
-              @for (tool of vendor.tools; track tool.id) {
-                <li>
-                  <a [routerLink]="['/tools', tool.id]">{{ tool.name }}</a>
-                </li>
-              }
-            </ul>
+            <h2 class="section-heading">
+              Tools
+              <span class="section-count">({{ vendor.tools.length }})</span>
+            </h2>
+            <div class="table-wrapper">
+              <table class="table" aria-label="Tools">
+                <thead>
+                  <tr>
+                    <th>Tool</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (tool of vendor.tools; track tool.id) {
+                    <tr>
+                      <td>
+                        <a [routerLink]="['/tools', tool.id]">{{ tool.name }}</a>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
           </section>
         }
 
@@ -459,16 +588,18 @@ import { EnrichSplitButtonComponent } from '../../components/enrich-split-button
       flex-wrap: wrap;
     }
 
-    .tools-list {
-      list-style: none;
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-2);
+    .table-wrapper {
+      overflow-x: auto;
+      border: 0.5px solid var(--color-border-default);
+      border-radius: var(--radius-lg);
+      background: var(--color-bg-elevated);
     }
 
-    .tools-list a {
+    .section-count {
+      margin-left: var(--space-1);
       font-size: var(--text-sm);
-      color: var(--color-text-accent);
+      font-weight: 400;
+      color: var(--color-text-secondary);
     }
 
     .muted {
@@ -509,6 +640,10 @@ import { EnrichSplitButtonComponent } from '../../components/enrich-split-button
     .fact__value {
       font-variant-numeric: tabular-nums;
     }
+
+    .na {
+      color: var(--color-text-tertiary);
+    }
   `,
 })
 export class VendorDetailComponent implements OnInit {
@@ -518,6 +653,7 @@ export class VendorDetailComponent implements OnInit {
   vendor = signal<VendorDetail | null>(null);
   logoFailed = signal(false);
   recordIds = computed(() => (this.vendor() ? [this.id()] : []));
+  enrichmentVariant = enrichmentVariant;
 
   ngOnInit(): void {
     this.api.getVendor(this.id()).subscribe((vendor) => {
@@ -538,36 +674,6 @@ export class VendorDetailComponent implements OnInit {
   truncate(value: string, max: number): string {
     if (!value) return '';
     return value.length <= max ? value : value.slice(0, max - 1).trimEnd() + '…';
-  }
-
-  hasGithub(v: VendorDetail): boolean {
-    return (
-      !!v.githubOrg ||
-      v.githubRepoCount !== undefined ||
-      v.githubStarsTotal !== undefined ||
-      v.hasSdkRepo !== undefined ||
-      v.githubLastCommitDaysAgo !== undefined
-    );
-  }
-
-  hasFunding(v: VendorDetail): boolean {
-    return (
-      !!v.fundingStage ||
-      v.totalFundingUsd !== undefined ||
-      !!v.lastFundingDate ||
-      !!v.fundingSourceUrl
-    );
-  }
-
-  hasActivity(v: VendorDetail): boolean {
-    return (
-      v.pressCount12mo !== undefined ||
-      !!v.pressLatestDate ||
-      !!v.blogUrl ||
-      !!v.blogLastPostDate ||
-      v.linkedinFollowers !== undefined ||
-      v.employeeCountExact !== undefined
-    );
   }
 
   hasFreshness(v: VendorDetail): boolean {
@@ -592,5 +698,9 @@ export class VendorDetailComponent implements OnInit {
 
   formatDateWithRelative(iso: string): string {
     return formatDateWithRelative(iso);
+  }
+
+  freshnessTooltip(iso: string): string {
+    return `Updated ${formatDateWithRelative(iso)}`;
   }
 }
