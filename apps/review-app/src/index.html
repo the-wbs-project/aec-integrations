@@ -9,12 +9,20 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
   <script>
+    // Pre-hydration theme application — avoids FOUC. Angular's ThemeService
+    // takes over after bootstrap and listens for live OS changes.
     (function () {
-      var theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-      document.documentElement.setAttribute('data-theme', theme);
-      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function (e) {
-        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
-      });
+      var stored;
+      try { stored = localStorage.getItem('review-app:theme'); } catch (e) { stored = null; }
+      var resolved;
+      if (stored === 'light' || stored === 'dark') {
+        resolved = stored;
+      } else {
+        resolved = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light';
+      }
+      document.documentElement.setAttribute('data-theme', resolved);
     })();
   </script>
 </head>

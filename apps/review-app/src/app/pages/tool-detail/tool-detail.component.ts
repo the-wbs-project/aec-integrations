@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
+import { TagInputComponent } from '../../components/tag-input/tag-input.component';
+import { formatDate, formatDateWithRelative } from '../../utils/date';
 import {
   LinkRef,
   MetaResponse,
@@ -43,7 +45,7 @@ interface DraftState {
 
 @Component({
   selector: 'app-tool-detail',
-  imports: [RouterLink, DecimalPipe, FormsModule],
+  imports: [RouterLink, DecimalPipe, FormsModule, TagInputComponent],
   template: `
     @if (tool(); as tool) {
       <div class="page-container">
@@ -61,18 +63,14 @@ interface DraftState {
             <div class="edit-stack">
               <input class="input edit-title" [(ngModel)]="draft.name" name="name" placeholder="Name" />
               <input class="input" [(ngModel)]="draft.website" name="website" placeholder="https://example.com" />
-              <label class="field-label" for="vendor-select">Vendors</label>
-              <select
-                id="vendor-select"
-                class="input edit-multiselect"
-                multiple
-                [size]="multiSize(meta()?.vendors?.length)"
-                (change)="onMultiChange($event, 'vendorIds')"
-              >
-                @for (v of meta()?.vendors ?? []; track v.id) {
-                  <option [value]="v.id" [selected]="draft.vendorIds.includes(v.id)">{{ v.name }}</option>
-                }
-              </select>
+              <label class="field-label">Vendors</label>
+              <app-tag-input
+                [options]="meta()?.vendors ?? []"
+                [selectedIds]="draft.vendorIds"
+                placeholder="Search vendors…"
+                (selectedIdsChange)="draft.vendorIds = $event"
+              />
+
               <div class="edit-actions">
                 <button class="btn btn--primary btn--sm" (click)="saveSection('header')" [disabled]="saving()">Save</button>
                 <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
@@ -151,34 +149,31 @@ interface DraftState {
             @if (editingSection() === 'taxonomy') {
               <div class="taxonomy-grid">
                 <div class="taxonomy-group">
-                  <label class="field-label" for="cat-select">Categories</label>
-                  <select id="cat-select" class="input edit-multiselect" multiple
-                    [size]="multiSize(meta()?.categories?.length)"
-                    (change)="onMultiChange($event, 'categoryIds')">
-                    @for (c of meta()?.categories ?? []; track c.id) {
-                      <option [value]="c.id" [selected]="draft.categoryIds.includes(c.id)">{{ c.name }}</option>
-                    }
-                  </select>
+                  <label class="field-label">Categories</label>
+                  <app-tag-input
+                    [options]="meta()?.categories ?? []"
+                    [selectedIds]="draft.categoryIds"
+                    placeholder="Search categories…"
+                    (selectedIdsChange)="draft.categoryIds = $event"
+                  />
                 </div>
                 <div class="taxonomy-group">
-                  <label class="field-label" for="disc-select">Disciplines</label>
-                  <select id="disc-select" class="input edit-multiselect" multiple
-                    [size]="multiSize(meta()?.disciplines?.length)"
-                    (change)="onMultiChange($event, 'disciplineIds')">
-                    @for (d of meta()?.disciplines ?? []; track d.id) {
-                      <option [value]="d.id" [selected]="draft.disciplineIds.includes(d.id)">{{ d.name }}</option>
-                    }
-                  </select>
+                  <label class="field-label">Disciplines</label>
+                  <app-tag-input
+                    [options]="meta()?.disciplines ?? []"
+                    [selectedIds]="draft.disciplineIds"
+                    placeholder="Search disciplines…"
+                    (selectedIdsChange)="draft.disciplineIds = $event"
+                  />
                 </div>
                 <div class="taxonomy-group">
-                  <label class="field-label" for="phase-select">Phases</label>
-                  <select id="phase-select" class="input edit-multiselect" multiple
-                    [size]="multiSize(meta()?.phases?.length)"
-                    (change)="onMultiChange($event, 'phaseIds')">
-                    @for (p of meta()?.phases ?? []; track p.id) {
-                      <option [value]="p.id" [selected]="draft.phaseIds.includes(p.id)">{{ p.name }}</option>
-                    }
-                  </select>
+                  <label class="field-label">Phases</label>
+                  <app-tag-input
+                    [options]="meta()?.phases ?? []"
+                    [selectedIds]="draft.phaseIds"
+                    placeholder="Search phases…"
+                    (selectedIdsChange)="draft.phaseIds = $event"
+                  />
                 </div>
               </div>
               <div class="edit-actions">
@@ -346,25 +341,25 @@ interface DraftState {
                 @if (tool.priorityScore !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Priority score</dt>
-                    <dd class="metric__value metric__value--emphasis">{{ tool.priorityScore }}</dd>
+                    <dd class="metric__value metric__value--emphasis">{{ tool.priorityScore | number:'1.0-1' }}</dd>
                   </div>
                 }
                 @if (tool.integrationScore !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Integration</dt>
-                    <dd class="metric__value">{{ tool.integrationScore }}</dd>
+                    <dd class="metric__value">{{ tool.integrationScore | number:'1.0-1' }}</dd>
                   </div>
                 }
                 @if (tool.demandScore !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Demand</dt>
-                    <dd class="metric__value">{{ tool.demandScore }}</dd>
+                    <dd class="metric__value">{{ tool.demandScore | number:'1.0-1' }}</dd>
                   </div>
                 }
                 @if (tool.outreachScore !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Outreach</dt>
-                    <dd class="metric__value">{{ tool.outreachScore }}</dd>
+                    <dd class="metric__value">{{ tool.outreachScore | number:'1.0-1' }}</dd>
                   </div>
                 }
                 @if (tool.toolDataCompleteness !== undefined) {
@@ -402,7 +397,7 @@ interface DraftState {
                   <div class="metric">
                     <dt class="metric__label">Marketplaces</dt>
                     <dd class="metric__value">
-                      <span>{{ tool.marketplaceCount }}</span>
+                      <span>{{ tool.marketplaceCount | number:'1.0-0' }}</span>
                       @if (tool.sourceMarketplaces?.length) {
                         <div class="chip-list chip-list--inline">
                           @for (m of tool.sourceMarketplaces; track m) {
@@ -417,7 +412,7 @@ interface DraftState {
                   <div class="metric">
                     <dt class="metric__label">iPaaS</dt>
                     <dd class="metric__value">
-                      <span>{{ tool.ipaasCount }}</span>
+                      <span>{{ tool.ipaasCount | number:'1.0-0' }}</span>
                       @if (tool.ipaasPlatforms?.length) {
                         <div class="chip-list chip-list--inline">
                           @for (p of tool.ipaasPlatforms; track p) {
@@ -431,13 +426,13 @@ interface DraftState {
                 @if (tool.zapierTriggerCount !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Zapier triggers/actions</dt>
-                    <dd class="metric__value">{{ tool.zapierTriggerCount }}</dd>
+                    <dd class="metric__value">{{ tool.zapierTriggerCount | number:'1.0-0' }}</dd>
                   </div>
                 }
                 @if (tool.integrationCount) {
                   <div class="metric">
                     <dt class="metric__label">Integration records</dt>
-                    <dd class="metric__value">{{ tool.integrationCount }}</dd>
+                    <dd class="metric__value">{{ tool.integrationCount | number:'1.0-0' }}</dd>
                   </div>
                 }
               </dl>
@@ -454,10 +449,10 @@ interface DraftState {
                     <dt class="metric__label">G2</dt>
                     <dd class="metric__value">
                       @if (tool.g2Rating !== undefined) {
-                        <strong>{{ tool.g2Rating }}</strong>
+                        <strong>{{ tool.g2Rating | number:'1.1-1' }}</strong><span class="muted"> / 5</span>
                       }
                       @if (tool.g2ReviewCount !== undefined) {
-                        <span class="muted"> ({{ tool.g2ReviewCount }} reviews)</span>
+                        <span class="muted"> · {{ tool.g2ReviewCount | number:'1.0-0' }} reviews</span>
                       }
                       @if (tool.g2Url) {
                         <a [href]="tool.g2Url" target="_blank" rel="noopener noreferrer" class="muted"> · View</a>
@@ -470,10 +465,10 @@ interface DraftState {
                     <dt class="metric__label">Capterra</dt>
                     <dd class="metric__value">
                       @if (tool.capterraRating !== undefined) {
-                        <strong>{{ tool.capterraRating }}</strong>
+                        <strong>{{ tool.capterraRating | number:'1.1-1' }}</strong><span class="muted"> / 5</span>
                       }
                       @if (tool.capterraReviewCount !== undefined) {
-                        <span class="muted"> ({{ tool.capterraReviewCount }} reviews)</span>
+                        <span class="muted"> · {{ tool.capterraReviewCount | number:'1.0-0' }} reviews</span>
                       }
                       @if (tool.capterraUrl) {
                         <a [href]="tool.capterraUrl" target="_blank" rel="noopener noreferrer" class="muted"> · View</a>
@@ -484,19 +479,19 @@ interface DraftState {
                 @if (tool.searchVolumeMonthly !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Monthly search</dt>
-                    <dd class="metric__value">{{ tool.searchVolumeMonthly | number }}</dd>
+                    <dd class="metric__value">{{ tool.searchVolumeMonthly | number:'1.0-0' }}</dd>
                   </div>
                 }
                 @if (tool.googleTrendsIndex !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Google Trends</dt>
-                    <dd class="metric__value">{{ tool.googleTrendsIndex }}</dd>
+                    <dd class="metric__value">{{ tool.googleTrendsIndex | number:'1.0-0' }}</dd>
                   </div>
                 }
                 @if (tool.redditMentions24mo !== undefined) {
                   <div class="metric">
                     <dt class="metric__label">Reddit mentions (24mo)</dt>
-                    <dd class="metric__value">{{ tool.redditMentions24mo }}</dd>
+                    <dd class="metric__value">{{ tool.redditMentions24mo | number:'1.0-0' }}</dd>
                   </div>
                 }
               </dl>
@@ -581,13 +576,13 @@ interface DraftState {
           @if (tool.lastScoredAt || tool.lastToolEnrichedAt || tool.toolIntegrationCheckedAt) {
             <section class="detail-section freshness">
               @if (tool.lastScoredAt) {
-                <span class="freshness__item">Scored {{ formatDate(tool.lastScoredAt) }}</span>
+                <span class="freshness__item">Scored {{ formatDateWithRelative(tool.lastScoredAt) }}</span>
               }
               @if (tool.lastToolEnrichedAt) {
-                <span class="freshness__item">Enriched {{ formatDate(tool.lastToolEnrichedAt) }}</span>
+                <span class="freshness__item">Enriched {{ formatDateWithRelative(tool.lastToolEnrichedAt) }}</span>
               }
               @if (tool.toolIntegrationCheckedAt) {
-                <span class="freshness__item">Integrations checked {{ formatDate(tool.toolIntegrationCheckedAt) }}</span>
+                <span class="freshness__item">Integrations checked {{ formatDateWithRelative(tool.toolIntegrationCheckedAt) }}</span>
               }
             </section>
           }
@@ -644,8 +639,12 @@ interface DraftState {
         }
       </div>
     } @else {
-      <div class="page-container">
-        <p class="loading-text">Loading tool details...</p>
+      <div class="page-container detail-skeleton">
+        <span class="skeleton skeleton--text" style="width: 80px; height: 14px;"></span>
+        <span class="skeleton skeleton--text" style="width: 280px; height: 28px; margin-top: 24px;"></span>
+        <span class="skeleton skeleton--text" style="width: 100%; height: 14px; margin-top: 16px;"></span>
+        <span class="skeleton skeleton--text" style="width: 80%; height: 14px; margin-top: 8px;"></span>
+        <span class="skeleton skeleton--text" style="width: 60%; height: 14px; margin-top: 8px;"></span>
       </div>
     }
   `,
@@ -903,12 +902,6 @@ interface DraftState {
       padding: var(--space-2) var(--space-3);
     }
 
-    .edit-multiselect {
-      height: auto;
-      padding: var(--space-2);
-      line-height: var(--leading-normal);
-    }
-
     .edit-actions {
       display: flex;
       gap: var(--space-2);
@@ -930,6 +923,16 @@ interface DraftState {
       color: var(--color-danger);
       border-radius: var(--radius-md);
       font-size: var(--text-sm);
+    }
+
+    .detail-skeleton {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .metric__value {
+      font-variant-numeric: tabular-nums;
     }
   `,
 })
@@ -989,20 +992,6 @@ export class ToolDetailComponent implements OnInit {
         this.saveError.set(err?.error?.error ?? err?.message ?? 'Save failed');
       },
     });
-  }
-
-  onMultiChange(event: Event, key: 'vendorIds' | 'categoryIds' | 'disciplineIds' | 'phaseIds'): void {
-    const select = event.target as HTMLSelectElement;
-    const values: string[] = [];
-    for (const opt of Array.from(select.selectedOptions)) {
-      values.push(opt.value);
-    }
-    this.draft[key] = values;
-  }
-
-  multiSize(count: number | undefined): number {
-    if (!count || count < 4) return 4;
-    return Math.min(count, 8);
   }
 
   // ---- helpers ------------------------------------------------------------
@@ -1145,14 +1134,10 @@ export class ToolDetailComponent implements OnInit {
   }
 
   formatDate(iso: string): string {
-    try {
-      return new Date(iso).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      return iso;
-    }
+    return formatDate(iso);
+  }
+
+  formatDateWithRelative(iso: string): string {
+    return formatDateWithRelative(iso);
   }
 }

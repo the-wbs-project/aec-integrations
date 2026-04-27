@@ -9,6 +9,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { DecimalPipe } from '@angular/common';
 import { Subject } from 'rxjs';
 import { debounceTime, takeUntil } from 'rxjs/operators';
 import { ApiService } from '../../services/api.service';
@@ -21,7 +22,7 @@ import {
 
 @Component({
   selector: 'app-tools-list',
-  imports: [RouterLink, FormsModule],
+  imports: [RouterLink, FormsModule, DecimalPipe],
   template: `
     <div class="page-container--wide">
       <div class="page-header">
@@ -116,6 +117,8 @@ import {
                 <th
                   [class.sortable]="col.sortable"
                   [class.sorted]="sortColumn() === col.sortKey"
+                  [class.text-center]="col.align === 'center'"
+                  [class.text-right]="col.align === 'right'"
                   (click)="col.sortable ? toggleSort(col.sortKey!) : null"
                   [attr.aria-sort]="getAriaSort(col.sortKey)"
                 >
@@ -128,146 +131,148 @@ import {
             </tr>
           </thead>
           <tbody>
-            @for (tool of tools(); track tool.id) {
-              <tr>
-                <td>
-                  <a [routerLink]="['/tools', tool.id]" class="tool-name-link">{{ tool.name }}</a>
-                </td>
-                <td>
-                  @for (v of tool.vendors; track v.id; let last = $last) {
-                    <a [routerLink]="['/vendors', v.id]">{{ v.name }}</a>{{ last ? '' : ', ' }}
+            @if (loading() && tools().length === 0) {
+              @for (_ of skeletonRows; track $index) {
+                <tr aria-hidden="true">
+                  @for (col of columns; track col.key) {
+                    <td><span class="skeleton skeleton--text"></span></td>
                   }
-                </td>
-                <td>
-                  <span class="chip-list">
-                    @for (c of visibleRefs(tool.categories); track c.id) {
-                      <span class="badge badge--neutral">{{ c.name }}</span>
-                    }
-                    @if (overflowRefs(tool.categories); as extra) {
+                </tr>
+              }
+            } @else {
+              @for (tool of tools(); track tool.id) {
+                <tr>
+                  <td class="tool-name-cell">
+                    <a [routerLink]="['/tools', tool.id]" class="tool-name-link">{{ tool.name }}</a>
+                    @if (tool.toolEnrichmentStatus) {
                       <span
-                        class="badge badge--neutral pill-overflow"
-                        tabindex="0"
-                        [attr.aria-label]="extra.length + ' more categories'"
-                      >
-                        +{{ extra.length }}
-                        <span class="pill-overflow__menu" role="tooltip">
-                          @for (c of extra; track c.id) {
-                            <span class="pill-overflow__item">{{ c.name }}</span>
-                          }
-                        </span>
+                        class="enrichment-dot"
+                        [class.enrichment-dot--complete]="isEnrichmentComplete(tool.toolEnrichmentStatus)"
+                        [title]="'Enrichment: ' + tool.toolEnrichmentStatus"
+                        aria-hidden="true"
+                      ></span>
+                      <span class="sr-only">Enrichment: {{ tool.toolEnrichmentStatus }}</span>
+                    }
+                  </td>
+                  <td>
+                    @if (tool.vendors.length) {
+                      @for (v of tool.vendors; track v.id; let last = $last) {
+                        <a [routerLink]="['/vendors', v.id]">{{ v.name }}</a>{{ last ? '' : ', ' }}
+                      }
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (tool.categories.length) {
+                      <span class="chip-list">
+                        @for (c of visibleRefs(tool.categories); track c.id) {
+                          <span class="badge badge--neutral">{{ c.name }}</span>
+                        }
+                        @if (overflowRefs(tool.categories); as extra) {
+                          <span
+                            class="badge badge--neutral pill-overflow"
+                            tabindex="0"
+                            [attr.aria-label]="extra.length + ' more categories'"
+                          >
+                            +{{ extra.length }}
+                            <span class="pill-overflow__menu" role="tooltip">
+                              @for (c of extra; track c.id) {
+                                <span class="pill-overflow__item">{{ c.name }}</span>
+                              }
+                            </span>
+                          </span>
+                        }
                       </span>
+                    } @else {
+                      <span class="empty-cell">—</span>
                     }
-                  </span>
-                </td>
-                <td>
-                  <span class="chip-list">
-                    @for (d of visibleRefs(tool.disciplines); track d.id) {
-                      <span class="badge badge--neutral">{{ d.name }}</span>
-                    }
-                    @if (overflowRefs(tool.disciplines); as extra) {
-                      <span
-                        class="badge badge--neutral pill-overflow"
-                        tabindex="0"
-                        [attr.aria-label]="extra.length + ' more disciplines'"
-                      >
-                        +{{ extra.length }}
-                        <span class="pill-overflow__menu" role="tooltip">
-                          @for (d of extra; track d.id) {
-                            <span class="pill-overflow__item">{{ d.name }}</span>
-                          }
-                        </span>
+                  </td>
+                  <td>
+                    @if (tool.phases.length) {
+                      <span class="chip-list">
+                        @for (p of visibleRefs(tool.phases); track p.id) {
+                          <span class="badge badge--neutral">{{ p.name }}</span>
+                        }
+                        @if (overflowRefs(tool.phases); as extra) {
+                          <span
+                            class="badge badge--neutral pill-overflow"
+                            tabindex="0"
+                            [attr.aria-label]="extra.length + ' more phases'"
+                          >
+                            +{{ extra.length }}
+                            <span class="pill-overflow__menu" role="tooltip">
+                              @for (p of extra; track p.id) {
+                                <span class="pill-overflow__item">{{ p.name }}</span>
+                              }
+                            </span>
+                          </span>
+                        }
                       </span>
+                    } @else {
+                      <span class="empty-cell">—</span>
                     }
-                  </span>
-                </td>
-                <td>
-                  <span class="chip-list">
-                    @for (p of visibleRefs(tool.phases); track p.id) {
-                      <span class="badge badge--neutral">{{ p.name }}</span>
-                    }
-                    @if (overflowRefs(tool.phases); as extra) {
-                      <span
-                        class="badge badge--neutral pill-overflow"
-                        tabindex="0"
-                        [attr.aria-label]="extra.length + ' more phases'"
-                      >
-                        +{{ extra.length }}
-                        <span class="pill-overflow__menu" role="tooltip">
-                          @for (p of extra; track p.id) {
-                            <span class="pill-overflow__item">{{ p.name }}</span>
-                          }
-                        </span>
+                  </td>
+                  <td class="text-right">{{ tool.integrationCount | number:'1.0-0' }}</td>
+                  <td class="text-center">
+                    <div class="tier-cell">
+                      @if (tool.priorityTier) {
+                        <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">Tier {{ tool.priorityTier }}</span>
+                      } @else {
+                        <span class="empty-cell">—</span>
+                      }
+                      @if (tool.priorityScore !== undefined && tool.priorityScore !== null) {
+                        <span class="tier-cell__score">{{ tool.priorityScore | number:'1.0-0' }}</span>
+                      }
+                    </div>
+                  </td>
+                  <td>
+                    @if (tool.researchStatus) {
+                      <span class="badge" [class]="statusBadgeClass(tool.researchStatus)">
+                        {{ tool.researchStatus }}
                       </span>
+                    } @else {
+                      <span class="empty-cell">—</span>
                     }
-                  </span>
-                </td>
-                <td class="text-center">{{ tool.integrationCount }}</td>
-                <td class="text-center">
-                  @if (tool.priorityTier) {
-                    <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">
-                      {{ tool.priorityTier }}
+                  </td>
+                  <td class="text-right">
+                    <span class="link-group">
+                      @if (tool.website) {
+                        <a [href]="tool.website" target="_blank" rel="noopener noreferrer" class="external-link" [attr.aria-label]="'Visit ' + tool.name + ' website'" title="Website">
+                          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <circle cx="12" cy="12" r="9" />
+                            <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+                          </svg>
+                        </a>
+                      }
+                      @if (tool.hasApiDocs && tool.apiDocsUrl) {
+                        <a [href]="tool.apiDocsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="API docs" title="API docs">
+                          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="16 18 22 12 16 6" />
+                            <polyline points="8 6 2 12 8 18" />
+                          </svg>
+                        </a>
+                      } @else if (tool.hasApiDocs) {
+                        <span class="link-group__pill" title="Has API docs">API</span>
+                      }
+                      @if (tool.toolIntegrationsUrl) {
+                        <a [href]="tool.toolIntegrationsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Integrations page" title="Integrations page">
+                          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                          </svg>
+                        </a>
+                      }
                     </span>
-                  }
-                </td>
-                <td class="text-center">{{ tool.priorityScore ?? '—' }}</td>
-                <td>
-                  @if (tool.toolEnrichmentStatus) {
-                    <span class="badge badge--neutral">{{ tool.toolEnrichmentStatus }}</span>
-                  }
-                </td>
-                <td>
-                  @if (tool.researchStatus) {
-                    <span class="badge" [class]="statusBadgeClass(tool.researchStatus)">
-                      {{ tool.researchStatus }}
-                    </span>
-                  }
-                </td>
-                <td>
-                  @if (tool.website) {
-                    <a [href]="tool.website" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Visit website">
-                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                        <polyline points="15 3 21 3 21 9" />
-                        <line x1="10" y1="14" x2="21" y2="3" />
-                      </svg>
-                    </a>
-                  }
-                </td>
-                <td>
-                  @if (tool.hasApiDocs && tool.apiDocsUrl) {
-                    <a [href]="tool.apiDocsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Visit API docs">
-                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                        <polyline points="15 3 21 3 21 9" />
-                        <line x1="10" y1="14" x2="21" y2="3" />
-                      </svg>
-                    </a>
-                  } @else if (tool.hasApiDocs) {
-                    <span class="external-link" aria-label="Has API docs">API</span>
-                  }
-                </td>
-                <td>
-                  @if (tool.toolIntegrationsUrl) {
-                    <a [href]="tool.toolIntegrationsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Visit integrations page">
-                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                        <polyline points="15 3 21 3 21 9" />
-                        <line x1="10" y1="14" x2="21" y2="3" />
-                      </svg>
-                    </a>
-                  }
-                </td>
-              </tr>
-            } @empty {
-              <tr>
-                <td colspan="13" class="empty-state">
-                  @if (loading()) {
-                    Loading tools...
-                  } @else {
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td [attr.colspan]="columns.length" class="empty-state">
                     No tools found matching your filters.
-                  }
-                </td>
-              </tr>
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
@@ -369,10 +374,11 @@ import {
       border: 0.5px solid var(--color-border-default);
       border-radius: var(--radius-lg);
       background: var(--color-bg-elevated);
+      box-shadow: var(--shadow-sm);
     }
 
     .table {
-      min-width: 900px;
+      min-width: 880px;
     }
 
     th.sortable {
@@ -392,9 +398,28 @@ import {
       font-size: var(--text-xs);
     }
 
+    .tool-name-cell {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      max-width: 240px;
+    }
+
     .tool-name-link {
       font-weight: 500;
       color: var(--color-text-accent);
+    }
+
+    .enrichment-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--color-text-tertiary);
+      flex-shrink: 0;
+    }
+
+    .enrichment-dot--complete {
+      background: var(--color-success);
     }
 
     .chip-list {
@@ -403,8 +428,40 @@ import {
       gap: var(--space-1);
     }
 
-    .text-center {
-      text-align: center;
+    .text-center { text-align: center; }
+    .text-right { text-align: right; }
+
+    .tier-cell {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 2px;
+    }
+
+    .tier-cell__score {
+      font-size: var(--text-xs);
+      color: var(--color-text-secondary);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .link-group {
+      display: inline-flex;
+      align-items: center;
+      gap: var(--space-2);
+      justify-content: flex-end;
+    }
+
+    .link-group__pill {
+      display: inline-flex;
+      align-items: center;
+      height: 18px;
+      padding: 0 6px;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--color-text-tertiary);
+      border: 0.5px solid var(--color-border-default);
+      border-radius: var(--radius-sm);
     }
 
     .external-link {
@@ -414,6 +471,10 @@ import {
 
     .external-link:hover {
       color: var(--color-text-accent);
+    }
+
+    .empty-cell {
+      color: var(--color-text-tertiary);
     }
 
     .empty-state {
@@ -470,51 +531,41 @@ export class ToolsListComponent implements OnInit {
     Math.min(this.offset() + this.limit(), this.total())
   );
 
-  columns = [
+  columns: Array<{
+    key: string;
+    label: string;
+    sortable: boolean;
+    sortKey?: string;
+    align?: 'left' | 'center' | 'right';
+  }> = [
     { key: 'name', label: 'Name', sortable: true, sortKey: 'name' },
-    { key: 'vendors', label: 'Vendor(s)', sortable: true, sortKey: 'vendor' },
+    { key: 'vendors', label: 'Vendor', sortable: true, sortKey: 'vendor' },
     { key: 'categories', label: 'Categories', sortable: false },
-    { key: 'disciplines', label: 'Disciplines', sortable: false },
     { key: 'phases', label: 'Phases', sortable: false },
     {
       key: 'integrationCount',
       label: 'Integrations',
       sortable: true,
       sortKey: 'integrationCount',
+      align: 'right',
     },
     {
-      key: 'priorityTier',
-      label: 'Tier',
-      sortable: true,
-      sortKey: 'priorityTier',
-    },
-    {
-      key: 'priorityScore',
+      key: 'priority',
       label: 'Priority',
       sortable: true,
       sortKey: 'priorityScore',
-    },
-    {
-      key: 'enrichment',
-      label: 'Enrichment',
-      sortable: true,
-      sortKey: 'enrichmentStatus',
+      align: 'center',
     },
     {
       key: 'researchStatus',
-      label: 'Research status',
+      label: 'Research',
       sortable: true,
       sortKey: 'researchStatus',
     },
-    { key: 'website', label: 'Website', sortable: true, sortKey: 'website' },
-    { key: 'apiDocs', label: 'API', sortable: true, sortKey: 'hasApiDocs' },
-    {
-      key: 'integrationsUrl',
-      label: 'Integrations page',
-      sortable: true,
-      sortKey: 'integrationsUrl',
-    },
+    { key: 'links', label: 'Links', sortable: false, align: 'right' },
   ];
+
+  readonly skeletonRows = Array(8).fill(0);
 
   // ---- Pill overflow helpers ---------------------------------------------
   static readonly PILL_LIMIT = 3;
@@ -666,6 +717,12 @@ export class ToolsListComponent implements OnInit {
     if (lower.includes('not started') || lower.includes('todo'))
       return 'badge--neutral';
     return 'badge--info';
+  }
+
+  isEnrichmentComplete(status: string | undefined): boolean {
+    if (!status) return false;
+    const lower = status.toLowerCase();
+    return lower.includes('complete') || lower.includes('enriched') || lower.includes('done');
   }
 
   prevPage(): void {
