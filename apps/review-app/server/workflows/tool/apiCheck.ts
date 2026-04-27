@@ -28,7 +28,7 @@ export const meta: WorkflowMeta = {
   table: 'tools',
 };
 
-const MAX_TURNS = 4;
+const MAX_TURNS = 6;
 
 function buildPrompt(record: AirtableRecord): {
   systemPrompt: string;
@@ -125,9 +125,9 @@ export class ToolApiCheckWorkflow extends WorkflowEntrypoint<Env, RunParams> {
       }
 
       // SearchAPI continuation — execute the tool, fire the next turn.
-      if (interpreted.pendingSearch && searchTool === 'searchapi') {
+      if (interpreted.pendingSearches.length > 0 && searchTool === 'searchapi') {
         const toolResult = await checkpoint(step, `serp-${turn}`, () =>
-          executeSearchTool(this.env, ctx, interpreted.pendingSearch!),
+          executeSearchTool(this.env, ctx, interpreted.pendingSearches),
         );
         messages = [...messages, toolResult];
         response = await checkpoint(step, `llm-turn-${turn + 1}`, () =>

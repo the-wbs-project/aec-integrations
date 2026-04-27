@@ -16,7 +16,9 @@ vendors.get('/', async (c) => {
   const env = c.env;
 
   const offset = Math.max(0, Number(c.req.query('offset') ?? 0));
-  const limit = Math.min(200, Math.max(1, Number(c.req.query('limit') ?? 50)));
+  const rawLimit = Number(c.req.query('limit') ?? 50);
+  // limit=0 (or non-positive) returns the full set; the grid virtualizes client-side.
+  const limit = rawLimit > 0 ? Math.min(5000, rawLimit) : Number.POSITIVE_INFINITY;
   const search = (c.req.query('search') ?? '').trim().toLowerCase();
   const sortCol = c.req.query('sort') ?? 'companyName';
   const sortDir = c.req.query('direction') === 'desc' ? 'desc' : 'asc';
@@ -69,13 +71,15 @@ vendors.get('/', async (c) => {
 
   // --- Paginate ------------------------------------------------------------
   const total = hydrated.length;
-  const page = hydrated.slice(offset, offset + limit);
+  const page = Number.isFinite(limit)
+    ? hydrated.slice(offset, offset + limit)
+    : hydrated.slice(offset);
 
   const body: PaginatedResponse<Vendor> = {
     data: page,
     total,
     offset,
-    limit,
+    limit: Number.isFinite(limit) ? limit : total,
   };
 
   return c.json(body);

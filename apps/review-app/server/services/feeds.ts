@@ -16,15 +16,32 @@ const parser = new XMLParser({
   attributeNamePrefix: '@_',
 });
 
+export class FeedUnavailableError extends Error {
+  constructor(
+    public url: string,
+    public status: number,
+  ) {
+    super(`Feed fetch ${url} failed: ${status}`);
+    this.name = 'FeedUnavailableError';
+  }
+}
+
+const BROWSER_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 export async function fetchFeed(url: string, timeoutMs = 10_000): Promise<string> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
       signal: ctrl.signal,
-      headers: { 'User-Agent': 'aeci-review' },
+      headers: {
+        'User-Agent': BROWSER_UA,
+        Accept: 'application/rss+xml, application/atom+xml, application/xml;q=0.9, */*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9',
+      },
     });
-    if (!res.ok) throw new Error(`Feed fetch ${url} failed: ${res.status}`);
+    if (!res.ok) throw new FeedUnavailableError(url, res.status);
     return await res.text();
   } finally {
     clearTimeout(t);

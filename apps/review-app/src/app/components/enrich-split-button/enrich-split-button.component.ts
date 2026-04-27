@@ -69,7 +69,9 @@ export class EnrichSplitButtonComponent {
   /** Confirm before running on more than this many records. */
   confirmThreshold = input<number>(2);
 
-  protected readonly confirming = signal<{ slug: string; count: number; ids: string[] } | null>(null);
+  protected readonly confirming = signal<
+    { slug: string; count: number; ids: string[]; forceRefresh: boolean } | null
+  >(null);
 
   /** Effective target IDs — selection wins, otherwise the filtered set. */
   private effectiveIds(): string[] {
@@ -100,32 +102,39 @@ export class EnrichSplitButtonComponent {
 
   runOrchestrator(): void {
     const slug = `${this.family()}-orchestrator`;
-    this.run(slug);
+    // A manual click on "Enrich" is an explicit ask to refresh — bypass the
+    // orchestrator's staleness filter so every leaf re-runs.
+    this.run(slug, true);
   }
 
   onMenuSelect(args: { item?: ItemModel }): void {
     const slug = args.item?.id;
-    if (typeof slug === 'string' && slug.length > 0) this.run(slug);
+    // Sub-workflows don't honor force_refresh; they always run when invoked.
+    if (typeof slug === 'string' && slug.length > 0) this.run(slug, false);
   }
 
-  private run(slug: string): void {
+  private run(slug: string, forceRefresh: boolean): void {
     const ids = this.effectiveIds();
     if (ids.length === 0) return;
     if (ids.length >= this.confirmThreshold()) {
-      this.confirming.set({ slug, count: ids.length, ids });
+      this.confirming.set({ slug, count: ids.length, ids, forceRefresh });
       return;
     }
-    this.fire(slug, ids);
+    this.fire(slug, ids, forceRefresh);
   }
 
   protected confirmAndRun(): void {
     const c = this.confirming();
     if (!c) return;
     this.confirming.set(null);
-    this.fire(c.slug, c.ids);
+    this.fire(c.slug, c.ids, c.forceRefresh);
   }
 
-  private fire(slug: string, ids: string[]): void {
-    this.runs.startRun(slug, { record_ids: ids, model: 'claude-haiku-4-5-20251001' });
+  private fire(slug: string, ids: string[], forceRefresh: boolean): void {
+    this.runs.startRun(slug, {
+      record_ids: ids,
+      model: 'claude-haiku-4-5-20251001',
+      force_refresh: forceRefresh,
+    });
   }
 }

@@ -38,4 +38,10 @@ export interface RunParams {
   model: string;
   /** 'searchapi' = custom SearchAPI.io tool (default); 'web' = Anthropic web_search fallback. */
   searchTool: 'searchapi' | 'web';
+  /**
+   * If true, the vendor orchestrator skips its `*_checked_at` staleness
+   * filter and re-runs every leaf enrichment. Defaults to false so cron /
+   * picker-driven runs still respect the existing date checks.
+   */
+  forceRefresh?: boolean;
 }
