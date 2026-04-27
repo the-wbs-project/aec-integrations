@@ -8,6 +8,7 @@ import {
 } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
+import { DecimalPipe } from '@angular/common';
 import { Subject } from 'rxjs';
 import { debounceTime, takeUntil } from 'rxjs/operators';
 import { ApiService } from '../../services/api.service';
@@ -15,7 +16,7 @@ import { Vendor } from '../../types';
 
 @Component({
   selector: 'app-vendors-list',
-  imports: [RouterLink, FormsModule],
+  imports: [RouterLink, FormsModule, DecimalPipe],
   template: `
     <div class="page-container--wide">
       <h1 class="page-heading">Vendors</h1>
@@ -53,38 +54,80 @@ import { Vendor } from '../../types';
             </tr>
           </thead>
           <tbody>
-            @for (vendor of vendors(); track vendor.id) {
-              <tr>
-                <td>
-                  <a [routerLink]="['/vendors', vendor.id]" class="vendor-name-link">
-                    {{ vendor.companyName }}
-                  </a>
-                </td>
-                <td>{{ vendor.headquarters }}</td>
-                <td>{{ vendor.foundedYear }}</td>
-                <td>{{ vendor.companySize }}</td>
-                <td class="text-center">{{ vendor.employeeCountExact ?? '—' }}</td>
-                <td>{{ vendor.fundingStage }}</td>
-                <td class="text-center">{{ vendor.githubStarsTotal ?? '—' }}</td>
-                <td>
-                  @if (vendor.vendorEnrichmentStatus) {
-                    <span class="badge badge--neutral">{{ vendor.vendorEnrichmentStatus }}</span>
+            @if (loading() && vendors().length === 0) {
+              @for (_ of skeletonRows; track $index) {
+                <tr aria-hidden="true">
+                  @for (col of columns; track col.key) {
+                    <td><span class="skeleton skeleton--text"></span></td>
                   }
-                </td>
-                <td>{{ vendor.publicPrivate }}</td>
-                <td>{{ vendor.parentCompany }}</td>
-                <td class="text-center">{{ vendor.toolCount }}</td>
-              </tr>
-            } @empty {
-              <tr>
-                <td colspan="11" class="empty-state">
-                  @if (loading()) {
-                    Loading vendors...
-                  } @else {
+                </tr>
+              }
+            } @else {
+              @for (vendor of vendors(); track vendor.id) {
+                <tr>
+                  <td>
+                    <a [routerLink]="['/vendors', vendor.id]" class="vendor-name-link">
+                      {{ vendor.companyName }}
+                    </a>
+                  </td>
+                  <td>
+                    @if (vendor.headquarters) {
+                      {{ vendor.headquarters }}
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td class="text-right">
+                    @if (vendor.foundedYear) {
+                      {{ vendor.foundedYear }}
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (vendor.companySize) {
+                      {{ vendor.companySize }}
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td class="text-right">
+                    @if (vendor.employeeCountExact !== undefined && vendor.employeeCountExact !== null) {
+                      {{ vendor.employeeCountExact | number:'1.0-0' }}
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (vendor.fundingStage) {
+                      {{ vendor.fundingStage }}
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td class="text-right">
+                    @if (vendor.githubStarsTotal !== undefined && vendor.githubStarsTotal !== null) {
+                      {{ vendor.githubStarsTotal | number:'1.0-0' }}
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (vendor.vendorEnrichmentStatus) {
+                      <span class="badge badge--neutral">{{ vendor.vendorEnrichmentStatus }}</span>
+                    } @else {
+                      <span class="empty-cell">—</span>
+                    }
+                  </td>
+                  <td class="text-right">{{ vendor.toolCount | number:'1.0-0' }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td [attr.colspan]="columns.length" class="empty-state">
                     No vendors found.
-                  }
-                </td>
-              </tr>
+                  </td>
+                </tr>
+              }
             }
           </tbody>
         </table>
@@ -139,6 +182,11 @@ import { Vendor } from '../../types';
       border: 0.5px solid var(--color-border-default);
       border-radius: var(--radius-lg);
       background: var(--color-bg-elevated);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .table {
+      min-width: 880px;
     }
 
     th.sortable {
@@ -163,9 +211,9 @@ import { Vendor } from '../../types';
       color: var(--color-text-accent);
     }
 
-    .text-center {
-      text-align: center;
-    }
+    .text-center { text-align: center; }
+    .text-right { text-align: right; font-variant-numeric: tabular-nums; }
+    .empty-cell { color: var(--color-text-tertiary); }
 
     .empty-state {
       text-align: center;
@@ -220,13 +268,13 @@ export class VendorsListComponent implements OnInit {
     { key: 'foundedYear', label: 'Founded', sortKey: 'foundedYear' },
     { key: 'companySize', label: 'Size' },
     { key: 'employees', label: 'Employees', sortKey: 'employees' },
-    { key: 'fundingStage', label: 'Funding stage' },
+    { key: 'fundingStage', label: 'Funding' },
     { key: 'githubStars', label: 'GitHub ★', sortKey: 'githubStars' },
     { key: 'vendorEnrichmentStatus', label: 'Enrichment' },
-    { key: 'publicPrivate', label: 'Public / private' },
-    { key: 'parentCompany', label: 'Parent company' },
     { key: 'toolCount', label: 'Tools', sortKey: 'toolCount' },
   ];
+
+  readonly skeletonRows = Array(8).fill(0);
 
   constructor() {
     this.destroyRef.onDestroy(() => {

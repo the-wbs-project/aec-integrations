@@ -2,6 +2,7 @@ import { Component, OnInit, inject, signal, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { ApiService } from '../../services/api.service';
+import { formatDate, formatDateWithRelative } from '../../utils/date';
 import { VendorDetail } from '../../types';
 
 @Component({
@@ -21,13 +22,17 @@ import { VendorDetail } from '../../types';
         <!-- Header -->
         <header class="detail-header">
           <div class="detail-header__top">
-            @if (vendor.logoUrl) {
-              <img
-                [src]="vendor.logoUrl"
-                [alt]="vendor.companyName + ' logo'"
-                class="vendor-logo"
-              />
-            }
+            <span class="avatar" aria-hidden="true">
+              @if (vendor.logoUrl && !logoFailed()) {
+                <img
+                  [src]="vendor.logoUrl"
+                  [alt]="vendor.companyName + ' logo'"
+                  (error)="logoFailed.set(true)"
+                />
+              } @else {
+                <span>{{ vendorInitials(vendor.companyName) }}</span>
+              }
+            </span>
             <div>
               <h1 class="detail-title">{{ vendor.companyName }}</h1>
               @if (vendor.website) {
@@ -41,6 +46,23 @@ import { VendorDetail } from '../../types';
               }
             </div>
           </div>
+
+          @if (vendor.linkedinUrl || vendor.crunchbaseUrl || vendor.sourceUrl) {
+            <div class="detail-header__links">
+              @if (vendor.linkedinUrl) {
+                <a [href]="vendor.linkedinUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">LinkedIn</a>
+              }
+              @if (vendor.crunchbaseUrl) {
+                <a [href]="vendor.crunchbaseUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Crunchbase</a>
+              }
+              @if (vendor.githubOrg) {
+                <a [href]="'https://github.com/' + vendor.githubOrg" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">GitHub</a>
+              }
+              @if (vendor.sourceUrl) {
+                <a [href]="vendor.sourceUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Source</a>
+              }
+            </div>
+          }
         </header>
 
         <!-- Key facts -->
@@ -156,7 +178,7 @@ import { VendorDetail } from '../../types';
               @if (vendor.lastFundingDate) {
                 <div class="fact">
                   <span class="fact__label">Last round</span>
-                  <span class="fact__value">{{ formatDate(vendor.lastFundingDate) }}</span>
+                  <span class="fact__value">{{ formatDateWithRelative(vendor.lastFundingDate) }}</span>
                 </div>
               }
               @if (vendor.fundingSourceUrl) {
@@ -185,7 +207,7 @@ import { VendorDetail } from '../../types';
               @if (vendor.pressLatestDate) {
                 <div class="fact">
                   <span class="fact__label">Latest press</span>
-                  <span class="fact__value">{{ formatDate(vendor.pressLatestDate) }}</span>
+                  <span class="fact__value">{{ formatDateWithRelative(vendor.pressLatestDate) }}</span>
                 </div>
               }
               @if (vendor.blogUrl) {
@@ -219,7 +241,15 @@ import { VendorDetail } from '../../types';
                   <span class="fact__value">
                     {{ vendor.employeeCountExact | number }}
                     @if (vendor.employeeSource) {
-                      <span class="muted"> · {{ vendor.employeeSource }}</span>
+                      <!--
+                        Note: this Airtable singleSelect is currently polluted with
+                        long-form sentences as choice values (some 200+ chars).
+                        Truncate visually but expose the full value in a tooltip
+                        until upstream cleanup happens.
+                      -->
+                      <span class="muted truncate employee-source" [title]="vendor.employeeSource">
+                        · {{ truncate(vendor.employeeSource, 60) }}
+                      </span>
                     }
                   </span>
                 </div>
@@ -251,42 +281,6 @@ import { VendorDetail } from '../../types';
           </section>
         }
 
-        <!-- External links -->
-        @if (vendor.linkedinUrl || vendor.crunchbaseUrl || vendor.sourceUrl) {
-          <section class="detail-section">
-            <h2 class="section-heading">External links</h2>
-            <div class="external-links">
-              @if (vendor.linkedinUrl) {
-                <a [href]="vendor.linkedinUrl" target="_blank" rel="noopener noreferrer" class="external-link">
-                  LinkedIn
-                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-                  </svg>
-                </a>
-              }
-              @if (vendor.crunchbaseUrl) {
-                <a [href]="vendor.crunchbaseUrl" target="_blank" rel="noopener noreferrer" class="external-link">
-                  Crunchbase
-                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-                  </svg>
-                </a>
-              }
-              @if (vendor.sourceUrl) {
-                <a [href]="vendor.sourceUrl" target="_blank" rel="noopener noreferrer" class="external-link">
-                  Source
-                  <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                    <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-                  </svg>
-                </a>
-              }
-            </div>
-          </section>
-        }
-
         <!-- Tools published -->
         @if (vendor.tools.length) {
           <section class="detail-section">
@@ -305,29 +299,34 @@ import { VendorDetail } from '../../types';
         @if (hasFreshness(vendor)) {
           <section class="detail-section freshness">
             @if (vendor.lastEnrichedAt) {
-              <span class="freshness__item">Enriched {{ formatDate(vendor.lastEnrichedAt) }}</span>
+              <span class="freshness__item">Enriched {{ formatDateWithRelative(vendor.lastEnrichedAt) }}</span>
             }
             @if (vendor.githubCheckedAt) {
-              <span class="freshness__item">GitHub {{ formatDate(vendor.githubCheckedAt) }}</span>
+              <span class="freshness__item">GitHub {{ formatDateWithRelative(vendor.githubCheckedAt) }}</span>
             }
             @if (vendor.fundingCheckedAt) {
-              <span class="freshness__item">Funding {{ formatDate(vendor.fundingCheckedAt) }}</span>
+              <span class="freshness__item">Funding {{ formatDateWithRelative(vendor.fundingCheckedAt) }}</span>
             }
             @if (vendor.pressCheckedAt) {
-              <span class="freshness__item">Press {{ formatDate(vendor.pressCheckedAt) }}</span>
+              <span class="freshness__item">Press {{ formatDateWithRelative(vendor.pressCheckedAt) }}</span>
             }
             @if (vendor.blogCheckedAt) {
-              <span class="freshness__item">Blog {{ formatDate(vendor.blogCheckedAt) }}</span>
+              <span class="freshness__item">Blog {{ formatDateWithRelative(vendor.blogCheckedAt) }}</span>
             }
             @if (vendor.linkedinCheckedAt) {
-              <span class="freshness__item">LinkedIn {{ formatDate(vendor.linkedinCheckedAt) }}</span>
+              <span class="freshness__item">LinkedIn {{ formatDateWithRelative(vendor.linkedinCheckedAt) }}</span>
             }
           </section>
         }
       </div>
     } @else {
-      <div class="page-container">
-        <p class="loading-text">Loading vendor details...</p>
+      <div class="page-container detail-skeleton">
+        <span class="skeleton skeleton--text" style="width: 80px; height: 14px;"></span>
+        <span class="skeleton skeleton--rect" style="width: 48px; height: 48px; margin-top: 24px; border-radius: 8px;"></span>
+        <span class="skeleton skeleton--text" style="width: 280px; height: 28px; margin-top: 16px;"></span>
+        <span class="skeleton skeleton--text" style="width: 100%; height: 14px; margin-top: 24px;"></span>
+        <span class="skeleton skeleton--text" style="width: 80%; height: 14px; margin-top: 8px;"></span>
+        <span class="skeleton skeleton--text" style="width: 60%; height: 14px; margin-top: 8px;"></span>
       </div>
     }
   `,
@@ -356,13 +355,31 @@ import { VendorDetail } from '../../types';
       gap: var(--space-4);
     }
 
-    .vendor-logo {
-      width: 48px;
-      height: 48px;
-      border-radius: var(--radius-md);
-      object-fit: contain;
+    .detail-header__links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--space-2);
+      margin-top: var(--space-3);
+    }
+
+    .external-link--pill {
+      padding: 2px var(--space-2);
       border: 0.5px solid var(--color-border-default);
-      background: var(--color-bg-elevated);
+      border-radius: var(--radius-sm);
+      font-size: var(--text-xs);
+      color: var(--color-text-secondary);
+      text-decoration: none;
+    }
+
+    .external-link--pill:hover {
+      color: var(--color-text-accent);
+      border-color: var(--color-border-strong);
+      text-decoration: none;
+    }
+
+    .employee-source {
+      max-width: 240px;
+      vertical-align: bottom;
     }
 
     .detail-title {
@@ -467,6 +484,16 @@ import { VendorDetail } from '../../types';
       padding: var(--space-10) 0;
       text-align: center;
     }
+
+    .detail-skeleton {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .fact__value {
+      font-variant-numeric: tabular-nums;
+    }
   `,
 })
 export class VendorDetailComponent implements OnInit {
@@ -474,11 +501,27 @@ export class VendorDetailComponent implements OnInit {
 
   private api = inject(ApiService);
   vendor = signal<VendorDetail | null>(null);
+  logoFailed = signal(false);
 
   ngOnInit(): void {
     this.api.getVendor(this.id()).subscribe((vendor) => {
       this.vendor.set(vendor);
+      this.logoFailed.set(false);
     });
+  }
+
+  vendorInitials(name: string): string {
+    return name
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map(w => w[0]?.toUpperCase() ?? '')
+      .join('');
+  }
+
+  truncate(value: string, max: number): string {
+    if (!value) return '';
+    return value.length <= max ? value : value.slice(0, max - 1).trimEnd() + '…';
   }
 
   hasGithub(v: VendorDetail): boolean {
@@ -528,14 +571,10 @@ export class VendorDetailComponent implements OnInit {
   }
 
   formatDate(iso: string): string {
-    try {
-      return new Date(iso).toLocaleDateString(undefined, {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-      });
-    } catch {
-      return iso;
-    }
+    return formatDate(iso);
+  }
+
+  formatDateWithRelative(iso: string): string {
+    return formatDateWithRelative(iso);
   }
 }
