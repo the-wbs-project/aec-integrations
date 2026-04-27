@@ -2,7 +2,7 @@
   "name": "review-app",
   "private": true,
   "scripts": {
-    "postinstall": "npx syncfusion-license activate",
+    "sync": "rm -rf .angular && npx syncfusion-license activate",
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
     "build": "ng build",

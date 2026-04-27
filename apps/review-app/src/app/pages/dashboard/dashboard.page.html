@@ -1,0 +1,95 @@
+<div class="page-container--wide">
+  <div class="page-header">
+    <h1 class="page-heading">Dashboard</h1>
+  </div>
+
+  @if (loadError()) {
+    <p class="dashboard__error">Couldn't load stats: {{ loadError() }}</p>
+  }
+
+  <section class="card-grid card-grid--top">
+    <a routerLink="/vendors" class="stat-card">
+      <span class="stat-card__label">Vendors</span>
+      <span class="stat-card__value">{{ stats()?.vendors?.total ?? '—' }}</span>
+      <span class="stat-card__hint">Open list</span>
+    </a>
+
+    <a routerLink="/tools" class="stat-card">
+      <span class="stat-card__label">Tools</span>
+      <span class="stat-card__value">{{ stats()?.tools?.total ?? '—' }}</span>
+      <span class="stat-card__hint">Open list</span>
+    </a>
+
+    <div class="stat-card stat-card--static">
+      <span class="stat-card__label">Integrations</span>
+      <span class="stat-card__value">{{ stats()?.integrations?.total ?? '—' }}</span>
+      <span class="stat-card__hint">Across all tools</span>
+    </div>
+  </section>
+
+  <section class="breakdowns">
+    <div class="breakdown">
+      <h2 class="breakdown__heading">Vendors by status</h2>
+      @if (vendorStatusBuckets().length === 0) {
+        <p class="breakdown__empty">No data yet.</p>
+      } @else {
+        <ul class="breakdown__list">
+          @for (b of vendorStatusBuckets(); track b.key) {
+            <li class="breakdown__row">
+              <span class="status-pill" [attr.data-status]="b.key">{{ b.label }}</span>
+              <span class="breakdown__count">{{ b.count }}</span>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="breakdown">
+      <h2 class="breakdown__heading">Vendors by readiness</h2>
+      @if (vendorReadinessBuckets().length === 0) {
+        <p class="breakdown__empty">No data yet.</p>
+      } @else {
+        <ul class="breakdown__list">
+          @for (b of vendorReadinessBuckets(); track b.key) {
+            <li class="breakdown__row">
+              <span class="breakdown__label">{{ b.label }}</span>
+              <span class="breakdown__count">{{ b.count }}</span>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="breakdown">
+      <h2 class="breakdown__heading">Tools by research status</h2>
+      @if (toolResearchBuckets().length === 0) {
+        <p class="breakdown__empty">No data yet.</p>
+      } @else {
+        <ul class="breakdown__list">
+          @for (b of toolResearchBuckets(); track b.key) {
+            <li class="breakdown__row">
+              <span class="status-pill" [attr.data-status]="b.key">{{ b.label }}</span>
+              <span class="breakdown__count">{{ b.count }}</span>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+
+    <div class="breakdown">
+      <h2 class="breakdown__heading">Tools by priority</h2>
+      @if (toolPriorityBuckets().length === 0) {
+        <p class="breakdown__empty">No data yet.</p>
+      } @else {
+        <ul class="breakdown__list">
+          @for (b of toolPriorityBuckets(); track b.key) {
+            <li class="breakdown__row">
+              <span class="breakdown__label">{{ b.label }}</span>
+              <span class="breakdown__count">{{ b.count }}</span>
+            </li>
+          }
+        </ul>
+      }
+    </div>
+  </section>
+</div>

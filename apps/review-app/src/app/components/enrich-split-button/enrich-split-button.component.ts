@@ -15,8 +15,6 @@
 import { Component, inject, input, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SplitButtonModule, type ItemModel } from '@syncfusion/ej2-angular-splitbuttons';
-import { DialogModule } from '@syncfusion/ej2-angular-popups';
-import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
 import { RunsService } from '../../services/runs.service';
 import { WORKFLOWS, type WorkflowMeta } from '../../workflows';
 
@@ -24,38 +22,9 @@ export type EnrichFamily = 'vendor' | 'tool';
 
 @Component({
   selector: 'app-enrich-split-button',
-  imports: [CommonModule, SplitButtonModule, DialogModule, ButtonModule],
-  template: `
-    <ejs-splitbutton
-      [content]="primaryLabel()"
-      [items]="menuItems()"
-      [disabled]="disabled()"
-      cssClass="e-primary"
-      (click)="runOrchestrator()"
-      (select)="onMenuSelect($event)"
-    ></ejs-splitbutton>
-
-    <ejs-dialog
-      [visible]="confirming() !== null"
-      [isModal]="true"
-      [closeOnEscape]="true"
-      header="Confirm bulk run"
-      width="420px"
-      (close)="confirming.set(null)"
-    >
-      @if (confirming(); as c) {
-        <p>Run <strong>{{ workflowTitle(c.slug) }}</strong> on <strong>{{ c.count }}</strong> {{ c.count === 1 ? 'record' : 'records' }}?</p>
-        <div class="dlg-actions">
-          <button ejs-button (click)="confirming.set(null)">Cancel</button>
-          <button ejs-button cssClass="e-primary" (click)="confirmAndRun()">Run {{ c.count }}</button>
-        </div>
-      }
-    </ejs-dialog>
-  `,
-  styles: `
-    :host { display: inline-block; }
-    .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-  `,
+  imports: [CommonModule, SplitButtonModule],
+  templateUrl: './enrich-split-button.component.html',
+  styleUrl: './enrich-split-button.component.scss',
 })
 export class EnrichSplitButtonComponent {
   private readonly runs = inject(RunsService);

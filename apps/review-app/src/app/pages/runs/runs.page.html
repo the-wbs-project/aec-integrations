@@ -1,0 +1,59 @@
+<div class="page-container--wide">
+  <div class="page-header">
+    <h1 class="page-heading">Workflow runs</h1>
+    <button class="btn btn--ghost btn--sm" (click)="runs.refresh()">Refresh</button>
+  </div>
+
+  <ejs-grid
+    [dataSource]="rows()"
+    [allowPaging]="true"
+    [pageSettings]="{ pageSize: 25 }"
+    [allowSorting]="true"
+    [allowFiltering]="true"
+    [filterSettings]="{ type: 'Excel' }"
+    height="560"
+    (rowSelected)="onRowSelected($event)"
+  >
+    <e-columns>
+      <e-column field="workflowTitle" headerText="Workflow" width="220"></e-column>
+      <e-column field="recordLabel" headerText="Record" width="220"></e-column>
+      <e-column field="status" headerText="Status" width="120">
+        <ng-template #template let-data>
+          <span class="status-pill" [attr.data-status]="data.status">{{ data.status }}</span>
+        </ng-template>
+      </e-column>
+      <e-column field="startedAt" headerText="Started" width="180" type="dateTime" format="MMM d, y, h:mm a"></e-column>
+      <e-column field="runId" headerText="Run ID" width="280"></e-column>
+    </e-columns>
+  </ejs-grid>
+
+  <ejs-dialog
+    [visible]="!!selected()"
+    [isModal]="true"
+    [closeOnEscape]="true"
+    header="Run details"
+    width="640px"
+    (close)="selected.set(null)"
+  >
+    @if (selected(); as s) {
+      <div class="run-detail">
+        <dl class="run-detail__grid">
+          <dt>Workflow</dt><dd>{{ s.workflowTitle }}</dd>
+          <dt>Record</dt><dd>{{ s.recordLabel || s.recordId }} <code>({{ s.recordId }})</code></dd>
+          <dt>Started</dt><dd>{{ s.startedAt | date:'medium' }}</dd>
+          <dt>Status</dt><dd><span class="status-pill" [attr.data-status]="s.status">{{ s.status }}</span></dd>
+          <dt>Run ID</dt><dd><code>{{ s.runId }}</code></dd>
+        </dl>
+
+        @if (s.raw.error) {
+          <h4 class="run-detail__h4">Error</h4>
+          <pre class="run-detail__pre">{{ s.raw.error | json }}</pre>
+        }
+        @if (s.raw.output) {
+          <h4 class="run-detail__h4">Output</h4>
+          <pre class="run-detail__pre">{{ s.raw.output | json }}</pre>
+        }
+      </div>
+    }
+  </ejs-dialog>
+</div>
