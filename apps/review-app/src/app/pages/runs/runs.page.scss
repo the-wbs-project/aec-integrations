@@ -1,0 +1,48 @@
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+.page-heading {
+  font-size: var(--text-xl);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--color-bg-recessed);
+  color: var(--color-text-secondary);
+  border: 0.5px solid var(--color-border-default);
+}
+.status-pill[data-status='complete'] { background: var(--color-success-bg); color: var(--color-success); border-color: transparent; }
+.status-pill[data-status='running'],
+.status-pill[data-status='queued'],
+.status-pill[data-status='waiting'],
+.status-pill[data-status='paused'],
+.status-pill[data-status='waitingForPause'] { background: var(--color-info-bg); color: var(--color-info); border-color: transparent; }
+.status-pill[data-status='errored'],
+.status-pill[data-status='terminated'] { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
+
+.run-detail__grid { display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px; margin: 0 0 16px; }
+.run-detail__grid dt { color: var(--color-text-secondary); font-size: var(--text-xs, 12px); }
+.run-detail__grid dd { margin: 0; font-size: var(--text-sm, 13px); }
+.run-detail__h4 { margin: 12px 0 6px; font-size: var(--text-sm, 13px); }
+.run-detail__pre {
+  background: var(--color-bg-recessed);
+  border: 0.5px solid var(--color-border-default);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  overflow: auto;
+  max-height: 220px;
+}

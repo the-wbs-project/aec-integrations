@@ -1,0 +1,285 @@
+<div class="page-container--wide">
+  <div class="page-header">
+    <h1 class="page-heading">Tools</h1>
+    <div class="page-header__actions">
+      <app-enrich-split-button
+        family="tool"
+        [filteredIds]="filteredIds()"
+      />
+      <a routerLink="/tools/new" class="btn btn--primary btn--sm">+ New tool</a>
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <input
+      class="input filter-bar__search"
+      type="search"
+      placeholder="Search tools..."
+      [value]="searchInput()"
+      (input)="onSearchInput($event)"
+      aria-label="Search tools"
+    />
+    <select
+      class="input filter-bar__select"
+      [value]="filterCategory()"
+      (change)="onFilterChange('category', $event)"
+      aria-label="Filter by category"
+    >
+      <option value="">All categories</option>
+      @for (cat of meta()?.categories ?? []; track cat.id) {
+        <option [value]="cat.id">{{ cat.name }}</option>
+      }
+    </select>
+    <select
+      class="input filter-bar__select"
+      [value]="filterDiscipline()"
+      (change)="onFilterChange('discipline', $event)"
+      aria-label="Filter by discipline"
+    >
+      <option value="">All disciplines</option>
+      @for (d of meta()?.disciplines ?? []; track d.id) {
+        <option [value]="d.id">{{ d.name }}</option>
+      }
+    </select>
+    <select
+      class="input filter-bar__select"
+      [value]="filterPhase()"
+      (change)="onFilterChange('phase', $event)"
+      aria-label="Filter by phase"
+    >
+      <option value="">All phases</option>
+      @for (p of meta()?.phases ?? []; track p.id) {
+        <option [value]="p.id">{{ p.name }}</option>
+      }
+    </select>
+    <select
+      class="input filter-bar__select"
+      [value]="filterStatus()"
+      (change)="onFilterChange('status', $event)"
+      aria-label="Filter by research status"
+    >
+      <option value="">All statuses</option>
+      @for (s of meta()?.researchStatuses ?? []; track s) {
+        <option [value]="s">{{ s }}</option>
+      }
+    </select>
+    <select
+      class="input filter-bar__select"
+      [value]="filterTier()"
+      (change)="onFilterChange('tier', $event)"
+      aria-label="Filter by priority tier"
+    >
+      <option value="">All tiers</option>
+      @for (t of meta()?.priorityTiers ?? []; track t) {
+        <option [value]="t">Tier {{ t }}</option>
+      }
+    </select>
+    <select
+      class="input filter-bar__select"
+      [value]="filterEnrichment()"
+      (change)="onFilterChange('enrichmentStatus', $event)"
+      aria-label="Filter by enrichment status"
+    >
+      <option value="">Any enrichment</option>
+      @for (e of meta()?.toolEnrichmentStatuses ?? []; track e) {
+        <option [value]="e">{{ e }}</option>
+      }
+    </select>
+  </div>
+
+  <!-- Table -->
+  <div class="table-wrapper">
+    <table class="table" aria-label="Tools">
+      <thead>
+        <tr>
+          @for (col of columns; track col.key) {
+            <th
+              [class.sortable]="col.sortable"
+              [class.sorted]="sortColumn() === col.sortKey"
+              [class.text-center]="col.align === 'center'"
+              [class.text-right]="col.align === 'right'"
+              (click)="col.sortable ? toggleSort(col.sortKey!) : null"
+              [attr.aria-sort]="getAriaSort(col.sortKey)"
+            >
+              {{ col.label }}
+              @if (col.sortable && sortColumn() === col.sortKey) {
+                <span class="sort-indicator">{{ sortDirection() === 'asc' ? '↑' : '↓' }}</span>
+              }
+            </th>
+          }
+        </tr>
+      </thead>
+      <tbody>
+        @if (loading() && tools().length === 0) {
+          @for (_ of skeletonRows; track $index) {
+            <tr aria-hidden="true">
+              @for (col of columns; track col.key) {
+                <td><span class="skeleton skeleton--text"></span></td>
+              }
+            </tr>
+          }
+        } @else {
+          @for (tool of tools(); track tool.id) {
+            <tr>
+              <td class="tool-name-cell">
+                <a [routerLink]="['/tools', tool.id]" class="tool-name-link">{{ tool.name }}</a>
+                @if (tool.toolEnrichmentStatus) {
+                  <span
+                    class="enrichment-dot"
+                    [class.enrichment-dot--complete]="isEnrichmentComplete(tool.toolEnrichmentStatus)"
+                    [title]="'Enrichment: ' + tool.toolEnrichmentStatus"
+                    aria-hidden="true"
+                  ></span>
+                  <span class="sr-only">Enrichment: {{ tool.toolEnrichmentStatus }}</span>
+                }
+              </td>
+              <td>
+                @if (tool.vendors.length) {
+                  @for (v of tool.vendors; track v.id; let last = $last) {
+                    <a [routerLink]="['/vendors', v.id]">{{ v.name }}</a>{{ last ? '' : ', ' }}
+                  }
+                } @else {
+                  <span class="empty-cell">—</span>
+                }
+              </td>
+              <td>
+                @if (tool.categories.length) {
+                  <span class="chip-list">
+                    @for (c of visibleRefs(tool.categories); track c.id) {
+                      <span class="badge badge--neutral">{{ c.name }}</span>
+                    }
+                    @if (overflowRefs(tool.categories); as extra) {
+                      <span
+                        class="badge badge--neutral pill-overflow"
+                        tabindex="0"
+                        [attr.aria-label]="extra.length + ' more categories'"
+                      >
+                        +{{ extra.length }}
+                        <span class="pill-overflow__menu" role="tooltip">
+                          @for (c of extra; track c.id) {
+                            <span class="pill-overflow__item">{{ c.name }}</span>
+                          }
+                        </span>
+                      </span>
+                    }
+                  </span>
+                } @else {
+                  <span class="empty-cell">—</span>
+                }
+              </td>
+              <td>
+                @if (tool.phases.length) {
+                  <span class="chip-list">
+                    @for (p of visibleRefs(tool.phases); track p.id) {
+                      <span class="badge badge--neutral">{{ p.name }}</span>
+                    }
+                    @if (overflowRefs(tool.phases); as extra) {
+                      <span
+                        class="badge badge--neutral pill-overflow"
+                        tabindex="0"
+                        [attr.aria-label]="extra.length + ' more phases'"
+                      >
+                        +{{ extra.length }}
+                        <span class="pill-overflow__menu" role="tooltip">
+                          @for (p of extra; track p.id) {
+                            <span class="pill-overflow__item">{{ p.name }}</span>
+                          }
+                        </span>
+                      </span>
+                    }
+                  </span>
+                } @else {
+                  <span class="empty-cell">—</span>
+                }
+              </td>
+              <td class="text-right">{{ tool.integrationCount | number:'1.0-0' }}</td>
+              <td class="text-center">
+                <div class="tier-cell">
+                  @if (tool.priorityTier) {
+                    <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">Tier {{ tool.priorityTier }}</span>
+                  } @else {
+                    <span class="empty-cell">—</span>
+                  }
+                  @if (tool.priorityScore !== undefined && tool.priorityScore !== null) {
+                    <span class="tier-cell__score">{{ tool.priorityScore | number:'1.0-0' }}</span>
+                  }
+                </div>
+              </td>
+              <td>
+                @if (tool.researchStatus) {
+                  <span class="badge" [class]="statusBadgeClass(tool.researchStatus)">
+                    {{ tool.researchStatus }}
+                  </span>
+                } @else {
+                  <span class="empty-cell">—</span>
+                }
+              </td>
+              <td class="text-right">
+                <span class="link-group">
+                  @if (tool.website) {
+                    <a [href]="tool.website" target="_blank" rel="noopener noreferrer" class="external-link" [attr.aria-label]="'Visit ' + tool.name + ' website'" title="Website">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" />
+                      </svg>
+                    </a>
+                  }
+                  @if (tool.hasApiDocs && tool.apiDocsUrl) {
+                    <a [href]="tool.apiDocsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="API docs" title="API docs">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <polyline points="16 18 22 12 16 6" />
+                        <polyline points="8 6 2 12 8 18" />
+                      </svg>
+                    </a>
+                  } @else if (tool.hasApiDocs) {
+                    <span class="link-group__pill" title="Has API docs">API</span>
+                  }
+                  @if (tool.toolIntegrationsUrl) {
+                    <a [href]="tool.toolIntegrationsUrl" target="_blank" rel="noopener noreferrer" class="external-link" aria-label="Integrations page" title="Integrations page">
+                      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
+                    </a>
+                  }
+                </span>
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td [attr.colspan]="columns.length" class="empty-state">
+                No tools found matching your filters.
+              </td>
+            </tr>
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  @if (total() > 0) {
+    <div class="pagination">
+      <span class="pagination__info">
+        Showing {{ rangeStart() }}–{{ rangeEnd() }} of {{ total() }}
+      </span>
+      <div class="pagination__controls">
+        <button
+          class="btn btn--ghost btn--sm"
+          [disabled]="offset() === 0"
+          (click)="prevPage()"
+        >
+          Previous
+        </button>
+        <button
+          class="btn btn--ghost btn--sm"
+          [disabled]="rangeEnd() >= total()"
+          (click)="nextPage()"
+        >
+          Next
+        </button>
+      </div>
+    </div>
+  }
+</div>

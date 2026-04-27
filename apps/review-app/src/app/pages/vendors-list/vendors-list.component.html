@@ -1,0 +1,228 @@
+<div class="vendors-page">
+  <div class="page-header">
+    <h1 class="page-heading">Vendors</h1>
+    <div class="page-header__actions">
+      @if (selectedIds().length > 0) {
+        <span class="selection-count">
+          {{ selectedIds().length }} selected
+        </span>
+      }
+      <app-enrich-split-button
+        family="vendor"
+        [recordIds]="selectedIds()"
+      />
+    </div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar">
+    <input
+      class="input filter-bar__search"
+      type="search"
+      placeholder="Search vendors..."
+      [value]="searchInput()"
+      (input)="onSearchInput($event)"
+      aria-label="Search vendors"
+    />
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Company size"
+      [dataSource]="$any(companySizeOptions())"
+      [fields]="multiselectFields"
+      [value]="filterCompanySize()"
+      (change)="setFilter('companySize', $any($event).value)"
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Public / private"
+      [dataSource]="$any(publicPrivateOptions())"
+      [fields]="multiselectFields"
+      [value]="filterPublicPrivate()"
+      (change)="setFilter('publicPrivate', $any($event).value)"
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Funding stage"
+      [dataSource]="$any(fundingStageOptions())"
+      [fields]="multiselectFields"
+      [value]="filterFundingStage()"
+      (change)="setFilter('fundingStage', $any($event).value)"
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Enrichment status"
+      [dataSource]="$any(enrichmentOptions())"
+      [fields]="multiselectFields"
+      [value]="filterEnrichment()"
+      (change)="setFilter('enrichment', $any($event).value)"
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+  </div>
+
+  <!-- Active-filter pills -->
+  @if (activeFilters().length > 0) {
+    <div class="filter-pills" aria-label="Active filters">
+      @for (f of activeFilters(); track f.key + ':' + f.value) {
+        <button
+          type="button"
+          class="filter-pill"
+          (click)="removeFilter(f.key, f.value)"
+          [attr.aria-label]="'Remove filter ' + f.label"
+        >
+          <span class="filter-pill__label">{{ f.label }}</span>
+          <span class="filter-pill__close" aria-hidden="true">×</span>
+        </button>
+      }
+      <button
+        type="button"
+        class="filter-pill filter-pill--clear"
+        (click)="clearAllFilters()"
+      >
+        Clear all
+      </button>
+    </div>
+  }
+
+  <div class="vendors-page__grid">
+    @if (loading()) {
+      <p class="loading-note loading-note--overlay">Loading vendors…</p>
+    } @else if (filteredRows().length === 0) {
+      <p class="loading-note loading-note--overlay">No vendors found.</p>
+    }
+    <ejs-grid
+      #grid
+      [dataSource]="filteredRows()"
+      [allowSorting]="true"
+      [allowResizing]="true"
+      [selectionSettings]="selectionSettings"
+      [pageSettings]="pageSettings"
+      [enableVirtualization]="true"
+      [enableHover]="true"
+      [enableStickyHeader]="true"
+      height="100%"
+      rowHeight="40"
+      (rowSelected)="onRowSelected($event)"
+      (rowDeselected)="onRowDeselected($event)"
+      (recordClick)="onRecordClick($event)"
+    >
+    <e-columns>
+      <e-column
+        type="checkbox"
+        width="46"
+        [allowSorting]="false"
+        [allowResizing]="false"
+      ></e-column>
+      <e-column
+        field="companyName"
+        headerText="Company"
+        width="240"
+        clipMode="EllipsisWithTooltip"
+      >
+        <ng-template #template let-data>
+          <a class="vendor-name-link" (click)="goToVendor(data.id, $event)">
+            {{ data.companyName }}
+          </a>
+        </ng-template>
+      </e-column>
+      <e-column
+        field="headquarters"
+        headerText="Headquarters"
+        width="180"
+        clipMode="EllipsisWithTooltip"
+      ></e-column>
+      <e-column
+        field="foundedYear"
+        headerText="Founded"
+        width="110"
+        textAlign="Right"
+        type="number"
+      ></e-column>
+      <e-column
+        field="companySize"
+        headerText="Size"
+        width="140"
+        textAlign="Right"
+      ></e-column>
+      <e-column
+        field="employeeCountExact"
+        headerText="Employees"
+        width="130"
+        textAlign="Right"
+        type="number"
+        format="N0"
+      ></e-column>
+      <e-column
+        field="readinessPercent"
+        headerText="Readiness"
+        width="130"
+        textAlign="Right"
+        type="number"
+        format="N0"
+      >
+        <ng-template #template let-data>
+          @if (data.readinessPercent !== null) {
+            <span>{{ data.readinessPercent }}%</span>
+          } @else {
+            <span class="empty-cell">—</span>
+          }
+        </ng-template>
+      </e-column>
+      <e-column
+        field="githubStarsTotal"
+        headerText="GitHub ★"
+        width="120"
+        textAlign="Right"
+        type="number"
+        format="N0"
+      ></e-column>
+      <e-column
+        field="vendorEnrichmentStatus"
+        headerText="Enrichment"
+        width="140"
+        textAlign="Right"
+      >
+        <ng-template #template let-data>
+          @if (data.vendorEnrichmentStatus) {
+            <span class="badge" [class]="'badge badge--' + enrichmentVariant(data.vendorEnrichmentStatus)">
+              {{ data.vendorEnrichmentStatus }}
+            </span>
+          } @else {
+            <span class="empty-cell">—</span>
+          }
+        </ng-template>
+      </e-column>
+      <e-column
+        field="toolCount"
+        headerText="Tools"
+        width="100"
+        textAlign="Right"
+        type="number"
+        format="N0"
+      ></e-column>
+    </e-columns>
+    </ejs-grid>
+  </div>
+</div>

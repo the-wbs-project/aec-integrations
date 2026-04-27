@@ -1,207 +1,80 @@
 // ---------------------------------------------------------------------------
-// Dashboard — landing page for the merged app. Three at-a-glance cards:
-//   • Vendor count (links to /vendors)
-//   • Tool count   (links to /tools)
-//   • Recent runs preview — latest 5 from RunsService, links to /runs
+// Dashboard — landing page for the merged app. Shows aggregate counts:
+//   • Total integrations (links to integration counts)
+//   • Vendors: total + breakdown by enrichment status + readiness buckets
+//   • Tools:   total + breakdown by research status + priority tier
 //
-// Counts come from the existing list endpoints with limit=1, which already
-// expose `total` in the paginated envelope.
+// All numbers come from a single GET /api/stats request.
 // ---------------------------------------------------------------------------
-import { Component, OnInit, inject, signal } from '@angular/core';
-import { CommonModule, DatePipe } from '@angular/common';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ApiService } from '../../services/api.service';
-import { RunsService } from '../../services/runs.service';
-import { WORKFLOWS } from '../../workflows';
+import { StatsResponse } from '../../types';
+
+interface Bucket {
+  key: string;
+  label: string;
+  count: number;
+}
 
 @Component({
   selector: 'app-dashboard',
-  imports: [CommonModule, RouterLink, DatePipe],
-  template: `
-    <div class="page-container--wide">
-      <div class="page-header">
-        <h1 class="page-heading">Dashboard</h1>
-      </div>
-
-      <section class="card-grid">
-        <a routerLink="/vendors" class="stat-card">
-          <span class="stat-card__label">Vendors</span>
-          <span class="stat-card__value">{{ vendorCount() ?? '—' }}</span>
-          <span class="stat-card__hint">Open list</span>
-        </a>
-
-        <a routerLink="/tools" class="stat-card">
-          <span class="stat-card__label">Tools</span>
-          <span class="stat-card__value">{{ toolCount() ?? '—' }}</span>
-          <span class="stat-card__hint">Open list</span>
-        </a>
-
-        <a routerLink="/runs" class="stat-card">
-          <span class="stat-card__label">Runs in flight</span>
-          <span class="stat-card__value">{{ runs.inFlightCount() }}</span>
-          <span class="stat-card__hint">View history</span>
-        </a>
-      </section>
-
-      <section class="recent">
-        <h2 class="recent__heading">Recent runs</h2>
-        @if (runs.runs().length === 0) {
-          <p class="recent__empty">No runs yet. Kick off a workflow from a vendor or tool to see it here.</p>
-        } @else {
-          <ul class="recent__list">
-            @for (run of runs.runs().slice(0, 5); track run.runId) {
-              <li class="recent__row">
-                <div class="recent__row-main">
-                  <div class="recent__row-title">{{ workflowTitle(run.workflow) }}</div>
-                  <div class="recent__row-sub">{{ run.recordLabel || run.recordId }}</div>
-                </div>
-                <div class="recent__row-meta">
-                  <span class="status-pill" [attr.data-status]="run.status">{{ run.status }}</span>
-                  <span class="recent__row-time">{{ run.startedAt | date:'short' }}</span>
-                </div>
-              </li>
-            }
-          </ul>
-          <a routerLink="/runs" class="recent__more">View all runs →</a>
-        }
-      </section>
-    </div>
-  `,
-  styles: `
-    .page-header {
-      margin-bottom: var(--space-5);
-    }
-    .page-heading {
-      font-size: var(--text-xl);
-      font-weight: 500;
-      color: var(--color-text-primary);
-      margin: 0;
-    }
-
-    .card-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-      gap: var(--space-3);
-      margin-bottom: var(--space-6);
-    }
-
-    .stat-card {
-      display: flex;
-      flex-direction: column;
-      gap: var(--space-1);
-      padding: var(--space-4);
-      background: var(--color-bg-elevated);
-      border: 0.5px solid var(--color-border-default);
-      border-radius: var(--radius-md, 8px);
-      text-decoration: none;
-      color: inherit;
-      transition: border-color var(--duration-base, 150ms) ease, box-shadow var(--duration-base, 150ms) ease;
-    }
-    .stat-card:hover {
-      border-color: var(--color-border-strong);
-      box-shadow: var(--shadow-sm);
-    }
-
-    .stat-card__label {
-      font-size: var(--text-xs, 12px);
-      font-weight: 500;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--color-text-secondary);
-    }
-    .stat-card__value {
-      font-size: 32px;
-      font-weight: 500;
-      color: var(--color-text-primary);
-      font-variant-numeric: tabular-nums;
-    }
-    .stat-card__hint {
-      font-size: var(--text-xs, 12px);
-      color: var(--color-text-tertiary);
-    }
-
-    .recent {
-      background: var(--color-bg-elevated);
-      border: 0.5px solid var(--color-border-default);
-      border-radius: var(--radius-md, 8px);
-      padding: var(--space-4);
-    }
-    .recent__heading {
-      font-size: var(--text-base, 14px);
-      font-weight: 600;
-      margin: 0 0 var(--space-3);
-      color: var(--color-text-primary);
-    }
-    .recent__empty {
-      color: var(--color-text-secondary);
-      font-size: var(--text-sm, 13px);
-      margin: 0;
-    }
-    .recent__list { list-style: none; margin: 0; padding: 0; }
-    .recent__row {
-      display: flex;
-      align-items: center;
-      gap: var(--space-3);
-      padding: var(--space-2) 0;
-      border-bottom: 0.5px solid var(--color-border-default);
-    }
-    .recent__row:last-child { border-bottom: 0; }
-    .recent__row-main { flex: 1; min-width: 0; }
-    .recent__row-title { font-size: var(--text-sm, 13px); font-weight: 600; color: var(--color-text-primary); }
-    .recent__row-sub { font-size: var(--text-xs, 12px); color: var(--color-text-secondary); }
-    .recent__row-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
-    .recent__row-time { font-size: 10px; color: var(--color-text-tertiary); }
-    .recent__more {
-      display: inline-block;
-      margin-top: var(--space-3);
-      font-size: var(--text-sm, 13px);
-      color: var(--color-text-accent);
-      text-decoration: none;
-    }
-    .recent__more:hover { text-decoration: underline; }
-
-    .status-pill {
-      display: inline-block;
-      padding: 2px 8px;
-      border-radius: 999px;
-      font-size: 10px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      background: var(--color-bg-recessed);
-      color: var(--color-text-secondary);
-      border: 0.5px solid var(--color-border-default);
-    }
-    .status-pill[data-status='complete'] { background: var(--color-success-bg); color: var(--color-success); border-color: transparent; }
-    .status-pill[data-status='running'],
-    .status-pill[data-status='queued'],
-    .status-pill[data-status='waiting'],
-    .status-pill[data-status='paused'],
-    .status-pill[data-status='waitingForPause'] { background: var(--color-info-bg); color: var(--color-info); border-color: transparent; }
-    .status-pill[data-status='errored'],
-    .status-pill[data-status='terminated'] { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
-  `,
+  imports: [CommonModule, RouterLink],
+  templateUrl: './dashboard.page.html',
+  styleUrl: './dashboard.page.scss',
 })
 export class DashboardPage implements OnInit {
   private api = inject(ApiService);
-  protected runs = inject(RunsService);
 
-  protected readonly vendorCount = signal<number | null>(null);
-  protected readonly toolCount = signal<number | null>(null);
+  protected readonly stats = signal<StatsResponse | null>(null);
+  protected readonly loadError = signal<string | null>(null);
+
+  protected readonly vendorStatusBuckets = computed<Bucket[]>(() =>
+    toBuckets(this.stats()?.vendors.byStatus),
+  );
+
+  protected readonly vendorReadinessBuckets = computed<Bucket[]>(() => {
+    const s = this.stats();
+    if (!s) return [];
+    return s.vendors.readinessBuckets.map((b) => ({
+      key: b.key,
+      label: b.label,
+      count: s.vendors.byReadiness[b.key] ?? 0,
+    }));
+  });
+
+  protected readonly toolResearchBuckets = computed<Bucket[]>(() =>
+    toBuckets(this.stats()?.tools.byResearchStatus),
+  );
+
+  protected readonly toolPriorityBuckets = computed<Bucket[]>(() =>
+    toBuckets(this.stats()?.tools.byPriority, sortPriority),
+  );
 
   ngOnInit(): void {
-    this.runs.start();
-    this.api.getVendors({ limit: 1 }).subscribe({
-      next: (resp) => this.vendorCount.set(resp.total),
-      error: () => this.vendorCount.set(null),
-    });
-    this.api.getTools({ limit: 1 }).subscribe({
-      next: (resp) => this.toolCount.set(resp.total),
-      error: () => this.toolCount.set(null),
+    this.api.getStats().subscribe({
+      next: (resp) => this.stats.set(resp),
+      error: (err) => this.loadError.set(String(err?.message ?? err)),
     });
   }
+}
 
-  protected workflowTitle(slug: string): string {
-    return WORKFLOWS.find((w) => w.slug === slug)?.title ?? slug;
-  }
+function toBuckets(
+  map: Record<string, number> | undefined,
+  sort: (a: Bucket, b: Bucket) => number = (a, b) => a.label.localeCompare(b.label),
+): Bucket[] {
+  if (!map) return [];
+  return Object.entries(map)
+    .map(([key, count]) => ({ key, label: key, count }))
+    .sort(sort);
+}
+
+// Priority tiers commonly look like "1", "2", "3" or "Tier 1" etc.
+// Sort numerically when possible, falling back to label.
+function sortPriority(a: Bucket, b: Bucket): number {
+  const an = Number(a.key);
+  const bn = Number(b.key);
+  if (Number.isFinite(an) && Number.isFinite(bn)) return an - bn;
+  return a.label.localeCompare(b.label);
 }

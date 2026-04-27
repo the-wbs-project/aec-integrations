@@ -1,0 +1,17 @@
+@switch (variant()) {
+  @case ('rows') {
+    @for (_ of rowsArray(); track $index) {
+      <div class="skeleton-row">
+        @for (__ of cellsArray(); track $index) {
+          <span class="skeleton skeleton--text skeleton-cell"></span>
+        }
+      </div>
+    }
+  }
+  @case ('rect') {
+    <span class="skeleton skeleton--rect" [style.height.px]="height()"></span>
+  }
+  @default {
+    <span class="skeleton skeleton--text" [style.width]="width()" [style.height.px]="height()"></span>
+  }
+}

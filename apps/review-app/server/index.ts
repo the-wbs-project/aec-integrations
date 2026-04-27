@@ -17,6 +17,7 @@ import { cors } from 'hono/cors';
 import type { Env } from './env';
 import health from './routes/health';
 import meta from './routes/meta';
+import stats from './routes/stats';
 import tools from './routes/tools';
 import vendors from './routes/vendors';
 import workflows from './routes/workflows';
@@ -35,6 +36,7 @@ app.route('/api/health', health);
 app.route('/api/meta', meta);
 app.route('/api/tools', tools);
 app.route('/api/vendors', vendors);
+app.route('/api/stats', stats);
 
 // Workflow orchestration
 app.route('/api/workflows', workflows);

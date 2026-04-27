@@ -1,0 +1,56 @@
+<div
+  class="tag-input"
+  (click)="focusField()"
+  (keydown)="onContainerKeydown($event)"
+>
+  @for (chip of selectedChips(); track chip.id) {
+    <span class="tag-input__chip">
+      {{ chip.name }}
+      <button
+        type="button"
+        class="tag-input__chip-remove"
+        [attr.aria-label]="'Remove ' + chip.name"
+        (click)="remove(chip.id, $event)"
+      >
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="18" y1="6" x2="6" y2="18" />
+          <line x1="6" y1="6" x2="18" y2="18" />
+        </svg>
+      </button>
+    </span>
+  }
+  <input
+    #field
+    type="text"
+    class="tag-input__field"
+    [placeholder]="selectedIds().length ? '' : placeholder()"
+    [value]="query()"
+    (input)="onInput($event)"
+    (focus)="open.set(true)"
+    (keydown)="onFieldKeydown($event)"
+    [attr.aria-label]="placeholder()"
+    [attr.aria-expanded]="open()"
+    autocomplete="off"
+  />
+
+  @if (open()) {
+    <div class="tag-input__menu" role="listbox">
+      @if (filteredOptions().length === 0) {
+        <span class="tag-input__option tag-input__option--empty">No matches</span>
+      }
+      @for (opt of filteredOptions(); track opt.id; let i = $index) {
+        <button
+          type="button"
+          class="tag-input__option"
+          [class.tag-input__option--active]="i === activeIndex()"
+          (mousedown)="add(opt.id, $event)"
+          (mouseenter)="activeIndex.set(i)"
+          role="option"
+          [attr.aria-selected]="i === activeIndex()"
+        >
+          {{ opt.name }}
+        </button>
+      }
+    </div>
+  }
+</div>

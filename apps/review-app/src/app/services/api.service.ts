@@ -10,6 +10,7 @@ import {
   MetaResponse,
   CreateToolRequest,
   UpdateToolRequest,
+  StatsResponse,
 } from '../types';
 
 export interface ToolQueryParams {
@@ -72,6 +73,10 @@ export class ApiService {
 
   getMeta(): Observable<MetaResponse> {
     return this.http.get<MetaResponse>(`${this.baseUrl}/meta`);
+  }
+
+  getStats(): Observable<StatsResponse> {
+    return this.http.get<StatsResponse>(`${this.baseUrl}/stats`);
   }
 
   private buildParams(params?: Record<string, unknown>): HttpParams {

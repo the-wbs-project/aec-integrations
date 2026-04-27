@@ -1,0 +1,45 @@
+<ejs-splitbutton
+  [content]="primaryLabel()"
+  [items]="menuItems()"
+  [disabled]="disabled()"
+  cssClass="e-primary"
+  (click)="runOrchestrator()"
+  (select)="onMenuSelect($event)"
+></ejs-splitbutton>
+
+@if (confirming(); as c) {
+  <div
+    class="confirm-backdrop"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="confirm-bulk-run-title"
+    (click)="confirming.set(null)"
+  >
+    <div class="confirm-modal" (click)="$event.stopPropagation()">
+      <header class="confirm-modal__header">
+        <h2 id="confirm-bulk-run-title" class="confirm-modal__title">Confirm bulk run</h2>
+        <button
+          type="button"
+          class="confirm-modal__close"
+          aria-label="Close"
+          (click)="confirming.set(null)"
+        >×</button>
+      </header>
+      <div class="confirm-modal__body">
+        <p class="confirm-modal__message">
+          Run <strong>{{ workflowTitle(c.slug) }}</strong> on
+          <strong>{{ c.count }}</strong>
+          {{ c.count === 1 ? 'record' : 'records' }}?
+        </p>
+      </div>
+      <footer class="confirm-modal__actions">
+        <button class="btn btn--ghost btn--sm" (click)="confirming.set(null)">
+          Cancel
+        </button>
+        <button class="btn btn--primary btn--sm" (click)="confirmAndRun()">
+          Run {{ c.count }}
+        </button>
+      </footer>
+    </div>
+  </div>
+}

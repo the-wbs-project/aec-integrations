@@ -137,6 +137,21 @@ export interface MetaResponse {
   toolEnrichmentStatuses: string[];
 }
 
+export interface StatsResponse {
+  integrations: { total: number };
+  vendors: {
+    total: number;
+    byStatus: Record<string, number>;
+    byReadiness: Record<string, number>;
+    readinessBuckets: { key: string; label: string }[];
+  };
+  tools: {
+    total: number;
+    byResearchStatus: Record<string, number>;
+    byPriority: Record<string, number>;
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Write payloads (mirror server/types.ts)
 // ---------------------------------------------------------------------------

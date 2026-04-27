@@ -1,0 +1,148 @@
+:host {
+  display: block;
+  /* Fill the viewport below the 52px sticky shell header. */
+  height: calc(100dvh - 52px);
+}
+
+.vendors-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-6);
+  gap: var(--space-5);
+}
+
+.vendors-page__grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.vendors-page__grid ejs-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-shrink: 0;
+}
+
+.page-heading {
+  font-size: var(--text-xl);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.page-header__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.selection-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.filter-bar__search {
+  width: 240px;
+}
+
+.filter-bar__multiselect {
+  width: 200px;
+}
+
+/* Match the height/look of the search input — Syncfusion injects its own
+ * wrapper, so we constrain by the host width and let SF handle internals. */
+.filter-bar__multiselect ::ng-deep .e-multi-select-wrapper {
+  min-height: 32px;
+}
+
+
+.filter-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-body);
+  background: var(--color-bg-elevated);
+  border: 0.5px solid var(--color-border-default);
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1.6;
+}
+
+.filter-pill:hover {
+  border-color: var(--color-border-strong, var(--color-text-tertiary));
+  color: var(--color-text-primary);
+}
+
+.filter-pill__close {
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--color-text-tertiary);
+}
+
+.filter-pill:hover .filter-pill__close {
+  color: var(--color-text-primary);
+}
+
+.filter-pill--clear {
+  color: var(--color-text-secondary);
+  background: transparent;
+  border-style: dashed;
+}
+
+.vendor-name-link {
+  font-weight: 500;
+  color: var(--color-text-accent);
+  cursor: pointer;
+}
+
+.vendor-name-link:hover {
+  text-decoration: underline;
+}
+
+.empty-cell { color: var(--color-text-tertiary); }
+
+.loading-note {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+}
+
+/* Sits above the grid's empty body so it's visible during initial load. */
+.loading-note--overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  z-index: 1;
+  pointer-events: none;
+}

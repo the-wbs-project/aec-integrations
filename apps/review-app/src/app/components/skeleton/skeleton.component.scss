@@ -1,0 +1,13 @@
+:host { display: block; }
+
+.skeleton-row {
+  display: grid;
+  grid-template-columns: 2fr 1.5fr 1fr 1fr 0.6fr 0.8fr 1fr;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border-bottom: 0.5px solid var(--color-border-default);
+}
+
+.skeleton-cell {
+  height: 12px;
+}
