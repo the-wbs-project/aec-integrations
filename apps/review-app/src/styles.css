@@ -883,6 +883,40 @@ select.input {
   border-color: var(--color-accent-hover);
 }
 
+/* ----- Dialog (ejs-dialog) ----- */
+[data-theme="dark"] .e-dialog,
+[data-theme="dark"] .e-dialog .e-dlg-header-content,
+[data-theme="dark"] .e-dialog .e-dlg-content,
+[data-theme="dark"] .e-dialog .e-footer-content {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-body);
+  border-color: var(--color-border-default);
+}
+
+[data-theme="dark"] .e-dialog {
+  border: 0.5px solid var(--color-border-default);
+  box-shadow: var(--shadow-lg);
+}
+
+[data-theme="dark"] .e-dialog .e-dlg-header-content {
+  border-bottom: 0.5px solid var(--color-border-default);
+}
+
+[data-theme="dark"] .e-dialog .e-dlg-header,
+[data-theme="dark"] .e-dialog .e-dlg-header * {
+  color: var(--color-text-primary);
+}
+
+[data-theme="dark"] .e-dialog .e-btn.e-dlg-closeicon-btn {
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+[data-theme="dark"] .e-dialog .e-btn.e-dlg-closeicon-btn:hover,
+[data-theme="dark"] .e-dialog .e-btn.e-dlg-closeicon-btn:focus {
+  background: var(--color-bg-recessed);
+  color: var(--color-text-primary);
+}
+
 /* ============================================================
    Avatar fallback (vendor logos, etc)
    ============================================================ */

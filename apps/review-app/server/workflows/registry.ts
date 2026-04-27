@@ -16,6 +16,7 @@ import { meta as vendorPressMeta } from './vendor/press';
 import { meta as vendorBlogRecencyMeta } from './vendor/blogRecency';
 import { meta as vendorScoreMeta } from './vendor/score';
 import { meta as vendorOrchestratorMeta } from './vendor/orchestrator';
+import { meta as vendorResearchMeta } from './vendor/research';
 
 import { meta as toolApiCheckMeta } from './tool/apiCheck';
 import { meta as toolMarketplaceMeta } from './tool/marketplace';
@@ -26,6 +27,7 @@ import { meta as toolRedditMeta } from './tool/reddit';
 import { meta as toolIntegrationCountMeta } from './tool/integrationCount';
 import { meta as toolScoreMeta } from './tool/score';
 import { meta as toolOrchestratorMeta } from './tool/orchestrator';
+import { meta as toolResearchMeta } from './tool/research';
 
 /** Names of every Workflow binding on Env. */
 export type WorkflowBindingName =
@@ -37,6 +39,7 @@ export type WorkflowBindingName =
   | 'WF_VENDOR_BLOG_RECENCY'
   | 'WF_VENDOR_SCORE'
   | 'WF_VENDOR_ORCHESTRATOR'
+  | 'WF_VENDOR_RESEARCH'
   | 'WF_TOOL_API_CHECK'
   | 'WF_TOOL_MARKETPLACE'
   | 'WF_TOOL_IPAAS'
@@ -45,7 +48,8 @@ export type WorkflowBindingName =
   | 'WF_TOOL_REDDIT'
   | 'WF_TOOL_INTEGRATION_COUNT'
   | 'WF_TOOL_SCORE'
-  | 'WF_TOOL_ORCHESTRATOR';
+  | 'WF_TOOL_ORCHESTRATOR'
+  | 'WF_TOOL_RESEARCH';
 
 export interface WorkflowEntry {
   meta: WorkflowMeta;
@@ -64,6 +68,7 @@ export const WORKFLOWS: Record<string, WorkflowEntry> = {
     meta: vendorOrchestratorMeta,
     binding: 'WF_VENDOR_ORCHESTRATOR',
   },
+  [vendorResearchMeta.slug]: { meta: vendorResearchMeta, binding: 'WF_VENDOR_RESEARCH' },
   [toolApiCheckMeta.slug]: { meta: toolApiCheckMeta, binding: 'WF_TOOL_API_CHECK' },
   [toolMarketplaceMeta.slug]: { meta: toolMarketplaceMeta, binding: 'WF_TOOL_MARKETPLACE' },
   [toolIpaasMeta.slug]: { meta: toolIpaasMeta, binding: 'WF_TOOL_IPAAS' },
@@ -76,6 +81,7 @@ export const WORKFLOWS: Record<string, WorkflowEntry> = {
   },
   [toolScoreMeta.slug]: { meta: toolScoreMeta, binding: 'WF_TOOL_SCORE' },
   [toolOrchestratorMeta.slug]: { meta: toolOrchestratorMeta, binding: 'WF_TOOL_ORCHESTRATOR' },
+  [toolResearchMeta.slug]: { meta: toolResearchMeta, binding: 'WF_TOOL_RESEARCH' },
 };
 
 export type WorkflowName = keyof typeof WORKFLOWS;

@@ -124,6 +124,19 @@ export class VendorsListComponent implements OnInit {
   protected readonly checkboxMode = 'CheckBox' as const;
 
   /**
+   * Sort the Size column by the position of each range in COMPANY_SIZE_ORDER
+   * instead of alphabetically (which puts "1001-5000" before "11-50").
+   * Unknown / missing values sort last.
+   */
+  protected readonly companySizeSortComparer = (a: unknown, b: unknown): number => {
+    const rank = (v: unknown): number => {
+      const idx = COMPANY_SIZE_ORDER.indexOf(v as (typeof COMPANY_SIZE_ORDER)[number]);
+      return idx === -1 ? COMPANY_SIZE_ORDER.length : idx;
+    };
+    return rank(a) - rank(b);
+  };
+
+  /**
    * Bake the count into the `text` field rather than fighting Syncfusion's
    * itemTemplate (which receives wrapped objects for primitive arrays and
    * truncates to "..."). Selection still binds on the stable `value` field.

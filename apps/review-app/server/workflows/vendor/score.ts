@@ -6,7 +6,8 @@
 // signals are populated, classifies the vendor as enriched/partial/error, and
 // writes the result back to Airtable.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -28,8 +29,8 @@ const SIGNAL_FIELDS = [
   'blog_last_post_days_ago',
 ] as const;
 
-export class VendorScoreWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class VendorScoreWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
 
     const record = await checkpoint(step, 'fetch-record', () =>

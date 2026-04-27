@@ -8,7 +8,8 @@
 // invoking 'tool-orchestrator' on a record gives you a fresh set of priority
 // scores without re-running the leaf enrichments.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -26,8 +27,8 @@ export const meta: WorkflowMeta = {
   table: 'tools',
 };
 
-export class ToolOrchestratorWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class ToolOrchestratorWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
 
     const record = await checkpoint(step, 'fetch-tool', () =>

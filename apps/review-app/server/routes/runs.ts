@@ -9,10 +9,16 @@
 // calling the matching workflow binding's `instance.status()` in parallel.
 // Failures from a single status() lookup are surfaced inline as
 // status='unknown' so one bad runId doesn't poison the whole panel.
+//
+// When a workflow errors, instance.status() only returns a generic
+// WorkflowFatalError. The actual cause (e.g. a NonRetryableError message)
+// is persisted to KV by ErrorCapturingWorkflow and surfaced here in
+// preference to the generic top-level error.
 // ---------------------------------------------------------------------------
 import { Hono } from 'hono';
 import type { Env } from '../env';
 import { listRecent, type RecentRun } from '../services/recent-runs';
+import { getCapturedError } from '../services/run-errors';
 import { workflowBinding } from '../workflows/registry';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -36,10 +42,15 @@ app.get('/recent', async (c) => {
       try {
         const instance = await binding.get(run.runId);
         const status = await instance.status();
+        const statusName = (status as { status?: string }).status ?? 'unknown';
+        const baseError = (status as { error?: unknown }).error;
+        // Prefer the captured inner error (real cause) over the generic
+        // WorkflowFatalError surfaced by instance.status().
+        const captured = baseError ? await getCapturedError(c.env, run.runId) : null;
         return {
           ...run,
-          status: (status as { status?: string }).status ?? 'unknown',
-          error: (status as { error?: unknown }).error,
+          status: statusName,
+          error: captured ?? baseError,
           output: (status as { output?: unknown }).output,
         };
       } catch (err) {

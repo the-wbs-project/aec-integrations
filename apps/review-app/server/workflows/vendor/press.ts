@@ -6,7 +6,8 @@
 // software`, filters items mentioning the company name (or domain root) within
 // the last 365 days, counts them, and records the most recent pubDate.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -33,8 +34,8 @@ function vendorDomain(website: string | undefined): string | undefined {
 
 const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
 
-export class VendorPressWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class VendorPressWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
     const checkedAt = new Date().toISOString();
 

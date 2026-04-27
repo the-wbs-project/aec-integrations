@@ -1,0 +1,112 @@
+.run-detail {
+  font-size: var(--text-sm, 13px);
+  color: var(--color-text-primary);
+}
+
+.run-detail__grid {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  gap: 6px 12px;
+  margin: 0 0 16px;
+}
+.run-detail__grid dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-xs, 12px);
+}
+.run-detail__grid dd {
+  margin: 0;
+  font-size: var(--text-sm, 13px);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.run-detail__grid dd a {
+  color: var(--color-text-accent);
+  text-decoration: none;
+}
+.run-detail__grid dd a:hover { text-decoration: underline; }
+
+.run-detail__id {
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+  background: transparent;
+  padding: 0;
+}
+
+.run-detail__h4 {
+  margin: 12px 0 6px;
+  font-size: var(--text-sm, 13px);
+  font-weight: 600;
+  color: var(--color-text-primary);
+}
+
+.run-detail__error {
+  background: var(--color-danger-bg, var(--color-bg-recessed));
+  border: 0.5px solid var(--color-border-default);
+  border-radius: 6px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.run-detail__error-name {
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-danger, var(--color-text-secondary));
+}
+.run-detail__error-message {
+  margin: 0;
+  font-size: var(--text-sm, 13px);
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+
+.run-detail__details {
+  margin-top: 4px;
+  font-size: var(--text-xs, 12px);
+}
+.run-detail__details summary {
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  user-select: none;
+}
+.run-detail__details summary:hover { color: var(--color-text-primary); }
+
+.run-detail__pre {
+  margin: 6px 0 0;
+  background: var(--color-bg-recessed);
+  border: 0.5px solid var(--color-border-default);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow: auto;
+  max-height: 260px;
+}
+
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--color-bg-recessed);
+  color: var(--color-text-secondary);
+  border: 0.5px solid var(--color-border-default);
+}
+.status-pill[data-status='complete'] { background: var(--color-success-bg); color: var(--color-success); border-color: transparent; }
+.status-pill[data-status='running'],
+.status-pill[data-status='queued'],
+.status-pill[data-status='waiting'],
+.status-pill[data-status='paused'],
+.status-pill[data-status='waitingForPause'] { background: var(--color-info-bg); color: var(--color-info); border-color: transparent; }
+.status-pill[data-status='errored'],
+.status-pill[data-status='terminated'] { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }

@@ -176,3 +176,18 @@ export interface UpdateToolRequest {
   phases?: string[];
   vendors?: string[];
 }
+
+export interface UpdateVendorRequest {
+  companyName?: string;
+  description?: string;
+  website?: string;
+  headquarters?: string;
+  foundedYear?: number | null;
+  publicPrivate?: string | null;
+  parentCompany?: string;
+  linkedinUrl?: string;
+  crunchbaseUrl?: string;
+  sourceUrl?: string;
+  blogUrl?: string;
+  githubOrg?: string;
+}

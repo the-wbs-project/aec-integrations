@@ -32,17 +32,3 @@
 .status-pill[data-status='waitingForPause'] { background: var(--color-info-bg); color: var(--color-info); border-color: transparent; }
 .status-pill[data-status='errored'],
 .status-pill[data-status='terminated'] { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
-
-.run-detail__grid { display: grid; grid-template-columns: 100px 1fr; gap: 6px 12px; margin: 0 0 16px; }
-.run-detail__grid dt { color: var(--color-text-secondary); font-size: var(--text-xs, 12px); }
-.run-detail__grid dd { margin: 0; font-size: var(--text-sm, 13px); }
-.run-detail__h4 { margin: 12px 0 6px; font-size: var(--text-sm, 13px); }
-.run-detail__pre {
-  background: var(--color-bg-recessed);
-  border: 0.5px solid var(--color-border-default);
-  border-radius: 6px;
-  padding: 10px;
-  font-size: 12px;
-  overflow: auto;
-  max-height: 220px;
-}
