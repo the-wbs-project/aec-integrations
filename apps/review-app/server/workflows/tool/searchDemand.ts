@@ -8,7 +8,8 @@
 // From (1) we average the timeline_data values to a 0-100 trends index.
 // From (2) we apply log10(total_results + 1) * 100 to estimate monthly volume.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -44,8 +45,8 @@ function extractSearchVolume(body: Record<string, unknown>): number | null {
   return Math.round(Math.log10(totalResults + 1) * 100);
 }
 
-export class ToolSearchDemandWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class ToolSearchDemandWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
     const checkedAt = new Date().toISOString();
     const attribution = { runId: event.instanceId, workflow: meta.slug };

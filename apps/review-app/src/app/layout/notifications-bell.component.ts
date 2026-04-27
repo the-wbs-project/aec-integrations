@@ -10,13 +10,13 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
-import { DialogModule } from '@syncfusion/ej2-angular-popups';
 import { RunsService, type RecentRunRow } from '../services/runs.service';
 import { WORKFLOWS } from '../workflows';
+import { RunDetailDialogComponent } from '../components/run-detail-dialog/run-detail-dialog.component';
 
 @Component({
   selector: 'app-notifications-bell',
-  imports: [CommonModule, RouterLink, ButtonModule, DialogModule, DatePipe],
+  imports: [CommonModule, RouterLink, ButtonModule, DatePipe, RunDetailDialogComponent],
   templateUrl: './notifications-bell.component.html',
   styleUrl: './notifications-bell.component.scss',
 })

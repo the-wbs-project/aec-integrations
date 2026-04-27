@@ -16,7 +16,8 @@
 //      finish, so vendor_data_completeness, vendor_enrichment_status, and
 //      last_enriched_at are written off the freshly-enriched record.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -80,8 +81,8 @@ interface ChildOutcome {
   error?: string;
 }
 
-export class VendorOrchestratorWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class VendorOrchestratorWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool, forceRefresh = false } = event.payload;
     const orchestratorRunId = event.instanceId;
 

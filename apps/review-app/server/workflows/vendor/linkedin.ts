@@ -4,7 +4,8 @@
 //
 // Goal: find the vendor's LinkedIn company page URL and follower count.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -106,8 +107,8 @@ function parseEmitted(emitted: Record<string, unknown>) {
   return { fields, fieldsUpdated, status: status as 'success' | 'partial', note };
 }
 
-export class VendorLinkedinWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class VendorLinkedinWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 

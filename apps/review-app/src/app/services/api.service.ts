@@ -10,6 +10,7 @@ import {
   MetaResponse,
   CreateToolRequest,
   UpdateToolRequest,
+  UpdateVendorRequest,
   StatsResponse,
 } from '../types';
 
@@ -69,6 +70,10 @@ export class ApiService {
 
   getVendor(id: string): Observable<VendorDetail> {
     return this.http.get<VendorDetail>(`${this.baseUrl}/vendors/${id}`);
+  }
+
+  updateVendor(id: string, patch: UpdateVendorRequest): Observable<VendorDetail> {
+    return this.http.patch<VendorDetail>(`${this.baseUrl}/vendors/${id}`, patch);
   }
 
   getMeta(): Observable<MetaResponse> {

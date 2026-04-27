@@ -6,11 +6,11 @@
 // /api/runs/recent in the background), so it stays live while the page is open.
 // ---------------------------------------------------------------------------
 import { Component, inject, signal, OnInit } from '@angular/core';
-import { CommonModule, DatePipe, JsonPipe } from '@angular/common';
+import { CommonModule } from '@angular/common';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
-import { DialogModule } from '@syncfusion/ej2-angular-popups';
 import { RunsService, type RecentRunRow } from '../../services/runs.service';
 import { WORKFLOWS } from '../../workflows';
+import { RunDetailDialogComponent } from '../../components/run-detail-dialog/run-detail-dialog.component';
 
 interface RunsRow {
   runId: string;
@@ -25,7 +25,7 @@ interface RunsRow {
 
 @Component({
   selector: 'app-runs-page',
-  imports: [CommonModule, GridModule, DialogModule, DatePipe, JsonPipe],
+  imports: [CommonModule, GridModule, RunDetailDialogComponent],
   providers: [PageService, SortService, FilterService],
   templateUrl: './runs.page.html',
   styleUrl: './runs.page.scss',

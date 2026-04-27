@@ -1,11 +1,27 @@
 import { Hono } from 'hono';
-import { fetchVendors } from '../services/airtable';
+import {
+  fetchVendors,
+  tableId,
+  updateRecord,
+} from '../services/airtable';
+import { cacheInvalidate } from '../services/cache';
 import {
   buildLookupMaps,
   hydrateVendor,
   hydrateVendorDetail,
 } from '../hydrate';
-import type { Env, PaginatedResponse, Vendor, VendorDetail } from '../types';
+import type {
+  Env,
+  PaginatedResponse,
+  UpdateVendorRequest,
+  Vendor,
+  VendorDetail,
+} from '../types';
+
+// ---------------------------------------------------------------------------
+// NOTE: write endpoints (PATCH) require AIRTABLE_TOKEN to have the
+// `data.records:write` scope on the configured base. Read tokens will 401.
+// ---------------------------------------------------------------------------
 
 const vendors = new Hono<{ Bindings: Env }>();
 
@@ -103,6 +119,46 @@ vendors.get('/:id', async (c) => {
   }
 
   const detail: VendorDetail = hydrateVendorDetail(record, maps);
+  return c.json(detail);
+});
+
+// ---------------------------------------------------------------------------
+// PATCH /api/vendors/:id — partial update of a vendor record
+// ---------------------------------------------------------------------------
+vendors.patch('/:id', async (c) => {
+  const env = c.env;
+  const vendorId = c.req.param('id');
+  const body = (await c.req.json().catch(() => ({}))) as UpdateVendorRequest;
+
+  const fields: Record<string, unknown> = {};
+  if (body.companyName !== undefined) fields['company_name'] = body.companyName;
+  if (body.description !== undefined) fields['description'] = body.description;
+  if (body.website !== undefined) fields['website'] = body.website;
+  if (body.headquarters !== undefined) fields['headquarters'] = body.headquarters;
+  if (body.foundedYear !== undefined) fields['founded_year'] = body.foundedYear;
+  if (body.publicPrivate !== undefined) fields['public_private'] = body.publicPrivate;
+  if (body.parentCompany !== undefined) fields['parent_company'] = body.parentCompany;
+  if (body.linkedinUrl !== undefined) fields['linkedin_url'] = body.linkedinUrl;
+  if (body.crunchbaseUrl !== undefined) fields['crunchbase_url'] = body.crunchbaseUrl;
+  if (body.sourceUrl !== undefined) fields['source_url'] = body.sourceUrl;
+  if (body.blogUrl !== undefined) fields['blog_url'] = body.blogUrl;
+  if (body.githubOrg !== undefined) fields['github_org'] = body.githubOrg;
+
+  if (Object.keys(fields).length === 0) {
+    return c.json({ error: 'no editable fields in body' }, 400);
+  }
+
+  let updated;
+  try {
+    updated = await updateRecord(env, 'vendors', vendorId, fields);
+  } catch (err) {
+    return c.json({ error: (err as Error).message ?? 'Airtable update failed' }, 502);
+  }
+
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'vendors')}`);
+
+  const maps = await buildLookupMaps(env);
+  const detail = hydrateVendorDetail(updated, maps);
   return c.json(detail);
 });
 

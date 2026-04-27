@@ -104,6 +104,11 @@
 			"binding": "WF_VENDOR_ORCHESTRATOR",
 			"class_name": "VendorOrchestratorWorkflow"
 		},
+		{
+			"name": "aeci-vendor-research",
+			"binding": "WF_VENDOR_RESEARCH",
+			"class_name": "VendorResearchWorkflow"
+		},
 		// Tool workflows
 		{
 			"name": "aeci-tool-api-check",
@@ -149,6 +154,11 @@
 			"name": "aeci-tool-orchestrator",
 			"binding": "WF_TOOL_ORCHESTRATOR",
 			"class_name": "ToolOrchestratorWorkflow"
+		},
+		{
+			"name": "aeci-tool-research",
+			"binding": "WF_TOOL_RESEARCH",
+			"class_name": "ToolResearchWorkflow"
 		}
 	],
 	"vars": {

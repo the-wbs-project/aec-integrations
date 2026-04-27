@@ -1,0 +1,68 @@
+<ejs-dialog
+  [visible]="!!run()"
+  [isModal]="true"
+  [closeOnEscape]="true"
+  [showCloseIcon]="true"
+  header="Run details"
+  width="640px"
+  target="body"
+  (close)="onClose()"
+>
+  <ng-template #content>
+    @if (run(); as s) {
+      <div class="run-detail">
+        <dl class="run-detail__grid">
+          <dt>Workflow</dt>
+          <dd>{{ workflowTitle() }}</dd>
+
+          <dt>Record</dt>
+          <dd>
+            @if (recordLink(); as link) {
+              <a [routerLink]="link" (click)="onClose()">{{ s.recordLabel || s.recordId }}</a>
+            } @else {
+              {{ s.recordLabel || s.recordId }}
+            }
+            <code class="run-detail__id">{{ s.recordId }}</code>
+          </dd>
+
+          <dt>Started</dt>
+          <dd>{{ s.startedAt | date:'medium' }}</dd>
+
+          <dt>Status</dt>
+          <dd>
+            <span class="status-pill" [attr.data-status]="s.status">{{ s.status }}</span>
+          </dd>
+
+          <dt>Run ID</dt>
+          <dd><code class="run-detail__id">{{ s.runId }}</code></dd>
+        </dl>
+
+        @if (normalizedError(); as err) {
+          <h4 class="run-detail__h4">Error</h4>
+          <div class="run-detail__error">
+            @if (err.name) {
+              <div class="run-detail__error-name">{{ err.name }}</div>
+            }
+            @if (err.message) {
+              <p class="run-detail__error-message">{{ err.message }}</p>
+            }
+            @if (err.stack) {
+              <details class="run-detail__details">
+                <summary>Stack trace</summary>
+                <pre class="run-detail__pre">{{ err.stack }}</pre>
+              </details>
+            }
+            @if (!err.name && !err.message && !err.stack && err.raw !== undefined) {
+              <pre class="run-detail__pre">{{ err.raw | json }}</pre>
+            }
+          </div>
+        }
+
+        @if (s.output) {
+          <h4 class="run-detail__h4">Output</h4>
+          <pre class="run-detail__pre">{{ s.output | json }}</pre>
+        }
+      </div>
+    }
+  </ng-template>
+</ejs-dialog>

@@ -6,7 +6,8 @@
 // requires the URL to be on the vendor's own (or docs subdomain of the)
 // domain. Result is gated on confidence !== 'low'.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -95,8 +96,8 @@ function parseEmitted(emitted: Record<string, unknown>) {
   };
 }
 
-export class ToolApiCheckWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class ToolApiCheckWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 

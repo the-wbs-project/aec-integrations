@@ -60,6 +60,7 @@ export { VendorPressWorkflow } from './workflows/vendor/press';
 export { VendorBlogRecencyWorkflow } from './workflows/vendor/blogRecency';
 export { VendorScoreWorkflow } from './workflows/vendor/score';
 export { VendorOrchestratorWorkflow } from './workflows/vendor/orchestrator';
+export { VendorResearchWorkflow } from './workflows/vendor/research';
 export { ToolApiCheckWorkflow } from './workflows/tool/apiCheck';
 export { ToolMarketplaceWorkflow } from './workflows/tool/marketplace';
 export { ToolIpaasWorkflow } from './workflows/tool/ipaas';
@@ -69,6 +70,7 @@ export { ToolRedditWorkflow } from './workflows/tool/reddit';
 export { ToolIntegrationCountWorkflow } from './workflows/tool/integrationCount';
 export { ToolScoreWorkflow } from './workflows/tool/score';
 export { ToolOrchestratorWorkflow } from './workflows/tool/orchestrator';
+export { ToolResearchWorkflow } from './workflows/tool/research';
 
 // Worker module export — delegates fetch to Hono and adds scheduled() + queue().
 export default {

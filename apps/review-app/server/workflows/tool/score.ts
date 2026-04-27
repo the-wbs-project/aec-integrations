@@ -5,7 +5,8 @@
 // Reads the tool record, fetches its linked vendor (if any), runs the same
 // scoring math n8n's Code node uses, writes the four scores + tier.
 // ---------------------------------------------------------------------------
-import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
+import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
+import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
 import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
@@ -22,8 +23,8 @@ export const meta: WorkflowMeta = {
   table: 'tools',
 };
 
-export class ToolScoreWorkflow extends WorkflowEntrypoint<Env, RunParams> {
-  override async run(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
+export class ToolScoreWorkflow extends ErrorCapturingWorkflow {
+  override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
 
     const record = await checkpoint(step, 'fetch-tool', () =>

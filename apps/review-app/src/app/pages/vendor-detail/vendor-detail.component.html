@@ -10,39 +10,51 @@
 
     <!-- Header -->
     <header class="detail-header">
-      <div class="detail-header__top">
-        <span class="avatar" aria-hidden="true">
-          @if (vendor.logoUrl && !logoFailed()) {
-            <img
-              [src]="vendor.logoUrl"
-              [alt]="vendor.companyName + ' logo'"
-              (error)="logoFailed.set(true)"
-            />
-          } @else {
-            <span>{{ vendorInitials(vendor.companyName) }}</span>
-          }
-        </span>
-        <div class="detail-header__title-block">
-          <div class="detail-header__title-row">
-            <h1 class="detail-title">{{ vendor.companyName }}</h1>
-            <app-enrich-split-button
-              family="vendor"
-              [recordIds]="recordIds()"
-            />
+      @if (editingSection() === 'header') {
+        <div class="edit-stack">
+          <label class="field-label" for="vendor-name">Company name</label>
+          <input id="vendor-name" class="input edit-title" [(ngModel)]="draft.companyName" name="companyName" placeholder="Company name" />
+          <label class="field-label" for="vendor-site">Website</label>
+          <input id="vendor-site" class="input" [(ngModel)]="draft.website" name="website" placeholder="https://example.com" />
+          <div class="edit-actions">
+            <button class="btn btn--primary btn--sm" (click)="saveSection('header')" [disabled]="saving()">Save</button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
           </div>
-          @if (vendor.website) {
-            <a [href]="vendor.website" target="_blank" rel="noopener noreferrer" class="external-link">
-              {{ vendor.website }}
-              <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-            </a>
-          }
         </div>
-      </div>
+      } @else {
+        <div class="detail-header__top">
+          <span class="avatar" aria-hidden="true">
+            @if (vendor.logoUrl && !logoFailed()) {
+              <img
+                [src]="vendor.logoUrl"
+                [alt]="vendor.companyName + ' logo'"
+                (error)="logoFailed.set(true)"
+              />
+            } @else {
+              <span>{{ vendorInitials(vendor.companyName) }}</span>
+            }
+          </span>
+          <div class="detail-header__title-block">
+            <div class="detail-header__title-row">
+              <h1 class="detail-title">{{ vendor.companyName }}</h1>
+              <app-enrich-split-button
+                family="vendor"
+                [recordIds]="recordIds()"
+              />
+              <button class="btn btn--ghost btn--sm" (click)="startEdit('header', vendor)">Edit</button>
+            </div>
+            @if (vendor.website) {
+              <a [href]="vendor.website" target="_blank" rel="noopener noreferrer" class="external-link">
+                {{ vendor.website }}
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </a>
+            }
+          </div>
+        </div>
 
-      @if (vendor.linkedinUrl || vendor.crunchbaseUrl || vendor.sourceUrl) {
         <div class="detail-header__links">
           @if (vendor.linkedinUrl) {
             <a [href]="vendor.linkedinUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">LinkedIn</a>
@@ -56,76 +68,144 @@
           @if (vendor.sourceUrl) {
             <a [href]="vendor.sourceUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Source</a>
           }
+          <button class="btn btn--ghost btn--sm" (click)="startEdit('links', vendor)">Edit links</button>
         </div>
       }
     </header>
 
+    @if (editingSection() === 'links') {
+      <section class="detail-section">
+        <div class="section-row">
+          <h2 class="section-heading">Links</h2>
+        </div>
+        <div class="edit-stack">
+          <label class="field-label" for="link-linkedin">LinkedIn URL</label>
+          <input id="link-linkedin" class="input" [(ngModel)]="draft.linkedinUrl" name="linkedinUrl" placeholder="https://www.linkedin.com/company/…" />
+          <label class="field-label" for="link-crunchbase">Crunchbase URL</label>
+          <input id="link-crunchbase" class="input" [(ngModel)]="draft.crunchbaseUrl" name="crunchbaseUrl" placeholder="https://www.crunchbase.com/organization/…" />
+          <label class="field-label" for="link-github">GitHub org slug</label>
+          <input id="link-github" class="input" [(ngModel)]="draft.githubOrg" name="githubOrg" placeholder="acme-inc" />
+          <label class="field-label" for="link-source">Source URL</label>
+          <input id="link-source" class="input" [(ngModel)]="draft.sourceUrl" name="sourceUrl" placeholder="https://…" />
+          <label class="field-label" for="link-blog">Blog URL</label>
+          <input id="link-blog" class="input" [(ngModel)]="draft.blogUrl" name="blogUrl" placeholder="https://…" />
+          <div class="edit-actions">
+            <button class="btn btn--primary btn--sm" (click)="saveSection('links')" [disabled]="saving()">Save</button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+          </div>
+        </div>
+      </section>
+    }
+
     <!-- Key facts -->
     <section class="detail-section">
-      <h2 class="section-heading">Key facts</h2>
-      <div class="facts-grid">
-        <div class="fact">
-          <span class="fact__label">Headquarters</span>
-          <span class="fact__value">
-            @if (vendor.headquarters) {
-              {{ vendor.headquarters }}
-            } @else {
-              <span class="na">N/A</span>
-            }
-          </span>
-        </div>
-        <div class="fact">
-          <span class="fact__label">Founded</span>
-          <span class="fact__value">
-            @if (vendor.foundedYear) {
-              {{ vendor.foundedYear }}
-            } @else {
-              <span class="na">N/A</span>
-            }
-          </span>
-        </div>
-        <div class="fact">
-          <span class="fact__label">Company size</span>
-          <span class="fact__value">
-            @if (vendor.companySize) {
-              {{ vendor.companySize }}
-            } @else {
-              <span class="na">N/A</span>
-            }
-          </span>
-        </div>
-        <div class="fact">
-          <span class="fact__label">Public / private</span>
-          <span class="fact__value">
-            @if (vendor.publicPrivate) {
-              {{ vendor.publicPrivate }}
-            } @else {
-              <span class="na">N/A</span>
-            }
-          </span>
-        </div>
-        <div class="fact">
-          <span class="fact__label">Parent company</span>
-          <span class="fact__value">
-            @if (vendor.parentCompany) {
-              {{ vendor.parentCompany }}
-            } @else {
-              <span class="na">N/A</span>
-            }
-          </span>
-        </div>
+      <div class="section-row">
+        <h2 class="section-heading">Key facts</h2>
+        @if (editingSection() !== 'keyFacts') {
+          <button class="btn btn--ghost btn--sm" (click)="startEdit('keyFacts', vendor)">Edit</button>
+        }
       </div>
+      @if (editingSection() === 'keyFacts') {
+        <div class="edit-stack">
+          <label class="field-label" for="kf-hq">Headquarters</label>
+          <input id="kf-hq" class="input" [(ngModel)]="draft.headquarters" name="headquarters" placeholder="City, Country" />
+          <label class="field-label" for="kf-year">Founded year</label>
+          <input id="kf-year" class="input" type="number" min="1700" max="2100" [(ngModel)]="draft.foundedYear" name="foundedYear" placeholder="e.g. 2018" />
+          <label class="field-label" for="kf-pp">Public / private</label>
+          <select id="kf-pp" class="input" [(ngModel)]="draft.publicPrivate" name="publicPrivate">
+            @for (opt of publicPrivateOptions; track opt) {
+              <option [value]="opt">{{ opt === '' ? '—' : opt }}</option>
+            }
+          </select>
+          <label class="field-label" for="kf-parent">Parent company</label>
+          <input id="kf-parent" class="input" [(ngModel)]="draft.parentCompany" name="parentCompany" placeholder="e.g. Autodesk" />
+          <div class="edit-actions">
+            <button class="btn btn--primary btn--sm" (click)="saveSection('keyFacts')" [disabled]="saving()">Save</button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+          </div>
+        </div>
+      } @else {
+        <div class="facts-grid">
+          <div class="fact">
+            <span class="fact__label">Headquarters</span>
+            <span class="fact__value">
+              @if (vendor.headquarters) {
+                {{ vendor.headquarters }}
+              } @else {
+                <span class="na">N/A</span>
+              }
+            </span>
+          </div>
+          <div class="fact">
+            <span class="fact__label">Founded</span>
+            <span class="fact__value">
+              @if (vendor.foundedYear) {
+                {{ vendor.foundedYear }}
+              } @else {
+                <span class="na">N/A</span>
+              }
+            </span>
+          </div>
+          <div class="fact">
+            <span class="fact__label">Company size</span>
+            <span class="fact__value">
+              @if (vendor.companySize) {
+                {{ vendor.companySize }}
+              } @else {
+                <span class="na">N/A</span>
+              }
+            </span>
+          </div>
+          <div class="fact">
+            <span class="fact__label">Public / private</span>
+            <span class="fact__value">
+              @if (vendor.publicPrivate) {
+                {{ vendor.publicPrivate }}
+              } @else {
+                <span class="na">N/A</span>
+              }
+            </span>
+          </div>
+          <div class="fact">
+            <span class="fact__label">Parent company</span>
+            <span class="fact__value">
+              @if (vendor.parentCompany) {
+                {{ vendor.parentCompany }}
+              } @else {
+                <span class="na">N/A</span>
+              }
+            </span>
+          </div>
+        </div>
+      }
     </section>
 
     <!-- Description -->
     <section class="detail-section">
-      <h2 class="section-heading">Description</h2>
-      @if (vendor.description) {
-        <p class="description-text">{{ vendor.description }}</p>
+      <div class="section-row">
+        <h2 class="section-heading">Description</h2>
+        @if (editingSection() !== 'description') {
+          <button class="btn btn--ghost btn--sm" (click)="startEdit('description', vendor)">Edit</button>
+        }
+      </div>
+      @if (editingSection() === 'description') {
+        <textarea class="input edit-textarea" rows="6" [(ngModel)]="draft.description" name="description"></textarea>
+        <div class="edit-actions">
+          <button class="btn btn--primary btn--sm" (click)="saveSection('description')" [disabled]="saving()">Save</button>
+          <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+        </div>
       } @else {
-        <p class="description-text na">N/A</p>
+        @if (vendor.description) {
+          <p class="description-text">{{ vendor.description }}</p>
+        } @else {
+          <p class="description-text na">N/A</p>
+        }
       }
     </section>
+
+    @if (saveError()) {
+      <p class="save-error" role="alert">{{ saveError() }}</p>
+    }
 
     <!-- GitHub -->
     <section class="detail-section">

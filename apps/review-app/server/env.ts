@@ -58,6 +58,7 @@ export interface Env {
   WF_VENDOR_BLOG_RECENCY: Workflow<RunParams>;
   WF_VENDOR_SCORE: Workflow<RunParams>;
   WF_VENDOR_ORCHESTRATOR: Workflow<RunParams>;
+  WF_VENDOR_RESEARCH: Workflow<RunParams>;
   WF_TOOL_API_CHECK: Workflow<RunParams>;
   WF_TOOL_MARKETPLACE: Workflow<RunParams>;
   WF_TOOL_IPAAS: Workflow<RunParams>;
@@ -67,6 +68,7 @@ export interface Env {
   WF_TOOL_INTEGRATION_COUNT: Workflow<RunParams>;
   WF_TOOL_SCORE: Workflow<RunParams>;
   WF_TOOL_ORCHESTRATOR: Workflow<RunParams>;
+  WF_TOOL_RESEARCH: Workflow<RunParams>;
 
   // Email — `send_email` binding for the weekly cost report.
   REPORT_EMAIL: SendEmail;
