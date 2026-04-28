@@ -24,6 +24,7 @@ export interface AirtableTables {
   projectPhases: string;
   disciplines: string;
   toolIntegrations: string;
+  runs: string;
 }
 
 /**
@@ -69,6 +70,11 @@ export interface Env {
   WF_TOOL_SCORE: Workflow<RunParams>;
   WF_TOOL_ORCHESTRATOR: Workflow<RunParams>;
   WF_TOOL_RESEARCH: Workflow<RunParams>;
+
+  // Durable Object that owns the live run registry, drives status reconciliation
+  // alarms, broadcasts WebSocket deltas, and writes the Airtable history row on
+  // terminal status. Single instance addressed via idFromName('singleton').
+  RUNS_HUB: DurableObjectNamespace;
 
   // Email — `send_email` binding for the weekly cost report.
   REPORT_EMAIL: SendEmail;

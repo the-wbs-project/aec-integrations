@@ -9,9 +9,9 @@
 // The route layer dispatches via `env[bindingName]` looked up in the registry.
 // One instance handles a single record_id; multi-record runs spawn N instances.
 //
-// On a successful POST /run we push each spawned runId onto the
-// shared `runs:recent` list in KV so the notification bell can surface it
-// without the client having to remember runIds across page loads.
+// On a successful POST /run we notify the singleton RunsHub Durable Object
+// about each spawned run so the bell + run-detail UI pick it up over the
+// open WebSocket without having to remember runIds across page loads.
 // ---------------------------------------------------------------------------
 import { Hono } from 'hono';
 import type { Env } from '../env';
@@ -19,7 +19,7 @@ import { WORKFLOWS, workflowBinding, type WorkflowName } from '../workflows/regi
 import type { RunParams } from '../lib/workflow-meta';
 import { listRecords, asString } from '../services/airtable';
 import { resolveSearchTool } from '../lib/llm';
-import { pushRuns, type RecentRun } from '../services/recent-runs';
+import { notifyRunStarted } from '../lib/notify-run-started';
 import { buildLookupMaps } from '../hydrate';
 
 const app = new Hono<{ Bindings: Env }>();
@@ -96,15 +96,26 @@ app.post('/:name/run', async (c) => {
     labels = undefined;
   }
 
-  const startedAt = new Date().toISOString();
-  const recent: RecentRun[] = runs.map((r) => ({
-    runId: r.runId,
-    workflow: name,
-    recordId: r.recordId,
-    recordLabel: labels?.get(r.recordId),
-    startedAt,
-  }));
-  c.executionCtx.waitUntil(pushRuns(c.env, recent));
+  // Notify the RunsHub DO once per spawned run. The DO inserts each run into
+  // its recent list, kicks off the alarm-driven status reconciler, and pushes
+  // a `run-started` event to all subscribed WebSocket clients.
+  c.executionCtx.waitUntil(
+    Promise.all(
+      runs.map((r) =>
+        notifyRunStarted(c.env, {
+          runId: r.runId,
+          workflow: name,
+          recordId: r.recordId,
+          recordLabel: labels?.get(r.recordId),
+          triggeredBy: 'http',
+          forceRefresh,
+          model,
+        }).catch((err) => {
+          console.error('[workflows.run] notifyRunStarted failed', r.runId, String(err));
+        }),
+      ),
+    ),
+  );
 
   return c.json({ workflow: name as WorkflowName, model, runs });
 });

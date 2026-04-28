@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
-// Captured workflow errors — sidecar to recent-runs.
+// Captured workflow errors — sidecar consumed by the RunsHub DO.
 //
 // Cloudflare Workflows surfaces only a generic WorkflowFatalError via
 // instance.status(), which swallows the actual NonRetryableError message
 // thrown inside the run() body. We capture the real error in the workflow's
-// own try/catch (see ErrorCapturingWorkflow) and stash it here so the runs
-// route can surface it in the UI.
+// own try/catch (see ErrorCapturingWorkflow) and stash it here so the
+// RunsHub DO can surface it via WebSocket and persist it to the Airtable
+// `runs` history.
 // ---------------------------------------------------------------------------
 import type { Env } from '../env';
 
