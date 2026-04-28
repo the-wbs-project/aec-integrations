@@ -43,6 +43,7 @@ import {
   logTurnSummary,
   executeSearchTool,
   resolveSearchTool,
+  supportsTemperature,
   runForceEmitTurn,
   type MessageParam,
   type OutputSchema,
@@ -285,7 +286,7 @@ function buildRequest(input: BuildRequestInput): MessageRequestBody {
   return {
     model: input.model,
     max_tokens: 8192,
-    temperature: 0,
+    ...(supportsTemperature(input.model) ? { temperature: 0 } : {}),
     system: input.systemPrompt,
     messages: input.messages,
     tools,

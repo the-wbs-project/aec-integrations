@@ -77,7 +77,7 @@ export function buildInitialRequest(input: BuildInitialRequestInput): MessageReq
   return {
     model: input.model,
     max_tokens: input.maxTokens ?? 8192,
-    temperature: 0,
+    ...(supportsTemperature(input.model) ? { temperature: 0 } : {}),
     system: input.systemPrompt,
     messages: [{ role: 'user', content: input.userPrompt }],
     tools,
@@ -100,7 +100,7 @@ export function buildContinuationRequest(
   return {
     model: input.model,
     max_tokens: input.maxTokens ?? 8192,
-    temperature: 0,
+    ...(supportsTemperature(input.model) ? { temperature: 0 } : {}),
     system: input.systemPrompt,
     messages: input.priorMessages,
     tools,
@@ -124,6 +124,15 @@ export function resolveSearchTool(env: Env, requested: SearchTool): SearchTool {
 }
 
 export { MAX_TOOL_USES };
+
+/**
+ * Opus 4.7 rejects requests that include `temperature` (the API returns
+ * "`temperature` is deprecated for this model"). Other models still accept
+ * it, and we want temperature: 0 there for deterministic tool-use behavior.
+ */
+export function supportsTemperature(model: string): boolean {
+  return !model.startsWith('claude-opus-4-7');
+}
 
 // ---------------------------------------------------------------------------
 // Single-turn request — direct call to the Anthropic Messages API via the
