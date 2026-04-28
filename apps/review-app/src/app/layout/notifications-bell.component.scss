@@ -143,3 +143,4 @@
 .status-pill[data-status='waitingForPause'] { background: var(--color-info-bg); color: var(--color-info); border-color: transparent; }
 .status-pill[data-status='errored'],
 .status-pill[data-status='terminated'] { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
+.status-pill[data-status='complete'][data-confidence='low'] { background: var(--color-warning-bg); color: var(--color-warning); border-color: transparent; }

@@ -30,6 +30,7 @@ export async function appendRunRow(env: Env, rec: RunRecord): Promise<string> {
   };
   if (rec.finishedAt) fields['finished_at'] = rec.finishedAt;
   if (typeof rec.durationMs === 'number') fields['duration_ms'] = rec.durationMs;
+  if (rec.confidence) fields['confidence'] = rec.confidence;
 
   const row = await createRecord(env, 'runs', fields);
   return row.id;

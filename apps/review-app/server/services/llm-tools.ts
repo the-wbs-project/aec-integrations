@@ -72,6 +72,12 @@ export function searchApiToolSchema(maxResults = 5): CustomTool {
   };
 }
 
+/** Force the model to call `emit_result` on the next turn. */
+export const FORCE_EMIT_TOOL_CHOICE = {
+  type: 'tool' as const,
+  name: 'emit_result',
+};
+
 /**
  * The structured-output channel — workflows force the model to call this
  * exactly once with the answer payload that matches the workflow's schema.

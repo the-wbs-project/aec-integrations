@@ -11,6 +11,7 @@ import {
   WEB_SEARCH_TOOL,
   searchApiToolSchema,
   emitResultTool,
+  FORCE_EMIT_TOOL_CHOICE,
   MAX_TOOL_USES,
   type Tool,
 } from '../services/llm-tools';
@@ -140,6 +141,50 @@ export async function runTurn(
   request: MessageRequestBody,
 ): Promise<MessageResponse> {
   return runMessage(env, ctx, request);
+}
+
+/**
+ * Final-turn safety net: re-issue the conversation with `emit_result` as the
+ * only tool and `tool_choice` forced to it. Used when the model has either
+ * exhausted its search budget or returned a text-only message without
+ * emitting. Appends a synthetic user message instructing the model to emit a
+ * best-effort result with `confidence: 'low'`.
+ *
+ * Returns the parsed `emit_result` payload, or undefined when the model
+ * somehow still didn't emit (caller should treat as terminal failure).
+ */
+export async function runForceEmitTurn(
+  env: Env,
+  ctx: LlmContext,
+  input: {
+    model: string;
+    systemPrompt: string;
+    outputSchema: OutputSchema;
+    priorMessages: MessageParam[];
+    maxTokens?: number;
+  },
+): Promise<Record<string, unknown> | undefined> {
+  const messages: MessageParam[] = [
+    ...input.priorMessages,
+    {
+      role: 'user',
+      content:
+        "You've used your search budget. Emit `emit_result` now with what you've gathered. Setting `confidence: 'low'` and leaving any uncertain fields null is a valid result — do not refuse.",
+    },
+  ];
+  const request: MessageRequestBody = {
+    model: input.model,
+    max_tokens: input.maxTokens ?? 4096,
+    temperature: 0,
+    system: input.systemPrompt,
+    messages,
+    tools: [emitResultTool(input.outputSchema)],
+    tool_choice: FORCE_EMIT_TOOL_CHOICE,
+  };
+  const response = await runMessage(env, ctx, request);
+  const interpreted = interpretMessage(response);
+  logTurnSummary(ctx, -1, interpreted);
+  return interpreted.emitted;
 }
 
 // ---------------------------------------------------------------------------
@@ -277,6 +322,7 @@ export async function executeSearchTool(
   env: Env,
   ctx: LlmContext,
   searches: PendingSearch | PendingSearch[],
+  options?: { remainingSearches?: number },
 ): Promise<MessageParam> {
   const list = Array.isArray(searches) ? searches : [searches];
   const blocks: ToolResultBlock[] = [];
@@ -307,5 +353,14 @@ export async function executeSearchTool(
       content,
     });
   }
-  return { role: 'user', content: blocks };
+  const content: ContentBlockParam[] = [...blocks];
+  if (typeof options?.remainingSearches === 'number') {
+    const n = Math.max(0, options.remainingSearches);
+    const hint =
+      n === 0
+        ? 'You have 0 searches remaining — emit emit_result with what you have.'
+        : `You have ${n} search${n === 1 ? '' : 'es'} remaining. Stop searching as soon as you can call emit_result.`;
+    content.push({ type: 'text', text: hint });
+  }
+  return { role: 'user', content };
 }
