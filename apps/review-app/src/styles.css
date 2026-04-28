@@ -883,6 +883,106 @@ select.input {
   border-color: var(--color-accent-hover);
 }
 
+/* ----- MultiSelect (ejs-multiselect) -----
+   Tailwind theme paints the popup list items white; without an explicit
+   default-state override, selected ("e-active") rows show as white text
+   on a white background and disappear in dark mode. */
+[data-theme="dark"] .e-multi-select-list-wrapper,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-content,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-dropdownbase,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-parent,
+[data-theme="dark"] .e-dropdownbase .e-list-item {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-body);
+}
+
+/* "Select all" header row + group headers inside the popup */
+[data-theme="dark"] .e-multi-select-list-wrapper .e-selectall-parent,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-group-item,
+[data-theme="dark"] .e-dropdownbase .e-list-group-item {
+  background: var(--color-bg-recessed);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border-default);
+}
+
+/* Hovered + active rows. Selectors match Syncfusion's tailwind theme
+   `.e-popup.e-multi-select-list-wrapper.e-checkbox .e-list-item.e-active`
+   specificity (3 classes on the popup) so our overrides win the cascade. */
+[data-theme="dark"] .e-popup.e-multi-select-list-wrapper.e-checkbox .e-list-item:hover,
+[data-theme="dark"] .e-popup.e-multi-select-list-wrapper.e-checkbox .e-list-item.e-hover,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-item:hover,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-item.e-hover {
+  background: var(--color-bg-recessed);
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-popup.e-multi-select-list-wrapper.e-checkbox .e-list-item.e-active,
+[data-theme="dark"] .e-popup.e-multi-select-list-wrapper.e-checkbox .e-list-item.e-active.e-hover,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-item.e-active,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-item.e-active.e-hover {
+  background: var(--color-accent-bg);
+  color: var(--color-text-body);
+}
+
+/* Checkbox label inside list items — Syncfusion sets the row text color
+   directly on `.e-list-item`, but check-list popups render the label inside
+   `.e-checkbox-wrapper .e-label` which inherits the sibling label rules. */
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-item .e-checkbox-wrapper .e-label,
+[data-theme="dark"] .e-multi-select-list-wrapper .e-list-item.e-active .e-checkbox-wrapper .e-label {
+  color: var(--color-text-body);
+}
+
+/* No-records / loading text */
+[data-theme="dark"] .e-multi-select-list-wrapper .e-no-data,
+[data-theme="dark"] .e-dropdownbase .e-no-data {
+  background: var(--color-bg-elevated);
+  color: var(--color-text-tertiary);
+}
+
+/* Closed-state input wrapper + chips inside it */
+[data-theme="dark"] .e-multi-select-wrapper {
+  background: var(--color-bg-elevated);
+  border-color: var(--color-border-default);
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-multi-select-wrapper:hover {
+  border-color: var(--color-border-strong);
+}
+
+[data-theme="dark"] .e-multi-select-wrapper.e-input-focus {
+  border-color: var(--color-border-focus);
+}
+
+[data-theme="dark"] .e-multi-select-wrapper input.e-dropdownbase,
+[data-theme="dark"] .e-multi-select-wrapper input[type="text"],
+[data-theme="dark"] .e-multi-select-wrapper .e-searcher {
+  background: transparent;
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-multi-select-wrapper input::placeholder,
+[data-theme="dark"] .e-multi-select-wrapper .e-placeholder {
+  color: var(--color-text-tertiary);
+}
+
+[data-theme="dark"] .e-multi-select-wrapper .e-chips {
+  background: var(--color-bg-recessed);
+  border: 0.5px solid var(--color-border-default);
+  color: var(--color-text-body);
+}
+
+[data-theme="dark"] .e-multi-select-wrapper .e-chips .e-chips-close,
+[data-theme="dark"] .e-multi-select-wrapper .e-ddl-icon,
+[data-theme="dark"] .e-multi-select-wrapper .e-close-hooker {
+  color: var(--color-text-tertiary);
+}
+
+[data-theme="dark"] .e-multi-select-wrapper .e-chips .e-chips-close:hover,
+[data-theme="dark"] .e-multi-select-wrapper .e-ddl-icon:hover {
+  color: var(--color-text-primary);
+}
+
 /* ----- Dialog (ejs-dialog) ----- */
 [data-theme="dark"] .e-dialog,
 [data-theme="dark"] .e-dialog .e-dlg-header-content,

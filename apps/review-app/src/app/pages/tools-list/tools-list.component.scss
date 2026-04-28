@@ -1,9 +1,38 @@
+:host {
+  display: block;
+  /* Fill the viewport below the 52px sticky shell header. */
+  height: calc(100dvh - 52px);
+}
+
+.tools-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-6);
+  gap: var(--space-5);
+}
+
+.tools-page__grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.tools-page__grid ejs-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  margin-bottom: var(--space-5);
+  flex-shrink: 0;
 }
 
 .page-heading {
@@ -16,125 +45,100 @@
 .page-header__actions {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
-.pill-overflow {
-  position: relative;
-  cursor: default;
-}
-
-.pill-overflow__menu {
-  display: none;
-  position: absolute;
-  top: calc(100% + var(--space-1));
-  left: 0;
-  z-index: 10;
-  min-width: 160px;
-  max-width: 280px;
-  padding: var(--space-2);
-  background: var(--color-bg-elevated);
-  border: 0.5px solid var(--color-border-default);
-  border-radius: var(--radius-md);
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
-}
-
-.pill-overflow:hover .pill-overflow__menu,
-.pill-overflow:focus-within .pill-overflow__menu {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.pill-overflow__item {
-  font-size: var(--text-xs);
-  color: var(--color-text-body);
-  white-space: normal;
-  line-height: 1.4;
+.selection-count {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
 }
 
 .filter-bar {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  flex-shrink: 0;
 }
 
 .filter-bar__search {
   width: 240px;
 }
 
-.filter-bar__select {
-  width: 180px;
+.filter-bar__multiselect {
+  width: 200px;
 }
 
-.table-wrapper {
-  overflow-x: auto;
-  border: 0.5px solid var(--color-border-default);
-  border-radius: var(--radius-lg);
-  background: var(--color-bg-elevated);
-  box-shadow: var(--shadow-sm);
+/* Match the height/look of the search input — Syncfusion injects its own
+ * wrapper, so we constrain by the host width and let SF handle internals. */
+.filter-bar__multiselect ::ng-deep .e-multi-select-wrapper {
+  min-height: 32px;
 }
 
-.table {
-  min-width: 880px;
-}
-
-th.sortable {
-  cursor: pointer;
-}
-
-th.sortable:hover {
-  color: var(--color-text-body);
-}
-
-th.sorted {
-  color: var(--color-text-primary);
-}
-
-.sort-indicator {
-  margin-left: var(--space-1);
-  font-size: var(--text-xs);
-}
-
-.tool-name-cell {
-  display: inline-flex;
-  align-items: center;
+.filter-pills {
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
-  max-width: 240px;
-}
-
-.tool-name-link {
-  font-weight: 500;
-  color: var(--color-text-accent);
-}
-
-.enrichment-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-text-tertiary);
   flex-shrink: 0;
 }
 
-.enrichment-dot--complete {
-  background: var(--color-success);
-}
-
-.chip-list {
-  display: flex;
-  flex-wrap: wrap;
+.filter-pill {
+  display: inline-flex;
+  align-items: center;
   gap: var(--space-1);
+  padding: 2px var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-text-body);
+  background: var(--color-bg-elevated);
+  border: 0.5px solid var(--color-border-default);
+  border-radius: 999px;
+  cursor: pointer;
+  line-height: 1.6;
 }
 
-.text-center { text-align: center; }
-.text-right { text-align: right; }
+.filter-pill:hover {
+  border-color: var(--color-border-strong, var(--color-text-tertiary));
+  color: var(--color-text-primary);
+}
+
+.filter-pill__close {
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--color-text-tertiary);
+}
+
+.filter-pill:hover .filter-pill__close {
+  color: var(--color-text-primary);
+}
+
+.filter-pill--clear {
+  color: var(--color-text-secondary);
+  background: transparent;
+  border-style: dashed;
+}
+
+.tool-name-link,
+.vendor-name-link {
+  font-weight: 500;
+  color: var(--color-text-accent);
+  cursor: pointer;
+}
+
+.tool-name-link:hover,
+.vendor-name-link:hover {
+  text-decoration: underline;
+}
+
+.cell-list {
+  color: var(--color-text-body);
+}
 
 .tier-cell {
   display: inline-flex;
   flex-direction: column;
   align-items: center;
   gap: 2px;
+  line-height: 1.2;
 }
 
 .tier-cell__score {
@@ -176,25 +180,19 @@ th.sorted {
   color: var(--color-text-tertiary);
 }
 
-.empty-state {
-  text-align: center;
-  color: var(--color-text-secondary);
-  padding: var(--space-10) var(--space-4) !important;
-}
-
-.pagination {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-top: var(--space-4);
-}
-
-.pagination__info {
+.loading-note {
+  margin-top: var(--space-3);
   font-size: var(--text-sm);
   color: var(--color-text-secondary);
 }
 
-.pagination__controls {
-  display: flex;
-  gap: var(--space-2);
+/* Sits above the grid's empty body so it's visible during initial load. */
+.loading-note--overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  margin: 0;
+  z-index: 1;
+  pointer-events: none;
 }
