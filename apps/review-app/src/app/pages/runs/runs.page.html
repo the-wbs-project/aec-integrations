@@ -18,7 +18,7 @@
       <e-column field="recordLabel" headerText="Record" width="220"></e-column>
       <e-column field="status" headerText="Status" width="120">
         <ng-template #template let-data>
-          <span class="status-pill" [attr.data-status]="data.status">{{ data.status }}</span>
+          <span class="status-pill" [attr.data-status]="data.status" [attr.data-confidence]="data.confidence ?? null">{{ data.status }}{{ data.status === 'complete' && data.confidence === 'low' ? ' (low)' : '' }}</span>
         </ng-template>
       </e-column>
       <e-column field="startedAt" headerText="Started" width="180" type="dateTime" format="MMM d, y, h:mm a"></e-column>

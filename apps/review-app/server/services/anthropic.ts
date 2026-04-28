@@ -16,7 +16,7 @@ export interface MessageRequestBody {
   system?: string;
   messages: unknown[];
   tools?: unknown[];
-  tool_choice?: { type: 'auto' | 'any' };
+  tool_choice?: { type: 'auto' | 'any' } | { type: 'tool'; name: string };
 }
 
 /** Subset of the Anthropic Messages API response we read in this app. */
