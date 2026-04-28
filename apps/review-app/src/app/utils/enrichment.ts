@@ -14,3 +14,18 @@ export function enrichmentVariant(status: string | undefined | null): BadgeVaria
   if (s === 'skipped' || s === 'stale') return 'info';
   return 'neutral';
 }
+
+/**
+ * Map a run's status + confidence to a badge variant. Forced-emit results
+ * from the research workflows complete with status='complete' but
+ * confidence='low' — render those as warning (amber) so curators can see
+ * at a glance that the run was a best-effort completion.
+ */
+export function runStatusVariant(
+  status: string | undefined | null,
+  confidence?: 'high' | 'medium' | 'low' | null,
+): BadgeVariant {
+  const base = enrichmentVariant(status);
+  if (base === 'success' && confidence === 'low') return 'warning';
+  return base;
+}

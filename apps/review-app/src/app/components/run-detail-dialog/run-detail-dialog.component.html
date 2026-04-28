@@ -30,7 +30,7 @@
 
           <dt>Status</dt>
           <dd>
-            <span class="status-pill" [attr.data-status]="s.status">{{ s.status }}</span>
+            <span class="status-pill" [attr.data-status]="s.status" [attr.data-confidence]="s.confidence ?? null">{{ s.status }}{{ s.status === 'complete' && s.confidence === 'low' ? ' (low)' : '' }}</span>
           </dd>
 
           <dt>Run ID</dt>

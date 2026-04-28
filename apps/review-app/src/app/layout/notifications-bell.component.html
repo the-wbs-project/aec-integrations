@@ -34,7 +34,7 @@
                 <div class="bell__row-sub">{{ run.recordLabel || run.recordId }}</div>
               </div>
               <div class="bell__row-meta">
-                <span class="status-pill" [attr.data-status]="run.status">{{ run.status }}</span>
+                <span class="status-pill" [attr.data-status]="run.status" [attr.data-confidence]="run.confidence ?? null">{{ run.status }}{{ run.status === 'complete' && run.confidence === 'low' ? ' (low)' : '' }}</span>
                 <span class="bell__row-time">{{ run.startedAt | date:'short' }}</span>
               </div>
             </li>

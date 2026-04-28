@@ -34,6 +34,12 @@ export interface RecentRunRow {
   status: string;
   error?: { name?: string; message?: string; stack?: string } | string | unknown;
   output?: unknown;
+  /**
+   * Self-reported confidence from research workflows. When status is
+   * 'complete' but confidence is 'low' the UI renders the run with an amber
+   * pill so a curator can spot best-effort completions at a glance.
+   */
+  confidence?: 'high' | 'medium' | 'low';
 }
 
 type HubEvent =

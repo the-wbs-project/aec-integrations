@@ -32,6 +32,25 @@ export interface RunRecord {
   error?: { name: string; message: string; stack?: string };
   output?: unknown;
   airtableRowId?: string;
+  /**
+   * Self-reported confidence from research workflows (extracted from
+   * `output.research.confidence`). 'low' surfaces with an amber badge in the
+   * UI so curators can spot best-effort completions at a glance.
+   */
+  confidence?: 'high' | 'medium' | 'low';
+}
+
+/**
+ * Pull `confidence` out of a workflow output payload if present. Research
+ * workflows return `{ research: { confidence }, ... }`; everything else
+ * leaves it undefined.
+ */
+function extractConfidence(output: unknown): 'high' | 'medium' | 'low' | undefined {
+  if (output == null || typeof output !== 'object') return undefined;
+  const research = (output as { research?: unknown }).research;
+  if (research == null || typeof research !== 'object') return undefined;
+  const c = (research as { confidence?: unknown }).confidence;
+  return c === 'high' || c === 'medium' || c === 'low' ? c : undefined;
 }
 
 export interface RunStartedPayload {
@@ -253,11 +272,13 @@ export class RunsHub extends DurableObject<Env> {
         }
       }
 
+      const nextOutput = clampOutput(rawOutput ?? rec.output);
       const next: RunRecord = {
         ...rec,
         status: statusName,
         error,
-        output: clampOutput(rawOutput ?? rec.output),
+        output: nextOutput,
+        confidence: extractConfidence(nextOutput) ?? rec.confidence,
       };
       if (TERMINAL_STATUSES.has(statusName)) {
         next.finishedAt = new Date().toISOString();
