@@ -29,6 +29,20 @@
 			"id": "c6abf01955e84673812865d6fa0098e7"
 		}
 	],
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "RUNS_HUB",
+				"class_name": "RunsHub"
+			}
+		]
+	},
+	"migrations": [
+		{
+			"tag": "v1",
+			"new_sqlite_classes": ["RunsHub"]
+		}
+	],
 	"browser": {
 		"binding": "BROWSER"
 	},
@@ -173,7 +187,8 @@
 			"categories": "tbl0xEW7FPousftNs",
 			"projectPhases": "tblkv9fmq2nUnjwE7",
 			"disciplines": "tbl0pNJbWBiA080o7",
-			"toolIntegrations": "tbl6PBPsGJuPcrZZi"
+			"toolIntegrations": "tbl6PBPsGJuPcrZZi",
+			"runs": "tbl0cslFyub1M9e9W"
 		},
 		"DEFAULT_MODEL": "claude-haiku-4-5-20251001",
 		"AI_GATEWAY_ID": "aeci-cf-workflows",

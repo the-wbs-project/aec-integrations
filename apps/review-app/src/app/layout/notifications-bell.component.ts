@@ -26,7 +26,15 @@ export class NotificationsBellComponent {
   protected readonly runs = this.runsService.runs;
   protected readonly inFlight = this.runsService.inFlightCount;
   protected readonly open = signal(false);
-  protected readonly selected = signal<RecentRunRow | null>(null);
+
+  // Track the open dialog by id, then resolve against the live runs list so
+  // the dialog updates as new run-* events arrive over the WebSocket.
+  protected readonly selectedId = signal<string | null>(null);
+  protected readonly selected = computed<RecentRunRow | null>(() => {
+    const id = this.selectedId();
+    if (!id) return null;
+    return this.runs().find((r) => r.runId === id) ?? null;
+  });
 
   protected readonly bellLabel = computed(() => {
     const n = this.inFlight();
@@ -48,8 +56,12 @@ export class NotificationsBellComponent {
   }
 
   select(run: RecentRunRow): void {
-    this.selected.set(run);
+    this.selectedId.set(run.runId);
     this.open.set(false);
+  }
+
+  onDialogClosed(): void {
+    this.selectedId.set(null);
   }
 
   workflowTitle(slug: string): string {

@@ -21,11 +21,34 @@ import stats from './routes/stats';
 import tools from './routes/tools';
 import vendors from './routes/vendors';
 import workflows from './routes/workflows';
-import runs from './routes/runs';
 import reports from './routes/reports';
 import toolsDebug from './routes/tools-debug';
 import { runWeeklyCostReport } from './services/reports/weeklyCostReport';
 import type { ReportJob } from './services/reports/types';
+
+// Hosts allowed to open the runs WebSocket. Match by hostname (not full
+// origin) so http/https + ports + the workers.dev preview all work without
+// having to enumerate every variant. wrangler dev simulates the production
+// custom domain, so http://review.aecintegrations.com shows up locally.
+const WS_ALLOWED_HOSTS = new Set(['review.aecintegrations.com']);
+const WORKERS_DEV_HOST = /^[\w-]+\.workers\.dev$/;
+
+function isAllowedOrigin(origin: string | undefined): boolean {
+  if (!origin) return true; // non-browser callers (curl, server-to-server)
+  let host: string;
+  let hostname: string;
+  try {
+    const u = new URL(origin);
+    host = u.host;
+    hostname = u.hostname;
+  } catch {
+    return false;
+  }
+  if (WS_ALLOWED_HOSTS.has(hostname)) return true;
+  if (WORKERS_DEV_HOST.test(host)) return true;
+  if (hostname === 'localhost' || hostname === '127.0.0.1') return true;
+  return false;
+}
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -40,8 +63,26 @@ app.route('/api/stats', stats);
 
 // Workflow orchestration
 app.route('/api/workflows', workflows);
-app.route('/api/runs', runs);
 app.route('/api/reports', reports);
+
+// Live run feed — single WebSocket forwarded to the singleton RunsHub DO.
+app.get('/api/runs/ws', (c) => {
+  if (c.req.header('upgrade')?.toLowerCase() !== 'websocket') {
+    return c.text('Expected websocket', 426);
+  }
+  const origin = c.req.header('origin');
+  if (!isAllowedOrigin(origin)) {
+    return c.text(`Origin not allowed: ${origin}`, 403);
+  }
+  const id = c.env.RUNS_HUB.idFromName('singleton');
+  const stub = c.env.RUNS_HUB.get(id);
+  const url = new URL(c.req.raw.url);
+  const forward = new URL('https://runs-hub.internal/ws');
+  forward.searchParams.set('channel', url.searchParams.get('channel') ?? 'recent');
+  const runId = url.searchParams.get('runId');
+  if (runId) forward.searchParams.set('runId', runId);
+  return stub.fetch(forward.toString(), c.req.raw);
+});
 
 // Debug helpers (SERP / page render)
 app.route('/api/debug', toolsDebug);
@@ -49,6 +90,9 @@ app.route('/api/debug', toolsDebug);
 // SPA fallback — wrangler's `not_found_handling: "single-page-application"`
 // rewrites missing routes to index.html, so this is just a passthrough.
 app.all('*', (c) => c.env.ASSETS.fetch(c.req.raw));
+
+// Singleton Durable Object that owns the live run registry / WebSocket fan-out.
+export { RunsHub } from './do/runs-hub';
 
 // One Cloudflare Workflow class per workflow. Each is bound under its own
 // WF_* binding in wrangler.jsonc.

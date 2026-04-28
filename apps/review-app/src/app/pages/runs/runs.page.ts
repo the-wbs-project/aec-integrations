@@ -2,10 +2,10 @@
 // Runs history — full list of recent workflow runs surfaced by RunsService.
 //
 // Uses Syncfusion Grid for sorting, filtering, and pagination. The grid is
-// bound to the in-memory list maintained by RunsService (which polls
-// /api/runs/recent in the background), so it stays live while the page is open.
+// bound to the in-memory list maintained by RunsService (which subscribes to
+// /api/runs/ws in the background), so it stays live while the page is open.
 // ---------------------------------------------------------------------------
-import { Component, inject, signal, OnInit } from '@angular/core';
+import { Component, computed, inject, signal, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
 import { RunsService, type RecentRunRow } from '../../services/runs.service';
@@ -33,10 +33,18 @@ interface RunsRow {
 export class RunsPage implements OnInit {
   protected runs = inject(RunsService);
 
-  protected readonly selected = signal<RunsRow | null>(null);
+  // Track which run the dialog is bound to by id and resolve against the live
+  // runs list so status / output deltas pushed over the WebSocket flow into
+  // the open dialog without needing a per-run subscription.
+  protected readonly selectedRunId = signal<string | null>(null);
+  protected readonly selectedRun = computed<RecentRunRow | null>(() => {
+    const id = this.selectedRunId();
+    if (!id) return null;
+    return this.runs.runs().find((r) => r.runId === id) ?? null;
+  });
 
   /** Computed grid rows derived from the live RecentRunRow list. */
-  protected readonly rows = (): RunsRow[] =>
+  protected readonly rows = computed<RunsRow[]>(() =>
     this.runs.runs().map((r) => ({
       runId: r.runId,
       workflow: r.workflow,
@@ -46,14 +54,18 @@ export class RunsPage implements OnInit {
       startedAt: new Date(r.startedAt),
       status: r.status,
       raw: r,
-    }));
+    })),
+  );
 
   ngOnInit(): void {
     this.runs.start();
-    this.runs.refresh();
   }
 
   onRowSelected(args: { data?: RunsRow }): void {
-    if (args.data) this.selected.set(args.data);
+    if (args.data) this.selectedRunId.set(args.data.runId);
+  }
+
+  onDialogClosed(): void {
+    this.selectedRunId.set(null);
   }
 }

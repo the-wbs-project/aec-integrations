@@ -22,6 +22,7 @@ import type { Env } from '../../env';
 import { checkpoint } from '../../lib/checkpoint';
 import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
 import { getRecord, asString } from '../../services/airtable';
+import { notifyRunStarted } from '../../lib/notify-run-started';
 import type { WorkflowBindingName } from '../registry';
 
 export const meta: WorkflowMeta = {
@@ -89,6 +90,7 @@ export class VendorOrchestratorWorkflow extends ErrorCapturingWorkflow {
     const record = await checkpoint(step, 'fetch-record', () =>
       getRecord(this.env, 'vendors', recordId),
     );
+    const recordLabel = asString(record.fields['company_name']);
 
     const now = Date.now();
     const stale = forceRefresh
@@ -114,6 +116,24 @@ export class VendorOrchestratorWorkflow extends ErrorCapturingWorkflow {
             });
           }),
         );
+        // Best-effort RunsHub notification so the bell sees the children
+        // immediately. Failures are logged but never fail the step.
+        await Promise.all(
+          pending.map((c) =>
+            notifyRunStarted(this.env, {
+              runId: c.runId,
+              workflow: c.slug,
+              recordId,
+              recordLabel,
+              parentRunId: orchestratorRunId,
+              triggeredBy: 'parent-orchestrator',
+              forceRefresh,
+              model,
+            }).catch((err) =>
+              console.error('[vendor-orchestrator] notify child failed', c.runId, String(err)),
+            ),
+          ),
+        );
         return { spawned: pending.map((p) => p.slug) };
       });
     }
@@ -128,6 +148,18 @@ export class VendorOrchestratorWorkflow extends ErrorCapturingWorkflow {
         id: scoreRunId,
         params: { recordId, model, searchTool },
       });
+      await notifyRunStarted(this.env, {
+        runId: scoreRunId,
+        workflow: 'vendor-score',
+        recordId,
+        recordLabel,
+        parentRunId: orchestratorRunId,
+        triggeredBy: 'parent-orchestrator',
+        forceRefresh,
+        model,
+      }).catch((err) =>
+        console.error('[vendor-orchestrator] notify score failed', scoreRunId, String(err)),
+      );
       return { spawned: 'vendor-score' };
     });
 
