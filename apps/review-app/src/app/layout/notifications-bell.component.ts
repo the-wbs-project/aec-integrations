@@ -6,7 +6,7 @@
 // Clicking a row opens a Syncfusion Dialog with the full status / error /
 // output for that run.
 // ---------------------------------------------------------------------------
-import { Component, computed, inject, signal } from '@angular/core';
+import { Component, ElementRef, HostListener, computed, inject, signal } from '@angular/core';
 import { CommonModule, DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
@@ -22,6 +22,7 @@ import { RunDetailDialogComponent } from '../components/run-detail-dialog/run-de
 })
 export class NotificationsBellComponent {
   private readonly runsService = inject(RunsService);
+  private readonly host = inject(ElementRef<HTMLElement>);
 
   protected readonly runs = this.runsService.runs;
   protected readonly inFlight = this.runsService.inFlightCount;
@@ -53,6 +54,15 @@ export class NotificationsBellComponent {
 
   close(): void {
     this.open.set(false);
+  }
+
+  @HostListener('document:pointerdown', ['$event'])
+  onDocumentPointerDown(event: PointerEvent): void {
+    if (!this.open()) return;
+    const target = event.target as Node | null;
+    if (target && !this.host.nativeElement.contains(target)) {
+      this.open.set(false);
+    }
   }
 
   select(run: RecentRunRow): void {

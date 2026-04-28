@@ -38,6 +38,7 @@ import {
   logTurnSummary,
   executeSearchTool,
   resolveSearchTool,
+  supportsTemperature,
   type MessageParam,
   type OutputSchema,
 } from '../../lib/llm';
@@ -168,7 +169,7 @@ function buildRequest(input: BuildRequestInput): MessageRequestBody {
   return {
     model: input.model,
     max_tokens: 4096,
-    temperature: 0,
+    ...(supportsTemperature(input.model) ? { temperature: 0 } : {}),
     system: input.systemPrompt,
     messages: input.messages,
     tools,
