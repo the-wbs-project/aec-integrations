@@ -16,6 +16,7 @@ import { Component, inject, input, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { SplitButtonModule, type ItemModel } from '@syncfusion/ej2-angular-splitbuttons';
 import { RunsService } from '../../services/runs.service';
+import { ModelService } from '../../services/model.service';
 import { WORKFLOWS, type WorkflowMeta } from '../../workflows';
 
 export type EnrichFamily = 'vendor' | 'tool';
@@ -28,6 +29,7 @@ export type EnrichFamily = 'vendor' | 'tool';
 })
 export class EnrichSplitButtonComponent {
   private readonly runs = inject(RunsService);
+  private readonly modelService = inject(ModelService);
 
   /** Workflow family — controls which sub-workflows show up in the dropdown. */
   family = input.required<EnrichFamily>();
@@ -102,7 +104,7 @@ export class EnrichSplitButtonComponent {
   private fire(slug: string, ids: string[], forceRefresh: boolean): void {
     this.runs.startRun(slug, {
       record_ids: ids,
-      model: 'claude-haiku-4-5-20251001',
+      model: this.modelService.selected(),
       force_refresh: forceRefresh,
     });
   }
