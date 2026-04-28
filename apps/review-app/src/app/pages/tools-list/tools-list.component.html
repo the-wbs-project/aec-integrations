@@ -170,6 +170,7 @@
           headerText="Name"
           width="240"
           clipMode="EllipsisWithTooltip"
+          [sortComparer]="nameSortComparer"
         >
           <ng-template #template let-data>
             <a class="tool-name-link" (click)="goToTool(data.id, $event)">
@@ -182,6 +183,7 @@
           headerText="Vendor"
           width="200"
           clipMode="EllipsisWithTooltip"
+          [sortComparer]="vendorSearchSortComparer"
         >
           <ng-template #template let-data>
             @if (data.vendors.length) {
@@ -241,12 +243,14 @@
           textAlign="Right"
           type="number"
           format="N0"
+          [sortComparer]="integrationCountSortComparer"
         ></e-column>
         <e-column
           field="priorityTier"
           headerText="Priority"
           width="120"
           textAlign="Center"
+          [sortComparer]="priorityTierSortComparer"
         >
           <ng-template #template let-data>
             <div class="tier-cell">
@@ -268,6 +272,7 @@
           field="researchStatus"
           headerText="Research"
           width="140"
+          [sortComparer]="researchStatusSortComparer"
         >
           <ng-template #template let-data>
             @if (data.researchStatus) {
@@ -285,6 +290,7 @@
           headerText="Enrichment"
           width="140"
           textAlign="Right"
+          [sortComparer]="toolEnrichmentStatusSortComparer"
         >
           <ng-template #template let-data>
             @if (data.toolEnrichmentStatus) {

@@ -1,20 +1,22 @@
 // ---------------------------------------------------------------------------
 // V00 — Vendor orchestrator.
-// Source: artifacts/n8n-workflows/AECi-V00-Orchestrator.json
 //
 // For one vendor record:
 //   1. Fetch the record.
-//   2. For each leaf enrichment, decide if it is stale (last-checked field
-//      missing or older than STALE_AFTER_DAYS) — skip leaves that are fresh.
-//      If params.forceRefresh is true, treat every leaf as stale and re-run
-//      it regardless of its last-checked timestamp.
-//   3. Fan out the stale leaves as child workflow instances in parallel.
-//   4. Poll until every child reaches a terminal state (complete / errored /
-//      terminated). Errored children do not abort the orchestrator — the
-//      score recompute below will reflect whatever signals are populated.
-//   5. Spawn vendor-score as a final child workflow and wait for it to
-//      finish, so vendor_data_completeness, vendor_enrichment_status, and
-//      last_enriched_at are written off the freshly-enriched record.
+//   2. Run vendor-overview FIRST and wait. This scrapes Crunchbase + reads
+//      Wikipedia, populating description / HQ / phone / email / company_size
+//      / Crunchbase signal fields.
+//   3. Re-fetch the record so the staleness check sees the freshly-written
+//      timestamps.
+//   4. For each leaf enrichment (github, funding), decide if it is stale
+//      (last-checked field missing or older than STALE_AFTER_DAYS) — skip
+//      leaves that are fresh. If params.forceRefresh is true, treat every
+//      leaf as stale and re-run it regardless.
+//   5. Fan out the stale leaves as child workflow instances in parallel.
+//   6. Poll until every child reaches a terminal state.
+//   7. Spawn vendor-score as a final child and wait so the VQS pillars,
+//      tier, confidence, flags, and completeness fields all reflect the
+//      freshly-enriched record.
 // ---------------------------------------------------------------------------
 import type { WorkflowEvent, WorkflowStep } from 'cloudflare:workers';
 import { ErrorCapturingWorkflow } from '../../lib/error-capturing-workflow';
@@ -44,20 +46,8 @@ interface Leaf {
 }
 
 const LEAVES: readonly Leaf[] = [
-  { slug: 'vendor-linkedin', binding: 'WF_VENDOR_LINKEDIN', stalenessField: 'linkedin_checked_at' },
   { slug: 'vendor-github', binding: 'WF_VENDOR_GITHUB', stalenessField: 'github_checked_at' },
-  {
-    slug: 'vendor-company-size',
-    binding: 'WF_VENDOR_COMPANY_SIZE',
-    stalenessField: 'employee_checked_at',
-  },
   { slug: 'vendor-funding', binding: 'WF_VENDOR_FUNDING', stalenessField: 'funding_checked_at' },
-  { slug: 'vendor-press', binding: 'WF_VENDOR_PRESS', stalenessField: 'press_checked_at' },
-  {
-    slug: 'vendor-blog-recency',
-    binding: 'WF_VENDOR_BLOG_RECENCY',
-    stalenessField: 'blog_checked_at',
-  },
 ] as const;
 
 const TERMINAL_STATUSES = new Set(['complete', 'errored', 'terminated', 'unknown']);
@@ -87,15 +77,77 @@ export class VendorOrchestratorWorkflow extends ErrorCapturingWorkflow {
     const { recordId, model, searchTool, forceRefresh = false } = event.payload;
     const orchestratorRunId = event.instanceId;
 
-    const record = await checkpoint(step, 'fetch-record', () =>
+    // Mark when this run started. After vendor-overview finishes, any leaf
+    // whose `*_checked_at` is newer than this timestamp was satisfied by the
+    // overview run — we skip those even under forceRefresh, because re-running
+    // them would just throw away data overview just wrote.
+    //
+    // Persist the timestamp via a step.do checkpoint so resumed instances
+    // (Workflows replay each step) compute the same value across replays
+    // instead of reading the wall clock at retry time.
+    const orchestratorStartedAt = await checkpoint(step, 'mark-start', async () =>
+      Date.now(),
+    );
+
+    const initialRecord = await checkpoint(step, 'fetch-record', () =>
       getRecord(this.env, 'vendors', recordId),
     );
-    const recordLabel = asString(record.fields['company_name']);
+    const recordLabel = asString(initialRecord.fields['company_name']);
+
+    // ----- Run vendor-overview first ----------------------------------------
+    // This populates description / HQ / phone / email / company_size / the
+    // Crunchbase signal fields, and writes `employee_checked_at` when the
+    // Crunchbase scrape filled `company_size` — letting us skip the
+    // company-size leaf below.
+    const overviewRunId = `${orchestratorRunId}-vendor-overview`;
+    await checkpoint(step, 'spawn-overview', async () => {
+      await this.env.WF_VENDOR_OVERVIEW.create({
+        id: overviewRunId,
+        params: { recordId, model, searchTool, forceRefresh },
+      });
+      await notifyRunStarted(this.env, {
+        runId: overviewRunId,
+        workflow: 'vendor-overview',
+        recordId,
+        recordLabel,
+        parentRunId: orchestratorRunId,
+        triggeredBy: 'parent-orchestrator',
+        forceRefresh,
+        model,
+      }).catch((err) =>
+        console.error('[vendor-orchestrator] notify overview failed', overviewRunId, String(err)),
+      );
+      return { spawned: 'vendor-overview' };
+    });
+
+    const overviewOutcome = (
+      await this.waitForChildren(step, [
+        { slug: 'vendor-overview', binding: 'WF_VENDOR_OVERVIEW', runId: overviewRunId },
+      ])
+    )[0];
+
+    // ----- Re-fetch record so staleness check sees overview's writes -------
+    const record = await checkpoint(step, 'refetch-record', () =>
+      getRecord(this.env, 'vendors', recordId),
+    );
 
     const now = Date.now();
+    // A leaf was "just satisfied" if its checkpoint timestamp is newer than
+    // when this orchestrator run started — i.e. vendor-overview wrote it.
+    const justSatisfied = (leaf: Leaf): boolean => {
+      const raw = asString(record.fields[leaf.stalenessField]);
+      if (!raw) return false;
+      const ts = Date.parse(raw);
+      return Number.isFinite(ts) && ts >= orchestratorStartedAt;
+    };
+
     const stale = forceRefresh
-      ? [...LEAVES]
-      : LEAVES.filter((leaf) => isStale(asString(record.fields[leaf.stalenessField]), now));
+      ? LEAVES.filter((leaf) => !justSatisfied(leaf))
+      : LEAVES.filter(
+          (leaf) =>
+            !justSatisfied(leaf) &&
+            isStale(asString(record.fields[leaf.stalenessField]), now),
+        );
     const skipped = LEAVES.filter((leaf) => !stale.includes(leaf)).map((l) => l.slug);
 
     // ----- Spawn stale leaves in parallel ------------------------------------
@@ -173,14 +225,15 @@ export class VendorOrchestratorWorkflow extends ErrorCapturingWorkflow {
     return {
       status: 'success' as const,
       forceRefresh,
+      overview: overviewOutcome,
       ranLeaves: pending.map((p) => p.slug),
       skippedLeaves: skipped,
       childOutcomes: outcomes,
       score: scoreOutcome,
       note:
         pending.length === 0
-          ? `All leaves fresh; recomputed score only${noteSuffix}`
-          : `Ran ${pending.length}/${LEAVES.length} ${forceRefresh ? 'leaves' : 'stale leaves'} and recomputed score`,
+          ? `Overview + score only${noteSuffix}`
+          : `Overview + ${pending.length}/${LEAVES.length} ${forceRefresh ? 'leaves' : 'stale leaves'} + score`,
     };
   }
 

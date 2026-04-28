@@ -7,6 +7,7 @@
 import type puppeteer from '@cloudflare/puppeteer';
 import type { RunParams } from './lib/workflow-meta';
 import type { ReportJob } from './services/reports/types';
+import type { AutoEnrichJob } from './services/autoEnrich/types';
 // `SendEmail` is the runtime type of a `send_email` binding, exposed as a
 // global by @cloudflare/workers-types.
 
@@ -51,15 +52,11 @@ export interface Env {
   // Workflow bindings — one per WorkflowEntrypoint class, declared in
   // wrangler.jsonc. The route layer dispatches via env[bindingName] using
   // the registry → binding map in `workflows/registry.ts`.
-  WF_VENDOR_LINKEDIN: Workflow<RunParams>;
   WF_VENDOR_GITHUB: Workflow<RunParams>;
-  WF_VENDOR_COMPANY_SIZE: Workflow<RunParams>;
   WF_VENDOR_FUNDING: Workflow<RunParams>;
-  WF_VENDOR_PRESS: Workflow<RunParams>;
-  WF_VENDOR_BLOG_RECENCY: Workflow<RunParams>;
   WF_VENDOR_SCORE: Workflow<RunParams>;
   WF_VENDOR_ORCHESTRATOR: Workflow<RunParams>;
-  WF_VENDOR_RESEARCH: Workflow<RunParams>;
+  WF_VENDOR_OVERVIEW: Workflow<RunParams>;
   WF_TOOL_API_CHECK: Workflow<RunParams>;
   WF_TOOL_MARKETPLACE: Workflow<RunParams>;
   WF_TOOL_IPAAS: Workflow<RunParams>;
@@ -82,6 +79,12 @@ export interface Env {
   // Queue — produces + consumes weekly-cost-report jobs (cron + ad-hoc).
   REPORTS_QUEUE: Queue<ReportJob>;
 
+  // Queue — produces + consumes vendor auto-enrich jobs. The */12 cron sends
+  // { kind: 'vendor-auto-enrich', count: 5, model: 'claude-sonnet-4-6' };
+  // the consumer picks the first N vendors with stale/empty last_enriched_at
+  // and spawns the orchestrator with forceRefresh: true.
+  VENDOR_AUTO_ENRICH_QUEUE: Queue<AutoEnrichJob>;
+
   // Vars
   SEARCH_TOOL: SearchTool;
   AIRTABLE_BASE_ID: string;
@@ -101,6 +104,8 @@ export interface Env {
   AIRTABLE_TOKEN: string;
   GITHUB_TOKEN?: string;
   CF_API_TOKEN: string;
+  /** Scrapfly API key — anti-scraping proxy used to fetch Crunchbase org pages. Optional; vendor-overview falls through to the leaf workflows when unset. */
+  SCRAPFLY_API_KEY?: string;
 }
 
 export const CACHE_TTL_S = 60 * 60 * 24; // 1 day, matches n8n-utils

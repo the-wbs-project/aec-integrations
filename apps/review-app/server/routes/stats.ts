@@ -1,8 +1,7 @@
 // ---------------------------------------------------------------------------
 // GET /api/stats — aggregate counts for the dashboard.
 //   • integrations.total
-//   • vendors: total, byStatus (vendor_enrichment_status), byReadiness (bucketed
-//     vendor_data_completeness, 0–1)
+//   • vendors: total, byStatus (vendor_enrichment_status), byTier (vqs_tier)
 //   • tools: total, byResearchStatus (research_status), byPriority (priority_tier)
 //
 // Single endpoint so the dashboard can render with one request rather than
@@ -16,20 +15,15 @@ import {
 } from '../services/airtable';
 import type { Env } from '../types';
 
-const READINESS_BUCKETS = [
-  { key: '0-25', min: 0, max: 0.25 },
-  { key: '25-50', min: 0.25, max: 0.5 },
-  { key: '50-75', min: 0.5, max: 0.75 },
-  { key: '75-100', min: 0.75, max: 1.0001 },
-] as const;
+const VQS_TIER_ORDER = ['Tier 1', 'Tier 2', 'Tier 3', 'Tier 4', 'Tier 5', 'Unscored'] as const;
 
 export interface StatsResponse {
   integrations: { total: number };
   vendors: {
     total: number;
     byStatus: Record<string, number>;
-    byReadiness: Record<string, number>;
-    readinessBuckets: { key: string; label: string }[];
+    byTier: Record<string, number>;
+    tierBuckets: { key: string; label: string }[];
   };
   tools: {
     total: number;
@@ -51,26 +45,19 @@ stats.get('/', async (c) => {
 
   // Vendors -----------------------------------------------------------------
   const vendorByStatus: Record<string, number> = {};
-  const vendorByReadiness: Record<string, number> = {
-    ...Object.fromEntries(READINESS_BUCKETS.map((b) => [b.key, 0])),
-    unknown: 0,
-  };
+  const vendorByTier: Record<string, number> = Object.fromEntries(
+    VQS_TIER_ORDER.map((k) => [k, 0]),
+  );
 
   for (const r of vendorRecs) {
     const status = r.get('vendor_enrichment_status');
     const key = typeof status === 'string' && status.length > 0 ? status : 'unknown';
     vendorByStatus[key] = (vendorByStatus[key] ?? 0) + 1;
 
-    const completeness = r.get('vendor_data_completeness');
-    if (typeof completeness !== 'number' || !Number.isFinite(completeness)) {
-      vendorByReadiness['unknown'] += 1;
-    } else {
-      const bucket = READINESS_BUCKETS.find(
-        (b) => completeness >= b.min && completeness < b.max,
-      );
-      if (bucket) vendorByReadiness[bucket.key] += 1;
-      else vendorByReadiness['unknown'] += 1;
-    }
+    const tier = r.get('vqs_tier');
+    const tierKey =
+      typeof tier === 'string' && tier.length > 0 ? tier : 'Unscored';
+    vendorByTier[tierKey] = (vendorByTier[tierKey] ?? 0) + 1;
   }
 
   // Tools -------------------------------------------------------------------
@@ -92,11 +79,8 @@ stats.get('/', async (c) => {
     vendors: {
       total: vendorRecs.length,
       byStatus: vendorByStatus,
-      byReadiness: vendorByReadiness,
-      readinessBuckets: [
-        ...READINESS_BUCKETS.map((b) => ({ key: b.key, label: `${b.key}%` })),
-        { key: 'unknown', label: 'Unknown' },
-      ],
+      byTier: vendorByTier,
+      tierBuckets: VQS_TIER_ORDER.map((k) => ({ key: k, label: k })),
     },
     tools: {
       total: toolRecs.length,

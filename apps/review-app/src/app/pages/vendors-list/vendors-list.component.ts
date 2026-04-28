@@ -32,6 +32,7 @@ import { ApiService } from '../../services/api.service';
 import { Vendor } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 import { enrichmentVariant } from '../../utils/enrichment';
+import { blanksLastComparer } from '../../utils/grid-sort';
 
 interface VendorRow extends Vendor {
   /** Pre-formatted readiness % for the column template (avoids pipe in column). */
@@ -123,18 +124,33 @@ export class VendorsListComponent implements OnInit {
 
   protected readonly checkboxMode = 'CheckBox' as const;
 
+  private readonly gridGetter = () => this.grid;
+
   /**
    * Sort the Size column by the position of each range in COMPANY_SIZE_ORDER
-   * instead of alphabetically (which puts "1001-5000" before "11-50").
-   * Unknown / missing values sort last.
+   * instead of alphabetically (which puts "1001-5000" before "11-50"), with
+   * blanks always pinned to the bottom regardless of sort direction.
    */
-  protected readonly companySizeSortComparer = (a: unknown, b: unknown): number => {
-    const rank = (v: unknown): number => {
-      const idx = COMPANY_SIZE_ORDER.indexOf(v as (typeof COMPANY_SIZE_ORDER)[number]);
-      return idx === -1 ? COMPANY_SIZE_ORDER.length : idx;
-    };
-    return rank(a) - rank(b);
-  };
+  protected readonly companySizeSortComparer = blanksLastComparer(
+    this.gridGetter,
+    'companySize',
+    (a, b) => {
+      const rank = (v: unknown): number =>
+        COMPANY_SIZE_ORDER.indexOf(v as (typeof COMPANY_SIZE_ORDER)[number]);
+      return rank(a) - rank(b);
+    },
+  );
+
+  // Per-column comparers — every sortable column gets one so blanks always
+  // pin to the bottom of the visible list regardless of direction.
+  protected readonly companyNameSortComparer = blanksLastComparer(this.gridGetter, 'companyName');
+  protected readonly headquartersSortComparer = blanksLastComparer(this.gridGetter, 'headquarters');
+  protected readonly foundedYearSortComparer = blanksLastComparer(this.gridGetter, 'foundedYear');
+  protected readonly vqsScoreSortComparer = blanksLastComparer(this.gridGetter, 'vqsScore');
+  protected readonly readinessPercentSortComparer = blanksLastComparer(this.gridGetter, 'readinessPercent');
+  protected readonly githubStarsTotalSortComparer = blanksLastComparer(this.gridGetter, 'githubStarsTotal');
+  protected readonly vendorEnrichmentStatusSortComparer = blanksLastComparer(this.gridGetter, 'vendorEnrichmentStatus');
+  protected readonly toolCountSortComparer = blanksLastComparer(this.gridGetter, 'toolCount');
 
   /**
    * Bake the count into the `text` field rather than fighting Syncfusion's

@@ -37,11 +37,40 @@
           <div class="detail-header__title-block">
             <div class="detail-header__title-row">
               <h1 class="detail-title">{{ vendor.companyName }}</h1>
-              <app-enrich-split-button
-                family="vendor"
-                [recordIds]="recordIds()"
-              />
               <button class="btn btn--ghost btn--sm" (click)="startEdit('header', vendor)">Edit</button>
+              <div class="detail-header__actions">
+                <div class="btn-group">
+                  <button
+                    ejs-button
+                    type="button"
+                    cssClass="e-primary btn-group__refresh"
+                    aria-label="Refresh vendor"
+                    title="Refresh"
+                    [disabled]="reloading()"
+                    (click)="reload()"
+                  >
+                    <svg
+                      class="icon"
+                      [class.icon--spin]="reloading()"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.5"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <polyline points="23 4 23 10 17 10" />
+                      <polyline points="1 20 1 14 7 14" />
+                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                    </svg>
+                  </button>
+                  <app-enrich-split-button
+                    family="vendor"
+                    [recordIds]="recordIds()"
+                  />
+                </div>
+              </div>
             </div>
             @if (vendor.website) {
               <a [href]="vendor.website" target="_blank" rel="noopener noreferrer" class="external-link">
@@ -61,6 +90,9 @@
           }
           @if (vendor.crunchbaseUrl) {
             <a [href]="vendor.crunchbaseUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Crunchbase</a>
+          }
+          @if (vendor.wikiUrl) {
+            <a [href]="vendor.wikiUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Wikipedia</a>
           }
           @if (vendor.githubOrg) {
             <a [href]="'https://github.com/' + vendor.githubOrg" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">GitHub</a>
@@ -124,12 +156,12 @@
               <input id="link-linkedin" class="input" [(ngModel)]="draft.linkedinUrl" name="linkedinUrl" placeholder="https://www.linkedin.com/company/…" />
               <label class="field-label" for="link-crunchbase">Crunchbase URL</label>
               <input id="link-crunchbase" class="input" [(ngModel)]="draft.crunchbaseUrl" name="crunchbaseUrl" placeholder="https://www.crunchbase.com/organization/…" />
+              <label class="field-label" for="link-wiki">Wikipedia URL</label>
+              <input id="link-wiki" class="input" [(ngModel)]="draft.wikiUrl" name="wikiUrl" placeholder="https://en.wikipedia.org/wiki/…" />
               <label class="field-label" for="link-github">GitHub org slug</label>
               <input id="link-github" class="input" [(ngModel)]="draft.githubOrg" name="githubOrg" placeholder="acme-inc" />
               <label class="field-label" for="link-source">Source URL</label>
               <input id="link-source" class="input" [(ngModel)]="draft.sourceUrl" name="sourceUrl" placeholder="https://…" />
-              <label class="field-label" for="link-blog">Blog URL</label>
-              <input id="link-blog" class="input" [(ngModel)]="draft.blogUrl" name="blogUrl" placeholder="https://…" />
               <div class="edit-actions">
                 <button class="btn btn--primary btn--sm" (click)="saveSection('links')" [disabled]="saving()">Save</button>
                 <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
@@ -160,6 +192,10 @@
               </select>
               <label class="field-label" for="kf-parent">Parent company</label>
               <input id="kf-parent" class="input" [(ngModel)]="draft.parentCompany" name="parentCompany" placeholder="e.g. Autodesk" />
+              <label class="field-label" for="kf-phone">Phone number</label>
+              <input id="kf-phone" class="input" type="tel" [(ngModel)]="draft.phoneNumber" name="phoneNumber" placeholder="+1 555-123-4567" />
+              <label class="field-label" for="kf-email">Contact email</label>
+              <input id="kf-email" class="input" type="email" [(ngModel)]="draft.contactEmail" name="contactEmail" placeholder="info@example.com" />
               <div class="edit-actions">
                 <button class="btn btn--primary btn--sm" (click)="saveSection('keyFacts')" [disabled]="saving()">Save</button>
                 <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
@@ -217,6 +253,41 @@
                   }
                 </span>
               </div>
+              <div class="fact">
+                <span class="fact__label">
+                  Funding stage
+                  @if (vendor.fundingCheckedAt) {
+                    <app-info-tooltip [tooltip]="freshnessTooltip(vendor.fundingCheckedAt)" />
+                  }
+                </span>
+                <span class="fact__value">
+                  @if (vendor.fundingStage) {
+                    {{ vendor.fundingStage }}
+                  } @else {
+                    <span class="na">N/A</span>
+                  }
+                </span>
+              </div>
+              <div class="fact">
+                <span class="fact__label">Phone</span>
+                <span class="fact__value">
+                  @if (vendor.phoneNumber) {
+                    <a [href]="'tel:' + vendor.phoneNumber">{{ vendor.phoneNumber }}</a>
+                  } @else {
+                    <span class="na">N/A</span>
+                  }
+                </span>
+              </div>
+              <div class="fact">
+                <span class="fact__label">Contact email</span>
+                <span class="fact__value">
+                  @if (vendor.contactEmail) {
+                    <a [href]="'mailto:' + vendor.contactEmail">{{ vendor.contactEmail }}</a>
+                  } @else {
+                    <span class="na">N/A</span>
+                  }
+                </span>
+              </div>
             </div>
           }
         </section>
@@ -247,6 +318,167 @@
         @if (saveError()) {
           <p class="save-error" role="alert">{{ saveError() }}</p>
         }
+
+        <!-- Vendor Quality Score -->
+        <section class="detail-section">
+          <h2 class="section-heading">
+            Vendor Quality Score
+            @if (vendor.lastEnrichedAt) {
+              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.lastEnrichedAt)" />
+            }
+          </h2>
+          <div class="facts-grid">
+            <div class="fact">
+              <span class="fact__label">VQS</span>
+              <span class="fact__value">
+                @if (vendor.vqsScore !== undefined) {
+                  <strong>{{ vendor.vqsScore }}</strong> / 100
+                  @if (vendor.vqsTier) {
+                    <span class="muted"> · {{ vendor.vqsTier }}</span>
+                  }
+                  @if (vendor.vqsConfidence) {
+                    <span class="muted"> · confidence {{ vendor.vqsConfidence }}</span>
+                  }
+                } @else {
+                  <span class="na">Unscored</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Credibility</span>
+              <span class="fact__value">
+                @if (vendor.vqsCredibility !== undefined) {
+                  {{ vendor.vqsCredibility }} / 100
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Momentum</span>
+              <span class="fact__value">
+                @if (vendor.vqsMomentum !== undefined) {
+                  {{ vendor.vqsMomentum }} / 100
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Fit</span>
+              <span class="fact__value">
+                @if (vendor.vqsFit !== undefined) {
+                  {{ vendor.vqsFit }} / 100
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Data completeness</span>
+              <span class="fact__value">
+                @if (vendor.vendorDataCompleteness !== undefined) {
+                  {{ formatPercent(vendor.vendorDataCompleteness) }}
+                  @if (vendor.vendorEnrichmentStatus) {
+                    <span class="badge" [class]="'badge badge--' + enrichmentVariant(vendor.vendorEnrichmentStatus)">{{ vendor.vendorEnrichmentStatus }}</span>
+                  }
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+          </div>
+          @if (vendor.vqsFlags && vendor.vqsFlags.length > 0) {
+            <div class="cb-categories">
+              <span class="fact__label">Flags</span>
+              <div class="cb-categories__list">
+                @for (flag of vendor.vqsFlags; track flag) {
+                  <span class="external-link external-link--pill">{{ flag }}</span>
+                }
+              </div>
+            </div>
+          }
+        </section>
+
+        <!-- Crunchbase signals -->
+        <section class="detail-section">
+          <h2 class="section-heading">
+            Crunchbase
+            @if (vendor.crunchbaseCheckedAt) {
+              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.crunchbaseCheckedAt)" />
+            }
+          </h2>
+          <div class="facts-grid">
+            <div class="fact">
+              <span class="fact__label">CB Rank</span>
+              <span class="fact__value">
+                @if (vendor.crunchbaseRank !== undefined) {
+                  #{{ vendor.crunchbaseRank | number }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Growth score</span>
+              <span class="fact__value">
+                @if (vendor.crunchbaseGrowthScore !== undefined) {
+                  {{ vendor.crunchbaseGrowthScore }} / 100
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Heat score</span>
+              <span class="fact__value">
+                @if (vendor.crunchbaseHeatScore !== undefined) {
+                  {{ vendor.crunchbaseHeatScore }} / 100
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+            <div class="fact">
+              <span class="fact__label">Monthly web visits</span>
+              <span class="fact__value">
+                @if (vendor.monthlyWebVisits !== undefined) {
+                  {{ vendor.monthlyWebVisits | number }}
+                } @else {
+                  <span class="na">N/A</span>
+                }
+              </span>
+            </div>
+          </div>
+          @if (vendor.crunchbaseCategories && vendor.crunchbaseCategories.length > 0) {
+            <div class="cb-categories">
+              <span class="fact__label">Categories</span>
+              <div class="cb-categories__list">
+                @for (cat of vendor.crunchbaseCategories; track cat) {
+                  <span class="external-link external-link--pill">{{ cat }}</span>
+                }
+              </div>
+            </div>
+          }
+          @if (vendor.crunchbaseLists && vendor.crunchbaseLists.length > 0) {
+            <div class="cb-lists">
+              <span class="fact__label">Featured in lists</span>
+              <ul class="cb-lists__items">
+                @for (list of vendor.crunchbaseLists; track list.name) {
+                  <li>
+                    {{ list.name }}
+                    @if (list.countOrgs !== undefined) {
+                      <span class="muted">· {{ list.countOrgs | number }} orgs</span>
+                    }
+                    @if (list.totalFunding) {
+                      <span class="muted">· {{ list.totalFunding }} total funding</span>
+                    }
+                  </li>
+                }
+              </ul>
+            </div>
+          }
+        </section>
 
         <!-- GitHub -->
         <section class="detail-section">
@@ -315,201 +547,6 @@
           </div>
         </section>
 
-        <!-- Funding -->
-        <section class="detail-section">
-          <h2 class="section-heading">
-            Funding
-            @if (vendor.fundingCheckedAt) {
-              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.fundingCheckedAt)" />
-            }
-          </h2>
-          <div class="facts-grid">
-            <div class="fact">
-              <span class="fact__label">Stage</span>
-              <span class="fact__value">
-                @if (vendor.fundingStage) {
-                  {{ vendor.fundingStage }}
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Total raised</span>
-              <span class="fact__value">
-                @if (vendor.totalFundingUsd !== undefined) {
-                  {{ vendor.totalFundingUsd | currency:'USD':'symbol':'1.0-0' }}
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Last round</span>
-              <span class="fact__value">
-                @if (vendor.lastFundingDate) {
-                  {{ formatDateWithRelative(vendor.lastFundingDate) }}
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Source</span>
-              <span class="fact__value">
-                @if (vendor.fundingSourceUrl) {
-                  <a [href]="vendor.fundingSourceUrl" target="_blank" rel="noopener noreferrer">View</a>
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Activity -->
-        <section class="detail-section">
-          <h2 class="section-heading">Activity</h2>
-          <div class="facts-grid">
-            <div class="fact">
-              <span class="fact__label">
-                Press (12mo)
-                @if (vendor.pressCheckedAt) {
-                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.pressCheckedAt)" />
-                }
-              </span>
-              <span class="fact__value">
-                @if (vendor.pressCount12mo !== undefined) {
-                  {{ vendor.pressCount12mo }}
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">
-                Latest press
-                @if (vendor.pressCheckedAt) {
-                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.pressCheckedAt)" />
-                }
-              </span>
-              <span class="fact__value">
-                @if (vendor.pressLatestDate) {
-                  {{ formatDateWithRelative(vendor.pressLatestDate) }}
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">
-                Blog
-                @if (vendor.blogCheckedAt) {
-                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.blogCheckedAt)" />
-                }
-              </span>
-              <span class="fact__value">
-                @if (vendor.blogUrl) {
-                  <a [href]="vendor.blogUrl" target="_blank" rel="noopener noreferrer">Visit</a>
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">
-                Latest post
-                @if (vendor.blogCheckedAt) {
-                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.blogCheckedAt)" />
-                }
-              </span>
-              <span class="fact__value">
-                @if (vendor.blogLastPostDate) {
-                  {{ formatDate(vendor.blogLastPostDate) }}
-                  @if (vendor.blogLastPostDaysAgo !== undefined) {
-                    <span class="muted"> ({{ vendor.blogLastPostDaysAgo }} days ago)</span>
-                  }
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">
-                LinkedIn followers
-                @if (vendor.linkedinCheckedAt) {
-                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.linkedinCheckedAt)" />
-                }
-              </span>
-              <span class="fact__value">
-                @if (vendor.linkedinFollowers !== undefined) {
-                  {{ vendor.linkedinFollowers | number }}
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">
-                Employees
-                @if (vendor.employeeCheckedAt) {
-                  <app-info-tooltip [tooltip]="freshnessTooltip(vendor.employeeCheckedAt)" />
-                }
-              </span>
-              <span class="fact__value">
-                @if (vendor.employeeCountExact !== undefined) {
-                  {{ vendor.employeeCountExact | number }}
-                  @if (vendor.employeeSource) {
-                    <!--
-                      Note: this Airtable singleSelect is currently polluted with
-                      long-form sentences as choice values (some 200+ chars).
-                      Truncate visually but expose the full value in a tooltip
-                      until upstream cleanup happens.
-                    -->
-                    <span class="muted truncate employee-source" [title]="vendor.employeeSource">
-                      · {{ truncate(vendor.employeeSource, 60) }}
-                    </span>
-                  }
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Enrichment status -->
-        <section class="detail-section">
-          <h2 class="section-heading">
-            Enrichment
-            @if (vendor.lastEnrichedAt) {
-              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.lastEnrichedAt)" />
-            }
-          </h2>
-          <div class="facts-grid">
-            <div class="fact">
-              <span class="fact__label">Status</span>
-              <span class="fact__value">
-                @if (vendor.vendorEnrichmentStatus) {
-                  <span class="badge" [class]="'badge badge--' + enrichmentVariant(vendor.vendorEnrichmentStatus)">{{ vendor.vendorEnrichmentStatus }}</span>
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Data completeness</span>
-              <span class="fact__value">
-                @if (vendor.vendorDataCompleteness !== undefined) {
-                  {{ formatPercent(vendor.vendorDataCompleteness) }}
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-          </div>
-        </section>
-
         <!-- Data freshness -->
         @if (hasFreshness(vendor)) {
           <section class="detail-section freshness">
@@ -522,14 +559,8 @@
             @if (vendor.fundingCheckedAt) {
               <span class="freshness__item">Funding {{ formatDateWithRelative(vendor.fundingCheckedAt) }}</span>
             }
-            @if (vendor.pressCheckedAt) {
-              <span class="freshness__item">Press {{ formatDateWithRelative(vendor.pressCheckedAt) }}</span>
-            }
-            @if (vendor.blogCheckedAt) {
-              <span class="freshness__item">Blog {{ formatDateWithRelative(vendor.blogCheckedAt) }}</span>
-            }
-            @if (vendor.linkedinCheckedAt) {
-              <span class="freshness__item">LinkedIn {{ formatDateWithRelative(vendor.linkedinCheckedAt) }}</span>
+            @if (vendor.crunchbaseCheckedAt) {
+              <span class="freshness__item">Crunchbase {{ formatDateWithRelative(vendor.crunchbaseCheckedAt) }}</span>
             }
           </section>
         }

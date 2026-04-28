@@ -31,6 +31,7 @@ export interface ListOptions {
   view?: string;
   fields?: string[];
   maxRecords?: number;
+  sort?: Array<{ field: string; direction?: 'asc' | 'desc' }>;
 }
 
 interface RawRecord {
@@ -144,6 +145,12 @@ export async function listRecords(
     if (options.pageSize) url.searchParams.set('pageSize', String(options.pageSize));
     if (options.view) url.searchParams.set('view', options.view);
     if (options.fields) for (const f of options.fields) url.searchParams.append('fields[]', f);
+    if (options.sort) {
+      options.sort.forEach((s, i) => {
+        url.searchParams.append(`sort[${i}][field]`, s.field);
+        if (s.direction) url.searchParams.append(`sort[${i}][direction]`, s.direction);
+      });
+    }
     if (offset) url.searchParams.set('offset', offset);
 
     const res = await fetch(url.toString(), { headers: authHeaders(env) });

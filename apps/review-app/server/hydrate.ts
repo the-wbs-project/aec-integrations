@@ -2,6 +2,7 @@
 // Record hydration — converts raw Airtable records into typed API shapes.
 // ---------------------------------------------------------------------------
 import type {
+  CrunchbaseList,
   IntegrationSummary,
   LinkRef,
   Tool,
@@ -73,6 +74,44 @@ function asStringArray(v: unknown): string[] | undefined {
   if (!Array.isArray(v)) return undefined;
   const out = v.filter((x): x is string => typeof x === 'string');
   return out.length > 0 ? out : undefined;
+}
+
+/**
+ * Parse a JSON-stringified array of Crunchbase list summaries from an
+ * Airtable multilineText cell. Returns undefined on missing input or any
+ * parse / shape error — defensive because curators might edit the cell by
+ * hand.
+ */
+function asJsonStringArray(v: unknown): string[] | undefined {
+  if (typeof v !== 'string' || v.trim().length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const arr = parsed.filter((x): x is string => typeof x === 'string');
+    return arr.length > 0 ? arr : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function asCrunchbaseLists(v: unknown): CrunchbaseList[] | undefined {
+  if (typeof v !== 'string' || v.trim().length === 0) return undefined;
+  try {
+    const parsed = JSON.parse(v) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    const lists = parsed
+      .filter((x): x is Record<string, unknown> => typeof x === 'object' && x !== null)
+      .map((x) => ({
+        name: typeof x['name'] === 'string' ? (x['name'] as string) : '',
+        countOrgs: typeof x['countOrgs'] === 'number' ? (x['countOrgs'] as number) : undefined,
+        totalFunding: typeof x['totalFunding'] === 'string' ? (x['totalFunding'] as string) : undefined,
+        countInvestors: typeof x['countInvestors'] === 'number' ? (x['countInvestors'] as number) : undefined,
+      }))
+      .filter((l) => l.name.length > 0);
+    return lists.length > 0 ? lists : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -223,11 +262,14 @@ export function hydrateVendor(
     logoUrl: asString(record.get('logo_url')),
     toolCount: Array.isArray(toolIds) ? toolIds.length : 0,
 
-    employeeCountExact: asNumber(record.get('employee_count_exact')),
     fundingStage: asString(record.get('funding_stage')),
     githubStarsTotal: asNumber(record.get('github_stars_total')),
     vendorEnrichmentStatus: asString(record.get('vendor_enrichment_status')),
     vendorDataCompleteness: asNumber(record.get('vendor_data_completeness')),
+
+    vqsScore: asNumber(record.get('vqs_score')),
+    vqsTier: asString(record.get('vqs_tier')),
+    vqsConfidence: asString(record.get('vqs_confidence')),
   };
 }
 
@@ -241,7 +283,10 @@ export function hydrateVendorDetail(
     description: asString(record.get('description')),
     linkedinUrl: asString(record.get('linkedin_url')),
     crunchbaseUrl: asString(record.get('crunchbase_url')),
+    wikiUrl: asString(record.get('wiki_url')),
     sourceUrl: asString(record.get('source_url')),
+    phoneNumber: asString(record.get('phone_number')),
+    contactEmail: asString(record.get('contact_email')),
     tools: toRefs(record.get('tools'), maps.tools),
 
     githubOrg: asString(record.get('github_org')),
@@ -251,23 +296,20 @@ export function hydrateVendorDetail(
     githubLastCommitDaysAgo: asNumber(record.get('github_last_commit_days_ago')),
     githubCheckedAt: asString(record.get('github_checked_at')),
 
-    totalFundingUsd: asNumber(record.get('total_funding_usd')),
-    lastFundingDate: asString(record.get('last_funding_date')),
-    fundingSourceUrl: asString(record.get('funding_source_url')),
     fundingCheckedAt: asString(record.get('funding_checked_at')),
 
-    pressCount12mo: asNumber(record.get('press_count_12mo')),
-    pressLatestDate: asString(record.get('press_latest_date')),
-    pressCheckedAt: asString(record.get('press_checked_at')),
-    blogUrl: asString(record.get('blog_url')),
-    blogLastPostDate: asString(record.get('blog_last_post_date')),
-    blogLastPostDaysAgo: asNumber(record.get('blog_last_post_days_ago')),
-    blogCheckedAt: asString(record.get('blog_checked_at')),
-    linkedinFollowers: asNumber(record.get('linkedin_followers')),
-    linkedinCheckedAt: asString(record.get('linkedin_checked_at')),
+    crunchbaseRank: asNumber(record.get('crunchbase_rank')),
+    crunchbaseGrowthScore: asNumber(record.get('crunchbase_growth_score')),
+    crunchbaseHeatScore: asNumber(record.get('crunchbase_heat_score')),
+    crunchbaseCategories: asStringArray(record.get('crunchbase_categories')),
+    monthlyWebVisits: asNumber(record.get('monthly_web_visits')),
+    crunchbaseLists: asCrunchbaseLists(record.get('crunchbase_lists')),
+    crunchbaseCheckedAt: asString(record.get('crunchbase_checked_at')),
 
-    employeeSource: asString(record.get('employee_source')),
-    employeeCheckedAt: asString(record.get('employee_checked_at')),
+    vqsCredibility: asNumber(record.get('vqs_credibility')),
+    vqsMomentum: asNumber(record.get('vqs_momentum')),
+    vqsFit: asNumber(record.get('vqs_fit')),
+    vqsFlags: asJsonStringArray(record.get('vqs_flags')),
 
     lastEnrichedAt: asString(record.get('last_enriched_at')),
   };

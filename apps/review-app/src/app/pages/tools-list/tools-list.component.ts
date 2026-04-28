@@ -32,6 +32,7 @@ import { ApiService } from '../../services/api.service';
 import { Tool, MetaResponse, LinkRef } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 import { enrichmentVariant } from '../../utils/enrichment';
+import { blanksLastComparer } from '../../utils/grid-sort';
 
 interface ToolRow extends Tool {
   /** Lower-cased haystack of vendor names — used by the freeform search. */
@@ -106,6 +107,16 @@ export class ToolsListComponent implements OnInit {
    * truncates to "..."). Selection still binds on the stable `value` field.
    */
   protected readonly multiselectFields = { text: 'text', value: 'value' };
+
+  // Per-column comparers — every sortable column gets one so blanks always
+  // pin to the bottom of the visible list regardless of direction.
+  private readonly gridGetter = () => this.grid;
+  protected readonly nameSortComparer = blanksLastComparer(this.gridGetter, 'name');
+  protected readonly vendorSearchSortComparer = blanksLastComparer(this.gridGetter, 'vendorSearch');
+  protected readonly integrationCountSortComparer = blanksLastComparer(this.gridGetter, 'integrationCount');
+  protected readonly priorityTierSortComparer = blanksLastComparer(this.gridGetter, 'priorityTier');
+  protected readonly researchStatusSortComparer = blanksLastComparer(this.gridGetter, 'researchStatus');
+  protected readonly toolEnrichmentStatusSortComparer = blanksLastComparer(this.gridGetter, 'toolEnrichmentStatus');
 
   // ---- Filter option lists (canonical source = /meta) -------------------
   // Lookups — id → name — for translating active-filter pills back to labels.

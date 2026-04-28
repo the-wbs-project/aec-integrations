@@ -85,18 +85,24 @@ export interface Vendor {
   logoUrl?: string;
   toolCount: number;
 
-  employeeCountExact?: number;
   fundingStage?: string;
   githubStarsTotal?: number;
   vendorEnrichmentStatus?: string;
   vendorDataCompleteness?: number;
+
+  vqsScore?: number;
+  vqsTier?: string;
+  vqsConfidence?: string;
 }
 
 export interface VendorDetail extends Vendor {
   description?: string;
   linkedinUrl?: string;
   crunchbaseUrl?: string;
+  wikiUrl?: string;
   sourceUrl?: string;
+  phoneNumber?: string;
+  contactEmail?: string;
   tools: LinkRef[];
 
   githubOrg?: string;
@@ -106,25 +112,29 @@ export interface VendorDetail extends Vendor {
   githubLastCommitDaysAgo?: number;
   githubCheckedAt?: string;
 
-  totalFundingUsd?: number;
-  lastFundingDate?: string;
-  fundingSourceUrl?: string;
   fundingCheckedAt?: string;
 
-  pressCount12mo?: number;
-  pressLatestDate?: string;
-  pressCheckedAt?: string;
-  blogUrl?: string;
-  blogLastPostDate?: string;
-  blogLastPostDaysAgo?: number;
-  blogCheckedAt?: string;
-  linkedinFollowers?: number;
-  linkedinCheckedAt?: string;
+  crunchbaseRank?: number;
+  crunchbaseGrowthScore?: number;
+  crunchbaseHeatScore?: number;
+  crunchbaseCategories?: string[];
+  monthlyWebVisits?: number;
+  crunchbaseLists?: CrunchbaseList[];
+  crunchbaseCheckedAt?: string;
 
-  employeeSource?: string;
-  employeeCheckedAt?: string;
+  vqsCredibility?: number;
+  vqsMomentum?: number;
+  vqsFit?: number;
+  vqsFlags?: string[];
 
   lastEnrichedAt?: string;
+}
+
+export interface CrunchbaseList {
+  name: string;
+  countOrgs?: number;
+  totalFunding?: string;
+  countInvestors?: number;
 }
 
 export interface MetaResponse {
@@ -142,8 +152,8 @@ export interface StatsResponse {
   vendors: {
     total: number;
     byStatus: Record<string, number>;
-    byReadiness: Record<string, number>;
-    readinessBuckets: { key: string; label: string }[];
+    byTier: Record<string, number>;
+    tierBuckets: { key: string; label: string }[];
   };
   tools: {
     total: number;
@@ -187,7 +197,9 @@ export interface UpdateVendorRequest {
   parentCompany?: string;
   linkedinUrl?: string;
   crunchbaseUrl?: string;
+  wikiUrl?: string;
   sourceUrl?: string;
-  blogUrl?: string;
   githubOrg?: string;
+  phoneNumber?: string;
+  contactEmail?: string;
 }

@@ -25,6 +25,8 @@ import reports from './routes/reports';
 import toolsDebug from './routes/tools-debug';
 import { runWeeklyCostReport } from './services/reports/weeklyCostReport';
 import type { ReportJob } from './services/reports/types';
+import { AUTO_ENRICH_QUEUE_NAME, type AutoEnrichJob } from './services/autoEnrich/types';
+import { runVendorAutoEnrich } from './services/autoEnrich/runAutoEnrich';
 
 // Hosts allowed to open the runs WebSocket. Match by hostname (not full
 // origin) so http/https + ports + the workers.dev preview all work without
@@ -96,15 +98,11 @@ export { RunsHub } from './do/runs-hub';
 
 // One Cloudflare Workflow class per workflow. Each is bound under its own
 // WF_* binding in wrangler.jsonc.
-export { VendorLinkedinWorkflow } from './workflows/vendor/linkedin';
 export { VendorGithubWorkflow } from './workflows/vendor/github';
-export { VendorCompanySizeWorkflow } from './workflows/vendor/companySize';
 export { VendorFundingWorkflow } from './workflows/vendor/funding';
-export { VendorPressWorkflow } from './workflows/vendor/press';
-export { VendorBlogRecencyWorkflow } from './workflows/vendor/blogRecency';
 export { VendorScoreWorkflow } from './workflows/vendor/score';
 export { VendorOrchestratorWorkflow } from './workflows/vendor/orchestrator';
-export { VendorResearchWorkflow } from './workflows/vendor/research';
+export { VendorOverviewWorkflow } from './workflows/vendor/overview';
 export { ToolApiCheckWorkflow } from './workflows/tool/apiCheck';
 export { ToolMarketplaceWorkflow } from './workflows/tool/marketplace';
 export { ToolIpaasWorkflow } from './workflows/tool/ipaas';
@@ -120,24 +118,51 @@ export { ToolResearchWorkflow } from './workflows/tool/research';
 export default {
   fetch: app.fetch,
 
-  async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    const job: ReportJob = { kind: 'weekly-cost-report', triggeredBy: 'cron' };
-    ctx.waitUntil(env.REPORTS_QUEUE.send(job));
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (event.cron === '0 14 * * 1') {
+      const job: ReportJob = { kind: 'weekly-cost-report', triggeredBy: 'cron' };
+      ctx.waitUntil(env.REPORTS_QUEUE.send(job));
+    } else if (event.cron === '*/12 * * * *') {
+      const job: AutoEnrichJob = {
+        kind: 'vendor-auto-enrich',
+        count: 5,
+        model: 'claude-sonnet-4-6',
+        triggeredBy: 'cron',
+      };
+      ctx.waitUntil(env.VENDOR_AUTO_ENRICH_QUEUE.send(job));
+    } else {
+      console.warn('[scheduled] unknown cron expression:', event.cron);
+    }
   },
 
-  async queue(batch: MessageBatch<ReportJob>, env: Env): Promise<void> {
+  async queue(
+    batch: MessageBatch<ReportJob | AutoEnrichJob>,
+    env: Env,
+  ): Promise<void> {
     for (const message of batch.messages) {
       try {
-        if (message.body.kind === 'weekly-cost-report') {
-          await runWeeklyCostReport(env, { lookbackDays: message.body.lookbackDays });
+        if (batch.queue === AUTO_ENRICH_QUEUE_NAME) {
+          const body = message.body as AutoEnrichJob;
+          if (body.kind === 'vendor-auto-enrich') {
+            await runVendorAutoEnrich(env, {
+              count: body.count,
+              model: body.model,
+              triggeredBy: body.triggeredBy,
+            });
+          }
+        } else {
+          const body = message.body as ReportJob;
+          if (body.kind === 'weekly-cost-report') {
+            await runWeeklyCostReport(env, { lookbackDays: body.lookbackDays });
+          }
         }
         message.ack();
       } catch (err) {
         console.error(
-          `[queue] job failed (id=${message.id}, attempts=${message.attempts}): ${String(err)}`,
+          `[queue:${batch.queue}] job failed (id=${message.id}, attempts=${message.attempts}): ${String(err)}`,
         );
         message.retry();
       }
     }
   },
-} satisfies ExportedHandler<Env, ReportJob>;
+} satisfies ExportedHandler<Env, ReportJob | AutoEnrichJob>;

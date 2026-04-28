@@ -12,14 +12,10 @@ export interface WorkflowMeta {
 export const WORKFLOWS: WorkflowMeta[] = [
   // Vendor family
   { slug: 'vendor-orchestrator', family: 'vendor', title: 'V00 · Orchestrator', blurb: 'Run the full vendor enrichment pipeline.' },
-  { slug: 'vendor-research', family: 'vendor', title: 'V0R · Research', blurb: 'Description, HQ, founded year, public/private, parent company.' },
-  { slug: 'vendor-linkedin', family: 'vendor', title: 'V01 · LinkedIn', blurb: 'LinkedIn URL + follower count.' },
+  { slug: 'vendor-overview', family: 'vendor', title: 'V0R · Overview', blurb: 'Crunchbase + Wikipedia: description, HQ, founded year, public/private, parent, phone, email.' },
   { slug: 'vendor-github', family: 'vendor', title: 'V02 · GitHub', blurb: 'GitHub org, repos, stars, last commit.' },
-  { slug: 'vendor-company-size', family: 'vendor', title: 'V03 · Company size', blurb: 'Employee bucket + exact count.' },
-  { slug: 'vendor-funding', family: 'vendor', title: 'V04 · Funding', blurb: 'Funding stage, total raised, source.' },
-  { slug: 'vendor-press', family: 'vendor', title: 'V05 · Press', blurb: '12-month press mention count.' },
-  { slug: 'vendor-blog-recency', family: 'vendor', title: 'V06 · Blog recency', blurb: 'Blog URL + last post date.' },
-  { slug: 'vendor-score', family: 'vendor', title: 'V07 · Score (completeness)', blurb: 'Recompute completeness ratio + status.' },
+  { slug: 'vendor-funding', family: 'vendor', title: 'V04 · Funding', blurb: 'Funding stage.' },
+  { slug: 'vendor-score', family: 'vendor', title: 'V07 · Vendor Quality Score', blurb: 'Compute Credibility / Momentum / Fit and tier.' },
 
   // Tool family
   { slug: 'tool-orchestrator', family: 'tool', title: 'T00 · Orchestrator', blurb: 'Run the full tool enrichment pipeline.' },

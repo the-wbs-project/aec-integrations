@@ -45,12 +45,12 @@
     </div>
 
     <div class="breakdown">
-      <h2 class="breakdown__heading">Vendors by readiness</h2>
-      @if (vendorReadinessBuckets().length === 0) {
+      <h2 class="breakdown__heading">Vendor By Tier</h2>
+      @if (vendorTierBuckets().length === 0) {
         <p class="breakdown__empty">No data yet.</p>
       } @else {
         <ul class="breakdown__list">
-          @for (b of vendorReadinessBuckets(); track b.key) {
+          @for (b of vendorTierBuckets(); track b.key) {
             <li class="breakdown__row">
               <span class="breakdown__label">{{ b.label }}</span>
               <span class="breakdown__count">{{ b.count }}</span>
