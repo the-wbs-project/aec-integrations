@@ -1,0 +1,11 @@
+<div class="model-selector" title="Model used for new runs (resets to Haiku on refresh)">
+  <ejs-dropdownlist
+    cssClass="model-selector__dd"
+    [dataSource]="model.options"
+    [fields]="fields"
+    [value]="model.selected()"
+    [popupWidth]="'180px'"
+    [width]="'140px'"
+    (change)="onChange($event)"
+  ></ejs-dropdownlist>
+</div>

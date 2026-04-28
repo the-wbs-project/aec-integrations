@@ -1,0 +1,49 @@
+.model-selector {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+}
+
+.model-selector :global(.e-input-group),
+.model-selector ::ng-deep .e-input-group,
+.model-selector ::ng-deep .e-ddl.e-input-group {
+  height: 32px;
+  background: transparent;
+  border: 0.5px solid var(--color-border-default);
+  border-radius: var(--radius-md);
+  margin-bottom: 0;
+}
+
+.model-selector ::ng-deep .e-input-group::before,
+.model-selector ::ng-deep .e-input-group::after {
+  display: none;
+}
+
+.model-selector ::ng-deep .e-input-group:not(.e-disabled):hover {
+  background: var(--color-bg-recessed);
+  border-color: var(--color-border-default);
+}
+
+.model-selector ::ng-deep .e-input-group.e-input-focus {
+  border-color: var(--color-border-focus);
+  box-shadow: 0 0 0 1px var(--color-border-focus);
+}
+
+.model-selector ::ng-deep input.e-input {
+  height: 30px;
+  padding: 0 6px 0 10px;
+  font-size: var(--text-xs, 12px);
+  font-weight: 500;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  background: transparent;
+}
+
+.model-selector ::ng-deep .e-input-group:hover input.e-input {
+  color: var(--color-text-body);
+}
+
+.model-selector ::ng-deep .e-ddl-icon::before {
+  color: var(--color-text-tertiary);
+  font-size: 12px;
+}

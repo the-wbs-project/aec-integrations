@@ -5,11 +5,12 @@
 // dismisses the dialog. Renders the run's metadata, links the record to its
 // detail page, and pretty-prints any error / output payload.
 // ---------------------------------------------------------------------------
-import { Component, computed, input, output } from '@angular/core';
+import { Component, computed, inject, input, output, signal } from '@angular/core';
 import { CommonModule, DatePipe, JsonPipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { DialogModule } from '@syncfusion/ej2-angular-popups';
-import type { RecentRunRow } from '../../services/runs.service';
+import { RunsService, type RecentRunRow } from '../../services/runs.service';
+import { ModelService, MODEL_OPTIONS } from '../../services/model.service';
 import { WORKFLOWS } from '../../workflows';
 
 interface NormalizedError {
@@ -27,13 +28,23 @@ interface NormalizedError {
   styleUrl: './run-detail-dialog.component.scss',
 })
 export class RunDetailDialogComponent {
+  private readonly runs = inject(RunsService);
+  private readonly modelService = inject(ModelService);
+
   readonly run = input<RecentRunRow | null>(null);
   readonly closed = output<void>();
+
+  protected readonly rerunning = signal(false);
 
   protected readonly workflowTitle = computed(() => {
     const slug = this.run()?.workflow;
     if (!slug) return '';
     return WORKFLOWS.find((w) => w.slug === slug)?.title ?? slug;
+  });
+
+  protected readonly currentModelLabel = computed(() => {
+    const id = this.modelService.selected();
+    return MODEL_OPTIONS.find((m) => m.id === id)?.label ?? id;
   });
 
   /** /vendors/:id or /tools/:id, or null if the workflow family is unknown. */
@@ -62,6 +73,22 @@ export class RunDetailDialogComponent {
   });
 
   protected onClose(): void {
+    this.closed.emit();
+  }
+
+  protected runAgain(): void {
+    const r = this.run();
+    if (!r || this.rerunning()) return;
+    this.rerunning.set(true);
+    this.runs.startRun(r.workflow, {
+      record_ids: [r.recordId],
+      model: this.modelService.selected(),
+      // Mirror the original run's force_refresh; orchestrator runs on detail
+      // pages used true to bypass staleness, so preserving the flag matches
+      // the user's last intent.
+      force_refresh: r.forceRefresh === true,
+    });
+    // Close so the bell / runs list takes over; the new run streams in via WS.
     this.closed.emit();
   }
 }

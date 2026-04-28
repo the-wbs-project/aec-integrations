@@ -62,6 +62,19 @@
           <h4 class="run-detail__h4">Output</h4>
           <pre class="run-detail__pre">{{ s.output | json }}</pre>
         }
+
+        <div class="run-detail__actions">
+          <button
+            type="button"
+            class="run-detail__btn run-detail__btn--primary"
+            (click)="runAgain()"
+            [disabled]="rerunning()"
+            [title]="'Run again with ' + currentModelLabel()"
+          >
+            Run again
+            <span class="run-detail__btn-meta">{{ currentModelLabel() }}</span>
+          </button>
+        </div>
       </div>
     }
   </ng-template>

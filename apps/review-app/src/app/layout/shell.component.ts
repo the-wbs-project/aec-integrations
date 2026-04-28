@@ -2,10 +2,11 @@ import { Component, HostListener, inject, signal } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { ThemeService, ThemeChoice } from '../services/theme.service';
 import { NotificationsBellComponent } from './notifications-bell.component';
+import { ModelSelectorComponent } from './model-selector.component';
 
 @Component({
   selector: 'app-shell',
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, NotificationsBellComponent],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, NotificationsBellComponent, ModelSelectorComponent],
   templateUrl: './shell.component.html',
   styleUrl: './shell.component.scss',
 })
