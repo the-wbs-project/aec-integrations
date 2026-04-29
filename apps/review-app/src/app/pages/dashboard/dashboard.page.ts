@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Dashboard — landing page for the merged app. Shows aggregate counts:
 //   • Total integrations (links to integration counts)
-//   • Vendors: total + breakdown by enrichment status + readiness buckets
+//   • Vendors: total + breakdown by enrichment status + VQS tier
 //   • Tools:   total + breakdown by research status + priority tier
 //
 // All numbers come from a single GET /api/stats request.
@@ -34,13 +34,13 @@ export class DashboardPage implements OnInit {
     toBuckets(this.stats()?.vendors.byStatus),
   );
 
-  protected readonly vendorReadinessBuckets = computed<Bucket[]>(() => {
+  protected readonly vendorTierBuckets = computed<Bucket[]>(() => {
     const s = this.stats();
     if (!s) return [];
-    return s.vendors.readinessBuckets.map((b) => ({
+    return s.vendors.tierBuckets.map((b) => ({
       key: b.key,
       label: b.label,
-      count: s.vendors.byReadiness[b.key] ?? 0,
+      count: s.vendors.byTier[b.key] ?? 0,
     }));
   });
 

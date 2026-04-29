@@ -73,8 +73,6 @@ vendors.get('/', async (c) => {
         return numericCompare(a.foundedYear, b.foundedYear);
       case 'githubStars':
         return numericCompare(a.githubStarsTotal, b.githubStarsTotal);
-      case 'employees':
-        return numericCompare(a.employeeCountExact, b.employeeCountExact);
       case 'companyName':
       default: {
         const r = a.companyName.localeCompare(b.companyName);
@@ -140,9 +138,11 @@ vendors.patch('/:id', async (c) => {
   if (body.parentCompany !== undefined) fields['parent_company'] = body.parentCompany;
   if (body.linkedinUrl !== undefined) fields['linkedin_url'] = body.linkedinUrl;
   if (body.crunchbaseUrl !== undefined) fields['crunchbase_url'] = body.crunchbaseUrl;
+  if (body.wikiUrl !== undefined) fields['wiki_url'] = body.wikiUrl;
   if (body.sourceUrl !== undefined) fields['source_url'] = body.sourceUrl;
-  if (body.blogUrl !== undefined) fields['blog_url'] = body.blogUrl;
   if (body.githubOrg !== undefined) fields['github_org'] = body.githubOrg;
+  if (body.phoneNumber !== undefined) fields['phone_number'] = body.phoneNumber;
+  if (body.contactEmail !== undefined) fields['contact_email'] = body.contactEmail;
 
   if (Object.keys(fields).length === 0) {
     return c.json({ error: 'no editable fields in body' }, 400);

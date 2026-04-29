@@ -6,6 +6,7 @@
 	"compatibility_date": "2026-04-07",
 	"compatibility_flags": ["nodejs_compat"],
 	"workers_dev": true,
+	"placement": { "mode": "smart" },
 	"routes": [
 		{
 			"pattern": "review.aecintegrations.com",
@@ -60,6 +61,10 @@
 			{
 				"binding": "REPORTS_QUEUE",
 				"queue": "aeci-review-reports"
+			},
+			{
+				"binding": "VENDOR_AUTO_ENRICH_QUEUE",
+				"queue": "aeci-vendor-auto-enrich"
 			}
 		],
 		"consumers": [
@@ -69,44 +74,33 @@
 				"max_batch_timeout": 5,
 				"max_retries": 2,
 				"dead_letter_queue": "aeci-review-reports-dlq"
+			},
+			{
+				"queue": "aeci-vendor-auto-enrich",
+				"max_batch_size": 1,
+				"max_batch_timeout": 5,
+				"max_retries": 2,
+				"dead_letter_queue": "aeci-vendor-auto-enrich-dlq"
 			}
 		]
 	},
 	"triggers": {
-		// Weekly cost report — Mondays 14:00 UTC. Adjust as needed.
-		"crons": ["0 14 * * 1"]
+		// Cron schedules dispatched in scheduled() by event.cron string match.
+		//   "0 14 * * 1"   — Weekly cost report (Mondays 14:00 UTC)
+		//   "*/12 * * * *" — Vendor auto-enrich (every 12 min, count=5, sonnet)
+		"crons": ["0 14 * * 1", "*/12 * * * *"]
 	},
 	"workflows": [
 		// Vendor workflows
-		{
-			"name": "aeci-vendor-linkedin",
-			"binding": "WF_VENDOR_LINKEDIN",
-			"class_name": "VendorLinkedinWorkflow"
-		},
 		{
 			"name": "aeci-vendor-github",
 			"binding": "WF_VENDOR_GITHUB",
 			"class_name": "VendorGithubWorkflow"
 		},
 		{
-			"name": "aeci-vendor-company-size",
-			"binding": "WF_VENDOR_COMPANY_SIZE",
-			"class_name": "VendorCompanySizeWorkflow"
-		},
-		{
 			"name": "aeci-vendor-funding",
 			"binding": "WF_VENDOR_FUNDING",
 			"class_name": "VendorFundingWorkflow"
-		},
-		{
-			"name": "aeci-vendor-press",
-			"binding": "WF_VENDOR_PRESS",
-			"class_name": "VendorPressWorkflow"
-		},
-		{
-			"name": "aeci-vendor-blog-recency",
-			"binding": "WF_VENDOR_BLOG_RECENCY",
-			"class_name": "VendorBlogRecencyWorkflow"
 		},
 		{
 			"name": "aeci-vendor-score",
@@ -119,9 +113,9 @@
 			"class_name": "VendorOrchestratorWorkflow"
 		},
 		{
-			"name": "aeci-vendor-research",
-			"binding": "WF_VENDOR_RESEARCH",
-			"class_name": "VendorResearchWorkflow"
+			"name": "aeci-vendor-overview",
+			"binding": "WF_VENDOR_OVERVIEW",
+			"class_name": "VendorOverviewWorkflow"
 		},
 		// Tool workflows
 		{
@@ -213,4 +207,7 @@
 	//   GITHUB_TOKEN        – optional, raises GitHub REST rate limit for V02
 	//   CF_API_TOKEN        – Cloudflare API token with `AI Gateway: Read` permission;
 	//                         used by the weekly cost report to fetch gateway logs.
+	//   SCRAPFLY_API_KEY    – Scrapfly anti-scraping proxy key. Used by vendor-overview
+	//                         to fetch Crunchbase organization pages. Optional;
+	//                         vendor-overview falls through to leaf workflows when unset.
 }

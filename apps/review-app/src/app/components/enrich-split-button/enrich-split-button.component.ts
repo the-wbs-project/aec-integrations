@@ -63,25 +63,38 @@ export class EnrichSplitButtonComponent {
     WORKFLOWS.filter((w) => w.family === this.family() && !w.slug.endsWith('-orchestrator')),
   );
 
-  protected readonly menuItems = computed<ItemModel[]>(() =>
-    this.subWorkflows().map((w) => ({ id: w.slug, text: w.title })),
-  );
+  // Sentinel id for the vendor "Force Refresh" menu item — distinguishes it
+  // from real workflow slugs in onMenuSelect.
+  private static readonly FORCE_REFRESH_ID = '__force_refresh__';
+
+  protected readonly menuItems = computed<ItemModel[]>(() => {
+    if (this.family() === 'vendor') {
+      return [{ id: EnrichSplitButtonComponent.FORCE_REFRESH_ID, text: 'Force Refresh' }];
+    }
+    return this.subWorkflows().map((w) => ({ id: w.slug, text: w.title }));
+  });
 
   protected workflowTitle(slug: string): string {
+    if (slug === EnrichSplitButtonComponent.FORCE_REFRESH_ID) return 'Force Refresh';
     return WORKFLOWS.find((w) => w.slug === slug)?.title ?? slug;
   }
 
   runOrchestrator(): void {
     const slug = `${this.family()}-orchestrator`;
-    // A manual click on "Enrich" is an explicit ask to refresh — bypass the
-    // orchestrator's staleness filter so every leaf re-runs.
-    this.run(slug, true);
+    // Primary click runs the orchestrator under its normal staleness rules.
+    // The "Force Refresh" dropdown item is the explicit re-run-everything path.
+    this.run(slug, false);
   }
 
   onMenuSelect(args: { item?: ItemModel }): void {
     const slug = args.item?.id;
+    if (typeof slug !== 'string' || slug.length === 0) return;
+    if (slug === EnrichSplitButtonComponent.FORCE_REFRESH_ID) {
+      this.run(`${this.family()}-orchestrator`, true);
+      return;
+    }
     // Sub-workflows don't honor force_refresh; they always run when invoked.
-    if (typeof slug === 'string' && slug.length > 0) this.run(slug, false);
+    this.run(slug, false);
   }
 
   private run(slug: string, forceRefresh: boolean): void {

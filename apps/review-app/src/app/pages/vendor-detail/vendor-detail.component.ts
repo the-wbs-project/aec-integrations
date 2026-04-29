@@ -1,8 +1,9 @@
 import { Component, inject, signal, input, computed, effect, OnInit } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { CommonModule, CurrencyPipe, DecimalPipe } from '@angular/common';
+import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
+import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
 import { ApiService } from '../../services/api.service';
 import { RunsService, type RecentRunRow } from '../../services/runs.service';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
@@ -23,14 +24,16 @@ interface DraftState {
   // links
   linkedinUrl: string;
   crunchbaseUrl: string;
+  wikiUrl: string;
   githubOrg: string;
   sourceUrl: string;
-  blogUrl: string;
   // key facts
   headquarters: string;
   foundedYear: string; // bound to <input type="number"> as string for empty handling
   publicPrivate: string;
   parentCompany: string;
+  phoneNumber: string;
+  contactEmail: string;
   // description
   description: string;
 }
@@ -53,10 +56,10 @@ const PUBLIC_PRIVATE_OPTIONS = ['', 'Public', 'Private', 'Subsidiary', 'Nonprofi
   imports: [
     CommonModule,
     RouterLink,
-    CurrencyPipe,
     DecimalPipe,
     FormsModule,
     GridModule,
+    ButtonModule,
     EnrichSplitButtonComponent,
     InfoTooltipComponent,
     RunDetailDialogComponent,
@@ -79,6 +82,7 @@ export class VendorDetailComponent implements OnInit {
   editingSection = signal<SectionKey | null>(null);
   saving = signal(false);
   saveError = signal<string | null>(null);
+  reloading = signal(false);
 
   activeTab = signal<TabKey>('details');
 
@@ -138,6 +142,22 @@ export class VendorDetailComponent implements OnInit {
     this.activeTab.set(tab);
   }
 
+  reload(): void {
+    if (this.reloading()) return;
+    const id = this.id();
+    this.reloading.set(true);
+    this.api.getVendor(id).subscribe({
+      next: (vendor) => {
+        if (this.id() === id) {
+          this.vendor.set(vendor);
+          this.logoFailed.set(false);
+        }
+        this.reloading.set(false);
+      },
+      error: () => this.reloading.set(false),
+    });
+  }
+
   vendorInitials(name: string): string {
     return name
       .split(/\s+/)
@@ -147,19 +167,12 @@ export class VendorDetailComponent implements OnInit {
       .join('');
   }
 
-  truncate(value: string, max: number): string {
-    if (!value) return '';
-    return value.length <= max ? value : value.slice(0, max - 1).trimEnd() + '…';
-  }
-
   hasFreshness(v: VendorDetail): boolean {
     return !!(
       v.lastEnrichedAt ||
       v.githubCheckedAt ||
       v.fundingCheckedAt ||
-      v.pressCheckedAt ||
-      v.blogCheckedAt ||
-      v.linkedinCheckedAt
+      v.crunchbaseCheckedAt
     );
   }
 
@@ -231,13 +244,15 @@ export class VendorDetailComponent implements OnInit {
       website: '',
       linkedinUrl: '',
       crunchbaseUrl: '',
+      wikiUrl: '',
       githubOrg: '',
       sourceUrl: '',
-      blogUrl: '',
       headquarters: '',
       foundedYear: '',
       publicPrivate: '',
       parentCompany: '',
+      phoneNumber: '',
+      contactEmail: '',
       description: '',
     };
   }
@@ -248,13 +263,15 @@ export class VendorDetailComponent implements OnInit {
       website: v.website ?? '',
       linkedinUrl: v.linkedinUrl ?? '',
       crunchbaseUrl: v.crunchbaseUrl ?? '',
+      wikiUrl: v.wikiUrl ?? '',
       githubOrg: v.githubOrg ?? '',
       sourceUrl: v.sourceUrl ?? '',
-      blogUrl: v.blogUrl ?? '',
       headquarters: v.headquarters ?? '',
       foundedYear: v.foundedYear !== undefined ? String(v.foundedYear) : '',
       publicPrivate: v.publicPrivate ?? '',
       parentCompany: v.parentCompany ?? '',
+      phoneNumber: v.phoneNumber ?? '',
+      contactEmail: v.contactEmail ?? '',
       description: v.description ?? '',
     };
   }
@@ -271,9 +288,9 @@ export class VendorDetailComponent implements OnInit {
         return {
           linkedinUrl: d.linkedinUrl.trim(),
           crunchbaseUrl: d.crunchbaseUrl.trim(),
+          wikiUrl: d.wikiUrl.trim(),
           githubOrg: d.githubOrg.trim(),
           sourceUrl: d.sourceUrl.trim(),
-          blogUrl: d.blogUrl.trim(),
         };
       case 'keyFacts': {
         const yearStr = d.foundedYear.trim();
@@ -286,6 +303,8 @@ export class VendorDetailComponent implements OnInit {
           foundedYear: yearStr === '' ? null : Number.isFinite(year) ? (year as number) : null,
           publicPrivate: d.publicPrivate === '' ? null : d.publicPrivate,
           parentCompany: d.parentCompany.trim(),
+          phoneNumber: d.phoneNumber.trim(),
+          contactEmail: d.contactEmail.trim(),
         };
       }
       case 'description':

@@ -22,6 +22,16 @@ export abstract class ErrorCapturingWorkflow extends WorkflowEntrypoint<Env, Run
     try {
       return await this.runImpl(event, step);
     } catch (err) {
+      // Surface the real error to wrangler tail — Cloudflare's
+      // WorkflowFatalError wrapper hides the underlying message/stack
+      // otherwise, and the KV-persisted copy is only visible in the runs UI.
+      const name = err instanceof Error ? err.name : 'Error';
+      const message = err instanceof Error ? err.message : String(err);
+      const stack = err instanceof Error ? err.stack : undefined;
+      console.error(
+        `[workflow-error] runId=${event.instanceId} ${name}: ${message}${stack ? `\n${stack}` : ''}`,
+      );
+
       // Best-effort persistence — never let a KV failure swallow the
       // original error. waitUntil keeps the write alive past the throw.
       this.ctx.waitUntil(

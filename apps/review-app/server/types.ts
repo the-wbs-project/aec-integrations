@@ -104,18 +104,25 @@ export interface Vendor {
   toolCount: number;
 
   // Enrichment-derived summary fields for list views
-  employeeCountExact?: number;
   fundingStage?: string;
   githubStarsTotal?: number;
   vendorEnrichmentStatus?: string;
   vendorDataCompleteness?: number;
+
+  // Vendor Quality Score (see docs/vendor-quality-score.md)
+  vqsScore?: number;
+  vqsTier?: string;
+  vqsConfidence?: string;
 }
 
 export interface VendorDetail extends Vendor {
   description?: string;
   linkedinUrl?: string;
   crunchbaseUrl?: string;
+  wikiUrl?: string;
   sourceUrl?: string;
+  phoneNumber?: string;
+  contactEmail?: string;
   tools: LinkRef[];
 
   // GitHub
@@ -127,28 +134,34 @@ export interface VendorDetail extends Vendor {
   githubCheckedAt?: string;
 
   // Funding
-  totalFundingUsd?: number;
-  lastFundingDate?: string;
-  fundingSourceUrl?: string;
   fundingCheckedAt?: string;
 
-  // Press & activity
-  pressCount12mo?: number;
-  pressLatestDate?: string;
-  pressCheckedAt?: string;
-  blogUrl?: string;
-  blogLastPostDate?: string;
-  blogLastPostDaysAgo?: number;
-  blogCheckedAt?: string;
-  linkedinFollowers?: number;
-  linkedinCheckedAt?: string;
+  // Crunchbase signals — written by vendor-overview when the Scrapfly fetch
+  // succeeds and the parsed snapshot is useful (>=3 of 5 critical fields).
+  crunchbaseRank?: number;
+  crunchbaseGrowthScore?: number;
+  crunchbaseHeatScore?: number;
+  crunchbaseCategories?: string[];
+  monthlyWebVisits?: number;
+  /** "Lists Featuring This Company" block, parsed from JSON-stringified Airtable text. */
+  crunchbaseLists?: CrunchbaseList[];
+  crunchbaseCheckedAt?: string;
 
-  // Employees
-  employeeSource?: string;
-  employeeCheckedAt?: string;
+  // Vendor Quality Score breakdown (see docs/vendor-quality-score.md)
+  vqsCredibility?: number;
+  vqsMomentum?: number;
+  vqsFit?: number;
+  vqsFlags?: string[];
 
   // Orchestrator
   lastEnrichedAt?: string;
+}
+
+export interface CrunchbaseList {
+  name: string;
+  countOrgs?: number;
+  totalFunding?: string;
+  countInvestors?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -207,7 +220,9 @@ export interface UpdateVendorRequest {
   parentCompany?: string;
   linkedinUrl?: string;
   crunchbaseUrl?: string;
+  wikiUrl?: string;
   sourceUrl?: string;
-  blogUrl?: string;
   githubOrg?: string;
+  phoneNumber?: string;
+  contactEmail?: string;
 }

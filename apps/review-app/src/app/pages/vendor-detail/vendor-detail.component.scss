@@ -150,6 +150,55 @@
   flex-wrap: wrap;
 }
 
+// Pushes the enrich button group to the far right of the title row while
+// the title + Edit link sit at the start. `margin-left: auto` keeps it
+// flowing onto the next line on narrow viewports thanks to flex-wrap above.
+.detail-header__actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+}
+
+// --- button group ---------------------------------------------------------
+// True segmented control: an icon-only Syncfusion <button ejs-button> sits
+// flush against an <ejs-splitbutton>. Both render as Syncfusion .e-btn.e-primary,
+// so they share height, color, and theme tokens automatically. We only need to
+// flatten the seam between them and round the outer edges.
+.btn-group {
+  display: inline-flex;
+  align-items: stretch;
+  isolation: isolate; // keep z-index focus rings local
+}
+
+// Refresh side: square off the right edge so it meets the splitbutton flush.
+.btn-group ::ng-deep .btn-group__refresh.e-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  // Hairline divider against the purple-on-purple seam.
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+// Splitbutton side: square off the left edge of both the wrapper and its
+// primary button so the seam is invisible.
+.btn-group ::ng-deep app-enrich-split-button .e-split-btn-wrapper {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.btn-group ::ng-deep app-enrich-split-button .e-split-btn-wrapper > .e-btn:first-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.icon--spin {
+  animation: btn-group-spin 0.9s linear infinite;
+}
+
+@keyframes btn-group-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .detail-title {
   font-size: var(--text-2xl);
   font-weight: 500;
@@ -204,6 +253,32 @@
   white-space: pre-line;
   color: var(--color-text-body);
   line-height: var(--leading-normal);
+}
+
+// Crunchbase signals: chip row + featured-list bullets sit below the
+// facts-grid in the same section.
+.cb-categories,
+.cb-lists {
+  margin-top: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cb-categories__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.cb-lists__items {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-body);
 }
 
 .external-links {

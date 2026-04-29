@@ -140,6 +140,7 @@
         headerText="Company"
         width="240"
         clipMode="EllipsisWithTooltip"
+        [sortComparer]="companyNameSortComparer"
       >
         <ng-template #template let-data>
           <a class="vendor-name-link" (click)="goToVendor(data.id, $event)">
@@ -152,6 +153,7 @@
         headerText="Headquarters"
         width="180"
         clipMode="EllipsisWithTooltip"
+        [sortComparer]="headquartersSortComparer"
       ></e-column>
       <e-column
         field="foundedYear"
@@ -159,6 +161,7 @@
         width="110"
         textAlign="Right"
         type="number"
+        [sortComparer]="foundedYearSortComparer"
       ></e-column>
       <e-column
         field="companySize"
@@ -168,20 +171,35 @@
         [sortComparer]="companySizeSortComparer"
       ></e-column>
       <e-column
-        field="employeeCountExact"
-        headerText="Employees"
-        width="130"
+        field="vqsScore"
+        headerText="VQS"
+        width="120"
         textAlign="Right"
         type="number"
         format="N0"
-      ></e-column>
+        [sortComparer]="vqsScoreSortComparer"
+      >
+        <ng-template #template let-data>
+          @if (data.vqsScore !== undefined && data.vqsScore !== null) {
+            <span class="vqs-cell">
+              <strong>{{ data.vqsScore }}</strong>
+              @if (data.vqsTier) {
+                <span class="vqs-cell__tier"> - {{ data.vqsTier }}</span>
+              }
+            </span>
+          } @else {
+            <span class="empty-cell">—</span>
+          }
+        </ng-template>
+      </e-column>
       <e-column
         field="readinessPercent"
-        headerText="Readiness"
-        width="130"
+        headerText="Data %"
+        width="110"
         textAlign="Right"
         type="number"
         format="N0"
+        [sortComparer]="readinessPercentSortComparer"
       >
         <ng-template #template let-data>
           @if (data.readinessPercent !== null) {
@@ -198,12 +216,23 @@
         textAlign="Right"
         type="number"
         format="N0"
+        [sortComparer]="githubStarsTotalSortComparer"
+      ></e-column>
+      <e-column
+        field="toolCount"
+        headerText="Tools"
+        width="100"
+        textAlign="Right"
+        type="number"
+        format="N0"
+        [sortComparer]="toolCountSortComparer"
       ></e-column>
       <e-column
         field="vendorEnrichmentStatus"
         headerText="Enrichment"
         width="140"
         textAlign="Right"
+        [sortComparer]="vendorEnrichmentStatusSortComparer"
       >
         <ng-template #template let-data>
           @if (data.vendorEnrichmentStatus) {
@@ -215,14 +244,6 @@
           }
         </ng-template>
       </e-column>
-      <e-column
-        field="toolCount"
-        headerText="Tools"
-        width="100"
-        textAlign="Right"
-        type="number"
-        format="N0"
-      ></e-column>
     </e-columns>
     </ejs-grid>
   </div>
