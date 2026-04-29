@@ -1,6 +1,10 @@
 // Shared metadata for the tier hover popover and full-page detail modal.
-// Mirrors thresholds and pillar weights in server/workflows/vendor/score.ts —
-// keep this file aligned if the scoring rules change.
+// Mirrors thresholds and pillar weights in:
+//   - server/workflows/vendor/score.ts (vendor / VQS)
+//   - server/tasks/computePriorityScore.ts (tool / priority)
+// Keep this file aligned if either scoring rule changes.
+
+export type ScoreFamily = 'vendor' | 'tool';
 
 export type TierKey =
   | 'Tier 1'
@@ -25,6 +29,8 @@ export interface TierMeta {
   variant: TierVariant;
 }
 
+// Shared 80/60/40/20 ladder. Vendor and tool use the same cutoffs after the
+// Phase 4 alignment.
 export const TIER_META: Record<TierKey, TierMeta> = {
   'Tier 1': {
     range: '80–100',
@@ -64,7 +70,16 @@ export const TIER_META: Record<TierKey, TierMeta> = {
   },
 };
 
-// Ordered Tier 1 → Unscored for the reference table in the modal.
+// Tools store their tier as plain '1'..'5' or 'Unscored' (no "Tier " prefix).
+// This normalizes either form back to the keys above.
+export function normalizeTierKey(tier: string | undefined | null): TierKey | null {
+  if (!tier) return null;
+  if (tier in TIER_META) return tier as TierKey;
+  if (/^[1-5]$/.test(tier)) return `Tier ${tier}` as TierKey;
+  if (tier === 'Unscored') return 'Unscored';
+  return null;
+}
+
 export const TIER_ORDER: TierKey[] = [
   'Tier 1',
   'Tier 2',
@@ -75,19 +90,27 @@ export const TIER_ORDER: TierKey[] = [
 ];
 
 export function tierMetaFor(tier: string | undefined | null): TierMeta {
-  if (tier && tier in TIER_META) return TIER_META[tier as TierKey];
-  return TIER_META.Unscored;
+  const key = normalizeTierKey(tier);
+  return key ? TIER_META[key] : TIER_META.Unscored;
 }
 
+// ---------------------------------------------------------------------------
+// Pillar metadata
+// ---------------------------------------------------------------------------
+
+export type VendorPillarKey = 'credibility' | 'momentum' | 'fit';
+export type ToolPillarKey = 'integration' | 'demand';
+export type PillarKey = VendorPillarKey | ToolPillarKey;
+
 export interface PillarMeta {
-  key: 'credibility' | 'momentum' | 'fit';
+  key: PillarKey;
   label: string;
-  weight: number; // fraction (0.35, 0.35, 0.30)
+  weight: number; // fraction
   blurb: string;
   inputs: string;
 }
 
-export const PILLAR_META: PillarMeta[] = [
+const VENDOR_PILLAR_META: PillarMeta[] = [
   {
     key: 'credibility',
     label: 'Credibility',
@@ -114,11 +137,54 @@ export const PILLAR_META: PillarMeta[] = [
   },
 ];
 
+const TOOL_PILLAR_META: PillarMeta[] = [
+  {
+    key: 'integration',
+    label: 'Integration',
+    weight: 0.55,
+    blurb: 'Can we plug into this product?',
+    inputs:
+      'API docs, AEC marketplace listings, integration count, iPaaS presence, Zapier triggers.',
+  },
+  {
+    key: 'demand',
+    label: 'Demand',
+    weight: 0.45,
+    blurb: 'Is anyone looking for it?',
+    inputs:
+      'G2 + Capterra reviews and ratings, monthly search volume, Google Trends, Reddit mentions.',
+  },
+];
+
+/** Backwards-compat: the vendor-side dialog imports this directly. */
+export const PILLAR_META = VENDOR_PILLAR_META;
+
+export function pillarsFor(family: ScoreFamily): PillarMeta[] {
+  return family === 'vendor' ? VENDOR_PILLAR_META : TOOL_PILLAR_META;
+}
+
+// ---------------------------------------------------------------------------
+// Flag labels — both families share the lookup map. New tool-specific flags
+// added below; missing keys fall back to the raw flag name.
+// ---------------------------------------------------------------------------
+
 export const FLAG_LABELS: Record<string, string> = {
+  // Vendor / VQS
   public_company_estimated:
     'Public company — momentum partly estimated from defaults',
   missing_crunchbase: 'No Crunchbase data on file',
   missing_github: 'No GitHub organisation found',
+  // Tool / priority
+  missing_marketplace_check: 'AEC marketplace presence not yet checked',
+  missing_api_docs_check: 'API docs not yet checked',
+  missing_ipaas_check: 'iPaaS presence not yet checked',
+  missing_reviews_check: 'G2 / Capterra reviews not yet checked',
+  missing_search_check: 'Search demand not yet checked',
+  missing_reddit_check: 'Reddit mentions not yet checked',
+  no_vendor_linked: 'No vendor linked — emerging-flag check skipped',
+  vendor_unenriched: 'Linked vendor record could not be loaded',
+  emerging: 'Emerging — young vendor in an AEC marketplace with API docs',
+  // Shared
   unscored: 'Insufficient data to compute a score',
 };
 

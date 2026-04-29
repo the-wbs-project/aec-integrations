@@ -117,12 +117,31 @@ function asCrunchbaseLists(v: unknown): CrunchbaseList[] | undefined {
 // ---------------------------------------------------------------------------
 // Lookup maps bundle — fetched once and reused across hydrations
 // ---------------------------------------------------------------------------
+export interface VendorVqsRef {
+  score?: number;
+  tier?: string;
+}
+export type VendorVqsMap = Map<string, VendorVqsRef>;
+
 export interface LookupMaps {
   vendors: NameMap;
+  vendorVqs: VendorVqsMap;
   categories: NameMap;
   disciplines: NameMap;
   phases: NameMap;
   tools: NameMap;
+}
+
+function buildVendorVqsMap(records: AirtableRecord[]): VendorVqsMap {
+  const map: VendorVqsMap = new Map();
+  for (const r of records) {
+    const score = asNumber(r.get('vqs_score'));
+    const tier = asString(r.get('vqs_tier'));
+    if (score !== undefined || tier !== undefined) {
+      map.set(r.id, { score, tier });
+    }
+  }
+  return map;
 }
 
 export async function buildLookupMaps(env: Env): Promise<LookupMaps> {
@@ -136,6 +155,7 @@ export async function buildLookupMaps(env: Env): Promise<LookupMaps> {
 
   return {
     vendors: buildNameMap(vendorRecs, 'company_name'),
+    vendorVqs: buildVendorVqsMap(vendorRecs),
     categories: buildNameMap(catRecs, 'Name'),
     disciplines: buildNameMap(discRecs, 'Name'),
     phases: buildNameMap(phaseRecs, 'Name'),
@@ -192,12 +212,30 @@ export function hydrateTool(
     outreachScore: asNumber(record.get('outreach_score')),
     priorityScore: asNumber(record.get('priority_score')),
     priorityTier: asString(record.get('priority_tier')),
+    priorityConfidence: asString(record.get('priority_confidence')),
+    priorityFlags: asJsonStringArray(record.get('priority_flags')),
     emergingFlag: asBoolean(record.get('emerging_flag')),
     toolDataCompleteness: asNumber(record.get('tool_data_completeness')),
     toolEnrichmentStatus: asString(record.get('tool_enrichment_status')),
     lastToolEnrichedAt: asString(record.get('last_tool_enriched_at')),
     lastScoredAt: asString(record.get('last_scored_at')),
+
+    // Linked vendor's VQS (read from primary linked vendor only).
+    ...vendorVqsFor(record, maps),
   };
+}
+
+function vendorVqsFor(
+  record: AirtableRecord,
+  maps: LookupMaps,
+): { vendorVqsScore?: number; vendorVqsTier?: string } {
+  const ids = record.get('vendors');
+  if (!Array.isArray(ids) || ids.length === 0) return {};
+  const firstId = ids.find((x): x is string => typeof x === 'string');
+  if (!firstId) return {};
+  const vqs = maps.vendorVqs.get(firstId);
+  if (!vqs) return {};
+  return { vendorVqsScore: vqs.score, vendorVqsTier: vqs.tier };
 }
 
 export function hydrateToolDetail(

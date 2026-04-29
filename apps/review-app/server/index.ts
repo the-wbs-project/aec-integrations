@@ -29,6 +29,7 @@ export { VendorFundingWorkflow } from './workflows/vendor/funding';
 export { VendorScoreWorkflow } from './workflows/vendor/score';
 export { VendorOrchestratorWorkflow } from './workflows/vendor/orchestrator';
 export { VendorOverviewWorkflow } from './workflows/vendor/overview';
+export { ToolOverviewWorkflow } from './workflows/tool/overview';
 export { ToolApiCheckWorkflow } from './workflows/tool/apiCheck';
 export { ToolMarketplaceWorkflow } from './workflows/tool/marketplace';
 export { ToolIpaasWorkflow } from './workflows/tool/ipaas';

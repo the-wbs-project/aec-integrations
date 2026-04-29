@@ -14,6 +14,7 @@ import { meta as vendorScoreMeta } from './vendor/score';
 import { meta as vendorOrchestratorMeta } from './vendor/orchestrator';
 import { meta as vendorOverviewMeta } from './vendor/overview';
 
+import { meta as toolOverviewMeta } from './tool/overview';
 import { meta as toolApiCheckMeta } from './tool/apiCheck';
 import { meta as toolMarketplaceMeta } from './tool/marketplace';
 import { meta as toolIpaasMeta } from './tool/ipaas';
@@ -32,6 +33,7 @@ export type WorkflowBindingName =
   | 'WF_VENDOR_SCORE'
   | 'WF_VENDOR_ORCHESTRATOR'
   | 'WF_VENDOR_OVERVIEW'
+  | 'WF_TOOL_OVERVIEW'
   | 'WF_TOOL_API_CHECK'
   | 'WF_TOOL_MARKETPLACE'
   | 'WF_TOOL_IPAAS'
@@ -57,6 +59,7 @@ export const WORKFLOWS: Record<string, WorkflowEntry> = {
     binding: 'WF_VENDOR_ORCHESTRATOR',
   },
   [vendorOverviewMeta.slug]: { meta: vendorOverviewMeta, binding: 'WF_VENDOR_OVERVIEW' },
+  [toolOverviewMeta.slug]: { meta: toolOverviewMeta, binding: 'WF_TOOL_OVERVIEW' },
   [toolApiCheckMeta.slug]: { meta: toolApiCheckMeta, binding: 'WF_TOOL_API_CHECK' },
   [toolMarketplaceMeta.slug]: { meta: toolMarketplaceMeta, binding: 'WF_TOOL_MARKETPLACE' },
   [toolIpaasMeta.slug]: { meta: toolIpaasMeta, binding: 'WF_TOOL_IPAAS' },

@@ -25,13 +25,13 @@
           <p>{{ msg }}</p>
           <button type="button" class="tier-detail__btn" (click)="retry()">Try again</button>
         </div>
-      } @else if (vendor(); as v) {
+      } @else if (subject(); as s) {
         <!-- Headline card -->
         <section class="headline" [attr.data-variant]="tierMeta().variant">
           <div class="headline__left">
             <div class="headline__score">
-              @if (v.vqsScore !== undefined && v.vqsScore !== null) {
-                {{ v.vqsScore }}
+              @if (s.score !== undefined && s.score !== null) {
+                {{ s.score }}
               } @else {
                 —
               }
@@ -41,12 +41,12 @@
           <div class="headline__right">
             <div class="headline__row">
               <span class="tier-pill tier-pill--lg" [attr.data-variant]="tierMeta().variant">
-                {{ v.vqsTier || 'Unscored' }}
+                {{ s.tier }}
               </span>
               <span class="headline__range">{{ tierMeta().range }}</span>
-              @if (v.vqsConfidence) {
+              @if (s.confidence) {
                 <span class="confidence-chip" [attr.data-variant]="confidenceVariant()">
-                  {{ v.vqsConfidence }} confidence
+                  {{ s.confidence }} confidence
                 </span>
               }
             </div>
@@ -59,14 +59,14 @@
         <section class="section">
           <h3 class="section__heading">How the score is built</h3>
           <p class="section__lede">
-            We combine three weighted pillars on a 0–100 scale. A pillar needs at least 2 populated fields
-            (1 for Fit) to contribute. Missing pillars drop out and the rest re-weight automatically.
+            We combine the pillars below on a 0–100 scale. A pillar needs at least one populated input
+            to contribute. Missing pillars drop out and the rest re-weight automatically.
           </p>
         </section>
 
         <!-- Pillar bars -->
         <section class="pillars">
-          @for (p of pillars(); track p.meta.key) {
+          @for (p of s.pillars; track p.meta.key) {
             <article class="pillar" [class.pillar--unscored]="p.score === null || p.score === undefined">
               <header class="pillar__head">
                 <div class="pillar__title">
@@ -117,7 +117,7 @@
             </thead>
             <tbody>
               @for (t of tierOrder; track t) {
-                <tr [class.tier-table__row--current]="t === (v.vqsTier || 'Unscored')">
+                <tr [class.tier-table__row--current]="t === currentTierKey()">
                   <td>
                     <span class="tier-pill" [attr.data-variant]="tierMetaMap[t].variant">{{ t }}</span>
                   </td>
@@ -130,11 +130,11 @@
         </section>
 
         <!-- Flags -->
-        @if (v.vqsFlags && v.vqsFlags.length > 0) {
+        @if (s.flags.length > 0) {
           <section class="section">
             <h3 class="section__heading">Caveats</h3>
             <ul class="flag-list">
-              @for (flag of v.vqsFlags; track flag) {
+              @for (flag of s.flags; track flag) {
                 <li class="flag-item">{{ flagLabel(flag) }}</li>
               }
             </ul>
@@ -143,8 +143,8 @@
 
         <!-- Footer -->
         <footer class="footer">
-          <a class="footer__link" [routerLink]="['/vendors', v.id]" (click)="onClose()">
-            View full vendor record
+          <a class="footer__link" [routerLink]="s.recordRouterLink" (click)="onClose()">
+            {{ s.recordLinkLabel }}
             <span aria-hidden="true">→</span>
           </a>
           <button type="button" class="tier-detail__btn" (click)="onClose()">Close</button>

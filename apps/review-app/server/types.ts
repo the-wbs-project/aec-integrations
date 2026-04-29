@@ -61,14 +61,28 @@ export interface Tool {
   // Scoring
   integrationScore?: number;
   demandScore?: number;
+  /**
+   * Legacy — was the per-tool outreach pillar (vendor-derived). Removed when
+   * priority moved to a 2-pillar model; vendor outreach quality lives in VQS.
+   * Field is no longer written by T08; kept on the type so historical Airtable
+   * values still hydrate without errors.
+   */
   outreachScore?: number;
   priorityScore?: number;
   priorityTier?: string;
+  priorityConfidence?: string;
+  priorityFlags?: string[];
   emergingFlag?: boolean;
   toolDataCompleteness?: number;
   toolEnrichmentStatus?: string;
   lastToolEnrichedAt?: string;
   lastScoredAt?: string;
+
+  // Linked vendor's VQS — surfaced in tool list/detail so users can see vendor
+  // outreach quality next to tool-intrinsic priority without it being
+  // multiplied into the score.
+  vendorVqsScore?: number;
+  vendorVqsTier?: string;
 }
 
 export interface ToolDetail extends Tool {

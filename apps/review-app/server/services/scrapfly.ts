@@ -1,27 +1,25 @@
 // ---------------------------------------------------------------------------
-// Scrapfly proxy service. Fetches Crunchbase organization pages with anti-bot
-// bypass and JS rendering.
+// Scrapfly proxy service. Fetches pages with anti-bot bypass and JS rendering.
 //
-// Cloudflare blocks our worker IPs from reaching crunchbase.com directly
+// Cloudflare blocks our worker IPs from reaching some sites directly
 // (verified Apr 2026 — see plan in /Users/chris/.claude/plans/ok-i-want-the-soft-puppy.md).
 // Scrapfly's `asp=true` setting routes through residential proxies and solves
 // JS challenges for us; `render_js=true` runs the page in a real browser so
-// the rehydrated DOM (which holds the Phone/Email/Lists blocks) is captured.
+// the rehydrated DOM is captured.
 //
-// Caches the rendered HTML in KV under `cb:<slug>` for 30 days. Crunchbase
-// data doesn't churn faster than that, and `crunchbase_checked_at` on the
-// vendor record drives orchestrator-level re-scrape decisions independently.
+// Pages are cached in KV under the supplied `cacheKey` for `cacheTtlS` seconds.
+// Defaults: 30 days (Crunchbase / G2 / Capterra all churn slowly).
 // ---------------------------------------------------------------------------
 import type { Env } from '../env';
 
-// Crunchbase pages typically resolve in 60-120s through Scrapfly's anti-bot
-// + JS-render pipeline. Scrapfly's documented default sync read timeout is
-// 155s, so we ask Scrapfly for 150s of work and give ourselves a 180s
-// AbortSignal cushion to receive the response. Don't drop these without
-// re-checking https://scrapfly.io/docs/scrape-api/getting-started.
+// Pages typically resolve in 60-120s through Scrapfly's anti-bot + JS-render
+// pipeline. Scrapfly's documented default sync read timeout is 155s, so we
+// ask Scrapfly for 150s of work and give ourselves a 180s AbortSignal cushion
+// to receive the response. Don't drop these without re-checking
+// https://scrapfly.io/docs/scrape-api/getting-started.
 const SCRAPE_TIMEOUT_MS = 180_000;
 const SCRAPFLY_TIMEOUT_MS = 150_000;
-const CACHE_TTL_S = 30 * 24 * 60 * 60; // 30 days
+const DEFAULT_CACHE_TTL_S = 30 * 24 * 60 * 60; // 30 days
 const MAX_HTML_SIZE = 5 * 1024 * 1024; // 5 MB; matches services/render.ts
 
 const CRUNCHBASE_ORG_URL = /^https?:\/\/(www\.)?crunchbase\.com\/organization\/([a-z0-9-]+)\/?/i;
@@ -32,22 +30,43 @@ export interface ScrapeResult {
   html: string | null;
   /** Scrapfly credits charged (from x-scrapfly-api-cost header). */
   cost: number;
-  /** Crunchbase response status (`result.status_code` from the wrapper). */
+  /** Target site response status (`result.status_code` from the wrapper). */
   targetStatus: number | null;
   error: string | null;
 }
 
+export interface ScrapeUrlOptions {
+  /** KV cache key. Required — caching is the cost-control mechanism. */
+  cacheKey: string;
+  /** Seconds to cache successful HTML in KV. Defaults to 30 days. */
+  cacheTtlS?: number;
+  /** Anti-scraping protection (residential proxies + challenge solving). Default true. */
+  asp?: boolean;
+  /** Render the page in a headless browser. Default true. */
+  renderJs?: boolean;
+  /** Country code for the proxy (defaults to 'us'). */
+  country?: string;
+}
+
 /**
- * Fetch a Crunchbase organization page via Scrapfly. Returns the rendered
- * HTML on success. On failure (Scrapfly outage, target 5xx, Cloudflare block,
- * or our key being missing/invalid) returns `successful: false` with an
- * `error` describing what happened — never throws, so the caller can fall
- * through to its backup path.
+ * Fetch a page via Scrapfly. Returns the rendered HTML on success. On failure
+ * (Scrapfly outage, target 5xx, Cloudflare block, or our key being missing /
+ * invalid) returns `successful: false` with an `error` describing what
+ * happened — never throws, so the caller can fall through to its backup path.
  */
-export async function scrapeCrunchbaseOrg(
+export async function scrapeUrl(
   env: Env,
   url: string,
+  options: ScrapeUrlOptions,
 ): Promise<ScrapeResult> {
+  const {
+    cacheKey,
+    cacheTtlS = DEFAULT_CACHE_TTL_S,
+    asp = true,
+    renderJs = true,
+    country = 'us',
+  } = options;
+
   if (!env.SCRAPFLY_API_KEY) {
     return {
       successful: false,
@@ -57,19 +76,6 @@ export async function scrapeCrunchbaseOrg(
       error: 'SCRAPFLY_API_KEY is not set',
     };
   }
-
-  const slugMatch = url.match(CRUNCHBASE_ORG_URL);
-  if (!slugMatch) {
-    return {
-      successful: false,
-      html: null,
-      cost: 0,
-      targetStatus: null,
-      error: `URL is not a Crunchbase organization page: ${url}`,
-    };
-  }
-  const slug = slugMatch[2];
-  const cacheKey = `cb:${slug}`;
 
   const cached = await env.KV_CACHE.get(cacheKey);
   if (cached !== null) {
@@ -82,15 +88,12 @@ export async function scrapeCrunchbaseOrg(
     };
   }
 
-  // Scrapfly request. asp=true is the anti-scraping protection (~25-100
-  // credits per call); render_js=true runs the page through a headless
-  // browser so the rehydrated DOM is captured.
   const params = new URLSearchParams({
     url,
     key: env.SCRAPFLY_API_KEY,
-    asp: 'true',
-    render_js: 'true',
-    country: 'us',
+    asp: asp ? 'true' : 'false',
+    render_js: renderJs ? 'true' : 'false',
+    country,
     timeout: String(SCRAPFLY_TIMEOUT_MS),
   });
 
@@ -165,7 +168,7 @@ export async function scrapeCrunchbaseOrg(
       html: null,
       cost,
       targetStatus,
-      error: `Crunchbase returned HTTP ${targetStatus}`,
+      error: `Target site returned HTTP ${targetStatus}`,
     };
   }
 
@@ -189,8 +192,6 @@ export async function scrapeCrunchbaseOrg(
     };
   }
 
-  // Don't cache absurdly large pages — Crunchbase pages stay around 1.5 MB
-  // and anything bigger usually means something else got served.
   if (html.length > MAX_HTML_SIZE) {
     return {
       successful: false,
@@ -201,7 +202,7 @@ export async function scrapeCrunchbaseOrg(
     };
   }
 
-  await env.KV_CACHE.put(cacheKey, html, { expirationTtl: CACHE_TTL_S });
+  await env.KV_CACHE.put(cacheKey, html, { expirationTtl: cacheTtlS });
 
   return {
     successful: true,
@@ -210,4 +211,26 @@ export async function scrapeCrunchbaseOrg(
     targetStatus,
     error: null,
   };
+}
+
+/**
+ * Fetch a Crunchbase organization page. Thin wrapper around `scrapeUrl` that
+ * derives the cache key from the org slug — preserved for callers that still
+ * pass raw Crunchbase URLs.
+ */
+export async function scrapeCrunchbaseOrg(
+  env: Env,
+  url: string,
+): Promise<ScrapeResult> {
+  const slugMatch = url.match(CRUNCHBASE_ORG_URL);
+  if (!slugMatch) {
+    return {
+      successful: false,
+      html: null,
+      cost: 0,
+      targetStatus: null,
+      error: `URL is not a Crunchbase organization page: ${url}`,
+    };
+  }
+  return scrapeUrl(env, url, { cacheKey: `cb:${slugMatch[2]}` });
 }

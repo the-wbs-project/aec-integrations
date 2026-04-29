@@ -122,6 +122,11 @@
 		},
 		// Tool workflows
 		{
+			"name": "aeci-tool-overview",
+			"binding": "WF_TOOL_OVERVIEW",
+			"class_name": "ToolOverviewWorkflow"
+		},
+		{
 			"name": "aeci-tool-api-check",
 			"binding": "WF_TOOL_API_CHECK",
 			"class_name": "ToolApiCheckWorkflow"

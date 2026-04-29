@@ -158,11 +158,17 @@ tools.get('/', async (c) => {
         return numericCompare(a.outreachScore, b.outreachScore);
       case 'dataCompleteness':
         return numericCompare(a.toolDataCompleteness, b.toolDataCompleteness);
-      case 'priorityTier':
-        return numericCompare(
-          a.priorityTier ? Number(a.priorityTier) : undefined,
-          b.priorityTier ? Number(b.priorityTier) : undefined,
-        );
+      case 'priorityTier': {
+        // Unscored / non-numeric tiers sort to the bottom regardless of dir.
+        const tierToNum = (t: string | undefined): number | undefined => {
+          if (!t) return undefined;
+          const n = Number(t);
+          return Number.isFinite(n) ? n : undefined;
+        };
+        return numericCompare(tierToNum(a.priorityTier), tierToNum(b.priorityTier));
+      }
+      case 'vendorVqsScore':
+        return numericCompare(a.vendorVqsScore, b.vendorVqsScore);
       case 'name':
       default:
         return stringCompare(a.name, b.name);

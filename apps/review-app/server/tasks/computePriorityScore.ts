@@ -1,6 +1,19 @@
 // ---------------------------------------------------------------------------
-// Pure scoring math for T08. Lifted from the n8n Code node — same constants,
-// same weighting, same tier thresholds.
+// Pure scoring math for T08 — tool priority.
+//
+// Two pillars:
+//   - Integration score (tool-intrinsic API/marketplace/iPaaS signals)
+//   - Demand score (reviews, search volume, Google Trends, Reddit)
+//
+// `priority_score = 0.55 * integration + 0.45 * demand`
+//
+// Outreach quality is a vendor concern — it lives in the vendor's VQS, not in
+// per-tool priority. We accept the linked vendor's `founded_year` only for the
+// emerging-flag check (young AEC-marketplace-listed tools with API docs get a
+// minimum tier of 2).
+//
+// Returns the four scores along with per-pillar `populated` counters so the
+// score workflow can compute completeness, confidence, and flags.
 // ---------------------------------------------------------------------------
 
 export interface ToolFields {
@@ -19,26 +32,46 @@ export interface ToolFields {
 }
 
 export interface VendorFields {
-  company_name?: string;
-  company_size?: string;
-  has_partner_program?: boolean;
-  funding_stage?: string;
-  press_count_12mo?: number;
-  blog_last_post_days_ago?: number;
   founded_year?: number;
 }
 
+export type PriorityTier = '1' | '2' | '3' | '4' | '5' | 'Unscored';
+
 export interface PriorityScore {
-  integration_score: number;
-  demand_score: number;
-  outreach_score: number;
-  priority_score: number;
-  priority_tier: '1' | '2' | '3' | '4';
+  integration_score: number | null;
+  demand_score: number | null;
+  priority_score: number | null;
+  priority_tier: PriorityTier;
   emerging_flag: boolean;
+  /** Number of populated input signals per pillar — used for completeness/confidence. */
+  integration_populated: number;
+  demand_populated: number;
 }
+
+/** All input field names checked for completeness — 5 integration + 5 demand. */
+export const PRIORITY_INPUT_FIELDS = [
+  'marketplace_count',
+  'has_api_docs',
+  'integration_count',
+  'ipaas_count',
+  'zapier_trigger_count',
+  'g2_review_count',
+  'capterra_review_count',
+  'search_volume_monthly',
+  'google_trends_index',
+  'reddit_mentions_24mo',
+] as const;
 
 const num = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
 const bool = (v: unknown): boolean => v === true;
+
+function isPopulatedNumber(v: unknown): boolean {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function isPopulatedBoolean(v: unknown): boolean {
+  return typeof v === 'boolean';
+}
 
 function logNorm(value: unknown, cap: number): number {
   const v = Math.log(num(value) + 1);
@@ -62,90 +95,104 @@ function bayesianRating(rating: number | null, count: number): number {
   return (wr / 5) * 100;
 }
 
-function employeeSweetSpot(size?: string): number {
-  const map: Record<string, number> = {
-    '1-10': 20,
-    '11-50': 50,
-    '51-200': 100,
-    '201-1000': 90,
-    '1001-5000': 60,
-    '5000+': 30,
-  };
-  return size && map[size] !== undefined ? map[size] : 50;
-}
+export function computePriorityScore(
+  tool: ToolFields,
+  vendor: VendorFields | null,
+): PriorityScore {
+  // ----- Integration pillar -----------------------------------------------
+  const integrationInputs = [
+    tool.marketplace_count,
+    tool.has_api_docs,
+    tool.integration_count,
+    tool.ipaas_count,
+    tool.zapier_trigger_count,
+  ];
+  const integrationPopulated = integrationInputs.reduce<number>(
+    (n, v) => n + (isPopulatedNumber(v) || isPopulatedBoolean(v) ? 1 : 0),
+    0,
+  );
 
-function fundingScore(stage?: string): number {
-  const map: Record<string, number> = {
-    Bootstrapped: 40,
-    'Pre-seed': 30,
-    Seed: 50,
-    'Series A': 80,
-    'Series B': 90,
-    'Series C': 100,
-    'Series D+': 85,
-    Public: 50,
-    Acquired: 40,
-    Unknown: 30,
-  };
-  return stage && map[stage] !== undefined ? map[stage] : 30;
-}
-
-function blogRecencyScore(daysAgo: number | null | undefined): number {
-  if (daysAgo == null) return 30;
-  if (daysAgo <= 7) return 100;
-  if (daysAgo <= 30) return 80;
-  if (daysAgo <= 90) return 60;
-  if (daysAgo <= 180) return 40;
-  if (daysAgo <= 365) return 20;
-  return 10;
-}
-
-export function computePriorityScore(tool: ToolFields, vendor: VendorFields | null): PriorityScore {
-  const v = vendor ?? {};
-
-  const integrationScore =
+  const integrationRaw =
     0.30 * logNorm(tool.marketplace_count, 4) +
     0.25 * (bool(tool.has_api_docs) ? 100 : 0) +
     0.20 * logNorm(tool.integration_count, 100) +
     0.15 * logNorm(tool.ipaas_count, 3) +
     0.10 * logNorm(tool.zapier_trigger_count, 50);
 
+  const integrationScore = integrationPopulated > 0 ? round1(integrationRaw) : null;
+
+  // ----- Demand pillar ----------------------------------------------------
+  const demandInputs = [
+    tool.g2_review_count,
+    tool.capterra_review_count,
+    tool.search_volume_monthly,
+    tool.google_trends_index,
+    tool.reddit_mentions_24mo,
+  ];
+  const demandPopulated = demandInputs.reduce<number>(
+    (n, v) => n + (isPopulatedNumber(v) ? 1 : 0),
+    0,
+  );
+
   const totalReviews = num(tool.g2_review_count) + num(tool.capterra_review_count);
   const bestRating = num(tool.g2_rating) || num(tool.capterra_rating) || null;
-  const demandScore =
+  const demandRaw =
     0.30 * logNorm(totalReviews, 5000) +
     0.25 * bayesianRating(bestRating, totalReviews) +
     0.20 * logNorm(tool.search_volume_monthly, 100_000) +
     0.15 * norm(tool.google_trends_index, 0, 100) +
     0.10 * logNorm(tool.reddit_mentions_24mo, 500);
 
-  const outreachScore =
-    0.30 * employeeSweetSpot(v.company_size) +
-    0.25 * (bool(v.has_partner_program) ? 100 : 0) +
-    0.20 * fundingScore(v.funding_stage) +
-    0.15 * logNorm(v.press_count_12mo, 50) +
-    0.10 * blogRecencyScore(v.blog_last_post_days_ago ?? null);
+  const demandScore = demandPopulated > 0 ? round1(demandRaw) : null;
 
-  const priorityScore = 0.40 * integrationScore + 0.35 * demandScore + 0.25 * outreachScore;
+  // ----- Composite + tier --------------------------------------------------
+  let priorityScore: number | null = null;
+  if (integrationScore !== null && demandScore !== null) {
+    priorityScore = round1(0.55 * integrationScore + 0.45 * demandScore);
+  } else if (integrationScore !== null) {
+    priorityScore = round1(integrationScore);
+  } else if (demandScore !== null) {
+    priorityScore = round1(demandScore);
+  }
 
+  // ----- Emerging flag -----------------------------------------------------
+  const v = vendor ?? {};
   const currentYear = new Date().getFullYear();
   const isYoung = num(v.founded_year) > currentYear - 4;
   const emergingFlag = !!(isYoung && bool(tool.has_api_docs) && num(tool.marketplace_count) >= 1);
 
-  let priorityTier: '1' | '2' | '3' | '4';
-  if (priorityScore >= 80) priorityTier = '1';
-  else if (priorityScore >= 55) priorityTier = '2';
-  else if (priorityScore >= 30) priorityTier = '3';
-  else priorityTier = '4';
-  if (emergingFlag && priorityTier > '2') priorityTier = '2';
+  // ----- Tier (5 tiers + Unscored, aligned with VQS) ----------------------
+  let priorityTier: PriorityTier;
+  if (priorityScore === null) {
+    priorityTier = 'Unscored';
+  } else if (priorityScore >= 80) priorityTier = '1';
+  else if (priorityScore >= 60) priorityTier = '2';
+  else if (priorityScore >= 40) priorityTier = '3';
+  else if (priorityScore >= 20) priorityTier = '4';
+  else priorityTier = '5';
 
-  const round1 = (n: number) => Math.round(n * 10) / 10;
+  // Emerging flag still forces a minimum of Tier 2 (only meaningful when scored).
+  if (emergingFlag && priorityTier !== 'Unscored' && tierRank(priorityTier) > tierRank('2')) {
+    priorityTier = '2';
+  }
+
   return {
-    integration_score: round1(integrationScore),
-    demand_score: round1(demandScore),
-    outreach_score: round1(outreachScore),
-    priority_score: round1(priorityScore),
+    integration_score: integrationScore,
+    demand_score: demandScore,
+    priority_score: priorityScore,
     priority_tier: priorityTier,
     emerging_flag: emergingFlag,
+    integration_populated: integrationPopulated,
+    demand_populated: demandPopulated,
   };
+}
+
+function round1(n: number): number {
+  return Math.round(n * 10) / 10;
+}
+
+/** Numeric rank for tier comparison (lower = better). */
+function tierRank(t: PriorityTier): number {
+  if (t === 'Unscored') return 99;
+  return Number(t);
 }

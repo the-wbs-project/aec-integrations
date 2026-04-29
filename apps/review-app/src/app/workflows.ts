@@ -19,13 +19,14 @@ export const WORKFLOWS: WorkflowMeta[] = [
 
   // Tool family
   { slug: 'tool-orchestrator', family: 'tool', title: 'T00 · Orchestrator', blurb: 'Run the full tool enrichment pipeline.' },
-  { slug: 'tool-research', family: 'tool', title: 'T0R · Research', blurb: 'Research a Pending tool: description, categories, disciplines, phases.' },
+  { slug: 'tool-overview', family: 'tool', title: 'T0R · Overview', blurb: 'Scrape G2 + Capterra for review counts and ratings.' },
+  { slug: 'tool-research', family: 'tool', title: 'TR · Research', blurb: 'Research a Pending tool: description, categories, disciplines, phases.' },
   { slug: 'tool-api-check', family: 'tool', title: 'T01 · API check', blurb: 'Detect official API documentation.' },
   { slug: 'tool-marketplace', family: 'tool', title: 'T02 · Marketplace', blurb: 'Procore, Autodesk, Trimble, Bluebeam presence.' },
   { slug: 'tool-ipaas', family: 'tool', title: 'T03 · iPaaS', blurb: 'Zapier, Make, Workato presence.' },
-  { slug: 'tool-reviews', family: 'tool', title: 'T04 · Reviews', blurb: 'G2 + Capterra ratings and counts.' },
+  { slug: 'tool-reviews', family: 'tool', title: 'T04 · Reviews', blurb: 'G2 + Capterra ratings and counts (LLM fallback).' },
   { slug: 'tool-search-demand', family: 'tool', title: 'T05 · Search demand', blurb: 'Google Trends + search volume.' },
   { slug: 'tool-reddit', family: 'tool', title: 'T06 · Reddit', blurb: 'Reddit mentions in AEC subreddits.' },
   { slug: 'tool-integration-count', family: 'tool', title: 'T07 · Integration count', blurb: 'Sum linked tool integrations.' },
-  { slug: 'tool-score', family: 'tool', title: 'T08 · Priority score', blurb: 'Integration / demand / outreach / priority.' },
+  { slug: 'tool-score', family: 'tool', title: 'T08 · Priority score', blurb: 'Integration / demand / priority.' },
 ];
