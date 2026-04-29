@@ -30,30 +30,48 @@ export async function runVendorAutoEnrich(
   args: { count: number; model?: string; triggeredBy: 'cron' | 'http' },
 ): Promise<AutoEnrichResult> {
   if (!Number.isFinite(args.count) || args.count <= 0) {
+    console.warn(`[auto-enrich] invalid count=${args.count} triggeredBy=${args.triggeredBy}`);
     return { spawned: [], totalCandidates: 0 };
   }
 
   const cutoff = new Date(Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  const blankRows = await listRecords(env, 'vendors', {
-    filterByFormula: `{last_enriched_at} = BLANK()`,
-    fields: ['company_name', 'last_enriched_at'],
-    maxRecords: args.count,
-  });
+  let blankRows: Awaited<ReturnType<typeof listRecords>>;
+  try {
+    blankRows = await listRecords(env, 'vendors', {
+      filterByFormula: `{last_enriched_at} = BLANK()`,
+      fields: ['company_name', 'last_enriched_at'],
+      maxRecords: args.count,
+    });
+  } catch (err) {
+    console.error(`[auto-enrich] BLANK query FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    throw err;
+  }
 
   const remaining = args.count - blankRows.length;
-  const staleRows =
-    remaining > 0
-      ? await listRecords(env, 'vendors', {
-          filterByFormula: `AND({last_enriched_at} != BLANK(), IS_BEFORE({last_enriched_at}, '${cutoff}'))`,
-          fields: ['company_name', 'last_enriched_at'],
-          maxRecords: remaining,
-          sort: [{ field: 'last_enriched_at', direction: 'asc' }],
-        })
-      : [];
+  let staleRows: Awaited<ReturnType<typeof listRecords>> = [];
+  if (remaining > 0) {
+    try {
+      staleRows = await listRecords(env, 'vendors', {
+        filterByFormula: `AND({last_enriched_at} != BLANK(), IS_BEFORE({last_enriched_at}, '${cutoff}'))`,
+        fields: ['company_name', 'last_enriched_at'],
+        maxRecords: remaining,
+        sort: [{ field: 'last_enriched_at', direction: 'asc' }],
+      });
+    } catch (err) {
+      console.error(`[auto-enrich] STALE query FAILED: ${err instanceof Error ? err.message : String(err)}`);
+      throw err;
+    }
+  }
 
   const candidates = [...blankRows, ...staleRows];
-  if (candidates.length === 0) return { spawned: [], totalCandidates: 0 };
+
+  if (candidates.length === 0) {
+    console.warn(
+      `[auto-enrich] NO CANDIDATES triggeredBy=${args.triggeredBy} requested=${args.count} blanks=0 stale=0 cutoff=${cutoff}`,
+    );
+    return { spawned: [], totalCandidates: 0 };
+  }
 
   const requested = args.model ?? env.DEFAULT_MODEL;
   if (!VALID_MODEL.test(requested)) {
@@ -65,7 +83,10 @@ export async function runVendorAutoEnrich(
   let labels: Map<string, string> | undefined;
   try {
     labels = (await buildLookupMaps(env)).vendors;
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[auto-enrich] buildLookupMaps failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
+    );
     labels = undefined;
   }
 
@@ -73,7 +94,15 @@ export async function runVendorAutoEnrich(
   for (const rec of candidates) {
     const runId = crypto.randomUUID();
     const params: RunParams = { recordId: rec.id, model, searchTool, forceRefresh: true };
-    await env.WF_VENDOR_ORCHESTRATOR.create({ id: runId, params });
+
+    try {
+      await env.WF_VENDOR_ORCHESTRATOR.create({ id: runId, params });
+    } catch (err) {
+      console.error(
+        `[auto-enrich] WF_VENDOR_ORCHESTRATOR.create FAILED runId=${runId} recordId=${rec.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      throw err;
+    }
 
     const recordLabel = labels?.get(rec.id) ?? asString(rec.fields['company_name']);
     try {
@@ -87,7 +116,9 @@ export async function runVendorAutoEnrich(
         model,
       });
     } catch (err) {
-      console.error('[auto-enrich] notifyRunStarted failed', runId, String(err));
+      console.error(
+        `[auto-enrich] notifyRunStarted FAILED runId=${runId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
 
     spawned.push({ runId, recordId: rec.id });

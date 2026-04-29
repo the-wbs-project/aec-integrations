@@ -143,6 +143,7 @@ vendors.patch('/:id', async (c) => {
   if (body.githubOrg !== undefined) fields['github_org'] = body.githubOrg;
   if (body.phoneNumber !== undefined) fields['phone_number'] = body.phoneNumber;
   if (body.contactEmail !== undefined) fields['contact_email'] = body.contactEmail;
+  if (body.adminNotes !== undefined) fields['admin_notes'] = body.adminNotes;
 
   if (Object.keys(fields).length === 0) {
     return c.json({ error: 'no editable fields in body' }, 400);

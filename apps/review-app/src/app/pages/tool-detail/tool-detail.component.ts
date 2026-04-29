@@ -30,7 +30,8 @@ type SectionKey =
   | 'research'
   | 'integrationLinks'
   | 'researchNotes'
-  | 'integrationCheckNotes';
+  | 'integrationCheckNotes'
+  | 'adminNotes';
 
 interface DraftState {
   // header
@@ -52,6 +53,7 @@ interface DraftState {
   // notes
   researchNotes: string;
   toolIntegrationCheckNotes: string;
+  adminNotes: string;
 }
 
 @Component({
@@ -189,6 +191,7 @@ export class ToolDetailComponent {
       hasApiDocs: false,
       researchNotes: '',
       toolIntegrationCheckNotes: '',
+      adminNotes: '',
     };
   }
 
@@ -207,6 +210,7 @@ export class ToolDetailComponent {
       hasApiDocs: tool.hasApiDocs ?? false,
       researchNotes: tool.researchNotes ?? '',
       toolIntegrationCheckNotes: tool.toolIntegrationCheckNotes ?? '',
+      adminNotes: tool.adminNotes ?? '',
     };
   }
 
@@ -235,6 +239,8 @@ export class ToolDetailComponent {
         return { researchNotes: d.researchNotes };
       case 'integrationCheckNotes':
         return { toolIntegrationCheckNotes: d.toolIntegrationCheckNotes };
+      case 'adminNotes':
+        return { adminNotes: d.adminNotes };
     }
   }
 

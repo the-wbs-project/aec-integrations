@@ -17,6 +17,9 @@
 		"logs": {
 			"enabled": true,
 			"invocation_logs": true
+		},
+		"traces": {
+			"enabled": false
 		}
 	},
 	"assets": {
@@ -88,7 +91,7 @@
 		// Cron schedules dispatched in scheduled() by event.cron string match.
 		//   "0 14 * * 1"   — Weekly cost report (Mondays 14:00 UTC)
 		//   "*/12 * * * *" — Vendor auto-enrich (every 12 min, count=5, sonnet)
-		"crons": ["0 14 * * 1", "*/12 * * * *"]
+		"crons": ["0 14 * * 1", "*/5 * * * *"]
 	},
 	"workflows": [
 		// Vendor workflows

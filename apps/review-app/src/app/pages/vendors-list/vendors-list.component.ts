@@ -31,6 +31,8 @@ import {
 import { ApiService } from '../../services/api.service';
 import { Vendor } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { TierCellComponent } from '../../components/tier-cell/tier-cell.component';
+import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { enrichmentVariant } from '../../utils/enrichment';
 import { blanksLastComparer } from '../../utils/grid-sort';
 
@@ -43,6 +45,7 @@ type FilterKey =
   | 'companySize'
   | 'publicPrivate'
   | 'fundingStage'
+  | 'tier'
   | 'enrichment';
 
 interface ActiveFilter {
@@ -82,6 +85,16 @@ const ENRICHMENT_ORDER = [
   'error',
 ] as const;
 
+// Mirrors tierForScore() in server/workflows/vendor/score.ts.
+const TIER_ORDER = [
+  'Tier 1',
+  'Tier 2',
+  'Tier 3',
+  'Tier 4',
+  'Tier 5',
+  'Unscored',
+] as const;
+
 @Component({
   selector: 'app-vendors-list',
   imports: [
@@ -90,6 +103,8 @@ const ENRICHMENT_ORDER = [
     GridModule,
     MultiSelectModule,
     EnrichSplitButtonComponent,
+    TierCellComponent,
+    TierDetailDialogComponent,
   ],
   providers: [
     SortService,
@@ -114,12 +129,17 @@ export class VendorsListComponent implements OnInit {
   protected readonly loading = signal(false);
   protected readonly selectedIds = signal<string[]>([]);
 
+  // Tier-detail modal state — null means closed.
+  protected readonly tierModalVendorId = signal<string | null>(null);
+  protected readonly tierModalVendorName = signal<string>('');
+
   // Filter state — multi-value selections
   protected readonly searchInput = signal('');
   protected readonly searchQuery = signal('');
   protected readonly filterCompanySize = signal<string[]>([]);
   protected readonly filterPublicPrivate = signal<string[]>([]);
   protected readonly filterFundingStage = signal<string[]>([]);
+  protected readonly filterTier = signal<string[]>([]);
   protected readonly filterEnrichment = signal<string[]>([]);
 
   protected readonly checkboxMode = 'CheckBox' as const;
@@ -165,6 +185,9 @@ export class VendorsListComponent implements OnInit {
   protected readonly fundingStageOptions = computed(() =>
     this.withCounts(FUNDING_STAGE_ORDER, this.fundingStageCounts()),
   );
+  protected readonly tierOptions = computed(() =>
+    this.withCounts(TIER_ORDER, this.tierCounts()),
+  );
   protected readonly enrichmentOptions = computed(() =>
     this.withCounts(ENRICHMENT_ORDER, this.enrichmentCounts()),
   );
@@ -198,6 +221,9 @@ export class VendorsListComponent implements OnInit {
   protected readonly fundingStageCounts = computed(() =>
     this.countByValue('fundingStage', (v) => v.fundingStage),
   );
+  protected readonly tierCounts = computed(() =>
+    this.countByValue('tier', (v) => v.vqsTier),
+  );
   protected readonly enrichmentCounts = computed(() =>
     this.countByValue('enrichment', (v) => v.vendorEnrichmentStatus),
   );
@@ -211,6 +237,8 @@ export class VendorsListComponent implements OnInit {
       out.push({ key: 'publicPrivate', value: v, label: v });
     for (const v of this.filterFundingStage())
       out.push({ key: 'fundingStage', value: v, label: `Stage: ${v}` });
+    for (const v of this.filterTier())
+      out.push({ key: 'tier', value: v, label: `Tier: ${v}` });
     for (const v of this.filterEnrichment())
       out.push({ key: 'enrichment', value: v, label: `Enrichment: ${v}` });
     return out;
@@ -286,6 +314,7 @@ export class VendorsListComponent implements OnInit {
     this.filterCompanySize.set([]);
     this.filterPublicPrivate.set([]);
     this.filterFundingStage.set([]);
+    this.filterTier.set([]);
     this.filterEnrichment.set([]);
   }
 
@@ -297,6 +326,8 @@ export class VendorsListComponent implements OnInit {
         return this.filterPublicPrivate;
       case 'fundingStage':
         return this.filterFundingStage;
+      case 'tier':
+        return this.filterTier;
       case 'enrichment':
         return this.filterEnrichment;
     }
@@ -314,6 +345,7 @@ export class VendorsListComponent implements OnInit {
       opts.skip === 'publicPrivate' ? [] : this.filterPublicPrivate();
     const stages =
       opts.skip === 'fundingStage' ? [] : this.filterFundingStage();
+    const tiers = opts.skip === 'tier' ? [] : this.filterTier();
     const enriches =
       opts.skip === 'enrichment' ? [] : this.filterEnrichment();
 
@@ -327,6 +359,8 @@ export class VendorsListComponent implements OnInit {
         stages.length &&
         (!v.fundingStage || !stages.includes(v.fundingStage))
       )
+        return false;
+      if (tiers.length && (!v.vqsTier || !tiers.includes(v.vqsTier)))
         return false;
       if (
         enriches.length &&
@@ -375,6 +409,16 @@ export class VendorsListComponent implements OnInit {
   /** Generic record click — ignore so plain-row clicks don't navigate or toggle selection. */
   onRecordClick(_args: unknown): void {
     // no-op: selection is checkbox-only; navigation is the explicit name link.
+  }
+
+  openTierModal(vendorId: string, vendorName: string): void {
+    this.tierModalVendorName.set(vendorName);
+    this.tierModalVendorId.set(vendorId);
+  }
+
+  closeTierModal(): void {
+    this.tierModalVendorId.set(null);
+    this.tierModalVendorName.set('');
   }
 
   /** Map an enrichment status string to a badge variant token. */

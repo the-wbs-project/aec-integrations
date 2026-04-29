@@ -76,6 +76,9 @@ export class VendorOrchestratorWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool, forceRefresh = false } = event.payload;
     const orchestratorRunId = event.instanceId;
+    console.log(
+      `[vendor-orchestrator] BOOT runId=${orchestratorRunId} recordId=${recordId} forceRefresh=${forceRefresh}`,
+    );
 
     // Mark when this run started. After vendor-overview finishes, any leaf
     // whose `*_checked_at` is newer than this timestamp was satisfied by the

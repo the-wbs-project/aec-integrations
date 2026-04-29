@@ -8,7 +8,8 @@
     "build": "ng build",
     "dev": "ng build --watch & wrangler dev",
     "deploy": "ng build && wrangler deploy",
-    "tail": "wrangler tail"
+    "tail": "wrangler tail",
+    "cf-typegen": "wrangler types"
   },
   "dependencies": {
     "@angular/common": "^21.0.0",

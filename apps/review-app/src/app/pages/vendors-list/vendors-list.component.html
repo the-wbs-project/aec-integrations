@@ -69,6 +69,20 @@
 
     <ejs-multiselect
       class="filter-bar__multiselect"
+      placeholder="VQS tier"
+      [dataSource]="$any(tierOptions())"
+      [fields]="multiselectFields"
+      [value]="filterTier()"
+      (change)="setFilter('tier', $any($event).value)"
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
       placeholder="Enrichment status"
       [dataSource]="$any(enrichmentOptions())"
       [fields]="multiselectFields"
@@ -173,23 +187,21 @@
       <e-column
         field="vqsScore"
         headerText="VQS"
-        width="120"
+        width="160"
         textAlign="Right"
         type="number"
         format="N0"
         [sortComparer]="vqsScoreSortComparer"
       >
         <ng-template #template let-data>
-          @if (data.vqsScore !== undefined && data.vqsScore !== null) {
-            <span class="vqs-cell">
-              <strong>{{ data.vqsScore }}</strong>
-              @if (data.vqsTier) {
-                <span class="vqs-cell__tier"> - {{ data.vqsTier }}</span>
-              }
-            </span>
-          } @else {
-            <span class="empty-cell">—</span>
-          }
+          <app-tier-cell
+            [vqsScore]="data.vqsScore"
+            [vqsTier]="data.vqsTier"
+            [vqsConfidence]="data.vqsConfidence"
+            [vendorId]="data.id"
+            [vendorName]="data.companyName"
+            (openDetails)="openTierModal(data.id, data.companyName)"
+          />
         </ng-template>
       </e-column>
       <e-column
@@ -248,3 +260,9 @@
     </ejs-grid>
   </div>
 </div>
+
+<app-tier-detail-dialog
+  [vendorId]="tierModalVendorId()"
+  [vendorName]="tierModalVendorName()"
+  (closed)="closeTierModal()"
+/>

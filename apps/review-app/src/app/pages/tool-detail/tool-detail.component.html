@@ -613,6 +613,28 @@
           }
         }
       </section>
+
+      <section class="detail-section">
+        <div class="section-row">
+          <h2 class="section-heading">Admin notes</h2>
+          @if (editingSection() !== 'adminNotes') {
+            <button class="btn btn--ghost btn--sm" (click)="startEdit('adminNotes', tool)">Edit</button>
+          }
+        </div>
+        @if (editingSection() === 'adminNotes') {
+          <textarea class="input edit-textarea" rows="10" [(ngModel)]="draft.adminNotes" name="adminNotes" placeholder="Internal notes for decision making…"></textarea>
+          <div class="edit-actions">
+            <button class="btn btn--primary btn--sm" (click)="saveSection('adminNotes')" [disabled]="saving()">Save</button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+          </div>
+        } @else {
+          @if (tool.adminNotes) {
+            <div class="notes-body">{{ tool.adminNotes }}</div>
+          } @else {
+            <p class="na">N/A</p>
+          }
+        }
+      </section>
     }
 
     @if (saveError()) {
