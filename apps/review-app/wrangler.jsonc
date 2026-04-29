@@ -38,6 +38,10 @@
 			{
 				"name": "RUNS_HUB",
 				"class_name": "RunsHub"
+			},
+			{
+				"name": "MCP_OBJECT",
+				"class_name": "AeciReviewMcp"
 			}
 		]
 	},
@@ -45,6 +49,10 @@
 		{
 			"tag": "v1",
 			"new_sqlite_classes": ["RunsHub"]
+		},
+		{
+			"tag": "v2",
+			"new_sqlite_classes": ["AeciReviewMcp"]
 		}
 	],
 	"browser": {
@@ -213,4 +221,6 @@
 	//   SCRAPFLY_API_KEY    – Scrapfly anti-scraping proxy key. Used by vendor-overview
 	//                         to fetch Crunchbase organization pages. Optional;
 	//                         vendor-overview falls through to leaf workflows when unset.
+	//   MCP_TOKEN           – Bearer token for the /mcp endpoint. Currently unused —
+	//                         the MCP route is open. Set when re-enabling auth.
 }

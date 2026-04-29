@@ -2,23 +2,56 @@
   <div class="page-container">
     <!-- Back link -->
     <a routerLink="/vendors" class="back-link">
-      <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
+      <svg
+        class="icon"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+      >
+        <line x1="19" y1="12" x2="5" y2="12" />
+        <polyline points="12 19 5 12 12 5" />
       </svg>
       Back to vendors
     </a>
 
     <!-- Header (shared across all tabs) -->
     <header class="detail-header">
-      @if (editingSection() === 'header') {
+      @if (editingSection() === "header") {
         <div class="edit-stack">
           <label class="field-label" for="vendor-name">Company name</label>
-          <input id="vendor-name" class="input edit-title" [(ngModel)]="draft.companyName" name="companyName" placeholder="Company name" />
+          <input
+            id="vendor-name"
+            class="input edit-title"
+            [(ngModel)]="draft.companyName"
+            name="companyName"
+            placeholder="Company name"
+          />
           <label class="field-label" for="vendor-site">Website</label>
-          <input id="vendor-site" class="input" [(ngModel)]="draft.website" name="website" placeholder="https://example.com" />
+          <input
+            id="vendor-site"
+            class="input"
+            [(ngModel)]="draft.website"
+            name="website"
+            placeholder="https://example.com"
+          />
           <div class="edit-actions">
-            <button class="btn btn--primary btn--sm" (click)="saveSection('header')" [disabled]="saving()">Save</button>
-            <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+            <button
+              class="btn btn--primary btn--sm"
+              (click)='saveSection("header")'
+              [disabled]="saving()"
+            >
+              Save
+            </button>
+            <button
+              class="btn btn--ghost btn--sm"
+              (click)="cancelEdit()"
+              [disabled]="saving()"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       } @else {
@@ -27,7 +60,7 @@
             @if (vendor.logoUrl && !logoFailed()) {
               <img
                 [src]="vendor.logoUrl"
-                [alt]="vendor.companyName + ' logo'"
+                [alt]='vendor.companyName + " logo"'
                 (error)="logoFailed.set(true)"
               />
             } @else {
@@ -48,7 +81,12 @@
                   (openDetails)="openTierModal()"
                 />
               }
-              <button class="btn btn--ghost btn--sm" (click)="startEdit('header', vendor)">Edit</button>
+              <button
+                class="btn btn--ghost btn--sm"
+                (click)='startEdit("header", vendor)'
+              >
+                Edit
+              </button>
               <div class="detail-header__actions">
                 <div class="btn-group">
                   <button
@@ -73,7 +111,9 @@
                     >
                       <polyline points="23 4 23 10 17 10" />
                       <polyline points="1 20 1 14 7 14" />
-                      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                      <path
+                        d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"
+                      />
                     </svg>
                   </button>
                   <app-enrich-split-button
@@ -84,11 +124,27 @@
               </div>
             </div>
             @if (vendor.website) {
-              <a [href]="vendor.website" target="_blank" rel="noopener noreferrer" class="external-link">
+              <a
+                [href]="vendor.website"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="external-link"
+              >
                 {{ vendor.website }}
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                  <polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" />
+                <svg
+                  class="icon"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path
+                    d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"
+                  />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
                 </svg>
               </a>
             }
@@ -97,21 +153,51 @@
 
         <div class="detail-header__links">
           @if (vendor.linkedinUrl) {
-            <a [href]="vendor.linkedinUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">LinkedIn</a>
+            <a
+              [href]="vendor.linkedinUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >LinkedIn</a>
           }
           @if (vendor.crunchbaseUrl) {
-            <a [href]="vendor.crunchbaseUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Crunchbase</a>
+            <a
+              [href]="vendor.crunchbaseUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Crunchbase</a>
           }
           @if (vendor.wikiUrl) {
-            <a [href]="vendor.wikiUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Wikipedia</a>
+            <a
+              [href]="vendor.wikiUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Wikipedia</a>
           }
           @if (vendor.githubOrg) {
-            <a [href]="'https://github.com/' + vendor.githubOrg" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">GitHub</a>
+            <a
+              [href]='"https://github.com/" + vendor.githubOrg'
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >GitHub</a>
           }
           @if (vendor.sourceUrl) {
-            <a [href]="vendor.sourceUrl" target="_blank" rel="noopener noreferrer" class="external-link external-link--pill">Source</a>
+            <a
+              [href]="vendor.sourceUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Source</a>
           }
-          <button class="btn btn--ghost btn--sm" (click)="startEdit('links', vendor)">Edit links</button>
+          <button
+            class="btn btn--ghost btn--sm"
+            (click)='startEdit("links", vendor)'
+          >
+            Edit links
+          </button>
         </div>
       }
     </header>
@@ -121,20 +207,20 @@
       <button
         type="button"
         role="tab"
-        [attr.aria-selected]="activeTab() === 'details'"
+        [attr.aria-selected]='activeTab() === "details"'
         class="tab-nav__item"
-        [class.tab-nav__item--active]="activeTab() === 'details'"
-        (click)="setTab('details')"
+        [class.tab-nav__item--active]='activeTab() === "details"'
+        (click)='setTab("details")'
       >
         Details
       </button>
       <button
         type="button"
         role="tab"
-        [attr.aria-selected]="activeTab() === 'tools'"
+        [attr.aria-selected]='activeTab() === "tools"'
         class="tab-nav__item"
-        [class.tab-nav__item--active]="activeTab() === 'tools'"
-        (click)="setTab('tools')"
+        [class.tab-nav__item--active]='activeTab() === "tools"'
+        (click)='setTab("tools")'
       >
         Tools
         <span class="tab-nav__count">{{ vendor.tools.length }}</span>
@@ -142,10 +228,10 @@
       <button
         type="button"
         role="tab"
-        [attr.aria-selected]="activeTab() === 'runs'"
+        [attr.aria-selected]='activeTab() === "runs"'
         class="tab-nav__item"
-        [class.tab-nav__item--active]="activeTab() === 'runs'"
-        (click)="setTab('runs')"
+        [class.tab-nav__item--active]='activeTab() === "runs"'
+        (click)='setTab("runs")'
       >
         Runs
         @if (vendorRuns().length) {
@@ -155,27 +241,72 @@
     </nav>
 
     <!-- Details tab -->
-    @if (activeTab() === 'details') {
+    @if (activeTab() === "details") {
       <div role="tabpanel">
-        @if (editingSection() === 'links') {
+        @if (editingSection() === "links") {
           <section class="detail-section">
             <div class="section-row">
               <h2 class="section-heading">Links</h2>
             </div>
             <div class="edit-stack">
-              <label class="field-label" for="link-linkedin">LinkedIn URL</label>
-              <input id="link-linkedin" class="input" [(ngModel)]="draft.linkedinUrl" name="linkedinUrl" placeholder="https://www.linkedin.com/company/…" />
-              <label class="field-label" for="link-crunchbase">Crunchbase URL</label>
-              <input id="link-crunchbase" class="input" [(ngModel)]="draft.crunchbaseUrl" name="crunchbaseUrl" placeholder="https://www.crunchbase.com/organization/…" />
+              <label class="field-label" for="link-linkedin"
+              >LinkedIn URL</label>
+              <input
+                id="link-linkedin"
+                class="input"
+                [(ngModel)]="draft.linkedinUrl"
+                name="linkedinUrl"
+                placeholder="https://www.linkedin.com/company/…"
+              />
+              <label class="field-label" for="link-crunchbase"
+              >Crunchbase URL</label>
+              <input
+                id="link-crunchbase"
+                class="input"
+                [(ngModel)]="draft.crunchbaseUrl"
+                name="crunchbaseUrl"
+                placeholder="https://www.crunchbase.com/organization/…"
+              />
               <label class="field-label" for="link-wiki">Wikipedia URL</label>
-              <input id="link-wiki" class="input" [(ngModel)]="draft.wikiUrl" name="wikiUrl" placeholder="https://en.wikipedia.org/wiki/…" />
-              <label class="field-label" for="link-github">GitHub org slug</label>
-              <input id="link-github" class="input" [(ngModel)]="draft.githubOrg" name="githubOrg" placeholder="acme-inc" />
+              <input
+                id="link-wiki"
+                class="input"
+                [(ngModel)]="draft.wikiUrl"
+                name="wikiUrl"
+                placeholder="https://en.wikipedia.org/wiki/…"
+              />
+              <label class="field-label" for="link-github"
+              >GitHub org slug</label>
+              <input
+                id="link-github"
+                class="input"
+                [(ngModel)]="draft.githubOrg"
+                name="githubOrg"
+                placeholder="acme-inc"
+              />
               <label class="field-label" for="link-source">Source URL</label>
-              <input id="link-source" class="input" [(ngModel)]="draft.sourceUrl" name="sourceUrl" placeholder="https://…" />
+              <input
+                id="link-source"
+                class="input"
+                [(ngModel)]="draft.sourceUrl"
+                name="sourceUrl"
+                placeholder="https://…"
+              />
               <div class="edit-actions">
-                <button class="btn btn--primary btn--sm" (click)="saveSection('links')" [disabled]="saving()">Save</button>
-                <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+                <button
+                  class="btn btn--primary btn--sm"
+                  (click)='saveSection("links")'
+                  [disabled]="saving()"
+                >
+                  Save
+                </button>
+                <button
+                  class="btn btn--ghost btn--sm"
+                  (click)="cancelEdit()"
+                  [disabled]="saving()"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </section>
@@ -185,31 +316,88 @@
         <section class="detail-section">
           <div class="section-row">
             <h2 class="section-heading">Key facts</h2>
-            @if (editingSection() !== 'keyFacts') {
-              <button class="btn btn--ghost btn--sm" (click)="startEdit('keyFacts', vendor)">Edit</button>
+            @if (editingSection() !== "keyFacts") {
+              <button
+                class="btn btn--ghost btn--sm"
+                (click)='startEdit("keyFacts", vendor)'
+              >
+                Edit
+              </button>
             }
           </div>
-          @if (editingSection() === 'keyFacts') {
+          @if (editingSection() === "keyFacts") {
             <div class="edit-stack">
               <label class="field-label" for="kf-hq">Headquarters</label>
-              <input id="kf-hq" class="input" [(ngModel)]="draft.headquarters" name="headquarters" placeholder="City, Country" />
+              <input
+                id="kf-hq"
+                class="input"
+                [(ngModel)]="draft.headquarters"
+                name="headquarters"
+                placeholder="City, Country"
+              />
               <label class="field-label" for="kf-year">Founded year</label>
-              <input id="kf-year" class="input" type="number" min="1700" max="2100" [(ngModel)]="draft.foundedYear" name="foundedYear" placeholder="e.g. 2018" />
+              <input
+                id="kf-year"
+                class="input"
+                type="number"
+                min="1700"
+                max="2100"
+                [(ngModel)]="draft.foundedYear"
+                name="foundedYear"
+                placeholder="e.g. 2018"
+              />
               <label class="field-label" for="kf-pp">Public / private</label>
-              <select id="kf-pp" class="input" [(ngModel)]="draft.publicPrivate" name="publicPrivate">
+              <select
+                id="kf-pp"
+                class="input"
+                [(ngModel)]="draft.publicPrivate"
+                name="publicPrivate"
+              >
                 @for (opt of publicPrivateOptions; track opt) {
-                  <option [value]="opt">{{ opt === '' ? '—' : opt }}</option>
+                  <option [value]="opt">{{ opt === "" ? "—" : opt }}</option>
                 }
               </select>
               <label class="field-label" for="kf-parent">Parent company</label>
-              <input id="kf-parent" class="input" [(ngModel)]="draft.parentCompany" name="parentCompany" placeholder="e.g. Autodesk" />
+              <input
+                id="kf-parent"
+                class="input"
+                [(ngModel)]="draft.parentCompany"
+                name="parentCompany"
+                placeholder="e.g. Autodesk"
+              />
               <label class="field-label" for="kf-phone">Phone number</label>
-              <input id="kf-phone" class="input" type="tel" [(ngModel)]="draft.phoneNumber" name="phoneNumber" placeholder="+1 555-123-4567" />
+              <input
+                id="kf-phone"
+                class="input"
+                type="tel"
+                [(ngModel)]="draft.phoneNumber"
+                name="phoneNumber"
+                placeholder="+1 555-123-4567"
+              />
               <label class="field-label" for="kf-email">Contact email</label>
-              <input id="kf-email" class="input" type="email" [(ngModel)]="draft.contactEmail" name="contactEmail" placeholder="info@example.com" />
+              <input
+                id="kf-email"
+                class="input"
+                type="email"
+                [(ngModel)]="draft.contactEmail"
+                name="contactEmail"
+                placeholder="info@example.com"
+              />
               <div class="edit-actions">
-                <button class="btn btn--primary btn--sm" (click)="saveSection('keyFacts')" [disabled]="saving()">Save</button>
-                <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+                <button
+                  class="btn btn--primary btn--sm"
+                  (click)='saveSection("keyFacts")'
+                  [disabled]="saving()"
+                >
+                  Save
+                </button>
+                <button
+                  class="btn btn--ghost btn--sm"
+                  (click)="cancelEdit()"
+                  [disabled]="saving()"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           } @else {
@@ -268,7 +456,9 @@
                 <span class="fact__label">
                   Funding stage
                   @if (vendor.fundingCheckedAt) {
-                    <app-info-tooltip [tooltip]="freshnessTooltip(vendor.fundingCheckedAt)" />
+                    <app-info-tooltip
+                      [tooltip]="freshnessTooltip(vendor.fundingCheckedAt)"
+                    />
                   }
                 </span>
                 <span class="fact__value">
@@ -280,10 +470,35 @@
                 </span>
               </div>
               <div class="fact">
+                <span class="fact__label">
+                  Data Completeness
+                  @if (vendor.lastEnrichedAt) {
+                    <app-info-tooltip
+                      [tooltip]="freshnessTooltip(vendor.lastEnrichedAt)"
+                    />
+                  }
+                </span>
+                <span class="fact__value">
+                  @if (vendor.vendorDataCompleteness !== undefined) {
+                    {{ formatPercent(vendor.vendorDataCompleteness) }}
+                    @if (vendor.vendorEnrichmentStatus) {
+                      <span
+                        class="badge"
+                        [class]='"badge badge--" + enrichmentVariant(vendor.vendorEnrichmentStatus)'
+                      >{{ vendor.vendorEnrichmentStatus }}</span>
+                    }
+                  } @else {
+                    <span class="na">N/A</span>
+                  }
+                </span>
+              </div>
+              <div class="fact">
                 <span class="fact__label">Phone</span>
                 <span class="fact__value">
                   @if (vendor.phoneNumber) {
-                    <a [href]="'tel:' + vendor.phoneNumber">{{ vendor.phoneNumber }}</a>
+                    <a [href]='"tel:" + vendor.phoneNumber'>{{
+                        vendor.phoneNumber
+                      }}</a>
                   } @else {
                     <span class="na">N/A</span>
                   }
@@ -293,25 +508,9 @@
                 <span class="fact__label">Contact email</span>
                 <span class="fact__value">
                   @if (vendor.contactEmail) {
-                    <a [href]="'mailto:' + vendor.contactEmail">{{ vendor.contactEmail }}</a>
-                  } @else {
-                    <span class="na">N/A</span>
-                  }
-                </span>
-              </div>
-              <div class="fact">
-                <span class="fact__label">
-                  Data completeness
-                  @if (vendor.lastEnrichedAt) {
-                    <app-info-tooltip [tooltip]="freshnessTooltip(vendor.lastEnrichedAt)" />
-                  }
-                </span>
-                <span class="fact__value">
-                  @if (vendor.vendorDataCompleteness !== undefined) {
-                    {{ formatPercent(vendor.vendorDataCompleteness) }}
-                    @if (vendor.vendorEnrichmentStatus) {
-                      <span class="badge" [class]="'badge badge--' + enrichmentVariant(vendor.vendorEnrichmentStatus)">{{ vendor.vendorEnrichmentStatus }}</span>
-                    }
+                    <a [href]='"mailto:" + vendor.contactEmail'>{{
+                        vendor.contactEmail
+                      }}</a>
                   } @else {
                     <span class="na">N/A</span>
                   }
@@ -325,15 +524,37 @@
         <section class="detail-section">
           <div class="section-row">
             <h2 class="section-heading">Description</h2>
-            @if (editingSection() !== 'description') {
-              <button class="btn btn--ghost btn--sm" (click)="startEdit('description', vendor)">Edit</button>
+            @if (editingSection() !== "description") {
+              <button
+                class="btn btn--ghost btn--sm"
+                (click)='startEdit("description", vendor)'
+              >
+                Edit
+              </button>
             }
           </div>
-          @if (editingSection() === 'description') {
-            <textarea class="input edit-textarea" rows="6" [(ngModel)]="draft.description" name="description"></textarea>
+          @if (editingSection() === "description") {
+            <textarea
+              class="input edit-textarea"
+              rows="6"
+              [(ngModel)]="draft.description"
+              name="description"
+            ></textarea>
             <div class="edit-actions">
-              <button class="btn btn--primary btn--sm" (click)="saveSection('description')" [disabled]="saving()">Save</button>
-              <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+              <button
+                class="btn btn--primary btn--sm"
+                (click)='saveSection("description")'
+                [disabled]="saving()"
+              >
+                Save
+              </button>
+              <button
+                class="btn btn--ghost btn--sm"
+                (click)="cancelEdit()"
+                [disabled]="saving()"
+              >
+                Cancel
+              </button>
             </div>
           } @else {
             @if (vendor.description) {
@@ -348,15 +569,38 @@
         <section class="detail-section">
           <div class="section-row">
             <h2 class="section-heading">Admin notes</h2>
-            @if (editingSection() !== 'adminNotes') {
-              <button class="btn btn--ghost btn--sm" (click)="startEdit('adminNotes', vendor)">Edit</button>
+            @if (editingSection() !== "adminNotes") {
+              <button
+                class="btn btn--ghost btn--sm"
+                (click)='startEdit("adminNotes", vendor)'
+              >
+                Edit
+              </button>
             }
           </div>
-          @if (editingSection() === 'adminNotes') {
-            <textarea class="input edit-textarea" rows="8" [(ngModel)]="draft.adminNotes" name="adminNotes" placeholder="Internal notes for decision making…"></textarea>
+          @if (editingSection() === "adminNotes") {
+            <textarea
+              class="input edit-textarea"
+              rows="8"
+              [(ngModel)]="draft.adminNotes"
+              name="adminNotes"
+              placeholder="Internal notes for decision making…"
+            ></textarea>
             <div class="edit-actions">
-              <button class="btn btn--primary btn--sm" (click)="saveSection('adminNotes')" [disabled]="saving()">Save</button>
-              <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+              <button
+                class="btn btn--primary btn--sm"
+                (click)='saveSection("adminNotes")'
+                [disabled]="saving()"
+              >
+                Save
+              </button>
+              <button
+                class="btn btn--ghost btn--sm"
+                (click)="cancelEdit()"
+                [disabled]="saving()"
+              >
+                Cancel
+              </button>
             </div>
           } @else {
             @if (vendor.adminNotes) {
@@ -376,7 +620,9 @@
           <h2 class="section-heading">
             Crunchbase
             @if (vendor.crunchbaseCheckedAt) {
-              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.crunchbaseCheckedAt)" />
+              <app-info-tooltip
+                [tooltip]="freshnessTooltip(vendor.crunchbaseCheckedAt)"
+              />
             }
           </h2>
           <div class="facts-grid">
@@ -426,7 +672,9 @@
               <span class="fact__label">Categories</span>
               <div class="cb-categories__list">
                 @for (cat of vendor.crunchbaseCategories; track cat) {
-                  <span class="external-link external-link--pill">{{ cat }}</span>
+                  <span class="external-link external-link--pill">{{
+                      cat
+                    }}</span>
                 }
               </div>
             </div>
@@ -439,10 +687,12 @@
                   <li>
                     {{ list.name }}
                     @if (list.countOrgs !== undefined) {
-                      <span class="muted">· {{ list.countOrgs | number }} orgs</span>
+                      <span class="muted"
+                      >· {{ list.countOrgs | number }} orgs</span>
                     }
                     @if (list.totalFunding) {
-                      <span class="muted">· {{ list.totalFunding }} total funding</span>
+                      <span class="muted"
+                      >· {{ list.totalFunding }} total funding</span>
                     }
                   </li>
                 }
@@ -459,7 +709,9 @@
               <span class="badge badge--success badge--sm">verified</span>
             }
             @if (vendor.githubCheckedAt) {
-              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.githubCheckedAt)" />
+              <app-info-tooltip
+                [tooltip]="freshnessTooltip(vendor.githubCheckedAt)"
+              />
             }
           </h2>
           <div class="facts-grid">
@@ -467,7 +719,11 @@
               <span class="fact__label">Organization</span>
               <span class="fact__value">
                 @if (vendor.githubOrg) {
-                  <a [href]="'https://github.com/' + vendor.githubOrg" target="_blank" rel="noopener noreferrer">
+                  <a
+                    [href]='"https://github.com/" + vendor.githubOrg'
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
                     {{ vendor.githubOrg }}
                   </a>
                 } @else {
@@ -499,7 +755,7 @@
               <span class="fact__label">SDK repo</span>
               <span class="fact__value">
                 @if (vendor.hasSdkRepo !== undefined) {
-                  {{ vendor.hasSdkRepo ? 'Yes' : 'No' }}
+                  {{ vendor.hasSdkRepo ? "Yes" : "No" }}
                 } @else {
                   <span class="na">N/A</span>
                 }
@@ -522,16 +778,24 @@
         @if (hasFreshness(vendor)) {
           <section class="detail-section freshness">
             @if (vendor.lastEnrichedAt) {
-              <span class="freshness__item">Enriched {{ formatDateWithRelative(vendor.lastEnrichedAt) }}</span>
+              <span class="freshness__item">Enriched {{
+                  formatDateWithRelative(vendor.lastEnrichedAt)
+                }}</span>
             }
             @if (vendor.githubCheckedAt) {
-              <span class="freshness__item">GitHub {{ formatDateWithRelative(vendor.githubCheckedAt) }}</span>
+              <span class="freshness__item">GitHub {{
+                  formatDateWithRelative(vendor.githubCheckedAt)
+                }}</span>
             }
             @if (vendor.fundingCheckedAt) {
-              <span class="freshness__item">Funding {{ formatDateWithRelative(vendor.fundingCheckedAt) }}</span>
+              <span class="freshness__item">Funding {{
+                  formatDateWithRelative(vendor.fundingCheckedAt)
+                }}</span>
             }
             @if (vendor.crunchbaseCheckedAt) {
-              <span class="freshness__item">Crunchbase {{ formatDateWithRelative(vendor.crunchbaseCheckedAt) }}</span>
+              <span class="freshness__item">Crunchbase {{
+                  formatDateWithRelative(vendor.crunchbaseCheckedAt)
+                }}</span>
             }
           </section>
         }
@@ -539,7 +803,7 @@
     }
 
     <!-- Tools tab -->
-    @if (activeTab() === 'tools') {
+    @if (activeTab() === "tools") {
       <div role="tabpanel">
         <section class="detail-section">
           <div class="section-row">
@@ -547,7 +811,8 @@
               Tools
               <span class="section-count">({{ vendor.tools.length }})</span>
             </h2>
-            <a routerLink="/tools/new" class="btn btn--primary btn--sm">+ Import tool</a>
+            <a routerLink="/tools/new" class="btn btn--primary btn--sm"
+            >+ Import tool</a>
           </div>
           @if (vendor.tools.length) {
             <div class="table-wrapper">
@@ -561,7 +826,8 @@
                   @for (tool of vendor.tools; track tool.id) {
                     <tr>
                       <td>
-                        <a [routerLink]="['/tools', tool.id]">{{ tool.name }}</a>
+                        <a [routerLink]='["/tools", tool.id]'>{{ tool.name }}</a
+                        >
                       </td>
                     </tr>
                   }
@@ -576,7 +842,7 @@
     }
 
     <!-- Runs tab -->
-    @if (activeTab() === 'runs') {
+    @if (activeTab() === "runs") {
       <div role="tabpanel">
         <section class="detail-section">
           <div class="section-row">
@@ -592,29 +858,52 @@
               [pageSettings]="{ pageSize: 25 }"
               [allowSorting]="true"
               [allowFiltering]="true"
-              [filterSettings]="{ type: 'Excel' }"
+              [filterSettings]='{ type: "Excel" }'
               height="520"
               (rowSelected)="onRunRowSelected($event)"
             >
               <e-columns>
-                <e-column field="workflowTitle" headerText="Workflow" width="220"></e-column>
+                <e-column
+                  field="workflowTitle"
+                  headerText="Workflow"
+                  width="220"
+                ></e-column>
                 <e-column field="status" headerText="Status" width="120">
                   <ng-template #template let-data>
-                    <span class="status-pill" [attr.data-status]="data.status">{{ data.status }}</span>
+                    <span
+                      class="status-pill"
+                      [attr.data-status]="data.status"
+                    >{{ data.status }}</span>
                   </ng-template>
                 </e-column>
-                <e-column field="startedAt" headerText="Started" width="180" type="dateTime" format="MMM d, y, h:mm a"></e-column>
-                <e-column field="runId" headerText="Run ID" width="280"></e-column>
+                <e-column
+                  field="startedAt"
+                  headerText="Started"
+                  width="180"
+                  type="dateTime"
+                  format="MMM d, y, h:mm a"
+                ></e-column>
+                <e-column
+                  field="runId"
+                  headerText="Run ID"
+                  width="280"
+                ></e-column>
               </e-columns>
             </ejs-grid>
           } @else {
-            <p class="empty-state">No runs recorded yet for this vendor. Trigger one with Enrich above.</p>
+            <p class="empty-state">
+              No runs recorded yet for this vendor. Trigger one with Enrich
+              above.
+            </p>
           }
         </section>
       </div>
     }
 
-    <app-run-detail-dialog [run]="selectedRun()" (closed)="onRunDialogClosed()" />
+    <app-run-detail-dialog
+      [run]="selectedRun()"
+      (closed)="onRunDialogClosed()"
+    />
     <app-tier-detail-dialog
       [vendorId]="tierModalVendorId()"
       [vendorName]="vendor.companyName"
@@ -623,11 +912,29 @@
   </div>
 } @else {
   <div class="page-container detail-skeleton">
-    <span class="skeleton skeleton--text" style="width: 80px; height: 14px;"></span>
-    <span class="skeleton skeleton--rect" style="width: 48px; height: 48px; margin-top: 24px; border-radius: 8px;"></span>
-    <span class="skeleton skeleton--text" style="width: 280px; height: 28px; margin-top: 16px;"></span>
-    <span class="skeleton skeleton--text" style="width: 100%; height: 14px; margin-top: 24px;"></span>
-    <span class="skeleton skeleton--text" style="width: 80%; height: 14px; margin-top: 8px;"></span>
-    <span class="skeleton skeleton--text" style="width: 60%; height: 14px; margin-top: 8px;"></span>
+    <span
+      class="skeleton skeleton--text"
+      style="width: 80px; height: 14px"
+    ></span>
+    <span
+      class="skeleton skeleton--rect"
+      style="width: 48px; height: 48px; margin-top: 24px; border-radius: 8px"
+    ></span>
+    <span
+      class="skeleton skeleton--text"
+      style="width: 280px; height: 28px; margin-top: 16px"
+    ></span>
+    <span
+      class="skeleton skeleton--text"
+      style="width: 100%; height: 14px; margin-top: 24px"
+    ></span>
+    <span
+      class="skeleton skeleton--text"
+      style="width: 80%; height: 14px; margin-top: 8px"
+    ></span>
+    <span
+      class="skeleton skeleton--text"
+      style="width: 60%; height: 14px; margin-top: 8px"
+    ></span>
   </div>
 }

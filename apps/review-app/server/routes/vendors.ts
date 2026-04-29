@@ -12,11 +12,16 @@ import {
 } from '../hydrate';
 import type {
   Env,
+  CreateVendorRequest,
   PaginatedResponse,
   UpdateVendorRequest,
   Vendor,
   VendorDetail,
 } from '../types';
+import {
+  CreateVendorValidationError,
+  createVendorAndStartOrchestrator,
+} from '../services/createVendor';
 
 // ---------------------------------------------------------------------------
 // NOTE: write endpoints (PATCH) require AIRTABLE_TOKEN to have the
@@ -97,6 +102,38 @@ vendors.get('/', async (c) => {
   };
 
   return c.json(body);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/vendors — create a new vendor + (default) kick off the orchestrator
+// Body: { companyName, website?, description?, model?, forceRefresh?, skipOrchestrator? }
+// Returns 201 with { vendor: { recordId }, run?: { runId, workflow, model } }.
+// The run is omitted when skipOrchestrator is true.
+// ---------------------------------------------------------------------------
+vendors.post('/', async (c) => {
+  const env = c.env;
+  const body = (await c.req.json().catch(() => ({}))) as CreateVendorRequest;
+
+  try {
+    const result = await createVendorAndStartOrchestrator(env, {
+      companyName: body.companyName,
+      website: body.website,
+      description: body.description,
+      model: body.model,
+      forceRefresh: body.forceRefresh,
+      skipOrchestrator: body.skipOrchestrator,
+      triggeredBy: 'http',
+    });
+    return c.json(
+      { vendor: { recordId: result.recordId }, run: result.run },
+      201,
+    );
+  } catch (err) {
+    if (err instanceof CreateVendorValidationError) {
+      return c.json({ error: err.message }, 400);
+    }
+    return c.json({ error: (err as Error).message ?? 'Vendor create failed' }, 502);
+  }
 });
 
 // ---------------------------------------------------------------------------
