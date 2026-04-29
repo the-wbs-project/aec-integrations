@@ -31,6 +31,7 @@ import {
 import { ApiService } from '../../services/api.service';
 import { Tool, MetaResponse, LinkRef } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { enrichmentVariant } from '../../utils/enrichment';
 import { blanksLastComparer } from '../../utils/grid-sort';
 
@@ -64,6 +65,7 @@ interface ActiveFilter {
     GridModule,
     MultiSelectModule,
     EnrichSplitButtonComponent,
+    TierDetailDialogComponent,
   ],
   providers: [
     SortService,
@@ -101,6 +103,10 @@ export class ToolsListComponent implements OnInit {
 
   protected readonly checkboxMode = 'CheckBox' as const;
 
+  // Tier-detail modal state — null means closed.
+  protected readonly tierModalToolId = signal<string | null>(null);
+  protected readonly tierModalToolName = signal<string>('');
+
   /**
    * Bake the count into the `text` field rather than fighting Syncfusion's
    * itemTemplate (which receives wrapped objects for primitive arrays and
@@ -115,6 +121,7 @@ export class ToolsListComponent implements OnInit {
   protected readonly vendorSearchSortComparer = blanksLastComparer(this.gridGetter, 'vendorSearch');
   protected readonly integrationCountSortComparer = blanksLastComparer(this.gridGetter, 'integrationCount');
   protected readonly priorityTierSortComparer = blanksLastComparer(this.gridGetter, 'priorityTier');
+  protected readonly vendorVqsSortComparer = blanksLastComparer(this.gridGetter, 'vendorVqsScore');
   protected readonly researchStatusSortComparer = blanksLastComparer(this.gridGetter, 'researchStatus');
   protected readonly toolEnrichmentStatusSortComparer = blanksLastComparer(this.gridGetter, 'toolEnrichmentStatus');
 
@@ -155,7 +162,7 @@ export class ToolsListComponent implements OnInit {
     this.stringsWithCounts(
       this.meta()?.priorityTiers ?? [],
       this.priorityTierCounts(),
-      (t) => `Tier ${t}`,
+      (t) => (t === 'Unscored' ? 'Unscored' : `Tier ${t}`),
     ),
   );
   protected readonly enrichmentOptions = computed(() =>
@@ -234,7 +241,11 @@ export class ToolsListComponent implements OnInit {
     for (const v of this.filterResearchStatus())
       out.push({ key: 'researchStatus', value: v, label: `Research: ${v}` });
     for (const v of this.filterPriorityTier())
-      out.push({ key: 'priorityTier', value: v, label: `Tier ${v}` });
+      out.push({
+        key: 'priorityTier',
+        value: v,
+        label: v === 'Unscored' ? 'Unscored' : `Tier ${v}`,
+      });
     for (const v of this.filterEnrichment())
       out.push({ key: 'enrichment', value: v, label: `Enrichment: ${v}` });
     return out;
@@ -451,6 +462,21 @@ export class ToolsListComponent implements OnInit {
   /** Generic record click — ignore so plain-row clicks don't navigate or toggle selection. */
   onRecordClick(_args: unknown): void {
     // no-op: selection is checkbox-only; navigation is the explicit name link.
+  }
+
+  /** Click on a tier badge — opens the priority-score detail dialog for that tool. */
+  openTierModal(toolId: string, toolName: string, event?: MouseEvent): void {
+    if (event) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    this.tierModalToolName.set(toolName);
+    this.tierModalToolId.set(toolId);
+  }
+
+  closeTierModal(): void {
+    this.tierModalToolId.set(null);
+    this.tierModalToolName.set('');
   }
 
   // ---- Badge helpers ----------------------------------------------------

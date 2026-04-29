@@ -1,10 +1,15 @@
 import { Component, inject, signal, input, computed, effect } from '@angular/core';
 import { RouterLink } from '@angular/router';
-import { DecimalPipe } from '@angular/common';
+import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
+import { RunDetailDialogComponent } from '../../components/run-detail-dialog/run-detail-dialog.component';
 import { ApiService } from '../../services/api.service';
+import { RunsService, type RecentRunRow } from '../../services/runs.service';
+import { WORKFLOWS } from '../../workflows';
 import { TagInputComponent } from '../../components/tag-input/tag-input.component';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import {
   IntegrationSummary,
@@ -58,7 +63,18 @@ interface DraftState {
 
 @Component({
   selector: 'app-tool-detail',
-  imports: [RouterLink, DecimalPipe, FormsModule, TagInputComponent, EnrichSplitButtonComponent],
+  imports: [
+    CommonModule,
+    RouterLink,
+    DecimalPipe,
+    FormsModule,
+    GridModule,
+    TagInputComponent,
+    EnrichSplitButtonComponent,
+    RunDetailDialogComponent,
+    TierDetailDialogComponent,
+  ],
+  providers: [PageService, SortService, FilterService],
   templateUrl: './tool-detail.component.html',
   styleUrl: './tool-detail.component.scss',
 })
@@ -66,12 +82,56 @@ export class ToolDetailComponent {
   id = input.required<string>();
 
   private api = inject(ApiService);
+  protected runs = inject(RunsService);
   tool = signal<ToolDetail | null>(null);
   meta = signal<MetaResponse | null>(null);
   recordIds = computed(() => (this.tool() ? [this.id()] : []));
   enrichmentVariant = enrichmentVariant;
 
-  activeTab = signal<'details' | 'notes'>('details');
+  activeTab = signal<'details' | 'notes' | 'runs'>('details');
+
+  // Tier-detail modal — opened from the headline tier badge.
+  protected readonly tierModalToolId = signal<string | null>(null);
+  openTierModal(): void {
+    this.tierModalToolId.set(this.id());
+  }
+  closeTierModal(): void {
+    this.tierModalToolId.set(null);
+  }
+
+  // Run dialog — same pattern as the /runs page.
+  protected readonly selectedRunId = signal<string | null>(null);
+  protected readonly selectedRun = computed<RecentRunRow | null>(() => {
+    const id = this.selectedRunId();
+    if (!id) return null;
+    return this.runs.runs().find((r) => r.runId === id) ?? null;
+  });
+
+  /** Recent runs scoped to this tool record. */
+  protected readonly toolRuns = computed(() => {
+    const toolId = this.id();
+    return this.runs
+      .runs()
+      .filter((r) => r.recordId === toolId)
+      .map((r) => ({
+        runId: r.runId,
+        workflow: r.workflow,
+        workflowTitle: WORKFLOWS.find((w) => w.slug === r.workflow)?.title ?? r.workflow,
+        recordId: r.recordId,
+        recordLabel: r.recordLabel ?? r.recordId,
+        startedAt: new Date(r.startedAt),
+        status: r.status,
+        raw: r,
+      }));
+  });
+
+  onRunRowSelected(args: { data?: { runId: string } }): void {
+    const id = args.data?.runId;
+    if (id) this.selectedRunId.set(id);
+  }
+  closeRunDialog(): void {
+    this.selectedRunId.set(null);
+  }
   editingSection = signal<SectionKey | null>(null);
   saving = signal(false);
   saveError = signal<string | null>(null);
@@ -274,6 +334,19 @@ export class ToolDetailComponent {
         return 'badge--info';
       case '3':
         return 'badge--warning';
+      default:
+        return 'badge--neutral';
+    }
+  }
+
+  confidenceBadgeClass(confidence: string): string {
+    switch (confidence) {
+      case 'high':
+        return 'badge--success';
+      case 'medium':
+        return 'badge--warning';
+      case 'low':
+        return 'badge--neutral';
       default:
         return 'badge--neutral';
     }

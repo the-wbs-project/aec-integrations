@@ -69,6 +69,12 @@
         [class.nav__item--active]="activeTab() === 'notes'"
         (click)="activeTab.set('notes')"
       >Notes</button>
+      <button
+        type="button"
+        class="nav__item"
+        [class.nav__item--active]="activeTab() === 'runs'"
+        (click)="activeTab.set('runs')"
+      >Runs <span class="muted">({{ toolRuns().length }})</span></button>
     </nav>
 
     @if (activeTab() === 'details') {
@@ -298,7 +304,14 @@
             <dt class="metric__label">Priority tier</dt>
             <dd class="metric__value">
               @if (tool.priorityTier) {
-                <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">Tier {{ tool.priorityTier }}</span>
+                <button
+                  type="button"
+                  class="tier-badge-btn"
+                  (click)="openTierModal()"
+                  [attr.aria-label]="'Priority ' + tool.priorityTier + '. Click for scoring details.'"
+                >
+                  <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">{{ tool.priorityTier === 'Unscored' ? 'Unscored' : 'Tier ' + tool.priorityTier }}</span>
+                </button>
               } @else {
                 <span class="na">N/A</span>
               }
@@ -335,10 +348,22 @@
             </dd>
           </div>
           <div class="metric">
-            <dt class="metric__label">Outreach</dt>
+            <dt class="metric__label">Vendor VQS</dt>
             <dd class="metric__value">
-              @if (tool.outreachScore !== undefined) {
-                {{ tool.outreachScore | number:'1.0-1' }}
+              @if (tool.vendorVqsScore !== undefined) {
+                {{ tool.vendorVqsScore | number:'1.0-0' }}@if (tool.vendorVqsTier) {
+                  <span class="muted"> · {{ tool.vendorVqsTier }}</span>
+                }
+              } @else {
+                <span class="na">N/A</span>
+              }
+            </dd>
+          </div>
+          <div class="metric">
+            <dt class="metric__label">Confidence</dt>
+            <dd class="metric__value">
+              @if (tool.priorityConfidence) {
+                <span class="badge" [class]="'badge ' + confidenceBadgeClass(tool.priorityConfidence)">{{ tool.priorityConfidence }}</span>
               } @else {
                 <span class="na">N/A</span>
               }
@@ -637,6 +662,51 @@
       </section>
     }
 
+    <!-- Runs tab -->
+    @if (activeTab() === 'runs') {
+      <div role="tabpanel">
+        <section class="detail-section">
+          <div class="section-row">
+            <h2 class="section-heading">
+              Workflow runs
+              <span class="section-count">({{ toolRuns().length }})</span>
+            </h2>
+          </div>
+          @if (toolRuns().length) {
+            <ejs-grid
+              [dataSource]="toolRuns()"
+              [allowPaging]="true"
+              [pageSettings]="{ pageSize: 25 }"
+              [allowSorting]="true"
+              [allowFiltering]="true"
+              [filterSettings]="{ type: 'Excel' }"
+              height="520"
+              (rowSelected)="onRunRowSelected($event)"
+            >
+              <e-columns>
+                <e-column field="workflowTitle" headerText="Workflow" width="220"></e-column>
+                <e-column field="status" headerText="Status" width="120">
+                  <ng-template #template let-data>
+                    <span class="status-pill" [attr.data-status]="data.status">{{ data.status }}</span>
+                  </ng-template>
+                </e-column>
+                <e-column
+                  field="startedAt"
+                  headerText="Started"
+                  type="date"
+                  format="yMd"
+                  width="180"
+                ></e-column>
+                <e-column field="runId" headerText="Run ID" clipMode="EllipsisWithTooltip"></e-column>
+              </e-columns>
+            </ejs-grid>
+          } @else {
+            <p class="na">No runs recorded for this tool yet.</p>
+          }
+        </section>
+      </div>
+    }
+
     @if (saveError()) {
       <p class="save-error" role="alert">{{ saveError() }}</p>
     }
@@ -649,4 +719,18 @@
     <span class="skeleton skeleton--text" style="width: 80%; height: 14px; margin-top: 8px;"></span>
     <span class="skeleton skeleton--text" style="width: 60%; height: 14px; margin-top: 8px;"></span>
   </div>
+}
+
+<app-tier-detail-dialog
+  family="tool"
+  [vendorId]="tierModalToolId()"
+  [vendorName]="tool()?.name ?? ''"
+  (closed)="closeTierModal()"
+/>
+
+@if (selectedRun(); as run) {
+  <app-run-detail-dialog
+    [run]="run"
+    (closed)="closeRunDialog()"
+  />
 }

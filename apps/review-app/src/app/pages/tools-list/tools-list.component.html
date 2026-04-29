@@ -255,17 +255,44 @@
           <ng-template #template let-data>
             <div class="tier-cell">
               @if (data.priorityTier) {
-                <span
-                  class="badge"
-                  [class]="'badge ' + tierBadgeClass(data.priorityTier)"
-                >Tier {{ data.priorityTier }}</span>
+                <button
+                  type="button"
+                  class="tier-cell__btn"
+                  (click)="openTierModal(data.id, data.name, $event)"
+                  [attr.aria-label]="'Priority ' + data.priorityTier + '. Click for scoring details.'"
+                >
+                  <span
+                    class="badge"
+                    [class]="'badge ' + tierBadgeClass(data.priorityTier)"
+                  >{{ data.priorityTier === 'Unscored' ? 'Unscored' : 'Tier ' + data.priorityTier }}</span>
+                  @if (data.priorityScore !== undefined && data.priorityScore !== null) {
+                    <span class="tier-cell__score">{{ data.priorityScore | number:'1.0-0' }}</span>
+                  }
+                </button>
               } @else {
                 <span class="empty-cell">—</span>
               }
-              @if (data.priorityScore !== undefined && data.priorityScore !== null) {
-                <span class="tier-cell__score">{{ data.priorityScore | number:'1.0-0' }}</span>
-              }
             </div>
+          </ng-template>
+        </e-column>
+        <e-column
+          field="vendorVqsScore"
+          headerText="Vendor VQS"
+          width="120"
+          textAlign="Center"
+          [sortComparer]="vendorVqsSortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.vendorVqsScore !== undefined && data.vendorVqsScore !== null) {
+              <span class="vendor-vqs">
+                <span class="vendor-vqs__score">{{ data.vendorVqsScore | number:'1.0-0' }}</span>
+                @if (data.vendorVqsTier) {
+                  <span class="vendor-vqs__tier muted"> · {{ data.vendorVqsTier }}</span>
+                }
+              </span>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
           </ng-template>
         </e-column>
         <e-column
@@ -368,3 +395,10 @@
     </ejs-grid>
   </div>
 </div>
+
+<app-tier-detail-dialog
+  family="tool"
+  [vendorId]="tierModalToolId()"
+  [vendorName]="tierModalToolName()"
+  (closed)="closeTierModal()"
+/>

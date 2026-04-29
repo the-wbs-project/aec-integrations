@@ -68,10 +68,18 @@ export class EnrichSplitButtonComponent {
   private static readonly FORCE_REFRESH_ID = '__force_refresh__';
 
   protected readonly menuItems = computed<ItemModel[]>(() => {
-    if (this.family() === 'vendor') {
-      return [{ id: EnrichSplitButtonComponent.FORCE_REFRESH_ID, text: 'Force Refresh' }];
-    }
-    return this.subWorkflows().map((w) => ({ id: w.slug, text: w.title }));
+    const force: ItemModel = {
+      id: EnrichSplitButtonComponent.FORCE_REFRESH_ID,
+      text: 'Force Refresh',
+    };
+    if (this.family() === 'vendor') return [force];
+    // Tools: Force Refresh first, then per-leaf shortcuts. Separator keeps
+    // the orchestrator-level action visually distinct from individual leaves.
+    return [
+      force,
+      { separator: true } as ItemModel,
+      ...this.subWorkflows().map((w) => ({ id: w.slug, text: w.title })),
+    ];
   });
 
   protected workflowTitle(slug: string): string {
