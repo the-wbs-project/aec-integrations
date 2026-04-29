@@ -22,7 +22,7 @@ export interface RunRecord {
   recordId: string;
   recordLabel?: string;
   parentRunId?: string;
-  triggeredBy: 'http' | 'cron' | 'parent-orchestrator' | 'auto-enrich';
+  triggeredBy: 'http' | 'mcp' | 'cron' | 'parent-orchestrator' | 'auto-enrich';
   forceRefresh: boolean;
   model?: string;
   startedAt: string;
@@ -59,7 +59,7 @@ export interface RunStartedPayload {
   recordId: string;
   recordLabel?: string;
   parentRunId?: string;
-  triggeredBy: 'http' | 'cron' | 'parent-orchestrator' | 'auto-enrich';
+  triggeredBy: 'http' | 'mcp' | 'cron' | 'parent-orchestrator' | 'auto-enrich';
   forceRefresh?: boolean;
   model?: string;
 }
