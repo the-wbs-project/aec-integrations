@@ -1,0 +1,52 @@
+<div class="login-shell">
+  <div class="login-card">
+    <h1 class="login-heading">Sign in</h1>
+    <p class="muted intro">
+      Use the email and password set up for you. Access is invite-only —
+      contact the admin if you need an account.
+    </p>
+
+    <form (ngSubmit)="submit()" #form="ngForm" novalidate>
+      <div class="form-row">
+        <label class="field-label" for="login-email">Email</label>
+        <input
+          id="login-email"
+          class="input"
+          name="email"
+          type="email"
+          [(ngModel)]="email"
+          autocomplete="email"
+          autofocus
+          required
+        />
+      </div>
+
+      <div class="form-row">
+        <label class="field-label" for="login-password">Password</label>
+        <input
+          id="login-password"
+          class="input"
+          name="password"
+          type="password"
+          [(ngModel)]="password"
+          autocomplete="current-password"
+          required
+        />
+      </div>
+
+      @if (error()) {
+        <p class="form-error" role="alert">{{ error() }}</p>
+      }
+
+      <div class="form-actions">
+        <button
+          type="submit"
+          class="btn btn--primary"
+          [disabled]="submitting() || !email().trim() || !password()"
+        >
+          {{ submitting() ? 'Signing in…' : 'Sign in' }}
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

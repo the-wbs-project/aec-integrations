@@ -7,7 +7,7 @@ import {
   computed,
   DestroyRef,
 } from '@angular/core';
-import { Router } from '@angular/router';
+import { Router, RouterLink } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject } from 'rxjs';
@@ -102,6 +102,7 @@ const TIER_ORDER = [
     FormsModule,
     GridModule,
     MultiSelectModule,
+    RouterLink,
     EnrichSplitButtonComponent,
     TierCellComponent,
     TierDetailDialogComponent,
@@ -397,13 +398,6 @@ export class VendorsListComponent implements OnInit {
   private syncSelection(): void {
     const records = (this.grid?.getSelectedRecords() ?? []) as VendorRow[];
     this.selectedIds.set(records.map((r) => r.id));
-  }
-
-  /** Native click on the company name cell — route without disturbing checkbox selection. */
-  goToVendor(id: string, event: MouseEvent): void {
-    event.preventDefault();
-    event.stopPropagation();
-    this.router.navigate(['/vendors', id]);
   }
 
   /** Generic record click — ignore so plain-row clicks don't navigate or toggle selection. */

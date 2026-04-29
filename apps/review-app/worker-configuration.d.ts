@@ -4,7 +4,7 @@
 declare namespace Cloudflare {
 	interface GlobalProps {
 		mainModule: typeof import("./server/index");
-		durableNamespaces: "RunsHub";
+		durableNamespaces: "RunsHub" | "AeciReviewMcp";
 	}
 	interface Env {
 		KV_CACHE: KVNamespace;
@@ -25,8 +25,12 @@ declare namespace Cloudflare {
 		REPORT_REPLY_TO: "aecintegrations@gmail.com";
 		REPORT_TO: "chrisw@thewbsproject.com";
 		SEARCHAPI_COST_PER_SEARCH: "0.004";
+		SUPABASE_URL: "https://jgxebjufabtwkcgxjqvk.supabase.co";
+		SUPABASE_ANON_KEY: "";
 		AIRTABLE_TOKEN: string;
+		SUPABASE_JWT_SECRET: string;
 		RUNS_HUB: DurableObjectNamespace<import("./server/index").RunsHub>;
+		MCP_OBJECT: DurableObjectNamespace /* AeciReviewMcp */;
 		WF_VENDOR_GITHUB: Workflow<Parameters<import("./server/index").VendorGithubWorkflow['run']>[0]['payload']>;
 		WF_VENDOR_FUNDING: Workflow<Parameters<import("./server/index").VendorFundingWorkflow['run']>[0]['payload']>;
 		WF_VENDOR_SCORE: Workflow<Parameters<import("./server/index").VendorScoreWorkflow['run']>[0]['payload']>;
@@ -50,7 +54,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SEARCH_TOOL" | "AIRTABLE_BASE_ID" | "AIRTABLE_TABLES" | "DEFAULT_MODEL" | "AI_GATEWAY_ID" | "CF_ACCOUNT_ID" | "REPORT_FROM" | "REPORT_FROM_NAME" | "REPORT_REPLY_TO" | "REPORT_TO" | "SEARCHAPI_COST_PER_SEARCH" | "AIRTABLE_TOKEN">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "SEARCH_TOOL" | "AIRTABLE_BASE_ID" | "AIRTABLE_TABLES" | "DEFAULT_MODEL" | "AI_GATEWAY_ID" | "CF_ACCOUNT_ID" | "REPORT_FROM" | "REPORT_FROM_NAME" | "REPORT_REPLY_TO" | "REPORT_TO" | "SEARCHAPI_COST_PER_SEARCH" | "SUPABASE_URL" | "SUPABASE_ANON_KEY" | "AIRTABLE_TOKEN" | "SUPABASE_JWT_SECRET">> {}
 }
 
 // Begin runtime types

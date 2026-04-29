@@ -203,6 +203,18 @@ export interface CreateToolRequest {
   website?: string;
 }
 
+export interface CreateVendorRequest {
+  companyName: string;
+  website?: string;
+  description?: string;
+  /** Override the orchestrator's Claude model. Defaults to env.DEFAULT_MODEL. */
+  model?: string;
+  /** Force-rerun every leaf enrichment regardless of staleness. */
+  forceRefresh?: boolean;
+  /** When true, create the Airtable row only — do not start the orchestrator. */
+  skipOrchestrator?: boolean;
+}
+
 /**
  * Partial update payload. Linked-record fields accept arrays of Airtable
  * record IDs (the form sends IDs, not LinkRefs).

@@ -173,7 +173,7 @@
           [sortComparer]="nameSortComparer"
         >
           <ng-template #template let-data>
-            <a class="tool-name-link" (click)="goToTool(data.id, $event)">
+            <a class="tool-name-link" [routerLink]="['/tools', data.id]">
               {{ data.name }}
             </a>
           </ng-template>
@@ -190,7 +190,7 @@
               @for (v of data.vendors; track v.id; let last = $last) {
                 <a
                   class="vendor-name-link"
-                  (click)="goToVendor(v.id, $event)"
+                  [routerLink]="['/vendors', v.id]"
                 >{{ v.name }}</a>{{ last ? '' : ', ' }}
               }
             } @else {
