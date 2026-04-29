@@ -15,6 +15,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Env } from './env';
+import { requireAuth, verifyAccessToken, type AuthVariables } from './middleware/auth';
 import health from './routes/health';
 import meta from './routes/meta';
 import stats from './routes/stats';
@@ -48,12 +49,45 @@ function isAllowedOrigin(origin: string | undefined): boolean {
     return false;
 }
 
-const app = new Hono<{ Bindings: Env }>();
+const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 app.use('/api/*', cors());
 
-// Data
+// Public probes — must be reachable without a token. Mounted before requireAuth.
 app.route('/api/health', health);
+
+// Live run feed — single WebSocket forwarded to the singleton RunsHub DO.
+// Browsers can't set Authorization headers on WebSocket upgrades, so the
+// token is passed as a `?token=` query param and verified inline here.
+// Mounted BEFORE the global requireAuth so the header-based check doesn't
+// reject WS upgrades that authenticate via query param instead.
+app.get('/api/runs/ws', async (c) => {
+    if (c.req.header('upgrade')?.toLowerCase() !== 'websocket') {
+        return c.text('Expected websocket', 426);
+    }
+    const origin = c.req.header('origin');
+    if (!isAllowedOrigin(origin)) {
+        return c.text(`Origin not allowed: ${origin}`, 403);
+    }
+    const url = new URL(c.req.raw.url);
+    const token = url.searchParams.get('token');
+    const user = await verifyAccessToken(token, c.env);
+    if (!user) {
+        return c.text('Unauthenticated', 401);
+    }
+    const id = c.env.RUNS_HUB.idFromName('singleton');
+    const stub = c.env.RUNS_HUB.get(id);
+    const forward = new URL('https://runs-hub.internal/ws');
+    forward.searchParams.set('channel', url.searchParams.get('channel') ?? 'recent');
+    const runId = url.searchParams.get('runId');
+    if (runId) forward.searchParams.set('runId', runId);
+    return stub.fetch(forward.toString(), c.req.raw);
+});
+
+// Everything below requires a valid Supabase access token.
+app.use('/api/*', requireAuth());
+
+// Data
 app.route('/api/meta', meta);
 app.route('/api/tools', tools);
 app.route('/api/vendors', vendors);
@@ -62,25 +96,6 @@ app.route('/api/stats', stats);
 // Workflow orchestration
 app.route('/api/workflows', workflows);
 app.route('/api/reports', reports);
-
-// Live run feed — single WebSocket forwarded to the singleton RunsHub DO.
-app.get('/api/runs/ws', (c) => {
-    if (c.req.header('upgrade')?.toLowerCase() !== 'websocket') {
-        return c.text('Expected websocket', 426);
-    }
-    const origin = c.req.header('origin');
-    if (!isAllowedOrigin(origin)) {
-        return c.text(`Origin not allowed: ${origin}`, 403);
-    }
-    const id = c.env.RUNS_HUB.idFromName('singleton');
-    const stub = c.env.RUNS_HUB.get(id);
-    const url = new URL(c.req.raw.url);
-    const forward = new URL('https://runs-hub.internal/ws');
-    forward.searchParams.set('channel', url.searchParams.get('channel') ?? 'recent');
-    const runId = url.searchParams.get('runId');
-    if (runId) forward.searchParams.set('runId', runId);
-    return stub.fetch(forward.toString(), c.req.raw);
-});
 
 // Debug helpers (SERP / page render)
 app.route('/api/debug', toolsDebug);
