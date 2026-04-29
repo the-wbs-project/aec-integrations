@@ -84,6 +84,8 @@ interface ManualSecrets {
   CF_API_TOKEN: string;
   /** Scrapfly anti-scraping proxy key for Crunchbase fetches. Optional. */
   SCRAPFLY_API_KEY?: string;
+  /** Supabase project JWT secret (HS256). Used to verify access tokens in auth middleware. */
+  SUPABASE_JWT_SECRET: string;
   /**
    * Bearer token for the /mcp endpoint. Currently unused — the MCP route is
    * open. Set via `wrangler secret put MCP_TOKEN` when re-enabling auth.

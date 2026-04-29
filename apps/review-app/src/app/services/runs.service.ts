@@ -11,6 +11,8 @@
 // ---------------------------------------------------------------------------
 import { DestroyRef, Injectable, computed, inject, signal } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
+import { Router } from '@angular/router';
+import { AuthService } from './auth.service';
 import type { RunStartRequest, RunStartResponse } from './workflow-client';
 
 const TERMINAL_STATUSES = new Set(['complete', 'errored', 'terminated', 'timeout']);
@@ -53,6 +55,8 @@ type HubEvent =
 export class RunsService {
   private http = inject(HttpClient);
   private destroyRef = inject(DestroyRef);
+  private auth = inject(AuthService);
+  private router = inject(Router);
 
   private readonly _runs = signal<RecentRunRow[]>([]);
   readonly runs = this._runs.asReadonly();
@@ -75,7 +79,7 @@ export class RunsService {
   start(): void {
     if (this.started) return;
     this.started = true;
-    this.connect();
+    void this.connect();
   }
 
   /**
@@ -100,11 +104,20 @@ export class RunsService {
 
   // --- Internals ----------------------------------------------------------
 
-  private connect(): void {
+  private async connect(): Promise<void> {
     if (!this.started) return;
     this.clearReconnect();
 
-    const url = this.wsUrl('recent');
+    const token = await this.auth.getAccessToken();
+    if (!this.started) return;
+    if (!token) {
+      // Not authenticated — stop trying to reconnect and bounce to /login.
+      this.stop();
+      void this.router.navigate(['/login']);
+      return;
+    }
+
+    const url = this.wsUrl('recent', token);
     let socket: WebSocket;
     try {
       socket = new WebSocket(url);
@@ -163,9 +176,9 @@ export class RunsService {
     this._runs.set(next);
   }
 
-  private wsUrl(channel: 'recent'): string {
+  private wsUrl(channel: 'recent', token: string): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${window.location.host}/api/runs/ws?channel=${channel}`;
+    return `${proto}//${window.location.host}/api/runs/ws?channel=${channel}&token=${encodeURIComponent(token)}`;
   }
 
   private scheduleReconnect(): void {
@@ -173,7 +186,7 @@ export class RunsService {
     this.clearReconnect();
     const delay = this.reconnectDelay;
     this.reconnectDelay = Math.min(this.reconnectDelay * 2, RECONNECT_MAX_MS);
-    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+    this.reconnectTimer = setTimeout(() => void this.connect(), delay);
   }
 
   private clearReconnect(): void {
