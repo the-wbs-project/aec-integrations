@@ -18,9 +18,14 @@ import { APP_SCHEDULED } from './app.scheduled';
 import type { Env } from './env';
 import type { AutoEnrichJob } from './services/autoEnrich/types';
 import type { ReportJob } from './services/reports/types';
+import { AeciReviewMcp } from './mcp/agent';
 
 // Singleton Durable Object that owns the live run registry / WebSocket fan-out.
 export { RunsHub } from './do/runs-hub';
+
+// Remote MCP server (Streamable HTTP transport) — McpAgent backs onto a
+// SQLite-backed Durable Object bound as MCP_OBJECT.
+export { AeciReviewMcp } from './mcp/agent';
 
 // One Cloudflare Workflow class per workflow. Each is bound under its own
 // WF_* binding in wrangler.jsonc.
@@ -40,9 +45,21 @@ export { ToolScoreWorkflow } from './workflows/tool/score';
 export { ToolOrchestratorWorkflow } from './workflows/tool/orchestrator';
 export { ToolResearchWorkflow } from './workflows/tool/research';
 
-// Worker module export — delegates fetch to Hono and adds scheduled() + queue().
+// Streamable-HTTP MCP handler. Built once at module init; the McpAgent SDK
+// internally routes to the MCP_OBJECT Durable Object.
+const MCP_HANDLER = AeciReviewMcp.serve('/mcp');
+
+// Worker module export — delegates fetch to MCP for /mcp* and Hono for the
+// rest. Also wires scheduled() + queue() consumers.
 export default {
-  fetch: APP_ROUTES,
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    if (url.pathname === '/mcp' || url.pathname.startsWith('/mcp/')) {
+      // TODO: re-enable bearer-token auth (MCP_TOKEN) before exposing publicly.
+      return MCP_HANDLER.fetch(request, env, ctx);
+    }
+    return APP_ROUTES(request, env, ctx);
+  },
   scheduled: APP_SCHEDULED,
   queue: APP_QUEUE,
 } satisfies ExportedHandler<Env, ReportJob | AutoEnrichJob>;

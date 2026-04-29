@@ -31,7 +31,7 @@ interface DraftState {
   sourceUrl: string;
   // key facts
   headquarters: string;
-  foundedYear: string; // bound to <input type="number"> as string for empty handling
+  foundedYear: number | null; // bound to <input type="number">; ngModel writes number or null
   publicPrivate: string;
   parentCompany: string;
   phoneNumber: string;
@@ -265,7 +265,7 @@ export class VendorDetailComponent implements OnInit {
       githubOrg: '',
       sourceUrl: '',
       headquarters: '',
-      foundedYear: '',
+      foundedYear: null,
       publicPrivate: '',
       parentCompany: '',
       phoneNumber: '',
@@ -285,7 +285,7 @@ export class VendorDetailComponent implements OnInit {
       githubOrg: v.githubOrg ?? '',
       sourceUrl: v.sourceUrl ?? '',
       headquarters: v.headquarters ?? '',
-      foundedYear: v.foundedYear !== undefined ? String(v.foundedYear) : '',
+      foundedYear: typeof v.foundedYear === 'number' ? v.foundedYear : null,
       publicPrivate: v.publicPrivate ?? '',
       parentCompany: v.parentCompany ?? '',
       phoneNumber: v.phoneNumber ?? '',
@@ -312,14 +312,10 @@ export class VendorDetailComponent implements OnInit {
           sourceUrl: d.sourceUrl.trim(),
         };
       case 'keyFacts': {
-        const yearStr = d.foundedYear.trim();
-        const year = yearStr === '' ? null : Number(yearStr);
+        const year = d.foundedYear;
         return {
           headquarters: d.headquarters.trim(),
-          // Send null when blank; valid integer otherwise. Fall back to
-          // current value if the user typed something non-numeric — server
-          // will reject anyway and surface the message.
-          foundedYear: yearStr === '' ? null : Number.isFinite(year) ? (year as number) : null,
+          foundedYear: typeof year === 'number' && Number.isFinite(year) ? year : null,
           publicPrivate: d.publicPrivate === '' ? null : d.publicPrivate,
           parentCompany: d.parentCompany.trim(),
           phoneNumber: d.phoneNumber.trim(),

@@ -7,6 +7,20 @@
           {{ selectedIds().length }} selected
         </span>
       }
+      <button
+        type="button"
+        class="btn btn--secondary"
+        [disabled]="loading()"
+        (click)="fetchVendors()"
+        aria-label="Refresh vendors"
+      >
+        <span
+          class="refresh-icon"
+          [class.refresh-icon--spinning]="loading()"
+          aria-hidden="true"
+        >↻</span>
+        Refresh
+      </button>
       <app-enrich-split-button
         family="vendor"
         [recordIds]="selectedIds()"
@@ -31,7 +45,7 @@
       [dataSource]="$any(companySizeOptions())"
       [fields]="multiselectFields"
       [value]="filterCompanySize()"
-      (change)="setFilter('companySize', $any($event).value)"
+      (change)='setFilter("companySize", $any($event).value)'
       [mode]="checkboxMode"
       [showDropDownIcon]="true"
       [showSelectAll]="true"
@@ -45,7 +59,7 @@
       [dataSource]="$any(publicPrivateOptions())"
       [fields]="multiselectFields"
       [value]="filterPublicPrivate()"
-      (change)="setFilter('publicPrivate', $any($event).value)"
+      (change)='setFilter("publicPrivate", $any($event).value)'
       [mode]="checkboxMode"
       [showDropDownIcon]="true"
       [showSelectAll]="true"
@@ -59,7 +73,7 @@
       [dataSource]="$any(fundingStageOptions())"
       [fields]="multiselectFields"
       [value]="filterFundingStage()"
-      (change)="setFilter('fundingStage', $any($event).value)"
+      (change)='setFilter("fundingStage", $any($event).value)'
       [mode]="checkboxMode"
       [showDropDownIcon]="true"
       [showSelectAll]="true"
@@ -73,7 +87,7 @@
       [dataSource]="$any(tierOptions())"
       [fields]="multiselectFields"
       [value]="filterTier()"
-      (change)="setFilter('tier', $any($event).value)"
+      (change)='setFilter("tier", $any($event).value)'
       [mode]="checkboxMode"
       [showDropDownIcon]="true"
       [showSelectAll]="true"
@@ -87,7 +101,7 @@
       [dataSource]="$any(enrichmentOptions())"
       [fields]="multiselectFields"
       [value]="filterEnrichment()"
-      (change)="setFilter('enrichment', $any($event).value)"
+      (change)='setFilter("enrichment", $any($event).value)'
       [mode]="checkboxMode"
       [showDropDownIcon]="true"
       [showSelectAll]="true"
@@ -99,12 +113,12 @@
   <!-- Active-filter pills -->
   @if (activeFilters().length > 0) {
     <div class="filter-pills" aria-label="Active filters">
-      @for (f of activeFilters(); track f.key + ':' + f.value) {
+      @for (f of activeFilters(); track f.key + ":" + f.value) {
         <button
           type="button"
           class="filter-pill"
           (click)="removeFilter(f.key, f.value)"
-          [attr.aria-label]="'Remove filter ' + f.label"
+          [attr.aria-label]='"Remove filter " + f.label'
         >
           <span class="filter-pill__label">{{ f.label }}</span>
           <span class="filter-pill__close" aria-hidden="true">×</span>
@@ -142,121 +156,124 @@
       (rowDeselected)="onRowDeselected($event)"
       (recordClick)="onRecordClick($event)"
     >
-    <e-columns>
-      <e-column
-        type="checkbox"
-        width="46"
-        [allowSorting]="false"
-        [allowResizing]="false"
-      ></e-column>
-      <e-column
-        field="companyName"
-        headerText="Company"
-        width="240"
-        clipMode="EllipsisWithTooltip"
-        [sortComparer]="companyNameSortComparer"
-      >
-        <ng-template #template let-data>
-          <a class="vendor-name-link" (click)="goToVendor(data.id, $event)">
-            {{ data.companyName }}
-          </a>
-        </ng-template>
-      </e-column>
-      <e-column
-        field="headquarters"
-        headerText="Headquarters"
-        width="180"
-        clipMode="EllipsisWithTooltip"
-        [sortComparer]="headquartersSortComparer"
-      ></e-column>
-      <e-column
-        field="foundedYear"
-        headerText="Founded"
-        width="110"
-        textAlign="Right"
-        type="number"
-        [sortComparer]="foundedYearSortComparer"
-      ></e-column>
-      <e-column
-        field="companySize"
-        headerText="Size"
-        width="140"
-        textAlign="Right"
-        [sortComparer]="companySizeSortComparer"
-      ></e-column>
-      <e-column
-        field="vqsScore"
-        headerText="VQS"
-        width="160"
-        textAlign="Right"
-        type="number"
-        format="N0"
-        [sortComparer]="vqsScoreSortComparer"
-      >
-        <ng-template #template let-data>
-          <app-tier-cell
-            [vqsScore]="data.vqsScore"
-            [vqsTier]="data.vqsTier"
-            [vqsConfidence]="data.vqsConfidence"
-            [vendorId]="data.id"
-            [vendorName]="data.companyName"
-            (openDetails)="openTierModal(data.id, data.companyName)"
-          />
-        </ng-template>
-      </e-column>
-      <e-column
-        field="readinessPercent"
-        headerText="Data %"
-        width="110"
-        textAlign="Right"
-        type="number"
-        format="N0"
-        [sortComparer]="readinessPercentSortComparer"
-      >
-        <ng-template #template let-data>
-          @if (data.readinessPercent !== null) {
-            <span>{{ data.readinessPercent }}%</span>
-          } @else {
-            <span class="empty-cell">—</span>
-          }
-        </ng-template>
-      </e-column>
-      <e-column
-        field="githubStarsTotal"
-        headerText="GitHub ★"
-        width="120"
-        textAlign="Right"
-        type="number"
-        format="N0"
-        [sortComparer]="githubStarsTotalSortComparer"
-      ></e-column>
-      <e-column
-        field="toolCount"
-        headerText="Tools"
-        width="100"
-        textAlign="Right"
-        type="number"
-        format="N0"
-        [sortComparer]="toolCountSortComparer"
-      ></e-column>
-      <e-column
-        field="vendorEnrichmentStatus"
-        headerText="Enrichment"
-        width="140"
-        textAlign="Right"
-        [sortComparer]="vendorEnrichmentStatusSortComparer"
-      >
-        <ng-template #template let-data>
-          @if (data.vendorEnrichmentStatus) {
-            <span class="badge" [class]="'badge badge--' + enrichmentVariant(data.vendorEnrichmentStatus)">
-              {{ data.vendorEnrichmentStatus }}
-            </span>
-          } @else {
-            <span class="empty-cell">—</span>
-          }
-        </ng-template>
-      </e-column>
-    </e-columns>
+      <e-columns>
+        <e-column
+          type="checkbox"
+          width="46"
+          [allowSorting]="false"
+          [allowResizing]="false"
+        ></e-column>
+        <e-column
+          field="companyName"
+          headerText="Company"
+          width="240"
+          clipMode="EllipsisWithTooltip"
+          [sortComparer]="companyNameSortComparer"
+        >
+          <ng-template #template let-data>
+            <a class="vendor-name-link" [routerLink]='["/vendors", data.id]'>
+              {{ data.companyName }}
+            </a>
+          </ng-template>
+        </e-column>
+        <e-column
+          field="headquarters"
+          headerText="Headquarters"
+          width="180"
+          clipMode="EllipsisWithTooltip"
+          [sortComparer]="headquartersSortComparer"
+        ></e-column>
+        <e-column
+          field="foundedYear"
+          headerText="Founded"
+          width="110"
+          textAlign="Right"
+          type="number"
+          [sortComparer]="foundedYearSortComparer"
+        ></e-column>
+        <e-column
+          field="companySize"
+          headerText="Size"
+          width="140"
+          textAlign="Right"
+          [sortComparer]="companySizeSortComparer"
+        ></e-column>
+        <e-column
+          field="vqsScore"
+          headerText="VQS"
+          width="160"
+          textAlign="Right"
+          type="number"
+          format="N0"
+          [sortComparer]="vqsScoreSortComparer"
+        >
+          <ng-template #template let-data>
+            <app-tier-cell
+              [vqsScore]="data.vqsScore"
+              [vqsTier]="data.vqsTier"
+              [vqsConfidence]="data.vqsConfidence"
+              [vendorId]="data.id"
+              [vendorName]="data.companyName"
+              (openDetails)="openTierModal(data.id, data.companyName)"
+            />
+          </ng-template>
+        </e-column>
+        <e-column
+          field="readinessPercent"
+          headerText="Data %"
+          width="110"
+          textAlign="Right"
+          type="number"
+          format="N0"
+          [sortComparer]="readinessPercentSortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.readinessPercent !== null) {
+              <span>{{ data.readinessPercent }}%</span>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+        <e-column
+          field="githubStarsTotal"
+          headerText="GitHub ★"
+          width="120"
+          textAlign="Right"
+          type="number"
+          format="N0"
+          [sortComparer]="githubStarsTotalSortComparer"
+        ></e-column>
+        <e-column
+          field="toolCount"
+          headerText="Tools"
+          width="100"
+          textAlign="Right"
+          type="number"
+          format="N0"
+          [sortComparer]="toolCountSortComparer"
+        ></e-column>
+        <e-column
+          field="vendorEnrichmentStatus"
+          headerText="Enrichment"
+          width="140"
+          textAlign="Right"
+          [sortComparer]="vendorEnrichmentStatusSortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.vendorEnrichmentStatus) {
+              <span
+                class="badge"
+                [class]='"badge badge--" + enrichmentVariant(data.vendorEnrichmentStatus)'
+              >
+                {{ data.vendorEnrichmentStatus }}
+              </span>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+      </e-columns>
     </ejs-grid>
   </div>
 </div>
