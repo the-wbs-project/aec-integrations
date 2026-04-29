@@ -265,6 +265,7 @@ tools.patch('/:id', async (c) => {
   if (body.researchNotes !== undefined) fields['research_notes'] = body.researchNotes;
   if (body.toolIntegrationCheckNotes !== undefined)
     fields['tool_integration_check_notes'] = body.toolIntegrationCheckNotes;
+  if (body.adminNotes !== undefined) fields['admin_notes'] = body.adminNotes;
   // Linked records (arrays of record IDs)
   if (body.categories !== undefined) fields['category'] = body.categories;
   if (body.disciplines !== undefined) fields['supported_disciplines'] = body.disciplines;

@@ -1041,3 +1041,20 @@ select.input {
 .empty-cell {
   color: var(--color-text-tertiary);
 }
+
+/* ============================================================
+   Tier-detail dialog — cap height, scroll the body internally
+   so the headline tier is always visible at the top.
+   Syncfusion teleports the dialog to <body>, so this lives globally.
+   ============================================================ */
+.tier-detail-dialog.e-dialog {
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.tier-detail-dialog .e-dlg-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}

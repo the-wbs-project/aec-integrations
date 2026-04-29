@@ -7,5 +7,4 @@ dist
 .vars.dev
 .DS_Store
 out-tsc
-worker-configuration.d.ts
 syncfusion-license.txt

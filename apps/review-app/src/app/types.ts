@@ -60,6 +60,7 @@ export interface ToolDetail extends Tool {
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
   toolIntegrationCheckedAt?: string;
+  adminNotes?: string;
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
 }
@@ -128,6 +129,8 @@ export interface VendorDetail extends Vendor {
   vqsFlags?: string[];
 
   lastEnrichedAt?: string;
+
+  adminNotes?: string;
 }
 
 export interface CrunchbaseList {
@@ -181,6 +184,7 @@ export interface UpdateToolRequest {
   researchStatus?: string;
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
+  adminNotes?: string;
   categories?: string[];
   disciplines?: string[];
   phases?: string[];
@@ -202,4 +206,5 @@ export interface UpdateVendorRequest {
   githubOrg?: string;
   phoneNumber?: string;
   contactEmail?: string;
+  adminNotes?: string;
 }

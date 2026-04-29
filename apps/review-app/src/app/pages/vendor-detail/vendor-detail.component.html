@@ -37,6 +37,17 @@
           <div class="detail-header__title-block">
             <div class="detail-header__title-row">
               <h1 class="detail-title">{{ vendor.companyName }}</h1>
+              @if (vendor.vqsScore !== undefined && vendor.vqsScore !== null) {
+                <app-tier-cell
+                  size="lg"
+                  [vqsScore]="vendor.vqsScore"
+                  [vqsTier]="vendor.vqsTier"
+                  [vqsConfidence]="vendor.vqsConfidence"
+                  [vendorId]="id()"
+                  [vendorName]="vendor.companyName"
+                  (openDetails)="openTierModal()"
+                />
+              }
               <button class="btn btn--ghost btn--sm" (click)="startEdit('header', vendor)">Edit</button>
               <div class="detail-header__actions">
                 <div class="btn-group">
@@ -288,6 +299,24 @@
                   }
                 </span>
               </div>
+              <div class="fact">
+                <span class="fact__label">
+                  Data completeness
+                  @if (vendor.lastEnrichedAt) {
+                    <app-info-tooltip [tooltip]="freshnessTooltip(vendor.lastEnrichedAt)" />
+                  }
+                </span>
+                <span class="fact__value">
+                  @if (vendor.vendorDataCompleteness !== undefined) {
+                    {{ formatPercent(vendor.vendorDataCompleteness) }}
+                    @if (vendor.vendorEnrichmentStatus) {
+                      <span class="badge" [class]="'badge badge--' + enrichmentVariant(vendor.vendorEnrichmentStatus)">{{ vendor.vendorEnrichmentStatus }}</span>
+                    }
+                  } @else {
+                    <span class="na">N/A</span>
+                  }
+                </span>
+              </div>
             </div>
           }
         </section>
@@ -315,90 +344,32 @@
           }
         </section>
 
+        <!-- Admin notes -->
+        <section class="detail-section">
+          <div class="section-row">
+            <h2 class="section-heading">Admin notes</h2>
+            @if (editingSection() !== 'adminNotes') {
+              <button class="btn btn--ghost btn--sm" (click)="startEdit('adminNotes', vendor)">Edit</button>
+            }
+          </div>
+          @if (editingSection() === 'adminNotes') {
+            <textarea class="input edit-textarea" rows="8" [(ngModel)]="draft.adminNotes" name="adminNotes" placeholder="Internal notes for decision making…"></textarea>
+            <div class="edit-actions">
+              <button class="btn btn--primary btn--sm" (click)="saveSection('adminNotes')" [disabled]="saving()">Save</button>
+              <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
+            </div>
+          } @else {
+            @if (vendor.adminNotes) {
+              <p class="description-text">{{ vendor.adminNotes }}</p>
+            } @else {
+              <p class="description-text na">N/A</p>
+            }
+          }
+        </section>
+
         @if (saveError()) {
           <p class="save-error" role="alert">{{ saveError() }}</p>
         }
-
-        <!-- Vendor Quality Score -->
-        <section class="detail-section">
-          <h2 class="section-heading">
-            Vendor Quality Score
-            @if (vendor.lastEnrichedAt) {
-              <app-info-tooltip [tooltip]="freshnessTooltip(vendor.lastEnrichedAt)" />
-            }
-          </h2>
-          <div class="facts-grid">
-            <div class="fact">
-              <span class="fact__label">VQS</span>
-              <span class="fact__value">
-                @if (vendor.vqsScore !== undefined) {
-                  <strong>{{ vendor.vqsScore }}</strong> / 100
-                  @if (vendor.vqsTier) {
-                    <span class="muted"> · {{ vendor.vqsTier }}</span>
-                  }
-                  @if (vendor.vqsConfidence) {
-                    <span class="muted"> · confidence {{ vendor.vqsConfidence }}</span>
-                  }
-                } @else {
-                  <span class="na">Unscored</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Credibility</span>
-              <span class="fact__value">
-                @if (vendor.vqsCredibility !== undefined) {
-                  {{ vendor.vqsCredibility }} / 100
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Momentum</span>
-              <span class="fact__value">
-                @if (vendor.vqsMomentum !== undefined) {
-                  {{ vendor.vqsMomentum }} / 100
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Fit</span>
-              <span class="fact__value">
-                @if (vendor.vqsFit !== undefined) {
-                  {{ vendor.vqsFit }} / 100
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-            <div class="fact">
-              <span class="fact__label">Data completeness</span>
-              <span class="fact__value">
-                @if (vendor.vendorDataCompleteness !== undefined) {
-                  {{ formatPercent(vendor.vendorDataCompleteness) }}
-                  @if (vendor.vendorEnrichmentStatus) {
-                    <span class="badge" [class]="'badge badge--' + enrichmentVariant(vendor.vendorEnrichmentStatus)">{{ vendor.vendorEnrichmentStatus }}</span>
-                  }
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </span>
-            </div>
-          </div>
-          @if (vendor.vqsFlags && vendor.vqsFlags.length > 0) {
-            <div class="cb-categories">
-              <span class="fact__label">Flags</span>
-              <div class="cb-categories__list">
-                @for (flag of vendor.vqsFlags; track flag) {
-                  <span class="external-link external-link--pill">{{ flag }}</span>
-                }
-              </div>
-            </div>
-          }
-        </section>
 
         <!-- Crunchbase signals -->
         <section class="detail-section">
@@ -644,6 +615,11 @@
     }
 
     <app-run-detail-dialog [run]="selectedRun()" (closed)="onRunDialogClosed()" />
+    <app-tier-detail-dialog
+      [vendorId]="tierModalVendorId()"
+      [vendorName]="vendor.companyName"
+      (closed)="closeTierModal()"
+    />
   </div>
 } @else {
   <div class="page-container detail-skeleton">

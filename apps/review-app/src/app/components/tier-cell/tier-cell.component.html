@@ -1,0 +1,70 @@
+@if (hasScore()) {
+  <button
+    #trigger
+    type="button"
+    class="tier-trigger"
+    [attr.data-size]="size()"
+    (mouseenter)="onEnter()"
+    (mouseleave)="onLeave()"
+    (focus)="onEnter()"
+    (blur)="onLeave()"
+    (click)="onTriggerClick()"
+    [attr.aria-haspopup]="'dialog'"
+    [attr.aria-expanded]="open()"
+    [attr.aria-label]="
+      'VQS ' + vqsScore() + ' — ' + (vqsTier() || 'Unscored') + '. Click for scoring details.'
+    "
+  >
+    <span class="tier-trigger__score">{{ vqsScore() }}</span>
+    <span
+      class="tier-pill"
+      [class.tier-pill--lg]="size() === 'lg'"
+      [attr.data-variant]="tierMeta().variant"
+    >
+      {{ vqsTier() || 'Unscored' }}
+    </span>
+  </button>
+
+  @if (open()) {
+    <div
+      class="tier-popover"
+      role="tooltip"
+      [style.top.px]="pos().top"
+      [style.left.px]="pos().left"
+      (mouseenter)="onEnter()"
+      (mouseleave)="onLeave()"
+    >
+      <div class="tier-popover__head">
+        <span class="tier-pill tier-pill--lg" [attr.data-variant]="tierMeta().variant">
+          {{ vqsTier() || 'Unscored' }}
+        </span>
+        <span class="tier-popover__range">{{ tierMeta().range }}</span>
+      </div>
+
+      <div class="tier-popover__title">{{ tierMeta().label }}</div>
+      <p class="tier-popover__blurb">{{ tierMeta().blurb }}</p>
+
+      <dl class="tier-popover__stats">
+        <dt>Score</dt>
+        <dd><strong>{{ vqsScore() }}</strong> <span class="muted">/ 100</span></dd>
+        <dt>Confidence</dt>
+        <dd>
+          <span class="confidence-chip" [attr.data-variant]="confidenceVariant()">
+            {{ vqsConfidence() || 'unknown' }}
+          </span>
+        </dd>
+      </dl>
+
+      <button
+        type="button"
+        class="tier-popover__cta"
+        (click)="onDetailsClick($event)"
+      >
+        Click for details
+        <span aria-hidden="true">→</span>
+      </button>
+    </div>
+  }
+} @else {
+  <span class="tier-empty">—</span>
+}

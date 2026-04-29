@@ -237,6 +237,7 @@ export function hydrateToolDetail(
     researchNotes: asString(record.get('research_notes')),
     toolIntegrationCheckNotes: asString(record.get('tool_integration_check_notes')),
     toolIntegrationCheckedAt: asString(record.get('tool_integration_checked_at')),
+    adminNotes: asString(record.get('admin_notes')),
     integrationsAsSource,
     integrationsAsTarget,
   };
@@ -312,5 +313,7 @@ export function hydrateVendorDetail(
     vqsFlags: asJsonStringArray(record.get('vqs_flags')),
 
     lastEnrichedAt: asString(record.get('last_enriched_at')),
+
+    adminNotes: asString(record.get('admin_notes')),
   };
 }

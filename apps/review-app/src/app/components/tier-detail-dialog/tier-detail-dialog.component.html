@@ -1,0 +1,155 @@
+<ejs-dialog
+  [visible]="visible()"
+  [isModal]="true"
+  [closeOnEscape]="true"
+  [showCloseIcon]="true"
+  [header]="'How ' + headerName() + ' got its score'"
+  width="760px"
+  target="body"
+  cssClass="tier-detail-dialog"
+  (close)="onClose()"
+>
+  <ng-template #content>
+    <div class="tier-detail">
+      @if (loading()) {
+        <div class="tier-detail__state">
+          <div class="tier-detail__skeleton-line"></div>
+          <div class="tier-detail__skeleton-line tier-detail__skeleton-line--short"></div>
+          <div class="tier-detail__skeleton-bar"></div>
+          <div class="tier-detail__skeleton-bar"></div>
+          <div class="tier-detail__skeleton-bar"></div>
+          <p class="tier-detail__loading-text">Loading scoring details…</p>
+        </div>
+      } @else if (errorMsg(); as msg) {
+        <div class="tier-detail__error">
+          <p>{{ msg }}</p>
+          <button type="button" class="tier-detail__btn" (click)="retry()">Try again</button>
+        </div>
+      } @else if (vendor(); as v) {
+        <!-- Headline card -->
+        <section class="headline" [attr.data-variant]="tierMeta().variant">
+          <div class="headline__left">
+            <div class="headline__score">
+              @if (v.vqsScore !== undefined && v.vqsScore !== null) {
+                {{ v.vqsScore }}
+              } @else {
+                —
+              }
+            </div>
+            <div class="headline__score-suffix">/ 100</div>
+          </div>
+          <div class="headline__right">
+            <div class="headline__row">
+              <span class="tier-pill tier-pill--lg" [attr.data-variant]="tierMeta().variant">
+                {{ v.vqsTier || 'Unscored' }}
+              </span>
+              <span class="headline__range">{{ tierMeta().range }}</span>
+              @if (v.vqsConfidence) {
+                <span class="confidence-chip" [attr.data-variant]="confidenceVariant()">
+                  {{ v.vqsConfidence }} confidence
+                </span>
+              }
+            </div>
+            <div class="headline__title">{{ tierMeta().label }}</div>
+            <p class="headline__blurb">{{ tierMeta().blurb }}</p>
+          </div>
+        </section>
+
+        <!-- Methodology -->
+        <section class="section">
+          <h3 class="section__heading">How the score is built</h3>
+          <p class="section__lede">
+            We combine three weighted pillars on a 0–100 scale. A pillar needs at least 2 populated fields
+            (1 for Fit) to contribute. Missing pillars drop out and the rest re-weight automatically.
+          </p>
+        </section>
+
+        <!-- Pillar bars -->
+        <section class="pillars">
+          @for (p of pillars(); track p.meta.key) {
+            <article class="pillar" [class.pillar--unscored]="p.score === null || p.score === undefined">
+              <header class="pillar__head">
+                <div class="pillar__title">
+                  <span class="pillar__label">{{ p.meta.label }}</span>
+                  <span class="pillar__weight">{{ (p.meta.weight * 100).toFixed(0) }}% weight</span>
+                </div>
+                <div class="pillar__score">
+                  @if (p.score !== null && p.score !== undefined) {
+                    <strong>{{ p.score }}</strong><span class="muted"> / 100</span>
+                  } @else {
+                    <span class="muted">Not scored</span>
+                  }
+                </div>
+              </header>
+              <p class="pillar__blurb">{{ p.meta.blurb }}</p>
+              <div class="pillar__bar" [attr.aria-hidden]="true">
+                <div
+                  class="pillar__bar-fill"
+                  [attr.data-variant]="tierMeta().variant"
+                  [style.width.%]="p.score ?? 0"
+                ></div>
+              </div>
+              <ul class="pillar__inputs">
+                @for (inp of p.inputs; track inp.label) {
+                  <li class="pillar__input" [class.pillar__input--missing]="inp.missing">
+                    <span class="pillar__input-label">{{ inp.label }}</span>
+                    <span class="pillar__input-value">{{ inp.value }}</span>
+                  </li>
+                }
+              </ul>
+              @if (p.score === null || p.score === undefined) {
+                <p class="pillar__hint">Not enough fields populated to score this pillar.</p>
+              }
+            </article>
+          }
+        </section>
+
+        <!-- Tier reference table -->
+        <section class="section">
+          <h3 class="section__heading">Tier reference</h3>
+          <table class="tier-table">
+            <thead>
+              <tr>
+                <th scope="col">Tier</th>
+                <th scope="col">Score</th>
+                <th scope="col">What it means</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (t of tierOrder; track t) {
+                <tr [class.tier-table__row--current]="t === (v.vqsTier || 'Unscored')">
+                  <td>
+                    <span class="tier-pill" [attr.data-variant]="tierMetaMap[t].variant">{{ t }}</span>
+                  </td>
+                  <td class="mono">{{ tierMetaMap[t].range }}</td>
+                  <td>{{ tierMetaMap[t].blurb }}</td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </section>
+
+        <!-- Flags -->
+        @if (v.vqsFlags && v.vqsFlags.length > 0) {
+          <section class="section">
+            <h3 class="section__heading">Caveats</h3>
+            <ul class="flag-list">
+              @for (flag of v.vqsFlags; track flag) {
+                <li class="flag-item">{{ flagLabel(flag) }}</li>
+              }
+            </ul>
+          </section>
+        }
+
+        <!-- Footer -->
+        <footer class="footer">
+          <a class="footer__link" [routerLink]="['/vendors', v.id]" (click)="onClose()">
+            View full vendor record
+            <span aria-hidden="true">→</span>
+          </a>
+          <button type="button" class="tier-detail__btn" (click)="onClose()">Close</button>
+        </footer>
+      }
+    </div>
+  </ng-template>
+</ejs-dialog>

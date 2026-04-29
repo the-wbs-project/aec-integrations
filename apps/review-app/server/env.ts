@@ -1,15 +1,22 @@
 // ---------------------------------------------------------------------------
 // Cloudflare Worker environment bindings, vars, and secrets.
 //
-// Single source of truth for the merged aeci-review worker. Both the data
-// API (vendors/tools/meta) and the workflow API/runners reference this Env.
+// `Cloudflare.Env` is generated from wrangler.jsonc by `wrangler types` and
+// declared globally in worker-configuration.d.ts at the app root. We extend
+// it here to:
+//   • narrow BROWSER to a puppeteer-compatible type
+//   • narrow Queue<...> bindings with their job payload types
+//   • narrow the workflow bindings to a single shared RunParams payload
+//   • narrow AIRTABLE_TABLES from the wrangler literal to a typed interface
+//   • declare production-only secrets that wrangler can't infer from config
+//
+// Run `npm run cf-typegen` after editing wrangler.jsonc to refresh
+// worker-configuration.d.ts.
 // ---------------------------------------------------------------------------
 import type puppeteer from '@cloudflare/puppeteer';
 import type { RunParams } from './lib/workflow-meta';
 import type { ReportJob } from './services/reports/types';
 import type { AutoEnrichJob } from './services/autoEnrich/types';
-// `SendEmail` is the runtime type of a `send_email` binding, exposed as a
-// global by @cloudflare/workers-types.
 
 /**
  * Type of the BROWSER binding accepted by puppeteer.launch(). Computed from
@@ -37,21 +44,12 @@ export interface AirtableTables {
  */
 export type SearchTool = 'searchapi' | 'web';
 
-export interface Env {
-  // Static bindings
-  ASSETS: Fetcher;
-  KV_CACHE: KVNamespace;
-  BROWSER: BrowserBinding;
-  /**
-   * Workers AI binding. We use it via `env.AI.gateway(AI_GATEWAY_ID).run(...)`
-   * to issue universal-endpoint requests to Anthropic through the Cloudflare
-   * AI Gateway — no batch API, no SDK, no manual gateway URL.
-   */
-  AI: Ai;
-
-  // Workflow bindings — one per WorkflowEntrypoint class, declared in
-  // wrangler.jsonc. The route layer dispatches via env[bindingName] using
-  // the registry → binding map in `workflows/registry.ts`.
+/**
+ * Workflow binding map. Every entry maps a binding name to `Workflow<RunParams>`
+ * — every workflow class accepts the same payload shape, so we share the type.
+ * Keep this in sync with the WF_* bindings in wrangler.jsonc.
+ */
+type WorkflowBindings = {
   WF_VENDOR_GITHUB: Workflow<RunParams>;
   WF_VENDOR_FUNDING: Workflow<RunParams>;
   WF_VENDOR_SCORE: Workflow<RunParams>;
@@ -67,45 +65,47 @@ export interface Env {
   WF_TOOL_SCORE: Workflow<RunParams>;
   WF_TOOL_ORCHESTRATOR: Workflow<RunParams>;
   WF_TOOL_RESEARCH: Workflow<RunParams>;
+};
 
-  // Durable Object that owns the live run registry, drives status reconciliation
-  // alarms, broadcasts WebSocket deltas, and writes the Airtable history row on
-  // terminal status. Single instance addressed via idFromName('singleton').
-  RUNS_HUB: DurableObjectNamespace;
-
-  // Email — `send_email` binding for the weekly cost report.
-  REPORT_EMAIL: SendEmail;
-
-  // Queue — produces + consumes weekly-cost-report jobs (cron + ad-hoc).
-  REPORTS_QUEUE: Queue<ReportJob>;
-
-  // Queue — produces + consumes vendor auto-enrich jobs. The */12 cron sends
-  // { kind: 'vendor-auto-enrich', count: 5, model: 'claude-sonnet-4-6' };
-  // the consumer picks the first N vendors with stale/empty last_enriched_at
-  // and spawns the orchestrator with forceRefresh: true.
-  VENDOR_AUTO_ENRICH_QUEUE: Queue<AutoEnrichJob>;
-
-  // Vars
-  SEARCH_TOOL: SearchTool;
-  AIRTABLE_BASE_ID: string;
-  AIRTABLE_TABLES: AirtableTables;
-  DEFAULT_MODEL: string;
-  AI_GATEWAY_ID: string;
-  CF_ACCOUNT_ID: string;
-  REPORT_FROM: string;
-  REPORT_FROM_NAME: string;
-  REPORT_REPLY_TO: string;
-  REPORT_TO: string;
-  /** USD cost per SearchAPI.io search. Stored as string in wrangler.jsonc; parseFloat at use site. */
-  SEARCHAPI_COST_PER_SEARCH: string;
-
-  // Secrets
+/**
+ * Production-only secrets. Wrangler can't infer these from wrangler.jsonc
+ * because they're set via `wrangler secret put` (or .dev.vars). Listed here
+ * so call sites get types instead of `unknown`.
+ *
+ * AIRTABLE_TOKEN is intentionally absent — wrangler picks it up from .dev.vars
+ * and emits it on Cloudflare.Env directly.
+ */
+interface ManualSecrets {
+  /** SearchAPI.io key. If unset the worker auto-falls back to Anthropic web_search_20250305. */
   SEARCHAPI_API_KEY: string;
-  AIRTABLE_TOKEN: string;
+  /** Optional GitHub PAT to raise REST rate limits. */
   GITHUB_TOKEN?: string;
+  /** Cloudflare API token with `AI Gateway: Read` for the weekly cost report. */
   CF_API_TOKEN: string;
-  /** Scrapfly API key — anti-scraping proxy used to fetch Crunchbase org pages. Optional; vendor-overview falls through to the leaf workflows when unset. */
+  /** Scrapfly anti-scraping proxy key for Crunchbase fetches. Optional. */
   SCRAPFLY_API_KEY?: string;
 }
+
+/**
+ * Bindings whose generated type from wrangler.jsonc is too loose. We override
+ * them here to recover payload types (queues, workflows) and SDK-specific
+ * shapes (puppeteer's BrowserBinding).
+ */
+interface OverriddenBindings extends WorkflowBindings {
+  BROWSER: BrowserBinding;
+  REPORTS_QUEUE: Queue<ReportJob>;
+  VENDOR_AUTO_ENRICH_QUEUE: Queue<AutoEnrichJob>;
+  AIRTABLE_TABLES: AirtableTables;
+  SEARCH_TOOL: SearchTool;
+}
+
+/**
+ * Final Env consumed throughout the worker. Composed from the wrangler-
+ * generated bindings minus the keys we override, then merged with our
+ * narrowed overrides and production-only secrets.
+ */
+export type Env = Omit<Cloudflare.Env, keyof OverriddenBindings> &
+  OverriddenBindings &
+  ManualSecrets;
 
 export const CACHE_TTL_S = 60 * 60 * 24; // 1 day, matches n8n-utils
