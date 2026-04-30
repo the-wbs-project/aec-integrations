@@ -9,7 +9,7 @@
     "dev": "ng build --watch & wrangler dev",
     "deploy": "ng build && wrangler deploy",
     "tail": "wrangler tail",
-    "cf-typegen": "wrangler types"
+    "cf-typegen": "wrangler types --strict-vars false"
   },
   "dependencies": {
     "@angular/common": "^21.0.0",

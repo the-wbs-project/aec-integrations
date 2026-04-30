@@ -1,11 +1,12 @@
 // ---------------------------------------------------------------------------
-// Supabase JWT auth middleware. Verifies HS256 access tokens locally with
-// the project's JWT secret — no network hop per request. Tokens that have
-// been revoked but not yet expired remain valid until expiry (default 1h),
-// which is acceptable for an internal admin tool.
+// Supabase JWT auth middleware. Verifies asymmetric (ES256/RS256) access
+// tokens against the project's JWKS at /auth/v1/.well-known/jwks.json. The
+// JWKS is cached per isolate; cold isolates pay one fetch (~50ms). Tokens
+// that have been revoked but not yet expired remain valid until expiry
+// (default 1h), which is acceptable for an internal admin tool.
 // ---------------------------------------------------------------------------
 import type { MiddlewareHandler } from 'hono';
-import { jwtVerify } from 'jose';
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from 'jose';
 import type { Env } from '../env';
 
 export interface AuthUser {
@@ -15,13 +16,17 @@ export interface AuthUser {
 
 export type AuthVariables = { user: AuthUser };
 
-let cachedSecret: { raw: string; key: Uint8Array } | null = null;
+type JWKS = ReturnType<typeof createRemoteJWKSet>;
+const jwksByUrl = new Map<string, JWKS>();
 
-function getSecretKey(raw: string): Uint8Array {
-  if (cachedSecret && cachedSecret.raw === raw) return cachedSecret.key;
-  const key = new TextEncoder().encode(raw);
-  cachedSecret = { raw, key };
-  return key;
+function getJwks(supabaseUrl: string): JWKS {
+  const url = `${supabaseUrl.replace(/\/$/, '')}/auth/v1/.well-known/jwks.json`;
+  let jwks = jwksByUrl.get(url);
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL(url));
+    jwksByUrl.set(url, jwks);
+  }
+  return jwks;
 }
 
 /**
@@ -31,20 +36,26 @@ function getSecretKey(raw: string): Uint8Array {
  */
 export async function verifyAccessToken(
   token: string | null | undefined,
-  env: Pick<Env, 'SUPABASE_JWT_SECRET'>
+  env: Pick<Env, 'SUPABASE_URL'>
 ): Promise<AuthUser | null> {
   if (!token) return null;
-  if (!env.SUPABASE_JWT_SECRET) return null;
+  if (!env.SUPABASE_URL) return null;
   try {
-    const { payload } = await jwtVerify(token, getSecretKey(env.SUPABASE_JWT_SECRET), {
-      algorithms: ['HS256'],
+    const { payload } = await jwtVerify(token, getJwks(env.SUPABASE_URL), {
+      algorithms: ['ES256', 'RS256'],
+      issuer: `${env.SUPABASE_URL.replace(/\/$/, '')}/auth/v1`,
+      audience: 'authenticated',
     });
-    if (!payload.sub) return null;
-    const email = typeof payload['email'] === 'string' ? (payload['email'] as string) : undefined;
-    return { id: payload.sub, email };
+    return payloadToUser(payload);
   } catch {
     return null;
   }
+}
+
+function payloadToUser(payload: JWTPayload): AuthUser | null {
+  if (!payload.sub) return null;
+  const email = typeof payload['email'] === 'string' ? (payload['email'] as string) : undefined;
+  return { id: payload.sub, email };
 }
 
 /**
