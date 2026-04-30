@@ -30,6 +30,41 @@
   gap: var(--space-2);
 }
 
+// --- button group ---------------------------------------------------------
+// Mirrors the vendor-detail pattern: an icon-only Syncfusion refresh button
+// flush against the enrich split-button. Both render as Syncfusion .e-btn,
+// so we just flatten the seam and round the outer edges.
+.btn-group {
+  display: inline-flex;
+  align-items: stretch;
+  isolation: isolate;
+}
+
+.btn-group ::ng-deep .btn-group__refresh.e-btn {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.btn-group ::ng-deep app-enrich-split-button .e-split-btn-wrapper {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.btn-group ::ng-deep app-enrich-split-button .e-split-btn-wrapper > .e-btn:first-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.icon--spin {
+  animation: btn-group-spin 0.9s linear infinite;
+}
+
+@keyframes btn-group-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .detail-title {
   font-size: var(--text-2xl);
   font-weight: 500;
@@ -51,6 +86,34 @@
   gap: var(--space-1);
   font-size: var(--text-sm);
   color: var(--color-text-accent);
+}
+
+.detail-header__links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.external-link--pill {
+  padding: 2px var(--space-2);
+  border: 0.5px solid var(--color-border-default);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-text-secondary);
+  text-decoration: none;
+}
+
+a.external-link--pill:hover {
+  color: var(--color-text-accent);
+  border-color: var(--color-border-strong);
+  text-decoration: none;
+}
+
+.external-link--pill--static {
+  color: var(--color-text-tertiary);
+  cursor: default;
 }
 
 .tab-strip {

@@ -53,6 +53,21 @@
   color: var(--color-text-secondary);
 }
 
+.refresh-icon {
+  display: inline-block;
+  font-size: var(--text-base);
+  line-height: 1;
+}
+
+.refresh-icon--spinning {
+  animation: refresh-spin 800ms linear infinite;
+}
+
+@keyframes refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .filter-bar {
   display: flex;
   flex-wrap: wrap;

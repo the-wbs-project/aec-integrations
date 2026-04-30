@@ -195,7 +195,9 @@ export function hydrateTool(
     marketplaceCount: asNumber(record.get('marketplace_count')),
     ipaasPlatforms: asStringArray(record.get('ipaas_platforms')),
     ipaasCount: asNumber(record.get('ipaas_count')),
-    zapierTriggerCount: asNumber(record.get('zapier_trigger_count')),
+    zapierUrl: asString(record.get('zapier_url')),
+    makeUrl: asString(record.get('make_url')),
+    workatoUrl: asString(record.get('workato_url')),
 
     g2ReviewCount: asNumber(record.get('g2_review_count')),
     g2Rating: asNumber(record.get('g2_rating')),

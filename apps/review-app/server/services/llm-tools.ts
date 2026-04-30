@@ -55,10 +55,13 @@ export const WEB_SEARCH_TOOL: WebSearchTool = {
  * shape, the runner executes the search server-side, then submits a follow-up
  * batch carrying the tool_result.
  */
-export function searchApiToolSchema(maxResults = 5): CustomTool {
+export function searchApiToolSchema(
+  maxResults = 5,
+  maxUses: number = MAX_TOOL_USES,
+): CustomTool {
   return {
     name: 'web_search',
-    description: `Run a Google search via SearchAPI.io. Returns up to ${maxResults} organic results with title, link, and snippet. Call at most ${MAX_TOOL_USES} times.`,
+    description: `Run a Google search via SearchAPI.io. Returns up to ${maxResults} organic results with title, link, and snippet. Call at most ${maxUses} times.`,
     input_schema: {
       type: 'object',
       properties: {
