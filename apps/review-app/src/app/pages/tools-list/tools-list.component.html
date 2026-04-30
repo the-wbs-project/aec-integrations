@@ -7,10 +7,23 @@
           {{ selectedIds().length }} selected
         </span>
       }
+      <button
+        type="button"
+        class="btn btn--secondary"
+        [disabled]="loading()"
+        (click)="fetchTools()"
+        aria-label="Refresh tools"
+      >
+        <span
+          class="refresh-icon"
+          [class.refresh-icon--spinning]="loading()"
+          aria-hidden="true"
+        >↻</span>
+        Refresh
+      </button>
       <app-enrich-split-button
         family="tool"
         [recordIds]="selectedIds()"
-        [filteredIds]="filteredIds()"
       />
       <a routerLink="/tools/new" class="btn btn--primary btn--sm">+ New tool</a>
     </div>

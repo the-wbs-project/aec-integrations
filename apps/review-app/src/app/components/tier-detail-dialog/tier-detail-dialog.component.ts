@@ -330,12 +330,6 @@ function toolInputsFor(
         'iPaaS platforms',
         t.ipaasCount !== undefined ? `${t.ipaasCount} of 3` : undefined,
       ),
-      labelFor(
-        'Zapier triggers',
-        t.zapierTriggerCount !== undefined
-          ? t.zapierTriggerCount.toLocaleString()
-          : undefined,
-      ),
     ];
   }
   if (key === 'demand') {

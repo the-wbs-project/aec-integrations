@@ -21,7 +21,6 @@ export interface ToolFields {
   has_api_docs?: boolean;
   integration_count?: number;
   ipaas_count?: number;
-  zapier_trigger_count?: number;
   g2_review_count?: number;
   capterra_review_count?: number;
   g2_rating?: number;
@@ -48,13 +47,12 @@ export interface PriorityScore {
   demand_populated: number;
 }
 
-/** All input field names checked for completeness — 5 integration + 5 demand. */
+/** All input field names checked for completeness — 4 integration + 5 demand. */
 export const PRIORITY_INPUT_FIELDS = [
   'marketplace_count',
   'has_api_docs',
   'integration_count',
   'ipaas_count',
-  'zapier_trigger_count',
   'g2_review_count',
   'capterra_review_count',
   'search_volume_monthly',
@@ -105,7 +103,6 @@ export function computePriorityScore(
     tool.has_api_docs,
     tool.integration_count,
     tool.ipaas_count,
-    tool.zapier_trigger_count,
   ];
   const integrationPopulated = integrationInputs.reduce<number>(
     (n, v) => n + (isPopulatedNumber(v) || isPopulatedBoolean(v) ? 1 : 0),
@@ -116,8 +113,7 @@ export function computePriorityScore(
     0.30 * logNorm(tool.marketplace_count, 4) +
     0.25 * (bool(tool.has_api_docs) ? 100 : 0) +
     0.20 * logNorm(tool.integration_count, 100) +
-    0.15 * logNorm(tool.ipaas_count, 3) +
-    0.10 * logNorm(tool.zapier_trigger_count, 50);
+    0.25 * logNorm(tool.ipaas_count, 3);
 
   const integrationScore = integrationPopulated > 0 ? round1(integrationRaw) : null;
 

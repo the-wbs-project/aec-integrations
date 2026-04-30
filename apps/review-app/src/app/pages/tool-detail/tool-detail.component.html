@@ -31,10 +31,37 @@
         <div class="header-row">
           <h1 class="detail-title">{{ tool.name }}</h1>
           <div class="header-row__actions">
-            <app-enrich-split-button
-              family="tool"
-              [recordIds]="recordIds()"
-            />
+            <div class="btn-group">
+              <button
+                ejs-button
+                type="button"
+                cssClass="e-primary btn-group__refresh"
+                aria-label="Refresh tool"
+                title="Refresh"
+                [disabled]="reloading()"
+                (click)="reload()"
+              >
+                <svg
+                  class="icon"
+                  [class.icon--spin]="reloading()"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  aria-hidden="true"
+                >
+                  <polyline points="23 4 23 10 17 10" />
+                  <polyline points="1 20 1 14 7 14" />
+                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
+                </svg>
+              </button>
+              <app-enrich-split-button
+                family="tool"
+                [recordIds]="recordIds()"
+              />
+            </div>
             <button class="btn btn--ghost btn--sm" (click)="startEdit('header', tool)">Edit</button>
           </div>
         </div>
@@ -51,6 +78,77 @@
               </svg>
             </a>
           }
+        </div>
+
+        <div class="detail-header__links">
+          @if (tool.toolIntegrationsUrl) {
+            <a
+              [href]="tool.toolIntegrationsUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Integrations page</a>
+          }
+          @if (tool.apiDocsUrl) {
+            <a
+              [href]="tool.apiDocsUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >API docs</a>
+          } @else if (tool.hasApiDocs) {
+            <span class="external-link--pill external-link--pill--static">API docs (no URL)</span>
+          }
+          @if (tool.g2Url) {
+            <a
+              [href]="tool.g2Url"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >G2</a>
+          }
+          @if (tool.capterraUrl) {
+            <a
+              [href]="tool.capterraUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Capterra</a>
+          }
+          <a
+            [href]="googleTrendsUrl(tool.name)"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="external-link external-link--pill"
+          >Google Trends</a>
+          @if (tool.zapierUrl) {
+            <a
+              [href]="tool.zapierUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Zapier</a>
+          }
+          @if (tool.makeUrl) {
+            <a
+              [href]="tool.makeUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Make</a>
+          }
+          @if (tool.workatoUrl) {
+            <a
+              [href]="tool.workatoUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="external-link external-link--pill"
+            >Workato</a>
+          }
+          <button
+            class="btn btn--ghost btn--sm"
+            (click)="startEdit('integrationLinks', tool)"
+          >Edit links</button>
         </div>
       }
     </header>
@@ -245,15 +343,12 @@
         }
       </section>
 
-      <!-- Integration links -->
-      <section class="detail-section">
-        <div class="section-row">
-          <h2 class="section-heading">Integration links</h2>
-          @if (editingSection() !== 'integrationLinks') {
-            <button class="btn btn--ghost btn--sm" (click)="startEdit('integrationLinks', tool)">Edit</button>
-          }
-        </div>
-        @if (editingSection() === 'integrationLinks') {
+      <!-- Integration links (edit form only — read-mode lives in the header) -->
+      @if (editingSection() === 'integrationLinks') {
+        <section class="detail-section">
+          <div class="section-row">
+            <h2 class="section-heading">Integration links</h2>
+          </div>
           <div class="edit-stack">
             <label class="field-label" for="int-url">Tool integrations page URL</label>
             <input id="int-url" class="input" [(ngModel)]="draft.toolIntegrationsUrl" name="toolIntegrationsUrl" placeholder="https://..." />
@@ -268,33 +363,8 @@
             <button class="btn btn--primary btn--sm" (click)="saveSection('integrationLinks')" [disabled]="saving()">Save</button>
             <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
           </div>
-        } @else {
-          <dl class="metric-grid">
-            <div class="metric">
-              <dt class="metric__label">Integrations page</dt>
-              <dd class="metric__value">
-                @if (tool.toolIntegrationsUrl) {
-                  <a [href]="tool.toolIntegrationsUrl" target="_blank" rel="noopener noreferrer">{{ tool.toolIntegrationsUrl }}</a>
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </dd>
-            </div>
-            <div class="metric">
-              <dt class="metric__label">API docs</dt>
-              <dd class="metric__value">
-                @if (tool.apiDocsUrl) {
-                  <a [href]="tool.apiDocsUrl" target="_blank" rel="noopener noreferrer">{{ tool.apiDocsUrl }}</a>
-                } @else if (tool.hasApiDocs) {
-                  <span>Yes (no URL)</span>
-                } @else {
-                  <span class="na">N/A</span>
-                }
-              </dd>
-            </div>
-          </dl>
-        }
-      </section>
+        </section>
+      }
 
       <!-- Scoring -->
       <section class="detail-section">
@@ -416,9 +486,6 @@
                 @if (tool.g2ReviewCount !== undefined) {
                   <span class="muted"> · {{ tool.g2ReviewCount | number:'1.0-0' }} reviews</span>
                 }
-                @if (tool.g2Url) {
-                  <a [href]="tool.g2Url" target="_blank" rel="noopener noreferrer" class="muted"> · View</a>
-                }
               } @else {
                 <span class="na">N/A</span>
               }
@@ -433,9 +500,6 @@
                 }
                 @if (tool.capterraReviewCount !== undefined) {
                   <span class="muted"> · {{ tool.capterraReviewCount | number:'1.0-0' }} reviews</span>
-                }
-                @if (tool.capterraUrl) {
-                  <a [href]="tool.capterraUrl" target="_blank" rel="noopener noreferrer" class="muted"> · View</a>
                 }
               } @else {
                 <span class="na">N/A</span>
@@ -508,16 +572,6 @@
                     }
                   </div>
                 }
-              } @else {
-                <span class="na">N/A</span>
-              }
-            </dd>
-          </div>
-          <div class="metric">
-            <dt class="metric__label">Zapier triggers/actions</dt>
-            <dd class="metric__value">
-              @if (tool.zapierTriggerCount !== undefined) {
-                {{ tool.zapierTriggerCount | number:'1.0-0' }}
               } @else {
                 <span class="na">N/A</span>
               }

@@ -14,6 +14,7 @@ import {
   FORCE_EMIT_TOOL_CHOICE,
   MAX_TOOL_USES,
   type Tool,
+  type WebSearchTool,
 } from '../services/llm-tools';
 import { runSerpSearch, pickOrganicResults } from '../services/search';
 import {
@@ -67,11 +68,17 @@ export interface BuildInitialRequestInput {
   outputSchema: OutputSchema;
   searchTool: SearchTool;
   maxTokens?: number;
+  /** Override the default search-tool max_uses (built-in) / advertised cap (custom). */
+  searchMaxUses?: number;
 }
 
 export function buildInitialRequest(input: BuildInitialRequestInput): MessageRequestBody {
+  const builtIn: WebSearchTool =
+    input.searchMaxUses !== undefined
+      ? { type: 'web_search_20250305', name: 'web_search', max_uses: input.searchMaxUses }
+      : WEB_SEARCH_TOOL;
   const tools: Tool[] = [
-    input.searchTool === 'web' ? WEB_SEARCH_TOOL : searchApiToolSchema(),
+    input.searchTool === 'web' ? builtIn : searchApiToolSchema(5, input.searchMaxUses),
     emitResultTool(input.outputSchema),
   ];
   return {
@@ -91,12 +98,17 @@ export interface BuildContinuationRequestInput {
   outputSchema: OutputSchema;
   priorMessages: MessageParam[];
   maxTokens?: number;
+  /** Override the advertised search-tool cap on continuation turns. */
+  searchMaxUses?: number;
 }
 
 export function buildContinuationRequest(
   input: BuildContinuationRequestInput,
 ): MessageRequestBody {
-  const tools: Tool[] = [searchApiToolSchema(), emitResultTool(input.outputSchema)];
+  const tools: Tool[] = [
+    searchApiToolSchema(5, input.searchMaxUses),
+    emitResultTool(input.outputSchema),
+  ];
   return {
     model: input.model,
     max_tokens: input.maxTokens ?? 8192,

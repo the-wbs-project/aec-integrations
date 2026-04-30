@@ -45,7 +45,9 @@ export interface Tool {
   marketplaceCount?: number;
   ipaasPlatforms?: string[];
   ipaasCount?: number;
-  zapierTriggerCount?: number;
+  zapierUrl?: string;
+  makeUrl?: string;
+  workatoUrl?: string;
 
   // Market signals
   g2ReviewCount?: number;

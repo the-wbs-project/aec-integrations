@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
+import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
 import { RunDetailDialogComponent } from '../../components/run-detail-dialog/run-detail-dialog.component';
 import { ApiService } from '../../services/api.service';
 import { RunsService, type RecentRunRow } from '../../services/runs.service';
@@ -69,6 +70,7 @@ interface DraftState {
     DecimalPipe,
     FormsModule,
     GridModule,
+    ButtonModule,
     TagInputComponent,
     EnrichSplitButtonComponent,
     RunDetailDialogComponent,
@@ -135,6 +137,7 @@ export class ToolDetailComponent {
   editingSection = signal<SectionKey | null>(null);
   saving = signal(false);
   saveError = signal<string | null>(null);
+  reloading = signal(false);
   integrationSearch = signal('');
 
   combinedIntegrations = computed<CombinedIntegration[]>(() => {
@@ -211,6 +214,19 @@ export class ToolDetailComponent {
   cancelEdit(): void {
     this.editingSection.set(null);
     this.saveError.set(null);
+  }
+
+  reload(): void {
+    if (this.reloading()) return;
+    const id = this.id();
+    this.reloading.set(true);
+    this.api.getTool(id).subscribe({
+      next: (tool) => {
+        if (this.id() === id) this.tool.set(tool);
+        this.reloading.set(false);
+      },
+      error: () => this.reloading.set(false),
+    });
   }
 
   saveSection(section: SectionKey): void {
@@ -364,4 +380,9 @@ export class ToolDetailComponent {
   formatDateWithRelative(iso: string): string {
     return formatDateWithRelative(iso);
   }
+
+  googleTrendsUrl(name: string): string {
+    return `https://trends.google.com/trends/explore?q=${encodeURIComponent(name)}&date=today%205-y`;
+  }
+
 }

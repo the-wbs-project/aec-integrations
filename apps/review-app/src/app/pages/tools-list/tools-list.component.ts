@@ -256,11 +256,6 @@ export class ToolsListComponent implements OnInit {
     this.applyFilters({}),
   );
 
-  /** IDs feeding the bulk-enrich split-button when no rows are selected. */
-  protected readonly filteredIds = computed(() =>
-    this.filteredRows().map((t) => t.id),
-  );
-
   protected readonly selectionSettings: SelectionSettingsModel = {
     type: 'Multiple',
     checkboxOnly: true,
