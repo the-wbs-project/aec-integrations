@@ -217,7 +217,7 @@
 		"SEARCHAPI_COST_PER_SEARCH": "0.004",
 		// Supabase auth — public values (anon key is gated by RLS, safe to ship).
 		"SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
-		"SUPABASE_ANON_KEY": ""
+		"SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpneGVianVmYWJ0d2tjZ3hqcXZrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU3MjE5NTAsImV4cCI6MjA5MTI5Nzk1MH0.mH985-CGvr55NyTe8lNn9mLr_PXclPInrIYvSPv1gh0"
 	}
 	// Secrets (set via `wrangler secret put`):
 	//   SEARCHAPI_API_KEY   – SearchAPI.io key. If unset the worker auto-falls back
@@ -229,9 +229,6 @@
 	//   SCRAPFLY_API_KEY    – Scrapfly anti-scraping proxy key. Used by vendor-overview
 	//                         to fetch Crunchbase organization pages. Optional;
 	//                         vendor-overview falls through to leaf workflows when unset.
-	//   SUPABASE_JWT_SECRET – Supabase project JWT secret (HS256). Used by the auth
-	//                         middleware to verify access tokens. Get from
-	//                         Supabase dashboard → Project Settings → API → JWT Secret.
 	//   MCP_TOKEN           – Bearer token for the /mcp endpoint. Currently unused —
 	//                         the MCP route is open. Set when re-enabling auth.
 }

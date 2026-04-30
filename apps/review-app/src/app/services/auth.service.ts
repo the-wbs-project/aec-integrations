@@ -11,7 +11,7 @@ export class AuthService {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: false,
+        detectSessionInUrl: true,
       },
     }
   );
@@ -58,6 +58,17 @@ export class AuthService {
 
   async signOut(): Promise<void> {
     await this.client.auth.signOut();
+  }
+
+  async resetPassword(email: string): Promise<void> {
+    const redirectTo = `${window.location.origin}/reset-password`;
+    const { error } = await this.client.auth.resetPasswordForEmail(email, { redirectTo });
+    if (error) throw error;
+  }
+
+  async updatePassword(newPassword: string): Promise<void> {
+    const { error } = await this.client.auth.updateUser({ password: newPassword });
+    if (error) throw error;
   }
 
   /**
