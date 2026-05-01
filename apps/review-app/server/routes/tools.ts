@@ -211,7 +211,12 @@ tools.get('/:id', async (c) => {
     return c.json({ error: 'Tool not found' }, 404);
   }
 
-  const detail: ToolDetail = hydrateToolDetail(record, maps, integrationRecs);
+  const detail: ToolDetail = hydrateToolDetail(
+    record,
+    maps,
+    integrationRecs,
+    rawTools,
+  );
   return c.json(detail);
 });
 
@@ -291,11 +296,12 @@ tools.patch('/:id', async (c) => {
 
   await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'tools')}`);
 
-  const [integrationRecs, maps] = await Promise.all([
+  const [integrationRecs, maps, rawTools] = await Promise.all([
     fetchIntegrations(env),
     buildLookupMaps(env),
+    fetchTools(env),
   ]);
-  const detail = hydrateToolDetail(updated, maps, integrationRecs);
+  const detail = hydrateToolDetail(updated, maps, integrationRecs, rawTools);
   return c.json(detail);
 });
 

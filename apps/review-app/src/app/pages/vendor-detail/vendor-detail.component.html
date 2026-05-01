@@ -204,40 +204,40 @@
 
     <!-- Tab nav -->
     <nav class="tab-nav" role="tablist" aria-label="Vendor sections">
-      <button
-        type="button"
+      <a
         role="tab"
-        [attr.aria-selected]='activeTab() === "details"'
         class="tab-nav__item"
-        [class.tab-nav__item--active]='activeTab() === "details"'
-        (click)='setTab("details")'
+        routerLinkActive="tab-nav__item--active"
+        #vDetailsTab="routerLinkActive"
+        [attr.aria-selected]="vDetailsTab.isActive"
+        [routerLink]='["/vendors", id(), "details"]'
       >
         Details
-      </button>
-      <button
-        type="button"
+      </a>
+      <a
         role="tab"
-        [attr.aria-selected]='activeTab() === "tools"'
         class="tab-nav__item"
-        [class.tab-nav__item--active]='activeTab() === "tools"'
-        (click)='setTab("tools")'
+        routerLinkActive="tab-nav__item--active"
+        #vToolsTab="routerLinkActive"
+        [attr.aria-selected]="vToolsTab.isActive"
+        [routerLink]='["/vendors", id(), "tools"]'
       >
         Tools
         <span class="tab-nav__count">{{ vendor.tools.length }}</span>
-      </button>
-      <button
-        type="button"
+      </a>
+      <a
         role="tab"
-        [attr.aria-selected]='activeTab() === "runs"'
         class="tab-nav__item"
-        [class.tab-nav__item--active]='activeTab() === "runs"'
-        (click)='setTab("runs")'
+        routerLinkActive="tab-nav__item--active"
+        #vRunsTab="routerLinkActive"
+        [attr.aria-selected]="vRunsTab.isActive"
+        [routerLink]='["/vendors", id(), "runs"]'
       >
         Runs
         @if (vendorRuns().length) {
           <span class="tab-nav__count">{{ vendorRuns().length }}</span>
         }
-      </button>
+      </a>
     </nav>
 
     <!-- Details tab -->

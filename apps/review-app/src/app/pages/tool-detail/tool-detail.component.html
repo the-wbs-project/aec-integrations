@@ -166,25 +166,39 @@
     </header>
 
     <!-- Tabs -->
-    <nav class="nav tab-strip">
-      <button
-        type="button"
+    <nav class="nav tab-strip" role="tablist" aria-label="Tool sections">
+      <a
+        role="tab"
         class="nav__item"
-        [class.nav__item--active]="activeTab() === 'details'"
-        (click)="activeTab.set('details')"
-      >Details</button>
-      <button
-        type="button"
+        routerLinkActive="nav__item--active"
+        #detailsTab="routerLinkActive"
+        [attr.aria-selected]="detailsTab.isActive"
+        [routerLink]="['/tools', id(), 'details']"
+      >Details</a>
+      <a
+        role="tab"
         class="nav__item"
-        [class.nav__item--active]="activeTab() === 'notes'"
-        (click)="activeTab.set('notes')"
-      >Notes</button>
-      <button
-        type="button"
+        routerLinkActive="nav__item--active"
+        #integrationsTab="routerLinkActive"
+        [attr.aria-selected]="integrationsTab.isActive"
+        [routerLink]="['/tools', id(), 'integrations']"
+      >Integrations <span class="muted">({{ integratedTools().length }})</span></a>
+      <a
+        role="tab"
         class="nav__item"
-        [class.nav__item--active]="activeTab() === 'runs'"
-        (click)="activeTab.set('runs')"
-      >Runs <span class="muted">({{ toolRuns().length }})</span></button>
+        routerLinkActive="nav__item--active"
+        #notesTab="routerLinkActive"
+        [attr.aria-selected]="notesTab.isActive"
+        [routerLink]="['/tools', id(), 'notes']"
+      >Notes</a>
+      <a
+        role="tab"
+        class="nav__item"
+        routerLinkActive="nav__item--active"
+        #runsTab="routerLinkActive"
+        [attr.aria-selected]="runsTab.isActive"
+        [routerLink]="['/tools', id(), 'runs']"
+      >Runs <span class="muted">({{ toolRuns().length }})</span></a>
     </nav>
 
     @if (activeTab() === 'details') {
@@ -259,18 +273,8 @@
               <span class="taxonomy-label">Categories</span>
               @if (tool.categories.length) {
                 <div class="chip-list">
-                  @for (c of visibleRefs(tool.categories); track c.id) {
+                  @for (c of tool.categories; track c.id) {
                     <span class="badge badge--neutral">{{ c.name }}</span>
-                  }
-                  @if (overflowRefs(tool.categories); as extra) {
-                    <span class="badge badge--neutral pill-overflow" tabindex="0">
-                      +{{ extra.length }}
-                      <span class="pill-overflow__menu">
-                        @for (c of extra; track c.id) {
-                          <span class="pill-overflow__item">{{ c.name }}</span>
-                        }
-                      </span>
-                    </span>
                   }
                 </div>
               } @else {
@@ -281,18 +285,8 @@
               <span class="taxonomy-label">Disciplines</span>
               @if (tool.disciplines.length) {
                 <div class="chip-list">
-                  @for (d of visibleRefs(tool.disciplines); track d.id) {
+                  @for (d of tool.disciplines; track d.id) {
                     <span class="badge badge--neutral">{{ d.name }}</span>
-                  }
-                  @if (overflowRefs(tool.disciplines); as extra) {
-                    <span class="badge badge--neutral pill-overflow" tabindex="0">
-                      +{{ extra.length }}
-                      <span class="pill-overflow__menu">
-                        @for (d of extra; track d.id) {
-                          <span class="pill-overflow__item">{{ d.name }}</span>
-                        }
-                      </span>
-                    </span>
                   }
                 </div>
               } @else {
@@ -303,18 +297,8 @@
               <span class="taxonomy-label">Phases</span>
               @if (tool.phases.length) {
                 <div class="chip-list">
-                  @for (p of visibleRefs(tool.phases); track p.id) {
+                  @for (p of tool.phases; track p.id) {
                     <span class="badge badge--neutral">{{ p.name }}</span>
-                  }
-                  @if (overflowRefs(tool.phases); as extra) {
-                    <span class="badge badge--neutral pill-overflow" tabindex="0">
-                      +{{ extra.length }}
-                      <span class="pill-overflow__menu">
-                        @for (p of extra; track p.id) {
-                          <span class="pill-overflow__item">{{ p.name }}</span>
-                        }
-                      </span>
-                    </span>
                   }
                 </div>
               } @else {
@@ -592,58 +576,6 @@
         </dl>
       </section>
 
-      <!-- Integrations -->
-      @if (combinedIntegrations().length) {
-        <section class="detail-section">
-          <div class="section-row">
-            <h2 class="section-heading">
-              Integrations
-              <span class="section-count">({{ combinedIntegrations().length }})</span>
-            </h2>
-            <input
-              class="input section-search"
-              type="search"
-              placeholder="Search by tool, type, description…"
-              [value]="integrationSearch()"
-              (input)="onIntegrationSearch($event)"
-              aria-label="Search integrations"
-            />
-          </div>
-          <div class="table-wrapper">
-            <table class="table" aria-label="Integrations">
-              <thead>
-                <tr>
-                  <th>Tool</th>
-                  <th>Type</th>
-                  <th>Description</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (i of filteredIntegrations(); track i.id) {
-                  <tr>
-                    <td>
-                      @if (i.otherTool) {
-                        <a [routerLink]="['/tools', i.otherTool.id]">{{ i.otherTool.name }}</a>
-                      }
-                    </td>
-                    <td>
-                      @if (i.integrationType) {
-                        <span class="badge badge--neutral">{{ i.integrationType }}</span>
-                      }
-                    </td>
-                    <td class="description-cell">{{ i.description }}</td>
-                  </tr>
-                } @empty {
-                  <tr>
-                    <td colspan="4" class="empty-state">No integrations match your search.</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </section>
-      }
-
       <!-- Data freshness -->
       @if (tool.lastScoredAt || tool.lastToolEnrichedAt || tool.toolIntegrationCheckedAt) {
         <section class="detail-section freshness">
@@ -658,6 +590,148 @@
           }
         </section>
       }
+    }
+
+    @if (activeTab() === 'integrations') {
+      <div role="tabpanel">
+        <section class="detail-section">
+          @if (integratedTools().length) {
+            <div class="section-row section-row--end">
+              <input
+                class="input section-search"
+                type="search"
+                placeholder="Search by tool, vendor, category…"
+                [value]="integratedToolsSearch()"
+                (input)="onIntegratedToolsSearch($event)"
+                aria-label="Search integrated tools"
+              />
+            </div>
+            <div class="table-wrapper">
+              <table class="table" aria-label="Integrated tools">
+                <thead>
+                  <tr>
+                    <th [attr.aria-sort]="integratedToolsSortAria('name')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('name')">
+                        Tool
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'name' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                      </button>
+                    </th>
+                    <th [attr.aria-sort]="integratedToolsSortAria('tier')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('tier')">
+                        Tier
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'tier' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                      </button>
+                    </th>
+                    <th [attr.aria-sort]="integratedToolsSortAria('vendor')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('vendor')">
+                        Vendor
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'vendor' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                      </button>
+                    </th>
+                    <th>Categories</th>
+                    <th [attr.aria-sort]="integratedToolsSortAria('researchStatus')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('researchStatus')">
+                        Research status
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'researchStatus' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                      </button>
+                    </th>
+                    <th class="num" [attr.aria-sort]="integratedToolsSortAria('integrationCount')">
+                      <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedToolsSort('integrationCount')">
+                        Integrations
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'integrationCount' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                      </button>
+                    </th>
+                    <th class="num" [attr.aria-sort]="integratedToolsSortAria('connections')">
+                      <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedToolsSort('connections')">
+                        Connections
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'connections' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                      </button>
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (it of filteredIntegratedTools(); track it.id) {
+                    <tr>
+                      <td>
+                        <a [routerLink]="['/tools', it.id]">{{ it.name }}</a>
+                      </td>
+                      <td>
+                        <span
+                          class="badge"
+                          [class]="'badge ' + tierBadgeClass(it.priorityTier ?? '')"
+                          [title]="tierBlurb(it.priorityTier)"
+                        >{{ tierLabel(it.priorityTier) }}</span>
+                        @if (it.priorityScore !== undefined && it.priorityScore !== null) {
+                          <span class="muted tier-score">{{ it.priorityScore | number:'1.0-0' }}</span>
+                        }
+                      </td>
+                      <td>
+                        @if (it.vendors.length) {
+                          <div class="chip-list">
+                            @for (v of visibleRefs(it.vendors); track v.id) {
+                              <a class="badge badge--neutral" [routerLink]="['/vendors', v.id]">{{ v.name }}</a>
+                            }
+                            @if (overflowRefs(it.vendors); as extra) {
+                              <span class="badge badge--neutral pill-overflow" tabindex="0">
+                                +{{ extra.length }}
+                                <span class="pill-overflow__menu">
+                                  @for (v of extra; track v.id) {
+                                    <span class="pill-overflow__item">{{ v.name }}</span>
+                                  }
+                                </span>
+                              </span>
+                            }
+                          </div>
+                        } @else {
+                          <span class="na">—</span>
+                        }
+                      </td>
+                      <td>
+                        @if (it.categories.length) {
+                          <div class="chip-list">
+                            @for (c of visibleRefs(it.categories); track c.id) {
+                              <span class="badge badge--neutral">{{ c.name }}</span>
+                            }
+                            @if (overflowRefs(it.categories); as extra) {
+                              <span class="badge badge--neutral pill-overflow" tabindex="0">
+                                +{{ extra.length }}
+                                <span class="pill-overflow__menu">
+                                  @for (c of extra; track c.id) {
+                                    <span class="pill-overflow__item">{{ c.name }}</span>
+                                  }
+                                </span>
+                              </span>
+                            }
+                          </div>
+                        } @else {
+                          <span class="na">—</span>
+                        }
+                      </td>
+                      <td>
+                        @if (it.researchStatus) {
+                          <span class="badge" [class]="statusBadgeClass(it.researchStatus)">
+                            {{ it.researchStatus }}
+                          </span>
+                        } @else {
+                          <span class="na">—</span>
+                        }
+                      </td>
+                      <td class="num">{{ it.integrationCount | number:'1.0-0' }}</td>
+                      <td class="num">{{ it.integrationIds.length | number:'1.0-0' }}</td>
+                    </tr>
+                  } @empty {
+                    <tr>
+                      <td colspan="7" class="empty-state">No tools match your search.</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else {
+            <p class="empty-state">This tool isn't linked to any other tools yet.</p>
+          }
+        </section>
+      </div>
     }
 
     @if (activeTab() === 'notes') {

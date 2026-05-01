@@ -41,6 +41,7 @@
   font-size: var(--text-sm);
   font-weight: 500;
   cursor: pointer;
+  text-decoration: none;
   transition:
     color var(--duration-fast) var(--easing-default),
     border-color var(--duration-fast) var(--easing-default);
@@ -48,6 +49,7 @@
 
 .tab-nav__item:hover {
   color: var(--color-text-body);
+  text-decoration: none;
 }
 
 .tab-nav__item:focus-visible {

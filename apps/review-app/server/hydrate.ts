@@ -3,6 +3,7 @@
 // ---------------------------------------------------------------------------
 import type {
   CrunchbaseList,
+  IntegratedToolSummary,
   IntegrationSummary,
   LinkRef,
   Tool,
@@ -244,12 +245,17 @@ export function hydrateToolDetail(
   record: AirtableRecord,
   maps: LookupMaps,
   integrationRecords: AirtableRecord[],
+  toolRecords: AirtableRecord[],
 ): ToolDetail {
   const base = hydrateTool(record, maps);
   const toolId = record.id;
 
   const integrationsAsSource: IntegrationSummary[] = [];
   const integrationsAsTarget: IntegrationSummary[] = [];
+  // otherToolId -> integration record ids that connect it to the parent tool.
+  // Insertion order is preserved by Map, which gives us a stable ordering for
+  // the Tools tab.
+  const integrationsByOtherTool = new Map<string, string[]>();
 
   for (const ir of integrationRecords) {
     const sourceIds = ir.get('Source Tool') as string[] | undefined;
@@ -270,6 +276,35 @@ export function hydrateToolDetail(
 
     if (isSource) integrationsAsSource.push(summary);
     if (isTarget) integrationsAsTarget.push(summary);
+
+    const otherId = isSource
+      ? summary.targetTool?.id
+      : summary.sourceTool?.id;
+    if (otherId && otherId !== toolId) {
+      const list = integrationsByOtherTool.get(otherId) ?? [];
+      list.push(ir.id);
+      integrationsByOtherTool.set(otherId, list);
+    }
+  }
+
+  const toolRecordsById = new Map(toolRecords.map((r) => [r.id, r]));
+  const integratedTools: IntegratedToolSummary[] = [];
+  for (const [otherId, integrationIds] of integrationsByOtherTool) {
+    const otherRecord = toolRecordsById.get(otherId);
+    if (!otherRecord) continue;
+    const other = hydrateTool(otherRecord, maps);
+    integratedTools.push({
+      id: other.id,
+      name: other.name,
+      website: other.website,
+      vendors: other.vendors,
+      categories: other.categories,
+      researchStatus: other.researchStatus,
+      priorityTier: other.priorityTier,
+      priorityScore: other.priorityScore,
+      integrationCount: other.integrationCount,
+      integrationIds,
+    });
   }
 
   return {
@@ -280,6 +315,7 @@ export function hydrateToolDetail(
     adminNotes: asString(record.get('admin_notes')),
     integrationsAsSource,
     integrationsAsTarget,
+    integratedTools,
   };
 }
 
