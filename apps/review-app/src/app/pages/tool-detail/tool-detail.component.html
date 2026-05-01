@@ -43,6 +43,11 @@
             }
           </div>
           <div class="header-row__actions">
+            <app-promote-split-button
+              [status]="tool.promotionStatus"
+              [disabled]="promoting()"
+              (statusChange)="onPromotionStatusChange($event)"
+            />
             <div class="btn-group">
               <button
                 ejs-button

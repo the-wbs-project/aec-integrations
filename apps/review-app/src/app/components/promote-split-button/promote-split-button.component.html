@@ -1,0 +1,29 @@
+@switch (view()) {
+  @case ('promote') {
+    <button
+      ejs-button
+      type="button"
+      cssClass="e-primary promote-btn"
+      [disabled]="disabled()"
+      (click)="promote()"
+    >Promote</button>
+  }
+  @case ('promoted') {
+    <ejs-splitbutton
+      content="Promoted ✓"
+      [items]="retractItems"
+      [disabled]="disabled()"
+      cssClass="e-success promote-btn promote-btn--promoted"
+      (select)="onMenuSelect($event)"
+    ></ejs-splitbutton>
+  }
+  @case ('retracted') {
+    <ejs-splitbutton
+      content="Retracted"
+      [items]="promoteItems"
+      [disabled]="disabled()"
+      cssClass="promote-btn promote-btn--retracted"
+      (select)="onMenuSelect($event)"
+    ></ejs-splitbutton>
+  }
+}

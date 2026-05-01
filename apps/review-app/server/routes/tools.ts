@@ -273,6 +273,7 @@ tools.patch('/:id', async (c) => {
   if (body.apiDocsUrl !== undefined) fields['api_docs_url'] = body.apiDocsUrl;
   if (body.hasApiDocs !== undefined) fields['has_api_docs'] = body.hasApiDocs;
   if (body.researchStatus !== undefined) fields['research_status'] = body.researchStatus;
+  if (body.promotionStatus !== undefined) fields['promotion_status'] = body.promotionStatus;
   if (body.researchNotes !== undefined) fields['research_notes'] = body.researchNotes;
   if (body.toolIntegrationCheckNotes !== undefined)
     fields['tool_integration_check_notes'] = body.toolIntegrationCheckNotes;

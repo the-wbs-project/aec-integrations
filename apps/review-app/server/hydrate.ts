@@ -187,6 +187,12 @@ export function hydrateTool(
     disciplines: toRefs(record.get('supported_disciplines'), maps.disciplines),
     phases: toRefs(record.get('supported_project_phases'), maps.phases),
     researchStatus: asString(record.get('research_status')),
+    promotionStatus: asString(record.get('promotion_status')) as
+      | 'pending'
+      | 'ready'
+      | 'promoted'
+      | 'retracted'
+      | undefined,
     integrationCount: storedIntegrationCount ?? sourceCount + targetCount,
 
     hasApiDocs: asBoolean(record.get('has_api_docs')),

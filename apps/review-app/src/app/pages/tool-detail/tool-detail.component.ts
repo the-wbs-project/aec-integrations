@@ -10,12 +10,14 @@ import { RunsService, type RecentRunRow } from '../../services/runs.service';
 import { WORKFLOWS } from '../../workflows';
 import { TagInputComponent } from '../../components/tag-input/tag-input.component';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { PromoteSplitButtonComponent } from '../../components/promote-split-button/promote-split-button.component';
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import {
   IntegratedToolSummary,
   LinkRef,
   MetaResponse,
+  PromotionStatus,
   ToolDetail,
   UpdateToolRequest,
 } from '../../types';
@@ -120,6 +122,7 @@ const TOOL_TABS: ReadonlySet<ToolTabKey> = new Set([
     ButtonModule,
     TagInputComponent,
     EnrichSplitButtonComponent,
+    PromoteSplitButtonComponent,
     RunDetailDialogComponent,
     TierDetailDialogComponent,
   ],
@@ -293,6 +296,25 @@ export class ToolDetailComponent {
   cancelEdit(): void {
     this.editingSection.set(null);
     this.saveError.set(null);
+  }
+
+  protected readonly promoting = signal(false);
+
+  onPromotionStatusChange(next: PromotionStatus): void {
+    if (this.promoting()) return;
+    const id = this.id();
+    this.promoting.set(true);
+    this.saveError.set(null);
+    this.api.updateTool(id, { promotionStatus: next }).subscribe({
+      next: (updated) => {
+        if (this.id() === id) this.tool.set(updated);
+        this.promoting.set(false);
+      },
+      error: (err) => {
+        this.promoting.set(false);
+        this.saveError.set(err?.error?.error ?? err?.message ?? 'Save failed');
+      },
+    });
   }
 
   reload(): void {

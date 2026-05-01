@@ -10,6 +10,8 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
+export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted';
+
 export interface Tool {
   id: string;
   name: string;
@@ -20,6 +22,7 @@ export interface Tool {
   disciplines: LinkRef[];
   phases: LinkRef[];
   researchStatus?: string;
+  promotionStatus?: PromotionStatus;
   integrationCount: number;
 
   // Enrichment signals
@@ -221,6 +224,7 @@ export interface UpdateToolRequest {
   apiDocsUrl?: string;
   hasApiDocs?: boolean;
   researchStatus?: string;
+  promotionStatus?: PromotionStatus;
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
   adminNotes?: string;
