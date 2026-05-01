@@ -30,7 +30,8 @@ export interface TierMeta {
 }
 
 // Shared 80/60/40/20 ladder. Vendor and tool use the same cutoffs after the
-// Phase 4 alignment.
+// Phase 4 alignment, but the human-readable copy differs because the pillars
+// being scored differ (credibility/momentum/fit vs. integration/demand).
 export const TIER_META: Record<TierKey, TierMeta> = {
   'Tier 1': {
     range: '80–100',
@@ -70,6 +71,45 @@ export const TIER_META: Record<TierKey, TierMeta> = {
   },
 };
 
+export const TOOL_TIER_META: Record<TierKey, TierMeta> = {
+  'Tier 1': {
+    range: '80–100',
+    label: 'Build integration now',
+    blurb: 'Strong integration surface and proven demand — clear build target.',
+    variant: 'success',
+  },
+  'Tier 2': {
+    range: '60–79',
+    label: 'Strong candidate',
+    blurb: 'Solid integration hooks and meaningful demand. Worth prioritising.',
+    variant: 'info',
+  },
+  'Tier 3': {
+    range: '40–59',
+    label: 'Worth evaluating',
+    blurb: 'Either integration or demand is light; the other carries the score.',
+    variant: 'accent',
+  },
+  'Tier 4': {
+    range: '20–39',
+    label: 'Limited evidence',
+    blurb: 'Thin integration surface and weak demand signals. Verify manually.',
+    variant: 'warning',
+  },
+  'Tier 5': {
+    range: '0–19',
+    label: 'Low priority',
+    blurb: 'Few integration hooks and little market demand on file.',
+    variant: 'danger',
+  },
+  Unscored: {
+    range: '—',
+    label: 'Insufficient data',
+    blurb: 'Not enough populated fields to compute a score.',
+    variant: 'neutral',
+  },
+};
+
 // Tools store their tier as plain '1'..'5' or 'Unscored' (no "Tier " prefix).
 // This normalizes either form back to the keys above.
 export function normalizeTierKey(tier: string | undefined | null): TierKey | null {
@@ -89,9 +129,17 @@ export const TIER_ORDER: TierKey[] = [
   'Unscored',
 ];
 
-export function tierMetaFor(tier: string | undefined | null): TierMeta {
+export function tierMapFor(family: ScoreFamily): Record<TierKey, TierMeta> {
+  return family === 'tool' ? TOOL_TIER_META : TIER_META;
+}
+
+export function tierMetaFor(
+  tier: string | undefined | null,
+  family: ScoreFamily = 'vendor',
+): TierMeta {
+  const map = tierMapFor(family);
   const key = normalizeTierKey(tier);
-  return key ? TIER_META[key] : TIER_META.Unscored;
+  return key ? map[key] : map.Unscored;
 }
 
 // ---------------------------------------------------------------------------

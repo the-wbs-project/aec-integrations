@@ -24,13 +24,13 @@ import { ToolDetail, VendorDetail } from '../../types';
 import {
   PILLAR_META,
   TIER_ORDER,
-  TIER_META,
   type PillarMeta,
   type ScoreFamily,
   confidenceVariant,
   flagLabel,
   normalizeTierKey,
   pillarsFor,
+  tierMapFor,
   tierMetaFor,
 } from '../tier-info/tier-info';
 
@@ -81,7 +81,7 @@ export class TierDetailDialogComponent {
   protected readonly errorMsg = signal<string | null>(null);
 
   protected readonly tierOrder = TIER_ORDER;
-  protected readonly tierMetaMap = TIER_META;
+  protected readonly tierMetaMap = computed(() => tierMapFor(this.family()));
   protected readonly flagLabel = flagLabel;
 
   protected readonly visible = computed(() => this.vendorId() !== null);
@@ -99,7 +99,7 @@ export class TierDetailDialogComponent {
   });
 
   protected readonly tierMeta = computed(() =>
-    tierMetaFor(this.subject()?.tier),
+    tierMetaFor(this.subject()?.tier, this.family()),
   );
 
   protected readonly confidenceVariant = computed(() =>

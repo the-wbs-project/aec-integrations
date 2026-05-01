@@ -119,10 +119,10 @@
               @for (t of tierOrder; track t) {
                 <tr [class.tier-table__row--current]="t === currentTierKey()">
                   <td>
-                    <span class="tier-pill" [attr.data-variant]="tierMetaMap[t].variant">{{ t }}</span>
+                    <span class="tier-pill" [attr.data-variant]="tierMetaMap()[t].variant">{{ t }}</span>
                   </td>
-                  <td class="mono">{{ tierMetaMap[t].range }}</td>
-                  <td>{{ tierMetaMap[t].blurb }}</td>
+                  <td class="mono">{{ tierMetaMap()[t].range }}</td>
+                  <td>{{ tierMetaMap()[t].blurb }}</td>
                 </tr>
               }
             </tbody>
