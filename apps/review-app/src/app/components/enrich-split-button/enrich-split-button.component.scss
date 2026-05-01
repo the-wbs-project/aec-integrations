@@ -1,5 +1,10 @@
 :host { display: inline-block; }
 
+::ng-deep ejs-splitbutton .e-split-btn,
+::ng-deep ejs-splitbutton .e-dropdown-btn {
+  height: 36px;
+}
+
 .confirm-backdrop {
   position: fixed;
   inset: 0;
