@@ -25,6 +25,14 @@
         family="vendor"
         [recordIds]="selectedIds()"
       />
+      <button
+        type="button"
+        class="btn btn--primary"
+        (click)="openNewVendorDialog()"
+        aria-label="Create new vendor"
+      >
+        + New vendor
+      </button>
     </div>
   </div>
 
@@ -282,4 +290,10 @@
   [vendorId]="tierModalVendorId()"
   [vendorName]="tierModalVendorName()"
   (closed)="closeTierModal()"
+/>
+
+<app-new-vendor-dialog
+  [open]="newVendorDialogOpen()"
+  (closed)="closeNewVendorDialog()"
+  (created)="onVendorCreated($event)"
 />
