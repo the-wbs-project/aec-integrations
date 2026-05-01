@@ -89,7 +89,10 @@ Notes:
 - Use "Bootstrapped" only if you find explicit evidence (founder statements, "never raised", etc.), NOT just absence of funding data.
 - Use "Unknown" if you cannot determine with medium+ confidence.
 
-When done, call emit_result.`;
+You have at most ${MAX_TURNS} search turns. Decide quickly:
+- After any search that surfaces clear evidence (a named round, "Stage: Unfunded", an acquisition, an exchange ticker), call emit_result immediately — do not search for confirmation.
+- If 2 searches have produced no useful funding signal, call emit_result with "Unknown" and confidence "low". Do not keep searching.
+- Never end a turn with only search calls when you are about to hit the turn limit; emit_result instead.`;
 
   return {
     systemPrompt:
@@ -185,7 +188,13 @@ export class VendorFundingWorkflow extends ErrorCapturingWorkflow {
         `Model returned without emit_result (stop_reason=${interpreted.stopReason})`,
       );
     }
-    if (!emitted) throw new Error(`Exceeded MAX_TURNS (${MAX_TURNS}) without emit_result`);
+    if (!emitted) {
+      emitted = {
+        funding_stage: 'Unknown',
+        confidence: 'low',
+        notes: `Exceeded MAX_TURNS (${MAX_TURNS}) without emit_result`,
+      };
+    }
 
     const parsed = parseEmitted(emitted);
     await checkpoint(step, 'write-fields', () =>
