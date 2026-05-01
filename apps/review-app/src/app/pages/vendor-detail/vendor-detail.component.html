@@ -802,7 +802,7 @@
       </div>
     }
 
-    <!-- Tools tab -->
+    <!-- Products tab -->
     @if (activeTab() === "tools") {
       <div role="tabpanel">
         <section class="detail-section">
@@ -811,12 +811,12 @@
               Tools
               <span class="section-count">({{ vendor.tools.length }})</span>
             </h2>
-            <a routerLink="/tools/new" class="btn btn--primary btn--sm"
-            >+ Import tool</a>
+            <a routerLink="/products/new" class="btn btn--primary btn--sm"
+            >+ Import product</a>
           </div>
           @if (vendor.tools.length) {
             <div class="table-wrapper">
-              <table class="table" aria-label="Tools">
+              <table class="table" aria-label="Products">
                 <thead>
                   <tr>
                     <th>Tool</th>
@@ -826,7 +826,7 @@
                   @for (tool of vendor.tools; track tool.id) {
                     <tr>
                       <td>
-                        <a [routerLink]='["/tools", tool.id]'>{{ tool.name }}</a
+                        <a [routerLink]='["/products", tool.id]'>{{ tool.name }}</a
                         >
                       </td>
                     </tr>

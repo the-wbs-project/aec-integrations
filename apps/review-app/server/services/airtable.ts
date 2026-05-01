@@ -195,8 +195,8 @@ async function fetchAll(
   return stored.map(withGetter);
 }
 
-export function fetchTools(env: Env) {
-  return fetchAll(env, 'tools');
+export function fetchProducts(env: Env) {
+  return fetchAll(env, 'products');
 }
 
 export function fetchVendors(env: Env) {
@@ -216,7 +216,7 @@ export function fetchProjectPhases(env: Env) {
 }
 
 export function fetchIntegrations(env: Env) {
-  return fetchAll(env, 'toolIntegrations');
+  return fetchAll(env, 'integrations');
 }
 
 // ---------------------------------------------------------------------------

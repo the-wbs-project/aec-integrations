@@ -14,17 +14,17 @@ import { meta as vendorScoreMeta } from './vendor/score';
 import { meta as vendorOrchestratorMeta } from './vendor/orchestrator';
 import { meta as vendorOverviewMeta } from './vendor/overview';
 
-import { meta as toolOverviewMeta } from './tool/overview';
-import { meta as toolApiCheckMeta } from './tool/apiCheck';
-import { meta as toolMarketplaceMeta } from './tool/marketplace';
-import { meta as toolIpaasMeta } from './tool/ipaas';
-import { meta as toolReviewsMeta } from './tool/reviews';
-import { meta as toolSearchDemandMeta } from './tool/searchDemand';
-import { meta as toolRedditMeta } from './tool/reddit';
-import { meta as toolIntegrationCountMeta } from './tool/integrationCount';
-import { meta as toolScoreMeta } from './tool/score';
-import { meta as toolOrchestratorMeta } from './tool/orchestrator';
-import { meta as toolResearchMeta } from './tool/research';
+import { meta as productOverviewMeta } from './product/overview';
+import { meta as productApiCheckMeta } from './product/apiCheck';
+import { meta as productMarketplaceMeta } from './product/marketplace';
+import { meta as productIpaasMeta } from './product/ipaas';
+import { meta as productReviewsMeta } from './product/reviews';
+import { meta as productSearchDemandMeta } from './product/searchDemand';
+import { meta as productRedditMeta } from './product/reddit';
+import { meta as productIntegrationCountMeta } from './product/integrationCount';
+import { meta as productScoreMeta } from './product/score';
+import { meta as productOrchestratorMeta } from './product/orchestrator';
+import { meta as productResearchMeta } from './product/research';
 
 /** Names of every Workflow binding on Env. */
 export type WorkflowBindingName =
@@ -33,17 +33,17 @@ export type WorkflowBindingName =
   | 'WF_VENDOR_SCORE'
   | 'WF_VENDOR_ORCHESTRATOR'
   | 'WF_VENDOR_OVERVIEW'
-  | 'WF_TOOL_OVERVIEW'
-  | 'WF_TOOL_API_CHECK'
-  | 'WF_TOOL_MARKETPLACE'
-  | 'WF_TOOL_IPAAS'
-  | 'WF_TOOL_REVIEWS'
-  | 'WF_TOOL_SEARCH_DEMAND'
-  | 'WF_TOOL_REDDIT'
-  | 'WF_TOOL_INTEGRATION_COUNT'
-  | 'WF_TOOL_SCORE'
-  | 'WF_TOOL_ORCHESTRATOR'
-  | 'WF_TOOL_RESEARCH';
+  | 'WF_PRODUCT_OVERVIEW'
+  | 'WF_PRODUCT_API_CHECK'
+  | 'WF_PRODUCT_MARKETPLACE'
+  | 'WF_PRODUCT_IPAAS'
+  | 'WF_PRODUCT_REVIEWS'
+  | 'WF_PRODUCT_SEARCH_DEMAND'
+  | 'WF_PRODUCT_REDDIT'
+  | 'WF_PRODUCT_INTEGRATION_COUNT'
+  | 'WF_PRODUCT_SCORE'
+  | 'WF_PRODUCT_ORCHESTRATOR'
+  | 'WF_PRODUCT_RESEARCH';
 
 export interface WorkflowEntry {
   meta: WorkflowMeta;
@@ -59,20 +59,20 @@ export const WORKFLOWS: Record<string, WorkflowEntry> = {
     binding: 'WF_VENDOR_ORCHESTRATOR',
   },
   [vendorOverviewMeta.slug]: { meta: vendorOverviewMeta, binding: 'WF_VENDOR_OVERVIEW' },
-  [toolOverviewMeta.slug]: { meta: toolOverviewMeta, binding: 'WF_TOOL_OVERVIEW' },
-  [toolApiCheckMeta.slug]: { meta: toolApiCheckMeta, binding: 'WF_TOOL_API_CHECK' },
-  [toolMarketplaceMeta.slug]: { meta: toolMarketplaceMeta, binding: 'WF_TOOL_MARKETPLACE' },
-  [toolIpaasMeta.slug]: { meta: toolIpaasMeta, binding: 'WF_TOOL_IPAAS' },
-  [toolReviewsMeta.slug]: { meta: toolReviewsMeta, binding: 'WF_TOOL_REVIEWS' },
-  [toolSearchDemandMeta.slug]: { meta: toolSearchDemandMeta, binding: 'WF_TOOL_SEARCH_DEMAND' },
-  [toolRedditMeta.slug]: { meta: toolRedditMeta, binding: 'WF_TOOL_REDDIT' },
-  [toolIntegrationCountMeta.slug]: {
-    meta: toolIntegrationCountMeta,
-    binding: 'WF_TOOL_INTEGRATION_COUNT',
+  [productOverviewMeta.slug]: { meta: productOverviewMeta, binding: 'WF_PRODUCT_OVERVIEW' },
+  [productApiCheckMeta.slug]: { meta: productApiCheckMeta, binding: 'WF_PRODUCT_API_CHECK' },
+  [productMarketplaceMeta.slug]: { meta: productMarketplaceMeta, binding: 'WF_PRODUCT_MARKETPLACE' },
+  [productIpaasMeta.slug]: { meta: productIpaasMeta, binding: 'WF_PRODUCT_IPAAS' },
+  [productReviewsMeta.slug]: { meta: productReviewsMeta, binding: 'WF_PRODUCT_REVIEWS' },
+  [productSearchDemandMeta.slug]: { meta: productSearchDemandMeta, binding: 'WF_PRODUCT_SEARCH_DEMAND' },
+  [productRedditMeta.slug]: { meta: productRedditMeta, binding: 'WF_PRODUCT_REDDIT' },
+  [productIntegrationCountMeta.slug]: {
+    meta: productIntegrationCountMeta,
+    binding: 'WF_PRODUCT_INTEGRATION_COUNT',
   },
-  [toolScoreMeta.slug]: { meta: toolScoreMeta, binding: 'WF_TOOL_SCORE' },
-  [toolOrchestratorMeta.slug]: { meta: toolOrchestratorMeta, binding: 'WF_TOOL_ORCHESTRATOR' },
-  [toolResearchMeta.slug]: { meta: toolResearchMeta, binding: 'WF_TOOL_RESEARCH' },
+  [productScoreMeta.slug]: { meta: productScoreMeta, binding: 'WF_PRODUCT_SCORE' },
+  [productOrchestratorMeta.slug]: { meta: productOrchestratorMeta, binding: 'WF_PRODUCT_ORCHESTRATOR' },
+  [productResearchMeta.slug]: { meta: productResearchMeta, binding: 'WF_PRODUCT_RESEARCH' },
 };
 
 export type WorkflowName = keyof typeof WORKFLOWS;

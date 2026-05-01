@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Tool endpoints — thin HTTP wrappers over the reusable services. Useful for
+// Product endpoints — thin HTTP wrappers over the reusable services. Useful for
 // poking at SERP/render manually with curl.
 // ---------------------------------------------------------------------------
 import { Hono } from 'hono';

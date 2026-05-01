@@ -30,9 +30,9 @@ import {
 } from '../../lib/llm';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-reviews',
+  slug: 'product-reviews',
   description: 'Find G2 + Capterra review counts, ratings, and product page URLs for a tool.',
-  table: 'tools',
+  table: 'products',
 };
 
 const MAX_TURNS = 4;
@@ -113,7 +113,7 @@ function parseEmitted(emitted: Record<string, unknown>) {
   };
 }
 
-export class ToolReviewsWorkflow extends ErrorCapturingWorkflow {
+export class ProductReviewsWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model } = event.payload;
     // G2/Capterra rating + review-count text only appears in rich SERP
@@ -124,7 +124,7 @@ export class ToolReviewsWorkflow extends ErrorCapturingWorkflow {
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
     const { systemPrompt, userPrompt, outputSchema } = buildPrompt(record);
 
@@ -186,7 +186,7 @@ export class ToolReviewsWorkflow extends ErrorCapturingWorkflow {
 
     const parsed = parseEmitted(emitted);
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, parsed.fields),
+      updateRecord(this.env, 'products', recordId, parsed.fields),
     );
     return parsed;
   }

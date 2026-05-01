@@ -34,10 +34,10 @@ import { notifyRunStarted } from '../../lib/notify-run-started';
 import type { WorkflowBindingName } from '../registry';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-orchestrator',
+  slug: 'product-orchestrator',
   description:
     'Run stale tool enrichments in parallel, then recompute the priority score.',
-  table: 'tools',
+  table: 'products',
 };
 
 const STALE_AFTER_DAYS = 60;
@@ -52,13 +52,13 @@ interface Leaf {
 }
 
 const LEAVES: readonly Leaf[] = [
-  { slug: 'tool-api-check', binding: 'WF_TOOL_API_CHECK', stalenessField: 'api_docs_checked_at' },
-  { slug: 'tool-marketplace', binding: 'WF_TOOL_MARKETPLACE', stalenessField: 'marketplace_checked_at' },
-  { slug: 'tool-ipaas', binding: 'WF_TOOL_IPAAS', stalenessField: 'ipaas_checked_at' },
-  { slug: 'tool-reviews', binding: 'WF_TOOL_REVIEWS', stalenessField: 'reviews_checked_at' },
-  { slug: 'tool-search-demand', binding: 'WF_TOOL_SEARCH_DEMAND', stalenessField: 'search_checked_at' },
-  { slug: 'tool-reddit', binding: 'WF_TOOL_REDDIT', stalenessField: 'reddit_checked_at' },
-  { slug: 'tool-integration-count', binding: 'WF_TOOL_INTEGRATION_COUNT', stalenessField: 'integration_count_checked_at' },
+  { slug: 'product-api-check', binding: 'WF_PRODUCT_API_CHECK', stalenessField: 'api_docs_checked_at' },
+  { slug: 'product-marketplace', binding: 'WF_PRODUCT_MARKETPLACE', stalenessField: 'marketplace_checked_at' },
+  { slug: 'product-ipaas', binding: 'WF_PRODUCT_IPAAS', stalenessField: 'ipaas_checked_at' },
+  { slug: 'product-reviews', binding: 'WF_PRODUCT_REVIEWS', stalenessField: 'reviews_checked_at' },
+  { slug: 'product-search-demand', binding: 'WF_PRODUCT_SEARCH_DEMAND', stalenessField: 'search_checked_at' },
+  { slug: 'product-reddit', binding: 'WF_PRODUCT_REDDIT', stalenessField: 'reddit_checked_at' },
+  { slug: 'product-integration-count', binding: 'WF_PRODUCT_INTEGRATION_COUNT', stalenessField: 'integration_count_checked_at' },
 ] as const;
 
 const TERMINAL_STATUSES = new Set(['complete', 'errored', 'terminated', 'unknown']);
@@ -83,7 +83,7 @@ interface ChildOutcome {
   error?: string;
 }
 
-export class ToolOrchestratorWorkflow extends ErrorCapturingWorkflow {
+export class ProductOrchestratorWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool, forceRefresh = false } = event.payload;
     const orchestratorRunId = event.instanceId;
@@ -99,7 +99,7 @@ export class ToolOrchestratorWorkflow extends ErrorCapturingWorkflow {
     );
 
     const initialRecord = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
     const recordLabel =
       asString(initialRecord.fields['Name']) ?? asString(initialRecord.fields['name']);
@@ -109,7 +109,7 @@ export class ToolOrchestratorWorkflow extends ErrorCapturingWorkflow {
     // T04-Reviews leaf below skips.
     const overviewRunId = `${orchestratorRunId}-tool-overview`;
     await checkpoint(step, 'spawn-overview', async () => {
-      await this.env.WF_TOOL_OVERVIEW.create({
+      await this.env.WF_PRODUCT_OVERVIEW.create({
         id: overviewRunId,
         params: { recordId, model, searchTool, forceRefresh },
       });
@@ -130,13 +130,13 @@ export class ToolOrchestratorWorkflow extends ErrorCapturingWorkflow {
 
     const overviewOutcome = (
       await this.waitForChildren(step, [
-        { slug: 'tool-overview', binding: 'WF_TOOL_OVERVIEW', runId: overviewRunId },
+        { slug: 'product-overview', binding: 'WF_PRODUCT_OVERVIEW', runId: overviewRunId },
       ])
     )[0];
 
     // ----- Re-fetch record so staleness check sees overview's writes -------
     const record = await checkpoint(step, 'refetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
 
     const now = Date.now();
@@ -202,7 +202,7 @@ export class ToolOrchestratorWorkflow extends ErrorCapturingWorkflow {
     // ----- Spawn tool-score and wait for it ---------------------------------
     const scoreRunId = `${orchestratorRunId}-tool-score`;
     await checkpoint(step, 'spawn-score', async () => {
-      await this.env.WF_TOOL_SCORE.create({
+      await this.env.WF_PRODUCT_SCORE.create({
         id: scoreRunId,
         params: { recordId, model, searchTool },
       });
@@ -223,7 +223,7 @@ export class ToolOrchestratorWorkflow extends ErrorCapturingWorkflow {
 
     const scoreOutcome = (
       await this.waitForChildren(step, [
-        { slug: 'tool-score', binding: 'WF_TOOL_SCORE', runId: scoreRunId },
+        { slug: 'product-score', binding: 'WF_PRODUCT_SCORE', runId: scoreRunId },
       ])
     )[0];
 

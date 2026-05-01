@@ -4,7 +4,7 @@
   height: calc(100dvh - 52px);
 }
 
-.tools-page {
+.products-page {
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -14,7 +14,7 @@
   gap: var(--space-5);
 }
 
-.tools-page__grid {
+.products-page__grid {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -22,7 +22,7 @@
   position: relative;
 }
 
-.tools-page__grid ejs-grid {
+.products-page__grid ejs-grid {
   flex: 1 1 auto;
   min-height: 0;
 }
@@ -132,14 +132,14 @@
   border-style: dashed;
 }
 
-.tool-name-link,
+.product-name-link,
 .vendor-name-link {
   font-weight: 500;
   color: var(--color-text-accent);
   cursor: pointer;
 }
 
-.tool-name-link:hover,
+.product-name-link:hover,
 .vendor-name-link:hover {
   text-decoration: underline;
 }

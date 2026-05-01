@@ -30,10 +30,10 @@ import {
 } from '../../services/capterra-parse';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-overview',
+  slug: 'product-overview',
   description:
     'Scrape G2 + Capterra for review counts and ratings; falls back to LLM (T04) when both sites miss.',
-  table: 'tools',
+  table: 'products',
 };
 
 const G2_PRODUCT_URL = /^https?:\/\/(?:www\.)?g2\.com\/products\/([a-z0-9-]+)\/?/i;
@@ -48,13 +48,13 @@ interface SiteOutcome {
   error: string | null;
 }
 
-export class ToolOverviewWorkflow extends ErrorCapturingWorkflow {
+export class ProductOverviewWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
 
     const name =
@@ -140,7 +140,7 @@ export class ToolOverviewWorkflow extends ErrorCapturingWorkflow {
 
     if (fieldsUpdated.length > 0) {
       await checkpoint(step, 'write-fields', () =>
-        updateRecord(this.env, 'tools', recordId, fields),
+        updateRecord(this.env, 'products', recordId, fields),
       );
     }
 

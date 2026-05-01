@@ -2,23 +2,23 @@ import { Hono } from 'hono';
 import {
   createRecord,
   fetchIntegrations,
-  fetchTools,
+  fetchProducts,
   tableId,
   updateRecord,
 } from '../services/airtable';
 import { cacheInvalidate } from '../services/cache';
 import {
   buildLookupMaps,
-  hydrateTool,
-  hydrateToolDetail,
+  hydrateProduct,
+  hydrateProductDetail,
 } from '../hydrate';
 import type {
-  CreateToolRequest,
+  CreateProductRequest,
   Env,
   PaginatedResponse,
-  Tool,
-  ToolDetail,
-  UpdateToolRequest,
+  Product,
+  ProductDetail,
+  UpdateProductRequest,
 } from '../types';
 
 // ---------------------------------------------------------------------------
@@ -26,12 +26,12 @@ import type {
 // `data.records:write` scope on the configured base. Read tokens will 401.
 // ---------------------------------------------------------------------------
 
-const tools = new Hono<{ Bindings: Env }>();
+const products = new Hono<{ Bindings: Env }>();
 
 // ---------------------------------------------------------------------------
-// GET /api/tools — paginated, filterable, sortable list
+// GET /api/products — paginated, filterable, sortable list
 // ---------------------------------------------------------------------------
-tools.get('/', async (c) => {
+products.get('/', async (c) => {
   const env = c.env;
 
   const offset = Math.max(0, Number(c.req.query('offset') ?? 0));
@@ -48,13 +48,13 @@ tools.get('/', async (c) => {
   const sortCol = c.req.query('sort') ?? 'name';
   const sortDir = c.req.query('direction') === 'desc' ? 'desc' : 'asc';
 
-  const [rawTools, maps] = await Promise.all([
-    fetchTools(env),
+  const [rawProducts, maps] = await Promise.all([
+    fetchProducts(env),
     buildLookupMaps(env),
   ]);
 
   // Hydrate all tools first so we can filter/sort on resolved names
-  let hydrated = rawTools.map((r) => hydrateTool(r, maps));
+  let hydrated = rawProducts.map((r) => hydrateProduct(r, maps));
 
   // --- Filtering -----------------------------------------------------------
   if (search) {
@@ -129,7 +129,7 @@ tools.get('/', async (c) => {
     return sortDir === 'desc' ? -delta : delta;
   };
 
-  const compare = (a: Tool, b: Tool): number => {
+  const compare = (a: Product, b: Product): number => {
     switch (sortCol) {
       case 'vendor':
         return stringCompare(a.vendors[0]?.name, b.vendors[0]?.name);
@@ -183,7 +183,7 @@ tools.get('/', async (c) => {
     ? hydrated.slice(offset, offset + limit)
     : hydrated.slice(offset);
 
-  const body: PaginatedResponse<Tool> = {
+  const body: PaginatedResponse<Product> = {
     data: page,
     total,
     offset,
@@ -194,40 +194,40 @@ tools.get('/', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// GET /api/tools/:id — single tool with integration details
+// GET /api/products/:id — single tool with integration details
 // ---------------------------------------------------------------------------
-tools.get('/:id', async (c) => {
+products.get('/:id', async (c) => {
   const env = c.env;
-  const toolId = c.req.param('id');
+  const productId = c.req.param('id');
 
-  const [rawTools, integrationRecs, maps] = await Promise.all([
-    fetchTools(env),
+  const [rawProducts, integrationRecs, maps] = await Promise.all([
+    fetchProducts(env),
     fetchIntegrations(env),
     buildLookupMaps(env),
   ]);
 
-  const record = rawTools.find((r) => r.id === toolId);
+  const record = rawProducts.find((r) => r.id === productId);
   if (!record) {
-    return c.json({ error: 'Tool not found' }, 404);
+    return c.json({ error: 'Product not found' }, 404);
   }
 
-  const detail: ToolDetail = hydrateToolDetail(
+  const detail: ProductDetail = hydrateProductDetail(
     record,
     maps,
     integrationRecs,
-    rawTools,
+    rawProducts,
   );
   return c.json(detail);
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/tools — create a new tool record
+// POST /api/products — create a new tool record
 // Body: { name, description?, website? }
 // New records default to research_status="Pending".
 // ---------------------------------------------------------------------------
-tools.post('/', async (c) => {
+products.post('/', async (c) => {
   const env = c.env;
-  const body = (await c.req.json().catch(() => ({}))) as CreateToolRequest;
+  const body = (await c.req.json().catch(() => ({}))) as CreateProductRequest;
 
   const name = (body.name ?? '').trim();
   if (!name) {
@@ -243,25 +243,25 @@ tools.post('/', async (c) => {
 
   let created;
   try {
-    created = await createRecord(env, 'tools', fields);
+    created = await createRecord(env, 'products', fields);
   } catch (err) {
     return c.json({ error: (err as Error).message ?? 'Airtable create failed' }, 502);
   }
 
-  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'tools')}`);
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'products')}`);
 
   const maps = await buildLookupMaps(env);
-  const tool = hydrateTool(created, maps);
-  return c.json(tool, 201);
+  const product = hydrateProduct(created, maps);
+  return c.json(product, 201);
 });
 
 // ---------------------------------------------------------------------------
-// PATCH /api/tools/:id — partial update of a tool record
+// PATCH /api/products/:id — partial update of a tool record
 // ---------------------------------------------------------------------------
-tools.patch('/:id', async (c) => {
+products.patch('/:id', async (c) => {
   const env = c.env;
-  const toolId = c.req.param('id');
-  const body = (await c.req.json().catch(() => ({}))) as UpdateToolRequest;
+  const productId = c.req.param('id');
+  const body = (await c.req.json().catch(() => ({}))) as UpdateProductRequest;
 
   const fields: Record<string, unknown> = {};
   // Scalars
@@ -290,20 +290,20 @@ tools.patch('/:id', async (c) => {
 
   let updated;
   try {
-    updated = await updateRecord(env, 'tools', toolId, fields);
+    updated = await updateRecord(env, 'products', productId, fields);
   } catch (err) {
     return c.json({ error: (err as Error).message ?? 'Airtable update failed' }, 502);
   }
 
-  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'tools')}`);
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'products')}`);
 
-  const [integrationRecs, maps, rawTools] = await Promise.all([
+  const [integrationRecs, maps, rawProducts] = await Promise.all([
     fetchIntegrations(env),
     buildLookupMaps(env),
-    fetchTools(env),
+    fetchProducts(env),
   ]);
-  const detail = hydrateToolDetail(updated, maps, integrationRecs, rawTools);
+  const detail = hydrateProductDetail(updated, maps, integrationRecs, rawProducts);
   return c.json(detail);
 });
 
-export default tools;
+export default products;

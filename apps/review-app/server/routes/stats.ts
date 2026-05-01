@@ -10,7 +10,7 @@
 import { Hono } from 'hono';
 import {
   fetchIntegrations,
-  fetchTools,
+  fetchProducts,
   fetchVendors,
 } from '../services/airtable';
 import type { Env } from '../types';
@@ -39,7 +39,7 @@ stats.get('/', async (c) => {
 
   const [vendorRecs, toolRecs, integrationRecs] = await Promise.all([
     fetchVendors(env),
-    fetchTools(env),
+    fetchProducts(env),
     fetchIntegrations(env),
   ]);
 

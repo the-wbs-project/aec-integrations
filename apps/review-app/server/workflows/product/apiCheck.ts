@@ -24,9 +24,9 @@ import {
 } from '../../lib/llm';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-api-check',
+  slug: 'product-api-check',
   description: "Find a tool's official API/developer documentation URL.",
-  table: 'tools',
+  table: 'products',
 };
 
 const MAX_TURNS = 6;
@@ -96,14 +96,14 @@ function parseEmitted(emitted: Record<string, unknown>) {
   };
 }
 
-export class ToolApiCheckWorkflow extends ErrorCapturingWorkflow {
+export class ProductApiCheckWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 
     // 1. Fetch the tool record
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
     const { systemPrompt, userPrompt, outputSchema } = buildPrompt(record);
 
@@ -166,7 +166,7 @@ export class ToolApiCheckWorkflow extends ErrorCapturingWorkflow {
     // 3. Parse the structured output and write to Airtable
     const parsed = parseEmitted(emitted);
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, parsed.fields),
+      updateRecord(this.env, 'products', recordId, parsed.fields),
     );
     return parsed;
   }

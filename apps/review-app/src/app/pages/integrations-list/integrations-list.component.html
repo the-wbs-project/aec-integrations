@@ -1,0 +1,257 @@
+<div class="integrations-page">
+  <div class="page-header">
+    <h1 class="page-heading">Integrations</h1>
+    <div class="page-header__actions">
+      <button
+        type="button"
+        class="btn btn--secondary"
+        [disabled]="loading()"
+        (click)="fetchIntegrations()"
+        aria-label="Refresh integrations"
+      >
+        <span
+          class="refresh-icon"
+          [class.refresh-icon--spinning]="loading()"
+          aria-hidden="true"
+        >↻</span>
+        Refresh
+      </button>
+    </div>
+  </div>
+
+  <div class="filter-bar">
+    <input
+      class="input filter-bar__search"
+      type="search"
+      placeholder="Search integrations…"
+      [value]="searchInput()"
+      (input)="onSearchInput($event)"
+      aria-label="Search integrations"
+    />
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Mechanism"
+      [dataSource]="$any(mechanismKindOptions())"
+      [fields]="multiselectFields"
+      [value]="filterMechanismKind()"
+      (change)='setFilter("mechanismKind", $any($event).value)'
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Maturity"
+      [dataSource]="$any(maturityOptions())"
+      [fields]="multiselectFields"
+      [value]="filterMaturity()"
+      (change)='setFilter("maturity", $any($event).value)'
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Pricing"
+      [dataSource]="$any(pricingModelOptions())"
+      [fields]="multiselectFields"
+      [value]="filterPricingModel()"
+      (change)='setFilter("pricingModel", $any($event).value)'
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Direction"
+      [dataSource]="$any(directionOptions())"
+      [fields]="multiselectFields"
+      [value]="filterDirection()"
+      (change)='setFilter("direction", $any($event).value)'
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="320px"
+    ></ejs-multiselect>
+  </div>
+
+  @if (activeFilters().length > 0) {
+    <div class="filter-pills">
+      @for (f of activeFilters(); track f.key + ':' + f.value) {
+        <button
+          type="button"
+          class="filter-pill"
+          (click)="removeFilter(f.key, f.value)"
+        >
+          <span class="filter-pill__label">{{ f.label }}</span>
+          <span class="filter-pill__close" aria-hidden="true">×</span>
+        </button>
+      }
+      <button
+        type="button"
+        class="filter-pill filter-pill--clear"
+        (click)="clearAllFilters()"
+      >
+        Clear all
+      </button>
+    </div>
+  }
+
+  <div class="integrations-page__grid">
+    @if (loading()) {
+      <p class="loading-note loading-note--overlay">Loading integrations…</p>
+    } @else if (filteredRows().length === 0) {
+      <p class="loading-note loading-note--overlay">No integrations found.</p>
+    }
+    <ejs-grid
+      #grid
+      [dataSource]="filteredRows()"
+      [allowSorting]="true"
+      [allowResizing]="true"
+      [pageSettings]="pageSettings"
+      [enableVirtualization]="true"
+      [enableHover]="true"
+      [enableStickyHeader]="true"
+      height="100%"
+      rowHeight="40"
+    >
+      <e-columns>
+        <e-column
+          field="name"
+          headerText="Name"
+          width="280"
+          clipMode="EllipsisWithTooltip"
+          [sortComparer]="nameSortComparer"
+        >
+          <ng-template #template let-data>
+            <a class="integration-name-link" [routerLink]='["/integrations", data.id]'>
+              {{ data.name || '(untitled)' }}
+            </a>
+          </ng-template>
+        </e-column>
+
+        <e-column
+          field="sourceProductName"
+          headerText="Source"
+          width="180"
+          clipMode="EllipsisWithTooltip"
+          [sortComparer]="sourceSortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.sourceProduct) {
+              <a [routerLink]='["/products", data.sourceProduct.id]'>{{ data.sourceProduct.name }}</a>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+
+        <e-column
+          field="targetProductName"
+          headerText="Target"
+          width="180"
+          clipMode="EllipsisWithTooltip"
+          [sortComparer]="targetSortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.targetProduct) {
+              <a [routerLink]='["/products", data.targetProduct.id]'>{{ data.targetProduct.name }}</a>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+
+        <e-column
+          field="mechanismKind"
+          headerText="Mechanism"
+          width="140"
+          [sortComparer]="mechanismKindSortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.mechanismKind) {
+              <span class="badge badge--neutral">{{ data.mechanismKind }}</span>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+
+        <e-column
+          field="poweredByProductName"
+          headerText="Powered by"
+          width="160"
+          clipMode="EllipsisWithTooltip"
+          [sortComparer]="poweredBySortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.poweredByProduct) {
+              <a [routerLink]='["/products", data.poweredByProduct.id]'>{{ data.poweredByProduct.name }}</a>
+            } @else if (data.mechanismName) {
+              <span class="muted">{{ data.mechanismName }}</span>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+
+        <e-column
+          field="direction"
+          headerText="Direction"
+          width="110"
+          [sortComparer]="directionSortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.direction) {
+              <span class="badge badge--neutral">{{ data.direction }}</span>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+
+        <e-column
+          field="maturity"
+          headerText="Maturity"
+          width="110"
+          [sortComparer]="maturitySortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.maturity) {
+              <span class="badge badge--neutral">{{ data.maturity }}</span>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+
+        <e-column
+          field="builtByName"
+          headerText="Built by"
+          width="180"
+          clipMode="EllipsisWithTooltip"
+          [sortComparer]="builtBySortComparer"
+        >
+          <ng-template #template let-data>
+            @if (data.builtBy) {
+              <a [routerLink]='["/vendors", data.builtBy.id]'>{{ data.builtBy.name }}</a>
+            } @else {
+              <span class="empty-cell">—</span>
+            }
+          </ng-template>
+        </e-column>
+      </e-columns>
+    </ejs-grid>
+  </div>
+</div>

@@ -14,8 +14,8 @@
       <span class="stat-card__hint">Open list</span>
     </a>
 
-    <a routerLink="/tools" class="stat-card">
-      <span class="stat-card__label">Tools</span>
+    <a routerLink="/products" class="stat-card">
+      <span class="stat-card__label">Products</span>
       <span class="stat-card__value">{{ stats()?.tools?.total ?? '—' }}</span>
       <span class="stat-card__hint">Open list</span>
     </a>
@@ -61,7 +61,7 @@
     </div>
 
     <div class="breakdown">
-      <h2 class="breakdown__heading">Tools by research status</h2>
+      <h2 class="breakdown__heading">Products by research status</h2>
       @if (toolResearchBuckets().length === 0) {
         <p class="breakdown__empty">No data yet.</p>
       } @else {
@@ -77,7 +77,7 @@
     </div>
 
     <div class="breakdown">
-      <h2 class="breakdown__heading">Tools by priority</h2>
+      <h2 class="breakdown__heading">Products by priority</h2>
       @if (toolPriorityBuckets().length === 0) {
         <p class="breakdown__empty">No data yet.</p>
       } @else {

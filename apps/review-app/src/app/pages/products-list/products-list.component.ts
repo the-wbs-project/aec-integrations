@@ -29,13 +29,13 @@ import {
   CheckBoxSelectionService,
 } from '@syncfusion/ej2-angular-dropdowns';
 import { ApiService } from '../../services/api.service';
-import { Tool, MetaResponse, LinkRef } from '../../types';
+import { Product, MetaResponse, LinkRef } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { enrichmentVariant } from '../../utils/enrichment';
 import { blanksLastComparer } from '../../utils/grid-sort';
 
-interface ToolRow extends Tool {
+interface ProductRow extends Product {
   /** Lower-cased haystack of vendor names — used by the freeform search. */
   vendorSearch: string;
   /** Lower-cased name for fast case-insensitive search. */
@@ -57,7 +57,7 @@ interface ActiveFilter {
 }
 
 @Component({
-  selector: 'app-tools-list',
+  selector: 'app-products-list',
   imports: [
     CommonModule,
     FormsModule,
@@ -74,10 +74,10 @@ interface ActiveFilter {
     PageService,
     CheckBoxSelectionService,
   ],
-  templateUrl: './tools-list.component.html',
-  styleUrl: './tools-list.component.scss',
+  templateUrl: './products-list.component.html',
+  styleUrl: './products-list.component.scss',
 })
-export class ToolsListComponent implements OnInit {
+export class ProductsListComponent implements OnInit {
   private api = inject(ApiService);
   private router = inject(Router);
   private destroyRef = inject(DestroyRef);
@@ -86,7 +86,7 @@ export class ToolsListComponent implements OnInit {
 
   @ViewChild('grid') grid?: GridComponent;
 
-  protected readonly allRows = signal<ToolRow[]>([]);
+  protected readonly allRows = signal<ProductRow[]>([]);
   protected readonly meta = signal<MetaResponse | null>(null);
   protected readonly loading = signal(false);
   protected readonly selectedIds = signal<string[]>([]);
@@ -252,7 +252,7 @@ export class ToolsListComponent implements OnInit {
   });
 
   // Rows after applying all filters — bound to the grid's dataSource.
-  protected readonly filteredRows = computed<ToolRow[]>(() =>
+  protected readonly filteredRows = computed<ProductRow[]>(() =>
     this.applyFilters({}),
   );
 
@@ -286,14 +286,14 @@ export class ToolsListComponent implements OnInit {
       .pipe(takeUntil(this.destroy$))
       .subscribe((meta) => this.meta.set(meta));
 
-    this.fetchTools();
+    this.fetchProducts();
   }
 
-  fetchTools(): void {
+  fetchProducts(): void {
     this.loading.set(true);
     // limit=0 → server returns the full set; the grid virtualizes client-side.
     this.api
-      .getTools({ limit: 0 })
+      .getProducts({ limit: 0 })
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (res) => {
@@ -353,7 +353,7 @@ export class ToolsListComponent implements OnInit {
    * grid (`skip = none`) and for option counts (`skip = that option's key`),
    * so each dropdown shows how many rows that option would expose.
    */
-  private applyFilters(opts: { skip?: FilterKey }): ToolRow[] {
+  private applyFilters(opts: { skip?: FilterKey }): ProductRow[] {
     const search = this.searchQuery().trim().toLowerCase();
     const cats = opts.skip === 'category' ? [] : this.filterCategory();
     const disc = opts.skip === 'discipline' ? [] : this.filterDiscipline();
@@ -401,7 +401,7 @@ export class ToolsListComponent implements OnInit {
   /** Count by a single string value (researchStatus, tier, enrichment). */
   private countByValue(
     key: FilterKey,
-    accessor: (t: ToolRow) => string | undefined,
+    accessor: (t: ProductRow) => string | undefined,
   ): Map<string, number> {
     const counts = new Map<string, number>();
     for (const t of this.applyFilters({ skip: key })) {
@@ -414,7 +414,7 @@ export class ToolsListComponent implements OnInit {
   /** Count by multiple values per row (categories, disciplines, phases). */
   private countByValues(
     key: FilterKey,
-    accessor: (t: ToolRow) => string[],
+    accessor: (t: ProductRow) => string[],
   ): Map<string, number> {
     const counts = new Map<string, number>();
     for (const t of this.applyFilters({ skip: key })) {
@@ -436,7 +436,7 @@ export class ToolsListComponent implements OnInit {
   }
 
   private syncSelection(): void {
-    const records = (this.grid?.getSelectedRecords() ?? []) as ToolRow[];
+    const records = (this.grid?.getSelectedRecords() ?? []) as ProductRow[];
     this.selectedIds.set(records.map((r) => r.id));
   }
 
@@ -444,7 +444,7 @@ export class ToolsListComponent implements OnInit {
   goToTool(id: string, event: MouseEvent): void {
     event.preventDefault();
     event.stopPropagation();
-    this.router.navigate(['/tools', id]);
+    this.router.navigate(['/products', id]);
   }
 
   /** Native click on a vendor link inside a row — route without toggling selection. */
@@ -503,11 +503,11 @@ export class ToolsListComponent implements OnInit {
   }
 }
 
-function toRow(t: Tool): ToolRow {
+function toRow(p: Product): ProductRow {
   return {
-    ...t,
-    nameSearch: (t.name ?? '').toLowerCase(),
-    vendorSearch: t.vendors.map((v) => v.name).join(' ').toLowerCase(),
+    ...p,
+    nameSearch: (p.name ?? '').toLowerCase(),
+    vendorSearch: p.vendors.map((v) => v.name).join(' ').toLowerCase(),
   };
 }
 

@@ -28,9 +28,9 @@ import {
 } from '../../lib/llm';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-ipaas',
+  slug: 'product-ipaas',
   description: 'Check Zapier, Make, and Workato for a tool listing; count Zapier triggers/actions.',
-  table: 'tools',
+  table: 'products',
 };
 
 const VALID_NAMES = ['Zapier', 'Make', 'Workato'] as const;
@@ -138,13 +138,13 @@ function parseEmitted(emitted: Record<string, unknown>) {
   };
 }
 
-export class ToolIpaasWorkflow extends ErrorCapturingWorkflow {
+export class ProductIpaasWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
     const { systemPrompt, userPrompt, outputSchema } = buildPrompt(record);
 
@@ -194,7 +194,7 @@ export class ToolIpaasWorkflow extends ErrorCapturingWorkflow {
 
     const parsed = parseEmitted(emitted);
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, parsed.fields),
+      updateRecord(this.env, 'products', recordId, parsed.fields),
     );
     return parsed;
   }

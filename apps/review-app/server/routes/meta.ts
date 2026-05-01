@@ -3,7 +3,7 @@ import {
   fetchCategories,
   fetchDisciplines,
   fetchProjectPhases,
-  fetchTools,
+  fetchProducts,
   fetchVendors,
 } from '../services/airtable';
 import type { Env, MetaResponse } from '../types';
@@ -17,7 +17,7 @@ meta.get('/', async (c) => {
     fetchCategories(env),
     fetchDisciplines(env),
     fetchProjectPhases(env),
-    fetchTools(env),
+    fetchProducts(env),
     fetchVendors(env),
   ]);
 

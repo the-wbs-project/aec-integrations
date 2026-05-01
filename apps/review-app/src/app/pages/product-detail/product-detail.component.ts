@@ -14,17 +14,18 @@ import { PromoteSplitButtonComponent } from '../../components/promote-split-butt
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import {
-  IntegratedToolSummary,
+  IntegratedProductSummary,
+  IntegrationSummary,
   LinkRef,
   MetaResponse,
   PromotionStatus,
-  ToolDetail,
-  UpdateToolRequest,
+  ProductDetail,
+  UpdateProductRequest,
 } from '../../types';
 import { tierMetaFor } from '../../components/tier-info/tier-info';
 import { enrichmentVariant } from '../../utils/enrichment';
 
-type IntegratedToolsSortKey =
+type IntegratedProductsSortKey =
   | 'name'
   | 'tier'
   | 'vendor'
@@ -40,10 +41,10 @@ function tierSortValue(tier: string | undefined): number {
   return Number.isFinite(n) ? n : 997;
 }
 
-function compareIntegratedTools(
-  a: IntegratedToolSummary,
-  b: IntegratedToolSummary,
-  key: IntegratedToolsSortKey,
+function compareIntegratedProducts(
+  a: IntegratedProductSummary,
+  b: IntegratedProductSummary,
+  key: IntegratedProductsSortKey,
 ): number {
   switch (key) {
     case 'name':
@@ -111,7 +112,7 @@ const TOOL_TABS: ReadonlySet<ToolTabKey> = new Set([
 ]);
 
 @Component({
-  selector: 'app-tool-detail',
+  selector: 'app-product-detail',
   imports: [
     CommonModule,
     RouterLink,
@@ -127,16 +128,16 @@ const TOOL_TABS: ReadonlySet<ToolTabKey> = new Set([
     TierDetailDialogComponent,
   ],
   providers: [PageService, SortService, FilterService],
-  templateUrl: './tool-detail.component.html',
-  styleUrl: './tool-detail.component.scss',
+  templateUrl: './product-detail.component.html',
+  styleUrl: './product-detail.component.scss',
 })
-export class ToolDetailComponent {
+export class ProductDetailComponent {
   id = input.required<string>();
   tab = input<string>('details');
 
   private api = inject(ApiService);
   protected runs = inject(RunsService);
-  tool = signal<ToolDetail | null>(null);
+  tool = signal<ProductDetail | null>(null);
   meta = signal<MetaResponse | null>(null);
   recordIds = computed(() => (this.tool() ? [this.id()] : []));
   enrichmentVariant = enrichmentVariant;
@@ -194,18 +195,47 @@ export class ToolDetailComponent {
   reloading = signal(false);
 
   // Tools tab — list of distinct tools this one integrates with.
-  integratedToolsSearch = signal('');
+  integratedProductsSearch = signal('');
   // Default sort: tier ascending (Tier 1 first), Unscored last.
-  integratedToolsSortKey = signal<IntegratedToolsSortKey>('tier');
-  integratedToolsSortDir = signal<'asc' | 'desc'>('asc');
+  integratedProductsSortKey = signal<IntegratedProductsSortKey>('tier');
+  integratedProductsSortDir = signal<'asc' | 'desc'>('asc');
 
-  integratedTools = computed<IntegratedToolSummary[]>(() => {
-    return this.tool()?.integratedTools ?? [];
+  integratedProducts = computed<IntegratedProductSummary[]>(() => {
+    return this.tool()?.integratedProducts ?? [];
   });
 
-  filteredIntegratedTools = computed<IntegratedToolSummary[]>(() => {
-    const q = this.integratedToolsSearch().trim().toLowerCase();
-    const all = this.integratedTools();
+  // Flat, deduplicated list of every Integration record this tool participates
+  // in (as source or target). Powers the per-integration cards on the
+  // Integrations tab — distinct from `integratedProducts`, which collapses many
+  // integrations per other-product into one row.
+  allIntegrations = computed<IntegrationSummary[]>(() => {
+    const t = this.tool();
+    if (!t) return [];
+    const seen = new Set<string>();
+    const out: IntegrationSummary[] = [];
+    for (const i of [...t.integrationsAsSource, ...t.integrationsAsTarget]) {
+      if (seen.has(i.id)) continue;
+      seen.add(i.id);
+      out.push(i);
+    }
+    return out;
+  });
+
+  // The "other" endpoint of an integration relative to this tool.
+  otherProductOf(integration: IntegrationSummary): LinkRef | undefined {
+    const myId = this.id();
+    if (integration.sourceProduct && integration.sourceProduct.id !== myId) {
+      return integration.sourceProduct;
+    }
+    if (integration.targetProduct && integration.targetProduct.id !== myId) {
+      return integration.targetProduct;
+    }
+    return undefined;
+  }
+
+  filteredIntegratedProducts = computed<IntegratedProductSummary[]>(() => {
+    const q = this.integratedProductsSearch().trim().toLowerCase();
+    const all = this.integratedProducts();
     const filtered = !q
       ? all
       : all.filter((t) => {
@@ -221,24 +251,24 @@ export class ToolDetailComponent {
           return haystack.includes(q);
         });
 
-    const key = this.integratedToolsSortKey();
-    const dir = this.integratedToolsSortDir() === 'asc' ? 1 : -1;
-    return [...filtered].sort((a, b) => compareIntegratedTools(a, b, key) * dir);
+    const key = this.integratedProductsSortKey();
+    const dir = this.integratedProductsSortDir() === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => compareIntegratedProducts(a, b, key) * dir);
   });
 
-  onIntegratedToolsSearch(event: Event): void {
-    this.integratedToolsSearch.set((event.target as HTMLInputElement).value);
+  onIntegratedProductsSearch(event: Event): void {
+    this.integratedProductsSearch.set((event.target as HTMLInputElement).value);
   }
 
-  toggleIntegratedToolsSort(key: IntegratedToolsSortKey): void {
-    if (this.integratedToolsSortKey() === key) {
-      this.integratedToolsSortDir.set(
-        this.integratedToolsSortDir() === 'asc' ? 'desc' : 'asc',
+  toggleIntegratedProductsSort(key: IntegratedProductsSortKey): void {
+    if (this.integratedProductsSortKey() === key) {
+      this.integratedProductsSortDir.set(
+        this.integratedProductsSortDir() === 'asc' ? 'desc' : 'asc',
       );
     } else {
-      this.integratedToolsSortKey.set(key);
+      this.integratedProductsSortKey.set(key);
       // Numeric/tier columns default to descending; text to ascending.
-      this.integratedToolsSortDir.set(
+      this.integratedProductsSortDir.set(
         key === 'name' || key === 'vendor' || key === 'researchStatus'
           ? 'asc'
           : key === 'tier'
@@ -248,11 +278,11 @@ export class ToolDetailComponent {
     }
   }
 
-  integratedToolsSortAria(
-    key: IntegratedToolsSortKey,
+  integratedProductsSortAria(
+    key: IntegratedProductsSortKey,
   ): 'ascending' | 'descending' | 'none' {
-    if (this.integratedToolsSortKey() !== key) return 'none';
-    return this.integratedToolsSortDir() === 'asc' ? 'ascending' : 'descending';
+    if (this.integratedProductsSortKey() !== key) return 'none';
+    return this.integratedProductsSortDir() === 'asc' ? 'ascending' : 'descending';
   }
 
   tierLabel(tier: string | undefined): string {
@@ -275,9 +305,9 @@ export class ToolDetailComponent {
       const id = this.id();
       this.tool.set(null);
       this.editingSection.set(null);
-      this.integratedToolsSearch.set('');
+      this.integratedProductsSearch.set('');
       this.saveError.set(null);
-      this.api.getTool(id).subscribe((tool) => {
+      this.api.getProduct(id).subscribe((tool) => {
         if (this.id() === id) this.tool.set(tool);
       });
     });
@@ -287,7 +317,7 @@ export class ToolDetailComponent {
   }
 
   // ------------------------------------------------------------------- edit
-  startEdit(section: SectionKey, tool: ToolDetail): void {
+  startEdit(section: SectionKey, tool: ProductDetail): void {
     this.saveError.set(null);
     Object.assign(this.draft, this.toDraft(tool));
     this.editingSection.set(section);
@@ -305,7 +335,7 @@ export class ToolDetailComponent {
     const id = this.id();
     this.promoting.set(true);
     this.saveError.set(null);
-    this.api.updateTool(id, { promotionStatus: next }).subscribe({
+    this.api.updateProduct(id, { promotionStatus: next }).subscribe({
       next: (updated) => {
         if (this.id() === id) this.tool.set(updated);
         this.promoting.set(false);
@@ -321,7 +351,7 @@ export class ToolDetailComponent {
     if (this.reloading()) return;
     const id = this.id();
     this.reloading.set(true);
-    this.api.getTool(id).subscribe({
+    this.api.getProduct(id).subscribe({
       next: (tool) => {
         if (this.id() === id) this.tool.set(tool);
         this.reloading.set(false);
@@ -339,7 +369,7 @@ export class ToolDetailComponent {
     }
     this.saving.set(true);
     this.saveError.set(null);
-    this.api.updateTool(id, patch).subscribe({
+    this.api.updateProduct(id, patch).subscribe({
       next: (updated) => {
         this.tool.set(updated);
         this.saving.set(false);
@@ -372,7 +402,7 @@ export class ToolDetailComponent {
     };
   }
 
-  private toDraft(tool: ToolDetail): DraftState {
+  private toDraft(tool: ProductDetail): DraftState {
     return {
       name: tool.name,
       website: tool.website ?? '',
@@ -391,7 +421,7 @@ export class ToolDetailComponent {
     };
   }
 
-  private buildPatch(section: SectionKey): UpdateToolRequest {
+  private buildPatch(section: SectionKey): UpdateProductRequest {
     const d = this.draft;
     switch (section) {
       case 'header':
@@ -424,11 +454,11 @@ export class ToolDetailComponent {
   // ---- pill overflow ------------------------------------------------------
   static readonly PILL_LIMIT = 3;
   visibleRefs(refs: LinkRef[]): LinkRef[] {
-    return refs.slice(0, ToolDetailComponent.PILL_LIMIT);
+    return refs.slice(0, ProductDetailComponent.PILL_LIMIT);
   }
   overflowRefs(refs: LinkRef[]): LinkRef[] | null {
-    if (refs.length <= ToolDetailComponent.PILL_LIMIT) return null;
-    return refs.slice(ToolDetailComponent.PILL_LIMIT);
+    if (refs.length <= ProductDetailComponent.PILL_LIMIT) return null;
+    return refs.slice(ProductDetailComponent.PILL_LIMIT);
   }
 
   // ---- formatters / classes ----------------------------------------------

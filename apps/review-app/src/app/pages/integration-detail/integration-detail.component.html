@@ -1,0 +1,139 @@
+<div class="integration-detail">
+  <a class="back-link" routerLink="/integrations">← All integrations</a>
+
+  @if (loading()) {
+    <p class="loading-note">Loading integration…</p>
+  } @else if (notFound()) {
+    <p class="loading-note">Integration not found.</p>
+  } @else if (integration(); as i) {
+    <header class="detail-header">
+      <div class="header-row">
+        <div class="header-row__title">
+          <h1 class="page-heading">{{ i.name || 'Untitled integration' }}</h1>
+          @if (i.maturity) {
+            <span class="badge badge--neutral">{{ i.maturity }}</span>
+          }
+        </div>
+        <div class="header-row__actions">
+          @if (i.website) {
+            <a class="btn btn--ghost btn--sm" [href]="i.website" target="_blank" rel="noopener">Website ↗</a>
+          }
+          @if (i.docsUrl) {
+            <a class="btn btn--ghost btn--sm" [href]="i.docsUrl" target="_blank" rel="noopener">Docs ↗</a>
+          }
+          @if (i.listingUrl) {
+            <a class="btn btn--ghost btn--sm" [href]="i.listingUrl" target="_blank" rel="noopener">Listing ↗</a>
+          }
+        </div>
+      </div>
+      @if (i.description) {
+        <p class="detail-description">{{ i.description }}</p>
+      }
+    </header>
+
+    <section class="detail-section">
+      <h2 class="section-heading">Endpoints</h2>
+      <div class="endpoint-pair">
+        <div class="endpoint">
+          <div class="endpoint__label">Source</div>
+          @if (i.sourceProduct) {
+            <a class="endpoint__name" [routerLink]="['/products', i.sourceProduct.id]">{{ i.sourceProduct.name }}</a>
+          } @else {
+            <span class="na">—</span>
+          }
+        </div>
+        <div class="endpoint-arrow" aria-hidden="true">
+          @if (i.direction === 'two-way') {
+            ⇄
+          } @else {
+            →
+          }
+        </div>
+        <div class="endpoint">
+          <div class="endpoint__label">Target</div>
+          @if (i.targetProduct) {
+            <a class="endpoint__name" [routerLink]="['/products', i.targetProduct.id]">{{ i.targetProduct.name }}</a>
+          } @else {
+            <span class="na">—</span>
+          }
+        </div>
+      </div>
+    </section>
+
+    <section class="detail-section">
+      <h2 class="section-heading">Mechanism</h2>
+      <div class="mechanism-panel">
+        @if (i.poweredByProduct) {
+          <div class="mechanism-panel__powered">
+            <span class="muted">Powered by </span>
+            <a [routerLink]="['/products', i.poweredByProduct.id]">{{ i.poweredByProduct.name }}</a>
+          </div>
+          @if (i.mechanismKind) {
+            <div><span class="muted">Kind: </span>{{ i.mechanismKind }}</div>
+          }
+        } @else if (i.mechanismKind || i.mechanismName) {
+          @if (i.mechanismKind) {
+            <div><span class="muted">Kind: </span><span class="badge badge--neutral">{{ i.mechanismKind }}</span></div>
+          }
+          @if (i.mechanismName) {
+            <div>
+              <span class="muted">Name: </span>
+              @if (i.mechanismUrl) {
+                <a [href]="i.mechanismUrl" target="_blank" rel="noopener">{{ i.mechanismName }}</a>
+              } @else {
+                <span>{{ i.mechanismName }}</span>
+              }
+            </div>
+          }
+        } @else if (i.integrationType) {
+          <div>
+            <span class="muted">Type: </span>{{ i.integrationType }}
+            <p class="muted small">
+              No mechanism details captured yet. Set <code>mechanism_kind</code> and either
+              <code>powered_by_product</code> or <code>mechanism_name</code> in Airtable to enrich this view.
+            </p>
+          </div>
+        } @else {
+          <p class="na">No mechanism details captured.</p>
+        }
+      </div>
+    </section>
+
+    <section class="detail-section">
+      <h2 class="section-heading">Metadata</h2>
+      <dl class="meta-grid">
+        @if (i.builtBy) {
+          <div>
+            <dt>Built by</dt>
+            <dd><a [routerLink]="['/vendors', i.builtBy.id]">{{ i.builtBy.name }}</a></dd>
+          </div>
+        }
+        @if (i.direction) {
+          <div>
+            <dt>Direction</dt>
+            <dd>{{ i.direction }}</dd>
+          </div>
+        }
+        @if (i.pricingModel) {
+          <div>
+            <dt>Pricing</dt>
+            <dd>{{ i.pricingModel }}</dd>
+          </div>
+        }
+        @if (i.integrationType) {
+          <div>
+            <dt>Type (legacy)</dt>
+            <dd>{{ i.integrationType }}</dd>
+          </div>
+        }
+      </dl>
+    </section>
+
+    @if (i.notes) {
+      <section class="detail-section">
+        <h2 class="section-heading">Notes</h2>
+        <div class="notes-body">{{ i.notes }}</div>
+      </section>
+    }
+  }
+</div>

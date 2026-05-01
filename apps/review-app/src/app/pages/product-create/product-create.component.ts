@@ -4,12 +4,12 @@ import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../services/api.service';
 
 @Component({
-  selector: 'app-tool-create',
+  selector: 'app-product-create',
   imports: [RouterLink, FormsModule],
-  templateUrl: './tool-create.component.html',
-  styleUrl: './tool-create.component.scss',
+  templateUrl: './product-create.component.html',
+  styleUrl: './product-create.component.scss',
 })
-export class ToolCreateComponent {
+export class ProductCreateComponent {
   private api = inject(ApiService);
   private router = inject(Router);
 
@@ -28,7 +28,7 @@ export class ToolCreateComponent {
     this.saving.set(true);
     this.error.set(null);
     this.api
-      .createTool({
+      .createProduct({
         name,
         description: this.description().trim() || undefined,
         website: this.website().trim() || undefined,
@@ -36,7 +36,7 @@ export class ToolCreateComponent {
       .subscribe({
         next: (tool) => {
           this.saving.set(false);
-          this.router.navigate(['/tools', tool.id]);
+          this.router.navigate(['/products', tool.id]);
         },
         error: (err) => {
           this.saving.set(false);

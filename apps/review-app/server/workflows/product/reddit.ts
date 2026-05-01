@@ -29,9 +29,9 @@ import {
 } from '../../lib/llm';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-reddit',
+  slug: 'product-reddit',
   description: 'Count distinct Reddit posts/discussions mentioning a tool in AEC subreddits.',
-  table: 'tools',
+  table: 'products',
 };
 
 const MAX_TURNS = 3;
@@ -83,13 +83,13 @@ function parseEmitted(emitted: Record<string, unknown>) {
   };
 }
 
-export class ToolRedditWorkflow extends ErrorCapturingWorkflow {
+export class ProductRedditWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
     const { systemPrompt, userPrompt, outputSchema } = buildPrompt(record);
 
@@ -144,7 +144,7 @@ export class ToolRedditWorkflow extends ErrorCapturingWorkflow {
 
     const parsed = parseEmitted(emitted);
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, parsed.fields),
+      updateRecord(this.env, 'products', recordId, parsed.fields),
     );
     return parsed;
   }

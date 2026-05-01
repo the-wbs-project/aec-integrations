@@ -20,7 +20,7 @@ import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { DialogModule } from '@syncfusion/ej2-angular-popups';
 import { ApiService } from '../../services/api.service';
-import { ToolDetail, VendorDetail } from '../../types';
+import { ProductDetail, VendorDetail } from '../../types';
 import {
   PILLAR_META,
   TIER_ORDER,
@@ -76,7 +76,7 @@ export class TierDetailDialogComponent {
   readonly closed = output<void>();
 
   protected readonly vendor = signal<VendorDetail | null>(null);
-  protected readonly tool = signal<ToolDetail | null>(null);
+  protected readonly tool = signal<ProductDetail | null>(null);
   protected readonly loading = signal(false);
   protected readonly errorMsg = signal<string | null>(null);
 
@@ -91,7 +91,7 @@ export class TierDetailDialogComponent {
     if (this.family() === 'tool') {
       const t = this.tool();
       if (!t) return null;
-      return toolSubject(t, this.vendorName());
+      return productSubject(t, this.vendorName());
     }
     const v = this.vendor();
     if (!v) return null;
@@ -164,7 +164,7 @@ export class TierDetailDialogComponent {
     this.vendor.set(null);
     this.tool.set(null);
     if (family === 'tool') {
-      this.api.getTool(id).subscribe({
+      this.api.getProduct(id).subscribe({
         next: (detail) => {
           this.tool.set(detail);
           this.loading.set(false);
@@ -210,11 +210,11 @@ function vendorSubject(v: VendorDetail, fallbackName: string): ScoreSubject {
   };
 }
 
-function toolSubject(t: ToolDetail, fallbackName: string): ScoreSubject {
+function productSubject(t: ProductDetail, fallbackName: string): ScoreSubject {
   return {
     name: t.name || fallbackName,
     score: t.priorityScore,
-    // ToolDetail.priorityTier is plain '1'..'5' or 'Unscored' — normalize to
+    // ProductDetail.priorityTier is plain '1'..'5' or 'Unscored' — normalize to
     // the 'Tier N' form the dialog expects.
     tier: t.priorityTier ? normalizeTierKey(t.priorityTier) ?? 'Unscored' : 'Unscored',
     confidence: t.priorityConfidence,
@@ -303,7 +303,7 @@ function vendorInputsFor(
 }
 
 function toolScoreFor(
-  t: ToolDetail,
+  t: ProductDetail,
   key: PillarMeta['key'],
 ): number | null | undefined {
   if (key === 'integration') return t.integrationScore ?? null;
@@ -312,7 +312,7 @@ function toolScoreFor(
 }
 
 function toolInputsFor(
-  t: ToolDetail,
+  t: ProductDetail,
   key: PillarMeta['key'],
 ): PillarRow['inputs'] {
   if (key === 'integration') {

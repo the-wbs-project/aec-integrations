@@ -17,9 +17,9 @@ import { getRecord, updateRecord, asString } from '../../services/airtable';
 import { runSerpSearch } from '../../services/search';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-search-demand',
+  slug: 'product-search-demand',
   description: 'Compute google_trends_index + search_volume_monthly via SearchAPI.io.',
-  table: 'tools',
+  table: 'products',
 };
 
 interface TrendsTimelinePoint {
@@ -45,21 +45,21 @@ function extractSearchVolume(body: Record<string, unknown>): number | null {
   return Math.round(Math.log10(totalResults + 1) * 100);
 }
 
-export class ToolSearchDemandWorkflow extends ErrorCapturingWorkflow {
+export class ProductSearchDemandWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
     const checkedAt = new Date().toISOString();
     const attribution = { runId: event.instanceId, workflow: meta.slug };
 
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
 
     const toolName = asString(record.fields['Name']) ?? asString(record.fields['name']);
     if (!toolName) {
       const fields = { search_checked_at: checkedAt };
       await checkpoint(step, 'write-checked-at', () =>
-        updateRecord(this.env, 'tools', recordId, fields),
+        updateRecord(this.env, 'products', recordId, fields),
       );
       return {
         fields,
@@ -107,7 +107,7 @@ export class ToolSearchDemandWorkflow extends ErrorCapturingWorkflow {
     }
 
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, fields),
+      updateRecord(this.env, 'products', recordId, fields),
     );
 
     const haveAny = trendsIndex !== null || searchVolume !== null;

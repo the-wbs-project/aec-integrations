@@ -14,18 +14,18 @@ import type { RunParams, WorkflowMeta } from '../../lib/workflow-meta';
 import { getRecord, updateRecord, asStringArray } from '../../services/airtable';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-integration-count',
+  slug: 'product-integration-count',
   description:
     'Sum the linked-record arrays on tool_integrations_source/target into integration_count.',
-  table: 'tools',
+  table: 'products',
 };
 
-export class ToolIntegrationCountWorkflow extends ErrorCapturingWorkflow {
+export class ProductIntegrationCountWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
 
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
 
     const sourceLinks = asStringArray(record.fields['tool_integrations_source']);
@@ -38,7 +38,7 @@ export class ToolIntegrationCountWorkflow extends ErrorCapturingWorkflow {
     };
 
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, fields),
+      updateRecord(this.env, 'products', recordId, fields),
     );
 
     return {
