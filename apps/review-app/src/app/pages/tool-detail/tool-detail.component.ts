@@ -1,5 +1,5 @@
 import { Component, inject, signal, input, computed, effect } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
@@ -13,20 +13,58 @@ import { EnrichSplitButtonComponent } from '../../components/enrich-split-button
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import {
-  IntegrationSummary,
+  IntegratedToolSummary,
   LinkRef,
   MetaResponse,
   ToolDetail,
   UpdateToolRequest,
 } from '../../types';
+import { tierMetaFor } from '../../components/tier-info/tier-info';
 import { enrichmentVariant } from '../../utils/enrichment';
 
-interface CombinedIntegration {
-  id: string;
-  name: string;
-  otherTool?: LinkRef;
-  integrationType?: string;
-  description?: string;
+type IntegratedToolsSortKey =
+  | 'name'
+  | 'tier'
+  | 'vendor'
+  | 'researchStatus'
+  | 'integrationCount'
+  | 'connections';
+
+// Tier sort: Tier 1 (best) is the smallest value, Unscored/missing is largest.
+function tierSortValue(tier: string | undefined): number {
+  if (!tier) return 999;
+  if (tier === 'Unscored') return 998;
+  const n = Number(tier);
+  return Number.isFinite(n) ? n : 997;
+}
+
+function compareIntegratedTools(
+  a: IntegratedToolSummary,
+  b: IntegratedToolSummary,
+  key: IntegratedToolsSortKey,
+): number {
+  switch (key) {
+    case 'name':
+      return a.name.localeCompare(b.name);
+    case 'tier': {
+      const t = tierSortValue(a.priorityTier) - tierSortValue(b.priorityTier);
+      if (t !== 0) return t;
+      // Within the same tier, higher score first (so descend in score under
+      // ascending tier).
+      return (b.priorityScore ?? -Infinity) - (a.priorityScore ?? -Infinity);
+    }
+    case 'vendor': {
+      const av = a.vendors[0]?.name ?? '';
+      const bv = b.vendors[0]?.name ?? '';
+      return av.localeCompare(bv);
+    }
+    case 'researchStatus':
+      return (a.researchStatus ?? '').localeCompare(b.researchStatus ?? '');
+    case 'integrationCount':
+      return a.integrationCount - b.integrationCount;
+    case 'connections':
+      return a.integrationIds.length - b.integrationIds.length;
+  }
 }
 
 type SectionKey =
@@ -62,11 +100,20 @@ interface DraftState {
   adminNotes: string;
 }
 
+type ToolTabKey = 'details' | 'integrations' | 'notes' | 'runs';
+const TOOL_TABS: ReadonlySet<ToolTabKey> = new Set([
+  'details',
+  'integrations',
+  'notes',
+  'runs',
+]);
+
 @Component({
   selector: 'app-tool-detail',
   imports: [
     CommonModule,
     RouterLink,
+    RouterLinkActive,
     DecimalPipe,
     FormsModule,
     GridModule,
@@ -82,6 +129,7 @@ interface DraftState {
 })
 export class ToolDetailComponent {
   id = input.required<string>();
+  tab = input<string>('details');
 
   private api = inject(ApiService);
   protected runs = inject(RunsService);
@@ -90,7 +138,10 @@ export class ToolDetailComponent {
   recordIds = computed(() => (this.tool() ? [this.id()] : []));
   enrichmentVariant = enrichmentVariant;
 
-  activeTab = signal<'details' | 'notes' | 'runs'>('details');
+  activeTab = computed<ToolTabKey>(() => {
+    const t = this.tab();
+    return TOOL_TABS.has(t as ToolTabKey) ? (t as ToolTabKey) : 'details';
+  });
 
   // Tier-detail modal — opened from the headline tier badge.
   protected readonly tierModalToolId = signal<string | null>(null);
@@ -138,46 +189,78 @@ export class ToolDetailComponent {
   saving = signal(false);
   saveError = signal<string | null>(null);
   reloading = signal(false);
-  integrationSearch = signal('');
 
-  combinedIntegrations = computed<CombinedIntegration[]>(() => {
-    const t = this.tool();
-    if (!t) return [];
-    const seen = new Set<string>();
-    const out: CombinedIntegration[] = [];
-    const push = (i: IntegrationSummary, otherTool: LinkRef | undefined) => {
-      if (seen.has(i.id)) return;
-      seen.add(i.id);
-      out.push({
-        id: i.id,
-        name: i.name,
-        otherTool,
-        integrationType: i.integrationType,
-        description: i.description,
-      });
-    };
-    for (const i of t.integrationsAsSource) push(i, i.targetTool);
-    for (const i of t.integrationsAsTarget) push(i, i.sourceTool);
-    return out;
+  // Tools tab — list of distinct tools this one integrates with.
+  integratedToolsSearch = signal('');
+  // Default sort: tier ascending (Tier 1 first), Unscored last.
+  integratedToolsSortKey = signal<IntegratedToolsSortKey>('tier');
+  integratedToolsSortDir = signal<'asc' | 'desc'>('asc');
+
+  integratedTools = computed<IntegratedToolSummary[]>(() => {
+    return this.tool()?.integratedTools ?? [];
   });
 
-  filteredIntegrations = computed<CombinedIntegration[]>(() => {
-    const q = this.integrationSearch().trim().toLowerCase();
-    const all = this.combinedIntegrations();
-    if (!q) return all;
-    return all.filter((i) => {
-      const haystack = [
-        i.name,
-        i.otherTool?.name,
-        i.integrationType,
-        i.description,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase();
-      return haystack.includes(q);
-    });
+  filteredIntegratedTools = computed<IntegratedToolSummary[]>(() => {
+    const q = this.integratedToolsSearch().trim().toLowerCase();
+    const all = this.integratedTools();
+    const filtered = !q
+      ? all
+      : all.filter((t) => {
+          const haystack = [
+            t.name,
+            t.researchStatus,
+            ...t.vendors.map((v) => v.name),
+            ...t.categories.map((c) => c.name),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return haystack.includes(q);
+        });
+
+    const key = this.integratedToolsSortKey();
+    const dir = this.integratedToolsSortDir() === 'asc' ? 1 : -1;
+    return [...filtered].sort((a, b) => compareIntegratedTools(a, b, key) * dir);
   });
+
+  onIntegratedToolsSearch(event: Event): void {
+    this.integratedToolsSearch.set((event.target as HTMLInputElement).value);
+  }
+
+  toggleIntegratedToolsSort(key: IntegratedToolsSortKey): void {
+    if (this.integratedToolsSortKey() === key) {
+      this.integratedToolsSortDir.set(
+        this.integratedToolsSortDir() === 'asc' ? 'desc' : 'asc',
+      );
+    } else {
+      this.integratedToolsSortKey.set(key);
+      // Numeric/tier columns default to descending; text to ascending.
+      this.integratedToolsSortDir.set(
+        key === 'name' || key === 'vendor' || key === 'researchStatus'
+          ? 'asc'
+          : key === 'tier'
+            ? 'asc'
+            : 'desc',
+      );
+    }
+  }
+
+  integratedToolsSortAria(
+    key: IntegratedToolsSortKey,
+  ): 'ascending' | 'descending' | 'none' {
+    if (this.integratedToolsSortKey() !== key) return 'none';
+    return this.integratedToolsSortDir() === 'asc' ? 'ascending' : 'descending';
+  }
+
+  tierLabel(tier: string | undefined): string {
+    if (!tier) return '—';
+    if (tier === 'Unscored') return 'Unscored';
+    return `Tier ${tier}`;
+  }
+
+  tierBlurb(tier: string | undefined): string {
+    return tierMetaFor(tier).label;
+  }
 
   // Mutable draft used by [(ngModel)] — replaced via Object.assign on each edit start.
   draft: DraftState = this.emptyDraft();
@@ -189,7 +272,7 @@ export class ToolDetailComponent {
       const id = this.id();
       this.tool.set(null);
       this.editingSection.set(null);
-      this.integrationSearch.set('');
+      this.integratedToolsSearch.set('');
       this.saveError.set(null);
       this.api.getTool(id).subscribe((tool) => {
         if (this.id() === id) this.tool.set(tool);
@@ -198,10 +281,6 @@ export class ToolDetailComponent {
     this.api.getMeta().subscribe((meta) => {
       this.meta.set(meta);
     });
-  }
-
-  onIntegrationSearch(event: Event): void {
-    this.integrationSearch.set((event.target as HTMLInputElement).value);
   }
 
   // ------------------------------------------------------------------- edit

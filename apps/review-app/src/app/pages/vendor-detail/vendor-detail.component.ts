@@ -1,5 +1,5 @@
 import { Component, inject, signal, input, computed, effect, OnInit } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
@@ -18,6 +18,7 @@ import { WORKFLOWS } from '../../workflows';
 
 type SectionKey = 'header' | 'links' | 'keyFacts' | 'description' | 'adminNotes';
 type TabKey = 'details' | 'tools' | 'runs';
+const VENDOR_TABS: ReadonlySet<TabKey> = new Set(['details', 'tools', 'runs']);
 
 interface DraftState {
   // header
@@ -60,6 +61,7 @@ const PUBLIC_PRIVATE_OPTIONS = ['', 'Public', 'Private', 'Subsidiary', 'Nonprofi
   imports: [
     CommonModule,
     RouterLink,
+    RouterLinkActive,
     DecimalPipe,
     FormsModule,
     GridModule,
@@ -76,6 +78,7 @@ const PUBLIC_PRIVATE_OPTIONS = ['', 'Public', 'Private', 'Subsidiary', 'Nonprofi
 })
 export class VendorDetailComponent implements OnInit {
   id = input.required<string>();
+  tab = input<string>('details');
 
   private api = inject(ApiService);
   protected runs = inject(RunsService);
@@ -90,7 +93,10 @@ export class VendorDetailComponent implements OnInit {
   saveError = signal<string | null>(null);
   reloading = signal(false);
 
-  activeTab = signal<TabKey>('details');
+  activeTab = computed<TabKey>(() => {
+    const t = this.tab();
+    return VENDOR_TABS.has(t as TabKey) ? (t as TabKey) : 'details';
+  });
 
   // Tier-detail modal — opened from the headline tier cell. Set to a vendor id
   // to show; null to close.
@@ -143,7 +149,6 @@ export class VendorDetailComponent implements OnInit {
       this.logoFailed.set(false);
       this.editingSection.set(null);
       this.saveError.set(null);
-      this.activeTab.set('details');
       this.selectedRunId.set(null);
       this.api.getVendor(id).subscribe((vendor) => {
         if (this.id() === id) this.vendor.set(vendor);
@@ -153,10 +158,6 @@ export class VendorDetailComponent implements OnInit {
 
   ngOnInit(): void {
     this.runs.start();
-  }
-
-  setTab(tab: TabKey): void {
-    this.activeTab.set(tab);
   }
 
   reload(): void {

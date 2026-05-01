@@ -94,6 +94,10 @@ export interface ToolDetail extends Tool {
   adminNotes?: string;
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
+  // Deduplicated list of tools connected to this one via any integration.
+  // Used by the Tools tab on the tool-detail page to show each integrated
+  // tool's tier and basic info without an extra round-trip per row.
+  integratedTools: IntegratedToolSummary[];
 }
 
 export interface IntegrationSummary {
@@ -103,6 +107,21 @@ export interface IntegrationSummary {
   targetTool?: LinkRef;
   integrationType?: string;
   description?: string;
+}
+
+export interface IntegratedToolSummary {
+  id: string;
+  name: string;
+  website?: string;
+  vendors: LinkRef[];
+  categories: LinkRef[];
+  researchStatus?: string;
+  priorityTier?: string;
+  priorityScore?: number;
+  integrationCount: number;
+  // Integration record ids linking this tool to the parent tool. Length > 1
+  // when the same pair is wired through multiple distinct integrations.
+  integrationIds: string[];
 }
 
 // ---------------------------------------------------------------------------

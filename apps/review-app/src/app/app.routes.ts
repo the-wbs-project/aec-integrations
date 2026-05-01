@@ -47,6 +47,11 @@ export const routes: Routes = [
       },
       {
         path: 'tools/:id',
+        pathMatch: 'full',
+        redirectTo: 'tools/:id/details',
+      },
+      {
+        path: 'tools/:id/:tab',
         loadComponent: () =>
           import('./pages/tool-detail/tool-detail.component').then(
             (m) => m.ToolDetailComponent
@@ -61,6 +66,11 @@ export const routes: Routes = [
       },
       {
         path: 'vendors/:id',
+        pathMatch: 'full',
+        redirectTo: 'vendors/:id/details',
+      },
+      {
+        path: 'vendors/:id/:tab',
         loadComponent: () =>
           import('./pages/vendor-detail/vendor-detail.component').then(
             (m) => m.VendorDetailComponent

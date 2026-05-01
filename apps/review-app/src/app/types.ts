@@ -74,6 +74,7 @@ export interface ToolDetail extends Tool {
   adminNotes?: string;
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
+  integratedTools: IntegratedToolSummary[];
 }
 
 export interface IntegrationSummary {
@@ -83,6 +84,19 @@ export interface IntegrationSummary {
   targetTool?: LinkRef;
   integrationType?: string;
   description?: string;
+}
+
+export interface IntegratedToolSummary {
+  id: string;
+  name: string;
+  website?: string;
+  vendors: LinkRef[];
+  categories: LinkRef[];
+  researchStatus?: string;
+  priorityTier?: string;
+  priorityScore?: number;
+  integrationCount: number;
+  integrationIds: string[];
 }
 
 export interface Vendor {

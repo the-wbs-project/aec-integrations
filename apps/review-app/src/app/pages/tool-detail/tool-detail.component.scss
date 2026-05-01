@@ -141,6 +141,10 @@ a.external-link--pill:hover {
   margin-bottom: var(--space-3);
 }
 
+.section-row--end {
+  justify-content: flex-end;
+}
+
 .section-heading {
   font-size: var(--text-md);
   font-weight: 500;
@@ -392,4 +396,51 @@ a.external-link--pill:hover {
 
 .na {
   color: var(--color-text-tertiary);
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tier-score {
+  margin-left: var(--space-2);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-xs);
+}
+
+.th-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-text-primary);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+}
+
+.th-sort--num {
+  width: 100%;
+  justify-content: flex-end;
+}
+
+.th-sort__indicator {
+  display: inline-block;
+  min-width: 0.7em;
+  font-size: 0.75em;
+  color: var(--color-text-secondary);
 }
