@@ -31,6 +31,7 @@ import {
 import { ApiService } from '../../services/api.service';
 import { Vendor } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { NewVendorDialogComponent } from '../../components/new-vendor-dialog/new-vendor-dialog.component';
 import { TierCellComponent } from '../../components/tier-cell/tier-cell.component';
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { enrichmentVariant } from '../../utils/enrichment';
@@ -104,6 +105,7 @@ const TIER_ORDER = [
     MultiSelectModule,
     RouterLink,
     EnrichSplitButtonComponent,
+    NewVendorDialogComponent,
     TierCellComponent,
     TierDetailDialogComponent,
   ],
@@ -133,6 +135,9 @@ export class VendorsListComponent implements OnInit {
   // Tier-detail modal state — null means closed.
   protected readonly tierModalVendorId = signal<string | null>(null);
   protected readonly tierModalVendorName = signal<string>('');
+
+  // New-vendor dialog state.
+  protected readonly newVendorDialogOpen = signal(false);
 
   // Filter state — multi-value selections
   protected readonly searchInput = signal('');
@@ -413,6 +418,21 @@ export class VendorsListComponent implements OnInit {
   closeTierModal(): void {
     this.tierModalVendorId.set(null);
     this.tierModalVendorName.set('');
+  }
+
+  openNewVendorDialog(): void {
+    this.newVendorDialogOpen.set(true);
+  }
+
+  closeNewVendorDialog(): void {
+    this.newVendorDialogOpen.set(false);
+  }
+
+  onVendorCreated(event: { recordId: string }): void {
+    // Backend kicks off the orchestrator; navigate to the detail page so the
+    // user can watch enrichment populate.
+    this.newVendorDialogOpen.set(false);
+    this.router.navigate(['/vendors', event.recordId]);
   }
 
   /** Map an enrichment status string to a badge variant token. */

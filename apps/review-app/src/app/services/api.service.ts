@@ -10,6 +10,8 @@ import {
   MetaResponse,
   CreateToolRequest,
   UpdateToolRequest,
+  CreateVendorRequest,
+  CreateVendorResponse,
   UpdateVendorRequest,
   StatsResponse,
 } from '../types';
@@ -70,6 +72,13 @@ export class ApiService {
 
   getVendor(id: string): Observable<VendorDetail> {
     return this.http.get<VendorDetail>(`${this.baseUrl}/vendors/${id}`);
+  }
+
+  createVendor(body: CreateVendorRequest): Observable<CreateVendorResponse> {
+    return this.http.post<CreateVendorResponse>(
+      `${this.baseUrl}/vendors`,
+      body,
+    );
   }
 
   updateVendor(id: string, patch: UpdateVendorRequest): Observable<VendorDetail> {

@@ -185,6 +185,20 @@ export interface CreateToolRequest {
   website?: string;
 }
 
+export interface CreateVendorRequest {
+  companyName: string;
+  website?: string;
+  description?: string;
+  model?: string;
+  forceRefresh?: boolean;
+  skipOrchestrator?: boolean;
+}
+
+export interface CreateVendorResponse {
+  vendor: { recordId: string };
+  run?: { runId: string; workflow: string; model: string };
+}
+
 export interface UpdateToolRequest {
   name?: string;
   description?: string;
