@@ -59,10 +59,10 @@ import { isWikiFresh } from '../../services/wiki/format';
 import { gatherToolEvidence } from '../../services/wiki/tool-evidence';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-research',
+  slug: 'product-research',
   description:
     'Research a tool and classify it against the taxonomy (description, categories, disciplines, phases).',
-  table: 'tools',
+  table: 'products',
 };
 
 const MAX_SEARCHES = 8;
@@ -483,7 +483,7 @@ function formatResearchNotes(result: ResearchResult): string {
   return lines.join('\n');
 }
 
-export class ToolResearchWorkflow extends ErrorCapturingWorkflow {
+export class ProductResearchWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
@@ -492,7 +492,7 @@ export class ToolResearchWorkflow extends ErrorCapturingWorkflow {
     // vendor-name hint. Done in one step so the workflow state shows the
     // input snapshot it actually used.
     const inputs = await checkpoint(step, 'fetch-record', async () => {
-      const tool = await getRecord(this.env, 'tools', recordId);
+      const tool = await getRecord(this.env, 'products', recordId);
       const name =
         asString(tool.fields['Name']) ?? asString(tool.fields['name']) ?? '';
       if (!name) {
@@ -759,7 +759,7 @@ export class ToolResearchWorkflow extends ErrorCapturingWorkflow {
     fieldsToWrite['wiki_last_researched'] = new Date().toISOString();
 
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, fieldsToWrite),
+      updateRecord(this.env, 'products', recordId, fieldsToWrite),
     );
 
     const fieldsUpdated = Object.keys(fieldsToWrite);

@@ -23,9 +23,9 @@ import {
 } from '../../lib/llm';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-marketplace',
+  slug: 'product-marketplace',
   description: 'Find which AEC marketplaces (Procore, ACC, Trimble, Bluebeam) list a tool.',
-  table: 'tools',
+  table: 'products',
 };
 
 const VALID_NAMES = ['Procore', 'ACC', 'Trimble', 'Bluebeam'] as const;
@@ -92,13 +92,13 @@ function parseEmitted(emitted: Record<string, unknown>) {
   };
 }
 
-export class ToolMarketplaceWorkflow extends ErrorCapturingWorkflow {
+export class ProductMarketplaceWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId, model, searchTool } = event.payload;
     const ctx = { runId: event.instanceId, workflow: meta.slug };
 
     const record = await checkpoint(step, 'fetch-record', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
     const { systemPrompt, userPrompt, outputSchema } = buildPrompt(record);
 
@@ -148,7 +148,7 @@ export class ToolMarketplaceWorkflow extends ErrorCapturingWorkflow {
 
     const parsed = parseEmitted(emitted);
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, parsed.fields),
+      updateRecord(this.env, 'products', recordId, parsed.fields),
     );
     return parsed;
   }

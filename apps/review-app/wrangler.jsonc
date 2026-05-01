@@ -130,59 +130,59 @@
 		},
 		// Tool workflows
 		{
-			"name": "aeci-tool-overview",
-			"binding": "WF_TOOL_OVERVIEW",
-			"class_name": "ToolOverviewWorkflow"
+			"name": "aeci-product-overview",
+			"binding": "WF_PRODUCT_OVERVIEW",
+			"class_name": "ProductOverviewWorkflow"
 		},
 		{
-			"name": "aeci-tool-api-check",
-			"binding": "WF_TOOL_API_CHECK",
-			"class_name": "ToolApiCheckWorkflow"
+			"name": "aeci-product-api-check",
+			"binding": "WF_PRODUCT_API_CHECK",
+			"class_name": "ProductApiCheckWorkflow"
 		},
 		{
-			"name": "aeci-tool-marketplace",
-			"binding": "WF_TOOL_MARKETPLACE",
-			"class_name": "ToolMarketplaceWorkflow"
+			"name": "aeci-product-marketplace",
+			"binding": "WF_PRODUCT_MARKETPLACE",
+			"class_name": "ProductMarketplaceWorkflow"
 		},
 		{
-			"name": "aeci-tool-ipaas",
-			"binding": "WF_TOOL_IPAAS",
-			"class_name": "ToolIpaasWorkflow"
+			"name": "aeci-product-ipaas",
+			"binding": "WF_PRODUCT_IPAAS",
+			"class_name": "ProductIpaasWorkflow"
 		},
 		{
-			"name": "aeci-tool-reviews",
-			"binding": "WF_TOOL_REVIEWS",
-			"class_name": "ToolReviewsWorkflow"
+			"name": "aeci-product-reviews",
+			"binding": "WF_PRODUCT_REVIEWS",
+			"class_name": "ProductReviewsWorkflow"
 		},
 		{
-			"name": "aeci-tool-search-demand",
-			"binding": "WF_TOOL_SEARCH_DEMAND",
-			"class_name": "ToolSearchDemandWorkflow"
+			"name": "aeci-product-search-demand",
+			"binding": "WF_PRODUCT_SEARCH_DEMAND",
+			"class_name": "ProductSearchDemandWorkflow"
 		},
 		{
-			"name": "aeci-tool-reddit",
-			"binding": "WF_TOOL_REDDIT",
-			"class_name": "ToolRedditWorkflow"
+			"name": "aeci-product-reddit",
+			"binding": "WF_PRODUCT_REDDIT",
+			"class_name": "ProductRedditWorkflow"
 		},
 		{
-			"name": "aeci-tool-integration-count",
-			"binding": "WF_TOOL_INTEGRATION_COUNT",
-			"class_name": "ToolIntegrationCountWorkflow"
+			"name": "aeci-product-integration-count",
+			"binding": "WF_PRODUCT_INTEGRATION_COUNT",
+			"class_name": "ProductIntegrationCountWorkflow"
 		},
 		{
-			"name": "aeci-tool-score",
-			"binding": "WF_TOOL_SCORE",
-			"class_name": "ToolScoreWorkflow"
+			"name": "aeci-product-score",
+			"binding": "WF_PRODUCT_SCORE",
+			"class_name": "ProductScoreWorkflow"
 		},
 		{
-			"name": "aeci-tool-orchestrator",
-			"binding": "WF_TOOL_ORCHESTRATOR",
-			"class_name": "ToolOrchestratorWorkflow"
+			"name": "aeci-product-orchestrator",
+			"binding": "WF_PRODUCT_ORCHESTRATOR",
+			"class_name": "ProductOrchestratorWorkflow"
 		},
 		{
-			"name": "aeci-tool-research",
-			"binding": "WF_TOOL_RESEARCH",
-			"class_name": "ToolResearchWorkflow"
+			"name": "aeci-product-research",
+			"binding": "WF_PRODUCT_RESEARCH",
+			"class_name": "ProductResearchWorkflow"
 		}
 	],
 	"vars": {
@@ -192,12 +192,12 @@
 		"SEARCH_TOOL": "searchapi",
 		"AIRTABLE_BASE_ID": "appy81IdGJY6Fngf9",
 		"AIRTABLE_TABLES": {
-			"tools": "tbleVEZV0H5RigtHN",
+			"products": "tbleVEZV0H5RigtHN",
 			"vendors": "tbln8aZjwPI3Am4TF",
 			"categories": "tbl0xEW7FPousftNs",
 			"projectPhases": "tblkv9fmq2nUnjwE7",
 			"disciplines": "tbl0pNJbWBiA080o7",
-			"toolIntegrations": "tbl6PBPsGJuPcrZZi",
+			"integrations": "tbl6PBPsGJuPcrZZi",
 			"runs": "tbl0cslFyub1M9e9W"
 		},
 		"DEFAULT_MODEL": "claude-haiku-4-5-20251001",

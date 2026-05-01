@@ -27,7 +27,7 @@ export interface PaginatedResponse<T> {
 // ---------------------------------------------------------------------------
 export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted';
 
-export interface Tool {
+export interface Product {
   id: string;
   name: string;
   website?: string;
@@ -90,29 +90,41 @@ export interface Tool {
   vendorVqsTier?: string;
 }
 
-export interface ToolDetail extends Tool {
+export interface ProductDetail extends Product {
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
   toolIntegrationCheckedAt?: string;
   adminNotes?: string;
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
-  // Deduplicated list of tools connected to this one via any integration.
-  // Used by the Tools tab on the tool-detail page to show each integrated
-  // tool's tier and basic info without an extra round-trip per row.
-  integratedTools: IntegratedToolSummary[];
+  // Deduplicated list of products connected to this one via any integration.
+  // Used by the Integrations tab on the product-detail page to show each
+  // integrated product's tier and basic info without an extra round-trip per row.
+  integratedProducts: IntegratedProductSummary[];
 }
 
 export interface IntegrationSummary {
   id: string;
   name: string;
-  sourceTool?: LinkRef;
-  targetTool?: LinkRef;
+  sourceProduct?: LinkRef;
+  targetProduct?: LinkRef;
   integrationType?: string;
   description?: string;
+  direction?: string;
+  mechanismKind?: string;
+  poweredByProduct?: LinkRef;
+  mechanismName?: string;
+  mechanismUrl?: string;
+  website?: string;
+  docsUrl?: string;
+  listingUrl?: string;
+  builtBy?: LinkRef;
+  pricingModel?: string;
+  maturity?: string;
+  notes?: string;
 }
 
-export interface IntegratedToolSummary {
+export interface IntegratedProductSummary {
   id: string;
   name: string;
   website?: string;
@@ -221,7 +233,7 @@ export interface MetaResponse {
 // ---------------------------------------------------------------------------
 // Write payloads
 // ---------------------------------------------------------------------------
-export interface CreateToolRequest {
+export interface CreateProductRequest {
   name: string;
   description?: string;
   website?: string;
@@ -243,7 +255,7 @@ export interface CreateVendorRequest {
  * Partial update payload. Linked-record fields accept arrays of Airtable
  * record IDs (the form sends IDs, not LinkRefs).
  */
-export interface UpdateToolRequest {
+export interface UpdateProductRequest {
   name?: string;
   description?: string;
   website?: string;

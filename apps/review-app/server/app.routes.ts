@@ -19,11 +19,12 @@ import { requireAuth, verifyAccessToken, type AuthVariables } from './middleware
 import health from './routes/health';
 import meta from './routes/meta';
 import stats from './routes/stats';
-import tools from './routes/tools';
+import products from './routes/products';
+import integrations from './routes/integrations';
 import vendors from './routes/vendors';
 import workflows from './routes/workflows';
 import reports from './routes/reports';
-import toolsDebug from './routes/tools-debug';
+import productsDebug from './routes/products-debug';
 
 // Hosts allowed to open the runs WebSocket. Match by hostname (not full
 // origin) so http/https + ports + the workers.dev preview all work without
@@ -89,7 +90,8 @@ app.use('/api/*', requireAuth());
 
 // Data
 app.route('/api/meta', meta);
-app.route('/api/tools', tools);
+app.route('/api/products', products);
+app.route('/api/integrations', integrations);
 app.route('/api/vendors', vendors);
 app.route('/api/stats', stats);
 
@@ -98,7 +100,7 @@ app.route('/api/workflows', workflows);
 app.route('/api/reports', reports);
 
 // Debug helpers (SERP / page render)
-app.route('/api/debug', toolsDebug);
+app.route('/api/debug', productsDebug);
 
 // SPA fallback — wrangler's `not_found_handling: "single-page-application"`
 // rewrites missing routes to index.html, so this is just a passthrough.

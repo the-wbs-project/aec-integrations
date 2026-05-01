@@ -2,21 +2,22 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
+  IntegrationSummary,
   PaginatedResponse,
-  Tool,
-  ToolDetail,
+  Product,
+  ProductDetail,
   Vendor,
   VendorDetail,
   MetaResponse,
-  CreateToolRequest,
-  UpdateToolRequest,
+  CreateProductRequest,
+  UpdateProductRequest,
   CreateVendorRequest,
   CreateVendorResponse,
   UpdateVendorRequest,
   StatsResponse,
 } from '../types';
 
-export interface ToolQueryParams {
+export interface ProductQueryParams {
   offset?: number;
   limit?: number;
   search?: string;
@@ -26,6 +27,21 @@ export interface ToolQueryParams {
   status?: string;
   tier?: string;
   enrichmentStatus?: string;
+  sort?: string;
+  direction?: 'asc' | 'desc';
+}
+
+export interface IntegrationQueryParams {
+  offset?: number;
+  limit?: number;
+  search?: string;
+  sourceProduct?: string;
+  targetProduct?: string;
+  poweredByProduct?: string;
+  mechanismKind?: string;
+  maturity?: string;
+  pricingModel?: string;
+  builtBy?: string;
   sort?: string;
   direction?: 'asc' | 'desc';
 }
@@ -43,22 +59,37 @@ export class ApiService {
   private http = inject(HttpClient);
   private baseUrl = '/api';
 
-  getTools(params?: ToolQueryParams): Observable<PaginatedResponse<Tool>> {
-    return this.http.get<PaginatedResponse<Tool>>(`${this.baseUrl}/tools`, {
+  getProducts(params?: ProductQueryParams): Observable<PaginatedResponse<Product>> {
+    return this.http.get<PaginatedResponse<Product>>(`${this.baseUrl}/tools`, {
       params: this.buildParams(params as Record<string, unknown>),
     });
   }
 
-  getTool(id: string): Observable<ToolDetail> {
-    return this.http.get<ToolDetail>(`${this.baseUrl}/tools/${id}`);
+  getProduct(id: string): Observable<ProductDetail> {
+    return this.http.get<ProductDetail>(`${this.baseUrl}/tools/${id}`);
   }
 
-  createTool(body: CreateToolRequest): Observable<Tool> {
-    return this.http.post<Tool>(`${this.baseUrl}/tools`, body);
+  createProduct(body: CreateProductRequest): Observable<Product> {
+    return this.http.post<Product>(`${this.baseUrl}/tools`, body);
   }
 
-  updateTool(id: string, patch: UpdateToolRequest): Observable<ToolDetail> {
-    return this.http.patch<ToolDetail>(`${this.baseUrl}/tools/${id}`, patch);
+  updateProduct(id: string, patch: UpdateProductRequest): Observable<ProductDetail> {
+    return this.http.patch<ProductDetail>(`${this.baseUrl}/tools/${id}`, patch);
+  }
+
+  getIntegrations(
+    params?: IntegrationQueryParams,
+  ): Observable<PaginatedResponse<IntegrationSummary>> {
+    return this.http.get<PaginatedResponse<IntegrationSummary>>(
+      `${this.baseUrl}/integrations`,
+      { params: this.buildParams(params as Record<string, unknown>) },
+    );
+  }
+
+  getIntegration(id: string): Observable<IntegrationSummary> {
+    return this.http.get<IntegrationSummary>(
+      `${this.baseUrl}/integrations/${id}`,
+    );
   }
 
   getVendors(

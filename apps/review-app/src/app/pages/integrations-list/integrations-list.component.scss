@@ -1,0 +1,40 @@
+:host {
+  display: block;
+  height: calc(100dvh - 52px);
+}
+
+.integrations-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: var(--space-6);
+  gap: var(--space-5);
+}
+
+.integrations-page__grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.integrations-page__grid ejs-grid {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.integration-name-link {
+  font-weight: 500;
+  color: var(--color-text-accent);
+}
+
+.empty-cell {
+  color: var(--color-text-secondary);
+}
+
+.muted {
+  color: var(--color-text-secondary);
+}

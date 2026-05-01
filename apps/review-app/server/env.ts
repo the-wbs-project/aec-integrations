@@ -26,12 +26,12 @@ import type { AutoEnrichJob } from './services/autoEnrich/types';
 export type BrowserBinding = Parameters<typeof puppeteer.launch>[0];
 
 export interface AirtableTables {
-  tools: string;
+  products: string;
   vendors: string;
   categories: string;
   projectPhases: string;
   disciplines: string;
-  toolIntegrations: string;
+  integrations: string;
   runs: string;
 }
 
@@ -55,16 +55,16 @@ type WorkflowBindings = {
   WF_VENDOR_SCORE: Workflow<RunParams>;
   WF_VENDOR_ORCHESTRATOR: Workflow<RunParams>;
   WF_VENDOR_OVERVIEW: Workflow<RunParams>;
-  WF_TOOL_API_CHECK: Workflow<RunParams>;
-  WF_TOOL_MARKETPLACE: Workflow<RunParams>;
-  WF_TOOL_IPAAS: Workflow<RunParams>;
-  WF_TOOL_REVIEWS: Workflow<RunParams>;
-  WF_TOOL_SEARCH_DEMAND: Workflow<RunParams>;
-  WF_TOOL_REDDIT: Workflow<RunParams>;
-  WF_TOOL_INTEGRATION_COUNT: Workflow<RunParams>;
-  WF_TOOL_SCORE: Workflow<RunParams>;
-  WF_TOOL_ORCHESTRATOR: Workflow<RunParams>;
-  WF_TOOL_RESEARCH: Workflow<RunParams>;
+  WF_PRODUCT_API_CHECK: Workflow<RunParams>;
+  WF_PRODUCT_MARKETPLACE: Workflow<RunParams>;
+  WF_PRODUCT_IPAAS: Workflow<RunParams>;
+  WF_PRODUCT_REVIEWS: Workflow<RunParams>;
+  WF_PRODUCT_SEARCH_DEMAND: Workflow<RunParams>;
+  WF_PRODUCT_REDDIT: Workflow<RunParams>;
+  WF_PRODUCT_INTEGRATION_COUNT: Workflow<RunParams>;
+  WF_PRODUCT_SCORE: Workflow<RunParams>;
+  WF_PRODUCT_ORCHESTRATOR: Workflow<RunParams>;
+  WF_PRODUCT_RESEARCH: Workflow<RunParams>;
 };
 
 /**

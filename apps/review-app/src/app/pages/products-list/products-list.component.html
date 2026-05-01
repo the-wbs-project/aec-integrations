@@ -1,6 +1,6 @@
-<div class="tools-page">
+<div class="products-page">
   <div class="page-header">
-    <h1 class="page-heading">Tools</h1>
+    <h1 class="page-heading">Products</h1>
     <div class="page-header__actions">
       @if (selectedIds().length > 0) {
         <span class="selection-count">
@@ -11,8 +11,8 @@
         type="button"
         class="btn btn--secondary"
         [disabled]="loading()"
-        (click)="fetchTools()"
-        aria-label="Refresh tools"
+        (click)="fetchProducts()"
+        aria-label="Refresh products"
       >
         <span
           class="refresh-icon"
@@ -25,7 +25,7 @@
         family="tool"
         [recordIds]="selectedIds()"
       />
-      <a routerLink="/tools/new" class="btn btn--primary btn--sm">+ New tool</a>
+      <a routerLink="/products/new" class="btn btn--primary btn--sm">+ New product</a>
     </div>
   </div>
 
@@ -34,10 +34,10 @@
     <input
       class="input filter-bar__search"
       type="search"
-      placeholder="Search tools..."
+      placeholder="Search products..."
       [value]="searchInput()"
       (input)="onSearchInput($event)"
-      aria-label="Search tools"
+      aria-label="Search products"
     />
 
     <ejs-multiselect
@@ -149,11 +149,11 @@
     </div>
   }
 
-  <div class="tools-page__grid">
+  <div class="products-page__grid">
     @if (loading()) {
-      <p class="loading-note loading-note--overlay">Loading tools…</p>
+      <p class="loading-note loading-note--overlay">Loading products…</p>
     } @else if (filteredRows().length === 0) {
-      <p class="loading-note loading-note--overlay">No tools found.</p>
+      <p class="loading-note loading-note--overlay">No products found.</p>
     }
     <ejs-grid
       #grid
@@ -186,7 +186,7 @@
           [sortComparer]="nameSortComparer"
         >
           <ng-template #template let-data>
-            <a class="tool-name-link" [routerLink]="['/tools', data.id]">
+            <a class="product-name-link" [routerLink]="['/products', data.id]">
               {{ data.name }}
             </a>
           </ng-template>

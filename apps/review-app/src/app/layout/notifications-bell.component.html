@@ -24,7 +24,7 @@
       </div>
 
       @if (runs().length === 0) {
-        <div class="bell__empty">No runs yet. Kick off a workflow from a vendor or tool to see it here.</div>
+        <div class="bell__empty">No runs yet. Kick off a workflow from a vendor or product to see it here.</div>
       } @else {
         <ul class="bell__list">
           @for (run of runs().slice(0, 10); track run.runId) {

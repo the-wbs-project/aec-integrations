@@ -12,7 +12,7 @@ export interface PaginatedResponse<T> {
 
 export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted';
 
-export interface Tool {
+export interface Product {
   id: string;
   name: string;
   website?: string;
@@ -70,26 +70,38 @@ export interface Tool {
   vendorVqsTier?: string;
 }
 
-export interface ToolDetail extends Tool {
+export interface ProductDetail extends Product {
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
   toolIntegrationCheckedAt?: string;
   adminNotes?: string;
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
-  integratedTools: IntegratedToolSummary[];
+  integratedProducts: IntegratedProductSummary[];
 }
 
 export interface IntegrationSummary {
   id: string;
   name: string;
-  sourceTool?: LinkRef;
-  targetTool?: LinkRef;
+  sourceProduct?: LinkRef;
+  targetProduct?: LinkRef;
   integrationType?: string;
   description?: string;
+  direction?: string;
+  mechanismKind?: string;
+  poweredByProduct?: LinkRef;
+  mechanismName?: string;
+  mechanismUrl?: string;
+  website?: string;
+  docsUrl?: string;
+  listingUrl?: string;
+  builtBy?: LinkRef;
+  pricingModel?: string;
+  maturity?: string;
+  notes?: string;
 }
 
-export interface IntegratedToolSummary {
+export interface IntegratedProductSummary {
   id: string;
   name: string;
   website?: string;
@@ -196,7 +208,7 @@ export interface StatsResponse {
 // ---------------------------------------------------------------------------
 // Write payloads (mirror server/types.ts)
 // ---------------------------------------------------------------------------
-export interface CreateToolRequest {
+export interface CreateProductRequest {
   name: string;
   description?: string;
   website?: string;
@@ -216,7 +228,7 @@ export interface CreateVendorResponse {
   run?: { runId: string; workflow: string; model: string };
 }
 
-export interface UpdateToolRequest {
+export interface UpdateProductRequest {
   name?: string;
   description?: string;
   website?: string;

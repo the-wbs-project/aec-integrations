@@ -1,14 +1,14 @@
 <div class="page-container">
-  <a routerLink="/tools" class="back-link">
+  <a routerLink="/products" class="back-link">
     <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
       <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
     </svg>
-    Back to tools
+    Back to products
   </a>
 
-  <h1 class="page-heading">New tool</h1>
+  <h1 class="page-heading">New product</h1>
   <p class="muted intro">
-    New tools start with research status <strong>Pending</strong>.
+    New products start with research status <strong>Pending</strong>.
     You can add categories, vendors, and the rest from the detail page.
   </p>
 
@@ -59,9 +59,9 @@
         class="btn btn--primary"
         [disabled]="saving() || !name().trim()"
       >
-        {{ saving() ? 'Creating…' : 'Create tool' }}
+        {{ saving() ? 'Creating…' : 'Create product' }}
       </button>
-      <a routerLink="/tools" class="btn btn--ghost">Cancel</a>
+      <a routerLink="/products" class="btn btn--ghost">Cancel</a>
     </div>
   </form>
 </div>

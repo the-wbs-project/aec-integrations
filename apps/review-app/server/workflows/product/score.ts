@@ -28,10 +28,10 @@ import {
 } from '../../tasks/computePriorityScore';
 
 export const meta: WorkflowMeta = {
-  slug: 'tool-score',
+  slug: 'product-score',
   description:
     'Compute the tool priority score (Integration / Demand) plus tier, completeness, confidence, and flags.',
-  table: 'tools',
+  table: 'products',
 };
 
 interface ScoreOutput {
@@ -119,12 +119,12 @@ export function computeToolScore(
   };
 }
 
-export class ToolScoreWorkflow extends ErrorCapturingWorkflow {
+export class ProductScoreWorkflow extends ErrorCapturingWorkflow {
   override async runImpl(event: WorkflowEvent<RunParams>, step: WorkflowStep) {
     const { recordId } = event.payload;
 
     const record = await checkpoint(step, 'fetch-tool', () =>
-      getRecord(this.env, 'tools', recordId),
+      getRecord(this.env, 'products', recordId),
     );
 
     const vendorIds = asStringArray(record.fields['vendors']);
@@ -143,7 +143,7 @@ export class ToolScoreWorkflow extends ErrorCapturingWorkflow {
     const fields = computeToolScore(record, vendor);
 
     await checkpoint(step, 'write-fields', () =>
-      updateRecord(this.env, 'tools', recordId, fields),
+      updateRecord(this.env, 'products', recordId, fields),
     );
 
     return {

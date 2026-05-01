@@ -1,11 +1,11 @@
 @if (tool(); as tool) {
   <div class="page-container">
     <!-- Back link -->
-    <a routerLink="/tools" class="back-link">
+    <a routerLink="/products" class="back-link">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
         <line x1="19" y1="12" x2="5" y2="12" /><polyline points="12 19 5 12 12 5" />
       </svg>
-      Back to tools
+      Back to products
     </a>
 
     <!-- Header -->
@@ -53,7 +53,7 @@
                 ejs-button
                 type="button"
                 cssClass="e-primary btn-group__refresh"
-                aria-label="Refresh tool"
+                aria-label="Refresh product"
                 title="Refresh"
                 [disabled]="reloading()"
                 (click)="reload()"
@@ -178,7 +178,7 @@
         routerLinkActive="nav__item--active"
         #detailsTab="routerLinkActive"
         [attr.aria-selected]="detailsTab.isActive"
-        [routerLink]="['/tools', id(), 'details']"
+        [routerLink]="['/products', id(), 'details']"
       >Details</a>
       <a
         role="tab"
@@ -186,15 +186,15 @@
         routerLinkActive="nav__item--active"
         #integrationsTab="routerLinkActive"
         [attr.aria-selected]="integrationsTab.isActive"
-        [routerLink]="['/tools', id(), 'integrations']"
-      >Integrations <span class="muted">({{ integratedTools().length }})</span></a>
+        [routerLink]="['/products', id(), 'integrations']"
+      >Integrations <span class="muted">({{ integratedProducts().length }})</span></a>
       <a
         role="tab"
         class="nav__item"
         routerLinkActive="nav__item--active"
         #notesTab="routerLinkActive"
         [attr.aria-selected]="notesTab.isActive"
-        [routerLink]="['/tools', id(), 'notes']"
+        [routerLink]="['/products', id(), 'notes']"
       >Notes</a>
       <a
         role="tab"
@@ -202,7 +202,7 @@
         routerLinkActive="nav__item--active"
         #runsTab="routerLinkActive"
         [attr.aria-selected]="runsTab.isActive"
-        [routerLink]="['/tools', id(), 'runs']"
+        [routerLink]="['/products', id(), 'runs']"
       >Runs <span class="muted">({{ toolRuns().length }})</span></a>
     </nav>
 
@@ -600,14 +600,14 @@
     @if (activeTab() === 'integrations') {
       <div role="tabpanel">
         <section class="detail-section">
-          @if (integratedTools().length) {
+          @if (integratedProducts().length) {
             <div class="section-row section-row--end">
               <input
                 class="input section-search"
                 type="search"
                 placeholder="Search by tool, vendor, category…"
-                [value]="integratedToolsSearch()"
-                (input)="onIntegratedToolsSearch($event)"
+                [value]="integratedProductsSearch()"
+                (input)="onIntegratedProductsSearch($event)"
                 aria-label="Search integrated tools"
               />
             </div>
@@ -615,50 +615,50 @@
               <table class="table" aria-label="Integrated tools">
                 <thead>
                   <tr>
-                    <th [attr.aria-sort]="integratedToolsSortAria('name')">
-                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('name')">
+                    <th [attr.aria-sort]="integratedProductsSortAria('name')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedProductsSort('name')">
                         Tool
-                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'name' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'name' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
-                    <th [attr.aria-sort]="integratedToolsSortAria('tier')">
-                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('tier')">
+                    <th [attr.aria-sort]="integratedProductsSortAria('tier')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedProductsSort('tier')">
                         Tier
-                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'tier' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'tier' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
-                    <th [attr.aria-sort]="integratedToolsSortAria('vendor')">
-                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('vendor')">
+                    <th [attr.aria-sort]="integratedProductsSortAria('vendor')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedProductsSort('vendor')">
                         Vendor
-                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'vendor' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'vendor' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
                     <th>Categories</th>
-                    <th [attr.aria-sort]="integratedToolsSortAria('researchStatus')">
-                      <button type="button" class="th-sort" (click)="toggleIntegratedToolsSort('researchStatus')">
+                    <th [attr.aria-sort]="integratedProductsSortAria('researchStatus')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedProductsSort('researchStatus')">
                         Research status
-                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'researchStatus' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'researchStatus' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
-                    <th class="num" [attr.aria-sort]="integratedToolsSortAria('integrationCount')">
-                      <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedToolsSort('integrationCount')">
+                    <th class="num" [attr.aria-sort]="integratedProductsSortAria('integrationCount')">
+                      <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedProductsSort('integrationCount')">
                         Integrations
-                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'integrationCount' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'integrationCount' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
-                    <th class="num" [attr.aria-sort]="integratedToolsSortAria('connections')">
-                      <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedToolsSort('connections')">
+                    <th class="num" [attr.aria-sort]="integratedProductsSortAria('connections')">
+                      <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedProductsSort('connections')">
                         Connections
-                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedToolsSortKey() === 'connections' ? (integratedToolsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'connections' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (it of filteredIntegratedTools(); track it.id) {
+                  @for (it of filteredIntegratedProducts(); track it.id) {
                     <tr>
                       <td>
-                        <a [routerLink]="['/tools', it.id]">{{ it.name }}</a>
+                        <a [routerLink]="['/products', it.id]">{{ it.name }}</a>
                       </td>
                       <td>
                         <span
@@ -736,6 +736,100 @@
             <p class="empty-state">This tool isn't linked to any other tools yet.</p>
           }
         </section>
+
+        @if (allIntegrations().length) {
+          <section class="detail-section">
+            <h2 class="section-heading">Integration records ({{ allIntegrations().length }})</h2>
+            <p class="muted" style="margin-top: -0.25rem;">
+              One card per Integration record — including how it's wired up.
+            </p>
+            <div class="integration-cards">
+              @for (i of allIntegrations(); track i.id) {
+                @let other = otherProductOf(i);
+                <div class="integration-card">
+                  <div class="integration-card__header">
+                    <div class="integration-card__title">
+                      <strong>{{ i.name || 'Untitled integration' }}</strong>
+                      @if (other) {
+                        <span class="muted"> &middot; with </span>
+                        <a [routerLink]="['/products', other.id]">{{ other.name }}</a>
+                      }
+                    </div>
+                    <div class="integration-card__badges">
+                      @if (i.maturity) {
+                        <span class="badge badge--neutral" [title]="'Maturity'">{{ i.maturity }}</span>
+                      }
+                      @if (i.direction) {
+                        <span class="badge badge--neutral" [title]="'Direction'">{{ i.direction }}</span>
+                      }
+                      @if (i.pricingModel) {
+                        <span class="badge badge--neutral" [title]="'Pricing'">{{ i.pricingModel }}</span>
+                      }
+                    </div>
+                  </div>
+
+                  <dl class="integration-card__meta">
+                    <div>
+                      <dt>Mechanism</dt>
+                      <dd>
+                        @if (i.poweredByProduct) {
+                          <span class="muted">Powered by </span>
+                          <a [routerLink]="['/products', i.poweredByProduct.id]">{{ i.poweredByProduct.name }}</a>
+                          @if (i.mechanismKind) {
+                            <span class="muted"> &middot; {{ i.mechanismKind }}</span>
+                          }
+                        } @else if (i.mechanismKind || i.mechanismName) {
+                          @if (i.mechanismKind) {
+                            <span class="badge badge--neutral">{{ i.mechanismKind }}</span>
+                          }
+                          @if (i.mechanismName) {
+                            @if (i.mechanismUrl) {
+                              <a [href]="i.mechanismUrl" target="_blank" rel="noopener">{{ i.mechanismName }}</a>
+                            } @else {
+                              <span>{{ i.mechanismName }}</span>
+                            }
+                          }
+                        } @else if (i.integrationType) {
+                          <span class="muted">{{ i.integrationType }}</span>
+                        } @else {
+                          <span class="na">—</span>
+                        }
+                      </dd>
+                    </div>
+
+                    @if (i.builtBy) {
+                      <div>
+                        <dt>Built by</dt>
+                        <dd><a [routerLink]="['/vendors', i.builtBy.id]">{{ i.builtBy.name }}</a></dd>
+                      </div>
+                    }
+
+                    @if (i.website || i.docsUrl || i.listingUrl) {
+                      <div>
+                        <dt>Links</dt>
+                        <dd class="integration-card__links">
+                          @if (i.website) {
+                            <a [href]="i.website" target="_blank" rel="noopener">Website</a>
+                          }
+                          @if (i.docsUrl) {
+                            <a [href]="i.docsUrl" target="_blank" rel="noopener">Docs</a>
+                          }
+                          @if (i.listingUrl) {
+                            <a [href]="i.listingUrl" target="_blank" rel="noopener">Listing</a>
+                          }
+                        </dd>
+                      </div>
+                    }
+                  </dl>
+
+                  @if (i.description) {
+                    <p class="integration-card__description">{{ i.description }}</p>
+                  }
+                </div>
+              }
+            </div>
+          </section>
+        }
       </div>
     }
 

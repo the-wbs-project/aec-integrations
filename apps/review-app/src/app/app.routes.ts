@@ -32,29 +32,49 @@ export const routes: Routes = [
           import('./pages/dashboard/dashboard.page').then((m) => m.DashboardPage),
       },
       {
-        path: 'tools',
+        path: 'products',
         loadComponent: () =>
-          import('./pages/tools-list/tools-list.component').then(
-            (m) => m.ToolsListComponent
+          import('./pages/products-list/products-list.component').then(
+            (m) => m.ProductsListComponent
           ),
       },
       {
-        path: 'tools/new',
+        path: 'products/new',
         loadComponent: () =>
-          import('./pages/tool-create/tool-create.component').then(
-            (m) => m.ToolCreateComponent
+          import('./pages/product-create/product-create.component').then(
+            (m) => m.ProductCreateComponent
           ),
       },
       {
-        path: 'tools/:id',
+        path: 'products/:id',
         pathMatch: 'full',
-        redirectTo: 'tools/:id/details',
+        redirectTo: 'products/:id/details',
       },
       {
-        path: 'tools/:id/:tab',
+        path: 'products/:id/:tab',
         loadComponent: () =>
-          import('./pages/tool-detail/tool-detail.component').then(
-            (m) => m.ToolDetailComponent
+          import('./pages/product-detail/product-detail.component').then(
+            (m) => m.ProductDetailComponent
+          ),
+      },
+      // Legacy /tools redirects — preserve external bookmarks pointing at the
+      // old route names. Safe to remove after a transition window.
+      { path: 'tools', pathMatch: 'full', redirectTo: 'products' },
+      { path: 'tools/new', pathMatch: 'full', redirectTo: 'products/new' },
+      { path: 'tools/:id', pathMatch: 'full', redirectTo: 'products/:id/details' },
+      { path: 'tools/:id/:tab', redirectTo: 'products/:id/:tab' },
+      {
+        path: 'integrations',
+        loadComponent: () =>
+          import('./pages/integrations-list/integrations-list.component').then(
+            (m) => m.IntegrationsListComponent
+          ),
+      },
+      {
+        path: 'integrations/:id',
+        loadComponent: () =>
+          import('./pages/integration-detail/integration-detail.component').then(
+            (m) => m.IntegrationDetailComponent
           ),
       },
       {

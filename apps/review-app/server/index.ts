@@ -34,17 +34,17 @@ export { VendorFundingWorkflow } from './workflows/vendor/funding';
 export { VendorScoreWorkflow } from './workflows/vendor/score';
 export { VendorOrchestratorWorkflow } from './workflows/vendor/orchestrator';
 export { VendorOverviewWorkflow } from './workflows/vendor/overview';
-export { ToolOverviewWorkflow } from './workflows/tool/overview';
-export { ToolApiCheckWorkflow } from './workflows/tool/apiCheck';
-export { ToolMarketplaceWorkflow } from './workflows/tool/marketplace';
-export { ToolIpaasWorkflow } from './workflows/tool/ipaas';
-export { ToolReviewsWorkflow } from './workflows/tool/reviews';
-export { ToolSearchDemandWorkflow } from './workflows/tool/searchDemand';
-export { ToolRedditWorkflow } from './workflows/tool/reddit';
-export { ToolIntegrationCountWorkflow } from './workflows/tool/integrationCount';
-export { ToolScoreWorkflow } from './workflows/tool/score';
-export { ToolOrchestratorWorkflow } from './workflows/tool/orchestrator';
-export { ToolResearchWorkflow } from './workflows/tool/research';
+export { ProductOverviewWorkflow } from './workflows/product/overview';
+export { ProductApiCheckWorkflow } from './workflows/product/apiCheck';
+export { ProductMarketplaceWorkflow } from './workflows/product/marketplace';
+export { ProductIpaasWorkflow } from './workflows/product/ipaas';
+export { ProductReviewsWorkflow } from './workflows/product/reviews';
+export { ProductSearchDemandWorkflow } from './workflows/product/searchDemand';
+export { ProductRedditWorkflow } from './workflows/product/reddit';
+export { ProductIntegrationCountWorkflow } from './workflows/product/integrationCount';
+export { ProductScoreWorkflow } from './workflows/product/score';
+export { ProductOrchestratorWorkflow } from './workflows/product/orchestrator';
+export { ProductResearchWorkflow } from './workflows/product/research';
 
 // Streamable-HTTP MCP handler. Built once at module init; the McpAgent SDK
 // internally routes to the MCP_OBJECT Durable Object.

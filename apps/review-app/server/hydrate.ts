@@ -3,11 +3,11 @@
 // ---------------------------------------------------------------------------
 import type {
   CrunchbaseList,
-  IntegratedToolSummary,
+  IntegratedProductSummary,
   IntegrationSummary,
   LinkRef,
-  Tool,
-  ToolDetail,
+  Product,
+  ProductDetail,
   Vendor,
   VendorDetail,
 } from './types';
@@ -18,7 +18,7 @@ import {
   fetchDisciplines,
   fetchIntegrations,
   fetchProjectPhases,
-  fetchTools,
+  fetchProducts,
   fetchVendors,
 } from './services/airtable';
 
@@ -130,7 +130,7 @@ export interface LookupMaps {
   categories: NameMap;
   disciplines: NameMap;
   phases: NameMap;
-  tools: NameMap;
+  products: NameMap;
 }
 
 function buildVendorVqsMap(records: AirtableRecord[]): VendorVqsMap {
@@ -146,12 +146,12 @@ function buildVendorVqsMap(records: AirtableRecord[]): VendorVqsMap {
 }
 
 export async function buildLookupMaps(env: Env): Promise<LookupMaps> {
-  const [vendorRecs, catRecs, discRecs, phaseRecs, toolRecs] = await Promise.all([
+  const [vendorRecs, catRecs, discRecs, phaseRecs, productRecs] = await Promise.all([
     fetchVendors(env),
     fetchCategories(env),
     fetchDisciplines(env),
     fetchProjectPhases(env),
-    fetchTools(env),
+    fetchProducts(env),
   ]);
 
   return {
@@ -160,17 +160,17 @@ export async function buildLookupMaps(env: Env): Promise<LookupMaps> {
     categories: buildNameMap(catRecs, 'Name'),
     disciplines: buildNameMap(discRecs, 'Name'),
     phases: buildNameMap(phaseRecs, 'Name'),
-    tools: buildNameMap(toolRecs, 'Name'),
+    products: buildNameMap(productRecs, 'Name'),
   };
 }
 
 // ---------------------------------------------------------------------------
 // Tool hydration
 // ---------------------------------------------------------------------------
-export function hydrateTool(
+export function hydrateProduct(
   record: AirtableRecord,
   maps: LookupMaps,
-): Tool {
+): Product {
   const sourceIds = record.get('tool_integrations_source');
   const targetIds = record.get('tool_integrations_target');
   const sourceCount = Array.isArray(sourceIds) ? sourceIds.length : 0;
@@ -247,59 +247,52 @@ function vendorVqsFor(
   return { vendorVqsScore: vqs.score, vendorVqsTier: vqs.tier };
 }
 
-export function hydrateToolDetail(
+export function hydrateProductDetail(
   record: AirtableRecord,
   maps: LookupMaps,
   integrationRecords: AirtableRecord[],
-  toolRecords: AirtableRecord[],
-): ToolDetail {
-  const base = hydrateTool(record, maps);
-  const toolId = record.id;
+  productRecords: AirtableRecord[],
+): ProductDetail {
+  const base = hydrateProduct(record, maps);
+  const productId = record.id;
 
   const integrationsAsSource: IntegrationSummary[] = [];
   const integrationsAsTarget: IntegrationSummary[] = [];
-  // otherToolId -> integration record ids that connect it to the parent tool.
+  // otherProductId -> integration record ids that connect it to the parent product.
   // Insertion order is preserved by Map, which gives us a stable ordering for
-  // the Tools tab.
-  const integrationsByOtherTool = new Map<string, string[]>();
+  // the Integrations tab.
+  const integrationsByOtherProduct = new Map<string, string[]>();
 
   for (const ir of integrationRecords) {
     const sourceIds = ir.get('Source Tool') as string[] | undefined;
     const targetIds = ir.get('Target Tool') as string[] | undefined;
-    const isSource = Array.isArray(sourceIds) && sourceIds.includes(toolId);
-    const isTarget = Array.isArray(targetIds) && targetIds.includes(toolId);
+    const isSource = Array.isArray(sourceIds) && sourceIds.includes(productId);
+    const isTarget = Array.isArray(targetIds) && targetIds.includes(productId);
 
     if (!isSource && !isTarget) continue;
 
-    const summary: IntegrationSummary = {
-      id: ir.id,
-      name: asString(ir.get('Name')) ?? '',
-      sourceTool: toRef(sourceIds, maps.tools),
-      targetTool: toRef(targetIds, maps.tools),
-      integrationType: asString(ir.get('Integration Type')),
-      description: asString(ir.get('Description')),
-    };
+    const summary = hydrateIntegration(ir, maps);
 
     if (isSource) integrationsAsSource.push(summary);
     if (isTarget) integrationsAsTarget.push(summary);
 
     const otherId = isSource
-      ? summary.targetTool?.id
-      : summary.sourceTool?.id;
-    if (otherId && otherId !== toolId) {
-      const list = integrationsByOtherTool.get(otherId) ?? [];
+      ? summary.targetProduct?.id
+      : summary.sourceProduct?.id;
+    if (otherId && otherId !== productId) {
+      const list = integrationsByOtherProduct.get(otherId) ?? [];
       list.push(ir.id);
-      integrationsByOtherTool.set(otherId, list);
+      integrationsByOtherProduct.set(otherId, list);
     }
   }
 
-  const toolRecordsById = new Map(toolRecords.map((r) => [r.id, r]));
-  const integratedTools: IntegratedToolSummary[] = [];
-  for (const [otherId, integrationIds] of integrationsByOtherTool) {
-    const otherRecord = toolRecordsById.get(otherId);
+  const productRecordsById = new Map(productRecords.map((r) => [r.id, r]));
+  const integratedProducts: IntegratedProductSummary[] = [];
+  for (const [otherId, integrationIds] of integrationsByOtherProduct) {
+    const otherRecord = productRecordsById.get(otherId);
     if (!otherRecord) continue;
-    const other = hydrateTool(otherRecord, maps);
-    integratedTools.push({
+    const other = hydrateProduct(otherRecord, maps);
+    integratedProducts.push({
       id: other.id,
       name: other.name,
       website: other.website,
@@ -321,7 +314,37 @@ export function hydrateToolDetail(
     adminNotes: asString(record.get('admin_notes')),
     integrationsAsSource,
     integrationsAsTarget,
-    integratedTools,
+    integratedProducts,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Integration hydration — used both inside hydrateProductDetail (per-endpoint
+// integration lists) and by the standalone /api/integrations endpoints.
+// ---------------------------------------------------------------------------
+export function hydrateIntegration(
+  record: AirtableRecord,
+  maps: LookupMaps,
+): IntegrationSummary {
+  return {
+    id: record.id,
+    name: asString(record.get('Name')) ?? '',
+    sourceProduct: toRef(record.get('Source Tool'), maps.products),
+    targetProduct: toRef(record.get('Target Tool'), maps.products),
+    integrationType: asString(record.get('Integration Type')),
+    description: asString(record.get('Description')),
+    direction: asString(record.get('direction')),
+    mechanismKind: asString(record.get('mechanism_kind')),
+    poweredByProduct: toRef(record.get('powered_by_product'), maps.products),
+    mechanismName: asString(record.get('mechanism_name')),
+    mechanismUrl: asString(record.get('mechanism_url')),
+    website: asString(record.get('website')),
+    docsUrl: asString(record.get('docs_url')),
+    listingUrl: asString(record.get('listing_url')),
+    builtBy: toRef(record.get('built_by'), maps.vendors),
+    pricingModel: asString(record.get('pricing_model')),
+    maturity: asString(record.get('maturity')),
+    notes: asString(record.get('notes')),
   };
 }
 
@@ -370,7 +393,7 @@ export function hydrateVendorDetail(
     sourceUrl: asString(record.get('source_url')),
     phoneNumber: asString(record.get('phone_number')),
     contactEmail: asString(record.get('contact_email')),
-    tools: toRefs(record.get('tools'), maps.tools),
+    tools: toRefs(record.get('tools'), maps.products),
 
     githubOrg: asString(record.get('github_org')),
     githubOrgVerified: asBoolean(record.get('github_org_verified')),

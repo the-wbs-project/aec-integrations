@@ -91,7 +91,7 @@ app.post('/:name/run', async (c) => {
   let labels: Map<string, string> | undefined;
   try {
     const maps = await buildLookupMaps(c.env);
-    labels = entry.meta.table === 'vendors' ? maps.vendors : entry.meta.table === 'tools' ? maps.tools : undefined;
+    labels = entry.meta.table === 'vendors' ? maps.vendors : entry.meta.table === 'products' ? maps.products : undefined;
   } catch {
     labels = undefined;
   }
