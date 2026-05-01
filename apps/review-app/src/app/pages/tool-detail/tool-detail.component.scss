@@ -24,6 +24,14 @@
   margin-bottom: var(--space-3);
 }
 
+.header-row__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
 .header-row__actions {
   display: flex;
   align-items: center;

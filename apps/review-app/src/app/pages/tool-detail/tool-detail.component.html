@@ -29,7 +29,19 @@
         </div>
       } @else {
         <div class="header-row">
-          <h1 class="detail-title">{{ tool.name }}</h1>
+          <div class="header-row__title">
+            <h1 class="detail-title">{{ tool.name }}</h1>
+            @if (tool.priorityTier) {
+              <button
+                type="button"
+                class="tier-badge-btn"
+                (click)="openTierModal()"
+                [attr.aria-label]="'Priority ' + tool.priorityTier + '. Click for scoring details.'"
+              >
+                <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">{{ tool.priorityTier === 'Unscored' ? 'Unscored' : 'Tier ' + tool.priorityTier }}</span>
+              </button>
+            }
+          </div>
           <div class="header-row__actions">
             <div class="btn-group">
               <button
