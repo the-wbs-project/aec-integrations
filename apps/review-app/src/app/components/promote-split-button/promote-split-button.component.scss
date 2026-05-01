@@ -1,0 +1,19 @@
+:host {
+  display: inline-flex;
+}
+
+::ng-deep .promote-btn.e-btn {
+  font-weight: 500;
+}
+
+::ng-deep .promote-btn--promoted .e-btn {
+  background-color: var(--color-success, #16a34a);
+  border-color: var(--color-success, #16a34a);
+  color: #fff;
+}
+
+::ng-deep .promote-btn--retracted .e-btn {
+  background-color: var(--color-surface-muted, #e5e7eb);
+  color: var(--color-text-secondary, #6b7280);
+  border-color: transparent;
+}
