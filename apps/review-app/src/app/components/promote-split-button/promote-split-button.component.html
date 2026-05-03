@@ -1,17 +1,18 @@
 @switch (view()) {
   @case ('promote') {
-    <button
-      ejs-button
-      type="button"
-      cssClass="e-primary promote-btn"
+    <ejs-splitbutton
+      content="Promote"
+      [items]="promoteMenuItems"
       [disabled]="disabled()"
+      cssClass="e-primary promote-btn"
       (click)="promote()"
-    >Promote</button>
+      (select)="onMenuSelect($event)"
+    ></ejs-splitbutton>
   }
   @case ('promoted') {
     <ejs-splitbutton
       content="Promoted ✓"
-      [items]="retractItems"
+      [items]="promotedMenuItems"
       [disabled]="disabled()"
       cssClass="e-success promote-btn promote-btn--promoted"
       (select)="onMenuSelect($event)"
@@ -20,9 +21,18 @@
   @case ('retracted') {
     <ejs-splitbutton
       content="Retracted"
-      [items]="promoteItems"
+      [items]="retractedMenuItems"
       [disabled]="disabled()"
       cssClass="promote-btn promote-btn--retracted"
+      (select)="onMenuSelect($event)"
+    ></ejs-splitbutton>
+  }
+  @case ('rejected') {
+    <ejs-splitbutton
+      content="Rejected"
+      [items]="rejectedMenuItems"
+      [disabled]="disabled()"
+      cssClass="promote-btn promote-btn--rejected"
       (select)="onMenuSelect($event)"
     ></ejs-splitbutton>
   }

@@ -25,7 +25,7 @@ export interface PaginatedResponse<T> {
 // ---------------------------------------------------------------------------
 // Tools
 // ---------------------------------------------------------------------------
-export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted';
+export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted' | 'rejected';
 
 export interface Product {
   id: string;

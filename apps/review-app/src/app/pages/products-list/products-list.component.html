@@ -130,6 +130,15 @@
       [enableSelectionOrder]="false"
       popupHeight="320px"
     ></ejs-multiselect>
+
+    <label class="filter-bar__checkbox">
+      <input
+        type="checkbox"
+        [checked]="includeRejected()"
+        (change)="onIncludeRejectedChange($event)"
+      />
+      Include rejected
+    </label>
   </div>
 
   <!-- Active-filter pills -->

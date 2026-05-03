@@ -10,7 +10,7 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
-export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted';
+export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted' | 'rejected';
 
 export interface Product {
   id: string;

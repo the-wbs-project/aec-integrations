@@ -25,3 +25,9 @@
   color: var(--color-text-secondary, #6b7280);
   border-color: transparent;
 }
+
+::ng-deep .promote-btn--rejected .e-btn {
+  background-color: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+  color: #fff;
+}

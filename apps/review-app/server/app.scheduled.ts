@@ -1,5 +1,6 @@
 import type { Env } from './env';
 import type { AutoEnrichJob } from './services/autoEnrich/types';
+import type { ProductAutoEnrichJob } from './services/productAutoEnrich/types';
 import type { ReportJob } from './services/reports/types';
 
 export async function APP_SCHEDULED(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
@@ -20,6 +21,18 @@ export async function APP_SCHEDULED(event: ScheduledController, env: Env, ctx: E
         ctx.waitUntil(
             env.VENDOR_AUTO_ENRICH_QUEUE.send(job).catch((err) =>
                 console.error(`[scheduled] vendor-auto-enrich send FAILED: ${String(err)}`),
+            ),
+        );
+    } else if (event.cron === '*/12 * * * *') {
+        const job: ProductAutoEnrichJob = {
+            kind: 'product-auto-enrich',
+            count: 5,
+            model: 'claude-sonnet-4-6',
+            triggeredBy: 'cron',
+        };
+        ctx.waitUntil(
+            env.PRODUCT_AUTO_ENRICH_QUEUE.send(job).catch((err) =>
+                console.error(`[scheduled] product-auto-enrich send FAILED: ${String(err)}`),
             ),
         );
     } else {
