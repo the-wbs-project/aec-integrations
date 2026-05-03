@@ -39,13 +39,6 @@ export const routes: Routes = [
           ),
       },
       {
-        path: 'products/new',
-        loadComponent: () =>
-          import('./pages/product-create/product-create.component').then(
-            (m) => m.ProductCreateComponent
-          ),
-      },
-      {
         path: 'products/:id',
         pathMatch: 'full',
         redirectTo: 'products/:id/details',
@@ -60,7 +53,6 @@ export const routes: Routes = [
       // Legacy /tools redirects — preserve external bookmarks pointing at the
       // old route names. Safe to remove after a transition window.
       { path: 'tools', pathMatch: 'full', redirectTo: 'products' },
-      { path: 'tools/new', pathMatch: 'full', redirectTo: 'products/new' },
       { path: 'tools/:id', pathMatch: 'full', redirectTo: 'products/:id/details' },
       { path: 'tools/:id/:tab', redirectTo: 'products/:id/:tab' },
       {

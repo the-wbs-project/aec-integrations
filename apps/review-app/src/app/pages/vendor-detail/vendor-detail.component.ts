@@ -1,5 +1,5 @@
 import { Component, inject, signal, input, computed, effect, OnInit } from '@angular/core';
-import { RouterLink, RouterLinkActive } from '@angular/router';
+import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
@@ -10,6 +10,7 @@ import { formatDate, formatDateWithRelative } from '../../utils/date';
 import { UpdateVendorRequest, VendorDetail } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
 import { InfoTooltipComponent } from '../../components/info-tooltip/info-tooltip.component';
+import { NewProductDialogComponent } from '../../components/new-product-dialog/new-product-dialog.component';
 import { RunDetailDialogComponent } from '../../components/run-detail-dialog/run-detail-dialog.component';
 import { TierCellComponent } from '../../components/tier-cell/tier-cell.component';
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
@@ -68,6 +69,7 @@ const PUBLIC_PRIVATE_OPTIONS = ['', 'Public', 'Private', 'Subsidiary', 'Nonprofi
     ButtonModule,
     EnrichSplitButtonComponent,
     InfoTooltipComponent,
+    NewProductDialogComponent,
     RunDetailDialogComponent,
     TierCellComponent,
     TierDetailDialogComponent,
@@ -81,6 +83,7 @@ export class VendorDetailComponent implements OnInit {
   tab = input<string>('details');
 
   private api = inject(ApiService);
+  private router = inject(Router);
   protected runs = inject(RunsService);
 
   vendor = signal<VendorDetail | null>(null);
@@ -107,6 +110,22 @@ export class VendorDetailComponent implements OnInit {
   }
   closeTierModal(): void {
     this.tierModalVendorId.set(null);
+  }
+
+  // New-product dialog state.
+  protected readonly newProductDialogOpen = signal(false);
+
+  openNewProductDialog(): void {
+    this.newProductDialogOpen.set(true);
+  }
+
+  closeNewProductDialog(): void {
+    this.newProductDialogOpen.set(false);
+  }
+
+  onProductCreated(event: { id: string }): void {
+    this.newProductDialogOpen.set(false);
+    this.router.navigate(['/products', event.id]);
   }
 
   // Run dialog — same pattern as the /runs page so live deltas flow into the

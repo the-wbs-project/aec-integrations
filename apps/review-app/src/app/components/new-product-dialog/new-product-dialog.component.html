@@ -1,0 +1,74 @@
+<ejs-dialog
+  [visible]="open()"
+  [isModal]="true"
+  [closeOnEscape]="!saving()"
+  [showCloseIcon]="!saving()"
+  header="New product"
+  width="480px"
+  target="body"
+  cssClass="new-product-dialog"
+  (close)="onClose()"
+>
+  <ng-template #content>
+    <form class="new-product" (ngSubmit)="submit()" novalidate>
+      <p class="new-product__intro">
+        Enter the basics — we'll create the record with research status
+        <strong>Pending</strong>. Description and the rest get filled in by
+        research.
+      </p>
+
+      <div class="form-row">
+        <label class="field-label" for="new-product-name">
+          Name <span class="required">*</span>
+        </label>
+        <input
+          id="new-product-name"
+          class="input"
+          name="name"
+          [ngModel]="name()"
+          (ngModelChange)="name.set($event)"
+          [disabled]="saving()"
+          autocomplete="off"
+          required
+        />
+      </div>
+
+      <div class="form-row">
+        <label class="field-label" for="new-product-website">Website</label>
+        <input
+          id="new-product-website"
+          class="input"
+          name="website"
+          type="url"
+          [ngModel]="website()"
+          (ngModelChange)="website.set($event)"
+          [disabled]="saving()"
+          placeholder="https://example.com"
+          autocomplete="off"
+        />
+      </div>
+
+      @if (errorMsg(); as msg) {
+        <p class="form-error" role="alert">{{ msg }}</p>
+      }
+
+      <div class="form-actions">
+        <button
+          type="submit"
+          class="btn btn--primary"
+          [disabled]="saving() || !name().trim()"
+        >
+          {{ saving() ? 'Creating…' : 'Create product' }}
+        </button>
+        <button
+          type="button"
+          class="btn btn--ghost"
+          [disabled]="saving()"
+          (click)="onClose()"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  </ng-template>
+</ejs-dialog>

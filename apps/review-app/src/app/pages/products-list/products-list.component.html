@@ -25,7 +25,14 @@
         family="tool"
         [recordIds]="selectedIds()"
       />
-      <a routerLink="/products/new" class="btn btn--primary btn--sm">+ New product</a>
+      <button
+        type="button"
+        class="btn btn--primary"
+        (click)="openNewProductDialog()"
+        aria-label="Create new product"
+      >
+        + New Product
+      </button>
     </div>
   </div>
 
@@ -414,4 +421,10 @@
   [vendorId]="tierModalToolId()"
   [vendorName]="tierModalToolName()"
   (closed)="closeTierModal()"
+/>
+
+<app-new-product-dialog
+  [open]="newProductDialogOpen()"
+  (closed)="closeNewProductDialog()"
+  (created)="onProductCreated($event)"
 />
