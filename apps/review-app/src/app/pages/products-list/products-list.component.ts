@@ -31,6 +31,7 @@ import {
 import { ApiService } from '../../services/api.service';
 import { Product, MetaResponse, LinkRef } from '../../types';
 import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { NewProductDialogComponent } from '../../components/new-product-dialog/new-product-dialog.component';
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { enrichmentVariant } from '../../utils/enrichment';
 import { blanksLastComparer } from '../../utils/grid-sort';
@@ -65,6 +66,7 @@ interface ActiveFilter {
     GridModule,
     MultiSelectModule,
     EnrichSplitButtonComponent,
+    NewProductDialogComponent,
     TierDetailDialogComponent,
   ],
   providers: [
@@ -106,6 +108,9 @@ export class ProductsListComponent implements OnInit {
   // Tier-detail modal state — null means closed.
   protected readonly tierModalToolId = signal<string | null>(null);
   protected readonly tierModalToolName = signal<string>('');
+
+  // New-product dialog state.
+  protected readonly newProductDialogOpen = signal(false);
 
   /**
    * Bake the count into the `text` field rather than fighting Syncfusion's
@@ -472,6 +477,19 @@ export class ProductsListComponent implements OnInit {
   closeTierModal(): void {
     this.tierModalToolId.set(null);
     this.tierModalToolName.set('');
+  }
+
+  openNewProductDialog(): void {
+    this.newProductDialogOpen.set(true);
+  }
+
+  closeNewProductDialog(): void {
+    this.newProductDialogOpen.set(false);
+  }
+
+  onProductCreated(event: { id: string }): void {
+    this.newProductDialogOpen.set(false);
+    this.router.navigate(['/products', event.id]);
   }
 
   // ---- Badge helpers ----------------------------------------------------

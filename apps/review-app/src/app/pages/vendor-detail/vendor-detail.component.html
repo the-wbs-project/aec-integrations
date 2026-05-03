@@ -811,8 +811,14 @@
               Tools
               <span class="section-count">({{ vendor.tools.length }})</span>
             </h2>
-            <a routerLink="/products/new" class="btn btn--primary btn--sm"
-            >+ Import product</a>
+            <button
+              type="button"
+              class="btn btn--primary btn--sm"
+              (click)="openNewProductDialog()"
+              aria-label="Create new product"
+            >
+              + Import product
+            </button>
           </div>
           @if (vendor.tools.length) {
             <div class="table-wrapper">
@@ -908,6 +914,11 @@
       [vendorId]="tierModalVendorId()"
       [vendorName]="vendor.companyName"
       (closed)="closeTierModal()"
+    />
+    <app-new-product-dialog
+      [open]="newProductDialogOpen()"
+      (closed)="closeNewProductDialog()"
+      (created)="onProductCreated($event)"
     />
   </div>
 } @else {
