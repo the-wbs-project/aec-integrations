@@ -2,8 +2,16 @@
   display: inline-flex;
 }
 
+// Match the height enforced by app-enrich-split-button (36px on .e-split-btn /
+// .e-dropdown-btn) so adjacent Promote/Enrich buttons line up.
 ::ng-deep .promote-btn.e-btn {
   font-weight: 500;
+  height: 36px;
+}
+
+::ng-deep .promote-btn .e-split-btn,
+::ng-deep .promote-btn .e-dropdown-btn {
+  height: 36px;
 }
 
 ::ng-deep .promote-btn--promoted .e-btn {

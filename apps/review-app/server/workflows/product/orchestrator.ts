@@ -115,7 +115,7 @@ export class ProductOrchestratorWorkflow extends ErrorCapturingWorkflow {
       });
       await notifyRunStarted(this.env, {
         runId: overviewRunId,
-        workflow: 'tool-overview',
+        workflow: 'product-overview',
         recordId,
         recordLabel,
         parentRunId: orchestratorRunId,
@@ -208,7 +208,7 @@ export class ProductOrchestratorWorkflow extends ErrorCapturingWorkflow {
       });
       await notifyRunStarted(this.env, {
         runId: scoreRunId,
-        workflow: 'tool-score',
+        workflow: 'product-score',
         recordId,
         recordLabel,
         parentRunId: orchestratorRunId,

@@ -64,20 +64,6 @@ export const routes: Routes = [
       { path: 'tools/:id', pathMatch: 'full', redirectTo: 'products/:id/details' },
       { path: 'tools/:id/:tab', redirectTo: 'products/:id/:tab' },
       {
-        path: 'integrations',
-        loadComponent: () =>
-          import('./pages/integrations-list/integrations-list.component').then(
-            (m) => m.IntegrationsListComponent
-          ),
-      },
-      {
-        path: 'integrations/:id',
-        loadComponent: () =>
-          import('./pages/integration-detail/integration-detail.component').then(
-            (m) => m.IntegrationDetailComponent
-          ),
-      },
-      {
         path: 'vendors',
         loadComponent: () =>
           import('./pages/vendors-list/vendors-list.component').then(
