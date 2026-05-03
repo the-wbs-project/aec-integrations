@@ -406,6 +406,27 @@ a.external-link--pill:hover {
   color: var(--color-text-tertiary);
 }
 
+.status-pill {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--color-bg-recessed);
+  color: var(--color-text-secondary);
+  border: 0.5px solid var(--color-border-default);
+}
+.status-pill[data-status='complete'] { background: var(--color-success-bg); color: var(--color-success); border-color: transparent; }
+.status-pill[data-status='running'],
+.status-pill[data-status='queued'],
+.status-pill[data-status='waiting'],
+.status-pill[data-status='paused'],
+.status-pill[data-status='waitingForPause'] { background: var(--color-info-bg); color: var(--color-info); border-color: transparent; }
+.status-pill[data-status='errored'],
+.status-pill[data-status='terminated'] { background: var(--color-danger-bg); color: var(--color-danger); border-color: transparent; }
+
 .table .num {
   text-align: right;
   font-variant-numeric: tabular-nums;

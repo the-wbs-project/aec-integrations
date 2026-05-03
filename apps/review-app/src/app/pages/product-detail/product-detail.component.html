@@ -932,15 +932,22 @@
                 <e-column
                   field="startedAt"
                   headerText="Started"
-                  type="date"
-                  format="yMd"
                   width="180"
+                  type="dateTime"
+                  format="MMM d, y, h:mm a"
                 ></e-column>
-                <e-column field="runId" headerText="Run ID" clipMode="EllipsisWithTooltip"></e-column>
+                <e-column
+                  field="runId"
+                  headerText="Run ID"
+                  width="280"
+                ></e-column>
               </e-columns>
             </ejs-grid>
           } @else {
-            <p class="na">No runs recorded for this tool yet.</p>
+            <p class="empty-state">
+              No runs recorded yet for this tool. Trigger one with Enrich
+              above.
+            </p>
           }
         </section>
       </div>

@@ -87,8 +87,13 @@ export class EnrichSplitButtonComponent {
     return WORKFLOWS.find((w) => w.slug === slug)?.title ?? slug;
   }
 
+  // Server workflow slugs use 'product-*' for the tool family (rename in #58).
+  private slugPrefix(): string {
+    return this.family() === 'tool' ? 'product' : this.family();
+  }
+
   runOrchestrator(): void {
-    const slug = `${this.family()}-orchestrator`;
+    const slug = `${this.slugPrefix()}-orchestrator`;
     // Primary click runs the orchestrator under its normal staleness rules.
     // The "Force Refresh" dropdown item is the explicit re-run-everything path.
     this.run(slug, false);
@@ -98,7 +103,7 @@ export class EnrichSplitButtonComponent {
     const slug = args.item?.id;
     if (typeof slug !== 'string' || slug.length === 0) return;
     if (slug === EnrichSplitButtonComponent.FORCE_REFRESH_ID) {
-      this.run(`${this.family()}-orchestrator`, true);
+      this.run(`${this.slugPrefix()}-orchestrator`, true);
       return;
     }
     // Sub-workflows don't honor force_refresh; they always run when invoked.

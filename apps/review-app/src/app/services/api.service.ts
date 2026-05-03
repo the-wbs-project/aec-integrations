@@ -2,7 +2,6 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import {
-  IntegrationSummary,
   PaginatedResponse,
   Product,
   ProductDetail,
@@ -31,21 +30,6 @@ export interface ProductQueryParams {
   direction?: 'asc' | 'desc';
 }
 
-export interface IntegrationQueryParams {
-  offset?: number;
-  limit?: number;
-  search?: string;
-  sourceProduct?: string;
-  targetProduct?: string;
-  poweredByProduct?: string;
-  mechanismKind?: string;
-  maturity?: string;
-  pricingModel?: string;
-  builtBy?: string;
-  sort?: string;
-  direction?: 'asc' | 'desc';
-}
-
 export interface VendorQueryParams {
   offset?: number;
   limit?: number;
@@ -60,36 +44,21 @@ export class ApiService {
   private baseUrl = '/api';
 
   getProducts(params?: ProductQueryParams): Observable<PaginatedResponse<Product>> {
-    return this.http.get<PaginatedResponse<Product>>(`${this.baseUrl}/tools`, {
+    return this.http.get<PaginatedResponse<Product>>(`${this.baseUrl}/products`, {
       params: this.buildParams(params as Record<string, unknown>),
     });
   }
 
   getProduct(id: string): Observable<ProductDetail> {
-    return this.http.get<ProductDetail>(`${this.baseUrl}/tools/${id}`);
+    return this.http.get<ProductDetail>(`${this.baseUrl}/products/${id}`);
   }
 
   createProduct(body: CreateProductRequest): Observable<Product> {
-    return this.http.post<Product>(`${this.baseUrl}/tools`, body);
+    return this.http.post<Product>(`${this.baseUrl}/products`, body);
   }
 
   updateProduct(id: string, patch: UpdateProductRequest): Observable<ProductDetail> {
-    return this.http.patch<ProductDetail>(`${this.baseUrl}/tools/${id}`, patch);
-  }
-
-  getIntegrations(
-    params?: IntegrationQueryParams,
-  ): Observable<PaginatedResponse<IntegrationSummary>> {
-    return this.http.get<PaginatedResponse<IntegrationSummary>>(
-      `${this.baseUrl}/integrations`,
-      { params: this.buildParams(params as Record<string, unknown>) },
-    );
-  }
-
-  getIntegration(id: string): Observable<IntegrationSummary> {
-    return this.http.get<IntegrationSummary>(
-      `${this.baseUrl}/integrations/${id}`,
-    );
+    return this.http.patch<ProductDetail>(`${this.baseUrl}/products/${id}`, patch);
   }
 
   getVendors(
