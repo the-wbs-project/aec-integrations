@@ -100,6 +100,7 @@ export class ProductsListComponent implements OnInit {
   protected readonly filterResearchStatus = signal<string[]>([]);
   protected readonly filterPriorityTier = signal<string[]>([]);
   protected readonly filterEnrichment = signal<string[]>([]);
+  protected readonly includeRejected = signal(false);
 
   protected readonly checkboxMode = 'CheckBox' as const;
 
@@ -293,7 +294,7 @@ export class ProductsListComponent implements OnInit {
     this.loading.set(true);
     // limit=0 → server returns the full set; the grid virtualizes client-side.
     this.api
-      .getProducts({ limit: 0 })
+      .getProducts({ limit: 0, includeRejected: this.includeRejected() })
       .pipe(takeUntil(this.destroy$))
       .subscribe({
         next: (res) => {
@@ -304,6 +305,12 @@ export class ProductsListComponent implements OnInit {
           this.loading.set(false);
         },
       });
+  }
+
+  onIncludeRejectedChange(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.includeRejected.set(checked);
+    this.fetchProducts();
   }
 
   onSearchInput(event: Event): void {

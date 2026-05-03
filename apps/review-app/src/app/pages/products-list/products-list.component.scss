@@ -84,6 +84,22 @@
   width: 200px;
 }
 
+.filter-bar__checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-text-body);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-bar__checkbox input[type='checkbox'] {
+  margin: 0;
+  cursor: pointer;
+}
+
 /* Match the height/look of the search input — Syncfusion injects its own
  * wrapper, so we constrain by the host width and let SF handle internals. */
 .filter-bar__multiselect ::ng-deep .e-multi-select-wrapper {

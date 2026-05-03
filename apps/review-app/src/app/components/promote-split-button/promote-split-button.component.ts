@@ -1,11 +1,16 @@
 // ---------------------------------------------------------------------------
 // Promote split-button.
 //
-// Three visual states driven by `status`:
-//   - undefined / 'pending' / 'ready'  -> "Promote" button (sets 'promoted')
+// Four visual states driven by `status`:
+//   - undefined / 'pending' / 'ready'  -> "Promote" split button (primary
+//                                         click sets 'promoted'; menu offers
+//                                         "Reject")
 //   - 'promoted'                       -> "Promoted ✓" split-button with
-//                                         "Retract" item (sets 'retracted')
-//   - 'retracted'                      -> "Retracted" disabled-looking button
+//                                         "Retract" and "Reject" menu items
+//   - 'retracted'                      -> "Retracted" split-button with
+//                                         "Promote" and "Reject" menu items
+//   - 'rejected'                       -> "Rejected" split-button with
+//                                         "Promote" menu item
 //
 // Emits the new status on `statusChange`. Persistence is handled by the
 // parent so this component stays unaware of the API surface.
@@ -31,15 +36,30 @@ export class PromoteSplitButtonComponent {
 
   statusChange = output<PromotionStatus>();
 
-  protected readonly view = computed<'promote' | 'promoted' | 'retracted'>(() => {
+  protected readonly view = computed<
+    'promote' | 'promoted' | 'retracted' | 'rejected'
+  >(() => {
     const s = this.status();
     if (s === 'promoted') return 'promoted';
     if (s === 'retracted') return 'retracted';
+    if (s === 'rejected') return 'rejected';
     return 'promote';
   });
 
-  protected readonly retractItems: ItemModel[] = [{ id: 'retract', text: 'Retract' }];
-  protected readonly promoteItems: ItemModel[] = [{ id: 'promote', text: 'Promote' }];
+  protected readonly promoteMenuItems: ItemModel[] = [
+    { id: 'reject', text: 'Reject' },
+  ];
+  protected readonly promotedMenuItems: ItemModel[] = [
+    { id: 'retract', text: 'Retract' },
+    { id: 'reject', text: 'Reject' },
+  ];
+  protected readonly retractedMenuItems: ItemModel[] = [
+    { id: 'promote', text: 'Promote' },
+    { id: 'reject', text: 'Reject' },
+  ];
+  protected readonly rejectedMenuItems: ItemModel[] = [
+    { id: 'promote', text: 'Promote' },
+  ];
 
   promote(): void {
     this.statusChange.emit('promoted');
@@ -52,6 +72,9 @@ export class PromoteSplitButtonComponent {
         return;
       case 'promote':
         this.statusChange.emit('promoted');
+        return;
+      case 'reject':
+        this.statusChange.emit('rejected');
         return;
     }
   }

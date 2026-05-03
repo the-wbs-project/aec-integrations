@@ -17,6 +17,7 @@ import type puppeteer from '@cloudflare/puppeteer';
 import type { RunParams } from './lib/workflow-meta';
 import type { ReportJob } from './services/reports/types';
 import type { AutoEnrichJob } from './services/autoEnrich/types';
+import type { ProductAutoEnrichJob } from './services/productAutoEnrich/types';
 
 /**
  * Type of the BROWSER binding accepted by puppeteer.launch(). Computed from
@@ -100,6 +101,7 @@ interface OverriddenBindings extends WorkflowBindings {
   BROWSER: BrowserBinding;
   REPORTS_QUEUE: Queue<ReportJob>;
   VENDOR_AUTO_ENRICH_QUEUE: Queue<AutoEnrichJob>;
+  PRODUCT_AUTO_ENRICH_QUEUE: Queue<ProductAutoEnrichJob>;
   AIRTABLE_TABLES: AirtableTables;
   SEARCH_TOOL: SearchTool;
 }

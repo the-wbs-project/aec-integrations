@@ -3,25 +3,25 @@
 //
 // For one tool record:
 //   1. Fetch the record.
-//   2. Run tool-overview FIRST and wait. This scrapes G2 + Capterra and
-//      writes review counts/ratings + reviews_checked_at when at least one
-//      site succeeds.
-//   3. Re-fetch the record so the staleness check sees the freshly-written
+//   2. Run tool-research FIRST and wait. This fills foundational fields
+//      (description, category, disciplines, phases) that downstream
+//      enrichments may depend on.
+//   3. Run tool-overview and wait. This scrapes G2 + Capterra and writes
+//      review counts/ratings + reviews_checked_at when at least one site
+//      succeeds.
+//   4. Re-fetch the record so the staleness check sees the freshly-written
 //      timestamps.
-//   4. For each leaf enrichment (api-check, marketplace, ipaas, reviews,
+//   5. For each leaf enrichment (api-check, marketplace, ipaas, reviews,
 //      search-demand, reddit, integration-count), decide if it is stale
 //      (last-checked field missing or older than STALE_AFTER_DAYS) — skip
 //      leaves that are fresh. If params.forceRefresh is true, treat every
 //      leaf as stale and re-run it regardless, EXCEPT leaves that overview
 //      just satisfied during this run (re-running them would just throw
 //      away data overview just wrote).
-//   5. Fan out the stale leaves as child workflow instances in parallel.
-//   6. Poll until every child reaches a terminal state.
-//   7. Spawn tool-score as a final child and wait so completeness, confidence,
+//   6. Fan out the stale leaves as child workflow instances in parallel.
+//   7. Poll until every child reaches a terminal state.
+//   8. Spawn tool-score as a final child and wait so completeness, confidence,
 //      flags, and tier all reflect the freshly-enriched record.
-//
-// `tool-research` is curator-driven (run from Pending state on demand) and
-// is intentionally NOT chained here.
 //
 // Mirrors vendor/orchestrator.ts.
 // ---------------------------------------------------------------------------
@@ -104,7 +104,37 @@ export class ProductOrchestratorWorkflow extends ErrorCapturingWorkflow {
     const recordLabel =
       asString(initialRecord.fields['Name']) ?? asString(initialRecord.fields['name']);
 
-    // ----- Run tool-overview first -----------------------------------------
+    // ----- Run tool-research first -----------------------------------------
+    // Fills foundational fields (description, category, disciplines, phases)
+    // that downstream enrichments may depend on.
+    const researchRunId = `${orchestratorRunId}-tool-research`;
+    await checkpoint(step, 'spawn-research', async () => {
+      await this.env.WF_PRODUCT_RESEARCH.create({
+        id: researchRunId,
+        params: { recordId, model, searchTool, forceRefresh },
+      });
+      await notifyRunStarted(this.env, {
+        runId: researchRunId,
+        workflow: 'product-research',
+        recordId,
+        recordLabel,
+        parentRunId: orchestratorRunId,
+        triggeredBy: 'parent-orchestrator',
+        forceRefresh,
+        model,
+      }).catch((err) =>
+        console.error('[tool-orchestrator] notify research failed', researchRunId, String(err)),
+      );
+      return { spawned: 'tool-research' };
+    });
+
+    const researchOutcome = (
+      await this.waitForChildren(step, [
+        { slug: 'product-research', binding: 'WF_PRODUCT_RESEARCH', runId: researchRunId },
+      ])
+    )[0];
+
+    // ----- Run tool-overview --------------------------------------------------
     // Scrapes G2 + Capterra; on success writes reviews_checked_at so the
     // T04-Reviews leaf below skips.
     const overviewRunId = `${orchestratorRunId}-tool-overview`;
@@ -231,6 +261,7 @@ export class ProductOrchestratorWorkflow extends ErrorCapturingWorkflow {
     return {
       status: 'success' as const,
       forceRefresh,
+      research: researchOutcome,
       overview: overviewOutcome,
       ranLeaves: pending.map((p) => p.slug),
       skippedLeaves: skipped,

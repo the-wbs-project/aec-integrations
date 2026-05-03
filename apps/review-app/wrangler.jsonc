@@ -76,6 +76,10 @@
 			{
 				"binding": "VENDOR_AUTO_ENRICH_QUEUE",
 				"queue": "aeci-vendor-auto-enrich"
+			},
+			{
+				"binding": "PRODUCT_AUTO_ENRICH_QUEUE",
+				"queue": "aeci-product-auto-enrich"
 			}
 		],
 		"consumers": [
@@ -92,14 +96,22 @@
 				"max_batch_timeout": 5,
 				"max_retries": 2,
 				"dead_letter_queue": "aeci-vendor-auto-enrich-dlq"
+			},
+			{
+				"queue": "aeci-product-auto-enrich",
+				"max_batch_size": 1,
+				"max_batch_timeout": 5,
+				"max_retries": 2,
+				"dead_letter_queue": "aeci-product-auto-enrich-dlq"
 			}
 		]
 	},
 	"triggers": {
 		// Cron schedules dispatched in scheduled() by event.cron string match.
 		//   "0 14 * * 1"   — Weekly cost report (Mondays 14:00 UTC)
-		//   "*/12 * * * *" — Vendor auto-enrich (every 12 min, count=5, sonnet)
-		"crons": ["0 14 * * 1", "*/5 * * * *"]
+		//   "*/5 * * * *"  — Vendor auto-enrich (every 5 min, count=10, sonnet)
+		//   "*/12 * * * *" — Product auto-enrich (every 12 min, count=5, sonnet)
+		"crons": ["0 14 * * 1", "*/5 * * * *", "*/12 * * * *"]
 	},
 	"workflows": [
 		// Vendor workflows

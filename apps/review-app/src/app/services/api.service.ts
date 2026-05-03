@@ -26,6 +26,7 @@ export interface ProductQueryParams {
   status?: string;
   tier?: string;
   enrichmentStatus?: string;
+  includeRejected?: boolean;
   sort?: string;
   direction?: 'asc' | 'desc';
 }

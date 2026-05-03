@@ -192,6 +192,7 @@ export function hydrateProduct(
       | 'ready'
       | 'promoted'
       | 'retracted'
+      | 'rejected'
       | undefined,
     integrationCount: storedIntegrationCount ?? sourceCount + targetCount,
 

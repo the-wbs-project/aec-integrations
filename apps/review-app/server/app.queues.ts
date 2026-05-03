@@ -1,16 +1,37 @@
 import type { Env } from './env';
 import { runVendorAutoEnrich } from './services/autoEnrich/runAutoEnrich';
 import { AUTO_ENRICH_QUEUE_NAME, type AutoEnrichJob } from './services/autoEnrich/types';
+import { runProductAutoEnrich } from './services/productAutoEnrich/runProductAutoEnrich';
+import {
+    PRODUCT_AUTO_ENRICH_QUEUE_NAME,
+    type ProductAutoEnrichJob,
+} from './services/productAutoEnrich/types';
 import type { ReportJob } from './services/reports/types';
 import { runWeeklyCostReport } from './services/reports/weeklyCostReport';
 
-export async function APP_QUEUE(batch: MessageBatch<ReportJob | AutoEnrichJob>, env: Env): Promise<void> {
+export async function APP_QUEUE(
+    batch: MessageBatch<ReportJob | AutoEnrichJob | ProductAutoEnrichJob>,
+    env: Env,
+): Promise<void> {
     for (const message of batch.messages) {
         try {
             if (batch.queue === AUTO_ENRICH_QUEUE_NAME) {
                 const body = message.body as AutoEnrichJob;
                 if (body.kind === 'vendor-auto-enrich') {
                     await runVendorAutoEnrich(env, {
+                        count: body.count,
+                        model: body.model,
+                        triggeredBy: body.triggeredBy,
+                    });
+                } else {
+                    console.warn(
+                        `[queue:${batch.queue}] SKIPPED message id=${message.id} — unrecognized body.kind="${(body as { kind?: string })?.kind ?? '<missing>'}"`,
+                    );
+                }
+            } else if (batch.queue === PRODUCT_AUTO_ENRICH_QUEUE_NAME) {
+                const body = message.body as ProductAutoEnrichJob;
+                if (body.kind === 'product-auto-enrich') {
+                    await runProductAutoEnrich(env, {
                         count: body.count,
                         model: body.model,
                         triggeredBy: body.triggeredBy,

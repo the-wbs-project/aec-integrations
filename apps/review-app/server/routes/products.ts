@@ -45,6 +45,7 @@ products.get('/', async (c) => {
   const statusFilter = c.req.query('status') ?? '';
   const tierFilter = c.req.query('tier') ?? '';
   const enrichmentFilter = c.req.query('enrichmentStatus') ?? '';
+  const includeRejected = c.req.query('includeRejected') === 'true';
   const sortCol = c.req.query('sort') ?? 'name';
   const sortDir = c.req.query('direction') === 'desc' ? 'desc' : 'asc';
 
@@ -98,6 +99,12 @@ products.get('/', async (c) => {
 
   if (enrichmentFilter) {
     hydrated = hydrated.filter((t) => t.toolEnrichmentStatus === enrichmentFilter);
+  }
+
+  // Hide rejected products from the default list. The UI exposes an
+  // "Include rejected" toggle which sets includeRejected=true to bypass.
+  if (!includeRejected) {
+    hydrated = hydrated.filter((t) => t.promotionStatus !== 'rejected');
   }
 
   // --- Sorting -------------------------------------------------------------
