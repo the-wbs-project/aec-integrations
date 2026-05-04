@@ -257,6 +257,12 @@ export interface CreateProductRequest {
   name: string;
   description?: string;
   website?: string;
+  /** Override the orchestrator's Claude model. Defaults to env.DEFAULT_MODEL. */
+  model?: string;
+  /** Force-rerun every leaf enrichment regardless of staleness. */
+  forceRefresh?: boolean;
+  /** When true, create the Airtable row only — do not start the orchestrator. */
+  skipOrchestrator?: boolean;
 }
 
 export interface CreateVendorRequest {

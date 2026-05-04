@@ -9,6 +9,7 @@ import {
   VendorDetail,
   MetaResponse,
   CreateProductRequest,
+  CreateProductResponse,
   UpdateProductRequest,
   CreateVendorRequest,
   CreateVendorResponse,
@@ -54,8 +55,11 @@ export class ApiService {
     return this.http.get<ProductDetail>(`${this.baseUrl}/products/${id}`);
   }
 
-  createProduct(body: CreateProductRequest): Observable<Product> {
-    return this.http.post<Product>(`${this.baseUrl}/products`, body);
+  createProduct(body: CreateProductRequest): Observable<CreateProductResponse> {
+    return this.http.post<CreateProductResponse>(
+      `${this.baseUrl}/products`,
+      body,
+    );
   }
 
   updateProduct(id: string, patch: UpdateProductRequest): Observable<ProductDetail> {
@@ -84,6 +88,12 @@ export class ApiService {
 
   updateVendor(id: string, patch: UpdateVendorRequest): Observable<VendorDetail> {
     return this.http.patch<VendorDetail>(`${this.baseUrl}/vendors/${id}`, patch);
+  }
+
+  deleteVendor(id: string): Observable<{ deleted: boolean; id: string }> {
+    return this.http.delete<{ deleted: boolean; id: string }>(
+      `${this.baseUrl}/vendors/${id}`,
+    );
   }
 
   getMeta(): Observable<MetaResponse> {

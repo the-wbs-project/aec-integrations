@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import {
+  deleteRecord,
   fetchVendors,
   tableId,
   updateRecord,
@@ -198,6 +199,25 @@ vendors.patch('/:id', async (c) => {
   const maps = await buildLookupMaps(env);
   const detail = hydrateVendorDetail(updated, maps);
   return c.json(detail);
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/vendors/:id — permanently remove a vendor record from Airtable.
+// Linked products keep their other data; Airtable drops the broken link from
+// the product side automatically.
+// ---------------------------------------------------------------------------
+vendors.delete('/:id', async (c) => {
+  const env = c.env;
+  const vendorId = c.req.param('id');
+
+  try {
+    await deleteRecord(env, 'vendors', vendorId);
+  } catch (err) {
+    return c.json({ error: (err as Error).message ?? 'Airtable delete failed' }, 502);
+  }
+
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'vendors')}`);
+  return c.json({ deleted: true, id: vendorId });
 });
 
 export default vendors;

@@ -228,6 +228,14 @@ export interface CreateProductRequest {
   name: string;
   description?: string;
   website?: string;
+  model?: string;
+  forceRefresh?: boolean;
+  skipOrchestrator?: boolean;
+}
+
+export interface CreateProductResponse {
+  product: Product;
+  run?: { runId: string; workflow: string; model: string };
 }
 
 export interface CreateVendorRequest {

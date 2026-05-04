@@ -109,6 +109,19 @@ export async function updateRecord(
   return withGetter((await res.json()) as RawRecord);
 }
 
+export async function deleteRecord(
+  env: Env,
+  table: keyof AirtableTables,
+  recordId: string,
+): Promise<void> {
+  const url = `${API_BASE}/${env.AIRTABLE_BASE_ID}/${tableId(env, table)}/${recordId}`;
+  const res = await fetch(url, { method: 'DELETE', headers: authHeaders(env) });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '<unreadable>');
+    throw new Error(`Airtable deleteRecord ${table}/${recordId} failed: ${res.status} ${body}`);
+  }
+}
+
 export async function createRecord(
   env: Env,
   table: keyof AirtableTables,
