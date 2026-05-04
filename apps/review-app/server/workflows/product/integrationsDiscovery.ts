@@ -36,15 +36,22 @@ interface Leaf {
   source: EvidenceSource;
   slug: string;
   binding: WorkflowBindingName;
+  /**
+   * Short tag used as the runId suffix when spawning this leaf. Cloudflare
+   * Workflows caps instance IDs at 64 chars; the parent's runId is itself
+   * `<36-char UUID>-intd` (~41 chars), so concatenating the full slug here
+   * would overflow. Keep these short and unique within the array.
+   */
+  idTag: string;
 }
 
 const LEAVES: readonly Leaf[] = [
-  { source: 'website', slug: 'product-integrations-website', binding: 'WF_INTEGRATIONS_WEBSITE' },
-  { source: 'ipaas', slug: 'product-integrations-ipaas', binding: 'WF_INTEGRATIONS_IPAAS' },
-  { source: 'marketplaces', slug: 'product-integrations-marketplaces', binding: 'WF_INTEGRATIONS_MARKETPLACES' },
-  { source: 'g2', slug: 'product-integrations-g2', binding: 'WF_INTEGRATIONS_G2' },
-  { source: 'github', slug: 'product-integrations-github', binding: 'WF_INTEGRATIONS_GITHUB' },
-  { source: 'web', slug: 'product-integrations-web', binding: 'WF_INTEGRATIONS_WEB' },
+  { source: 'website', slug: 'product-integrations-website', binding: 'WF_INTEGRATIONS_WEBSITE', idTag: 'web1' },
+  { source: 'ipaas', slug: 'product-integrations-ipaas', binding: 'WF_INTEGRATIONS_IPAAS', idTag: 'ipaas' },
+  { source: 'marketplaces', slug: 'product-integrations-marketplaces', binding: 'WF_INTEGRATIONS_MARKETPLACES', idTag: 'mkt' },
+  { source: 'g2', slug: 'product-integrations-g2', binding: 'WF_INTEGRATIONS_G2', idTag: 'g2' },
+  { source: 'github', slug: 'product-integrations-github', binding: 'WF_INTEGRATIONS_GITHUB', idTag: 'gh' },
+  { source: 'web', slug: 'product-integrations-web', binding: 'WF_INTEGRATIONS_WEB', idTag: 'web2' },
 ] as const;
 
 interface PendingChild {
@@ -95,7 +102,7 @@ export class ProductIntegrationsDiscoveryWorkflow extends ErrorCapturingWorkflow
     const pending: PendingChild[] = LEAVES.map((leaf) => ({
       slug: leaf.slug,
       binding: leaf.binding,
-      runId: `${orchestratorRunId}-${leaf.slug}`,
+      runId: `${orchestratorRunId}-${leaf.idTag}`,
     }));
 
     await checkpoint(step, 'spawn-leaves', async () => {

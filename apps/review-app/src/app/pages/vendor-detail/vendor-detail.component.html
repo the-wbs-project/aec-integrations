@@ -615,6 +615,28 @@
           <p class="save-error" role="alert">{{ saveError() }}</p>
         }
 
+        <!-- Danger zone -->
+        <section class="detail-section danger-zone">
+          <div class="section-row">
+            <h2 class="section-heading">Danger zone</h2>
+          </div>
+          <p class="danger-zone__hint">
+            Permanently remove this vendor from Airtable. Linked products will
+            keep their data but lose their vendor link.
+          </p>
+          <button
+            type="button"
+            class="btn btn--danger btn--sm"
+            [disabled]="deleting()"
+            (click)="deleteVendor(vendor)"
+          >
+            {{ deleting() ? "Deleting…" : "Delete vendor" }}
+          </button>
+          @if (deleteError()) {
+            <p class="save-error" role="alert">{{ deleteError() }}</p>
+          }
+        </section>
+
         <!-- Crunchbase signals -->
         <section class="detail-section">
           <h2 class="section-heading">

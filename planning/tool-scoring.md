@@ -48,7 +48,7 @@ A signal at or above `cap` maps to 100. Caps:
 |---|---|
 | `marketplace_count` | 4 |
 | `ipaas_count` | 3 |
-| `integration_count` | 100 |
+| `integration_count` | 25 |
 | `zapier_trigger_count` | 50 |
 | `total_review_count` (g2 + capterra) | 5,000 |
 | `search_volume_monthly` | 100,000 |
@@ -64,14 +64,20 @@ Product integrability signals, tool-level only.
 
 ```
 integration_score =
-    0.30 × logNorm(marketplace_count, 4)
-  + 0.25 × (has_api_docs ? 100 : 0)
-  + 0.20 × logNorm(integration_count, 100)
-  + 0.15 × logNorm(ipaas_count, 3)
-  + 0.10 × logNorm(zapier_trigger_count, 50)
+    0.25 × logNorm(marketplace_count, 4)
+  + 0.20 × (has_api_docs ? 100 : 0)
+  + 0.35 × logNorm(integration_count, 25)
+  + 0.20 × logNorm(ipaas_count, 3)
 ```
 
-Returns `null` when none of the five signals is populated.
+`integration_count` is weighted highest because a record with confirmed
+bidirectional links to other tools in the catalog is the strongest evidence
+of integratability — stronger than self-reported marketplace listings or an
+"API docs page exists" boolean. The cap is set to 25 (not 100) so the curve
+discriminates meaningfully across the range where actual catalog data lives;
+products with 25+ confirmed integrations get full credit.
+
+Returns `null` when none of the four signals is populated.
 
 ---
 
@@ -209,14 +215,14 @@ All written to the Tool record by T08:
 ## Worked Examples
 
 **Procore (Tier 1 incumbent)**
-- Integration: marketplace=1, has_api_docs=true, integration_count=80, ipaas=2, zapier=15 → ~71
+- Integration: marketplace=1, has_api_docs=true, integration_count=80 (capped at 25 → 100), ipaas=2 → ~80
 - Demand: 4500 reviews · 4.5 rating, search_volume=85k, trends=80, reddit=120 → ~78
-- Priority = 0.55 · 71 + 0.45 · 78 = 39.05 + 35.10 = **74.2 → Tier 2**
+- Priority = 0.55 · 80 + 0.45 · 78 = 44.0 + 35.1 = **79.1 → Tier 2** (just below the 80 cutoff)
 
 **Bluebeam Revu (Tier 2)**
-- Integration: marketplace=1, has_api_docs=true, integration_count=15, ipaas=1, zapier=4 → ~52
+- Integration: marketplace=1, has_api_docs=true, integration_count=15, ipaas=1 → ~63
 - Demand: 1200 reviews · 4.6 rating, search_volume=60k, trends=70, reddit=30 → ~63
-- Priority = 0.55 · 52 + 0.45 · 63 = 28.6 + 28.35 = **57.0 → Tier 3**
+- Priority = 0.55 · 63 + 0.45 · 63 = 34.65 + 28.35 = **63.0 → Tier 2**
 
 **A bare-record tool with only a name and Pending status**
 - Integration: all signals missing → null

@@ -110,10 +110,10 @@ export function computePriorityScore(
   );
 
   const integrationRaw =
-    0.30 * logNorm(tool.marketplace_count, 4) +
-    0.25 * (bool(tool.has_api_docs) ? 100 : 0) +
-    0.20 * logNorm(tool.tool_integrations_count, 100) +
-    0.25 * logNorm(tool.ipaas_count, 3);
+    0.25 * logNorm(tool.marketplace_count, 4) +
+    0.20 * (bool(tool.has_api_docs) ? 100 : 0) +
+    0.35 * logNorm(tool.tool_integrations_count, 25) +
+    0.20 * logNorm(tool.ipaas_count, 3);
 
   const integrationScore = integrationPopulated > 0 ? round1(integrationRaw) : null;
 

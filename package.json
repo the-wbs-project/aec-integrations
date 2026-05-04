@@ -13,6 +13,7 @@
     "setup:supabase": "supabase start",
     "setup:syncfusion": "pnpm --filter review-app run sync",
     "setup": "pnpm run setup:install && pnpm run setup:secrets && pnpm run setup:supabase",
+    "build:review": "pnpm --filter review-app build",
     "dev:review": "pnpm --filter review-app dev",
     "review:start": "pnpm --filter review-app dev",
     "deploy:review": "pnpm --filter review-app run deploy",

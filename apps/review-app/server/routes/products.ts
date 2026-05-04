@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import {
-  createRecord,
   fetchIntegrations,
   fetchProducts,
+  getRecord,
   tableId,
   updateRecord,
 } from '../services/airtable';
@@ -12,6 +12,10 @@ import {
   hydrateProduct,
   hydrateProductDetail,
 } from '../hydrate';
+import {
+  CreateProductValidationError,
+  createProductAndStartOrchestrator,
+} from '../services/createProduct';
 import type {
   CreateProductRequest,
   Env,
@@ -228,38 +232,39 @@ products.get('/:id', async (c) => {
 });
 
 // ---------------------------------------------------------------------------
-// POST /api/products — create a new tool record
-// Body: { name, description?, website? }
-// New records default to research_status="Pending".
+// POST /api/products — create a new tool record + (default) start the orchestrator
+// Body: { name, description?, website?, model?, forceRefresh?, skipOrchestrator? }
+// New records default to research_status="Pending". Returns 201 with
+// { product, run? } where run is omitted when skipOrchestrator is true.
 // ---------------------------------------------------------------------------
 products.post('/', async (c) => {
   const env = c.env;
   const body = (await c.req.json().catch(() => ({}))) as CreateProductRequest;
 
-  const name = (body.name ?? '').trim();
-  if (!name) {
-    return c.json({ error: 'name is required' }, 400);
-  }
-
-  const fields: Record<string, unknown> = {
-    Name: name,
-    research_status: 'Pending',
-  };
-  if (body.description?.trim()) fields.description = body.description.trim();
-  if (body.website?.trim()) fields.website = body.website.trim();
-
-  let created;
+  let result;
   try {
-    created = await createRecord(env, 'products', fields);
+    result = await createProductAndStartOrchestrator(env, {
+      name: body.name,
+      description: body.description,
+      website: body.website,
+      model: body.model,
+      forceRefresh: body.forceRefresh,
+      skipOrchestrator: body.skipOrchestrator,
+      triggeredBy: 'http',
+    });
   } catch (err) {
-    return c.json({ error: (err as Error).message ?? 'Airtable create failed' }, 502);
+    if (err instanceof CreateProductValidationError) {
+      return c.json({ error: err.message }, 400);
+    }
+    return c.json({ error: (err as Error).message ?? 'Product create failed' }, 502);
   }
 
-  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'products')}`);
-
-  const maps = await buildLookupMaps(env);
+  const [created, maps] = await Promise.all([
+    getRecord(env, 'products', result.recordId),
+    buildLookupMaps(env),
+  ]);
   const product = hydrateProduct(created, maps);
-  return c.json(product, 201);
+  return c.json({ product, run: result.run }, 201);
 });
 
 // ---------------------------------------------------------------------------

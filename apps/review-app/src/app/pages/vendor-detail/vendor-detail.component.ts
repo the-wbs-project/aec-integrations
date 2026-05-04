@@ -95,6 +95,8 @@ export class VendorDetailComponent implements OnInit {
   saving = signal(false);
   saveError = signal<string | null>(null);
   reloading = signal(false);
+  deleting = signal(false);
+  deleteError = signal<string | null>(null);
 
   activeTab = computed<TabKey>(() => {
     const t = this.tab();
@@ -270,6 +272,35 @@ export class VendorDetailComponent implements OnInit {
       error: (err) => {
         this.saving.set(false);
         this.saveError.set(err?.error?.error ?? err?.message ?? 'Save failed');
+      },
+    });
+  }
+
+  // ---- delete ---------------------------------------------------------------
+  deleteVendor(vendor: VendorDetail): void {
+    if (this.deleting()) return;
+    const linkedCount = vendor.toolCount ?? 0;
+    const warning =
+      linkedCount > 0
+        ? `${vendor.companyName} is linked to ${linkedCount} product${linkedCount === 1 ? '' : 's'}. ` +
+          `Those products will lose their vendor link but otherwise stay intact.\n\n`
+        : '';
+    const confirmed = window.confirm(
+      `${warning}Permanently delete ${vendor.companyName}? This cannot be undone.`,
+    );
+    if (!confirmed) return;
+
+    const id = this.id();
+    this.deleting.set(true);
+    this.deleteError.set(null);
+    this.api.deleteVendor(id).subscribe({
+      next: () => {
+        this.deleting.set(false);
+        this.router.navigate(['/vendors']);
+      },
+      error: (err) => {
+        this.deleting.set(false);
+        this.deleteError.set(err?.error?.error ?? err?.message ?? 'Delete failed');
       },
     });
   }

@@ -395,3 +395,9 @@
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
 }
+
+.danger-zone__hint {
+  margin: 0 0 var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--text-sm);
+}

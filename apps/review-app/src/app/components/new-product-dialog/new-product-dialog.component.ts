@@ -62,9 +62,9 @@ export class NewProductDialogComponent {
         website: this.website().trim() || undefined,
       })
       .subscribe({
-        next: (product) => {
+        next: (response) => {
           this.saving.set(false);
-          this.created.emit({ id: product.id });
+          this.created.emit({ id: response.product.id });
         },
         error: (err) => {
           this.saving.set(false);

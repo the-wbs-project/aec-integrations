@@ -49,16 +49,23 @@ interface Leaf {
   slug: string;
   binding: WorkflowBindingName;
   stalenessField: string;
+  /**
+   * Short tag used as the runId suffix when spawning this leaf. Cloudflare
+   * Workflows caps instance IDs at 64 chars (`^[a-zA-Z0-9_][a-zA-Z0-9-_]*$`),
+   * and the parent's runId is already a 36-char UUID, so concatenating the
+   * full slug overflows. Keep these short and unique within the array.
+   */
+  idTag: string;
 }
 
 const LEAVES: readonly Leaf[] = [
-  { slug: 'product-api-check', binding: 'WF_PRODUCT_API_CHECK', stalenessField: 'api_docs_checked_at' },
-  { slug: 'product-marketplace', binding: 'WF_PRODUCT_MARKETPLACE', stalenessField: 'marketplace_checked_at' },
-  { slug: 'product-ipaas', binding: 'WF_PRODUCT_IPAAS', stalenessField: 'ipaas_checked_at' },
-  { slug: 'product-reviews', binding: 'WF_PRODUCT_REVIEWS', stalenessField: 'reviews_checked_at' },
-  { slug: 'product-search-demand', binding: 'WF_PRODUCT_SEARCH_DEMAND', stalenessField: 'search_checked_at' },
-  { slug: 'product-reddit', binding: 'WF_PRODUCT_REDDIT', stalenessField: 'reddit_checked_at' },
-  { slug: 'product-integrations-discovery', binding: 'WF_INTEGRATIONS_DISCOVERY', stalenessField: 'integrations_discovery_checked_at' },
+  { slug: 'product-api-check', binding: 'WF_PRODUCT_API_CHECK', stalenessField: 'api_docs_checked_at', idTag: 'api' },
+  { slug: 'product-marketplace', binding: 'WF_PRODUCT_MARKETPLACE', stalenessField: 'marketplace_checked_at', idTag: 'mkt' },
+  { slug: 'product-ipaas', binding: 'WF_PRODUCT_IPAAS', stalenessField: 'ipaas_checked_at', idTag: 'ipaas' },
+  { slug: 'product-reviews', binding: 'WF_PRODUCT_REVIEWS', stalenessField: 'reviews_checked_at', idTag: 'rev' },
+  { slug: 'product-search-demand', binding: 'WF_PRODUCT_SEARCH_DEMAND', stalenessField: 'search_checked_at', idTag: 'srch' },
+  { slug: 'product-reddit', binding: 'WF_PRODUCT_REDDIT', stalenessField: 'reddit_checked_at', idTag: 'reddit' },
+  { slug: 'product-integrations-discovery', binding: 'WF_INTEGRATIONS_DISCOVERY', stalenessField: 'integrations_discovery_checked_at', idTag: 'intd' },
 ] as const;
 
 const TERMINAL_STATUSES = new Set(['complete', 'errored', 'terminated', 'unknown']);
@@ -192,7 +199,7 @@ export class ProductOrchestratorWorkflow extends ErrorCapturingWorkflow {
     const pending: PendingChild[] = stale.map((leaf) => ({
       slug: leaf.slug,
       binding: leaf.binding,
-      runId: `${orchestratorRunId}-${leaf.slug}`,
+      runId: `${orchestratorRunId}-${leaf.idTag}`,
     }));
 
     if (pending.length > 0) {

@@ -111,7 +111,7 @@
 		//   "0 14 * * 1"   — Weekly cost report (Mondays 14:00 UTC)
 		//   "*/5 * * * *"  — Vendor auto-enrich (every 5 min, count=10, sonnet)
 		//   "*/12 * * * *" — Product auto-enrich (every 12 min, count=5, sonnet)
-		"crons": ["0 14 * * 1", "*/5 * * * *", "*/12 * * * *"]
+		//"crons": ["0 14 * * 1", "*/5 * * * *", "*/12 * * * *"]
 	},
 	"workflows": [
 		// Vendor workflows
