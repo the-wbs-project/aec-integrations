@@ -19,7 +19,7 @@
 export interface ToolFields {
   marketplace_count?: number;
   has_api_docs?: boolean;
-  integration_count?: number;
+  tool_integrations_count?: number;
   ipaas_count?: number;
   g2_review_count?: number;
   capterra_review_count?: number;
@@ -51,7 +51,7 @@ export interface PriorityScore {
 export const PRIORITY_INPUT_FIELDS = [
   'marketplace_count',
   'has_api_docs',
-  'integration_count',
+  'tool_integrations_count',
   'ipaas_count',
   'g2_review_count',
   'capterra_review_count',
@@ -101,7 +101,7 @@ export function computePriorityScore(
   const integrationInputs = [
     tool.marketplace_count,
     tool.has_api_docs,
-    tool.integration_count,
+    tool.tool_integrations_count,
     tool.ipaas_count,
   ];
   const integrationPopulated = integrationInputs.reduce<number>(
@@ -112,7 +112,7 @@ export function computePriorityScore(
   const integrationRaw =
     0.30 * logNorm(tool.marketplace_count, 4) +
     0.25 * (bool(tool.has_api_docs) ? 100 : 0) +
-    0.20 * logNorm(tool.integration_count, 100) +
+    0.20 * logNorm(tool.tool_integrations_count, 100) +
     0.25 * logNorm(tool.ipaas_count, 3);
 
   const integrationScore = integrationPopulated > 0 ? round1(integrationRaw) : null;

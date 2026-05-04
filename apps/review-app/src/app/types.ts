@@ -78,6 +78,22 @@ export interface ProductDetail extends Product {
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
   integratedProducts: IntegratedProductSummary[];
+  integrationsDiscoveryCheckedAt?: string;
+  integrationsDiscoverySummary?: string;
+  integrationsDiscoveryCandidates?: UnresolvedIntegrationCandidate[];
+}
+
+export interface UnresolvedIntegrationCandidate {
+  targetName: string;
+  targetWebsite?: string;
+  targetVendorName?: string;
+  mechanismKind?: string;
+  mechanismName?: string;
+  direction?: 'one-way' | 'bidirectional';
+  evidenceUrl: string;
+  evidenceSource: 'website' | 'ipaas' | 'marketplaces' | 'g2' | 'github' | 'web';
+  notes?: string;
+  confidence: 'high' | 'medium' | 'low';
 }
 
 export interface IntegrationSummary {

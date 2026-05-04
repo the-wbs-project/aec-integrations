@@ -96,6 +96,15 @@ interface ResearchResult {
   notes: string;
   citations: string[];
   wiki_page: string;
+  /**
+   * URL to the tool's own integrations / partners / marketplace page when one
+   * exists. Null when the tool has no dedicated integrations page (plugin-only
+   * tools, Bentley-style open-format vendors, etc.). See
+   * llm-scripts/populate-integration-url.md for the source playbook.
+   */
+  tool_integrations_url: string | null;
+  /** 1–3 sentence rationale for the URL pick (or for leaving it blank). */
+  tool_integrations_url_notes: string;
   category_ids: string[];
   discipline_ids: string[];
   phase_ids: string[];
@@ -225,6 +234,12 @@ When done, call emit_result with these fields:
 - notes: caveats, ambiguity, or alternate vendors you considered
 - citations: array of URLs you used as sources
 - wiki_page: a markdown document for this tool formatted as YAML frontmatter + body. The frontmatter MUST include keys: name, vendor, url, last_verified (today's ISO date), confidence. The body MUST have these sections (use \`##\` headings): Summary, Vendor, Categories / Disciplines / Phases, Sources. Sources should list each citation as a markdown bullet. Keep the whole document under 4 KB.
+- tool_integrations_url: URL of the tool's dedicated integrations / partners / app marketplace page on the vendor's own domain. Null when the tool has no such page. Selection rules:
+  1. If the tool is itself a plugin/add-in for another tool (Revit plugin, SketchUp extension, Rhino/Grasshopper tool, Blender add-on, AutoCAD LISP utility), return null — the tool IS the integration, not a platform with integrations.
+  2. Prefer in this order: dedicated subdomain (e.g. integrations.bluebeam.com, store.bimvision.eu, apps.autodesk.com/{CODE}/...), then a /integrations/ or /marketplace/ path on the vendor site, then a help-center collection.
+  3. Vendor-facing user directory (where users actually install apps) beats marketing partner page. Reject third-party aggregators (sourceforge.net, slashdot.org, softwareadvice.com, getapp.com), reseller programs (foo.com/partners), G2/Capterra "X integrations" listings, and developer docs without a user-facing list.
+  4. Autodesk desktop products → https://apps.autodesk.com/{CODE}/en/Home/Index. Bentley products and tools whose primary connectivity is Zapier → null.
+- tool_integrations_url_notes: 1–3 sentences. Always include: what the URL is (or why there isn't one), examples of integrations listed if visible, and anything unusual (rebrand, sunset, hosted on third-party marketplace like ADP / Xero App Store / Trimble App Xchange). Keep concise — never restate the URL itself.
 
 Inconclusive ('low' confidence) is a valid result — emit it rather than refusing.`;
 
@@ -242,6 +257,8 @@ Inconclusive ('low' confidence) is a valid result — emit it rather than refusi
       notes: { type: 'string' },
       citations: { type: 'array', items: { type: 'string' } },
       wiki_page: { type: 'string' },
+      tool_integrations_url: { type: ['string', 'null'] },
+      tool_integrations_url_notes: { type: 'string' },
     },
     required: [
       'name',
@@ -255,6 +272,8 @@ Inconclusive ('low' confidence) is a valid result — emit it rather than refusi
       'notes',
       'citations',
       'wiki_page',
+      'tool_integrations_url',
+      'tool_integrations_url_notes',
     ],
   };
 
@@ -431,6 +450,25 @@ function validateAndCoerce(
     ? dedup(citationsRaw.filter((x): x is string => typeof x === 'string' && x.length > 0))
     : [];
 
+  // tool_integrations_url is optional output: null is valid (means "no
+  // dedicated integrations page") and is preserved as null. Reject anything
+  // other than http(s) so we don't ever write garbage into the URL field.
+  const integrationsUrlRaw = emitted['tool_integrations_url'];
+  let toolIntegrationsUrl: string | null;
+  if (integrationsUrlRaw === null || integrationsUrlRaw === undefined || integrationsUrlRaw === '') {
+    toolIntegrationsUrl = null;
+  } else if (typeof integrationsUrlRaw === 'string' && /^https?:\/\//i.test(integrationsUrlRaw)) {
+    toolIntegrationsUrl = integrationsUrlRaw;
+  } else {
+    throw new NonRetryableError(
+      `tool_integrations_url is not http(s) or null: ${String(integrationsUrlRaw)}`,
+    );
+  }
+  const toolIntegrationsUrlNotes =
+    typeof emitted['tool_integrations_url_notes'] === 'string'
+      ? (emitted['tool_integrations_url_notes'] as string)
+      : '';
+
   return {
     name: emitted['name'] as string,
     vendor: emitted['vendor'] as string,
@@ -443,6 +481,8 @@ function validateAndCoerce(
     notes: typeof emitted['notes'] === 'string' ? (emitted['notes'] as string) : '',
     citations,
     wiki_page: wikiPage,
+    tool_integrations_url: toolIntegrationsUrl,
+    tool_integrations_url_notes: toolIntegrationsUrlNotes,
   };
 }
 
@@ -513,11 +553,13 @@ export class ProductResearchWorkflow extends ErrorCapturingWorkflow {
 
       const existingWiki = asString(tool.fields['wiki_page']);
       const existingWikiResearched = asString(tool.fields['wiki_last_researched']);
+      const existingIntegrationsUrl = asString(tool.fields['tool_integrations_url']);
 
       return {
         existingWebsite: website,
         existingWiki,
         existingWikiResearched,
+        existingIntegrationsUrl,
         promptInput: { name, url: website, vendor: vendorName },
       };
     });
@@ -757,6 +799,18 @@ export class ProductResearchWorkflow extends ErrorCapturingWorkflow {
     // canonical research artifact for this record.
     fieldsToWrite['wiki_page'] = result.wiki_page;
     fieldsToWrite['wiki_last_researched'] = new Date().toISOString();
+
+    // tool_integrations_url: only fill when the curator has not already set
+    // one. Mirrors the `website` rule above so re-running research never
+    // clobbers a manually-curated value. The notes + checked_at always update
+    // so curators can see the latest research attempt.
+    if (!inputs.existingIntegrationsUrl && result.tool_integrations_url) {
+      fieldsToWrite['tool_integrations_url'] = result.tool_integrations_url;
+    }
+    if (result.tool_integrations_url_notes) {
+      fieldsToWrite['tool_integration_check_notes'] = result.tool_integrations_url_notes;
+    }
+    fieldsToWrite['tool_integration_checked_at'] = new Date().toISOString();
 
     await checkpoint(step, 'write-fields', () =>
       updateRecord(this.env, 'products', recordId, fieldsToWrite),

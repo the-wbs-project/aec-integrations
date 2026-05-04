@@ -27,6 +27,12 @@ export const WORKFLOWS: WorkflowMeta[] = [
   { slug: 'product-reviews', family: 'tool', title: 'T04 · Reviews', blurb: 'G2 + Capterra ratings and counts (LLM fallback).' },
   { slug: 'product-search-demand', family: 'tool', title: 'T05 · Search demand', blurb: 'Google Trends + search volume.' },
   { slug: 'product-reddit', family: 'tool', title: 'T06 · Reddit', blurb: 'Reddit mentions in AEC subreddits.' },
-  { slug: 'product-integration-count', family: 'tool', title: 'T07 · Integration count', blurb: 'Sum linked tool integrations.' },
   { slug: 'product-score', family: 'tool', title: 'T08 · Priority score', blurb: 'Integration / demand / priority.' },
+  { slug: 'product-integrations-discovery', family: 'tool', title: 'T09 · Integrations discovery', blurb: 'Discover integration partners and materialize Integration records.' },
+  { slug: 'product-integrations-website', family: 'tool', title: 'T09a · Integrations · website', blurb: "Vendor's own /integrations, /partners, /apps page." },
+  { slug: 'product-integrations-ipaas', family: 'tool', title: 'T09b · Integrations · iPaaS', blurb: 'Zapier, Workato, Make, Tray.io, n8n connector lists.' },
+  { slug: 'product-integrations-marketplaces', family: 'tool', title: 'T09c · Integrations · marketplaces', blurb: 'Procore, ACC, Trimble, Bluebeam listings.' },
+  { slug: 'product-integrations-g2', family: 'tool', title: 'T09d · Integrations · G2', blurb: 'G2 product page Integrations section.' },
+  { slug: 'product-integrations-github', family: 'tool', title: 'T09e · Integrations · GitHub', blurb: 'Vendor GitHub org connector/SDK repos.' },
+  { slug: 'product-integrations-web', family: 'tool', title: 'T09f · Integrations · web', blurb: 'Free-text web search fallback.' },
 ];

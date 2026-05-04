@@ -600,6 +600,81 @@
     @if (activeTab() === 'integrations') {
       <div role="tabpanel">
         <section class="detail-section">
+          <div class="section-row">
+            <h2 class="section-heading">Integration discovery</h2>
+            <button
+              class="btn btn--primary btn--sm"
+              type="button"
+              [disabled]="discoveryRunning()"
+              (click)="startIntegrationsDiscovery()"
+            >
+              {{ discoveryRunning() ? 'Starting…' : 'Discover integrations' }}
+            </button>
+          </div>
+          @if (tool.integrationsDiscoveryCheckedAt) {
+            <p class="muted" style="margin-top: -0.25rem;">
+              Last checked {{ formatDateWithRelative(tool.integrationsDiscoveryCheckedAt) }}
+            </p>
+          }
+          @if (tool.integrationsDiscoverySummary) {
+            <pre class="discovery-summary">{{ tool.integrationsDiscoverySummary }}</pre>
+          }
+          @if (tool.integrationsDiscoveryCandidates && tool.integrationsDiscoveryCandidates.length) {
+            <h3 class="section-subheading">
+              Unresolved candidates ({{ tool.integrationsDiscoveryCandidates.length }})
+            </h3>
+            <p class="muted" style="margin-top: -0.25rem;">
+              Discovered via the leaves but couldn't be matched to an existing product.
+              Vendor stubs may have been created — review and add the products manually.
+            </p>
+            <div class="table-wrapper">
+              <table class="table" aria-label="Unresolved integration candidates">
+                <thead>
+                  <tr>
+                    <th>Target</th>
+                    <th>Vendor</th>
+                    <th>Source</th>
+                    <th>Mechanism</th>
+                    <th>Confidence</th>
+                    <th>Evidence</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of tool.integrationsDiscoveryCandidates; track $index) {
+                    <tr>
+                      <td>{{ c.targetName }}</td>
+                      <td>
+                        @if (c.targetVendorName) {
+                          <span>{{ c.targetVendorName }}</span>
+                        } @else {
+                          <span class="na">—</span>
+                        }
+                      </td>
+                      <td><span class="badge badge--neutral">{{ c.evidenceSource }}</span></td>
+                      <td>
+                        @if (c.mechanismKind) {
+                          <span class="badge badge--neutral">{{ c.mechanismKind }}</span>
+                        } @else {
+                          <span class="na">—</span>
+                        }
+                      </td>
+                      <td>
+                        <span class="badge" [class]="confidenceBadgeClass(c.confidence)">{{ c.confidence }}</span>
+                      </td>
+                      <td>
+                        <a [href]="c.evidenceUrl" target="_blank" rel="noopener" class="evidence-link">{{ c.evidenceUrl }}</a>
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+          } @else if (tool.integrationsDiscoveryCheckedAt) {
+            <p class="muted">No unresolved candidates — every discovered integration was either materialized or already existed.</p>
+          }
+        </section>
+
+        <section class="detail-section">
           @if (integratedProducts().length) {
             <div class="section-row section-row--end">
               <input

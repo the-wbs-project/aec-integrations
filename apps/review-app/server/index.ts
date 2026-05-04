@@ -41,10 +41,16 @@ export { ProductIpaasWorkflow } from './workflows/product/ipaas';
 export { ProductReviewsWorkflow } from './workflows/product/reviews';
 export { ProductSearchDemandWorkflow } from './workflows/product/searchDemand';
 export { ProductRedditWorkflow } from './workflows/product/reddit';
-export { ProductIntegrationCountWorkflow } from './workflows/product/integrationCount';
 export { ProductScoreWorkflow } from './workflows/product/score';
 export { ProductOrchestratorWorkflow } from './workflows/product/orchestrator';
 export { ProductResearchWorkflow } from './workflows/product/research';
+export { ProductIntegrationsWebsiteWorkflow } from './workflows/product/integrationsWebsite';
+export { ProductIntegrationsIpaasWorkflow } from './workflows/product/integrationsIpaas';
+export { ProductIntegrationsMarketplacesWorkflow } from './workflows/product/integrationsMarketplaces';
+export { ProductIntegrationsG2Workflow } from './workflows/product/integrationsG2';
+export { ProductIntegrationsGithubWorkflow } from './workflows/product/integrationsGithub';
+export { ProductIntegrationsWebWorkflow } from './workflows/product/integrationsWeb';
+export { ProductIntegrationsDiscoveryWorkflow } from './workflows/product/integrationsDiscovery';
 
 // Streamable-HTTP MCP handler. Built once at module init; the McpAgent SDK
 // internally routes to the MCP_OBJECT Durable Object.

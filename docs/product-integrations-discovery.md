@@ -101,7 +101,7 @@ Surface these in `apps/review-app/server/types.ts` `Product` and read them in `a
 
 ## Files to modify
 
-- `apps/review-app/server/workflows/registry.ts` — register new bindings (`WF_PRODUCT_INTEGRATIONS_*`).
+- `apps/review-app/server/workflows/registry.ts` — register new bindings (`WF_INTEGRATIONS_*`).
 - `apps/review-app/wrangler.jsonc` (or `wrangler.toml`) — add Workflow bindings for each new class.
 - `apps/review-app/server/lib/workflow-meta.ts` — list new slugs.
 - `apps/review-app/server/workflows/product/orchestrator.ts:54-62` — optionally add `product-integrations-discovery` as a final leaf with `stalenessField: 'integrations_discovery_checked_at'`. Run it AFTER `product-integration-count` so the count reflects the new records.

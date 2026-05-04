@@ -21,10 +21,16 @@ import { meta as productIpaasMeta } from './product/ipaas';
 import { meta as productReviewsMeta } from './product/reviews';
 import { meta as productSearchDemandMeta } from './product/searchDemand';
 import { meta as productRedditMeta } from './product/reddit';
-import { meta as productIntegrationCountMeta } from './product/integrationCount';
 import { meta as productScoreMeta } from './product/score';
 import { meta as productOrchestratorMeta } from './product/orchestrator';
 import { meta as productResearchMeta } from './product/research';
+import { meta as productIntegrationsWebsiteMeta } from './product/integrationsWebsite';
+import { meta as productIntegrationsIpaasMeta } from './product/integrationsIpaas';
+import { meta as productIntegrationsMarketplacesMeta } from './product/integrationsMarketplaces';
+import { meta as productIntegrationsG2Meta } from './product/integrationsG2';
+import { meta as productIntegrationsGithubMeta } from './product/integrationsGithub';
+import { meta as productIntegrationsWebMeta } from './product/integrationsWeb';
+import { meta as productIntegrationsDiscoveryMeta } from './product/integrationsDiscovery';
 
 /** Names of every Workflow binding on Env. */
 export type WorkflowBindingName =
@@ -40,10 +46,16 @@ export type WorkflowBindingName =
   | 'WF_PRODUCT_REVIEWS'
   | 'WF_PRODUCT_SEARCH_DEMAND'
   | 'WF_PRODUCT_REDDIT'
-  | 'WF_PRODUCT_INTEGRATION_COUNT'
   | 'WF_PRODUCT_SCORE'
   | 'WF_PRODUCT_ORCHESTRATOR'
-  | 'WF_PRODUCT_RESEARCH';
+  | 'WF_PRODUCT_RESEARCH'
+  | 'WF_INTEGRATIONS_WEBSITE'
+  | 'WF_INTEGRATIONS_IPAAS'
+  | 'WF_INTEGRATIONS_MARKETPLACES'
+  | 'WF_INTEGRATIONS_G2'
+  | 'WF_INTEGRATIONS_GITHUB'
+  | 'WF_INTEGRATIONS_WEB'
+  | 'WF_INTEGRATIONS_DISCOVERY';
 
 export interface WorkflowEntry {
   meta: WorkflowMeta;
@@ -66,13 +78,37 @@ export const WORKFLOWS: Record<string, WorkflowEntry> = {
   [productReviewsMeta.slug]: { meta: productReviewsMeta, binding: 'WF_PRODUCT_REVIEWS' },
   [productSearchDemandMeta.slug]: { meta: productSearchDemandMeta, binding: 'WF_PRODUCT_SEARCH_DEMAND' },
   [productRedditMeta.slug]: { meta: productRedditMeta, binding: 'WF_PRODUCT_REDDIT' },
-  [productIntegrationCountMeta.slug]: {
-    meta: productIntegrationCountMeta,
-    binding: 'WF_PRODUCT_INTEGRATION_COUNT',
-  },
   [productScoreMeta.slug]: { meta: productScoreMeta, binding: 'WF_PRODUCT_SCORE' },
   [productOrchestratorMeta.slug]: { meta: productOrchestratorMeta, binding: 'WF_PRODUCT_ORCHESTRATOR' },
   [productResearchMeta.slug]: { meta: productResearchMeta, binding: 'WF_PRODUCT_RESEARCH' },
+  [productIntegrationsWebsiteMeta.slug]: {
+    meta: productIntegrationsWebsiteMeta,
+    binding: 'WF_INTEGRATIONS_WEBSITE',
+  },
+  [productIntegrationsIpaasMeta.slug]: {
+    meta: productIntegrationsIpaasMeta,
+    binding: 'WF_INTEGRATIONS_IPAAS',
+  },
+  [productIntegrationsMarketplacesMeta.slug]: {
+    meta: productIntegrationsMarketplacesMeta,
+    binding: 'WF_INTEGRATIONS_MARKETPLACES',
+  },
+  [productIntegrationsG2Meta.slug]: {
+    meta: productIntegrationsG2Meta,
+    binding: 'WF_INTEGRATIONS_G2',
+  },
+  [productIntegrationsGithubMeta.slug]: {
+    meta: productIntegrationsGithubMeta,
+    binding: 'WF_INTEGRATIONS_GITHUB',
+  },
+  [productIntegrationsWebMeta.slug]: {
+    meta: productIntegrationsWebMeta,
+    binding: 'WF_INTEGRATIONS_WEB',
+  },
+  [productIntegrationsDiscoveryMeta.slug]: {
+    meta: productIntegrationsDiscoveryMeta,
+    binding: 'WF_INTEGRATIONS_DISCOVERY',
+  },
 };
 
 export type WorkflowName = keyof typeof WORKFLOWS;
