@@ -177,11 +177,6 @@
 			"class_name": "ProductRedditWorkflow"
 		},
 		{
-			"name": "aeci-product-integration-count",
-			"binding": "WF_PRODUCT_INTEGRATION_COUNT",
-			"class_name": "ProductIntegrationCountWorkflow"
-		},
-		{
 			"name": "aeci-product-score",
 			"binding": "WF_PRODUCT_SCORE",
 			"class_name": "ProductScoreWorkflow"
@@ -195,6 +190,42 @@
 			"name": "aeci-product-research",
 			"binding": "WF_PRODUCT_RESEARCH",
 			"class_name": "ProductResearchWorkflow"
+		},
+		// Integration discovery — sub-orchestrator + six per-source leaves.
+		{
+			"name": "aeci-product-integrations-website",
+			"binding": "WF_INTEGRATIONS_WEBSITE",
+			"class_name": "ProductIntegrationsWebsiteWorkflow"
+		},
+		{
+			"name": "aeci-product-integrations-ipaas",
+			"binding": "WF_INTEGRATIONS_IPAAS",
+			"class_name": "ProductIntegrationsIpaasWorkflow"
+		},
+		{
+			"name": "aeci-product-integrations-marketplaces",
+			"binding": "WF_INTEGRATIONS_MARKETPLACES",
+			"class_name": "ProductIntegrationsMarketplacesWorkflow"
+		},
+		{
+			"name": "aeci-product-integrations-g2",
+			"binding": "WF_INTEGRATIONS_G2",
+			"class_name": "ProductIntegrationsG2Workflow"
+		},
+		{
+			"name": "aeci-product-integrations-github",
+			"binding": "WF_INTEGRATIONS_GITHUB",
+			"class_name": "ProductIntegrationsGithubWorkflow"
+		},
+		{
+			"name": "aeci-product-integrations-web",
+			"binding": "WF_INTEGRATIONS_WEB",
+			"class_name": "ProductIntegrationsWebWorkflow"
+		},
+		{
+			"name": "aeci-product-integrations-discovery",
+			"binding": "WF_INTEGRATIONS_DISCOVERY",
+			"class_name": "ProductIntegrationsDiscoveryWorkflow"
 		}
 	],
 	"vars": {

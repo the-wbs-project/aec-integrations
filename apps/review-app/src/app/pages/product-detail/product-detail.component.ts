@@ -6,6 +6,7 @@ import { GridModule, PageService, SortService, FilterService } from '@syncfusion
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
 import { RunDetailDialogComponent } from '../../components/run-detail-dialog/run-detail-dialog.component';
 import { ApiService } from '../../services/api.service';
+import { ModelService } from '../../services/model.service';
 import { RunsService, type RecentRunRow } from '../../services/runs.service';
 import { WORKFLOWS } from '../../workflows';
 import { TagInputComponent } from '../../components/tag-input/tag-input.component';
@@ -137,6 +138,7 @@ export class ProductDetailComponent {
 
   private api = inject(ApiService);
   protected runs = inject(RunsService);
+  private modelService = inject(ModelService);
   tool = signal<ProductDetail | null>(null);
   meta = signal<MetaResponse | null>(null);
   recordIds = computed(() => (this.tool() ? [this.id()] : []));
@@ -220,6 +222,24 @@ export class ProductDetailComponent {
     }
     return out;
   });
+
+  // ---- Integration discovery (unresolved candidates) ---------------------
+  protected readonly discoveryRunning = signal(false);
+
+  startIntegrationsDiscovery(): void {
+    if (this.discoveryRunning()) return;
+    this.discoveryRunning.set(true);
+    this.runs
+      .startRun('product-integrations-discovery', {
+        record_ids: [this.id()],
+        model: this.modelService.selected(),
+        force_refresh: true,
+      })
+      .subscribe({
+        next: () => this.discoveryRunning.set(false),
+        error: () => this.discoveryRunning.set(false),
+      });
+  }
 
   // The "other" endpoint of an integration relative to this tool.
   otherProductOf(integration: IntegrationSummary): LinkRef | undefined {

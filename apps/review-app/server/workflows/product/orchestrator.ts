@@ -12,7 +12,7 @@
 //   4. Re-fetch the record so the staleness check sees the freshly-written
 //      timestamps.
 //   5. For each leaf enrichment (api-check, marketplace, ipaas, reviews,
-//      search-demand, reddit, integration-count), decide if it is stale
+//      search-demand, reddit), decide if it is stale
 //      (last-checked field missing or older than STALE_AFTER_DAYS) — skip
 //      leaves that are fresh. If params.forceRefresh is true, treat every
 //      leaf as stale and re-run it regardless, EXCEPT leaves that overview
@@ -58,7 +58,7 @@ const LEAVES: readonly Leaf[] = [
   { slug: 'product-reviews', binding: 'WF_PRODUCT_REVIEWS', stalenessField: 'reviews_checked_at' },
   { slug: 'product-search-demand', binding: 'WF_PRODUCT_SEARCH_DEMAND', stalenessField: 'search_checked_at' },
   { slug: 'product-reddit', binding: 'WF_PRODUCT_REDDIT', stalenessField: 'reddit_checked_at' },
-  { slug: 'product-integration-count', binding: 'WF_PRODUCT_INTEGRATION_COUNT', stalenessField: 'integration_count_checked_at' },
+  { slug: 'product-integrations-discovery', binding: 'WF_INTEGRATIONS_DISCOVERY', stalenessField: 'integrations_discovery_checked_at' },
 ] as const;
 
 const TERMINAL_STATUSES = new Set(['complete', 'errored', 'terminated', 'unknown']);

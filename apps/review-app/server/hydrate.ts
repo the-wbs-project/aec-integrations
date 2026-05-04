@@ -8,6 +8,7 @@ import type {
   LinkRef,
   Product,
   ProductDetail,
+  UnresolvedIntegrationCandidate,
   Vendor,
   VendorDetail,
 } from './types';
@@ -95,6 +96,47 @@ function asJsonStringArray(v: unknown): string[] | undefined {
   }
 }
 
+const VALID_EVIDENCE_SOURCES = ['website', 'ipaas', 'marketplaces', 'g2', 'github', 'web'] as const;
+const VALID_CONFIDENCE_LEVELS = ['high', 'medium', 'low'] as const;
+
+function asUnresolvedCandidates(v: unknown): UnresolvedIntegrationCandidate[] | undefined {
+  if (typeof v !== 'string' || v.trim().length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(v);
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(parsed)) return undefined;
+  const out: UnresolvedIntegrationCandidate[] = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const targetName = asString(e['targetName']);
+    const evidenceUrl = asString(e['evidenceUrl']);
+    const evidenceSource = asString(e['evidenceSource']);
+    const confidence = asString(e['confidence']);
+    if (!targetName || !evidenceUrl || !evidenceSource || !confidence) continue;
+    if (!(VALID_EVIDENCE_SOURCES as readonly string[]).includes(evidenceSource)) continue;
+    if (!(VALID_CONFIDENCE_LEVELS as readonly string[]).includes(confidence)) continue;
+    const direction = asString(e['direction']);
+    out.push({
+      targetName,
+      targetWebsite: asString(e['targetWebsite']),
+      targetVendorName: asString(e['targetVendorName']),
+      mechanismKind: asString(e['mechanismKind']),
+      mechanismName: asString(e['mechanismName']),
+      direction:
+        direction === 'one-way' || direction === 'bidirectional' ? direction : undefined,
+      evidenceUrl,
+      evidenceSource: evidenceSource as UnresolvedIntegrationCandidate['evidenceSource'],
+      notes: asString(e['notes']),
+      confidence: confidence as UnresolvedIntegrationCandidate['confidence'],
+    });
+  }
+  return out.length > 0 ? out : undefined;
+}
+
 function asCrunchbaseLists(v: unknown): CrunchbaseList[] | undefined {
   if (typeof v !== 'string' || v.trim().length === 0) return undefined;
   try {
@@ -171,12 +213,6 @@ export function hydrateProduct(
   record: AirtableRecord,
   maps: LookupMaps,
 ): Product {
-  const sourceIds = record.get('tool_integrations_source');
-  const targetIds = record.get('tool_integrations_target');
-  const sourceCount = Array.isArray(sourceIds) ? sourceIds.length : 0;
-  const targetCount = Array.isArray(targetIds) ? targetIds.length : 0;
-  const storedIntegrationCount = asNumber(record.get('integration_count'));
-
   return {
     id: record.id,
     name: asString(record.get('Name')) ?? '',
@@ -194,7 +230,7 @@ export function hydrateProduct(
       | 'retracted'
       | 'rejected'
       | undefined,
-    integrationCount: storedIntegrationCount ?? sourceCount + targetCount,
+    integrationCount: asNumber(record.get('tool_integrations_count')) ?? 0,
 
     hasApiDocs: asBoolean(record.get('has_api_docs')),
     apiDocsUrl: asString(record.get('api_docs_url')),
@@ -316,6 +352,11 @@ export function hydrateProductDetail(
     integrationsAsSource,
     integrationsAsTarget,
     integratedProducts,
+    integrationsDiscoveryCheckedAt: asString(record.get('integrations_discovery_checked_at')),
+    integrationsDiscoverySummary: asString(record.get('integrations_discovery_summary')),
+    integrationsDiscoveryCandidates: asUnresolvedCandidates(
+      record.get('integrations_discovery_candidates'),
+    ),
   };
 }
 

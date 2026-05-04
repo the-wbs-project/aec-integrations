@@ -62,10 +62,16 @@ type WorkflowBindings = {
   WF_PRODUCT_REVIEWS: Workflow<RunParams>;
   WF_PRODUCT_SEARCH_DEMAND: Workflow<RunParams>;
   WF_PRODUCT_REDDIT: Workflow<RunParams>;
-  WF_PRODUCT_INTEGRATION_COUNT: Workflow<RunParams>;
   WF_PRODUCT_SCORE: Workflow<RunParams>;
   WF_PRODUCT_ORCHESTRATOR: Workflow<RunParams>;
   WF_PRODUCT_RESEARCH: Workflow<RunParams>;
+  WF_INTEGRATIONS_WEBSITE: Workflow<RunParams>;
+  WF_INTEGRATIONS_IPAAS: Workflow<RunParams>;
+  WF_INTEGRATIONS_MARKETPLACES: Workflow<RunParams>;
+  WF_INTEGRATIONS_G2: Workflow<RunParams>;
+  WF_INTEGRATIONS_GITHUB: Workflow<RunParams>;
+  WF_INTEGRATIONS_WEB: Workflow<RunParams>;
+  WF_INTEGRATIONS_DISCOVERY: Workflow<RunParams>;
 };
 
 /**

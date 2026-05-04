@@ -101,6 +101,26 @@ export interface ProductDetail extends Product {
   // Used by the Integrations tab on the product-detail page to show each
   // integrated product's tier and basic info without an extra round-trip per row.
   integratedProducts: IntegratedProductSummary[];
+
+  // Integration discovery — populated by product-integrations-discovery.
+  // The candidates list holds entries we couldn't auto-resolve to an existing
+  // Product (vendor stub may have been created); curators triage these.
+  integrationsDiscoveryCheckedAt?: string;
+  integrationsDiscoverySummary?: string;
+  integrationsDiscoveryCandidates?: UnresolvedIntegrationCandidate[];
+}
+
+export interface UnresolvedIntegrationCandidate {
+  targetName: string;
+  targetWebsite?: string;
+  targetVendorName?: string;
+  mechanismKind?: string;
+  mechanismName?: string;
+  direction?: 'one-way' | 'bidirectional';
+  evidenceUrl: string;
+  evidenceSource: 'website' | 'ipaas' | 'marketplaces' | 'g2' | 'github' | 'web';
+  notes?: string;
+  confidence: 'high' | 'medium' | 'low';
 }
 
 export interface IntegrationSummary {
