@@ -26,6 +26,7 @@ import workflows from './routes/workflows';
 import reports from './routes/reports';
 import productsDebug from './routes/products-debug';
 import playbooks from './routes/playbooks';
+import promptQueue from './routes/promptQueue';
 
 // Hosts allowed to open the runs WebSocket. Match by hostname (not full
 // origin) so http/https + ports + the workers.dev preview all work without
@@ -112,6 +113,7 @@ app.route('/api/integrations', integrations);
 app.route('/api/vendors', vendors);
 app.route('/api/stats', stats);
 app.route('/api/playbooks', playbooks);
+app.route('/api/prompt-queue', promptQueue);
 
 // Workflow orchestration
 app.route('/api/workflows', workflows);

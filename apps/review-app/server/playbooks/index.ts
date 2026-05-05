@@ -84,3 +84,19 @@ export const PLAYBOOKS: ReadonlyArray<Playbook> = PLAYBOOK_FILES.map(({ slug, ra
   const { frontmatter, body } = parseFrontmatter(slug, raw);
   return { slug, frontmatter, body };
 });
+
+export function getPlaybook(slug: string): Playbook | undefined {
+  return PLAYBOOKS.find((p) => p.slug === slug);
+}
+
+/**
+ * Build the final markdown text the way the /prompts page would when the user
+ * clicks Copy: trim trailing whitespace, then append `**<scope_label>:** <scope>`
+ * if the playbook declares a scope label. The line is appended even when the
+ * user left scope empty — playbooks themselves instruct the LLM to ask for a
+ * scope when the line is blank.
+ */
+export function renderPlaybookPrompt(playbook: Playbook, scope: string): string {
+  if (playbook.frontmatter.scope_label === null) return playbook.body;
+  return `${playbook.body.trimEnd()}\n\n**${playbook.frontmatter.scope_label}:** ${scope}\n`;
+}
