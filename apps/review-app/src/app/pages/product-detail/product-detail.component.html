@@ -22,6 +22,14 @@
             (selectedIdsChange)="draft.vendorIds = $event"
           />
 
+          <label class="field-label">Role</label>
+          <select class="input" [(ngModel)]="draft.productRole" name="productRole">
+            <option value="">—</option>
+            <option value="application">Application</option>
+            <option value="connector">Connector — iPaaS / integration platform</option>
+            <option value="hybrid">Hybrid — application + connector</option>
+          </select>
+
           <div class="edit-actions">
             <button class="btn btn--primary btn--sm" (click)="saveSection('header')" [disabled]="saving()">Save</button>
             <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
@@ -31,6 +39,17 @@
         <div class="header-row">
           <div class="header-row__title">
             <h1 class="detail-title">{{ tool.name }}</h1>
+            @if (tool.productRole === 'connector') {
+              <span
+                class="badge badge--info"
+                title="Integration platform whose role is to wire other products together."
+              >Connector</span>
+            } @else if (tool.productRole === 'hybrid') {
+              <span
+                class="badge badge--info"
+                title="Application that also exposes a connector platform."
+              >Hybrid</span>
+            }
             @if (tool.priorityTier) {
               <button
                 type="button"
@@ -872,7 +891,23 @@
                         }
                       </td>
                       <td class="num">{{ it.integrationCount | number:'1.0-0' }}</td>
-                      <td class="num">{{ it.integrationIds.length | number:'1.0-0' }}</td>
+                      <td class="num">
+                        @let buckets = connectorChipsFor(it.id);
+                        <div class="connection-chips">
+                          <span class="connection-chips__count">{{ it.integrationIds.length | number:'1.0-0' }}</span>
+                          @if (buckets.nativeCount > 0) {
+                            <span class="badge badge--neutral" title="Direct integration (no connector platform)">Native</span>
+                          }
+                          @for (c of buckets.connectors; track c.id) {
+                            <a
+                              class="badge badge--info"
+                              [routerLink]="['/products', c.id]"
+                              [title]="'Routed through ' + c.name"
+                              (click)="$event.stopPropagation()"
+                            >via {{ c.name }}</a>
+                          }
+                        </div>
+                      </td>
                     </tr>
                   } @empty {
                     <tr>
@@ -974,6 +1009,67 @@
 
                   @if (i.description) {
                     <p class="integration-card__description">{{ i.description }}</p>
+                  }
+                </div>
+              }
+            </div>
+          </section>
+        }
+
+        @if (poweredIntegrations().length) {
+          <section class="detail-section">
+            <h2 class="section-heading">Integrations this connector powers ({{ poweredIntegrations().length }})</h2>
+            <p class="muted" style="margin-top: -0.25rem;">
+              Other products' integrations whose connector platform is {{ tool.name }}.
+            </p>
+            <div class="integration-cards">
+              @for (i of poweredIntegrations(); track i.id) {
+                <div class="integration-card">
+                  <div class="integration-card__header">
+                    <div class="integration-card__title">
+                      <strong>
+                        @if (i.sourceProduct) {
+                          <a [routerLink]="['/products', i.sourceProduct.id]">{{ i.sourceProduct.name }}</a>
+                        } @else {
+                          <span class="muted">(unknown source)</span>
+                        }
+                        <span class="muted"> ↔ </span>
+                        @if (i.targetProduct) {
+                          <a [routerLink]="['/products', i.targetProduct.id]">{{ i.targetProduct.name }}</a>
+                        } @else {
+                          <span class="muted">(unknown target)</span>
+                        }
+                      </strong>
+                    </div>
+                    <div class="integration-card__badges">
+                      @if (i.mechanismKind) {
+                        <span class="badge badge--neutral" [title]="'Mechanism'">{{ i.mechanismKind }}</span>
+                      }
+                      @if (i.maturity) {
+                        <span class="badge badge--neutral" [title]="'Maturity'">{{ i.maturity }}</span>
+                      }
+                      @if (i.direction) {
+                        <span class="badge badge--neutral" [title]="'Direction'">{{ i.direction }}</span>
+                      }
+                    </div>
+                  </div>
+                  @if (i.description) {
+                    <p class="integration-card__description">{{ i.description }}</p>
+                  }
+                  @if (i.listingUrl || i.docsUrl) {
+                    <dl class="integration-card__meta">
+                      <div>
+                        <dt>Links</dt>
+                        <dd class="integration-card__links">
+                          @if (i.listingUrl) {
+                            <a [href]="i.listingUrl" target="_blank" rel="noopener">Listing</a>
+                          }
+                          @if (i.docsUrl) {
+                            <a [href]="i.docsUrl" target="_blank" rel="noopener">Docs</a>
+                          }
+                        </dd>
+                      </div>
+                    </dl>
                   }
                 </div>
               }

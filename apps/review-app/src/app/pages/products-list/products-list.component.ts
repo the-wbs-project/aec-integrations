@@ -49,7 +49,29 @@ type FilterKey =
   | 'phase'
   | 'researchStatus'
   | 'priorityTier'
-  | 'enrichment';
+  | 'enrichment'
+  | 'role';
+
+// Effective product_role used for filtering and counts. Products with no role
+// set hydrate as undefined and are bucketed as 'application' here so the
+// counts always sum to the total row count.
+const ROLE_VALUES: ReadonlyArray<'application' | 'connector' | 'hybrid'> = [
+  'application',
+  'connector',
+  'hybrid',
+];
+
+function roleLabel(value: string): string {
+  switch (value) {
+    case 'connector':
+      return 'Connector';
+    case 'hybrid':
+      return 'Hybrid';
+    case 'application':
+    default:
+      return 'Application';
+  }
+}
 
 interface ActiveFilter {
   key: FilterKey;
@@ -102,6 +124,8 @@ export class ProductsListComponent implements OnInit {
   protected readonly filterResearchStatus = signal<string[]>([]);
   protected readonly filterPriorityTier = signal<string[]>([]);
   protected readonly filterEnrichment = signal<string[]>([]);
+  // Filter by product_role. Values are 'application' | 'connector' | 'hybrid'.
+  protected readonly filterRole = signal<string[]>([]);
   protected readonly includeRejected = signal(false);
 
   protected readonly checkboxMode = 'CheckBox' as const;
@@ -177,6 +201,9 @@ export class ProductsListComponent implements OnInit {
       this.enrichmentCounts(),
     ),
   );
+  protected readonly roleOptions = computed(() =>
+    this.stringsWithCounts(ROLE_VALUES, this.roleCounts(), roleLabel),
+  );
 
   private refsWithCounts(
     refs: LinkRef[],
@@ -219,6 +246,9 @@ export class ProductsListComponent implements OnInit {
   protected readonly enrichmentCounts = computed(() =>
     this.countByValue('enrichment', (t) => t.toolEnrichmentStatus),
   );
+  protected readonly roleCounts = computed(() =>
+    this.countByValue('role', (t) => t.productRole ?? 'application'),
+  );
 
   // Active filter pills (one per selected value across all dropdowns).
   protected readonly activeFilters = computed<ActiveFilter[]>(() => {
@@ -254,6 +284,8 @@ export class ProductsListComponent implements OnInit {
       });
     for (const v of this.filterEnrichment())
       out.push({ key: 'enrichment', value: v, label: `Enrichment: ${v}` });
+    for (const v of this.filterRole())
+      out.push({ key: 'role', value: v, label: `Role: ${roleLabel(v)}` });
     return out;
   });
 
@@ -341,6 +373,7 @@ export class ProductsListComponent implements OnInit {
     this.filterResearchStatus.set([]);
     this.filterPriorityTier.set([]);
     this.filterEnrichment.set([]);
+    this.filterRole.set([]);
   }
 
   private signalFor(key: FilterKey) {
@@ -357,6 +390,8 @@ export class ProductsListComponent implements OnInit {
         return this.filterPriorityTier;
       case 'enrichment':
         return this.filterEnrichment;
+      case 'role':
+        return this.filterRole;
     }
   }
 
@@ -376,6 +411,7 @@ export class ProductsListComponent implements OnInit {
       opts.skip === 'priorityTier' ? [] : this.filterPriorityTier();
     const enriches =
       opts.skip === 'enrichment' ? [] : this.filterEnrichment();
+    const roles = opts.skip === 'role' ? [] : this.filterRole();
 
     return this.allRows().filter((t) => {
       if (
@@ -405,6 +441,8 @@ export class ProductsListComponent implements OnInit {
         (!t.toolEnrichmentStatus ||
           !enriches.includes(t.toolEnrichmentStatus))
       )
+        return false;
+      if (roles.length && !roles.includes(t.productRole ?? 'application'))
         return false;
       return true;
     });

@@ -160,6 +160,14 @@
   text-decoration: underline;
 }
 
+// Connector / Hybrid pill rendered next to the product name in the grid.
+// Slightly de-emphasised vs siblings so the name remains the dominant token.
+.role-badge {
+  margin-left: 0.4rem;
+  font-size: 0.7rem;
+  vertical-align: middle;
+}
+
 .cell-list {
   color: var(--color-text-body);
 }
