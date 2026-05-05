@@ -166,6 +166,11 @@
     >
       <e-columns>
         <e-column
+          field="id"
+          [isPrimaryKey]="true"
+          [visible]="false"
+        ></e-column>
+        <e-column
           type="checkbox"
           width="46"
           [allowSorting]="false"

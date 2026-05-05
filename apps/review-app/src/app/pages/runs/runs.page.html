@@ -22,7 +22,7 @@
         </ng-template>
       </e-column>
       <e-column field="startedAt" headerText="Started" width="180" type="dateTime" format="MMM d, y, h:mm a"></e-column>
-      <e-column field="runId" headerText="Run ID" width="280"></e-column>
+      <e-column field="runId" headerText="Run ID" width="280" [isPrimaryKey]="true"></e-column>
     </e-columns>
   </ejs-grid>
 
