@@ -78,6 +78,13 @@ export const routes: Routes = [
         path: 'runs',
         loadComponent: () => import('./pages/runs/runs.page').then((m) => m.RunsPage),
       },
+      {
+        path: 'prompts',
+        loadComponent: () =>
+          import('./pages/prompts/prompts.component').then(
+            (m) => m.PromptsComponent
+          ),
+      },
     ],
   },
 ];

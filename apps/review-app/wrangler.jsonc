@@ -7,6 +7,10 @@
 	"compatibility_flags": ["nodejs_compat"],
 	"workers_dev": true,
 	"placement": { "mode": "smart" },
+	// Bundle .md files as raw text strings so MCP prompt modules and the
+	// /api/playbooks route can import the canonical playbooks from /playbooks/
+	// at build time.
+	"rules": [{ "type": "Text", "globs": ["**/*.md"], "fallthrough": true }],
 	"routes": [
 		{
 			"pattern": "review.aecintegrations.com",

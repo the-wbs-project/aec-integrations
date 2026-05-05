@@ -15,6 +15,7 @@ import {
   CreateVendorResponse,
   UpdateVendorRequest,
   StatsResponse,
+  PlaybookSummary,
 } from '../types';
 
 export interface ProductQueryParams {
@@ -102,6 +103,10 @@ export class ApiService {
 
   getStats(): Observable<StatsResponse> {
     return this.http.get<StatsResponse>(`${this.baseUrl}/stats`);
+  }
+
+  getPlaybooks(): Observable<PlaybookSummary[]> {
+    return this.http.get<PlaybookSummary[]>(`${this.baseUrl}/playbooks`);
   }
 
   private buildParams(params?: Record<string, unknown>): HttpParams {

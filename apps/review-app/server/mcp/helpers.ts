@@ -25,3 +25,21 @@ export function err(message: string) {
 export function toMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
+
+// ---------------------------------------------------------------------------
+// Rejected-product filtering.
+//
+// MCP tools must never expose products with promotion_status="rejected" —
+// not as primary records, and not as nested LinkRefs / summaries. The web
+// app still needs to see rejected products (curators triage them), so the
+// filter lives here at the MCP layer instead of in hydrate.ts.
+// ---------------------------------------------------------------------------
+export function buildRejectedProductIds(
+  productRecords: { id: string; get(field: string): unknown }[],
+): Set<string> {
+  const set = new Set<string>();
+  for (const r of productRecords) {
+    if (r.get('promotion_status') === 'rejected') set.add(r.id);
+  }
+  return set;
+}

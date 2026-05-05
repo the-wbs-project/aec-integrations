@@ -26,6 +26,8 @@ This file is the spec an LLM should read before calling the server.
 - **Auth**: none right now. Treat that as temporary; do not log or echo the
   URL more than necessary.
 - **Server name**: `aeci-review-mcp` (version `2.0.0`).
+- **Capabilities**: `tools` (CRUD over the three domain entities) and
+  `prompts` (canonical playbooks — currently `research_pending_products`).
 
 Configuration in Claude Desktop / mcp-inspector / similar:
 
@@ -94,6 +96,12 @@ Configuration in Claude Desktop / mcp-inspector / similar:
 | Tool | Purpose |
 |---|---|
 | `list_taxonomy` | Return categories, disciplines, and project phases as `{ id, name }` lists. KV-cached. |
+
+### Prompts
+
+| Prompt | Purpose |
+|---|---|
+| `research_pending_products` | Inject the canonical pending-products research playbook as a user message. Optional `invocation` argument scopes the run (e.g. "the first 20 pending in BIM"). |
 
 ---
 
@@ -222,7 +230,11 @@ to confirm a record does not already exist before calling
 | `research_status` | string | Exact match (e.g. `"Pending"`, `"Done"`). |
 | `priority_tier` | string | Exact match. |
 | `enrichment_status` | string | Exact match against `tool_enrichment_status`. |
-| `include_rejected` | boolean | Defaults to false. |
+
+> **Rejected records are never returned via MCP.** Products with
+> `promotion_status="rejected"` are filtered from `list_products`,
+> `get_product`, `update_product`, vendor `tools[]`, and any integration
+> that links to them. There is no opt-in to surface them.
 
 #### `list_integrations`
 
@@ -323,6 +335,65 @@ No inputs.
 Backed by the same KV-cached `fetchCategories` / `fetchDisciplines` /
 `fetchProjectPhases` helpers used by the data API, so repeat calls within
 the cache TTL hit KV rather than Airtable.
+
+---
+
+## `research_pending_products` (prompt)
+
+This is an MCP **prompt**, not a tool. Prompts are server-side templates a
+client invokes by name; the server returns one or more messages that the
+client injects into the conversation. The model then executes the playbook
+using the regular MCP tools above. No tokens are spent server-side — the
+prompt callback is a pure string concat.
+
+The prompt body is the canonical playbook at
+`playbooks/research-pending-products.md`, bundled into the Worker at
+build time via the Wrangler `Text` rule. Edit that `.md` and redeploy and
+the prompt updates with no other changes.
+
+**Use when**
+
+- You want a fresh chat to start the standard research procedure against
+  pending products without pasting the 230-line playbook by hand.
+- You want a scoped subset run (e.g. "first 20 pending", "everything
+  pending in the BIM category") — pass it as `invocation`.
+
+**Do not use when**
+
+- The user has a one-off task that doesn't follow the playbook's rules
+  (closed vocabularies, search budgets, citation requirements). Prefer a
+  direct ad-hoc instruction in that case.
+
+#### Arguments
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `invocation` | string | no | Free-form scope, appended verbatim under a `**This invocation:**` line. Empty/omitted ⇒ playbook is returned as-is. |
+
+#### Output
+
+A single `user` message whose text is the full playbook (optionally with
+the invocation line appended). The client treats it as if the user typed
+it themselves.
+
+#### How it surfaces in clients
+
+- **Claude Code**: not via this MCP prompt — use the project slash command
+  `/researchproducts <free-form scope>` defined at
+  `.claude/commands/researchproducts.md`. Both wrappers reference the same
+  canonical `.md`.
+- **claude.ai web**: under the connector's prompt menu in the composer
+  (typically the `+` / attach button → "Use a prompt from AECi Review").
+  If a connector was already connected before the prompt was added,
+  disconnect and reconnect to refresh the cached prompt list.
+- **Claude Desktop / mcp-inspector**: appears in the prompt picker for the
+  `aeci-review` server.
+
+If a client renders only tools and not prompts, the prompt is unreachable
+on that surface — fall back to the Claude Code slash command, or paste the
+playbook from `playbooks/research-pending-products.md` directly. Founders
+without a Claude client can also browse and copy playbooks from the
+`/prompts` page in the review app.
 
 ---
 

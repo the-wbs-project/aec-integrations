@@ -20,7 +20,7 @@ import {
   CreateProductValidationError,
   createProductAndStartOrchestrator,
 } from '../../services/createProduct';
-import { err, ok, toMessage } from '../helpers';
+import { buildRejectedProductIds, err, ok, toMessage } from '../helpers';
 
 const PRODUCT_PATCH_FIELD_MAP: Record<string, string> = {
   name: 'Name',
@@ -38,7 +38,25 @@ const PRODUCT_PATCH_FIELD_MAP: Record<string, string> = {
   supported_disciplines: 'supported_disciplines',
   supported_project_phases: 'supported_project_phases',
   vendors: 'vendors',
+  // usefulness is a JSON object that gets stringified on the way to Airtable
+  // (it's stored in a long-text cell). Hydration parses it back out.
+  usefulness: 'usefulness',
 };
+
+const usefulnessEntrySchema = z.object({
+  id: z.string().min(1).describe('Airtable record ID of the discipline / phase.'),
+  name: z.string().min(1).describe('Display name of the discipline / phase.'),
+  points: z
+    .array(z.string().min(1))
+    .min(1)
+    .max(8)
+    .describe('1–8 short bullets describing how this discipline / phase uses the product.'),
+});
+
+const usefulnessSchema = z.object({
+  disciplines: z.array(usefulnessEntrySchema),
+  phases: z.array(usefulnessEntrySchema),
+});
 
 export function registerProductTools(
   server: McpServer,
@@ -49,7 +67,7 @@ export function registerProductTools(
   // -------------------------------------------------------------------------
   server.tool(
     'list_products',
-    'List products (a.k.a. tools). Filter by search, category/discipline/phase ID, research_status, priority tier, vendor ID, or include_rejected. Default sort is by name. Use this to find a product before calling get_product / update_product, or to check whether a product already exists before create_product_and_research.',
+    'List products (a.k.a. tools). Filter by search, category/discipline/phase ID, research_status, priority tier, or vendor ID. Default sort is by name. Products with promotion_status="rejected" are always excluded — there is no opt-in to include them. Use this to find a product before calling get_product / update_product, or to check whether a product already exists before create_product_and_research.',
     {
       search: z
         .string()
@@ -67,12 +85,6 @@ export function registerProductTools(
         .describe('Exact match on research_status (e.g. "Pending", "Done").'),
       priority_tier: z.string().optional(),
       enrichment_status: z.string().optional(),
-      include_rejected: z
-        .boolean()
-        .optional()
-        .describe(
-          'When true, include products with promotion_status="rejected". Defaults to false.',
-        ),
       offset: z.number().int().min(0).optional(),
       limit: z
         .number()
@@ -132,9 +144,7 @@ export function registerProductTools(
         if (input.enrichment_status) {
           hydrated = hydrated.filter((p) => p.toolEnrichmentStatus === input.enrichment_status);
         }
-        if (!input.include_rejected) {
-          hydrated = hydrated.filter((p) => p.promotionStatus !== 'rejected');
-        }
+        hydrated = hydrated.filter((p) => p.promotionStatus !== 'rejected');
         hydrated.sort((a, b) => a.name.localeCompare(b.name));
 
         const offset = Math.max(0, input.offset ?? 0);
@@ -182,7 +192,26 @@ export function registerProductTools(
         ]);
         const record = products.find((r) => r.id === input.record_id);
         if (!record) return err(`Product not found: ${input.record_id}`);
-        return ok(hydrateProductDetail(record, maps, integrations, products));
+        const detail = hydrateProductDetail(record, maps, integrations, products);
+        if (detail.promotionStatus === 'rejected') {
+          return err(`Product ${input.record_id} is rejected and is not exposed via MCP.`);
+        }
+        const rejectedProductIds = buildRejectedProductIds(products);
+        const isOk = (otherId: string | undefined): boolean =>
+          !!otherId && !rejectedProductIds.has(otherId);
+        const filteredDetail = {
+          ...detail,
+          integrationsAsSource: detail.integrationsAsSource.filter((i) =>
+            isOk(i.targetProduct?.id),
+          ),
+          integrationsAsTarget: detail.integrationsAsTarget.filter((i) =>
+            isOk(i.sourceProduct?.id),
+          ),
+          integratedProducts: detail.integratedProducts.filter(
+            (p) => !rejectedProductIds.has(p.id),
+          ),
+        };
+        return ok(filteredDetail);
       } catch (e) {
         return err(toMessage(e));
       }
@@ -283,18 +312,36 @@ export function registerProductTools(
         .array(z.string())
         .optional()
         .describe('Array of vendor record IDs.'),
+      usefulness: usefulnessSchema
+        .optional()
+        .describe(
+          'Structured "how does each discipline / phase use this product?" payload. ' +
+            'Each entry must reference an `id` that is among the product\'s linked ' +
+            'disciplines / phases — use list_taxonomy to look up record IDs. ' +
+            'Stored on Airtable as JSON in the `usefulness` long-text field.',
+        ),
     },
     async (input) => {
       const env = getEnv();
       const fields: Record<string, unknown> = {};
       for (const [key, airtableKey] of Object.entries(PRODUCT_PATCH_FIELD_MAP)) {
         const value = (input as Record<string, unknown>)[key];
-        if (value !== undefined) fields[airtableKey] = value;
+        if (value === undefined) continue;
+        // usefulness is the only field that needs to be serialized — it's a
+        // structured object on the wire but a long-text cell in Airtable.
+        fields[airtableKey] = key === 'usefulness' ? JSON.stringify(value) : value;
       }
       if (Object.keys(fields).length === 0) {
         return err('No editable fields provided.');
       }
       try {
+        const existing = await fetchProducts(env);
+        const existingRecord = existing.find((r) => r.id === input.record_id);
+        if (!existingRecord) return err(`Product not found: ${input.record_id}`);
+        const existingPromotion = existingRecord.get('promotion_status');
+        if (typeof existingPromotion === 'string' && existingPromotion === 'rejected') {
+          return err(`Product ${input.record_id} is rejected and cannot be updated via MCP.`);
+        }
         const updated = await updateRecord(
           env,
           'products',
@@ -307,7 +354,22 @@ export function registerProductTools(
           buildLookupMaps(env),
           fetchProducts(env),
         ]);
-        return ok(hydrateProductDetail(updated, maps, integrations, products));
+        const detail = hydrateProductDetail(updated, maps, integrations, products);
+        const rejectedProductIds = buildRejectedProductIds(products);
+        const isOk = (otherId: string | undefined): boolean =>
+          !!otherId && !rejectedProductIds.has(otherId);
+        return ok({
+          ...detail,
+          integrationsAsSource: detail.integrationsAsSource.filter((i) =>
+            isOk(i.targetProduct?.id),
+          ),
+          integrationsAsTarget: detail.integrationsAsTarget.filter((i) =>
+            isOk(i.sourceProduct?.id),
+          ),
+          integratedProducts: detail.integratedProducts.filter(
+            (p) => !rejectedProductIds.has(p.id),
+          ),
+        });
       } catch (e) {
         return err(toMessage(e));
       }
