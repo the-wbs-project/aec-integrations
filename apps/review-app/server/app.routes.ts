@@ -25,6 +25,7 @@ import vendors from './routes/vendors';
 import workflows from './routes/workflows';
 import reports from './routes/reports';
 import productsDebug from './routes/products-debug';
+import playbooks from './routes/playbooks';
 
 // Hosts allowed to open the runs WebSocket. Match by hostname (not full
 // origin) so http/https + ports + the workers.dev preview all work without
@@ -94,6 +95,7 @@ app.route('/api/products', products);
 app.route('/api/integrations', integrations);
 app.route('/api/vendors', vendors);
 app.route('/api/stats', stats);
+app.route('/api/playbooks', playbooks);
 
 // Workflow orchestration
 app.route('/api/workflows', workflows);

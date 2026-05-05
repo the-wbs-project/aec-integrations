@@ -84,6 +84,18 @@ interface Taxonomy {
   phases: TaxonomyItem[];
 }
 
+/**
+ * One usefulness bullet group emitted by the model — keyed by the taxonomy
+ * NAME (model-friendly) rather than ID. Names are resolved to record IDs in
+ * the post-processing step alongside the discipline/phase link assignments.
+ */
+interface RawUsefulnessEntry {
+  /** Discipline or phase name — must match one already assigned above. */
+  name: string;
+  /** Short bullet points describing how this discipline / phase uses the tool. */
+  points: string[];
+}
+
 interface ResearchResult {
   name: string;
   vendor: string;
@@ -105,6 +117,13 @@ interface ResearchResult {
   tool_integrations_url: string | null;
   /** 1–3 sentence rationale for the URL pick (or for leaving it blank). */
   tool_integrations_url_notes: string;
+  /**
+   * Per-discipline "how would this discipline use the product?" bullet lists.
+   * Filtered post-emit to drop entries that don't match an assigned discipline.
+   */
+  usefulness_by_discipline: RawUsefulnessEntry[];
+  /** Per-phase variant of the same. */
+  usefulness_by_phase: RawUsefulnessEntry[];
   category_ids: string[];
   discipline_ids: string[];
   phase_ids: string[];
@@ -234,6 +253,11 @@ When done, call emit_result with these fields:
 - notes: caveats, ambiguity, or alternate vendors you considered
 - citations: array of URLs you used as sources
 - wiki_page: a markdown document for this tool formatted as YAML frontmatter + body. The frontmatter MUST include keys: name, vendor, url, last_verified (today's ISO date), confidence. The body MUST have these sections (use \`##\` headings): Summary, Vendor, Categories / Disciplines / Phases, Sources. Sources should list each citation as a markdown bullet. Keep the whole document under 4 KB.
+- usefulness_by_discipline: For EACH discipline you put in discipline_names, return one entry { name, points } where:
+    - name: the discipline name, copied verbatim from discipline_names.
+    - points: 1–5 short bullet strings describing concretely how a practitioner in that discipline would use this product day-to-day. Be specific to AEC workflows (e.g. "Architects use Revit families exported from this tool to populate their model libraries"). Avoid generic marketing copy ("boosts productivity"). Each bullet ≤ 200 characters.
+  Provide an entry for every assigned discipline. Empty array only if discipline_names is also empty.
+- usefulness_by_phase: Same shape as usefulness_by_discipline, but keyed to project phases. For EACH phase in phase_names, describe how teams use the product during that phase (e.g. during "Schematic Design" vs "Construction Administration"). Same 1–5 bullet count, 200-char ceiling, AEC-specific guidance.
 - tool_integrations_url: URL of the tool's dedicated integrations / partners / app marketplace page on the vendor's own domain. Null when the tool has no such page. Selection rules:
   1. If the tool is itself a plugin/add-in for another tool (Revit plugin, SketchUp extension, Rhino/Grasshopper tool, Blender add-on, AutoCAD LISP utility), return null — the tool IS the integration, not a platform with integrations.
   2. Prefer in this order: dedicated subdomain (e.g. integrations.bluebeam.com, store.bimvision.eu, apps.autodesk.com/{CODE}/...), then a /integrations/ or /marketplace/ path on the vendor site, then a help-center collection.
@@ -242,6 +266,18 @@ When done, call emit_result with these fields:
 - tool_integrations_url_notes: 1–3 sentences. Always include: what the URL is (or why there isn't one), examples of integrations listed if visible, and anything unusual (rebrand, sunset, hosted on third-party marketplace like ADP / Xero App Store / Trimble App Xchange). Keep concise — never restate the URL itself.
 
 Inconclusive ('low' confidence) is a valid result — emit it rather than refusing.`;
+
+  const usefulnessGroupSchema = {
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        points: { type: 'array', items: { type: 'string' } },
+      },
+      required: ['name', 'points'],
+    },
+  } as const;
 
   const outputSchema: OutputSchema = {
     type: 'object',
@@ -259,7 +295,13 @@ Inconclusive ('low' confidence) is a valid result — emit it rather than refusi
       wiki_page: { type: 'string' },
       tool_integrations_url: { type: ['string', 'null'] },
       tool_integrations_url_notes: { type: 'string' },
+      usefulness_by_discipline: usefulnessGroupSchema,
+      usefulness_by_phase: usefulnessGroupSchema,
     },
+    // usefulness_by_discipline / usefulness_by_phase are intentionally NOT
+    // listed as required: the validator falls back to an empty array if the
+    // model omits them, which is safer than hard-failing a research run on
+    // older prompts or partial emits.
     required: [
       'name',
       'vendor',
@@ -469,6 +511,19 @@ function validateAndCoerce(
       ? (emitted['tool_integrations_url_notes'] as string)
       : '';
 
+  // Usefulness: lenient parse — drop malformed entries, drop entries that
+  // don't reference an assigned discipline/phase. We never want a slightly
+  // wrong usefulness payload to fail the whole research run; a missing
+  // entry is fine, the next research re-run will fill it in.
+  const usefulnessByDiscipline = parseUsefulness(
+    emitted['usefulness_by_discipline'],
+    new Set(disciplineNames),
+  );
+  const usefulnessByPhase = parseUsefulness(
+    emitted['usefulness_by_phase'],
+    new Set(phaseNames),
+  );
+
   return {
     name: emitted['name'] as string,
     vendor: emitted['vendor'] as string,
@@ -483,7 +538,45 @@ function validateAndCoerce(
     wiki_page: wikiPage,
     tool_integrations_url: toolIntegrationsUrl,
     tool_integrations_url_notes: toolIntegrationsUrlNotes,
+    usefulness_by_discipline: usefulnessByDiscipline,
+    usefulness_by_phase: usefulnessByPhase,
   };
+}
+
+const MAX_USEFULNESS_POINTS = 5;
+const MAX_USEFULNESS_POINT_LEN = 240;
+
+/**
+ * Parse the model's per-discipline / per-phase bullet groups. Filters to
+ * names actually present in `assignedNames` and clamps oversized payloads
+ * so a verbose model can't blow up the Airtable cell.
+ */
+function parseUsefulness(
+  raw: unknown,
+  assignedNames: Set<string>,
+): RawUsefulnessEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: RawUsefulnessEntry[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== 'object') continue;
+    const e = entry as Record<string, unknown>;
+    const name = typeof e['name'] === 'string' ? e['name'].trim() : '';
+    const pointsRaw = e['points'];
+    if (!name || !Array.isArray(pointsRaw)) continue;
+    if (!assignedNames.has(name)) continue;
+    if (seen.has(name)) continue; // dedupe — keep the first
+    const points = pointsRaw
+      .filter((p): p is string => typeof p === 'string')
+      .map((p) => p.trim())
+      .filter((p) => p.length > 0)
+      .slice(0, MAX_USEFULNESS_POINTS)
+      .map((p) => (p.length > MAX_USEFULNESS_POINT_LEN ? p.slice(0, MAX_USEFULNESS_POINT_LEN) : p));
+    if (points.length === 0) continue;
+    seen.add(name);
+    out.push({ name, points });
+  }
+  return out;
 }
 
 function resolveIds(
@@ -498,6 +591,37 @@ function resolveIds(
     category_ids: validated.category_names.map((n) => catMap.get(n)!),
     discipline_ids: validated.discipline_names.map((n) => discMap.get(n)!),
     phase_ids: validated.phase_names.map((n) => phaseMap.get(n)!),
+  };
+}
+
+/**
+ * Resolve the model's name-keyed usefulness groups to record IDs and pack
+ * them into the wire shape the UI / hydrator expect. Names already passed
+ * vocabulary validation, so the lookup map is guaranteed to have an entry
+ * for every retained item.
+ */
+function buildUsefulnessForWrite(
+  result: ResearchResult,
+  taxonomy: Taxonomy,
+): {
+  disciplines: { id: string; name: string; points: string[] }[];
+  phases: { id: string; name: string; points: string[] }[];
+} {
+  const discMap = new Map(taxonomy.disciplines.map((d) => [d.name, d.id]));
+  const phaseMap = new Map(taxonomy.phases.map((p) => [p.name, p.id]));
+  const resolve = (
+    entries: RawUsefulnessEntry[],
+    map: Map<string, string>,
+  ): { id: string; name: string; points: string[] }[] =>
+    entries
+      .map((e) => {
+        const id = map.get(e.name);
+        return id ? { id, name: e.name, points: e.points } : null;
+      })
+      .filter((e): e is { id: string; name: string; points: string[] } => e !== null);
+  return {
+    disciplines: resolve(result.usefulness_by_discipline, discMap),
+    phases: resolve(result.usefulness_by_phase, phaseMap),
   };
 }
 
@@ -785,12 +909,18 @@ export class ProductResearchWorkflow extends ErrorCapturingWorkflow {
     // 6. Write the enrichment back to the tool record. website only fills
     // when the curator hadn't already entered one — never overwrite a human
     // value. Linked-record fields are PATCHed as record-id arrays.
+    const usefulness = buildUsefulnessForWrite(result, taxonomy);
     const fieldsToWrite: Record<string, unknown> = {
       description: result.description,
       category: result.category_ids,
       supported_disciplines: result.discipline_ids,
       supported_project_phases: result.phase_ids,
       research_notes: formatResearchNotes(result),
+      // Always overwrite usefulness — it's regenerated alongside the link
+      // arrays, so writing them in lock-step keeps the JSON's IDs in sync
+      // with the linked records. Empty groups still get written (as `{}`)
+      // so the Airtable cell isn't left holding a stale prior payload.
+      usefulness: JSON.stringify(usefulness),
     };
     if (!inputs.existingWebsite && result.url) {
       fieldsToWrite['website'] = result.url;

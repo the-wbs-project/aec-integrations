@@ -21,6 +21,7 @@ import {
   MetaResponse,
   PromotionStatus,
   ProductDetail,
+  ProductUsefulnessEntry,
   UpdateProductRequest,
 } from '../../types';
 import { tierMetaFor } from '../../components/tier-info/tier-info';
@@ -327,6 +328,7 @@ export class ProductDetailComponent {
       this.editingSection.set(null);
       this.integratedProductsSearch.set('');
       this.saveError.set(null);
+      this.usefulnessExpanded.set(false);
       this.api.getProduct(id).subscribe((tool) => {
         if (this.id() === id) this.tool.set(tool);
       });
@@ -470,6 +472,40 @@ export class ProductDetailComponent {
         return { adminNotes: d.adminNotes };
     }
   }
+
+  // ---- usefulness panel ---------------------------------------------------
+  // Closed by default — opens on click. Resets per product so navigating
+  // between products doesn't carry over the previous tool's open state.
+  protected readonly usefulnessExpanded = signal(false);
+
+  toggleUsefulness(): void {
+    this.usefulnessExpanded.set(!this.usefulnessExpanded());
+  }
+
+  /**
+   * Filter usefulness entries to disciplines/phases the product is currently
+   * linked to. Curators may remove a discipline link without re-running
+   * research; this hides the orphaned bullets until research is re-run.
+   */
+  filteredUsefulnessDisciplines = computed<ProductUsefulnessEntry[]>(() => {
+    const t = this.tool();
+    if (!t?.usefulness) return [];
+    const linked = new Set(t.disciplines.map((d) => d.id));
+    return t.usefulness.disciplines.filter((e) => linked.has(e.id));
+  });
+
+  filteredUsefulnessPhases = computed<ProductUsefulnessEntry[]>(() => {
+    const t = this.tool();
+    if (!t?.usefulness) return [];
+    const linked = new Set(t.phases.map((p) => p.id));
+    return t.usefulness.phases.filter((e) => linked.has(e.id));
+  });
+
+  hasUsefulness = computed<boolean>(
+    () =>
+      this.filteredUsefulnessDisciplines().length > 0 ||
+      this.filteredUsefulnessPhases().length > 0,
+  );
 
   // ---- pill overflow ------------------------------------------------------
   static readonly PILL_LIMIT = 3;

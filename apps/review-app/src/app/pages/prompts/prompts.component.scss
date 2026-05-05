@@ -1,0 +1,117 @@
+:host {
+  display: block;
+  padding: var(--space-5);
+  max-width: 880px;
+  margin: 0 auto;
+}
+
+.page-header {
+  margin-bottom: var(--space-5);
+}
+.page-heading {
+  font-size: var(--text-xl);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  margin: 0 0 var(--space-2);
+}
+.page-subhead {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0;
+}
+
+.state {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  padding: var(--space-4) 0;
+}
+.state--error {
+  color: var(--color-danger);
+}
+
+.cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-3);
+}
+
+.card {
+  background: var(--color-bg-elevated);
+  border: 0.5px solid var(--color-border-default);
+  border-radius: 8px;
+  padding: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+.card__header {
+  display: grid;
+  gap: 4px;
+}
+.card__title {
+  font-size: var(--text-md, 15px);
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+}
+.card__desc {
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.card__scope {
+  display: grid;
+  gap: 4px;
+}
+.card__scope-label {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+  font-weight: 600;
+}
+.card__scope-input {
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-text-body);
+  background: var(--color-bg-page);
+  border: 0.5px solid var(--color-border-default);
+  border-radius: 6px;
+  padding: 8px 10px;
+  outline: none;
+  transition: border-color 120ms;
+}
+.card__scope-input:focus {
+  border-color: var(--color-border-focus);
+}
+
+.card__actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.copy-btn {
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 0.5px solid var(--color-border-strong);
+  background: var(--color-bg-elevated);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: background 120ms, color 120ms, border-color 120ms;
+  min-width: 84px;
+}
+.copy-btn:hover {
+  background: var(--color-bg-recessed);
+}
+.copy-btn--copied,
+.copy-btn--copied:hover {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border-color: transparent;
+}

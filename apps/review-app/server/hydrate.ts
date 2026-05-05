@@ -8,6 +8,8 @@ import type {
   LinkRef,
   Product,
   ProductDetail,
+  ProductUsefulness,
+  ProductUsefulnessEntry,
   UnresolvedIntegrationCandidate,
   Vendor,
   VendorDetail,
@@ -137,6 +139,46 @@ function asUnresolvedCandidates(v: unknown): UnresolvedIntegrationCandidate[] | 
   return out.length > 0 ? out : undefined;
 }
 
+/**
+ * Parse the JSON-stringified ProductUsefulness payload from the Airtable
+ * `usefulness` long-text field. Curators may edit it by hand or leave it
+ * blank, so anything malformed silently degrades to undefined rather than
+ * throwing.
+ */
+function asProductUsefulness(v: unknown): ProductUsefulness | undefined {
+  if (typeof v !== 'string' || v.trim().length === 0) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(v);
+  } catch {
+    return undefined;
+  }
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const root = parsed as Record<string, unknown>;
+  const parseGroup = (raw: unknown): ProductUsefulnessEntry[] => {
+    if (!Array.isArray(raw)) return [];
+    const out: ProductUsefulnessEntry[] = [];
+    for (const entry of raw) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as Record<string, unknown>;
+      const id = asString(e['id']);
+      const name = asString(e['name']);
+      const pointsRaw = e['points'];
+      if (!id || !name || !Array.isArray(pointsRaw)) continue;
+      const points = pointsRaw.filter(
+        (p): p is string => typeof p === 'string' && p.trim().length > 0,
+      );
+      if (points.length === 0) continue;
+      out.push({ id, name, points });
+    }
+    return out;
+  };
+  const disciplines = parseGroup(root['disciplines']);
+  const phases = parseGroup(root['phases']);
+  if (disciplines.length === 0 && phases.length === 0) return undefined;
+  return { disciplines, phases };
+}
+
 function asCrunchbaseLists(v: unknown): CrunchbaseList[] | undefined {
   if (typeof v !== 'string' || v.trim().length === 0) return undefined;
   try {
@@ -222,6 +264,7 @@ export function hydrateProduct(
     vendors: toRefs(record.get('vendors'), maps.vendors),
     disciplines: toRefs(record.get('supported_disciplines'), maps.disciplines),
     phases: toRefs(record.get('supported_project_phases'), maps.phases),
+    usefulness: asProductUsefulness(record.get('usefulness')),
     researchStatus: asString(record.get('research_status')),
     promotionStatus: asString(record.get('promotion_status')) as
       | 'pending'

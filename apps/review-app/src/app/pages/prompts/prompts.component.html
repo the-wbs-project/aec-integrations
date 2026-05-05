@@ -1,0 +1,56 @@
+<section class="page">
+  <header class="page-header">
+    <div>
+      <h1 class="page-heading">Prompts</h1>
+      <p class="page-subhead">
+        Reusable playbooks. Pick one, optionally scope it, copy, paste into
+        your LLM client.
+      </p>
+    </div>
+  </header>
+
+  @if (loading()) {
+    <p class="state state--loading">Loading playbooks…</p>
+  } @else if (error()) {
+    <p class="state state--error">{{ error() }}</p>
+  } @else if (playbooks().length === 0) {
+    <p class="state">No playbooks bundled yet.</p>
+  } @else {
+    <ul class="cards" role="list">
+      @for (p of playbooks(); track p.slug) {
+        <li class="card">
+          <div class="card__header">
+            <h2 class="card__title">{{ p.title }}</h2>
+            <p class="card__desc">{{ p.description }}</p>
+          </div>
+
+          @if (p.scope_label !== null) {
+            <label class="card__scope">
+              <span class="card__scope-label">{{ p.scope_label }}</span>
+              <input
+                type="text"
+                class="card__scope-input"
+                [value]="scopeFor(p.slug)"
+                (input)="onScopeInput(p.slug, $event)"
+                [placeholder]="p.scope_placeholder ?? ''"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </label>
+          }
+
+          <div class="card__actions">
+            <button
+              type="button"
+              class="copy-btn"
+              [class.copy-btn--copied]="isCopied(p.slug)"
+              (click)="copy(p)"
+            >
+              {{ isCopied(p.slug) ? 'Copied' : 'Copy' }}
+            </button>
+          </div>
+        </li>
+      }
+    </ul>
+  }
+</section>

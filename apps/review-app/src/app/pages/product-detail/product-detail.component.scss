@@ -170,6 +170,105 @@ a.external-link--pill:hover {
   line-height: var(--leading-normal);
 }
 
+// --- Usefulness panel -----------------------------------------------------
+// Collapsible "how does each discipline / phase use this product?" panel.
+// Sits inside the Description section so the bullet lists read as a
+// continuation of the freeform description. Closed by default to keep the
+// page compact.
+.usefulness-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  padding: 4px var(--space-2) 4px var(--space-1);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+
+  &:hover,
+  &:focus-visible {
+    color: var(--color-text-primary);
+    background: var(--color-bg-recessed);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--color-brand);
+    outline-offset: 2px;
+  }
+}
+
+.usefulness-toggle__chevron {
+  width: 14px;
+  height: 14px;
+  transition: transform 120ms ease-out;
+}
+
+.usefulness-toggle__chevron--open {
+  transform: rotate(90deg);
+}
+
+.usefulness-toggle__summary {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-xs);
+}
+
+.usefulness-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-recessed);
+  border-radius: var(--radius-md);
+}
+
+.usefulness-column {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.usefulness-column__title {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+}
+
+.usefulness-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.usefulness-entry__name {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+
+.usefulness-entry__points {
+  margin: 0;
+  padding-left: 1.1em;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--text-sm);
+  color: var(--color-text-body);
+  line-height: var(--leading-normal);
+
+  li {
+    list-style: disc;
+  }
+}
+
 .taxonomy-grid {
   display: flex;
   flex-direction: column;

@@ -19,7 +19,7 @@ import {
 } from '../../services/airtable';
 import { cacheInvalidate } from '../../services/cache';
 import { buildLookupMaps, hydrateIntegration } from '../../hydrate';
-import { err, ok, toMessage } from '../helpers';
+import { buildRejectedProductIds, err, ok, toMessage } from '../helpers';
 
 const MECHANISM_KINDS = [
   'native',
@@ -58,11 +58,19 @@ export function registerIntegrationTools(
     async (input) => {
       const env = getEnv();
       try {
-        const [raw, maps] = await Promise.all([
+        const [raw, maps, products] = await Promise.all([
           fetchIntegrations(env),
           buildLookupMaps(env),
+          fetchProducts(env),
         ]);
-        let hydrated = raw.map((r) => hydrateIntegration(r, maps));
+        const rejectedProductIds = buildRejectedProductIds(products);
+        let hydrated = raw
+          .map((r) => hydrateIntegration(r, maps))
+          .filter(
+            (i) =>
+              !(i.sourceProduct && rejectedProductIds.has(i.sourceProduct.id)) &&
+              !(i.targetProduct && rejectedProductIds.has(i.targetProduct.id)),
+          );
         const search = input.search?.trim().toLowerCase();
         if (search) {
           hydrated = hydrated.filter((i) => {
@@ -128,13 +136,24 @@ export function registerIntegrationTools(
     async (input) => {
       const env = getEnv();
       try {
-        const [raw, maps] = await Promise.all([
+        const [raw, maps, products] = await Promise.all([
           fetchIntegrations(env),
           buildLookupMaps(env),
+          fetchProducts(env),
         ]);
         const record = raw.find((r) => r.id === input.record_id);
         if (!record) return err(`Integration not found: ${input.record_id}`);
-        return ok(hydrateIntegration(record, maps));
+        const rejectedProductIds = buildRejectedProductIds(products);
+        const hydrated = hydrateIntegration(record, maps);
+        if (
+          (hydrated.sourceProduct && rejectedProductIds.has(hydrated.sourceProduct.id)) ||
+          (hydrated.targetProduct && rejectedProductIds.has(hydrated.targetProduct.id))
+        ) {
+          return err(
+            `Integration ${input.record_id} references a rejected product and is not exposed via MCP.`,
+          );
+        }
+        return ok(hydrated);
       } catch (e) {
         return err(toMessage(e));
       }
@@ -200,9 +219,21 @@ export function registerIntegrationTools(
         if (input.source_product_id === input.target_product_id) {
           return err('source_product_id and target_product_id must differ');
         }
+        const rejectedProductIds = buildRejectedProductIds(products);
+        if (rejectedProductIds.has(input.source_product_id)) {
+          return err(`source_product_id ${input.source_product_id} is rejected and cannot be linked.`);
+        }
+        if (rejectedProductIds.has(input.target_product_id)) {
+          return err(`target_product_id ${input.target_product_id} is rejected and cannot be linked.`);
+        }
         if (input.powered_by_product_id) {
           if (!products.find((p) => p.id === input.powered_by_product_id)) {
             return err(`powered_by_product_id not found: ${input.powered_by_product_id}`);
+          }
+          if (rejectedProductIds.has(input.powered_by_product_id)) {
+            return err(
+              `powered_by_product_id ${input.powered_by_product_id} is rejected and cannot be linked.`,
+            );
           }
         }
         if (input.built_by_vendor_id) {
@@ -295,6 +326,32 @@ export function registerIntegrationTools(
         return err('No editable fields provided.');
       }
       try {
+        const [existingIntegrations, products] = await Promise.all([
+          fetchIntegrations(env),
+          fetchProducts(env),
+        ]);
+        const existing = existingIntegrations.find((r) => r.id === input.record_id);
+        if (!existing) return err(`Integration not found: ${input.record_id}`);
+        const rejectedProductIds = buildRejectedProductIds(products);
+        const existingSource = existing.get('Source Tool') as string[] | undefined;
+        const existingTarget = existing.get('Target Tool') as string[] | undefined;
+        const sourceId =
+          input.source_product_id ??
+          (Array.isArray(existingSource) ? existingSource[0] : undefined);
+        const targetId =
+          input.target_product_id ??
+          (Array.isArray(existingTarget) ? existingTarget[0] : undefined);
+        if (sourceId && rejectedProductIds.has(sourceId)) {
+          return err(`source product ${sourceId} is rejected and cannot be linked.`);
+        }
+        if (targetId && rejectedProductIds.has(targetId)) {
+          return err(`target product ${targetId} is rejected and cannot be linked.`);
+        }
+        if (input.powered_by_product_id && rejectedProductIds.has(input.powered_by_product_id)) {
+          return err(
+            `powered_by_product_id ${input.powered_by_product_id} is rejected and cannot be linked.`,
+          );
+        }
         const updated = await updateRecord(
           env,
           'integrations',
