@@ -10,6 +10,7 @@
 // ---------------------------------------------------------------------------
 import researchPendingProducts from '../../../../playbooks/research-pending-products.md';
 import addVendorAndProducts from '../../../../playbooks/add-vendor-and-products.md';
+import enrichVendor from '../../../../playbooks/enrich-vendor.md';
 
 interface PlaybookFrontmatter {
   title: string;
@@ -27,6 +28,7 @@ export interface Playbook {
 const PLAYBOOK_FILES: ReadonlyArray<{ slug: string; raw: string }> = [
   { slug: 'research-pending-products', raw: researchPendingProducts },
   { slug: 'add-vendor-and-products', raw: addVendorAndProducts },
+  { slug: 'enrich-vendor', raw: enrichVendor },
 ];
 
 /**
