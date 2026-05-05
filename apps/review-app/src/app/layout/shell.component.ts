@@ -2,6 +2,7 @@ import { Component, HostListener, inject, signal } from '@angular/core';
 import { Router, RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { ThemeService, ThemeChoice } from '../services/theme.service';
 import { AuthService } from '../services/auth.service';
+import { VersionCheckService } from '../services/version-check.service';
 import { NotificationsBellComponent } from './notifications-bell.component';
 import { ModelSelectorComponent } from './model-selector.component';
 
@@ -14,9 +15,14 @@ import { ModelSelectorComponent } from './model-selector.component';
 export class ShellComponent {
   protected readonly theme = inject(ThemeService);
   protected readonly auth = inject(AuthService);
+  protected readonly versionCheck = inject(VersionCheckService);
   private readonly router = inject(Router);
   protected readonly scrolled = signal(false);
   protected readonly signingOut = signal(false);
+
+  protected reloadForUpdate(): void {
+    window.location.reload();
+  }
 
   protected themeToggleLabel(): string {
     const c = this.theme.choice();

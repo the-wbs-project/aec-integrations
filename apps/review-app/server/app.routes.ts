@@ -86,6 +86,22 @@ app.get('/api/runs/ws', async (c) => {
     return stub.fetch(forward.toString(), c.req.raw);
 });
 
+// Build-stamped version probe — served from ASSETS but with cache disabled
+// so long-running tabs can detect new deploys within one polling interval.
+// Public (no auth) so the SPA can fetch it before sign-in too.
+app.get('/version.json', async (c) => {
+    const upstream = await c.env.ASSETS.fetch(c.req.raw);
+    const headers = new Headers(upstream.headers);
+    headers.set('Cache-Control', 'no-store, max-age=0, must-revalidate');
+    headers.delete('ETag');
+    headers.delete('Last-Modified');
+    return new Response(upstream.body, {
+        status: upstream.status,
+        statusText: upstream.statusText,
+        headers,
+    });
+});
+
 // Everything below requires a valid Supabase access token.
 app.use('/api/*', requireAuth());
 

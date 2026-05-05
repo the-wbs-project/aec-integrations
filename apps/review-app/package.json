@@ -5,9 +5,10 @@
     "sync": "rm -rf .angular && npx syncfusion-license activate",
     "ng": "ng",
     "start": "ng serve --proxy-config proxy.conf.json",
-    "build": "ng build",
-    "dev": "ng build --watch & wrangler dev",
-    "deploy": "ng build && wrangler deploy",
+    "version:stamp": "node scripts/write-version.mjs",
+    "build": "pnpm run version:stamp && ng build",
+    "dev": "pnpm run version:stamp && (ng build --watch & wrangler dev)",
+    "deploy": "pnpm run version:stamp && ng build && wrangler deploy",
     "tail": "wrangler tail",
     "cf-typegen": "wrangler types --strict-vars false"
   },
