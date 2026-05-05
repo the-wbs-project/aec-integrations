@@ -97,6 +97,14 @@ Configuration in Claude Desktop / mcp-inspector / similar:
 |---|---|
 | `list_taxonomy` | Return categories, disciplines, and project phases as `{ id, name }` lists. KV-cached. |
 
+### Prompt queue
+
+| Tool | Purpose |
+|---|---|
+| `list_pending_prompt_jobs` | List rows in `prompt_queue` with `status="pending"`, oldest first. Summary fields only. |
+| `claim_prompt_job` | Atomically flip one row pending → running and return the rendered prompt body. |
+| `complete_prompt_job` | Mark a claimed row `completed` or `failed` with a summary / error. |
+
 ### Prompts
 
 | Prompt | Purpose |
@@ -335,6 +343,110 @@ No inputs.
 Backed by the same KV-cached `fetchCategories` / `fetchDisciplines` /
 `fetchProjectPhases` helpers used by the data API, so repeat calls within
 the cache TTL hit KV rather than Airtable.
+
+---
+
+## Prompt queue tools
+
+These three tools drive the Airtable `prompt_queue` table. The producer side
+is the `/prompts` page in the review app — clicking **Queue** on a playbook
+card calls `POST /api/prompt-queue`, which renders the playbook prompt
+server-side and inserts a row with `status="pending"`. The consumer side is
+a scheduled Claude Code task in the Claude macOS app, running on Sonnet
+every 10 minutes, which uses these tools to drain the queue and dispatch
+each prompt to an Opus sub-agent.
+
+The state machine is **`pending → running → completed|failed`**. Only these
+three tools may transition state. Do not call `update_*` against this table.
+
+The full dispatcher procedure lives in
+`playbooks/process-prompt-queue.md` (paste this into the macOS app's
+scheduled-task UI).
+
+### `list_pending_prompt_jobs`
+
+Return rows with `status="pending"`, ordered by `created_at` ascending.
+Returns summary fields only — call `claim_prompt_job` to fetch the
+rendered prompt body for the row you want to run.
+
+#### Input schema
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `limit` | int 1–50 | no | Max rows to return. Defaults to 10. |
+
+#### Output
+
+```json
+{
+  "jobs": [
+    {
+      "id": "rec0123456789ABCD",
+      "playbook_slug": "research-pending-products",
+      "playbook_title": "Research Pending Products",
+      "status": "pending",
+      "created_at": "2026-05-05T17:42:11.000Z"
+    }
+  ],
+  "total": 1
+}
+```
+
+When `total` is `0`, the queue is empty and the dispatcher should stop.
+
+---
+
+### `claim_prompt_job`
+
+Atomically flip one row from `pending` to `running`, stamp `started_at`,
+and return the rendered prompt the sub-agent should run. Returns
+`isError: true` with `… is not pending …` when the row has already moved
+past pending — that means another dispatcher grabbed it; skip and continue.
+
+#### Input schema
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `record_id` | string | yes | Airtable record ID of the prompt_queue row, from `list_pending_prompt_jobs`. |
+
+#### Output
+
+```json
+{
+  "id": "rec0123456789ABCD",
+  "playbook_slug": "research-pending-products",
+  "playbook_title": "Research Pending Products",
+  "scope": "first 15 pending",
+  "prompt": "# Research Pending Products …",
+  "model": "opus"
+}
+```
+
+Pass `prompt` **verbatim** to the Agent tool — no preamble, no wrapping.
+Use `model` to set the sub-agent's model (defaults to `"opus"`).
+
+---
+
+### `complete_prompt_job`
+
+Mark a claimed row terminal. Always call this after `claim_prompt_job`
+returns successfully, even on sub-agent failure — otherwise the row sits
+in `running` forever.
+
+#### Input schema
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `record_id` | string | yes | Same id passed to `claim_prompt_job`. |
+| `status` | enum | yes | `completed` \| `failed`. |
+| `summary` | string | no | 1–2 sentence recap of what the sub-agent did/found. |
+| `error` | string | no | Underlying error message. Set when `status="failed"`. |
+
+#### Output
+
+```json
+{ "ok": true, "record_id": "rec0123456789ABCD", "status": "completed" }
+```
 
 ---
 

@@ -37,6 +37,15 @@ export class PromptsComponent implements OnInit {
   /** Slugs whose Copy button should currently flash "Copied". */
   protected readonly copiedSlugs = signal<Set<string>>(new Set());
 
+  /** Slugs with an in-flight Queue request. */
+  protected readonly queuingSlugs = signal<Set<string>>(new Set());
+
+  /** Per-slug "Queued as Job …" confirmation toast text, cleared after 3s. */
+  protected readonly queuedToast = signal<Record<string, string>>({});
+
+  /** Per-slug enqueue error message, cleared on next attempt. */
+  protected readonly queueError = signal<Record<string, string>>({});
+
   ngOnInit(): void {
     this.api
       .getPlaybooks()
@@ -92,5 +101,68 @@ export class PromptsComponent implements OnInit {
         return next;
       });
     }, 2000);
+  }
+
+  isQueuing(slug: string): boolean {
+    return this.queuingSlugs().has(slug);
+  }
+
+  toastFor(slug: string): string | null {
+    return this.queuedToast()[slug] ?? null;
+  }
+
+  errorFor(slug: string): string | null {
+    return this.queueError()[slug] ?? null;
+  }
+
+  /**
+   * Push the rendered playbook prompt onto the Airtable queue. The scheduled
+   * Sonnet dispatcher (Claude macOS app) picks it up within ~10 minutes.
+   */
+  queue(playbook: PlaybookSummary): void {
+    if (this.isQueuing(playbook.slug)) return;
+    const scope = this.scopeFor(playbook.slug).trim();
+
+    this.queueError.update((m) => {
+      const { [playbook.slug]: _, ...rest } = m;
+      return rest;
+    });
+    this.queuingSlugs.update((s) => new Set(s).add(playbook.slug));
+
+    this.api
+      .enqueuePromptJob({ playbook_slug: playbook.slug, scope })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (res) => {
+          this.queuingSlugs.update((s) => {
+            const next = new Set(s);
+            next.delete(playbook.slug);
+            return next;
+          });
+          const label = res.recordId.slice(-6);
+          this.queuedToast.update((m) => ({
+            ...m,
+            [playbook.slug]: `Queued (#${label})`,
+          }));
+          setTimeout(() => {
+            this.queuedToast.update((m) => {
+              const { [playbook.slug]: _, ...rest } = m;
+              return rest;
+            });
+          }, 3000);
+        },
+        error: (err) => {
+          this.queuingSlugs.update((s) => {
+            const next = new Set(s);
+            next.delete(playbook.slug);
+            return next;
+          });
+          const message =
+            (err?.error?.error as string | undefined) ??
+            (err?.message as string | undefined) ??
+            'Queue failed.';
+          this.queueError.update((m) => ({ ...m, [playbook.slug]: message }));
+        },
+      });
   }
 }

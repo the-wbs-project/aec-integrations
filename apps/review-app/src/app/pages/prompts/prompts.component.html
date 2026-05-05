@@ -40,6 +40,22 @@
           }
 
           <div class="card__actions">
+            @if (errorFor(p.slug); as msg) {
+              <span class="card__action-msg card__action-msg--error" role="alert">
+                {{ msg }}
+              </span>
+            } @else if (toastFor(p.slug); as msg) {
+              <span class="card__action-msg" role="status">{{ msg }}</span>
+            }
+            <button
+              type="button"
+              class="copy-btn"
+              [class.copy-btn--queued]="!!toastFor(p.slug)"
+              [disabled]="isQueuing(p.slug)"
+              (click)="queue(p)"
+            >
+              {{ isQueuing(p.slug) ? 'Queuing…' : 'Queue' }}
+            </button>
             <button
               type="button"
               class="copy-btn"

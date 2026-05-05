@@ -16,6 +16,8 @@ import {
   UpdateVendorRequest,
   StatsResponse,
   PlaybookSummary,
+  EnqueuePromptJobRequest,
+  EnqueuePromptJobResponse,
 } from '../types';
 
 export interface ProductQueryParams {
@@ -107,6 +109,15 @@ export class ApiService {
 
   getPlaybooks(): Observable<PlaybookSummary[]> {
     return this.http.get<PlaybookSummary[]>(`${this.baseUrl}/playbooks`);
+  }
+
+  enqueuePromptJob(
+    body: EnqueuePromptJobRequest,
+  ): Observable<EnqueuePromptJobResponse> {
+    return this.http.post<EnqueuePromptJobResponse>(
+      `${this.baseUrl}/prompt-queue`,
+      body,
+    );
   }
 
   private buildParams(params?: Record<string, unknown>): HttpParams {

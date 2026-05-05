@@ -331,3 +331,15 @@ export interface PlaybookSummary {
   scope_placeholder: string | null;
   body: string;
 }
+
+export interface EnqueuePromptJobRequest {
+  playbook_slug: string;
+  scope?: string;
+  model?: string;
+}
+
+export interface EnqueuePromptJobResponse {
+  recordId: string;
+  playbookSlug: string;
+  playbookTitle: string;
+}

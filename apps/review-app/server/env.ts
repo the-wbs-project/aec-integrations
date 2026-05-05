@@ -34,6 +34,7 @@ export interface AirtableTables {
   disciplines: string;
   integrations: string;
   runs: string;
+  promptQueue: string;
 }
 
 /**
