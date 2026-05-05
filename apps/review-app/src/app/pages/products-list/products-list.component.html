@@ -131,6 +131,20 @@
       popupHeight="320px"
     ></ejs-multiselect>
 
+    <ejs-multiselect
+      class="filter-bar__multiselect"
+      placeholder="Role"
+      [dataSource]="$any(roleOptions())"
+      [fields]="multiselectFields"
+      [value]="filterRole()"
+      (change)="setFilter('role', $any($event).value)"
+      [mode]="checkboxMode"
+      [showDropDownIcon]="true"
+      [showSelectAll]="true"
+      [enableSelectionOrder]="false"
+      popupHeight="240px"
+    ></ejs-multiselect>
+
     <label class="filter-bar__checkbox">
       <input
         type="checkbox"
@@ -210,6 +224,17 @@
             <a class="product-name-link" [routerLink]="['/products', data.id]">
               {{ data.name }}
             </a>
+            @if (data.productRole === 'connector') {
+              <span
+                class="badge badge--info role-badge"
+                title="Integration platform that wires other products together."
+              >Connector</span>
+            } @else if (data.productRole === 'hybrid') {
+              <span
+                class="badge badge--info role-badge"
+                title="Application that also exposes connector capabilities."
+              >Hybrid</span>
+            }
           </ng-template>
         </e-column>
         <e-column

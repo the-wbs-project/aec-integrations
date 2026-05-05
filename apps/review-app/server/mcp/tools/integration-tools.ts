@@ -10,6 +10,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { Env } from '../../env';
 import {
+  type AirtableRecord,
   createRecord,
   fetchIntegrations,
   fetchProducts,
@@ -29,6 +30,36 @@ const MECHANISM_KINDS = [
   'webhook',
   'partner',
 ] as const;
+
+// Mechanism kinds that route through a third-party connector platform — they
+// only make sense when `powered_by_product` points at a Product whose
+// productRole is connector / hybrid.
+const CONNECTOR_REQUIRED_KINDS: ReadonlySet<string> = new Set([
+  'iPaaS',
+  'marketplace-app',
+]);
+
+/**
+ * Verify that `productId` resolves to a Product that's allowed to power an
+ * iPaaS / marketplace-app integration. Returns null on success, or an
+ * end-user-facing error message describing the failure.
+ */
+function assertConnectorOrHybrid(
+  products: AirtableRecord[],
+  productId: string,
+): string | null {
+  const rec = products.find((p) => p.id === productId);
+  if (!rec) return `powered_by_product_id not found: ${productId}`;
+  const role = (rec.get('product_role') as string | undefined) ?? 'application';
+  if (role !== 'connector' && role !== 'hybrid') {
+    return (
+      `powered_by_product_id ${productId} has product_role="${role}"; ` +
+      `iPaaS / marketplace-app integrations must be powered by a product whose role is connector or hybrid. ` +
+      `Use update_product to set product_role first.`
+    );
+  }
+  return null;
+}
 
 export function registerIntegrationTools(
   server: McpServer,
@@ -236,6 +267,16 @@ export function registerIntegrationTools(
             );
           }
         }
+        if (input.mechanism_kind && CONNECTOR_REQUIRED_KINDS.has(input.mechanism_kind)) {
+          if (!input.powered_by_product_id) {
+            return err(
+              `powered_by_product_id is required when mechanism_kind is "${input.mechanism_kind}". ` +
+                `Set it to the connector product (e.g. Zapier, n8n) that powers this integration.`,
+            );
+          }
+          const roleErr = assertConnectorOrHybrid(products, input.powered_by_product_id);
+          if (roleErr) return err(roleErr);
+        }
         if (input.built_by_vendor_id) {
           if (!vendors.find((v) => v.id === input.built_by_vendor_id)) {
             return err(`built_by_vendor_id not found: ${input.built_by_vendor_id}`);
@@ -351,6 +392,28 @@ export function registerIntegrationTools(
           return err(
             `powered_by_product_id ${input.powered_by_product_id} is rejected and cannot be linked.`,
           );
+        }
+        // Validate connector requirements against the post-patch state. Both
+        // mechanism_kind and powered_by_product can change in this update, so
+        // resolve the effective values by falling back to the existing record.
+        const effectiveKind =
+          input.mechanism_kind ??
+          (existing.get('mechanism_kind') as string | undefined);
+        const existingPoweredBy = existing.get('powered_by_product');
+        const effectivePoweredBy =
+          input.powered_by_product_id ??
+          (Array.isArray(existingPoweredBy) && typeof existingPoweredBy[0] === 'string'
+            ? existingPoweredBy[0]
+            : undefined);
+        if (effectiveKind && CONNECTOR_REQUIRED_KINDS.has(effectiveKind)) {
+          if (!effectivePoweredBy) {
+            return err(
+              `powered_by_product_id is required when mechanism_kind is "${effectiveKind}". ` +
+                `Set it to the connector product (e.g. Zapier, n8n) that powers this integration.`,
+            );
+          }
+          const roleErr = assertConnectorOrHybrid(products, effectivePoweredBy);
+          if (roleErr) return err(roleErr);
         }
         const updated = await updateRecord(
           env,

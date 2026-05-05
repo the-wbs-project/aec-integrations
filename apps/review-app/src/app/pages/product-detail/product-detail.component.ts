@@ -87,6 +87,7 @@ interface DraftState {
   name: string;
   website: string;
   vendorIds: string[];
+  productRole: '' | 'application' | 'connector' | 'hybrid';
   // description
   description: string;
   // taxonomy
@@ -223,6 +224,59 @@ export class ProductDetailComponent {
     }
     return out;
   });
+
+  // Reverse lookup: integrations whose `poweredByProduct` points at this tool.
+  // Only meaningful to render when productRole is connector / hybrid, but the
+  // template handles the empty case so we always expose the array.
+  poweredIntegrations = computed<IntegrationSummary[]>(() => {
+    return this.tool()?.poweredIntegrations ?? [];
+  });
+
+  /**
+   * For each row in the Integrated-Products table, summarise *how* the two
+   * products are wired by walking that row's integration ids and bucketing
+   * each integration as either native (no connector) or routed through a
+   * connector product. Lookup keyed by integratedProduct id; deduped per
+   * connector so two Zapier-powered integrations show as one chip.
+   */
+  integratedConnectorBuckets = computed<
+    Map<string, { nativeCount: number; connectors: LinkRef[] }>
+  >(() => {
+    const byIntegrationId = new Map<string, IntegrationSummary>();
+    for (const i of this.allIntegrations()) byIntegrationId.set(i.id, i);
+    const out = new Map<string, { nativeCount: number; connectors: LinkRef[] }>();
+    for (const ip of this.integratedProducts()) {
+      let nativeCount = 0;
+      const connectors: LinkRef[] = [];
+      const seen = new Set<string>();
+      for (const integrationId of ip.integrationIds) {
+        const integ = byIntegrationId.get(integrationId);
+        if (!integ) continue;
+        if (integ.poweredByProduct) {
+          if (!seen.has(integ.poweredByProduct.id)) {
+            seen.add(integ.poweredByProduct.id);
+            connectors.push(integ.poweredByProduct);
+          }
+        } else {
+          nativeCount += 1;
+        }
+      }
+      out.set(ip.id, { nativeCount, connectors });
+    }
+    return out;
+  });
+
+  connectorChipsFor(productId: string): {
+    nativeCount: number;
+    connectors: LinkRef[];
+  } {
+    return (
+      this.integratedConnectorBuckets().get(productId) ?? {
+        nativeCount: 0,
+        connectors: [],
+      }
+    );
+  }
 
   // ---- Integration discovery (unresolved candidates) ---------------------
   protected readonly discoveryRunning = signal(false);
@@ -410,6 +464,7 @@ export class ProductDetailComponent {
       name: '',
       website: '',
       vendorIds: [],
+      productRole: '',
       description: '',
       categoryIds: [],
       disciplineIds: [],
@@ -429,6 +484,7 @@ export class ProductDetailComponent {
       name: tool.name,
       website: tool.website ?? '',
       vendorIds: tool.vendors.map((v) => v.id),
+      productRole: tool.productRole ?? '',
       description: tool.description ?? '',
       categoryIds: tool.categories.map((c) => c.id),
       disciplineIds: tool.disciplines.map((d) => d.id),
@@ -447,7 +503,15 @@ export class ProductDetailComponent {
     const d = this.draft;
     switch (section) {
       case 'header':
-        return { name: d.name, website: d.website, vendors: d.vendorIds };
+        return {
+          name: d.name,
+          website: d.website,
+          vendors: d.vendorIds,
+          // The dropdown's "—" option maps to '' which the route forwards to
+          // Airtable as a single-select clear (back to the implicit
+          // application). Real values pass through unchanged.
+          productRole: d.productRole === '' ? undefined : d.productRole,
+        };
       case 'description':
         return { description: d.description };
       case 'taxonomy':

@@ -12,6 +12,13 @@ export interface PaginatedResponse<T> {
 
 export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted' | 'rejected';
 
+/**
+ * What this product *is*, integration-wise. See server/types.ts for the
+ * canonical definition. `application` is the implicit default for products
+ * with no role set on the Airtable record.
+ */
+export type ProductRole = 'application' | 'connector' | 'hybrid';
+
 /** One discipline / phase entry in the usefulness payload. */
 export interface ProductUsefulnessEntry {
   id: string;
@@ -43,6 +50,7 @@ export interface Product {
   usefulness?: ProductUsefulness;
   researchStatus?: string;
   promotionStatus?: PromotionStatus;
+  productRole?: ProductRole;
   integrationCount: number;
 
   // Enrichment signals
@@ -98,6 +106,9 @@ export interface ProductDetail extends Product {
   integrationsAsSource: IntegrationSummary[];
   integrationsAsTarget: IntegrationSummary[];
   integratedProducts: IntegratedProductSummary[];
+  // Reverse lookup: integrations whose `poweredByProduct` points at this
+  // product. Only meaningful to render when productRole is connector / hybrid.
+  poweredIntegrations: IntegrationSummary[];
   integrationsDiscoveryCheckedAt?: string;
   integrationsDiscoverySummary?: string;
   integrationsDiscoveryCandidates?: UnresolvedIntegrationCandidate[];
@@ -281,6 +292,7 @@ export interface UpdateProductRequest {
   hasApiDocs?: boolean;
   researchStatus?: string;
   promotionStatus?: PromotionStatus;
+  productRole?: ProductRole;
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
   adminNotes?: string;

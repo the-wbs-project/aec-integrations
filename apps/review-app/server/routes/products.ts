@@ -49,6 +49,7 @@ products.get('/', async (c) => {
   const statusFilter = c.req.query('status') ?? '';
   const tierFilter = c.req.query('tier') ?? '';
   const enrichmentFilter = c.req.query('enrichmentStatus') ?? '';
+  const productRoleFilter = c.req.query('productRole') ?? '';
   const includeRejected = c.req.query('includeRejected') === 'true';
   const sortCol = c.req.query('sort') ?? 'name';
   const sortDir = c.req.query('direction') === 'desc' ? 'desc' : 'asc';
@@ -103,6 +104,12 @@ products.get('/', async (c) => {
 
   if (enrichmentFilter) {
     hydrated = hydrated.filter((t) => t.toolEnrichmentStatus === enrichmentFilter);
+  }
+
+  if (productRoleFilter) {
+    hydrated = hydrated.filter(
+      (t) => (t.productRole ?? 'application') === productRoleFilter,
+    );
   }
 
   // Hide rejected products from the default list. The UI exposes an
@@ -286,6 +293,7 @@ products.patch('/:id', async (c) => {
   if (body.hasApiDocs !== undefined) fields['has_api_docs'] = body.hasApiDocs;
   if (body.researchStatus !== undefined) fields['research_status'] = body.researchStatus;
   if (body.promotionStatus !== undefined) fields['promotion_status'] = body.promotionStatus;
+  if (body.productRole !== undefined) fields['product_role'] = body.productRole;
   if (body.researchNotes !== undefined) fields['research_notes'] = body.researchNotes;
   if (body.toolIntegrationCheckNotes !== undefined)
     fields['tool_integration_check_notes'] = body.toolIntegrationCheckNotes;

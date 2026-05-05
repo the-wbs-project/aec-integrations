@@ -602,6 +602,22 @@ a.external-link--pill:hover {
   flex-wrap: wrap;
 }
 
+// Per-row connector summary in the Integrated Tools table. Right-aligned
+// because it lives in the numeric "Connections" column; the count keeps the
+// existing visual rhythm and the chips wrap underneath when there are many.
+.connection-chips {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.connection-chips__count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
 .integration-card__title {
   font-size: var(--text-sm);
   line-height: 1.4;

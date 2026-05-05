@@ -31,6 +31,7 @@ const PRODUCT_PATCH_FIELD_MAP: Record<string, string> = {
   has_api_docs: 'has_api_docs',
   research_status: 'research_status',
   promotion_status: 'promotion_status',
+  product_role: 'product_role',
   research_notes: 'research_notes',
   tool_integration_check_notes: 'tool_integration_check_notes',
   admin_notes: 'admin_notes',
@@ -85,6 +86,12 @@ export function registerProductTools(
         .describe('Exact match on research_status (e.g. "Pending", "Done").'),
       priority_tier: z.string().optional(),
       enrichment_status: z.string().optional(),
+      product_role: z
+        .enum(['application', 'connector', 'hybrid'])
+        .optional()
+        .describe(
+          'Filter to products with this role. Use "connector" to find iPaaS / integration platforms (Zapier, n8n, Lindy, etc.). Products with no role set are treated as "application".',
+        ),
       offset: z.number().int().min(0).optional(),
       limit: z
         .number()
@@ -144,6 +151,11 @@ export function registerProductTools(
         if (input.enrichment_status) {
           hydrated = hydrated.filter((p) => p.toolEnrichmentStatus === input.enrichment_status);
         }
+        if (input.product_role) {
+          hydrated = hydrated.filter(
+            (p) => (p.productRole ?? 'application') === input.product_role,
+          );
+        }
         hydrated = hydrated.filter((p) => p.promotionStatus !== 'rejected');
         hydrated.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -158,6 +170,7 @@ export function registerProductTools(
           categories: p.categories,
           researchStatus: p.researchStatus,
           promotionStatus: p.promotionStatus,
+          productRole: p.productRole,
           priorityTier: p.priorityTier,
           priorityScore: p.priorityScore,
           integrationCount: p.integrationCount,
@@ -209,6 +222,9 @@ export function registerProductTools(
           ),
           integratedProducts: detail.integratedProducts.filter(
             (p) => !rejectedProductIds.has(p.id),
+          ),
+          poweredIntegrations: detail.poweredIntegrations.filter(
+            (i) => isOk(i.sourceProduct?.id) && isOk(i.targetProduct?.id),
           ),
         };
         return ok(filteredDetail);
@@ -293,6 +309,12 @@ export function registerProductTools(
       promotion_status: z
         .enum(['pending', 'ready', 'promoted', 'retracted', 'rejected'])
         .optional(),
+      product_role: z
+        .enum(['application', 'connector', 'hybrid'])
+        .optional()
+        .describe(
+          'Classify the product. "connector" marks iPaaS / integration platforms (Zapier, n8n, Lindy). "hybrid" is an application that also exposes a connector platform. Defaults to "application" when unset.',
+        ),
       research_notes: z.string().optional(),
       tool_integration_check_notes: z.string().optional(),
       admin_notes: z.string().optional(),
@@ -368,6 +390,9 @@ export function registerProductTools(
           ),
           integratedProducts: detail.integratedProducts.filter(
             (p) => !rejectedProductIds.has(p.id),
+          ),
+          poweredIntegrations: detail.poweredIntegrations.filter(
+            (i) => isOk(i.sourceProduct?.id) && isOk(i.targetProduct?.id),
           ),
         });
       } catch (e) {

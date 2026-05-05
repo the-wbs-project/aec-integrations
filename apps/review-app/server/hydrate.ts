@@ -8,6 +8,7 @@ import type {
   LinkRef,
   Product,
   ProductDetail,
+  ProductRole,
   ProductUsefulness,
   ProductUsefulnessEntry,
   UnresolvedIntegrationCandidate,
@@ -273,6 +274,7 @@ export function hydrateProduct(
       | 'retracted'
       | 'rejected'
       | undefined,
+    productRole: asString(record.get('product_role')) as ProductRole | undefined,
     integrationCount: asNumber(record.get('tool_integrations_count')) ?? 0,
 
     hasApiDocs: asBoolean(record.get('has_api_docs')),
@@ -338,6 +340,7 @@ export function hydrateProductDetail(
 
   const integrationsAsSource: IntegrationSummary[] = [];
   const integrationsAsTarget: IntegrationSummary[] = [];
+  const poweredIntegrations: IntegrationSummary[] = [];
   // otherProductId -> integration record ids that connect it to the parent product.
   // Insertion order is preserved by Map, which gives us a stable ordering for
   // the Integrations tab.
@@ -346,19 +349,30 @@ export function hydrateProductDetail(
   for (const ir of integrationRecords) {
     const sourceIds = ir.get('Source Tool') as string[] | undefined;
     const targetIds = ir.get('Target Tool') as string[] | undefined;
+    const poweredByIds = ir.get('powered_by_product') as string[] | undefined;
     const isSource = Array.isArray(sourceIds) && sourceIds.includes(productId);
     const isTarget = Array.isArray(targetIds) && targetIds.includes(productId);
+    const isPoweredBy = Array.isArray(poweredByIds) && poweredByIds.includes(productId);
 
-    if (!isSource && !isTarget) continue;
+    if (!isSource && !isTarget && !isPoweredBy) continue;
 
     const summary = hydrateIntegration(ir, maps);
 
     if (isSource) integrationsAsSource.push(summary);
     if (isTarget) integrationsAsTarget.push(summary);
+    // An integration where this product is the connector — surfaced in the
+    // "Integrations this connector powers" section of the detail page. Skip
+    // self-powered loops (a product that integrates with itself via itself
+    // shouldn't double-count here).
+    if (isPoweredBy && !isSource && !isTarget) {
+      poweredIntegrations.push(summary);
+    }
 
     const otherId = isSource
       ? summary.targetProduct?.id
-      : summary.sourceProduct?.id;
+      : isTarget
+      ? summary.sourceProduct?.id
+      : undefined;
     if (otherId && otherId !== productId) {
       const list = integrationsByOtherProduct.get(otherId) ?? [];
       list.push(ir.id);
@@ -395,6 +409,7 @@ export function hydrateProductDetail(
     integrationsAsSource,
     integrationsAsTarget,
     integratedProducts,
+    poweredIntegrations,
     integrationsDiscoveryCheckedAt: asString(record.get('integrations_discovery_checked_at')),
     integrationsDiscoverySummary: asString(record.get('integrations_discovery_summary')),
     integrationsDiscoveryCandidates: asUnresolvedCandidates(
