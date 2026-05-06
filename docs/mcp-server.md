@@ -205,6 +205,7 @@ sequentially, then fans out the leaf enrichments
 | `force_refresh` | boolean | no | Forces re-run of every leaf. No-op for new records. |
 | `model` | string | no | Override the orchestrator's Claude model. |
 | `skip_orchestrator` | boolean | no | If true, only create the Airtable row. |
+| `extension_of` | string[] | no | Host product record IDs this product extends (e.g. SketchUp's id for a SketchUp plug-in). Most have one host; some target several. |
 
 #### Output
 
@@ -250,6 +251,9 @@ to confirm a record does not already exist before calling
 | `research_status` | string | Exact match (e.g. `"Pending"`, `"Done"`). |
 | `priority_tier` | string | Exact match. |
 | `enrichment_status` | string | Exact match against `tool_enrichment_status`. |
+| `product_role` | enum | `application` \| `connector` \| `hybrid`. Filter to that role; unset rows count as `application`. |
+| `extension_of_id` | string | Filter to products whose `extension_of` includes this host id. E.g. pass SketchUp's id to find every SketchUp plug-in. |
+| `is_extension` | boolean | true → only extensions (extension_of non-empty). false → only standalone products. |
 
 > **Rejected records are never returned via MCP.** Products with
 > `promotion_status="rejected"` are filtered from `list_products`,
@@ -328,6 +332,8 @@ Linked-record fields take arrays of Airtable record IDs.
 | `supported_disciplines` | string[] | Array of discipline record IDs. |
 | `supported_project_phases` | string[] | Array of project-phase record IDs. |
 | `vendors` | string[] | Array of vendor record IDs. |
+| `product_role` | enum | `application` \| `connector` \| `hybrid`. Defaults to `application` when unset. |
+| `extension_of` | string[] | Host product record IDs. Pass `[]` to clear. |
 
 Returns the updated `ProductDetail`.
 

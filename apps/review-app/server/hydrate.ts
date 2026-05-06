@@ -275,6 +275,7 @@ export function hydrateProduct(
       | 'rejected'
       | undefined,
     productRole: asString(record.get('product_role')) as ProductRole | undefined,
+    extensionOf: toRefs(record.get('extension_of'), maps.products),
     integrationCount: asNumber(record.get('tool_integrations_count')) ?? 0,
 
     hasApiDocs: asBoolean(record.get('has_api_docs')),
@@ -381,6 +382,20 @@ export function hydrateProductDetail(
   }
 
   const productRecordsById = new Map(productRecords.map((r) => [r.id, r]));
+
+  // Reverse `extension_of`: products that name THIS product as a host.
+  // Single scan over all product records, name resolved via the products
+  // lookup map so this stays O(n) regardless of how many extensions exist.
+  const extensions: LinkRef[] = [];
+  for (const r of productRecords) {
+    if (r.id === productId) continue;
+    const hostIds = r.get('extension_of');
+    if (!Array.isArray(hostIds) || !hostIds.includes(productId)) continue;
+    const name = maps.products.get(r.id);
+    if (!name) continue;
+    extensions.push({ id: r.id, name });
+  }
+
   const integratedProducts: IntegratedProductSummary[] = [];
   for (const [otherId, integrationIds] of integrationsByOtherProduct) {
     const otherRecord = productRecordsById.get(otherId);
@@ -410,6 +425,7 @@ export function hydrateProductDetail(
     integrationsAsTarget,
     integratedProducts,
     poweredIntegrations,
+    extensions,
     integrationsDiscoveryCheckedAt: asString(record.get('integrations_discovery_checked_at')),
     integrationsDiscoverySummary: asString(record.get('integrations_discovery_summary')),
     integrationsDiscoveryCandidates: asUnresolvedCandidates(

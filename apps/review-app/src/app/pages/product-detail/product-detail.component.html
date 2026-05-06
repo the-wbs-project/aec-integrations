@@ -30,6 +30,14 @@
             <option value="hybrid">Hybrid — application + connector</option>
           </select>
 
+          <label class="field-label">Extension of</label>
+          <app-tag-input
+            [options]="hostProductOptions()"
+            [selectedIds]="draft.extensionOfIds"
+            placeholder="Search host products…"
+            (selectedIdsChange)="draft.extensionOfIds = $event"
+          />
+
           <div class="edit-actions">
             <button class="btn btn--primary btn--sm" (click)="saveSection('header')" [disabled]="saving()">Save</button>
             <button class="btn btn--ghost btn--sm" (click)="cancelEdit()" [disabled]="saving()">Cancel</button>
@@ -59,6 +67,13 @@
               >
                 <span class="badge" [class]="tierBadgeClass(tool.priorityTier)">{{ tool.priorityTier === 'Unscored' ? 'Unscored' : 'Tier ' + tool.priorityTier }}</span>
               </button>
+            }
+            @for (host of tool.extensionOf; track host.id) {
+              <a
+                class="badge badge--info extension-of-badge"
+                [routerLink]="['/products', host.id]"
+                [title]="'This product is a plug-in / extension to ' + host.name + ' and is not a standalone application.'"
+              >Extension of {{ host.name }}</a>
             }
           </div>
           <div class="header-row__actions">
@@ -407,6 +422,28 @@
           </div>
         }
       </section>
+
+      <!-- Extensions of this product (reverse `extensionOf`) -->
+      @if (tool.extensions && tool.extensions.length > 0) {
+        <section class="detail-section">
+          <div class="section-row">
+            <h2 class="section-heading">
+              Extensions of this product
+              <span class="muted">({{ tool.extensions.length }})</span>
+            </h2>
+          </div>
+          <p class="muted" style="margin: 0 0 var(--space-2) 0;">
+            Plug-ins / extensions that run inside this product.
+          </p>
+          <div class="chip-list">
+            @for (ext of tool.extensions; track ext.id) {
+              <a class="badge badge--neutral extension-of-badge" [routerLink]="['/products', ext.id]">
+                {{ ext.name }}
+              </a>
+            }
+          </div>
+        </section>
+      }
 
       <!-- Research status -->
       <section class="detail-section">

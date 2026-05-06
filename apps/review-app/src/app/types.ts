@@ -51,6 +51,12 @@ export interface Product {
   researchStatus?: string;
   promotionStatus?: PromotionStatus;
   productRole?: ProductRole;
+  /**
+   * Host product(s) this product is an extension/plug-in to. Empty = standalone.
+   * A product may target multiple hosts (e.g. a plug-in that ships for Revit
+   * AND ArchiCAD). Stored on Airtable as `extension_of`.
+   */
+  extensionOf: LinkRef[];
   integrationCount: number;
 
   // Enrichment signals
@@ -109,6 +115,8 @@ export interface ProductDetail extends Product {
   // Reverse lookup: integrations whose `poweredByProduct` points at this
   // product. Only meaningful to render when productRole is connector / hybrid.
   poweredIntegrations: IntegrationSummary[];
+  /** Reverse `extensionOf`: extensions / plug-ins that run inside this product. */
+  extensions: LinkRef[];
   integrationsDiscoveryCheckedAt?: string;
   integrationsDiscoverySummary?: string;
   integrationsDiscoveryCandidates?: UnresolvedIntegrationCandidate[];
@@ -232,6 +240,8 @@ export interface MetaResponse {
   disciplines: LinkRef[];
   phases: LinkRef[];
   vendors: LinkRef[];
+  /** All products (id + name only). Used by the "Extension of" host picker. */
+  products: LinkRef[];
   researchStatuses: string[];
   priorityTiers: string[];
   toolEnrichmentStatuses: string[];
@@ -262,6 +272,8 @@ export interface CreateProductRequest {
   model?: string;
   forceRefresh?: boolean;
   skipOrchestrator?: boolean;
+  /** Optional host product record IDs when creating a known plug-in / extension. */
+  extensionOf?: string[];
 }
 
 export interface CreateProductResponse {
@@ -293,6 +305,8 @@ export interface UpdateProductRequest {
   researchStatus?: string;
   promotionStatus?: PromotionStatus;
   productRole?: ProductRole;
+  /** Array of host product record IDs. `[]` clears, `undefined` leaves untouched. */
+  extensionOf?: string[];
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
   adminNotes?: string;

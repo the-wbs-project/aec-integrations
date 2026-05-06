@@ -542,6 +542,12 @@ export class ProductsListComponent implements OnInit {
   // ---- Badge helpers ----------------------------------------------------
   enrichmentVariant = enrichmentVariant;
 
+  extensionOfTooltip(hosts: { name: string }[] | undefined | null): string {
+    if (!hosts || hosts.length === 0) return '';
+    const names = hosts.map((h) => h.name).join(', ');
+    return `Plug-in / extension to ${names}. Not a standalone product.`;
+  }
+
   tierBadgeClass(tier: string | undefined | null): string {
     switch (tier) {
       case '1':

@@ -73,6 +73,14 @@ export interface Product {
   researchStatus?: string;
   promotionStatus?: PromotionStatus;
   productRole?: ProductRole;
+  /**
+   * Host product(s) this product is a plug-in / extension to. Empty array
+   * (the default) means standalone. A product may target multiple hosts
+   * (e.g. a plug-in that ships for both Revit and ArchiCAD). Stored on
+   * Airtable as the `extension_of` linked-record field, self-referencing
+   * the products table.
+   */
+  extensionOf: LinkRef[];
   integrationCount: number;
 
   // Enrichment signals
@@ -140,6 +148,12 @@ export interface ProductDetail extends Product {
   // product. Populated for every product (cheap), but only meaningful to render
   // when productRole is connector / hybrid.
   poweredIntegrations: IntegrationSummary[];
+  /**
+   * Reverse lookup of `extensionOf`: products whose `extension_of` includes
+   * THIS product's id. I.e. plug-ins / extensions that run inside this
+   * product. Computed from a single scan of all product records.
+   */
+  extensions: LinkRef[];
 
   // Integration discovery — populated by product-integrations-discovery.
   // The candidates list holds entries we couldn't auto-resolve to an existing
@@ -298,6 +312,12 @@ export interface MetaResponse {
   disciplines: LinkRef[];
   phases: LinkRef[];
   vendors: LinkRef[];
+  /**
+   * All products (id + name only). Used by edit forms that need to pick a
+   * product as a relation target — e.g. the "Extension of" host-product
+   * picker. Cheap to ship since meta is request-batched and cached.
+   */
+  products: LinkRef[];
   researchStatuses: string[];
   priorityTiers: string[];
   toolEnrichmentStatuses: string[];
@@ -316,6 +336,11 @@ export interface CreateProductRequest {
   forceRefresh?: boolean;
   /** When true, create the Airtable row only — do not start the orchestrator. */
   skipOrchestrator?: boolean;
+  /**
+   * Optional host product record IDs — set when creating a known plug-in /
+   * extension (e.g. a SketchUp extension). Empty / undefined = standalone.
+   */
+  extensionOf?: string[];
 }
 
 export interface CreateVendorRequest {
@@ -344,6 +369,11 @@ export interface UpdateProductRequest {
   researchStatus?: string;
   promotionStatus?: PromotionStatus;
   productRole?: ProductRole;
+  /**
+   * Array of product record IDs this product is an extension/plug-in of.
+   * `[]` clears the link. `undefined` leaves it untouched.
+   */
+  extensionOf?: string[];
   researchNotes?: string;
   toolIntegrationCheckNotes?: string;
   adminNotes?: string;

@@ -32,6 +32,7 @@ const PRODUCT_PATCH_FIELD_MAP: Record<string, string> = {
   research_status: 'research_status',
   promotion_status: 'promotion_status',
   product_role: 'product_role',
+  extension_of: 'extension_of',
   research_notes: 'research_notes',
   tool_integration_check_notes: 'tool_integration_check_notes',
   admin_notes: 'admin_notes',
@@ -91,6 +92,18 @@ export function registerProductTools(
         .optional()
         .describe(
           'Filter to products with this role. Use "connector" to find iPaaS / integration platforms (Zapier, n8n, Lindy, etc.). Products with no role set are treated as "application".',
+        ),
+      extension_of_id: z
+        .string()
+        .optional()
+        .describe(
+          'Filter to products whose `extension_of` includes this product record ID. E.g. pass SketchUp\'s id to find all SketchUp plug-ins.',
+        ),
+      is_extension: z
+        .boolean()
+        .optional()
+        .describe(
+          'true → only products that are extensions of another product (extension_of non-empty). false → only standalone products.',
         ),
       offset: z.number().int().min(0).optional(),
       limit: z
@@ -156,6 +169,16 @@ export function registerProductTools(
             (p) => (p.productRole ?? 'application') === input.product_role,
           );
         }
+        if (input.extension_of_id) {
+          hydrated = hydrated.filter((p) =>
+            p.extensionOf.some((h) => h.id === input.extension_of_id),
+          );
+        }
+        if (input.is_extension !== undefined) {
+          hydrated = hydrated.filter(
+            (p) => p.extensionOf.length > 0 === input.is_extension,
+          );
+        }
         hydrated = hydrated.filter((p) => p.promotionStatus !== 'rejected');
         hydrated.sort((a, b) => a.name.localeCompare(b.name));
 
@@ -171,6 +194,7 @@ export function registerProductTools(
           researchStatus: p.researchStatus,
           promotionStatus: p.promotionStatus,
           productRole: p.productRole,
+          extensionOf: p.extensionOf,
           priorityTier: p.priorityTier,
           priorityScore: p.priorityScore,
           integrationCount: p.integrationCount,
@@ -268,6 +292,12 @@ export function registerProductTools(
         .boolean()
         .optional()
         .describe('If true, only create the Airtable row; do not start the enrichment workflow.'),
+      extension_of: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Array of host product record IDs this product is an extension/plug-in of (e.g. SketchUp\'s id for a SketchUp plug-in). Most extensions have one host; some target several.',
+        ),
     },
     async (input) => {
       try {
@@ -278,6 +308,7 @@ export function registerProductTools(
           forceRefresh: input.force_refresh,
           model: input.model,
           skipOrchestrator: input.skip_orchestrator,
+          extensionOf: input.extension_of,
           triggeredBy: 'mcp',
         });
         return ok(result);
@@ -314,6 +345,12 @@ export function registerProductTools(
         .optional()
         .describe(
           'Classify the product. "connector" marks iPaaS / integration platforms (Zapier, n8n, Lindy). "hybrid" is an application that also exposes a connector platform. Defaults to "application" when unset.',
+        ),
+      extension_of: z
+        .array(z.string())
+        .optional()
+        .describe(
+          'Array of host product record IDs this product is an extension/plug-in of (e.g. SketchUp\'s id for a SketchUp plug-in). Pass [] to clear. Most extensions have one host; some target several (a plug-in that ships for Revit AND ArchiCAD).',
         ),
       research_notes: z.string().optional(),
       tool_integration_check_notes: z.string().optional(),

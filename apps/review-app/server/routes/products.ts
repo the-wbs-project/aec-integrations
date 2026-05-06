@@ -294,6 +294,7 @@ products.patch('/:id', async (c) => {
   if (body.researchStatus !== undefined) fields['research_status'] = body.researchStatus;
   if (body.promotionStatus !== undefined) fields['promotion_status'] = body.promotionStatus;
   if (body.productRole !== undefined) fields['product_role'] = body.productRole;
+  if (body.extensionOf !== undefined) fields['extension_of'] = body.extensionOf;
   if (body.researchNotes !== undefined) fields['research_notes'] = body.researchNotes;
   if (body.toolIntegrationCheckNotes !== undefined)
     fields['tool_integration_check_notes'] = body.toolIntegrationCheckNotes;

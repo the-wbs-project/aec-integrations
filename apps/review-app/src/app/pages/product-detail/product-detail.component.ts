@@ -88,6 +88,7 @@ interface DraftState {
   website: string;
   vendorIds: string[];
   productRole: '' | 'application' | 'connector' | 'hybrid';
+  extensionOfIds: string[];
   // description
   description: string;
   // taxonomy
@@ -143,6 +144,13 @@ export class ProductDetailComponent {
   private modelService = inject(ModelService);
   tool = signal<ProductDetail | null>(null);
   meta = signal<MetaResponse | null>(null);
+  // Host-product picker options for the "Extension of" field. Excludes the
+  // current product to prevent self-loops. Empty until meta resolves.
+  hostProductOptions = computed<LinkRef[]>(() => {
+    const all = this.meta()?.products ?? [];
+    const selfId = this.id();
+    return selfId ? all.filter((p) => p.id !== selfId) : all;
+  });
   recordIds = computed(() => (this.tool() ? [this.id()] : []));
   enrichmentVariant = enrichmentVariant;
 
@@ -465,6 +473,7 @@ export class ProductDetailComponent {
       website: '',
       vendorIds: [],
       productRole: '',
+      extensionOfIds: [],
       description: '',
       categoryIds: [],
       disciplineIds: [],
@@ -485,6 +494,7 @@ export class ProductDetailComponent {
       website: tool.website ?? '',
       vendorIds: tool.vendors.map((v) => v.id),
       productRole: tool.productRole ?? '',
+      extensionOfIds: tool.extensionOf?.map((p) => p.id) ?? [],
       description: tool.description ?? '',
       categoryIds: tool.categories.map((c) => c.id),
       disciplineIds: tool.disciplines.map((d) => d.id),
@@ -511,6 +521,7 @@ export class ProductDetailComponent {
           // Airtable as a single-select clear (back to the implicit
           // application). Real values pass through unchanged.
           productRole: d.productRole === '' ? undefined : d.productRole,
+          extensionOf: d.extensionOfIds,
         };
       case 'description':
         return { description: d.description };
