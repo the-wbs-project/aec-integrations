@@ -32,6 +32,11 @@ export interface CreateProductOptions {
   skipOrchestrator?: boolean;
   /** Where the call originated (drives the run-feed UI badge). */
   triggeredBy?: 'http' | 'mcp';
+  /**
+   * Optional host product record IDs — set when the caller already knows
+   * this is a plug-in / extension (e.g. a SketchUp extension).
+   */
+  extensionOf?: string[];
 }
 
 export interface CreateProductResult {
@@ -72,6 +77,9 @@ export async function createProductAndStartOrchestrator(
   };
   if (opts.website?.trim()) fields['website'] = opts.website.trim();
   if (opts.description?.trim()) fields['description'] = opts.description.trim();
+  if (opts.extensionOf && opts.extensionOf.length > 0) {
+    fields['extension_of'] = opts.extensionOf;
+  }
 
   const created = await createRecord(env, 'products', fields);
   const recordId = created.id;

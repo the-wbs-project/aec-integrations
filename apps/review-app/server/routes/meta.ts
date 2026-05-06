@@ -48,6 +48,7 @@ meta.get('/', async (c) => {
     disciplines: toLinks(discRecs, 'Name'),
     phases: toLinks(phaseRecs, 'Name'),
     vendors: toLinks(vendorRecs, 'company_name'),
+    products: toLinks(toolRecs, 'Name'),
     researchStatuses: [...statusSet].sort(),
     priorityTiers: [...tierSet].sort(),
     toolEnrichmentStatuses: [...enrichmentSet].sort(),

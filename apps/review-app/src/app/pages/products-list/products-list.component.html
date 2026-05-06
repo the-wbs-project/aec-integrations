@@ -235,6 +235,12 @@
                 title="Application that also exposes connector capabilities."
               >Hybrid</span>
             }
+            @if (data.extensionOf?.length) {
+              <span
+                class="badge badge--neutral role-badge"
+                [title]="extensionOfTooltip(data.extensionOf)"
+              >Extension of {{ data.extensionOf[0].name }}{{ data.extensionOf.length > 1 ? ' +' + (data.extensionOf.length - 1) : '' }}</span>
+            }
           </ng-template>
         </e-column>
         <e-column

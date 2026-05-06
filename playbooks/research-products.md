@@ -195,12 +195,15 @@ Mirror the cloud workflow's output schema. For each product produce:
 | `website_canonical` | string \| null | Official product URL. Only used if the existing `website` is empty. |
 | `tool_integrations_url` | string \| null | See rules in 2f. |
 | `tool_integrations_url_notes` | string | 1–3 sentences explaining the URL pick (or absence). |
+| `host_product_names` | string[] | Empty = standalone. Non-empty = this product is a plug-in / extension of these host product(s). Use the same evidence that drives 2f rule 1 (Revit plug-in, SketchUp extension, Blender add-on, AutoCAD LISP utility, Grasshopper plug-in, etc.). |
 
 ### 2f. `tool_integrations_url` selection rules
 
 1. If the tool is itself a plugin / add-in for another tool (Revit plugin,
    SketchUp extension, Rhino/Grasshopper tool, Blender add-on, AutoCAD LISP
-   utility), return `null`. The tool **is** the integration.
+   utility), return `null`. The tool **is** the integration. When you
+   trigger this rule, also populate `host_product_names` (Step 2e) with the
+   host(s) — they're the same evidence point.
 2. Prefer in this order:
    1. Dedicated subdomain — `integrations.bluebeam.com`,
       `store.bimvision.eu`, `apps.autodesk.com/{CODE}/...`.
@@ -242,6 +245,10 @@ Using the maps from Step 0:
 - `category_ids = category_names.map(maps.categories.get)`
 - `discipline_ids = discipline_names.map(maps.disciplines.get)`
 - `phase_ids = phase_names.map(maps.phases.get)`
+- `host_product_ids = host_product_names.map(name => list_products({ search: name }).first?.id)`
+  — call once per name. If a host doesn't resolve, **don't invent an
+  ID** and **don't seed it** here (Step 2 has no creation budget); drop
+  it from the array and note the unresolved name in `research_notes`.
 
 If any name does not resolve, **do not invent an ID**. Pick the closest
 valid name from the vocabulary, swap it in, and note the substitution in
@@ -318,6 +325,7 @@ Call `aeci-review-mcp:update_product` once per product with the patch:
   },
   "research_notes": "<see formatting below>",
   "tool_integration_check_notes": "<derived>",
+  "extension_of": ["<host product recId>", "..."],
   "research_status": "Completed"
 }
 ```
@@ -347,6 +355,10 @@ Conditional fields:
 - **Do not** include `google_trends_index`, `search_volume_monthly`,
   `reddit_mentions_24mo`, or any `*_checked_at` field — those are written
   by the MCP tools in Step 2h.
+- Include `"extension_of": [...]` only when `host_product_ids` is
+  non-empty. Pass `[]` to clear an existing relationship if research
+  reveals the product is actually standalone (this is the only field
+  where re-research can intentionally reduce the linked array).
 
 Set `research_status` to `"Completed"` on every successful update so the
 row drops out of the pending queue (and updates modification time on
@@ -423,6 +435,12 @@ When the batch is complete, output a concise report:
 11. **Search budget is a ceiling, not a target.** Zero `WebSearch` calls
     is fine when a known pattern (Autodesk desktop, Bentley, etc.)
     applies.
+12. **`extension_of` is for plug-ins, not for "integrates with".** A
+    product that *connects to* SketchUp via a marketplace listing is an
+    integration, not an extension. The bar for `extension_of`: the
+    product does not run / has no UI without the host. Use the 2f rule 1
+    evidence set; if you wouldn't blank `tool_integrations_url`, you're
+    probably not looking at an extension.
 
 ---
 
