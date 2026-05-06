@@ -27,7 +27,7 @@ This file is the spec an LLM should read before calling the server.
   URL more than necessary.
 - **Server name**: `aeci-review-mcp` (version `2.0.0`).
 - **Capabilities**: `tools` (CRUD over the three domain entities) and
-  `prompts` (canonical playbooks — currently `research_pending_products`).
+  `prompts` (canonical playbooks — currently `research_products`).
 
 Configuration in Claude Desktop / mcp-inspector / similar:
 
@@ -105,11 +105,23 @@ Configuration in Claude Desktop / mcp-inspector / similar:
 | `claim_prompt_job` | Atomically flip one row pending → running and return the rendered prompt body. |
 | `complete_prompt_job` | Mark a claimed row `completed` or `failed` with a summary / error. |
 
+### Research metrics (SearchAPI passthrough)
+
+These two tools wrap the cloud T05/T06 workflows as synchronous calls so the
+`research-products` playbook (which only has `WebSearch` + `WebFetch`) can
+still populate signals that built-in tools cannot reach. Both write the
+result fields to Airtable themselves and return the values.
+
+| Tool | Purpose |
+|---|---|
+| `compute_product_search_demand` | Runs the SearchAPI `google_trends` (12-month avg) + `google` (`total_results` → log10) calls for a product, writes `google_trends_index` / `search_volume_monthly` / `search_checked_at`, returns the values. Replaces an in-playbook attempt because `trends.google.com` 429s on direct fetch and `WebSearch` does not expose `total_results`. |
+| `compute_product_reddit_mentions` | Runs one SearchAPI google query scoped to `site:reddit.com (r/Construction OR r/AEC OR r/Revit OR r/civilengineering OR r/ConstructionManagement)`, counts distinct AEC-subreddit post URLs from `organic_results`, writes `reddit_mentions_24mo` / `reddit_checked_at`, returns up to 5 sample URLs. Replaces an in-playbook attempt because built-in `WebSearch` returns nothing for reddit-scoped queries and `old.reddit.com` is `WebFetch`-blocked. |
+
 ### Prompts
 
 | Prompt | Purpose |
 |---|---|
-| `research_pending_products` | Inject the canonical pending-products research playbook as a user message. Optional `invocation` argument scopes the run (e.g. "the first 20 pending in BIM"). |
+| `research_products` | Inject the canonical product-research playbook as a user message. Optional `invocation` argument scopes the run (e.g. "first 15 pending", "re-research rec0123…", "all completed Autodesk products"). |
 
 ---
 
@@ -382,8 +394,8 @@ rendered prompt body for the row you want to run.
   "jobs": [
     {
       "id": "rec0123456789ABCD",
-      "playbook_slug": "research-pending-products",
-      "playbook_title": "Research Pending Products",
+      "playbook_slug": "research-products",
+      "playbook_title": "Research Products",
       "status": "pending",
       "created_at": "2026-05-05T17:42:11.000Z"
     }
@@ -414,10 +426,10 @@ past pending — that means another dispatcher grabbed it; skip and continue.
 ```json
 {
   "id": "rec0123456789ABCD",
-  "playbook_slug": "research-pending-products",
-  "playbook_title": "Research Pending Products",
+  "playbook_slug": "research-products",
+  "playbook_title": "Research Products",
   "scope": "first 15 pending",
-  "prompt": "# Research Pending Products …",
+  "prompt": "# Research Products …",
   "model": "opus"
 }
 ```
@@ -450,7 +462,7 @@ in `running` forever.
 
 ---
 
-## `research_pending_products` (prompt)
+## `research_products` (prompt)
 
 This is an MCP **prompt**, not a tool. Prompts are server-side templates a
 client invokes by name; the server returns one or more messages that the
@@ -459,7 +471,7 @@ using the regular MCP tools above. No tokens are spent server-side — the
 prompt callback is a pure string concat.
 
 The prompt body is the canonical playbook at
-`playbooks/research-pending-products.md`, bundled into the Worker at
+`playbooks/research-products.md`, bundled into the Worker at
 build time via the Wrangler `Text` rule. Edit that `.md` and redeploy and
 the prompt updates with no other changes.
 
@@ -503,7 +515,7 @@ it themselves.
 
 If a client renders only tools and not prompts, the prompt is unreachable
 on that surface — fall back to the Claude Code slash command, or paste the
-playbook from `playbooks/research-pending-products.md` directly. Founders
+playbook from `playbooks/research-products.md` directly. Founders
 without a Claude client can also browse and copy playbooks from the
 `/prompts` page in the review app.
 

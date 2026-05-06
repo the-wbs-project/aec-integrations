@@ -106,14 +106,14 @@ researched have `research_status = "Pending"`. The AI's job is to:
 3. Write results back via `update_product` and flip `research_status` to `"Done"`.
 
 There is a canonical playbook for this at
-`playbooks/research-pending-products.md` in the main repo, and an MCP
-prompt named `research_pending_products` that loads it. In Claude Code the
+`playbooks/research-products.md` in the main repo, and an MCP
+prompt named `research_products` that loads it. In Claude Code the
 shortcut is the slash command `/researchproducts <scope>`.
 
 Tell Claude something like:
 
 > Research the first 15 pending products using the
-> `research_pending_products` playbook.
+> `research_products` playbook.
 
 ### B. Add a brand-new vendor or product
 
@@ -202,7 +202,7 @@ agreed on the scope, let it run.
 
 - **Database**: Airtable base "AECi Review".
 - **Tool spec**: `docs/mcp-server.md` in the `aec-integrations-landing` repo.
-- **Research playbook**: `playbooks/research-pending-products.md` in the
+- **Research playbook**: `playbooks/research-products.md` in the
   same repo.
 - **Public site**: aecintegrations.com (driven by the `promoted` rows).
 - **Review UI**: review.aecintegrations.com (where Chris and Bill see the

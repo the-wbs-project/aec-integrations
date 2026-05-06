@@ -25,7 +25,8 @@ import { registerProductTools } from './tools/product-tools';
 import { registerIntegrationTools } from './tools/integration-tools';
 import { registerTaxonomyTools } from './tools/taxonomy-tools';
 import { registerPromptQueueTools } from './tools/prompt-queue-tools';
-import { registerResearchPrompts } from './prompts/research-pending-products';
+import { registerResearchTools } from './tools/research-tools';
+import { registerResearchPrompts } from './prompts/research-products';
 
 // We don't pass our narrowed `Env` to McpAgent because its constraint
 // (`extends Cloudflare.Env`) clashes with our `BROWSER` override. Cast at
@@ -41,6 +42,7 @@ export class AeciReviewMcp extends McpAgent {
     registerIntegrationTools(this.server, this.getEnv);
     registerTaxonomyTools(this.server, this.getEnv);
     registerPromptQueueTools(this.server, this.getEnv);
+    registerResearchTools(this.server, this.getEnv);
     registerResearchPrompts(this.server);
   }
 }
