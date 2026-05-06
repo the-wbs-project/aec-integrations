@@ -216,7 +216,7 @@ process that one.
      "skip_orchestrator": true
    }
    ```
-3. **Research** following the `research-pending-products.md` rules
+3. **Research** following the `research-products.md` rules
    (categories / disciplines / phases from taxonomy, descriptions,
    per-discipline / per-phase usefulness bullets, `tool_integrations_url`,
    citations, confidence). Budget: max 4 `WebSearch` + 6 `WebFetch` per
@@ -225,7 +225,7 @@ process that one.
    "Completed"`, the resolved IDs (categories / disciplines / phases),
    the `usefulness` block, `research_notes`, and
    `tool_integration_check_notes`. Same field-shape as
-   `research-pending-products.md` Step 2f.
+   `research-products.md` Step 2f.
 
 Do not overwrite curator-set `website` or `tool_integrations_url`. The
 existing playbook covers the rules.

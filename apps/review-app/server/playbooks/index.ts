@@ -8,7 +8,8 @@
 // triple. Add a new playbook by dropping a .md into /playbooks/ and adding
 // one line to PLAYBOOK_FILES.
 // ---------------------------------------------------------------------------
-import researchPendingProducts from '../../../../playbooks/research-pending-products.md';
+import researchProducts from '../../../../playbooks/research-products.md';
+import researchVendors from '../../../../playbooks/research-vendors.md';
 import addVendorAndProducts from '../../../../playbooks/add-vendor-and-products.md';
 import enrichVendor from '../../../../playbooks/enrich-vendor.md';
 
@@ -26,7 +27,8 @@ export interface Playbook {
 }
 
 const PLAYBOOK_FILES: ReadonlyArray<{ slug: string; raw: string }> = [
-  { slug: 'research-pending-products', raw: researchPendingProducts },
+  { slug: 'research-products', raw: researchProducts },
+  { slug: 'research-vendors', raw: researchVendors },
   { slug: 'add-vendor-and-products', raw: addVendorAndProducts },
   { slug: 'enrich-vendor', raw: enrichVendor },
 ];

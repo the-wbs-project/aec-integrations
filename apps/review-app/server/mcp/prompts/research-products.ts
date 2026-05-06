@@ -1,10 +1,10 @@
 // ---------------------------------------------------------------------------
-// MCP prompt: research_pending_products
+// MCP prompt: research_products
 //
-// Surfaces the canonical research playbook (playbooks/research-pending-products.md)
+// Surfaces the canonical research playbook (playbooks/research-products.md)
 // to MCP clients as a slash command. In claude.ai with this connector enabled
-// the user types `/` and picks "research_pending_products" — the full playbook
-// is injected as a user message and the client-side model executes it using
+// the user types `/` and picks "research_products" — the full playbook is
+// injected as a user message and the client-side model executes it using
 // the regular MCP tools (list_products, update_product, etc.).
 //
 // The playbook .md is bundled as a raw string at build time via the Wrangler
@@ -16,18 +16,18 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 // Bundled at build time as a string (see wrangler.jsonc → rules → Text).
-import promptBody from '../../../../../playbooks/research-pending-products.md';
+import promptBody from '../../../../../playbooks/research-products.md';
 
 export function registerResearchPrompts(server: McpServer): void {
   server.prompt(
-    'research_pending_products',
-    'Research pending products in the AECi Review base using the standard playbook. Optionally pass a free-form scope (e.g. "the first 20 pending in BIM").',
+    'research_products',
+    'Research products in the AECi Review base using the standard playbook. Optionally pass a free-form scope (e.g. "the first 20 pending in BIM", "re-research Bluebeam Revu", "all completed Autodesk products").',
     {
       invocation: z
         .string()
         .optional()
         .describe(
-          'Free-form scope for this run, e.g. "the first 20 pending products" or "everything pending in the Estimating category". Appended to the playbook verbatim.',
+          'Free-form scope for this run, e.g. "first 15 pending", "re-research rec0123…", "all completed Autodesk products". Appended to the playbook verbatim. Defaults to "first 15 pending" when omitted.',
         ),
     },
     ({ invocation }) => ({
