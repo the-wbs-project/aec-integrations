@@ -120,13 +120,12 @@ vendors.post('/', async (c) => {
       companyName: body.companyName,
       website: body.website,
       description: body.description,
-      model: body.model,
       forceRefresh: body.forceRefresh,
       skipOrchestrator: body.skipOrchestrator,
       triggeredBy: 'http',
     });
     return c.json(
-      { vendor: { recordId: result.recordId }, run: result.run },
+      { vendor: { recordId: result.recordId }, queue: result.queue },
       201,
     );
   } catch (err) {

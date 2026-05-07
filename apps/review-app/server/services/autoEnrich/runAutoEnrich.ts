@@ -2,8 +2,9 @@
 // Auto-enrich consumer.
 //
 // Picks the first N vendors that are either never-enriched (BLANK
-// last_enriched_at) or stale (older than STALE_AFTER_DAYS), and spawns a
-// vendor-orchestrator instance for each with forceRefresh: true.
+// last_enriched_at) or stale (older than STALE_AFTER_DAYS), and enqueues an
+// `enrich-vendor` playbook job for each with `force_refresh: true`. The
+// scheduled dispatcher drains the queue serially across subsequent ticks.
 //
 // Two queries instead of one — Airtable's `sort` param accepts only field
 // names, and BLANKs sort *last* under `asc`. Querying BLANKs first then
@@ -11,17 +12,14 @@
 // ordering without depending on a hidden Airtable view.
 // ---------------------------------------------------------------------------
 import type { Env } from '../../env';
-import { listRecords, asString } from '../airtable';
-import { resolveSearchTool } from '../../lib/llm';
-import { notifyRunStarted } from '../../lib/notify-run-started';
-import { buildLookupMaps } from '../../hydrate';
-import type { RunParams } from '../../lib/workflow-meta';
+import { listRecords } from '../airtable';
+import { enqueue } from '../promptQueue';
 
 const STALE_AFTER_DAYS = 60;
-const VALID_MODEL = /^claude-(opus|sonnet|haiku)-[\w.-]+$/;
 
 export interface AutoEnrichResult {
-  spawned: Array<{ runId: string; recordId: string }>;
+  /** Airtable prompt_queue record IDs created this tick. */
+  enqueued: Array<{ queueRecordId: string; recordId: string }>;
   totalCandidates: number;
 }
 
@@ -31,7 +29,7 @@ export async function runVendorAutoEnrich(
 ): Promise<AutoEnrichResult> {
   if (!Number.isFinite(args.count) || args.count <= 0) {
     console.warn(`[auto-enrich] invalid count=${args.count} triggeredBy=${args.triggeredBy}`);
-    return { spawned: [], totalCandidates: 0 };
+    return { enqueued: [], totalCandidates: 0 };
   }
 
   const cutoff = new Date(Date.now() - STALE_AFTER_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -70,63 +68,30 @@ export async function runVendorAutoEnrich(
     console.warn(
       `[auto-enrich] NO CANDIDATES triggeredBy=${args.triggeredBy} requested=${args.count} blanks=0 stale=0 cutoff=${cutoff}`,
     );
-    return { spawned: [], totalCandidates: 0 };
+    return { enqueued: [], totalCandidates: 0 };
   }
 
-  const requested = args.model ?? env.DEFAULT_MODEL;
-  if (!VALID_MODEL.test(requested)) {
-    throw new Error(`Invalid model in auto-enrich job: ${requested}`);
-  }
-  const model = requested;
-  const searchTool = resolveSearchTool(env, env.SEARCH_TOOL);
-
-  let labels: Map<string, string> | undefined;
-  try {
-    labels = (await buildLookupMaps(env)).vendors;
-  } catch (err) {
-    console.warn(
-      `[auto-enrich] buildLookupMaps failed (non-fatal): ${err instanceof Error ? err.message : String(err)}`,
-    );
-    labels = undefined;
-  }
-
-  const spawned: Array<{ runId: string; recordId: string }> = [];
+  const enqueued: Array<{ queueRecordId: string; recordId: string }> = [];
   for (const rec of candidates) {
-    const runId = crypto.randomUUID();
-    const params: RunParams = { recordId: rec.id, model, searchTool, forceRefresh: true };
-
     try {
-      await env.WF_VENDOR_ORCHESTRATOR.create({ id: runId, params });
+      const result = await enqueue(env, {
+        playbookSlug: 'enrich-vendor',
+        targetRecordId: rec.id,
+        forceRefresh: true,
+        requestedBy: `${args.triggeredBy}:vendor-auto-enrich`,
+      });
+      enqueued.push({ queueRecordId: result.recordId, recordId: rec.id });
     } catch (err) {
       console.error(
-        `[auto-enrich] WF_VENDOR_ORCHESTRATOR.create FAILED runId=${runId} recordId=${rec.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `[auto-enrich] enqueue FAILED recordId=${rec.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
       throw err;
     }
-
-    const recordLabel = labels?.get(rec.id) ?? asString(rec.fields['company_name']);
-    try {
-      await notifyRunStarted(env, {
-        runId,
-        workflow: 'vendor-orchestrator',
-        recordId: rec.id,
-        recordLabel,
-        triggeredBy: 'auto-enrich',
-        forceRefresh: true,
-        model,
-      });
-    } catch (err) {
-      console.error(
-        `[auto-enrich] notifyRunStarted FAILED runId=${runId}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-
-    spawned.push({ runId, recordId: rec.id });
   }
 
   console.log(
-    `[auto-enrich] triggeredBy=${args.triggeredBy} requested=${args.count} spawned=${spawned.length} blanks=${blankRows.length} stale=${staleRows.length} model=${model}`,
+    `[auto-enrich] triggeredBy=${args.triggeredBy} requested=${args.count} enqueued=${enqueued.length} blanks=${blankRows.length} stale=${staleRows.length}`,
   );
 
-  return { spawned, totalCandidates: candidates.length };
+  return { enqueued, totalCandidates: candidates.length };
 }

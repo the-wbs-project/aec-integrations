@@ -219,7 +219,10 @@ If the user's scope narrowed to a specific product, only process that one.
 
 1. **Dedupe** with `list_products({ search: "<product name>" })`. If a
    record exists, capture its `id` and skip create.
-2. **Create** with:
+2. **Create** with the JSON below. `vendor_id` is the **primary** mechanism
+   for linking the product to its vendor — pass it on every create so the
+   `vendors` field is populated at row-creation time, even if Step 2b.4's
+   `update_product` is never reached due to a research error.
    ```json
    {
      "name": "<product name>",

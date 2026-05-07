@@ -1,6 +1,6 @@
 ---
 title: Enrich Vendor (full)
-description: Run all vendor enrichment steps end-to-end on an existing vendor — Crunchbase, Wikipedia, GitHub, funding — then a single update_vendor write that triggers VQS scoring.
+description: Run all vendor enrichment steps end-to-end on an existing vendor — Crunchbase, Wikipedia, GitHub, funding — then a single update_vendor write that triggers VQS scoring synchronously. Honors `aspect` to scope down to one section.
 scope_label: Vendor to enrich
 scope_placeholder: e.g. "Bluebeam" or "rec123abc..."
 ---
@@ -10,12 +10,8 @@ scope_placeholder: e.g. "Bluebeam" or "rec123abc..."
 You are the LLM equivalent of the backend `vendor-orchestrator` workflow.
 Pick one **existing** vendor and run a thorough enrichment pass: Crunchbase,
 Wikipedia, GitHub, funding stage. Then write everything in a single
-`update_vendor` call. That call automatically spawns the `aeci-vendor-score`
-workflow — never set vendor score fields yourself.
-
-The **`**This invocation:**`** block at the bottom of this prompt names the
-vendor (free text name, or a `rec…` Airtable ID). Read it first. If empty,
-ask the user one short clarifying question before doing anything else.
+`update_vendor` call. That call recomputes the Vendor Quality Score (VQS)
+synchronously — never set vendor score fields yourself.
 
 This playbook is for **re-enriching an existing vendor**. If the vendor is
 not in the database, **do not create it** — point the user at
@@ -29,29 +25,55 @@ You have access to one MCP server:
 
 ---
 
-## Step 0 — Resolve the existing vendor
+## Step 0 — Resolve the structured invocation block
 
-If the scope looks like an Airtable record ID (matches `^rec[A-Za-z0-9]{14}$`):
+The **`**This invocation:**`** block at the bottom of this prompt names the
+vendor and any modifiers. Read it first.
 
-1. Call `get_vendor({ record_id: "<scope>" })`. If it returns a record,
-   capture its `id` and `fields` and continue.
-2. If the call errors / 404s, **hard-fail**: print "Vendor `<scope>` not
-   found. Use `add-vendor-and-products` to seed new vendors." and stop.
+It can take two shapes:
 
-Otherwise treat the scope as a name:
+**Structured (button-triggered)** — bullet list:
 
-1. Call `list_vendors({ search: "<scope>" })`.
-2. If exactly one record matches, capture its `id` and continue.
-3. If multiple records match, ask the user one clarifying question
-   (list the candidates with their `id` and `company_name`) and stop
-   until they pick one.
-4. If zero records match, **hard-fail** with the message above. Do
-   **not** call `create_vendor_and_research`.
+```
+- target_record_id: rec0123ABCDEF
+- aspect: github            # optional; one of overview|github|funding
+- force_refresh: false      # optional; true to ignore the 60-day staleness gate
+```
+
+**Free-text (manual /prompts page)** — single line: vendor name or recId
+after `**Vendor to enrich:**`.
+
+Resolve the target:
+
+1. If `target_record_id` is present, call `get_vendor({ record_id })`
+   directly. Hard-fail if the record doesn't exist.
+2. Otherwise treat the line as a name (or recId pattern). If it matches
+   `^rec[A-Za-z0-9]{14}$`, call `get_vendor({ record_id: "<text>" })`.
+   Else call `list_vendors({ search: "<text>" })`. If exactly one matches,
+   continue with its `id`. If multiple match, ask one clarifying question
+   listing candidates and stop. If zero, **hard-fail**: tell the user to
+   use `add-vendor-and-products` and stop.
+
+If the block is empty, ask the user one short clarifying question and stop.
 
 Note any curator-set values you should preserve: `website`,
 `headquarters`, `founded_year`, `parent_company`, `phone_number`,
 `contact_email`, `crunchbase_url`, `wiki_url`. Don't overwrite these in
 Step 5 — only fill them when empty.
+
+## Staleness + aspect
+
+Each section below has a corresponding `*_checked_at` timestamp on the
+vendor record. A section is **stale** when:
+
+- `force_refresh: true`, OR
+- the section's `*_checked_at` field is empty, OR
+- `now - *_checked_at` > 60 days.
+
+Skip non-stale sections unless `force_refresh` is true.
+
+If `aspect` is set, run **only** that section: `overview` (Steps 1–2),
+`github` (Step 4), or `funding` (Step 3). When unset, run all sections.
 
 ## Research budget
 
@@ -153,11 +175,11 @@ the numeric fields unset.
 
 ---
 
-## Step 5 — One write — let the score workflow run
+## Step 5 — One write — synchronous VQS recompute
 
 Call `update_vendor` **once** with everything you've gathered. Do not
-call it multiple times for the same vendor — every call spawns the
-score workflow.
+call it multiple times for the same vendor — every call recomputes the
+score (cheap, but redundant).
 
 ```json
 {
@@ -200,12 +222,14 @@ curator-preserve keys (`website`, `headquarters`, `founded_year`,
 `update_vendor` will:
 
 1. Patch the record.
-2. Spawn `aeci-vendor-score` in the background (it returns
-   `score_run_id` in the response — log it in your final summary).
+2. Recompute VQS synchronously and write all `vqs_*` fields. The response
+   includes `score_summary` (e.g. `"VQS=72 (Tier 2, high)"`) — log it in
+   your final summary.
 
 **Never set `vqs_score`, `vqs_tier`, `vqs_credibility`, `vqs_momentum`,
 `vqs_fit`, `vqs_confidence`, `vqs_flags`, `vendor_data_completeness`,
-or `vendor_enrichment_status`.** The score workflow owns those columns.
+or `vendor_enrichment_status`.** The scoring service owns those columns
+and overwrites them on every `update_vendor` call.
 
 ---
 
@@ -215,7 +239,9 @@ Output a concise report:
 
 - Scope (verbatim from `**This invocation:**`): `<text>`
 - Vendor: `<name> (recId)`
-- `score_run_id` returned by `update_vendor`: `<id>`
+- Aspect: `<value>` or `(all)`
+- Force refresh: `true` / `false`
+- `score_summary` returned by `update_vendor`: `<text>`
 - Fields written: `<comma-separated list of keys in the patch>`
 - Fields preserved (curator-set, not overwritten): `<list>`
 - Crunchbase outcome: `useful` / `failed (<reason>)` / `not on crunchbase`
@@ -234,10 +260,10 @@ Output a concise report:
    Do not `WebFetch` `crunchbase.com` — it will be blocked.
 3. **Closed vocabularies only** for `funding_stage` and
    `public_private`. Never invent values.
-4. **Never set vendor score fields.** `update_vendor` spawns the score
-   workflow; trying to write `vqs_*` yourself fights it.
+4. **Never set vendor score fields.** `update_vendor` recomputes VQS
+   itself; trying to write `vqs_*` yourself just gets overwritten.
 5. **One `update_vendor` per run.** Don't fan out partial patches —
-   every call spawns a fresh score workflow run.
+   every call recomputes the score.
 6. **Don't overwrite curator values** for `website`, `headquarters`,
    `founded_year`, `parent_company`, `phone_number`, `contact_email`,
    `crunchbase_url`, `wiki_url` — only fill when empty in Step 0.

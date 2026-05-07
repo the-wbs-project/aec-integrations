@@ -254,9 +254,10 @@ products.post('/', async (c) => {
       name: body.name,
       description: body.description,
       website: body.website,
-      model: body.model,
       forceRefresh: body.forceRefresh,
       skipOrchestrator: body.skipOrchestrator,
+      extensionOf: body.extensionOf,
+      vendorId: body.vendorId,
       triggeredBy: 'http',
     });
   } catch (err) {
@@ -271,7 +272,7 @@ products.post('/', async (c) => {
     buildLookupMaps(env),
   ]);
   const product = hydrateProduct(created, maps);
-  return c.json({ product, run: result.run }, 201);
+  return c.json({ product, queue: result.queue }, 201);
 });
 
 // ---------------------------------------------------------------------------

@@ -8,6 +8,7 @@ import type { Env } from '../../env';
 import {
   fetchProducts,
   fetchVendors,
+  getRecord,
   tableId,
   updateRecord,
 } from '../../services/airtable';
@@ -26,7 +27,7 @@ import {
   parseCrunchbaseHtml,
   isSnapshotUseful,
 } from '../../services/crunchbase-parse';
-import { notifyRunStarted } from '../../lib/notify-run-started';
+import { scoreVendor } from '../../services/scoring';
 import { buildRejectedProductIds, err, ok, toMessage } from '../helpers';
 
 // Curator-editable + LLM-derivable VQS-input fields. Most map 1:1 to Airtable
@@ -316,57 +317,40 @@ export function registerVendorTools(
         return err('No editable fields provided.');
       }
       try {
-        const updated = await updateRecord(
-          env,
-          'vendors',
-          input.record_id,
-          fields,
-        );
-        await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'vendors')}`);
+        await updateRecord(env, 'vendors', input.record_id, fields);
 
-        // Fire-and-forget: recompute VQS pillars / tier / confidence so the
-        // LLM never has to touch the score itself. WF.create() returns once
-        // the instance is registered, the score workflow then runs async.
-        const scoreRunId = crypto.randomUUID();
+        // Synchronously recompute VQS pillars / tier / confidence so the
+        // response reflects the new score in one round-trip. Pure math —
+        // no LLM, no external APIs. Loop-safe: scoreVendor writes via the
+        // raw Airtable service, never re-entering this MCP tool.
+        let scoreSummary: string | undefined;
         try {
-          await env.WF_VENDOR_SCORE.create({
-            id: scoreRunId,
-            params: {
-              recordId: input.record_id,
-              model: env.DEFAULT_MODEL,
-              searchTool: 'web',
-            },
-          });
-          notifyRunStarted(env, {
-            runId: scoreRunId,
-            workflow: 'vendor-score',
-            recordId: input.record_id,
-            recordLabel:
-              ((updated.fields['company_name'] as string | undefined) ?? input.record_id),
-            triggeredBy: 'mcp',
-            forceRefresh: false,
-            model: env.DEFAULT_MODEL,
-          }).catch((e) =>
-            console.error('[update_vendor] notify score failed', scoreRunId, String(e)),
-          );
+          const result = await scoreVendor(env, input.record_id);
+          scoreSummary = result.summary;
         } catch (e) {
           console.error(
-            '[update_vendor] failed to spawn vendor-score',
+            '[update_vendor] scoreVendor failed',
             input.record_id,
             String(e),
           );
         }
 
+        await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'vendors')}`);
+
+        // Re-fetch the single record so the response reflects scoreVendor's
+        // writes (the cached fetchVendors snapshot is now stale until the
+        // next pull).
+        const fresh = await getRecord(env, 'vendors', input.record_id);
         const [maps, products] = await Promise.all([
           buildLookupMaps(env),
           fetchProducts(env),
         ]);
         const rejectedProductIds = buildRejectedProductIds(products);
-        const detail = hydrateVendorDetail(updated, maps);
+        const detail = hydrateVendorDetail(fresh, maps);
         return ok({
           ...detail,
           tools: detail.tools.filter((t) => !rejectedProductIds.has(t.id)),
-          score_run_id: scoreRunId,
+          score_summary: scoreSummary,
         });
       } catch (e) {
         return err(toMessage(e));

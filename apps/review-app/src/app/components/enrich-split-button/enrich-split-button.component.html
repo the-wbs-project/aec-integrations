@@ -32,7 +32,7 @@
       </header>
       <div class="confirm-modal__body">
         <p class="confirm-modal__message">
-          Run <strong>{{ workflowTitle(c.slug) }}</strong> on
+          Queue <strong>{{ c.label }}</strong> on
           <strong>{{ c.count }}</strong>
           {{ c.count === 1 ? 'record' : 'records' }}?
         </p>

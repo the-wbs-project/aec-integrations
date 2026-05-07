@@ -12,6 +12,8 @@ import researchProducts from '../../../../playbooks/research-products.md';
 import researchVendors from '../../../../playbooks/research-vendors.md';
 import addVendorAndProducts from '../../../../playbooks/add-vendor-and-products.md';
 import enrichVendor from '../../../../playbooks/enrich-vendor.md';
+import enrichProduct from '../../../../playbooks/enrich-product.md';
+import discoverProductIntegrations from '../../../../playbooks/discover-product-integrations.md';
 
 interface PlaybookFrontmatter {
   title: string;
@@ -31,6 +33,8 @@ const PLAYBOOK_FILES: ReadonlyArray<{ slug: string; raw: string }> = [
   { slug: 'research-vendors', raw: researchVendors },
   { slug: 'add-vendor-and-products', raw: addVendorAndProducts },
   { slug: 'enrich-vendor', raw: enrichVendor },
+  { slug: 'enrich-product', raw: enrichProduct },
+  { slug: 'discover-product-integrations', raw: discoverProductIntegrations },
 ];
 
 /**
@@ -93,14 +97,58 @@ export function getPlaybook(slug: string): Playbook | undefined {
   return PLAYBOOKS.find((p) => p.slug === slug);
 }
 
+export interface RenderArgs {
+  scope?: string;
+  targetRecordId?: string;
+  aspect?: string;
+  forceRefresh?: boolean;
+}
+
 /**
- * Build the final markdown text the way the /prompts page would when the user
- * clicks Copy: trim trailing whitespace, then append `**<scope_label>:** <scope>`
- * if the playbook declares a scope label. The line is appended even when the
- * user left scope empty — playbooks themselves instruct the LLM to ask for a
- * scope when the line is blank.
+ * Render the final markdown the dispatcher hands to a sub-agent.
+ *
+ * Two emission modes share the same `**This invocation:**` anchor at the end
+ * of every playbook body:
+ *
+ * - Legacy `/prompts`-page path: caller passes a string `scope` (or nothing).
+ *   The renderer appends a single `**<scope_label>:** <scope>` line so older
+ *   playbooks that read free-text scope keep working unchanged.
+ *
+ * - Structured-args path: caller passes a {targetRecordId, aspect,
+ *   forceRefresh, scope?} object. The renderer emits a bullet list under the
+ *   anchor:
+ *
+ *     - target_record_id: rec0123ABCDEF
+ *     - aspect: marketplace
+ *     - force_refresh: false
+ *     - scope: <free text>
+ *
+ *   Empty fields are omitted. Button-triggered queue jobs use this path so
+ *   playbooks parse args from a stable shape instead of fragile prose.
  */
-export function renderPlaybookPrompt(playbook: Playbook, scope: string): string {
-  if (playbook.frontmatter.scope_label === null) return playbook.body;
-  return `${playbook.body.trimEnd()}\n\n**${playbook.frontmatter.scope_label}:** ${scope}\n`;
+export function renderPlaybookPrompt(
+  playbook: Playbook,
+  argsOrScope: RenderArgs | string = {},
+): string {
+  const args: RenderArgs =
+    typeof argsOrScope === 'string' ? { scope: argsOrScope } : argsOrScope;
+
+  const hasStructured =
+    args.targetRecordId !== undefined ||
+    args.aspect !== undefined ||
+    args.forceRefresh !== undefined;
+
+  if (!hasStructured) {
+    if (playbook.frontmatter.scope_label === null) return playbook.body;
+    return `${playbook.body.trimEnd()}\n\n**${playbook.frontmatter.scope_label}:** ${args.scope ?? ''}\n`;
+  }
+
+  const lines: string[] = [];
+  if (args.targetRecordId) lines.push(`- target_record_id: ${args.targetRecordId}`);
+  if (args.aspect) lines.push(`- aspect: ${args.aspect}`);
+  if (args.forceRefresh !== undefined) lines.push(`- force_refresh: ${args.forceRefresh}`);
+  const scope = args.scope?.trim();
+  if (scope) lines.push(`- scope: ${scope}`);
+
+  return `${playbook.body.trimEnd()}\n\n${lines.join('\n')}\n`;
 }

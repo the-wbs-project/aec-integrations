@@ -26,6 +26,7 @@ import { registerIntegrationTools } from './tools/integration-tools';
 import { registerTaxonomyTools } from './tools/taxonomy-tools';
 import { registerPromptQueueTools } from './tools/prompt-queue-tools';
 import { registerResearchTools } from './tools/research-tools';
+import { registerScoringTools } from './tools/scoring-tools';
 import { registerResearchPrompts } from './prompts/research-products';
 
 // We don't pass our narrowed `Env` to McpAgent because its constraint
@@ -43,6 +44,7 @@ export class AeciReviewMcp extends McpAgent {
     registerTaxonomyTools(this.server, this.getEnv);
     registerPromptQueueTools(this.server, this.getEnv);
     registerResearchTools(this.server, this.getEnv);
+    registerScoringTools(this.server, this.getEnv);
     registerResearchPrompts(this.server);
   }
 }
