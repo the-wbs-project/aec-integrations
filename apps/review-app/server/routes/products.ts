@@ -13,9 +13,11 @@ import {
   hydrateProductDetail,
 } from '../hydrate';
 import {
+  CreateProductDuplicateError,
   CreateProductValidationError,
   createProductAndStartOrchestrator,
 } from '../services/createProduct';
+import { scoreProduct } from '../services/scoring';
 import type {
   CreateProductRequest,
   Env,
@@ -258,9 +260,20 @@ products.post('/', async (c) => {
       skipOrchestrator: body.skipOrchestrator,
       extensionOf: body.extensionOf,
       vendorId: body.vendorId,
+      allowDuplicate: body.allowDuplicate,
       triggeredBy: 'http',
     });
   } catch (err) {
+    if (err instanceof CreateProductDuplicateError) {
+      return c.json(
+        {
+          error: err.message,
+          duplicate: true,
+          matches: err.matches,
+        },
+        409,
+      );
+    }
     if (err instanceof CreateProductValidationError) {
       return c.json({ error: err.message }, 400);
     }
@@ -326,6 +339,35 @@ products.patch('/:id', async (c) => {
   ]);
   const detail = hydrateProductDetail(updated, maps, integrationRecs, rawProducts);
   return c.json(detail);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/products/:id/rescore — recompute priority score and write back to
+// Airtable. Returns the rehydrated detail so the UI can refresh in place.
+// ---------------------------------------------------------------------------
+products.post('/:id/rescore', async (c) => {
+  const env = c.env;
+  const productId = c.req.param('id');
+
+  let summary: string;
+  try {
+    const result = await scoreProduct(env, productId);
+    summary = result.summary;
+  } catch (err) {
+    return c.json({ error: (err as Error).message ?? 'Rescore failed' }, 502);
+  }
+
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'products')}`);
+
+  const [rawProducts, integrationRecs, maps] = await Promise.all([
+    fetchProducts(env),
+    fetchIntegrations(env),
+    buildLookupMaps(env),
+  ]);
+  const record = rawProducts.find((r) => r.id === productId);
+  if (!record) return c.json({ error: 'Product not found' }, 404);
+  const detail = hydrateProductDetail(record, maps, integrationRecs, rawProducts);
+  return c.json({ summary, product: detail });
 });
 
 export default products;

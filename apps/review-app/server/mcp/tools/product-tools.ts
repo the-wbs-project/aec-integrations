@@ -18,9 +18,11 @@ import {
   hydrateProductDetail,
 } from '../../hydrate';
 import {
+  CreateProductDuplicateError,
   CreateProductValidationError,
   createProductAndStartOrchestrator,
 } from '../../services/createProduct';
+import { findProductMatches } from '../../services/productMatch';
 import { scoreProduct } from '../../services/scoring';
 import { buildRejectedProductIds, err, ok, toMessage } from '../helpers';
 
@@ -31,6 +33,7 @@ const PRODUCT_PATCH_FIELD_MAP: Record<string, string> = {
   tool_integrations_url: 'tool_integrations_url',
   api_docs_url: 'api_docs_url',
   has_api_docs: 'has_api_docs',
+  api_docs_checked_at: 'api_docs_checked_at',
   research_status: 'research_status',
   promotion_status: 'promotion_status',
   product_role: 'product_role',
@@ -45,7 +48,28 @@ const PRODUCT_PATCH_FIELD_MAP: Record<string, string> = {
   // usefulness is a JSON object that gets stringified on the way to Airtable
   // (it's stored in a long-text cell). Hydration parses it back out.
   usefulness: 'usefulness',
+  // Reviews leaf (G2 + Capterra). Mirrors workflows/product/reviews.ts +
+  // overview.ts. Set reviews_checked_at to the current ISO timestamp when
+  // any of the rating/count fields land.
+  g2_rating: 'g2_rating',
+  g2_review_count: 'g2_review_count',
+  g2_url: 'g2_url',
+  capterra_rating: 'capterra_rating',
+  capterra_review_count: 'capterra_review_count',
+  capterra_url: 'capterra_url',
+  reviews_checked_at: 'reviews_checked_at',
+  // Marketplace leaf. Mirrors workflows/product/marketplace.ts.
+  marketplace_count: 'marketplace_count',
+  source_marketplaces: 'source_marketplaces',
+  marketplace_checked_at: 'marketplace_checked_at',
+  // iPaaS leaf. Mirrors workflows/product/ipaas.ts.
+  ipaas_count: 'ipaas_count',
+  ipaas_platforms: 'ipaas_platforms',
+  ipaas_checked_at: 'ipaas_checked_at',
 };
+
+const MARKETPLACE_NAMES = ['Procore', 'ACC', 'Trimble', 'Bluebeam'] as const;
+const IPAAS_PLATFORM_NAMES = ['Zapier', 'Make', 'Workato'] as const;
 
 const usefulnessEntrySchema = z.object({
   id: z.string().min(1).describe('Airtable record ID of the discipline / phase.'),
@@ -265,7 +289,7 @@ export function registerProductTools(
   // -------------------------------------------------------------------------
   server.tool(
     'create_product_and_research',
-    'Create a new product record from minimal LLM-research info, then start the product enrichment orchestrator (research → overview → leaf enrichments → score). Returns the new Airtable record ID and the orchestrator run ID. Use list_products first to confirm the product does not already exist — there is no built-in dedupe. Pass `vendor_id` whenever the vendor is known up front (seed playbooks always do) so the linked `vendors` field is populated at creation time.',
+    'Create a new product record from minimal LLM-research info, then start the product enrichment orchestrator (research → overview → leaf enrichments → score). Returns the new Airtable record ID and the orchestrator run ID. A server-side duplicate guard runs before insertion: if a high-confidence match exists (same normalized name, same website hostname, or shared vendor + token-subset name), the tool returns `{ duplicate: true, matches: [...] }` instead of creating — adopt the existing record id from `matches[0].product.id`, or retry with `allow_duplicate: true` if you are sure it is a distinct product. Pass `vendor_id` whenever the vendor is known up front (seed playbooks always do) so the linked `vendors` field is populated at creation time and so the duplicate guard can use vendor scoping.',
     {
       name: z
         .string()
@@ -306,6 +330,12 @@ export function registerProductTools(
         .describe(
           'Airtable record ID of the vendor that makes this product. Sets the linked-record `vendors` field at creation time so the product is correctly attributed even if a follow-up update_product never lands. Always supply this from seed playbooks where the vendor is known.',
         ),
+      allow_duplicate: z
+        .boolean()
+        .optional()
+        .describe(
+          'Bypass the server-side duplicate guard. Only set after inspecting the `matches` returned by a prior duplicate response and confirming the new row is genuinely a distinct product (e.g. a vendor with two similarly-named SKUs). Defaults to false.',
+        ),
     },
     async (input) => {
       try {
@@ -318,11 +348,82 @@ export function registerProductTools(
           skipOrchestrator: input.skip_orchestrator,
           extensionOf: input.extension_of,
           vendorId: input.vendor_id,
+          allowDuplicate: input.allow_duplicate,
           triggeredBy: 'mcp',
         });
-        return ok(result);
+        return ok({ duplicate: false, ...result });
       } catch (e) {
+        if (e instanceof CreateProductDuplicateError) {
+          // Not a true error — surface the existing record(s) so the caller
+          // can adopt one without a second round-trip. Caller flips
+          // `allow_duplicate: true` to override.
+          return ok({
+            duplicate: true,
+            matches: e.matches,
+            hint:
+              'A high-confidence duplicate already exists. Adopt matches[0].product.id ' +
+              'instead of creating, or retry with allow_duplicate: true if this is ' +
+              'genuinely a distinct product.',
+          });
+        }
         if (e instanceof CreateProductValidationError) return err(e.message);
+        return err(toMessage(e));
+      }
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // find_product
+  // -------------------------------------------------------------------------
+  server.tool(
+    'find_product',
+    'Look up an existing product by candidate name, website, and/or vendor. Returns ranked matches with confidence (high|medium|low) and the reason(s) each candidate matched. High-confidence signals: exact normalized-name match, shared website hostname, or shared vendor + token-subset name. Use this BEFORE create_product_and_research to avoid duplicates — name-only substring search via list_products misses common cases (acronyms, legal suffixes, casing). Pass at least one of `name` or `website`. Rejected products are excluded.',
+    {
+      name: z
+        .string()
+        .optional()
+        .describe(
+          'Candidate product name (e.g. "Bluebeam Revu", "Autodesk Construction Cloud", "ACC"). Will be normalized (lowercased, legal suffixes stripped, punctuation dropped) before comparison.',
+        ),
+      website: z
+        .string()
+        .optional()
+        .describe(
+          'Candidate product website. Hostname is extracted and lowercased before comparison; bare hostnames ("acme.com") are accepted.',
+        ),
+      vendor_id: z
+        .string()
+        .optional()
+        .describe(
+          'Optional Airtable vendor record ID. When provided, the matcher upgrades token-subset name matches scoped to this vendor to high confidence (handles "ACC" ↔ "Autodesk Construction Cloud" within Autodesk).',
+        ),
+      limit: z
+        .number()
+        .int()
+        .min(1)
+        .max(20)
+        .optional()
+        .describe('Maximum matches to return. Defaults to 10.'),
+    },
+    async (input) => {
+      const env = getEnv();
+      const name = input.name?.trim();
+      const website = input.website?.trim();
+      if (!name && !website) {
+        return err('Must provide at least one of `name` or `website`.');
+      }
+      try {
+        const matches = await findProductMatches(env, {
+          name,
+          website,
+          vendorId: input.vendor_id,
+        });
+        const limit = input.limit ?? 10;
+        return ok({
+          matches: matches.slice(0, limit),
+          total: matches.length,
+        });
+      } catch (e) {
         return err(toMessage(e));
       }
     },
@@ -333,7 +434,7 @@ export function registerProductTools(
   // -------------------------------------------------------------------------
   server.tool(
     'update_product',
-    'Patch fields on an existing product record. Only provided fields are written. Linked-record fields (category, supported_disciplines, supported_project_phases, vendors) accept arrays of Airtable record IDs (use list_vendors / list_meta-style lookups to get IDs). Returns the updated ProductDetail.',
+    'Patch fields on an existing product record. Only provided fields are written. Linked-record fields (category, supported_disciplines, supported_project_phases, vendors) accept arrays of Airtable record IDs (use list_vendors / list_meta-style lookups to get IDs). Also accepts the leaf-scoring inputs the cloud product-orchestrator writes (g2_*, capterra_*, has_api_docs / api_docs_url, marketplace_count + source_marketplaces, ipaas_count + ipaas_platforms, plus the `*_checked_at` timestamps that clear the matching `missing_*_check` flag). After the patch, priority_score / priority_tier / priority_flags / tool_data_completeness / tool_enrichment_status are recomputed synchronously — never set those yourself. Returns the updated ProductDetail with score_summary.',
     {
       record_id: z
         .string()
@@ -388,6 +489,59 @@ export function registerProductTools(
             'disciplines / phases — use list_taxonomy to look up record IDs. ' +
             'Stored on Airtable as JSON in the `usefulness` long-text field.',
         ),
+      // ---- Leaf-scoring inputs (mirrors cloud product-orchestrator leaves) -
+      // The scoring service (services/scoring.ts) reads these fields off the
+      // record and recomputes priority_score / priority_tier / priority_flags
+      // synchronously after the patch. The `*_checked_at` timestamps clear the
+      // matching `missing_*_check` flags. Pass `null` to clear a field.
+      api_docs_checked_at: z
+        .string()
+        .optional()
+        .describe('ISO timestamp of the most recent api-docs check. Set when has_api_docs / api_docs_url were just refreshed.'),
+      g2_rating: z.number().nullable().optional(),
+      g2_review_count: z.number().int().nullable().optional(),
+      g2_url: z.string().nullable().optional(),
+      capterra_rating: z.number().nullable().optional(),
+      capterra_review_count: z.number().int().nullable().optional(),
+      capterra_url: z.string().nullable().optional(),
+      reviews_checked_at: z
+        .string()
+        .optional()
+        .describe('ISO timestamp of the most recent G2 / Capterra check. Set when any of the four rating/count fields were just written.'),
+      marketplace_count: z
+        .number()
+        .int()
+        .min(0)
+        .max(MARKETPLACE_NAMES.length)
+        .optional()
+        .describe('Number of AEC marketplaces this product is published to (0–4).'),
+      source_marketplaces: z
+        .array(z.enum(MARKETPLACE_NAMES))
+        .optional()
+        .describe(
+          `AEC marketplaces with a verified vendor-published listing. Allowed values: ${MARKETPLACE_NAMES.join(', ')}. (Note: Autodesk's marketplace is "ACC".)`,
+        ),
+      marketplace_checked_at: z
+        .string()
+        .optional()
+        .describe('ISO timestamp of the most recent marketplace sweep.'),
+      ipaas_count: z
+        .number()
+        .int()
+        .min(0)
+        .max(IPAAS_PLATFORM_NAMES.length)
+        .optional()
+        .describe('Number of iPaaS platforms with a published connector for this product (0–3).'),
+      ipaas_platforms: z
+        .array(z.enum(IPAAS_PLATFORM_NAMES))
+        .optional()
+        .describe(
+          `iPaaS platforms with a verified published connector. Allowed values: ${IPAAS_PLATFORM_NAMES.join(', ')}.`,
+        ),
+      ipaas_checked_at: z
+        .string()
+        .optional()
+        .describe('ISO timestamp of the most recent iPaaS sweep.'),
     },
     async (input) => {
       const env = getEnv();
