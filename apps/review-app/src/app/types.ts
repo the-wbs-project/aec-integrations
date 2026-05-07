@@ -350,6 +350,9 @@ export interface EnqueuePromptJobRequest {
   playbook_slug: string;
   scope?: string;
   model?: string;
+  target_record_id?: string;
+  aspect?: string;
+  force_refresh?: boolean;
 }
 
 export interface EnqueuePromptJobResponse {

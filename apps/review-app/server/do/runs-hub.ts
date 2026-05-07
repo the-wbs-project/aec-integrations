@@ -15,6 +15,7 @@ import type { Env } from '../env';
 import { workflowBinding } from '../workflows/registry';
 import { getCapturedError } from '../services/run-errors';
 import { appendRunRow } from '../services/runs-airtable';
+import { listRecords, asString } from '../services/airtable';
 
 export interface RunRecord {
   runId: string;
@@ -22,7 +23,7 @@ export interface RunRecord {
   recordId: string;
   recordLabel?: string;
   parentRunId?: string;
-  triggeredBy: 'http' | 'mcp' | 'cron' | 'parent-orchestrator' | 'auto-enrich';
+  triggeredBy: 'http' | 'mcp' | 'cron' | 'parent-orchestrator' | 'auto-enrich' | 'queue';
   forceRefresh: boolean;
   model?: string;
   startedAt: string;
@@ -32,6 +33,8 @@ export interface RunRecord {
   error?: { name: string; message: string; stack?: string };
   output?: unknown;
   airtableRowId?: string;
+  /** True when this row mirrors a prompt_queue Airtable row (workflow="pb:*"). */
+  isQueueJob?: boolean;
   /**
    * Self-reported confidence from research workflows (extracted from
    * `output.research.confidence`). 'low' surfaces with an amber badge in the
@@ -76,6 +79,45 @@ const POLL_INTERVAL_MS = 3000;
 // 100 KB ceiling so DO storage stays under its 128 KB per-key limit even after
 // status / metadata fields are tacked onto the record.
 const MAX_OUTPUT_BYTES = 100_000;
+
+// Cadence for polling the Airtable prompt_queue table when no Cloudflare
+// Workflow runs are inflight. The dispatcher itself runs every 10 minutes,
+// so this just needs to be fast enough that bell users see queue rows
+// appear / change state without feeling stuck.
+const QUEUE_POLL_INTERVAL_MS = 30_000;
+// How far back to consider terminal queue rows (so a job that completed since
+// the last poll still shows up as "completed" in the bell).
+const QUEUE_TERMINAL_LOOKBACK_MS = 5 * 60_000;
+// Prefix that distinguishes queue-row runIds from Cloudflare Workflow UUIDs.
+const QUEUE_RUN_ID_PREFIX = 'pb:';
+
+// Map prompt_queue.status → RunRecord.status used by the bell UI.
+function mapQueueStatus(raw: string): string {
+  switch (raw) {
+    case 'pending':
+      return 'queued';
+    case 'running':
+      return 'running';
+    case 'completed':
+      return 'complete';
+    case 'failed':
+      return 'errored';
+    default:
+      return raw || 'unknown';
+  }
+}
+
+// Coerce the queue's `requested_by` (free-form: "cron:…", "mcp:…", an email)
+// into one of the RunRecord.triggeredBy union members so the UI badge stays
+// stable.
+function inferTriggeredBy(requestedBy: string | undefined): RunRecord['triggeredBy'] {
+  if (!requestedBy) return 'queue';
+  if (requestedBy.startsWith('cron:')) return 'cron';
+  if (requestedBy.startsWith('mcp:')) return 'mcp';
+  if (requestedBy.startsWith('http:')) return 'http';
+  if (requestedBy.includes('@')) return 'http'; // user email — manual /prompts page click
+  return 'queue';
+}
 
 export class RunsHub extends DurableObject<Env> {
   private recent: RunRecord[] = [];
@@ -132,48 +174,65 @@ export class RunsHub extends DurableObject<Env> {
 
   override async alarm(): Promise<void> {
     await this.ensureLoaded();
-    if (this.inflight.size === 0) return;
 
-    const ids = [...this.inflight];
-    const before = new Map<string, RunRecord>();
-    for (const id of ids) {
-      const rec = await this.lookup(id);
-      if (rec) before.set(id, rec);
-      else this.inflight.delete(id); // unknown — drop it
+    // Always reconcile prompt_queue rows so button-triggered jobs surface in
+    // the bell alongside Cloudflare Workflow runs.
+    try {
+      await this.pollQueue();
+    } catch (err) {
+      console.error('[RunsHub] pollQueue failed', String(err));
     }
 
-    const updates = await Promise.all(
-      [...before.entries()].map(async ([id, rec]) => ({ id, rec, next: await this.poll(rec) })),
-    );
-
-    let listChanged = false;
-    for (const { id, rec, next } of updates) {
-      if (!hasMeaningfulDelta(rec, next)) continue;
-
-      await this.ctx.storage.put(`run:${id}`, next);
-      const idx = this.recent.findIndex((r) => r.runId === id);
-      if (idx >= 0) {
-        this.recent[idx] = next;
-        listChanged = true;
-      }
-
-      if (TERMINAL_STATUSES.has(next.status)) {
-        this.inflight.delete(id);
-        this.broadcast(['recent', `run:${id}`], { type: 'run-completed', run: next });
-        this.ctx.waitUntil(this.persistAirtable(next));
-      } else {
-        this.broadcast(['recent', `run:${id}`], { type: 'run-updated', run: next });
-      }
-    }
-
-    if (listChanged) {
-      await this.ctx.storage.put('recent', this.recent);
-    }
-    await this.ctx.storage.put('inflight', [...this.inflight]);
-
+    // Poll Cloudflare Workflow instances only when there are inflight runs.
     if (this.inflight.size > 0) {
-      await this.ctx.storage.setAlarm(Date.now() + POLL_INTERVAL_MS);
+      const ids = [...this.inflight];
+      const before = new Map<string, RunRecord>();
+      for (const id of ids) {
+        const rec = await this.lookup(id);
+        if (rec) before.set(id, rec);
+        else this.inflight.delete(id);
+      }
+
+      const updates = await Promise.all(
+        [...before.entries()].map(async ([id, rec]) => ({
+          id,
+          rec,
+          next: await this.poll(rec),
+        })),
+      );
+
+      let listChanged = false;
+      for (const { id, rec, next } of updates) {
+        if (!hasMeaningfulDelta(rec, next)) continue;
+
+        await this.ctx.storage.put(`run:${id}`, next);
+        const idx = this.recent.findIndex((r) => r.runId === id);
+        if (idx >= 0) {
+          this.recent[idx] = next;
+          listChanged = true;
+        }
+
+        if (TERMINAL_STATUSES.has(next.status)) {
+          this.inflight.delete(id);
+          this.broadcast(['recent', `run:${id}`], { type: 'run-completed', run: next });
+          this.ctx.waitUntil(this.persistAirtable(next));
+        } else {
+          this.broadcast(['recent', `run:${id}`], { type: 'run-updated', run: next });
+        }
+      }
+
+      if (listChanged) {
+        await this.ctx.storage.put('recent', this.recent);
+      }
+      await this.ctx.storage.put('inflight', [...this.inflight]);
     }
+
+    // Always reschedule. Workflow polling needs 3s cadence when something is
+    // inflight; queue polling is fine at 30s. Pick the smaller interval so
+    // the alarm covers both consumers.
+    const nextDelay =
+      this.inflight.size > 0 ? POLL_INTERVAL_MS : QUEUE_POLL_INTERVAL_MS;
+    await this.ctx.storage.setAlarm(Date.now() + nextDelay);
   }
 
   override async webSocketMessage(_ws: WebSocket, _message: ArrayBuffer | string): Promise<void> {
@@ -197,6 +256,12 @@ export class RunsHub extends DurableObject<Env> {
 
   private async ensureLoaded(): Promise<void> {
     if (!this.loaded) await this.load();
+    // The alarm is the only thing that re-pulls prompt_queue, so make sure
+    // one is scheduled even when no Cloudflare Workflow runs are inflight.
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing == null) {
+      await this.ctx.storage.setAlarm(Date.now() + QUEUE_POLL_INTERVAL_MS);
+    }
   }
 
   private async load(): Promise<void> {
@@ -205,6 +270,124 @@ export class RunsHub extends DurableObject<Env> {
     this.recent = recent;
     this.inflight = new Set(inflight);
     this.loaded = true;
+  }
+
+  // -------------------------------------------------------------------------
+  // pollQueue — reconcile Airtable prompt_queue rows into `recent`.
+  //
+  // Fetches every pending/running row plus terminal rows that flipped within
+  // QUEUE_TERMINAL_LOOKBACK_MS, maps them to RunRecord shape with a
+  // "pb:<airtableId>" runId, and broadcasts deltas. Queue rows live entirely
+  // outside the `inflight` set — this method is the only thing that polls
+  // them, so the workflow-poll path never tries to call workflowBinding() on
+  // a "pb:*" id.
+  // -------------------------------------------------------------------------
+  private async pollQueue(): Promise<void> {
+    const cutoff = new Date(Date.now() - QUEUE_TERMINAL_LOOKBACK_MS).toISOString();
+    const filter =
+      `OR({status} = 'pending', {status} = 'running', ` +
+      `AND(OR({status} = 'completed', {status} = 'failed'), ` +
+      `IS_AFTER({completed_at}, '${cutoff}')))`;
+
+    let rows: Awaited<ReturnType<typeof listRecords>>;
+    try {
+      rows = await listRecords(this.env, 'promptQueue', {
+        filterByFormula: filter,
+        fields: [
+          'playbook_slug',
+          'playbook_title',
+          'status',
+          'requested_by',
+          'target_record_id',
+          'aspect',
+          'force_refresh',
+          'created_at',
+          'started_at',
+          'completed_at',
+          'result_summary',
+          'error',
+        ],
+        sort: [{ field: 'created_at', direction: 'desc' }],
+        maxRecords: RECENT_LIMIT,
+      });
+    } catch (err) {
+      console.error('[RunsHub] queue listRecords failed', String(err));
+      return;
+    }
+
+    let listChanged = false;
+    for (const row of rows) {
+      const queueRunId = `${QUEUE_RUN_ID_PREFIX}${row.id}`;
+      const slug = asString(row.fields['playbook_slug']) ?? 'unknown';
+      const title = asString(row.fields['playbook_title']);
+      const rawStatus = asString(row.fields['status']) ?? 'pending';
+      const status = mapQueueStatus(rawStatus);
+      const targetRecordId = asString(row.fields['target_record_id']) ?? '';
+      const requestedBy = asString(row.fields['requested_by']);
+      const forceRefreshRaw = row.fields['force_refresh'];
+      const forceRefresh = typeof forceRefreshRaw === 'boolean' ? forceRefreshRaw : false;
+      const startedAt =
+        asString(row.fields['started_at']) ??
+        asString(row.fields['created_at']) ??
+        new Date().toISOString();
+      const completedAt = asString(row.fields['completed_at']);
+      const errorMsg = asString(row.fields['error']);
+      const summary = asString(row.fields['result_summary']);
+
+      const next: RunRecord = {
+        runId: queueRunId,
+        workflow: `pb:${slug}`,
+        recordId: targetRecordId,
+        recordLabel: title ?? slug,
+        triggeredBy: inferTriggeredBy(requestedBy),
+        forceRefresh,
+        startedAt,
+        status,
+        isQueueJob: true,
+        ...(completedAt && TERMINAL_STATUSES.has(status)
+          ? {
+              finishedAt: completedAt,
+              durationMs:
+                Date.parse(completedAt) - Date.parse(startedAt) || undefined,
+            }
+          : {}),
+        ...(errorMsg && status === 'errored'
+          ? { error: { name: 'PlaybookError', message: errorMsg } }
+          : {}),
+        ...(summary ? { output: { summary } } : {}),
+      };
+
+      const existing = await this.lookup(queueRunId);
+      if (!existing) {
+        this.recent = [next, ...this.recent].slice(0, RECENT_LIMIT);
+        listChanged = true;
+        await this.ctx.storage.put(`run:${queueRunId}`, next);
+        this.broadcast(['recent', `run:${queueRunId}`], { type: 'run-started', run: next });
+        continue;
+      }
+
+      const merged: RunRecord = { ...existing, ...next };
+      if (!queueDelta(existing, merged)) continue;
+
+      const idx = this.recent.findIndex((r) => r.runId === queueRunId);
+      if (idx >= 0) {
+        this.recent[idx] = merged;
+        listChanged = true;
+      } else {
+        this.recent = [merged, ...this.recent].slice(0, RECENT_LIMIT);
+        listChanged = true;
+      }
+      await this.ctx.storage.put(`run:${queueRunId}`, merged);
+
+      const eventType: 'run-updated' | 'run-completed' = TERMINAL_STATUSES.has(merged.status)
+        ? 'run-completed'
+        : 'run-updated';
+      this.broadcast(['recent', `run:${queueRunId}`], { type: eventType, run: merged });
+    }
+
+    if (listChanged) {
+      await this.ctx.storage.put('recent', this.recent);
+    }
   }
 
   private async lookup(runId: string): Promise<RunRecord | undefined> {
@@ -360,6 +543,16 @@ export class RunsHub extends DurableObject<Env> {
 }
 
 function hasMeaningfulDelta(prev: RunRecord, next: RunRecord): boolean {
+  if (prev.status !== next.status) return true;
+  if (prev.finishedAt !== next.finishedAt) return true;
+  if (JSON.stringify(prev.error ?? null) !== JSON.stringify(next.error ?? null)) return true;
+  if (JSON.stringify(prev.output ?? null) !== JSON.stringify(next.output ?? null)) return true;
+  return false;
+}
+
+// Same comparison shape as hasMeaningfulDelta but tolerant of fields the
+// queue path doesn't populate (no Cloudflare Workflow output payload).
+function queueDelta(prev: RunRecord, next: RunRecord): boolean {
   if (prev.status !== next.status) return true;
   if (prev.finishedAt !== next.finishedAt) return true;
   if (JSON.stringify(prev.error ?? null) !== JSON.stringify(next.error ?? null)) return true;

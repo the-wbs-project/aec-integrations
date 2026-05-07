@@ -341,6 +341,11 @@ export interface CreateProductRequest {
    * extension (e.g. a SketchUp extension). Empty / undefined = standalone.
    */
   extensionOf?: string[];
+  /**
+   * Optional vendor record ID — when supplied, the new product is linked to
+   * this vendor at creation time via the `vendors` field.
+   */
+  vendorId?: string;
 }
 
 export interface CreateVendorRequest {

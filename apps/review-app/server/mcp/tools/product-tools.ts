@@ -7,6 +7,7 @@ import type { Env } from '../../env';
 import {
   fetchIntegrations,
   fetchProducts,
+  getRecord,
   tableId,
   updateRecord,
 } from '../../services/airtable';
@@ -20,6 +21,7 @@ import {
   CreateProductValidationError,
   createProductAndStartOrchestrator,
 } from '../../services/createProduct';
+import { scoreProduct } from '../../services/scoring';
 import { buildRejectedProductIds, err, ok, toMessage } from '../helpers';
 
 const PRODUCT_PATCH_FIELD_MAP: Record<string, string> = {
@@ -263,7 +265,7 @@ export function registerProductTools(
   // -------------------------------------------------------------------------
   server.tool(
     'create_product_and_research',
-    'Create a new product record from minimal LLM-research info, then start the product enrichment orchestrator (research → overview → leaf enrichments → score). Returns the new Airtable record ID and the orchestrator run ID. Use list_products first to confirm the product does not already exist — there is no built-in dedupe.',
+    'Create a new product record from minimal LLM-research info, then start the product enrichment orchestrator (research → overview → leaf enrichments → score). Returns the new Airtable record ID and the orchestrator run ID. Use list_products first to confirm the product does not already exist — there is no built-in dedupe. Pass `vendor_id` whenever the vendor is known up front (seed playbooks always do) so the linked `vendors` field is populated at creation time.',
     {
       name: z
         .string()
@@ -298,6 +300,12 @@ export function registerProductTools(
         .describe(
           'Array of host product record IDs this product is an extension/plug-in of (e.g. SketchUp\'s id for a SketchUp plug-in). Most extensions have one host; some target several.',
         ),
+      vendor_id: z
+        .string()
+        .optional()
+        .describe(
+          'Airtable record ID of the vendor that makes this product. Sets the linked-record `vendors` field at creation time so the product is correctly attributed even if a follow-up update_product never lands. Always supply this from seed playbooks where the vendor is known.',
+        ),
     },
     async (input) => {
       try {
@@ -309,6 +317,7 @@ export function registerProductTools(
           model: input.model,
           skipOrchestrator: input.skip_orchestrator,
           extensionOf: input.extension_of,
+          vendorId: input.vendor_id,
           triggeredBy: 'mcp',
         });
         return ok(result);
@@ -401,24 +410,42 @@ export function registerProductTools(
         if (typeof existingPromotion === 'string' && existingPromotion === 'rejected') {
           return err(`Product ${input.record_id} is rejected and cannot be updated via MCP.`);
         }
-        const updated = await updateRecord(
-          env,
-          'products',
-          input.record_id,
-          fields,
-        );
+        await updateRecord(env, 'products', input.record_id, fields);
+
+        // Synchronously recompute the priority score (Integration / Demand
+        // pillars + tier + emerging-flag) so the response reflects the new
+        // score in one round-trip. Pure math — no LLM, no external APIs.
+        // Loop-safe: scoreProduct writes via the raw Airtable service, never
+        // re-entering this MCP tool.
+        let scoreSummary: string | undefined;
+        try {
+          const result = await scoreProduct(env, input.record_id);
+          scoreSummary = result.summary;
+        } catch (e) {
+          console.error(
+            '[update_product] scoreProduct failed',
+            input.record_id,
+            String(e),
+          );
+        }
+
         await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'products')}`);
+
+        // Re-fetch the single record so the response reflects scoreProduct's
+        // writes (the cached fetchProducts snapshot is stale until next pull).
+        const fresh = await getRecord(env, 'products', input.record_id);
         const [integrations, maps, products] = await Promise.all([
           fetchIntegrations(env),
           buildLookupMaps(env),
           fetchProducts(env),
         ]);
-        const detail = hydrateProductDetail(updated, maps, integrations, products);
+        const detail = hydrateProductDetail(fresh, maps, integrations, products);
         const rejectedProductIds = buildRejectedProductIds(products);
         const isOk = (otherId: string | undefined): boolean =>
           !!otherId && !rejectedProductIds.has(otherId);
         return ok({
           ...detail,
+          score_summary: scoreSummary,
           integrationsAsSource: detail.integrationsAsSource.filter((i) =>
             isOk(i.targetProduct?.id),
           ),

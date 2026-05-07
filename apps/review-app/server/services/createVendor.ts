@@ -3,42 +3,43 @@
 //
 // Shared helper used by both POST /api/vendors (HTTP) and the MCP
 // `create_vendor_and_research` tool. Creates a minimal Airtable vendor row,
-// invalidates the vendors cache, and (unless skipOrchestrator is set) spawns
-// WF_VENDOR_ORCHESTRATOR against the new record so the standard enrichment
-// pipeline runs against it.
+// invalidates the vendors cache, and (unless skipOrchestrator is set)
+// enqueues an `enrich-vendor` playbook job with `force_refresh: true` so the
+// scheduled dispatcher picks it up and runs the standard enrichment pass.
+//
+// The function name is preserved for backwards compatibility with existing
+// callers; "orchestrator" now refers to the playbook-driven enrichment, not
+// the dormant `vendor-orchestrator` Cloudflare Workflow.
 // ---------------------------------------------------------------------------
 import type { Env } from '../env';
 import { createRecord, tableId } from './airtable';
 import { cacheInvalidate } from './cache';
-import { resolveSearchTool } from '../lib/llm';
-import { notifyRunStarted } from '../lib/notify-run-started';
-import type { RunParams } from '../lib/workflow-meta';
-
-const VALID_MODEL = /^claude-(opus|sonnet|haiku)-[\w.-]+$/;
+import { enqueue } from './promptQueue';
 
 export interface CreateVendorOptions {
   companyName: string;
   website?: string;
   description?: string;
-  /** Override the orchestrator's Claude model. Defaults to env.DEFAULT_MODEL. */
-  model?: string;
-  /** Override the search tool. Defaults to env.SEARCH_TOOL (resolved). */
-  searchTool?: 'searchapi' | 'web';
   /** Force-rerun every leaf enrichment regardless of staleness. */
   forceRefresh?: boolean;
-  /** If true, create the record only — no orchestrator. */
+  /** If true, create the record only — no enrichment job is queued. */
   skipOrchestrator?: boolean;
-  /** Where the call originated (drives the run-feed UI badge). */
+  /** Where the call originated (used as `requested_by` on the queue row). */
   triggeredBy?: 'http' | 'mcp';
+  /** Optional explicit requestedBy override (e.g. cron job name). */
+  requestedBy?: string;
+  /** @deprecated Workflows are no longer the active path; kept for callers. */
+  model?: string;
+  /** @deprecated Workflows are no longer the active path; kept for callers. */
+  searchTool?: 'searchapi' | 'web';
 }
 
 export interface CreateVendorResult {
   recordId: string;
-  /** Present when the orchestrator was spawned. */
-  run?: {
-    runId: string;
-    workflow: 'vendor-orchestrator';
-    model: string;
+  /** Present when an `enrich-vendor` playbook job was enqueued. */
+  queue?: {
+    queueRecordId: string;
+    playbookSlug: 'enrich-vendor';
   };
 }
 
@@ -58,11 +59,6 @@ export async function createVendorAndStartOrchestrator(
     throw new CreateVendorValidationError('companyName is required');
   }
 
-  const model = opts.model ?? env.DEFAULT_MODEL;
-  if (!VALID_MODEL.test(model)) {
-    throw new CreateVendorValidationError(`Invalid model: ${model}`);
-  }
-
   // ----- 1. Create the Airtable row -----------------------------------------
   const fields: Record<string, unknown> = { company_name: companyName };
   if (opts.website?.trim()) fields['website'] = opts.website.trim();
@@ -71,39 +67,26 @@ export async function createVendorAndStartOrchestrator(
   const created = await createRecord(env, 'vendors', fields);
   const recordId = created.id;
 
-  // Invalidate the cached vendor list so the new row appears in GET /api/vendors.
   await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'vendors')}`);
 
   if (opts.skipOrchestrator) {
     return { recordId };
   }
 
-  // ----- 2. Spawn the vendor orchestrator -----------------------------------
-  const searchTool = resolveSearchTool(env, opts.searchTool ?? env.SEARCH_TOOL ?? 'searchapi');
-  const forceRefresh = opts.forceRefresh === true;
-  const runId = crypto.randomUUID();
-  const params: RunParams = { recordId, model, searchTool, forceRefresh };
-
-  await env.WF_VENDOR_ORCHESTRATOR.create({ id: runId, params });
-
-  // Best-effort: tell the RunsHub DO so the bell + run-detail UI light up
-  // immediately. A failure here doesn't invalidate the spawned workflow.
-  try {
-    await notifyRunStarted(env, {
-      runId,
-      workflow: 'vendor-orchestrator',
-      recordId,
-      recordLabel: companyName,
-      triggeredBy: opts.triggeredBy ?? 'http',
-      forceRefresh,
-      model,
-    });
-  } catch (err) {
-    console.error('[createVendor] notifyRunStarted failed', runId, String(err));
-  }
+  // ----- 2. Enqueue an `enrich-vendor` playbook job -------------------------
+  const requestedBy = opts.requestedBy ?? `${opts.triggeredBy ?? 'http'}:create_vendor_and_research`;
+  const queueResult = await enqueue(env, {
+    playbookSlug: 'enrich-vendor',
+    targetRecordId: recordId,
+    forceRefresh: opts.forceRefresh === true,
+    requestedBy,
+  });
 
   return {
     recordId,
-    run: { runId, workflow: 'vendor-orchestrator', model },
+    queue: {
+      queueRecordId: queueResult.recordId,
+      playbookSlug: 'enrich-vendor',
+    },
   };
 }

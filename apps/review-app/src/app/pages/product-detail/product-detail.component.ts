@@ -292,10 +292,10 @@ export class ProductDetailComponent {
   startIntegrationsDiscovery(): void {
     if (this.discoveryRunning()) return;
     this.discoveryRunning.set(true);
-    this.runs
-      .startRun('product-integrations-discovery', {
-        record_ids: [this.id()],
-        model: this.modelService.selected(),
+    this.api
+      .enqueuePromptJob({
+        playbook_slug: 'discover-product-integrations',
+        target_record_id: this.id(),
         force_refresh: true,
       })
       .subscribe({

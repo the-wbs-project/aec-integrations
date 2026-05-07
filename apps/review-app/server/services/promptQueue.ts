@@ -8,18 +8,21 @@
 //
 // The queue table lives in Airtable under env.AIRTABLE_TABLES.promptQueue.
 // Schema (must be created manually in the base — see docs/prompt-queue.md):
-//   playbook_slug   single line text
-//   playbook_title  single line text
-//   scope           long text (optional)
-//   prompt          long text  (the rendered markdown the sub-agent runs)
-//   status          single select  pending | running | completed | failed
-//   requested_by    single line text  (Supabase user email)
-//   model           single line text  (e.g. "opus")
-//   created_at      datetime
-//   started_at      datetime
-//   completed_at    datetime
-//   result_summary  long text
-//   error           long text
+//   playbook_slug    single line text
+//   playbook_title   single line text
+//   scope            long text (optional)
+//   target_record_id single line text (optional, e.g. "rec0123ABCDEF")
+//   aspect           single line text (optional, e.g. "marketplace")
+//   force_refresh    checkbox
+//   prompt           long text  (the rendered markdown the sub-agent runs)
+//   status           single select  pending | running | completed | failed
+//   requested_by     single line text  (Supabase user email)
+//   model            single line text  (e.g. "opus")
+//   created_at       datetime
+//   started_at       datetime
+//   completed_at     datetime
+//   result_summary   long text
+//   error            long text
 //
 // Status transitions: pending → running → completed|failed. claim() is the
 // only path into running and rejects rows already past pending so two
@@ -47,6 +50,9 @@ export interface PromptJobClaim {
   scope: string;
   prompt: string;
   model: string;
+  target_record_id?: string;
+  aspect?: string;
+  force_refresh?: boolean;
 }
 
 export class PromptQueueValidationError extends Error {
@@ -78,6 +84,9 @@ export interface EnqueueOptions {
   scope?: string;
   requestedBy?: string;
   model?: string;
+  targetRecordId?: string;
+  aspect?: string;
+  forceRefresh?: boolean;
 }
 
 export interface EnqueueResult {
@@ -92,7 +101,12 @@ export async function enqueue(env: Env, opts: EnqueueOptions): Promise<EnqueueRe
     throw new PromptQueueValidationError(`Unknown playbook slug: ${opts.playbookSlug}`);
   }
   const scope = (opts.scope ?? '').trim();
-  const prompt = renderPlaybookPrompt(playbook, scope);
+  const prompt = renderPlaybookPrompt(playbook, {
+    scope,
+    targetRecordId: opts.targetRecordId,
+    aspect: opts.aspect,
+    forceRefresh: opts.forceRefresh,
+  });
 
   const fields: Record<string, unknown> = {
     playbook_slug: playbook.slug,
@@ -104,6 +118,9 @@ export async function enqueue(env: Env, opts: EnqueueOptions): Promise<EnqueueRe
     created_at: nowIso(),
   };
   if (opts.requestedBy) fields['requested_by'] = opts.requestedBy;
+  if (opts.targetRecordId) fields['target_record_id'] = opts.targetRecordId;
+  if (opts.aspect) fields['aspect'] = opts.aspect;
+  if (opts.forceRefresh !== undefined) fields['force_refresh'] = opts.forceRefresh;
 
   const created = await createRecord(env, 'promptQueue', fields);
   await invalidate(env);
@@ -141,6 +158,9 @@ export async function claim(env: Env, recordId: string): Promise<PromptJobClaim>
     started_at: nowIso(),
   });
   await invalidate(env);
+  const targetRecordId = String(updated.get('target_record_id') ?? '').trim();
+  const aspect = String(updated.get('aspect') ?? '').trim();
+  const forceRefreshRaw = updated.get('force_refresh');
   return {
     id: updated.id,
     playbook_slug: String(updated.get('playbook_slug') ?? ''),
@@ -148,6 +168,9 @@ export async function claim(env: Env, recordId: string): Promise<PromptJobClaim>
     scope: String(updated.get('scope') ?? ''),
     prompt: String(updated.get('prompt') ?? ''),
     model: String(updated.get('model') ?? DEFAULT_MODEL),
+    ...(targetRecordId ? { target_record_id: targetRecordId } : {}),
+    ...(aspect ? { aspect } : {}),
+    ...(typeof forceRefreshRaw === 'boolean' ? { force_refresh: forceRefreshRaw } : {}),
   };
 }
 

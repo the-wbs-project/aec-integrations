@@ -13,8 +13,17 @@ import { enqueue, PromptQueueValidationError } from '../services/promptQueue';
 
 const promptQueue = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
+const RECORD_ID_RE = /^rec[A-Za-z0-9]{14}$/;
+
 promptQueue.post('/', async (c) => {
-  let body: { playbook_slug?: unknown; scope?: unknown; model?: unknown };
+  let body: {
+    playbook_slug?: unknown;
+    scope?: unknown;
+    model?: unknown;
+    target_record_id?: unknown;
+    aspect?: unknown;
+    force_refresh?: unknown;
+  };
   try {
     body = await c.req.json();
   } catch {
@@ -28,11 +37,32 @@ promptQueue.post('/', async (c) => {
   const scope = typeof body.scope === 'string' ? body.scope : undefined;
   const model = typeof body.model === 'string' && body.model.trim() ? body.model.trim() : undefined;
 
+  let targetRecordId: string | undefined;
+  if (body.target_record_id !== undefined && body.target_record_id !== null) {
+    if (typeof body.target_record_id !== 'string' || !RECORD_ID_RE.test(body.target_record_id.trim())) {
+      return c.json({ error: 'target_record_id must match ^rec[A-Za-z0-9]{14}$' }, 400);
+    }
+    targetRecordId = body.target_record_id.trim();
+  }
+
+  let aspect: string | undefined;
+  if (typeof body.aspect === 'string' && body.aspect.trim()) {
+    aspect = body.aspect.trim();
+  }
+
+  let forceRefresh: boolean | undefined;
+  if (typeof body.force_refresh === 'boolean') {
+    forceRefresh = body.force_refresh;
+  }
+
   try {
     const result = await enqueue(c.env, {
       playbookSlug,
       scope,
       model,
+      targetRecordId,
+      aspect,
+      forceRefresh,
       requestedBy: c.var.user.email ?? c.var.user.id,
     });
     return c.json(result, 201);
