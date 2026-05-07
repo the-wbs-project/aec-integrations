@@ -4,14 +4,17 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
+import {
+  DropDownButtonModule,
+  type ItemModel,
+  type MenuEventArgs,
+} from '@syncfusion/ej2-angular-splitbuttons';
 import { RunDetailDialogComponent } from '../../components/run-detail-dialog/run-detail-dialog.component';
 import { ApiService } from '../../services/api.service';
 import { ModelService } from '../../services/model.service';
 import { RunsService, type RecentRunRow } from '../../services/runs.service';
 import { WORKFLOWS } from '../../workflows';
 import { TagInputComponent } from '../../components/tag-input/tag-input.component';
-import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
-import { PromoteSplitButtonComponent } from '../../components/promote-split-button/promote-split-button.component';
 import { TierDetailDialogComponent } from '../../components/tier-detail-dialog/tier-detail-dialog.component';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
 import {
@@ -19,6 +22,7 @@ import {
   IntegrationSummary,
   LinkRef,
   MetaResponse,
+  PlaybookSummary,
   PromotionStatus,
   ProductDetail,
   ProductUsefulnessEntry,
@@ -125,9 +129,8 @@ const TOOL_TABS: ReadonlySet<ToolTabKey> = new Set([
     FormsModule,
     GridModule,
     ButtonModule,
+    DropDownButtonModule,
     TagInputComponent,
-    EnrichSplitButtonComponent,
-    PromoteSplitButtonComponent,
     RunDetailDialogComponent,
     TierDetailDialogComponent,
   ],
@@ -151,7 +154,6 @@ export class ProductDetailComponent {
     const selfId = this.id();
     return selfId ? all.filter((p) => p.id !== selfId) : all;
   });
-  recordIds = computed(() => (this.tool() ? [this.id()] : []));
   enrichmentVariant = enrichmentVariant;
 
   activeTab = computed<ToolTabKey>(() => {
@@ -398,6 +400,9 @@ export class ProductDetailComponent {
     this.api.getMeta().subscribe((meta) => {
       this.meta.set(meta);
     });
+    this.api.getPlaybooks().subscribe((rows) => {
+      this.playbooks.set(rows);
+    });
   }
 
   // ------------------------------------------------------------------- edit
@@ -413,6 +418,153 @@ export class ProductDetailComponent {
   }
 
   protected readonly promoting = signal(false);
+  protected readonly rescoring = signal(false);
+
+  // ---- Actions dropdown ---------------------------------------------------
+  // Single Syncfusion DropDownButton in the header. Items are keyed by id and
+  // dispatched in onActionsSelect. Disabled "header" rows use the menu-header
+  // CSS class for styling (uppercase, dim, no hover).
+  private static readonly PRODUCT_PLAYBOOK_SLUGS = [
+    'research-products',
+    'enrich-product',
+    'discover-product-integrations',
+  ] as const;
+
+  protected readonly playbooks = signal<PlaybookSummary[]>([]);
+  protected readonly copiedPlaybookSlug = signal<string | null>(null);
+  protected readonly clipboardError = signal<string | null>(null);
+
+  /** Playbooks shown in the Enrichment section, in the canonical order. */
+  protected readonly productPlaybooks = computed<PlaybookSummary[]>(() => {
+    const slugs = ProductDetailComponent.PRODUCT_PLAYBOOK_SLUGS;
+    const bySlug = new Map(this.playbooks().map((p) => [p.slug, p]));
+    return slugs
+      .map((slug) => bySlug.get(slug))
+      .filter((p): p is PlaybookSummary => p !== undefined);
+  });
+
+  protected readonly promotionHeaderText = computed(() => {
+    const status = this.tool()?.promotionStatus;
+    const label =
+      status === 'promoted'
+        ? 'Promoted'
+        : status === 'retracted'
+          ? 'Retracted'
+          : status === 'rejected'
+            ? 'Rejected'
+            : 'Pending';
+    return `Promotion: ${label}`;
+  });
+
+  protected readonly actionsMenuItems = computed<ItemModel[]>(() => {
+    const items: ItemModel[] = [
+      { id: 'refresh', text: 'Refresh', iconCss: 'e-icons e-refresh' },
+      {
+        id: 'header-enrichment',
+        text: 'Enrichment',
+        iconCss: 'menu-header',
+        disabled: true,
+      },
+      { id: 'rescore', text: 'Run rescore', iconCss: 'e-icons e-redo' },
+    ];
+    for (const pb of this.productPlaybooks()) {
+      const isCopied = this.copiedPlaybookSlug() === pb.slug;
+      items.push({
+        id: `playbook:${pb.slug}`,
+        text: isCopied ? `Copied: ${pb.title}` : `Copy: ${pb.title}`,
+        iconCss: isCopied ? 'e-icons e-circle-check' : 'e-icons e-copy',
+      });
+    }
+    items.push({
+      id: 'header-promotion',
+      text: this.promotionHeaderText(),
+      iconCss: 'menu-header',
+      disabled: true,
+    });
+    const status = this.tool()?.promotionStatus;
+    const promoteItems = this.promotionItemsFor(status);
+    items.push(...promoteItems);
+    return items;
+  });
+
+  private promotionItemsFor(status: PromotionStatus | undefined): ItemModel[] {
+    const promote: ItemModel = {
+      id: 'promo:promote',
+      text: 'Promote',
+      iconCss: 'e-icons e-circle-check',
+    };
+    const retract: ItemModel = {
+      id: 'promo:retract',
+      text: 'Retract',
+      iconCss: 'e-icons e-undo',
+    };
+    const reject: ItemModel = {
+      id: 'promo:reject',
+      text: 'Reject',
+      iconCss: 'e-icons e-circle-close',
+    };
+    if (status === 'promoted') return [retract, reject];
+    if (status === 'retracted') return [promote, reject];
+    if (status === 'rejected') return [promote];
+    return [promote, reject];
+  }
+
+  onActionsSelect(args: MenuEventArgs): void {
+    const id = args.item?.id;
+    if (!id) return;
+    if (id === 'refresh') return this.reload();
+    if (id === 'rescore') return this.runRescore();
+    if (id.startsWith('playbook:')) {
+      const slug = id.slice('playbook:'.length);
+      const pb = this.productPlaybooks().find((p) => p.slug === slug);
+      if (pb) void this.copyPlaybook(pb);
+      return;
+    }
+    if (id === 'promo:promote') return this.onPromotionStatusChange('promoted');
+    if (id === 'promo:retract') return this.onPromotionStatusChange('retracted');
+    if (id === 'promo:reject') return this.onPromotionStatusChange('rejected');
+  }
+
+  runRescore(): void {
+    if (this.rescoring()) return;
+    const id = this.id();
+    this.rescoring.set(true);
+    this.saveError.set(null);
+    this.api.rescoreProduct(id).subscribe({
+      next: (res) => {
+        if (this.id() === id) this.tool.set(res.product);
+        this.rescoring.set(false);
+      },
+      error: (err) => {
+        this.rescoring.set(false);
+        this.saveError.set(err?.error?.error ?? err?.message ?? 'Rescore failed');
+      },
+    });
+  }
+
+  /**
+   * Render the playbook body with a target_record_id arg appended (matching
+   * server-side renderPlaybookPrompt's structured-args mode) and copy to
+   * clipboard. Mirrors the prompts page's clipboard pattern.
+   */
+  async copyPlaybook(pb: PlaybookSummary): Promise<void> {
+    this.clipboardError.set(null);
+    const text = `${pb.body.trimEnd()}\n\n- target_record_id: ${this.id()}\n`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      this.clipboardError.set(
+        'Clipboard write failed — your browser may require HTTPS or a permission grant.',
+      );
+      return;
+    }
+    this.copiedPlaybookSlug.set(pb.slug);
+    setTimeout(() => {
+      if (this.copiedPlaybookSlug() === pb.slug) {
+        this.copiedPlaybookSlug.set(null);
+      }
+    }, 2000);
+  }
 
   onPromotionStatusChange(next: PromotionStatus): void {
     if (this.promoting()) return;

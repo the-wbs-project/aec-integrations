@@ -134,12 +134,12 @@ Skip if not stale and `aspect` is not `api-check`.
 
 Check each marketplace for a vendor-published listing of this product:
 
-| Marketplace | Search hint |
-|---|---|
-| Procore App Marketplace | `marketplace.procore.com/apps?search=<name>` |
-| Autodesk Construction Cloud / Forge | `apps.autodesk.com/{CODE}/en/Home/Index` for known products; otherwise WebSearch `"<name>" site:apps.autodesk.com` |
-| Trimble Connect Store | `app.connect.trimble.com` |
-| Bluebeam Marketplace | `marketplace.bluebeam.com` / `integrations.bluebeam.com` |
+| Marketplace | Allowed value | Search hint |
+|---|---|---|
+| Procore App Marketplace | `Procore` | `marketplace.procore.com/apps?search=<name>` |
+| Autodesk Construction Cloud / Forge | `ACC` | `apps.autodesk.com/{CODE}/en/Home/Index` for known products; otherwise WebSearch `"<name>" site:apps.autodesk.com` |
+| Trimble Connect Store | `Trimble` | `app.connect.trimble.com` |
+| Bluebeam Marketplace | `Bluebeam` | `marketplace.bluebeam.com` / `integrations.bluebeam.com` |
 
 For each match: confirm the publisher is the actual vendor (third-party
 connector bundles do **not** count). Body-check via WebFetch.
@@ -147,7 +147,9 @@ connector bundles do **not** count). Body-check via WebFetch.
 Set:
 
 - `marketplace_count` (integer, 0–4)
-- `marketplaces` (array of names that matched, e.g. `["Procore","Autodesk"]`)
+- `source_marketplaces` (array; only the four allowed values above —
+  Autodesk's marketplace is written as `"ACC"`, e.g.
+  `["Procore","ACC"]`)
 - `marketplace_checked_at` (ISO now)
 
 Budget: 2 `WebSearch`, 4 `WebFetch`.
@@ -232,7 +234,7 @@ Call `update_product` **once** with everything you've gathered from Steps
   "api_docs_checked_at": "<ISO now>",
 
   "marketplace_count": 2,
-  "marketplaces": ["Procore", "Autodesk"],
+  "source_marketplaces": ["Procore", "ACC"],
   "marketplace_checked_at": "<ISO now>",
 
   "ipaas_count": 1,

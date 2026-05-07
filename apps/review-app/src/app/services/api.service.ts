@@ -69,6 +69,13 @@ export class ApiService {
     return this.http.patch<ProductDetail>(`${this.baseUrl}/products/${id}`, patch);
   }
 
+  rescoreProduct(id: string): Observable<{ summary: string; product: ProductDetail }> {
+    return this.http.post<{ summary: string; product: ProductDetail }>(
+      `${this.baseUrl}/products/${id}/rescore`,
+      {},
+    );
+  }
+
   getVendors(
     params?: VendorQueryParams
   ): Observable<PaginatedResponse<Vendor>> {

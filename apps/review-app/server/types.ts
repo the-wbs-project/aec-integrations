@@ -346,6 +346,12 @@ export interface CreateProductRequest {
    * this vendor at creation time via the `vendors` field.
    */
   vendorId?: string;
+  /**
+   * Bypass the server-side duplicate guard. Default false. When false (or
+   * unset), a high-confidence duplicate match returns HTTP 409 with the
+   * matched record(s) instead of inserting.
+   */
+  allowDuplicate?: boolean;
 }
 
 export interface CreateVendorRequest {

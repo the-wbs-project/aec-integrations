@@ -77,42 +77,14 @@
             }
           </div>
           <div class="header-row__actions">
-            <div class="btn-group">
-              <button
-                ejs-button
-                type="button"
-                cssClass="e-primary btn-group__refresh"
-                aria-label="Refresh product"
-                title="Refresh"
-                [disabled]="reloading()"
-                (click)="reload()"
-              >
-                <svg
-                  class="icon"
-                  [class.icon--spin]="reloading()"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.5"
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  aria-hidden="true"
-                >
-                  <polyline points="23 4 23 10 17 10" />
-                  <polyline points="1 20 1 14 7 14" />
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" />
-                </svg>
-              </button>
-              <app-enrich-split-button
-                family="tool"
-                [recordIds]="recordIds()"
-              />
-              <app-promote-split-button
-                [status]="tool.promotionStatus"
-                [disabled]="promoting()"
-                (statusChange)="onPromotionStatusChange($event)"
-              />
-            </div>
+            <button
+              ejs-dropdownbutton
+              type="button"
+              cssClass="e-primary actions-dropdown"
+              [items]="actionsMenuItems()"
+              [disabled]="reloading() || rescoring() || promoting()"
+              (select)="onActionsSelect($event)"
+            >Actions</button>
             <button class="btn btn--ghost btn--sm" (click)="startEdit('header', tool)">Edit</button>
           </div>
         </div>
