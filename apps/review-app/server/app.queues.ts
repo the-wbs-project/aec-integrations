@@ -8,9 +8,11 @@ import {
 } from './services/productAutoEnrich/types';
 import type { ReportJob } from './services/reports/types';
 import { runWeeklyCostReport } from './services/reports/weeklyCostReport';
+import { runDailySnapshot } from './services/snapshot/runDailySnapshot';
+import { SNAPSHOTS_QUEUE_NAME, type SnapshotJob } from './services/snapshot/types';
 
 export async function APP_QUEUE(
-    batch: MessageBatch<ReportJob | AutoEnrichJob | ProductAutoEnrichJob>,
+    batch: MessageBatch<ReportJob | AutoEnrichJob | ProductAutoEnrichJob | SnapshotJob>,
     env: Env,
 ): Promise<void> {
     for (const message of batch.messages) {
@@ -36,6 +38,15 @@ export async function APP_QUEUE(
                         model: body.model,
                         triggeredBy: body.triggeredBy,
                     });
+                } else {
+                    console.warn(
+                        `[queue:${batch.queue}] SKIPPED message id=${message.id} — unrecognized body.kind="${(body as { kind?: string })?.kind ?? '<missing>'}"`,
+                    );
+                }
+            } else if (batch.queue === SNAPSHOTS_QUEUE_NAME) {
+                const body = message.body as SnapshotJob;
+                if (body.kind === 'daily-stats-snapshot') {
+                    await runDailySnapshot(env, { date: body.date });
                 } else {
                     console.warn(
                         `[queue:${batch.queue}] SKIPPED message id=${message.id} — unrecognized body.kind="${(body as { kind?: string })?.kind ?? '<missing>'}"`,

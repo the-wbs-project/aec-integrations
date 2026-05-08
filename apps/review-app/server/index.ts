@@ -17,7 +17,9 @@ import { APP_ROUTES } from './app.routes';
 import { APP_SCHEDULED } from './app.scheduled';
 import type { Env } from './env';
 import type { AutoEnrichJob } from './services/autoEnrich/types';
+import type { ProductAutoEnrichJob } from './services/productAutoEnrich/types';
 import type { ReportJob } from './services/reports/types';
+import type { SnapshotJob } from './services/snapshot/types';
 import { AeciReviewMcp } from './mcp/agent';
 
 // Singleton Durable Object that owns the live run registry / WebSocket fan-out.
@@ -69,4 +71,4 @@ export default {
   },
   scheduled: APP_SCHEDULED,
   queue: APP_QUEUE,
-} satisfies ExportedHandler<Env, ReportJob | AutoEnrichJob>;
+} satisfies ExportedHandler<Env, ReportJob | AutoEnrichJob | ProductAutoEnrichJob | SnapshotJob>;

@@ -18,6 +18,7 @@ import type { RunParams } from './lib/workflow-meta';
 import type { ReportJob } from './services/reports/types';
 import type { AutoEnrichJob } from './services/autoEnrich/types';
 import type { ProductAutoEnrichJob } from './services/productAutoEnrich/types';
+import type { SnapshotJob } from './services/snapshot/types';
 
 /**
  * Type of the BROWSER binding accepted by puppeteer.launch(). Computed from
@@ -35,6 +36,7 @@ export interface AirtableTables {
   integrations: string;
   runs: string;
   promptQueue: string;
+  dailyStats: string;
 }
 
 /**
@@ -109,6 +111,7 @@ interface OverriddenBindings extends WorkflowBindings {
   REPORTS_QUEUE: Queue<ReportJob>;
   VENDOR_AUTO_ENRICH_QUEUE: Queue<AutoEnrichJob>;
   PRODUCT_AUTO_ENRICH_QUEUE: Queue<ProductAutoEnrichJob>;
+  SNAPSHOTS_QUEUE: Queue<SnapshotJob>;
   AIRTABLE_TABLES: AirtableTables;
   SEARCH_TOOL: SearchTool;
 }
