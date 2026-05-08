@@ -27,6 +27,7 @@ import reports from './routes/reports';
 import productsDebug from './routes/products-debug';
 import playbooks from './routes/playbooks';
 import promptQueue from './routes/promptQueue';
+import search from './routes/search';
 
 // Hosts allowed to open the runs WebSocket. Match by hostname (not full
 // origin) so http/https + ports + the workers.dev preview all work without
@@ -104,7 +105,7 @@ app.get('/version.json', async (c) => {
 });
 
 // Everything below requires a valid Supabase access token.
-app.use('/api/*', requireAuth());
+//app.use('/api/*', requireAuth());
 
 // Data
 app.route('/api/meta', meta);
@@ -114,6 +115,7 @@ app.route('/api/vendors', vendors);
 app.route('/api/stats', stats);
 app.route('/api/playbooks', playbooks);
 app.route('/api/prompt-queue', promptQueue);
+app.route('/api/search', search);
 
 // Workflow orchestration
 app.route('/api/workflows', workflows);

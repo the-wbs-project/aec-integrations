@@ -18,6 +18,10 @@ import {
   PlaybookSummary,
   EnqueuePromptJobRequest,
   EnqueuePromptJobResponse,
+  AeciSearchRequest,
+  AeciSearchResponse,
+  AeciSearchSyncRequest,
+  AeciSearchSyncResponse,
 } from '../types';
 
 export interface ProductQueryParams {
@@ -123,6 +127,17 @@ export class ApiService {
   ): Observable<EnqueuePromptJobResponse> {
     return this.http.post<EnqueuePromptJobResponse>(
       `${this.baseUrl}/prompt-queue`,
+      body,
+    );
+  }
+
+  searchAeciCorpus(body: AeciSearchRequest): Observable<AeciSearchResponse> {
+    return this.http.post<AeciSearchResponse>(`${this.baseUrl}/search`, body);
+  }
+
+  syncAeciSearch(body: AeciSearchSyncRequest): Observable<AeciSearchSyncResponse> {
+    return this.http.post<AeciSearchSyncResponse>(
+      `${this.baseUrl}/search/sync`,
       body,
     );
   }

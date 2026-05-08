@@ -10,6 +10,61 @@ export interface PaginatedResponse<T> {
   limit: number;
 }
 
+export type AeciSearchEntityType = 'product' | 'vendor' | 'integration' | 'evidence';
+
+export interface AeciSearchFilters {
+  entity_type?: AeciSearchEntityType | AeciSearchEntityType[];
+  category?: string | string[];
+  discipline?: string | string[];
+  project_phase?: string | string[];
+  visibility?: string | string[];
+}
+
+export interface AeciSearchRequest {
+  query: string;
+  filters?: AeciSearchFilters;
+  limit?: number;
+  matchThreshold?: number;
+  retrievalType?: 'vector' | 'keyword' | 'hybrid';
+}
+
+export interface AeciSearchResult {
+  id: string;
+  key: string;
+  title: string;
+  snippet: string;
+  sourceUrl?: string;
+  entityType?: string;
+  score: number;
+  metadata: Record<string, unknown>;
+}
+
+export interface AeciSearchResponse {
+  query: string;
+  searchQuery: string;
+  results: AeciSearchResult[];
+}
+
+export interface AeciSearchSyncRequest {
+  products?: number;
+  vendors?: number;
+  integrations?: number;
+  evidence?: number | boolean;
+  poll?: boolean;
+}
+
+export interface AeciSearchSyncResponse {
+  configured: boolean;
+  uploaded: Array<{ key: string; status: string; id?: string }>;
+  errors: Array<{ key: string; error: string }>;
+  counts: {
+    products: number;
+    vendors: number;
+    integrations: number;
+    evidence: number;
+  };
+}
+
 export type PromotionStatus = 'pending' | 'ready' | 'promoted' | 'retracted' | 'rejected';
 
 /**
