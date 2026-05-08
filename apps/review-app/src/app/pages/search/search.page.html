@@ -1,0 +1,101 @@
+<section class="search-page">
+  <header class="search-header">
+    <div>
+      <p class="eyebrow">Cloudflare AI Search</p>
+      <h1 class="page-heading">Search the AEC Integrations corpus</h1>
+    </div>
+    <button
+      type="button"
+      class="btn btn--secondary"
+      (click)="syncPilot()"
+      [disabled]="syncing()"
+    >
+      {{ syncing() ? 'Indexing...' : 'Index pilot set' }}
+    </button>
+  </header>
+
+  <form class="search-band" (ngSubmit)="search()">
+    <label class="search-band__query">
+      <span>Query</span>
+      <input
+        name="query"
+        type="search"
+        [ngModel]="query()"
+        (ngModelChange)="query.set($event)"
+        placeholder="Find integrations for Bluebeam"
+        autocomplete="off"
+      >
+    </label>
+
+    <label class="search-band__filter">
+      <span>Type</span>
+      <select
+        name="entityType"
+        [ngModel]="entityType()"
+        (ngModelChange)="entityType.set($event)"
+      >
+        <option value="">All indexed content</option>
+        <option value="product">Products</option>
+        <option value="vendor">Vendors</option>
+        <option value="integration">Integrations</option>
+        <option value="evidence">Evidence</option>
+      </select>
+    </label>
+
+    <button type="submit" class="btn btn--primary" [disabled]="!hasQuery() || searching()">
+      {{ searching() ? 'Searching...' : 'Search' }}
+    </button>
+  </form>
+
+  @if (error()) {
+    <p class="notice notice--error">{{ error() }}</p>
+  }
+
+  @if (syncResult()) {
+    <p class="notice">
+      Indexed {{ syncResult()!.uploaded.length }} items:
+      {{ syncResult()!.counts.products }} products,
+      {{ syncResult()!.counts.vendors }} vendors,
+      {{ syncResult()!.counts.integrations }} integrations,
+      {{ syncResult()!.counts.evidence }} evidence docs.
+      @if (syncResult()!.errors.length > 0) {
+        <span>{{ syncResult()!.errors.length }} failed.</span>
+      }
+    </p>
+  }
+
+  @if (response()) {
+    <div class="result-summary">
+      <span>{{ results().length }} results</span>
+      <span>Search query: {{ response()!.searchQuery }}</span>
+    </div>
+  }
+
+  <div class="results">
+    @for (result of results(); track result.id) {
+      <article class="result">
+        <div class="result__meta">
+          <span class="result-type" [ngClass]="entityClass(result)">
+            {{ entityLabel(result) }}
+          </span>
+          <span class="result__score">{{ result.score | number:'1.2-2' }}</span>
+        </div>
+        <h2 class="result__title">
+          @if (result.sourceUrl) {
+            <a [href]="result.sourceUrl">{{ result.title }}</a>
+          } @else {
+            {{ result.title }}
+          }
+        </h2>
+        <p class="result__snippet">{{ result.snippet }}</p>
+        <p class="result__key">{{ result.key }}</p>
+      </article>
+    } @empty {
+      @if (response()) {
+        <p class="empty-state">No matching indexed content found.</p>
+      } @else {
+        <p class="empty-state">Index the pilot set, then search across curated product, vendor, integration, and evidence records.</p>
+      }
+    }
+  </div>
+</section>

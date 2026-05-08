@@ -62,6 +62,13 @@
 	"browser": {
 		"binding": "BROWSER"
 	},
+	"ai_search_namespaces": [
+		{
+			"binding": "AECI_SEARCH",
+			"namespace": "default",
+			"remote": true
+		}
+	],
 	"ai": {
 		"binding": "AI"
 	},

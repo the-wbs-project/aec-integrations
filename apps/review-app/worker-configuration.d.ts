@@ -12,6 +12,7 @@ declare namespace Cloudflare {
 		REPORTS_QUEUE: Queue;
 		VENDOR_AUTO_ENRICH_QUEUE: Queue;
 		PRODUCT_AUTO_ENRICH_QUEUE: Queue;
+		AECI_SEARCH: AiSearchNamespace;
 		SNAPSHOTS_QUEUE: Queue;
 		BROWSER: Fetcher;
 		AI: Ai;

@@ -107,6 +107,7 @@ interface ManualSecrets {
  * shapes (puppeteer's BrowserBinding).
  */
 interface OverriddenBindings extends WorkflowBindings {
+  AECI_SEARCH: AiSearchNamespace;
   BROWSER: BrowserBinding;
   REPORTS_QUEUE: Queue<ReportJob>;
   VENDOR_AUTO_ENRICH_QUEUE: Queue<AutoEnrichJob>;

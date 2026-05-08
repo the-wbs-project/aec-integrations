@@ -54,6 +54,6 @@
     "@angular/compiler-cli": "^21.0.0",
     "@cloudflare/workers-types": "^4.20260424.1",
     "typescript": "~5.9.0",
-    "wrangler": "^4.86.0"
+    "wrangler": "^4.90.0"
   }
 }
