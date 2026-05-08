@@ -104,6 +104,8 @@ export interface RenderArgs {
   forceRefresh?: boolean;
 }
 
+const INVOCATION_ANCHOR = '**This invocation:**';
+
 /**
  * Render the final markdown the dispatcher hands to a sub-agent.
  *
@@ -151,4 +153,35 @@ export function renderPlaybookPrompt(
   if (scope) lines.push(`- scope: ${scope}`);
 
   return `${playbook.body.trimEnd()}\n\n${lines.join('\n')}\n`;
+}
+
+/**
+ * Recover structured invocation args from a rendered prompt. Queue metadata
+ * lives in the prompt body so the Airtable table can stay on the minimal
+ * dispatcher schema.
+ */
+export function parseRenderedPlaybookArgs(prompt: string): RenderArgs {
+  const anchorIndex = prompt.lastIndexOf(INVOCATION_ANCHOR);
+  if (anchorIndex === -1) return {};
+
+  const args: RenderArgs = {};
+  const tail = prompt.slice(anchorIndex + INVOCATION_ANCHOR.length);
+  for (const line of tail.split(/\r?\n/)) {
+    const match = line.match(/^\s*-\s*(target_record_id|aspect|force_refresh|scope):\s*(.*?)\s*$/);
+    if (!match) continue;
+
+    const [, key, value] = match;
+    if (key === 'target_record_id' && /^rec[A-Za-z0-9]{14}$/.test(value)) {
+      args.targetRecordId = value;
+    } else if (key === 'aspect' && value) {
+      args.aspect = value;
+    } else if (key === 'force_refresh') {
+      if (value === 'true') args.forceRefresh = true;
+      if (value === 'false') args.forceRefresh = false;
+    } else if (key === 'scope' && value) {
+      args.scope = value;
+    }
+  }
+
+  return args;
 }

@@ -60,6 +60,7 @@ export class NewProductDialogComponent {
       .createProduct({
         name,
         website: this.website().trim() || undefined,
+        skipOrchestrator: true,
       })
       .subscribe({
         next: (response) => {

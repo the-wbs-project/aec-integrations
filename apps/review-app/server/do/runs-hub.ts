@@ -16,6 +16,7 @@ import { workflowBinding } from '../workflows/registry';
 import { getCapturedError } from '../services/run-errors';
 import { appendRunRow } from '../services/runs-airtable';
 import { listRecords, asString } from '../services/airtable';
+import { parseRenderedPlaybookArgs } from '../playbooks';
 
 export interface RunRecord {
   runId: string;
@@ -298,9 +299,7 @@ export class RunsHub extends DurableObject<Env> {
           'playbook_title',
           'status',
           'requested_by',
-          'target_record_id',
-          'aspect',
-          'force_refresh',
+          'prompt',
           'created_at',
           'started_at',
           'completed_at',
@@ -322,10 +321,10 @@ export class RunsHub extends DurableObject<Env> {
       const title = asString(row.fields['playbook_title']);
       const rawStatus = asString(row.fields['status']) ?? 'pending';
       const status = mapQueueStatus(rawStatus);
-      const targetRecordId = asString(row.fields['target_record_id']) ?? '';
+      const promptArgs = parseRenderedPlaybookArgs(asString(row.fields['prompt']) ?? '');
+      const targetRecordId = promptArgs.targetRecordId ?? '';
       const requestedBy = asString(row.fields['requested_by']);
-      const forceRefreshRaw = row.fields['force_refresh'];
-      const forceRefresh = typeof forceRefreshRaw === 'boolean' ? forceRefreshRaw : false;
+      const forceRefresh = promptArgs.forceRefresh ?? false;
       const startedAt =
         asString(row.fields['started_at']) ??
         asString(row.fields['created_at']) ??
