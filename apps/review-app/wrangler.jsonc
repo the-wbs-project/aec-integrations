@@ -91,6 +91,10 @@
 			{
 				"binding": "PRODUCT_AUTO_ENRICH_QUEUE",
 				"queue": "aeci-product-auto-enrich"
+			},
+			{
+				"binding": "SNAPSHOTS_QUEUE",
+				"queue": "aeci-review-snapshots"
 			}
 		],
 		"consumers": [
@@ -114,15 +118,23 @@
 				"max_batch_timeout": 5,
 				"max_retries": 2,
 				"dead_letter_queue": "aeci-product-auto-enrich-dlq"
+			},
+			{
+				"queue": "aeci-review-snapshots",
+				"max_batch_size": 1,
+				"max_batch_timeout": 5,
+				"max_retries": 2,
+				"dead_letter_queue": "aeci-review-snapshots-dlq"
 			}
 		]
 	},
 	"triggers": {
 		// Cron schedules dispatched in scheduled() by event.cron string match.
-		//   "0 14 * * 1"   — Weekly cost report (Mondays 14:00 UTC)
-		//   "*/5 * * * *"  — Vendor auto-enrich (every 5 min, count=10, sonnet)
-		//   "*/12 * * * *" — Product auto-enrich (every 12 min, count=5, sonnet)
-		//"crons": ["0 14 * * 1", "*/5 * * * *", "*/12 * * * *"]
+		//   "0 14 * * 1"   — Weekly cost report (Mondays 14:00 UTC) [disabled]
+		//   "*/5 * * * *"  — Vendor auto-enrich (every 5 min, count=10, sonnet) [disabled]
+		//   "*/12 * * * *" — Product auto-enrich (every 12 min, count=5, sonnet) [disabled]
+		//   "0 0 * * *"    — Daily stats snapshot (midnight UTC)
+		"crons": ["0 0 * * *"]
 	},
 	"workflows": [
 		// Vendor workflows
@@ -256,7 +268,11 @@
 			// `prompt_queue` table — drained by the scheduled Sonnet
 			// dispatcher in the Claude macOS app. Schema lives in
 			// services/promptQueue.ts; mutations only via MCP tools.
-			"promptQueue": "tblCNxbwq9ezy4K6v"
+			"promptQueue": "tblCNxbwq9ezy4K6v",
+			// `daily_stats` table — written by the SNAPSHOTS_QUEUE consumer
+			// (cron 0 0 * * *). One row per UTC day. Schema lives in
+			// services/snapshot/runDailySnapshot.ts.
+			"dailyStats": "tbldgl3FsUzHNlvrw"
 		},
 		"DEFAULT_MODEL": "claude-haiku-4-5-20251001",
 		"AI_GATEWAY_ID": "aeci-cf-workflows",

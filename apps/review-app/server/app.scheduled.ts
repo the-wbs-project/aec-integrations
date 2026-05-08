@@ -2,6 +2,7 @@ import type { Env } from './env';
 import type { AutoEnrichJob } from './services/autoEnrich/types';
 import type { ProductAutoEnrichJob } from './services/productAutoEnrich/types';
 import type { ReportJob } from './services/reports/types';
+import type { SnapshotJob } from './services/snapshot/types';
 
 export async function APP_SCHEDULED(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     if (event.cron === '0 14 * * 1') {
@@ -33,6 +34,13 @@ export async function APP_SCHEDULED(event: ScheduledController, env: Env, ctx: E
         ctx.waitUntil(
             env.PRODUCT_AUTO_ENRICH_QUEUE.send(job).catch((err) =>
                 console.error(`[scheduled] product-auto-enrich send FAILED: ${String(err)}`),
+            ),
+        );
+    } else if (event.cron === '0 0 * * *') {
+        const job: SnapshotJob = { kind: 'daily-stats-snapshot', triggeredBy: 'cron' };
+        ctx.waitUntil(
+            env.SNAPSHOTS_QUEUE.send(job).catch((err) =>
+                console.error(`[scheduled] daily-stats-snapshot send FAILED: ${String(err)}`),
             ),
         );
     } else {

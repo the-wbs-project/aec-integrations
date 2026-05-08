@@ -24,6 +24,7 @@ import integrations from './routes/integrations';
 import vendors from './routes/vendors';
 import workflows from './routes/workflows';
 import reports from './routes/reports';
+import snapshots from './routes/snapshots';
 import productsDebug from './routes/products-debug';
 import playbooks from './routes/playbooks';
 import promptQueue from './routes/promptQueue';
@@ -120,6 +121,7 @@ app.route('/api/search', search);
 // Workflow orchestration
 app.route('/api/workflows', workflows);
 app.route('/api/reports', reports);
+app.route('/api/snapshots', snapshots);
 
 // Debug helpers (SERP / page render)
 app.route('/api/debug', productsDebug);

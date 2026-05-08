@@ -11,9 +11,6 @@
 //   playbook_slug    single line text
 //   playbook_title   single line text
 //   scope            long text (optional)
-//   target_record_id single line text (optional, e.g. "rec0123ABCDEF")
-//   aspect           single line text (optional, e.g. "marketplace")
-//   force_refresh    checkbox
 //   prompt           long text  (the rendered markdown the sub-agent runs)
 //   status           single select  pending | running | completed | failed
 //   requested_by     single line text  (Supabase user email)
@@ -31,7 +28,7 @@
 import type { Env } from '../env';
 import { createRecord, getRecord, listRecords, tableId, updateRecord } from './airtable';
 import { cacheInvalidate } from './cache';
-import { getPlaybook, renderPlaybookPrompt } from '../playbooks';
+import { getPlaybook, parseRenderedPlaybookArgs, renderPlaybookPrompt } from '../playbooks';
 
 export type PromptJobStatus = 'pending' | 'running' | 'completed' | 'failed';
 
@@ -118,9 +115,6 @@ export async function enqueue(env: Env, opts: EnqueueOptions): Promise<EnqueueRe
     created_at: nowIso(),
   };
   if (opts.requestedBy) fields['requested_by'] = opts.requestedBy;
-  if (opts.targetRecordId) fields['target_record_id'] = opts.targetRecordId;
-  if (opts.aspect) fields['aspect'] = opts.aspect;
-  if (opts.forceRefresh !== undefined) fields['force_refresh'] = opts.forceRefresh;
 
   const created = await createRecord(env, 'promptQueue', fields);
   await invalidate(env);
@@ -158,19 +152,18 @@ export async function claim(env: Env, recordId: string): Promise<PromptJobClaim>
     started_at: nowIso(),
   });
   await invalidate(env);
-  const targetRecordId = String(updated.get('target_record_id') ?? '').trim();
-  const aspect = String(updated.get('aspect') ?? '').trim();
-  const forceRefreshRaw = updated.get('force_refresh');
+  const prompt = String(updated.get('prompt') ?? '');
+  const args = parseRenderedPlaybookArgs(prompt);
   return {
     id: updated.id,
     playbook_slug: String(updated.get('playbook_slug') ?? ''),
     playbook_title: String(updated.get('playbook_title') ?? ''),
     scope: String(updated.get('scope') ?? ''),
-    prompt: String(updated.get('prompt') ?? ''),
+    prompt,
     model: String(updated.get('model') ?? DEFAULT_MODEL),
-    ...(targetRecordId ? { target_record_id: targetRecordId } : {}),
-    ...(aspect ? { aspect } : {}),
-    ...(typeof forceRefreshRaw === 'boolean' ? { force_refresh: forceRefreshRaw } : {}),
+    ...(args.targetRecordId ? { target_record_id: args.targetRecordId } : {}),
+    ...(args.aspect ? { aspect: args.aspect } : {}),
+    ...(args.forceRefresh !== undefined ? { force_refresh: args.forceRefresh } : {}),
   };
 }
 
