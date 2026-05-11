@@ -106,7 +106,7 @@ app.get('/version.json', async (c) => {
 });
 
 // Everything below requires a valid Supabase access token.
-//app.use('/api/*', requireAuth());
+app.use('/api/*', requireAuth());
 
 // Data
 app.route('/api/meta', meta);
