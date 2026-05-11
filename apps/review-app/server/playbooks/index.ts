@@ -14,6 +14,7 @@ import addVendorAndProducts from '../../../../playbooks/add-vendor-and-products.
 import enrichVendor from '../../../../playbooks/enrich-vendor.md';
 import enrichProduct from '../../../../playbooks/enrich-product.md';
 import discoverProductIntegrations from '../../../../playbooks/discover-product-integrations.md';
+import discoverVendorProducts from '../../../../playbooks/discover-vendor-products.md';
 
 interface PlaybookFrontmatter {
   title: string;
@@ -35,6 +36,7 @@ const PLAYBOOK_FILES: ReadonlyArray<{ slug: string; raw: string }> = [
   { slug: 'enrich-vendor', raw: enrichVendor },
   { slug: 'enrich-product', raw: enrichProduct },
   { slug: 'discover-product-integrations', raw: discoverProductIntegrations },
+  { slug: 'discover-vendor-products', raw: discoverVendorProducts },
 ];
 
 /**

@@ -161,44 +161,47 @@
   align-items: center;
 }
 
-// --- button group ---------------------------------------------------------
-// True segmented control: an icon-only Syncfusion <button ejs-button> sits
-// flush against an <ejs-splitbutton>. Both render as Syncfusion .e-btn.e-primary,
-// so they share height, color, and theme tokens automatically. We only need to
-// flatten the seam between them and round the outer edges.
-.btn-group {
-  display: inline-flex;
-  align-items: stretch;
-  isolation: isolate; // keep z-index focus rings local
+// --- Actions dropdown -----------------------------------------------------
+// Single Syncfusion DropDownButton mirroring the product-detail header. Header
+// rows inside the popup are disabled items flagged with `iconCss: 'menu-header'`;
+// we use `:has()` to dim them and suppress hover affordance.
+
+// Tighten item padding now that every actionable row has an icon.
+::ng-deep .e-dropdown-popup .e-item {
+  padding-left: 10px;
+  padding-right: 14px;
 }
 
-// Refresh side: square off the right edge so it meets the splitbutton flush.
-.btn-group ::ng-deep .btn-group__refresh.e-btn {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  // Hairline divider against the purple-on-purple seam.
-  border-right: 1px solid rgba(255, 255, 255, 0.2);
+// Pull the text closer to the icon.
+::ng-deep .e-dropdown-popup .e-item .e-menu-icon {
+  margin-right: 6px;
+  font-size: 14px;
+  width: 16px;
 }
 
-// Splitbutton side: square off the left edge of both the wrapper and its
-// primary button so the seam is invisible.
-.btn-group ::ng-deep app-enrich-split-button .e-split-btn-wrapper {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+// Header rows: dim, uppercase, no hover. Headers have `iconCss: 'menu-header'`
+// but no real glyph — the icon span is hidden so header text aligns flush left
+// with the icons of the rows beneath.
+::ng-deep .e-dropdown-popup .e-item:has(.menu-header) {
+  text-transform: uppercase;
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--color-text-muted, #888);
+  opacity: 1;
+  cursor: default;
+  background: transparent;
+  padding-top: 8px;
+  padding-bottom: 4px;
+  padding-left: 10px;
 }
 
-.btn-group ::ng-deep app-enrich-split-button .e-split-btn-wrapper > .e-btn:first-child {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
+::ng-deep .e-dropdown-popup .e-item:has(.menu-header):hover {
+  background: transparent;
+  color: var(--color-text-muted, #888);
 }
 
-.icon--spin {
-  animation: btn-group-spin 0.9s linear infinite;
-}
-
-@keyframes btn-group-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+::ng-deep .e-dropdown-popup .menu-header {
+  display: none;
 }
 
 .detail-title {

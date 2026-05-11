@@ -104,6 +104,13 @@ export class ApiService {
     return this.http.patch<VendorDetail>(`${this.baseUrl}/vendors/${id}`, patch);
   }
 
+  rescoreVendor(id: string): Observable<{ summary: string; vendor: VendorDetail }> {
+    return this.http.post<{ summary: string; vendor: VendorDetail }>(
+      `${this.baseUrl}/vendors/${id}/rescore`,
+      {},
+    );
+  }
+
   deleteVendor(id: string): Observable<{ deleted: boolean; id: string }> {
     return this.http.delete<{ deleted: boolean; id: string }>(
       `${this.baseUrl}/vendors/${id}`,

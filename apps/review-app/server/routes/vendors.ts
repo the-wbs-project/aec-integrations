@@ -23,6 +23,7 @@ import {
   CreateVendorValidationError,
   createVendorAndStartOrchestrator,
 } from '../services/createVendor';
+import { scoreVendor } from '../services/scoring';
 
 // ---------------------------------------------------------------------------
 // NOTE: write endpoints (PATCH) require AIRTABLE_TOKEN to have the
@@ -198,6 +199,34 @@ vendors.patch('/:id', async (c) => {
   const maps = await buildLookupMaps(env);
   const detail = hydrateVendorDetail(updated, maps);
   return c.json(detail);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/vendors/:id/rescore — recompute VQS and write back to Airtable.
+// Returns the rehydrated detail so the UI can refresh in place.
+// ---------------------------------------------------------------------------
+vendors.post('/:id/rescore', async (c) => {
+  const env = c.env;
+  const vendorId = c.req.param('id');
+
+  let summary: string;
+  try {
+    const result = await scoreVendor(env, vendorId);
+    summary = result.summary;
+  } catch (err) {
+    return c.json({ error: (err as Error).message ?? 'Rescore failed' }, 502);
+  }
+
+  await cacheInvalidate(env.KV_CACHE, `table:${tableId(env, 'vendors')}`);
+
+  const [rawVendors, maps] = await Promise.all([
+    fetchVendors(env),
+    buildLookupMaps(env),
+  ]);
+  const record = rawVendors.find((r) => r.id === vendorId);
+  if (!record) return c.json({ error: 'Vendor not found' }, 404);
+  const detail = hydrateVendorDetail(record, maps);
+  return c.json({ summary, vendor: detail });
 });
 
 // ---------------------------------------------------------------------------

@@ -4,11 +4,15 @@ import { CommonModule, DecimalPipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { GridModule, PageService, SortService, FilterService } from '@syncfusion/ej2-angular-grids';
 import { ButtonModule } from '@syncfusion/ej2-angular-buttons';
+import {
+  DropDownButtonModule,
+  type ItemModel,
+  type MenuEventArgs,
+} from '@syncfusion/ej2-angular-splitbuttons';
 import { ApiService } from '../../services/api.service';
 import { RunsService, type RecentRunRow } from '../../services/runs.service';
 import { formatDate, formatDateWithRelative } from '../../utils/date';
-import { UpdateVendorRequest, VendorDetail } from '../../types';
-import { EnrichSplitButtonComponent } from '../../components/enrich-split-button/enrich-split-button.component';
+import { PlaybookSummary, UpdateVendorRequest, VendorDetail } from '../../types';
 import { InfoTooltipComponent } from '../../components/info-tooltip/info-tooltip.component';
 import { NewProductDialogComponent } from '../../components/new-product-dialog/new-product-dialog.component';
 import { RunDetailDialogComponent } from '../../components/run-detail-dialog/run-detail-dialog.component';
@@ -57,6 +61,22 @@ interface VendorRunRow {
 
 const PUBLIC_PRIVATE_OPTIONS = ['', 'Public', 'Private', 'Subsidiary', 'Nonprofit'] as const;
 
+/**
+ * One entry in the Actions dropdown's "Enrichment" section. Covers both
+ * whole-playbook copies and per-aspect slices that piggyback on the
+ * enrich-vendor body with an extra `aspect:` arg.
+ */
+interface EnrichmentItem {
+  /** Stable menu id; also used as the "copied" flash key. */
+  id: string;
+  /** Label shown to the user (without the "Copy: " prefix). */
+  label: string;
+  /** Playbook slug whose body is the prompt template. */
+  slug: 'research-vendors' | 'enrich-vendor' | 'discover-vendor-products';
+  /** Optional aspect arg appended to the structured-args block. */
+  aspect?: string;
+}
+
 @Component({
   selector: 'app-vendor-detail',
   imports: [
@@ -67,7 +87,7 @@ const PUBLIC_PRIVATE_OPTIONS = ['', 'Public', 'Private', 'Subsidiary', 'Nonprofi
     FormsModule,
     GridModule,
     ButtonModule,
-    EnrichSplitButtonComponent,
+    DropDownButtonModule,
     InfoTooltipComponent,
     NewProductDialogComponent,
     RunDetailDialogComponent,
@@ -88,7 +108,6 @@ export class VendorDetailComponent implements OnInit {
 
   vendor = signal<VendorDetail | null>(null);
   logoFailed = signal(false);
-  recordIds = computed(() => (this.vendor() ? [this.id()] : []));
   enrichmentVariant = enrichmentVariant;
 
   editingSection = signal<SectionKey | null>(null);
@@ -161,6 +180,117 @@ export class VendorDetailComponent implements OnInit {
 
   readonly publicPrivateOptions = PUBLIC_PRIVATE_OPTIONS;
 
+  // ---- Actions dropdown ---------------------------------------------------
+  // Single Syncfusion DropDownButton in the header. Only Refresh Score
+  // executes server-side (recomputes VQS via POST /vendors/:id/rescore).
+  // Every other item copies a prompt to the clipboard — the curator pastes it
+  // into Claude to run the workflow externally, keeping the LLM execution
+  // boundary explicit and avoiding background enrich jobs from the UI.
+  //
+  // `EnrichmentItem` (declared at module scope above) covers both
+  // whole-playbook copies (research/enrich) and per-aspect copies that append
+  // an `aspect:` arg to the enrich-vendor body. The aspect items intentionally
+  // piggyback on enrich-vendor since each aspect is just a scoped slice of
+  // that same playbook.
+  private static readonly ENRICHMENT_ITEMS: ReadonlyArray<EnrichmentItem> = [
+    { id: 'pb:research-vendors', label: 'Research vendor', slug: 'research-vendors' },
+    { id: 'pb:enrich-vendor', label: 'Enrich vendor (full)', slug: 'enrich-vendor' },
+    { id: 'pb:enrich-vendor:overview', label: 'Enrich · Overview', slug: 'enrich-vendor', aspect: 'overview' },
+    { id: 'pb:enrich-vendor:github', label: 'Enrich · GitHub', slug: 'enrich-vendor', aspect: 'github' },
+    { id: 'pb:enrich-vendor:funding', label: 'Enrich · Funding', slug: 'enrich-vendor', aspect: 'funding' },
+    { id: 'pb:discover-vendor-products', label: 'Discover products', slug: 'discover-vendor-products' },
+  ];
+
+  protected readonly playbooks = signal<PlaybookSummary[]>([]);
+  /** Id of the most recently copied item — drives the "Copied" flash. */
+  protected readonly copiedItemId = signal<string | null>(null);
+  protected readonly clipboardError = signal<string | null>(null);
+  protected readonly rescoring = signal(false);
+
+  protected readonly actionsMenuItems = computed<ItemModel[]>(() => {
+    const items: ItemModel[] = [
+      {
+        id: 'refresh-score',
+        text: 'Refresh Score',
+        iconCss: 'e-icons e-redo',
+      },
+      {
+        id: 'header-enrichment',
+        text: 'Enrichment',
+        iconCss: 'menu-header',
+        disabled: true,
+      },
+    ];
+    const bySlug = new Map(this.playbooks().map((p) => [p.slug, p]));
+    for (const item of VendorDetailComponent.ENRICHMENT_ITEMS) {
+      const pb = bySlug.get(item.slug);
+      if (!pb) continue;
+      const isCopied = this.copiedItemId() === item.id;
+      items.push({
+        id: item.id,
+        text: isCopied ? `Copied: ${item.label}` : `Copy: ${item.label}`,
+        iconCss: isCopied ? 'e-icons e-circle-check' : 'e-icons e-copy',
+      });
+    }
+    return items;
+  });
+
+  onActionsSelect(args: MenuEventArgs): void {
+    const id = args.item?.id;
+    if (!id) return;
+    if (id === 'refresh-score') return this.runRescore();
+    const item = VendorDetailComponent.ENRICHMENT_ITEMS.find(
+      (i) => i.id === id,
+    );
+    if (item) void this.copyEnrichmentPrompt(item);
+  }
+
+  runRescore(): void {
+    if (this.rescoring()) return;
+    const id = this.id();
+    this.rescoring.set(true);
+    this.saveError.set(null);
+    this.api.rescoreVendor(id).subscribe({
+      next: (res) => {
+        if (this.id() === id) {
+          this.vendor.set(res.vendor);
+          this.logoFailed.set(false);
+        }
+        this.rescoring.set(false);
+      },
+      error: (err) => {
+        this.rescoring.set(false);
+        this.saveError.set(err?.error?.error ?? err?.message ?? 'Rescore failed');
+      },
+    });
+  }
+
+  /**
+   * Render the playbook body with a target_record_id arg (and optional aspect)
+   * appended in the structured-args style used by renderPlaybookPrompt, then
+   * copy to clipboard. Mirrors product-detail's clipboard pattern.
+   */
+  async copyEnrichmentPrompt(item: EnrichmentItem): Promise<void> {
+    this.clipboardError.set(null);
+    const pb = this.playbooks().find((p) => p.slug === item.slug);
+    if (!pb) return;
+    const args = [`- target_record_id: ${this.id()}`];
+    if (item.aspect) args.push(`- aspect: ${item.aspect}`);
+    const text = `${pb.body.trimEnd()}\n\n${args.join('\n')}\n`;
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      this.clipboardError.set(
+        'Clipboard write failed — your browser may require HTTPS or a permission grant.',
+      );
+      return;
+    }
+    this.copiedItemId.set(item.id);
+    setTimeout(() => {
+      if (this.copiedItemId() === item.id) this.copiedItemId.set(null);
+    }, 2000);
+  }
+
   constructor() {
     // React to id changes so navigating between /vendors/A and /vendors/B refetches
     // without remounting the page. Resets per-route UI state on each switch.
@@ -174,6 +304,9 @@ export class VendorDetailComponent implements OnInit {
       this.api.getVendor(id).subscribe((vendor) => {
         if (this.id() === id) this.vendor.set(vendor);
       });
+    });
+    this.api.getPlaybooks().subscribe((rows) => {
+      this.playbooks.set(rows);
     });
   }
 
