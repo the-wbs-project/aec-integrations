@@ -1,18 +1,12 @@
 {
   "name": "aec-integrations",
   "private": true,
+  "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "dev": "wrangler dev",
-    "start": "wrangler dev",
-    "deploy": "wrangler deploy --env production",
-    "ship": "wrangler deploy --env production",
-    "sync:secrets:local": "bash sync-secrets.sh local",
-    "sync:secrets:production": "bash sync-secrets.sh production"
-  },
-  "devDependencies": {
-    "wrangler": "^4.86.0"
-  },
-  "dependencies": {
-    "hono": "^4.12.12"
+    "dev": "pnpm --filter @aec/landing dev",
+    "dev:landing": "pnpm --filter @aec/landing dev",
+    "dev:web": "pnpm --filter @aec/web dev",
+    "deploy:landing": "pnpm --filter @aec/landing deploy",
+    "deploy:web": "pnpm --filter @aec/web deploy"
   }
 }
