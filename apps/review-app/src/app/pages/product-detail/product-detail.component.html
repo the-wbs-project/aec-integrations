@@ -702,84 +702,65 @@
 
     @if (activeTab() === 'integrations') {
       <div role="tabpanel">
-        <section class="detail-section">
-          <div class="section-row">
-            <h2 class="section-heading">Integration discovery</h2>
+        <!-- Summary strip — at-a-glance counts + Discover CTA. All numbers are
+             derived from data already on the product; this is presentation
+             only, not a new source of truth. -->
+        @let stats = integrationStats();
+        <section class="integrations-summary" aria-label="Integration summary">
+          <div class="integrations-summary__stats">
+            <div class="integrations-summary__stat">
+              <span class="integrations-summary__value">{{ stats.integrationCount | number:'1.0-0' }}</span>
+              <span class="integrations-summary__label">
+                {{ stats.integrationCount === 1 ? 'integration' : 'integrations' }}
+                @if (stats.productCount > 0) {
+                  with {{ stats.productCount | number:'1.0-0' }} {{ stats.productCount === 1 ? 'tool' : 'tools' }}
+                }
+              </span>
+            </div>
+            @if (stats.nativeCount > 0 || stats.connectors.length) {
+              <span class="integrations-summary__divider" aria-hidden="true"></span>
+              <ul class="integrations-summary__breakdown">
+                @if (stats.nativeCount > 0) {
+                  <li>
+                    <span class="integrations-summary__value integrations-summary__value--sm">{{ stats.nativeCount | number:'1.0-0' }}</span>
+                    <span class="integrations-summary__label">native</span>
+                  </li>
+                }
+                @for (c of stats.connectors; track c.id) {
+                  <li>
+                    <span class="integrations-summary__value integrations-summary__value--sm">{{ c.count | number:'1.0-0' }}</span>
+                    <span class="integrations-summary__label">via <a [routerLink]="['/products', c.id]">{{ c.name }}</a></span>
+                  </li>
+                }
+              </ul>
+            }
+          </div>
+          <div class="integrations-summary__actions">
+            @if (tool.integrationsDiscoveryCheckedAt) {
+              <span class="integrations-summary__freshness" [title]="'Last integration discovery sweep'">
+                Discovered {{ formatDateWithRelative(tool.integrationsDiscoveryCheckedAt) }}
+              </span>
+            }
             <button
-              class="btn btn--primary btn--sm"
+              class="btn btn--ghost btn--sm"
               type="button"
               [disabled]="discoveryRunning()"
               (click)="startIntegrationsDiscovery()"
             >
-              {{ discoveryRunning() ? 'Starting…' : 'Discover integrations' }}
+              {{ discoveryRunning() ? 'Starting…' : 'Discover' }}
             </button>
           </div>
-          @if (tool.integrationsDiscoveryCheckedAt) {
-            <p class="muted" style="margin-top: -0.25rem;">
-              Last checked {{ formatDateWithRelative(tool.integrationsDiscoveryCheckedAt) }}
-            </p>
-          }
-          @if (tool.integrationsDiscoverySummary) {
-            <pre class="discovery-summary">{{ tool.integrationsDiscoverySummary }}</pre>
-          }
-          @if (tool.integrationsDiscoveryCandidates && tool.integrationsDiscoveryCandidates.length) {
-            <h3 class="section-subheading">
-              Unresolved candidates ({{ tool.integrationsDiscoveryCandidates.length }})
-            </h3>
-            <p class="muted" style="margin-top: -0.25rem;">
-              Discovered via the leaves but couldn't be matched to an existing product.
-              Vendor stubs may have been created — review and add the products manually.
-            </p>
-            <div class="table-wrapper">
-              <table class="table" aria-label="Unresolved integration candidates">
-                <thead>
-                  <tr>
-                    <th>Target</th>
-                    <th>Vendor</th>
-                    <th>Source</th>
-                    <th>Mechanism</th>
-                    <th>Confidence</th>
-                    <th>Evidence</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (c of tool.integrationsDiscoveryCandidates; track $index) {
-                    <tr>
-                      <td>{{ c.targetName }}</td>
-                      <td>
-                        @if (c.targetVendorName) {
-                          <span>{{ c.targetVendorName }}</span>
-                        } @else {
-                          <span class="na">—</span>
-                        }
-                      </td>
-                      <td><span class="badge badge--neutral">{{ c.evidenceSource }}</span></td>
-                      <td>
-                        @if (c.mechanismKind) {
-                          <span class="badge badge--neutral">{{ c.mechanismKind }}</span>
-                        } @else {
-                          <span class="na">—</span>
-                        }
-                      </td>
-                      <td>
-                        <span class="badge" [class]="confidenceBadgeClass(c.confidence)">{{ c.confidence }}</span>
-                      </td>
-                      <td>
-                        <a [href]="c.evidenceUrl" target="_blank" rel="noopener" class="evidence-link">{{ c.evidenceUrl }}</a>
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </div>
-          } @else if (tool.integrationsDiscoveryCheckedAt) {
-            <p class="muted">No unresolved candidates — every discovered integration was either materialized or already existed.</p>
-          }
         </section>
 
+        <!-- Connected tools — primary view. Each row expands inline to reveal
+             the Integration records linking the two products. Multi-open. -->
         <section class="detail-section">
           @if (integratedProducts().length) {
-            <div class="section-row section-row--end">
+            <div class="section-row">
+              <h2 class="section-heading">
+                Connected tools
+                <span class="section-count">{{ integratedProducts().length | number:'1.0-0' }}</span>
+              </h2>
               <input
                 class="input section-search"
                 type="search"
@@ -790,9 +771,10 @@
               />
             </div>
             <div class="table-wrapper">
-              <table class="table" aria-label="Integrated tools">
+              <table class="table table--connected" aria-label="Integrated tools">
                 <thead>
                   <tr>
+                    <th class="col-expand" aria-label="Expand row"></th>
                     <th [attr.aria-sort]="integratedProductsSortAria('name')">
                       <button type="button" class="th-sort" (click)="toggleIntegratedProductsSort('name')">
                         Tool
@@ -814,29 +796,52 @@
                     <th>Categories</th>
                     <th [attr.aria-sort]="integratedProductsSortAria('researchStatus')">
                       <button type="button" class="th-sort" (click)="toggleIntegratedProductsSort('researchStatus')">
-                        Research status
+                        Status
                         <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'researchStatus' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
+                      </button>
+                    </th>
+                    <th [attr.aria-sort]="integratedProductsSortAria('connections')">
+                      <button type="button" class="th-sort" (click)="toggleIntegratedProductsSort('connections')">
+                        Wired by
+                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'connections' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
                     <th class="num" [attr.aria-sort]="integratedProductsSortAria('integrationCount')">
                       <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedProductsSort('integrationCount')">
-                        Integrations
+                        #
                         <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'integrationCount' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
-                      </button>
-                    </th>
-                    <th class="num" [attr.aria-sort]="integratedProductsSortAria('connections')">
-                      <button type="button" class="th-sort th-sort--num" (click)="toggleIntegratedProductsSort('connections')">
-                        Connections
-                        <span class="th-sort__indicator" aria-hidden="true">{{ integratedProductsSortKey() === 'connections' ? (integratedProductsSortDir() === 'asc' ? '▲' : '▼') : '' }}</span>
                       </button>
                     </th>
                   </tr>
                 </thead>
                 <tbody>
                   @for (it of filteredIntegratedProducts(); track it.id) {
-                    <tr>
+                    @let expanded = isIntegrationRowExpanded(it.id);
+                    <tr
+                      class="connected-tools-row"
+                      [class.connected-tools-row--expanded]="expanded"
+                      (click)="toggleIntegrationRow(it.id)"
+                    >
+                      <td class="col-expand">
+                        <button
+                          type="button"
+                          class="row-chevron"
+                          [class.row-chevron--open]="expanded"
+                          [attr.aria-expanded]="expanded"
+                          [attr.aria-label]="(expanded ? 'Collapse ' : 'Expand ') + it.name + ' integrations'"
+                          (click)="$event.stopPropagation(); toggleIntegrationRow(it.id)"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <polyline points="9 18 15 12 9 6" />
+                          </svg>
+                        </button>
+                      </td>
                       <td>
-                        <a [routerLink]="['/products', it.id]">{{ it.name }}</a>
+                        <a
+                          class="connected-tools-row__name"
+                          [routerLink]="['/products', it.id]"
+                          (click)="$event.stopPropagation()"
+                        >{{ it.name }}</a>
                       </td>
                       <td>
                         <span
@@ -844,48 +849,23 @@
                           [class]="'badge ' + tierBadgeClass(it.priorityTier ?? '')"
                           [title]="tierBlurb(it.priorityTier)"
                         >{{ tierLabel(it.priorityTier) }}</span>
-                        @if (it.priorityScore !== undefined && it.priorityScore !== null) {
-                          <span class="muted tier-score">{{ it.priorityScore | number:'1.0-0' }}</span>
-                        }
                       </td>
                       <td>
                         @if (it.vendors.length) {
-                          <div class="chip-list">
-                            @for (v of visibleRefs(it.vendors); track v.id) {
-                              <a class="badge badge--neutral" [routerLink]="['/vendors', v.id]">{{ v.name }}</a>
-                            }
-                            @if (overflowRefs(it.vendors); as extra) {
-                              <span class="badge badge--neutral pill-overflow" tabindex="0">
-                                +{{ extra.length }}
-                                <span class="pill-overflow__menu">
-                                  @for (v of extra; track v.id) {
-                                    <span class="pill-overflow__item">{{ v.name }}</span>
-                                  }
-                                </span>
-                              </span>
-                            }
-                          </div>
+                          <span class="cell-text-primary">{{ it.vendors[0].name }}</span>
+                          @if (it.vendors.length > 1) {
+                            <span class="cell-text-secondary"> +{{ it.vendors.length - 1 }}</span>
+                          }
                         } @else {
                           <span class="na">—</span>
                         }
                       </td>
                       <td>
                         @if (it.categories.length) {
-                          <div class="chip-list">
-                            @for (c of visibleRefs(it.categories); track c.id) {
-                              <span class="badge badge--neutral">{{ c.name }}</span>
-                            }
-                            @if (overflowRefs(it.categories); as extra) {
-                              <span class="badge badge--neutral pill-overflow" tabindex="0">
-                                +{{ extra.length }}
-                                <span class="pill-overflow__menu">
-                                  @for (c of extra; track c.id) {
-                                    <span class="pill-overflow__item">{{ c.name }}</span>
-                                  }
-                                </span>
-                              </span>
-                            }
-                          </div>
+                          <span class="cell-text-secondary">{{ it.categories[0].name }}</span>
+                          @if (it.categories.length > 1) {
+                            <span class="cell-text-secondary"> +{{ it.categories.length - 1 }}</span>
+                          }
                         } @else {
                           <span class="na">—</span>
                         }
@@ -899,190 +879,265 @@
                           <span class="na">—</span>
                         }
                       </td>
-                      <td class="num">{{ it.integrationCount | number:'1.0-0' }}</td>
-                      <td class="num">
-                        @let buckets = connectorChipsFor(it.id);
-                        <div class="connection-chips">
-                          <span class="connection-chips__count">{{ it.integrationIds.length | number:'1.0-0' }}</span>
-                          @if (buckets.nativeCount > 0) {
-                            <span class="badge badge--neutral" title="Direct integration (no connector platform)">Native</span>
-                          }
-                          @for (c of buckets.connectors; track c.id) {
-                            <a
-                              class="badge badge--info"
-                              [routerLink]="['/products', c.id]"
-                              [title]="'Routed through ' + c.name"
-                              (click)="$event.stopPropagation()"
-                            >via {{ c.name }}</a>
-                          }
-                        </div>
+                      <td>
+                        <span class="cell-text-secondary cell-tabular">{{ connectionLabel(it.id) }}</span>
                       </td>
+                      <td class="num">{{ it.integrationCount | number:'1.0-0' }}</td>
                     </tr>
+                    @if (expanded) {
+                      <tr class="connected-tools-detail-row" role="region" [attr.aria-label]="it.name + ' integration details'">
+                        <td colspan="8" class="connected-tools-detail-cell">
+                          <div class="integration-detail-list">
+                            @for (i of integrationsForProduct(it.id); track i.id) {
+                              <article class="integration-detail">
+                                <header class="integration-detail__head">
+                                  <h3 class="integration-detail__title">
+                                    <span class="integration-detail__endpoint">{{ tool.name }}</span>
+                                    <span class="integration-detail__arrow" aria-hidden="true">{{ directionArrow(i.direction) }}</span>
+                                    <span class="integration-detail__endpoint">{{ it.name }}</span>
+                                  </h3>
+                                  <div class="integration-detail__signals">
+                                    @if (i.maturity) {
+                                      <span class="badge" [class]="maturityBadgeClass(i.maturity)" [title]="'Maturity'">{{ i.maturity }}</span>
+                                    }
+                                    @if (i.pricingModel) {
+                                      <span class="badge" [class]="pricingBadgeClass(i.pricingModel)" [title]="'Pricing'">{{ i.pricingModel }}</span>
+                                    }
+                                  </div>
+                                </header>
+
+                                <div class="integration-detail__meta">
+                                  <span class="integration-detail__meta-item">
+                                    <svg class="integration-detail__glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                      <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+                                    </svg>
+                                    @if (i.poweredByProduct) {
+                                      via <a [routerLink]="['/products', i.poweredByProduct.id]" (click)="$event.stopPropagation()">{{ i.poweredByProduct.name }}</a>@if (i.mechanismKind) {<span class="cell-text-secondary"> · {{ i.mechanismKind }}</span>}
+                                    } @else if (i.mechanismName) {
+                                      @if (i.mechanismUrl) {
+                                        <a [href]="i.mechanismUrl" target="_blank" rel="noopener" (click)="$event.stopPropagation()">{{ i.mechanismName }}</a>
+                                      } @else {
+                                        {{ i.mechanismName }}
+                                      }
+                                      @if (i.mechanismKind) {<span class="cell-text-secondary"> · {{ i.mechanismKind }}</span>}
+                                    } @else if (i.mechanismKind) {
+                                      {{ i.mechanismKind }}
+                                    } @else {
+                                      <span class="cell-text-secondary">Native</span>
+                                    }
+                                  </span>
+
+                                  @if (i.direction) {
+                                    <span class="integration-detail__meta-item cell-text-secondary">{{ i.direction }}</span>
+                                  }
+
+                                  @if (i.builtBy) {
+                                    <span class="integration-detail__meta-item cell-text-secondary">
+                                      built by <a [routerLink]="['/vendors', i.builtBy.id]" (click)="$event.stopPropagation()">{{ i.builtBy.name }}</a>
+                                    </span>
+                                  }
+                                </div>
+
+                                @if (i.description) {
+                                  <p class="integration-detail__description">{{ i.description }}</p>
+                                }
+
+                                @if (i.listingUrl || i.docsUrl || i.website) {
+                                  <div class="integration-detail__links">
+                                    @if (i.listingUrl) {
+                                      <a [href]="i.listingUrl" target="_blank" rel="noopener" class="integration-detail__link" (click)="$event.stopPropagation()">
+                                        Listing
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                      </a>
+                                    }
+                                    @if (i.docsUrl) {
+                                      <a [href]="i.docsUrl" target="_blank" rel="noopener" class="integration-detail__link" (click)="$event.stopPropagation()">
+                                        Docs
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                      </a>
+                                    }
+                                    @if (i.website) {
+                                      <a [href]="i.website" target="_blank" rel="noopener" class="integration-detail__link" (click)="$event.stopPropagation()">
+                                        Website
+                                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" /><polyline points="15 3 21 3 21 9" /><line x1="10" y1="14" x2="21" y2="3" /></svg>
+                                      </a>
+                                    }
+                                  </div>
+                                }
+                              </article>
+                            } @empty {
+                              <p class="cell-text-secondary">No integration records on file for this pairing.</p>
+                            }
+                          </div>
+                        </td>
+                      </tr>
+                    }
                   } @empty {
                     <tr>
-                      <td colspan="7" class="empty-state">No tools match your search.</td>
+                      <td colspan="8" class="empty-state">No tools match your search.</td>
                     </tr>
                   }
                 </tbody>
               </table>
             </div>
           } @else {
-            <p class="empty-state">This tool isn't linked to any other tools yet.</p>
+            <div class="connected-tools-empty">
+              <h3 class="connected-tools-empty__title">No integrations on file</h3>
+              <p class="connected-tools-empty__body">
+                Nothing connects to {{ tool.name }} yet. Run integration discovery to crawl
+                its marketplaces and surface likely candidates.
+              </p>
+              <button
+                class="btn btn--primary btn--sm"
+                type="button"
+                [disabled]="discoveryRunning()"
+                (click)="startIntegrationsDiscovery()"
+              >
+                {{ discoveryRunning() ? 'Starting…' : 'Discover integrations' }}
+              </button>
+            </div>
           }
         </section>
 
-        @if (allIntegrations().length) {
+        @if (poweredIntegrations().length) {
           <section class="detail-section">
-            <h2 class="section-heading">Integration records ({{ allIntegrations().length }})</h2>
-            <p class="muted" style="margin-top: -0.25rem;">
-              One card per Integration record — including how it's wired up.
-            </p>
-            <div class="integration-cards">
-              @for (i of allIntegrations(); track i.id) {
-                @let other = otherProductOf(i);
-                <div class="integration-card">
-                  <div class="integration-card__header">
-                    <div class="integration-card__title">
-                      <strong>{{ i.name || 'Untitled integration' }}</strong>
-                      @if (other) {
-                        <span class="muted"> &middot; with </span>
-                        <a [routerLink]="['/products', other.id]">{{ other.name }}</a>
-                      }
-                    </div>
-                    <div class="integration-card__badges">
-                      @if (i.maturity) {
-                        <span class="badge badge--neutral" [title]="'Maturity'">{{ i.maturity }}</span>
-                      }
-                      @if (i.direction) {
-                        <span class="badge badge--neutral" [title]="'Direction'">{{ i.direction }}</span>
-                      }
-                      @if (i.pricingModel) {
-                        <span class="badge badge--neutral" [title]="'Pricing'">{{ i.pricingModel }}</span>
-                      }
-                    </div>
-                  </div>
-
-                  <dl class="integration-card__meta">
-                    <div>
-                      <dt>Mechanism</dt>
-                      <dd>
-                        @if (i.poweredByProduct) {
-                          <span class="muted">Powered by </span>
-                          <a [routerLink]="['/products', i.poweredByProduct.id]">{{ i.poweredByProduct.name }}</a>
-                          @if (i.mechanismKind) {
-                            <span class="muted"> &middot; {{ i.mechanismKind }}</span>
-                          }
-                        } @else if (i.mechanismKind || i.mechanismName) {
-                          @if (i.mechanismKind) {
-                            <span class="badge badge--neutral">{{ i.mechanismKind }}</span>
-                          }
-                          @if (i.mechanismName) {
-                            @if (i.mechanismUrl) {
-                              <a [href]="i.mechanismUrl" target="_blank" rel="noopener">{{ i.mechanismName }}</a>
-                            } @else {
-                              <span>{{ i.mechanismName }}</span>
-                            }
-                          }
-                        } @else if (i.integrationType) {
-                          <span class="muted">{{ i.integrationType }}</span>
-                        } @else {
-                          <span class="na">—</span>
-                        }
-                      </dd>
-                    </div>
-
-                    @if (i.builtBy) {
-                      <div>
-                        <dt>Built by</dt>
-                        <dd><a [routerLink]="['/vendors', i.builtBy.id]">{{ i.builtBy.name }}</a></dd>
-                      </div>
-                    }
-
-                    @if (i.website || i.docsUrl || i.listingUrl) {
-                      <div>
-                        <dt>Links</dt>
-                        <dd class="integration-card__links">
-                          @if (i.website) {
-                            <a [href]="i.website" target="_blank" rel="noopener">Website</a>
-                          }
-                          @if (i.docsUrl) {
-                            <a [href]="i.docsUrl" target="_blank" rel="noopener">Docs</a>
-                          }
-                          @if (i.listingUrl) {
-                            <a [href]="i.listingUrl" target="_blank" rel="noopener">Listing</a>
-                          }
-                        </dd>
-                      </div>
-                    }
-                  </dl>
-
-                  @if (i.description) {
-                    <p class="integration-card__description">{{ i.description }}</p>
-                  }
-                </div>
-              }
+            <div class="section-row">
+              <h2 class="section-heading">
+                Powered by {{ tool.name }}
+                <span class="section-count">{{ poweredIntegrations().length | number:'1.0-0' }}</span>
+              </h2>
             </div>
+            <p class="connector-flow__intro">
+              Integrations between other products that route through {{ tool.name }}.
+            </p>
+            <ul class="connector-flow-list">
+              @for (i of poweredIntegrations(); track i.id) {
+                <li class="connector-flow">
+                  <div class="connector-flow__pair">
+                    @if (i.sourceProduct) {
+                      <a [routerLink]="['/products', i.sourceProduct.id]" class="connector-flow__endpoint">{{ i.sourceProduct.name }}</a>
+                    } @else {
+                      <span class="connector-flow__endpoint na">unknown source</span>
+                    }
+                    <span class="connector-flow__arrow" aria-hidden="true">{{ directionArrow(i.direction) }}</span>
+                    @if (i.targetProduct) {
+                      <a [routerLink]="['/products', i.targetProduct.id]" class="connector-flow__endpoint">{{ i.targetProduct.name }}</a>
+                    } @else {
+                      <span class="connector-flow__endpoint na">unknown target</span>
+                    }
+                  </div>
+                  <div class="connector-flow__meta">
+                    @if (i.mechanismKind) {
+                      <span class="badge badge--info">{{ i.mechanismKind }}</span>
+                    }
+                    @if (i.maturity) {
+                      <span class="badge" [class]="maturityBadgeClass(i.maturity)">{{ i.maturity }}</span>
+                    }
+                    @if (i.listingUrl) {
+                      <a [href]="i.listingUrl" target="_blank" rel="noopener" class="connector-flow__link">Listing</a>
+                    }
+                    @if (i.docsUrl) {
+                      <a [href]="i.docsUrl" target="_blank" rel="noopener" class="connector-flow__link">Docs</a>
+                    }
+                  </div>
+                  @if (i.description) {
+                    <p class="connector-flow__description">{{ i.description }}</p>
+                  }
+                </li>
+              }
+            </ul>
           </section>
         }
 
-        @if (poweredIntegrations().length) {
-          <section class="detail-section">
-            <h2 class="section-heading">Integrations this connector powers ({{ poweredIntegrations().length }})</h2>
-            <p class="muted" style="margin-top: -0.25rem;">
-              Other products' integrations whose connector platform is {{ tool.name }}.
-            </p>
-            <div class="integration-cards">
-              @for (i of poweredIntegrations(); track i.id) {
-                <div class="integration-card">
-                  <div class="integration-card__header">
-                    <div class="integration-card__title">
-                      <strong>
-                        @if (i.sourceProduct) {
-                          <a [routerLink]="['/products', i.sourceProduct.id]">{{ i.sourceProduct.name }}</a>
-                        } @else {
-                          <span class="muted">(unknown source)</span>
-                        }
-                        <span class="muted"> ↔ </span>
-                        @if (i.targetProduct) {
-                          <a [routerLink]="['/products', i.targetProduct.id]">{{ i.targetProduct.name }}</a>
-                        } @else {
-                          <span class="muted">(unknown target)</span>
-                        }
-                      </strong>
-                    </div>
-                    <div class="integration-card__badges">
-                      @if (i.mechanismKind) {
-                        <span class="badge badge--neutral" [title]="'Mechanism'">{{ i.mechanismKind }}</span>
-                      }
-                      @if (i.maturity) {
-                        <span class="badge badge--neutral" [title]="'Maturity'">{{ i.maturity }}</span>
-                      }
-                      @if (i.direction) {
-                        <span class="badge badge--neutral" [title]="'Direction'">{{ i.direction }}</span>
-                      }
-                    </div>
-                  </div>
-                  @if (i.description) {
-                    <p class="integration-card__description">{{ i.description }}</p>
-                  }
-                  @if (i.listingUrl || i.docsUrl) {
-                    <dl class="integration-card__meta">
-                      <div>
-                        <dt>Links</dt>
-                        <dd class="integration-card__links">
-                          @if (i.listingUrl) {
-                            <a [href]="i.listingUrl" target="_blank" rel="noopener">Listing</a>
-                          }
-                          @if (i.docsUrl) {
-                            <a [href]="i.docsUrl" target="_blank" rel="noopener">Docs</a>
-                          }
-                        </dd>
-                      </div>
-                    </dl>
-                  }
-                </div>
+        <!-- Discovery candidates / pipeline output. Collapsed by default; the
+             component auto-opens it once per product when discovery is the
+             only thing worth seeing (candidates exist, no integrations yet). -->
+        @let discoveryOpenNow = discoveryOpen();
+        @let candidateCount = tool.integrationsDiscoveryCandidates?.length ?? 0;
+        @if (tool.integrationsDiscoveryCheckedAt || candidateCount > 0 || tool.integrationsDiscoverySummary) {
+          <section class="detail-section discovery-collapsible" [class.discovery-collapsible--open]="discoveryOpenNow">
+            <button
+              type="button"
+              class="discovery-collapsible__toggle"
+              [attr.aria-expanded]="discoveryOpenNow"
+              (click)="toggleDiscoveryOpen()"
+            >
+              <svg class="discovery-collapsible__chevron" [class.discovery-collapsible__chevron--open]="discoveryOpenNow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="9 18 15 12 9 6" />
+              </svg>
+              <span class="discovery-collapsible__title">Discovery candidates</span>
+              @if (candidateCount > 0) {
+                <span class="discovery-collapsible__count">{{ candidateCount | number:'1.0-0' }}</span>
               }
-            </div>
+              @if (tool.integrationsDiscoveryCheckedAt) {
+                <span class="discovery-collapsible__freshness">
+                  last checked {{ formatDateWithRelative(tool.integrationsDiscoveryCheckedAt) }}
+                </span>
+              }
+            </button>
+
+            @if (discoveryOpenNow) {
+              <div class="discovery-collapsible__body">
+                <p class="cell-text-secondary discovery-collapsible__lede">
+                  Candidates the discovery sweep found but couldn't match to an existing
+                  product. Vendor stubs may have been created — review and add the
+                  products manually.
+                </p>
+
+                @if (tool.integrationsDiscoverySummary) {
+                  <pre class="discovery-summary">{{ tool.integrationsDiscoverySummary }}</pre>
+                }
+
+                @if (candidateCount > 0) {
+                  <div class="table-wrapper">
+                    <table class="table" aria-label="Unresolved integration candidates">
+                      <thead>
+                        <tr>
+                          <th>Target</th>
+                          <th>Vendor</th>
+                          <th>Source</th>
+                          <th>Mechanism</th>
+                          <th>Confidence</th>
+                          <th>Evidence</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (c of tool.integrationsDiscoveryCandidates; track $index) {
+                          <tr>
+                            <td>{{ c.targetName }}</td>
+                            <td>
+                              @if (c.targetVendorName) {
+                                <span>{{ c.targetVendorName }}</span>
+                              } @else {
+                                <span class="na">—</span>
+                              }
+                            </td>
+                            <td><span class="badge badge--neutral">{{ c.evidenceSource }}</span></td>
+                            <td>
+                              @if (c.mechanismKind) {
+                                <span class="badge badge--neutral">{{ c.mechanismKind }}</span>
+                              } @else {
+                                <span class="na">—</span>
+                              }
+                            </td>
+                            <td>
+                              <span class="badge" [class]="confidenceBadgeClass(c.confidence)">{{ c.confidence }}</span>
+                            </td>
+                            <td>
+                              <a [href]="c.evidenceUrl" target="_blank" rel="noopener" class="evidence-link">{{ c.evidenceUrl }}</a>
+                            </td>
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                } @else if (tool.integrationsDiscoveryCheckedAt) {
+                  <p class="cell-text-secondary">
+                    No unresolved candidates — every discovered integration was either materialized or already existed.
+                  </p>
+                }
+              </div>
+            }
           </section>
         }
       </div>

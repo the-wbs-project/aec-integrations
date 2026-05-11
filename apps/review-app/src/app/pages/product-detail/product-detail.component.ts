@@ -288,8 +288,130 @@ export class ProductDetailComponent {
     );
   }
 
+  // ---- Integrations tab — row expansion + summary -------------------------
+  // Multi-open: a Set of integrated-product ids that are currently expanded.
+  // Re-read on each toggle so Angular's signal equality picks up the change.
+  protected readonly expandedProductIds = signal<ReadonlySet<string>>(new Set());
+
+  isIntegrationRowExpanded(productId: string): boolean {
+    return this.expandedProductIds().has(productId);
+  }
+
+  toggleIntegrationRow(productId: string): void {
+    const next = new Set(this.expandedProductIds());
+    if (next.has(productId)) {
+      next.delete(productId);
+    } else {
+      next.add(productId);
+    }
+    this.expandedProductIds.set(next);
+  }
+
+  /**
+   * Integration records linking this product to a specific other-product.
+   * Used inside the expanded row to render the per-record wiring detail
+   * (one card per Integration record connecting the two endpoints).
+   */
+  integrationsForProduct(productId: string): IntegrationSummary[] {
+    return this.allIntegrations().filter((i) => {
+      const a = i.sourceProduct?.id;
+      const b = i.targetProduct?.id;
+      return a === productId || b === productId;
+    });
+  }
+
+  /**
+   * Aggregate stats for the summary strip at the top of the Integrations tab.
+   * Counts are derived from already-computed data — purely presentational.
+   */
+  integrationStats = computed(() => {
+    const all = this.allIntegrations();
+    const buckets = this.integratedConnectorBuckets();
+    let nativeCount = 0;
+    const connectorTotals = new Map<string, { name: string; count: number }>();
+    for (const b of buckets.values()) {
+      nativeCount += b.nativeCount;
+      for (const c of b.connectors) {
+        const prev = connectorTotals.get(c.id);
+        connectorTotals.set(c.id, { name: c.name, count: (prev?.count ?? 0) + 1 });
+      }
+    }
+    return {
+      integrationCount: all.length,
+      productCount: this.integratedProducts().length,
+      nativeCount,
+      connectors: Array.from(connectorTotals.entries())
+        .map(([id, v]) => ({ id, name: v.name, count: v.count }))
+        .sort((a, b) => b.count - a.count),
+    };
+  });
+
+  /**
+   * Single-line label for the Connections column on the Connected Tools row.
+   * Collapses the prior "count + chip list" into one scannable string so the
+   * column stays narrow and the row reads cleanly.
+   */
+  connectionLabel(productId: string): string {
+    const { nativeCount, connectors } = this.connectorChipsFor(productId);
+    const parts: string[] = [];
+    if (nativeCount > 0) {
+      parts.push(nativeCount === 1 ? 'Native' : `Native · ${nativeCount}`);
+    }
+    if (connectors.length === 1) {
+      parts.push(`via ${connectors[0].name}`);
+    } else if (connectors.length > 1) {
+      parts.push(`via ${connectors[0].name} +${connectors.length - 1}`);
+    }
+    return parts.join(' · ') || '—';
+  }
+
+  /** Arrow glyph reflecting the integration's direction. */
+  directionArrow(direction: string | undefined): string {
+    return direction === 'bidirectional' ? '⇄' : '→';
+  }
+
+  /**
+   * Semantic badge class for a maturity value. The Airtable field is free-text
+   * but the common values come from a documented vocabulary; map known
+   * synonyms so "GA", "Stable", "Production" all read green.
+   */
+  maturityBadgeClass(maturity: string | undefined): string {
+    if (!maturity) return 'badge--neutral';
+    const m = maturity.toLowerCase();
+    if (m.includes('ga') || m.includes('stable') || m.includes('production')) {
+      return 'badge--success';
+    }
+    if (m.includes('beta') || m.includes('preview')) return 'badge--warning';
+    if (m.includes('alpha') || m.includes('experimental')) return 'badge--danger';
+    if (m.includes('deprecated') || m.includes('legacy')) return 'badge--neutral';
+    return 'badge--neutral';
+  }
+
+  /** Semantic class for pricing model — free/included reads info, paid neutral. */
+  pricingBadgeClass(pricing: string | undefined): string {
+    if (!pricing) return 'badge--neutral';
+    const p = pricing.toLowerCase();
+    if (p.includes('free') || p.includes('included') || p.includes('no charge')) {
+      return 'badge--info';
+    }
+    return 'badge--neutral';
+  }
+
   // ---- Integration discovery (unresolved candidates) ---------------------
   protected readonly discoveryRunning = signal(false);
+
+  /**
+   * Discovery is collapsed by default at the bottom of the tab. It auto-opens
+   * when the product has unresolved candidates *and* no real integrations yet
+   * — i.e. discovery is the only thing worth looking at. After that the user
+   * can toggle freely.
+   */
+  protected readonly discoveryOpen = signal(false);
+  private discoveryAutoOpened = new Set<string>();
+
+  toggleDiscoveryOpen(): void {
+    this.discoveryOpen.set(!this.discoveryOpen());
+  }
 
   startIntegrationsDiscovery(): void {
     if (this.discoveryRunning()) return;
@@ -304,18 +426,6 @@ export class ProductDetailComponent {
         next: () => this.discoveryRunning.set(false),
         error: () => this.discoveryRunning.set(false),
       });
-  }
-
-  // The "other" endpoint of an integration relative to this tool.
-  otherProductOf(integration: IntegrationSummary): LinkRef | undefined {
-    const myId = this.id();
-    if (integration.sourceProduct && integration.sourceProduct.id !== myId) {
-      return integration.sourceProduct;
-    }
-    if (integration.targetProduct && integration.targetProduct.id !== myId) {
-      return integration.targetProduct;
-    }
-    return undefined;
   }
 
   filteredIntegratedProducts = computed<IntegratedProductSummary[]>(() => {
@@ -393,10 +503,29 @@ export class ProductDetailComponent {
       this.integratedProductsSearch.set('');
       this.saveError.set(null);
       this.usefulnessExpanded.set(false);
+      this.expandedProductIds.set(new Set());
+      this.discoveryOpen.set(false);
       this.api.getProduct(id).subscribe((tool) => {
         if (this.id() === id) this.tool.set(tool);
       });
     });
+
+    // Auto-open the discovery section once per product when discovery is the
+    // only signal worth surfacing (candidates exist, no integrations yet).
+    // Tracked in `discoveryAutoOpened` so a manual collapse isn't overridden.
+    effect(() => {
+      const id = this.id();
+      const t = this.tool();
+      if (!t) return;
+      if (this.discoveryAutoOpened.has(id)) return;
+      const candidates = t.integrationsDiscoveryCandidates?.length ?? 0;
+      const integrations = this.allIntegrations().length;
+      if (candidates > 0 && integrations === 0) {
+        this.discoveryOpen.set(true);
+        this.discoveryAutoOpened.add(id);
+      }
+    });
+
     this.api.getMeta().subscribe((meta) => {
       this.meta.set(meta);
     });
