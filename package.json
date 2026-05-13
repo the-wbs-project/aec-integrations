@@ -6,7 +6,10 @@
     "dev": "pnpm --filter @aec/landing dev",
     "dev:landing": "pnpm --filter @aec/landing dev",
     "dev:web": "pnpm --filter @aec/web dev",
+    "dev:stack-test": "pnpm --filter @aec/stack-test dev",
+    "build:stack-test": "pnpm --filter @aec/stack-test build",
     "deploy:landing": "pnpm --filter @aec/landing deploy",
-    "deploy:web": "pnpm --filter @aec/web deploy"
+    "deploy:web": "pnpm --filter @aec/web deploy",
+    "deploy:stack-test": "pnpm --filter @aec/stack-test deploy"
   }
 }

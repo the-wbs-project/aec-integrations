@@ -1,0 +1,62 @@
+/*
+ * Theme tokens for the stack-validation app.
+ *
+ * Palette source: /Users/chris/conductor/workspaces/aec-integrations/luxembourg-v2/.impeccable.md
+ *   Forest #1E3A2F, Clay #E89668, Bone #F5F2EA
+ *
+ * Bound to [data-theme="light"|"dark"] on <html>. The ThemeService writes this
+ * attribute SSR-side (from cookie) and client-side (after hydration). Tailwind
+ * v4 utilities can reference these via var(--token) or via the @theme block in
+ * styles.css.
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --bg: #f5f2ea;
+  --surface: #ffffff;
+  --surface-muted: #f0ece2;
+  --border: #e0dcd0;
+  --border-strong: #c8c3b3;
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #4a4a4a;
+  --text-muted: #6b6b6b;
+
+  --accent: #1e3a2f;
+  --accent-hover: #2a4f40;
+  --accent-fg: #ffffff;
+
+  --accent-secondary: #e89668;
+  --accent-secondary-hover: #d98558;
+  --accent-secondary-fg: #1a1a1a;
+
+  --focus-ring: #1e3a2f;
+  --danger: #b3261e;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #0f1815;
+  --surface: #1a2622;
+  --surface-muted: #243029;
+  --border: #2a3631;
+  --border-strong: #3a4640;
+
+  --text-primary: #f5f2ea;
+  --text-secondary: #c8c3b3;
+  --text-muted: #8c8a82;
+
+  --accent: #4a8870;
+  --accent-hover: #5a9a80;
+  --accent-fg: #0f1815;
+
+  --accent-secondary: #e89668;
+  --accent-secondary-hover: #f0a578;
+  --accent-secondary-fg: #0f1815;
+
+  --focus-ring: #4a8870;
+  --danger: #f2b8b5;
+}
