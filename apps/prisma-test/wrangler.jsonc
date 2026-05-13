@@ -1,0 +1,26 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "prisma-test",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-07",
+  // Prisma Accelerate connects over HTTPS (no TCP), so nodejs_compat is not
+  // required for the runtime. DATABASE_URL holds the Accelerate connection
+  // string and is intentionally not stored here because it contains an API
+  // key. Local development reads it from .dev.vars; deployed Workers should
+  // use: wrangler secret put DATABASE_URL.
+  "workers_dev": true,
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS"
+  },
+  "dev": {
+    "port": 8787
+  }
+}
