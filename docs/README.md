@@ -8,7 +8,9 @@ This directory holds the planning, architecture, and operational documentation f
 2. **`DATABASE_SCHEMA.md`** — full Supabase schema and Airtable migration plan.
 3. **`API_CONTRACTS.md`** — Zod schemas, error codes, and TypeScript types for every API endpoint.
 4. **`CICD_PLAN.md`** — GitHub Actions pipeline, environments, deployment, and rollback strategy.
-5. **`TESTING_STRATEGY.md`** — test tools, coverage targets, flaky test policy.
+5. **`TESTING_STRATEGY.md`** — high-level testing philosophy and tooling.
+6. **`UNIT_TESTING_GUIDE.md`** — read before writing tests.
+7. **`CODE_REVIEW_CHECKLIST.md`** — read before reviewing a PR.
 
 ## Documents
 
@@ -22,6 +24,8 @@ This directory holds the planning, architecture, and operational documentation f
 | [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Placeholder | Authorization model and Row-Level Security policies. Full definition pending. |
 | [`CICD_PLAN.md`](./CICD_PLAN.md) | Active | GitHub Actions pipeline, environments, deployments, rollback, secrets management. |
 | [`TESTING_STRATEGY.md`](./TESTING_STRATEGY.md) | Active | Testing tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy. |
+| [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
+| [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |
 | [`SEARCH_RANKING.md`](./SEARCH_RANKING.md) | Pending | Algolia ranking customization, tuning rules, feedback loops. |
 | [`OPERATIONAL_RUNBOOKS.md`](./OPERATIONAL_RUNBOOKS.md) | Pending | Incident response, vendor dispute handling, recovery procedures. |
 
