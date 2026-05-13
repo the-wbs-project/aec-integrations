@@ -26,7 +26,7 @@ import { Entity } from '../entity';
         <h1 class="text-2xl font-medium tracking-tight text-(--text-primary)">
           /cached/{{ id() }}
         </h1>
-        <p class="mt-2 text-sm text-(--text-muted) max-w-prose">
+        <p class="mt-2 text-sm text-(--text-muted) max-w-prose" i18n="@@cached.intro">
           Server-rendered from KV. This response is cached at the edge for 5 minutes.
           Edit the entity at
           <a
@@ -54,6 +54,7 @@ import { Entity } from '../entity';
       } @else {
         <div
           class="rounded-lg border border-(--danger) bg-(--surface) p-6 text-sm text-(--danger)"
+          i18n="@@cached.notFound"
         >
           Entity not found. Try
           <a routerLink="/cached/abc" class="underline">/cached/abc</a> or
