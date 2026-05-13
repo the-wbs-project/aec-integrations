@@ -13,11 +13,26 @@
       "root": "",
       "sourceRoot": "src",
       "prefix": "app",
+      "i18n": {
+        "sourceLocale": {
+          "code": "en-US",
+          "subPath": ""
+        },
+        "locales": {
+          "es-ES": {
+            "translation": "src/locale/messages.es-ES.xlf",
+            "subPath": "es"
+          }
+        }
+      },
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
             "browser": "src/main.ts",
+            "polyfills": [
+              "@angular/localize/init"
+            ],
             "tsConfig": "tsconfig.app.json",
             "assets": [
               {
@@ -40,7 +55,8 @@
             "externalDependencies": [
               "cloudflare:workers"
             ],
-            "outputPath": "dist"
+            "outputPath": "dist",
+            "localize": true
           },
           "configurations": {
             "production": {

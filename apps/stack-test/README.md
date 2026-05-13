@@ -14,6 +14,10 @@ for the full spec.
 - Tailwind v4 with CSS custom property tokens (light/dark)
 - Cookie-driven theme detection in SSR
 - KV-backed entities — data changes trigger purges
+- **`@angular/localize` build-time per-locale output** — `en-US` at `/`,
+  `es-ES` at `/es/`. Single `dist/server/server.mjs` dispatches by URL prefix.
+  KV-backed `translations:entity:<id>:<locale>` overlay with per-field
+  fallback to canonical (en-US) on missing translations.
 
 ## What's in here
 
@@ -29,11 +33,14 @@ src/
     ├── app.config.server.ts         SSR-only providers
     ├── app.routes.ts / *.server.ts  Route config
     ├── theme.service.ts             Signal-based theme; cookie ↔ localStorage ↔ matchMedia
-    ├── data.service.ts              HttpClient calls to /api/* (transfer-cached)
+    ├── data.service.ts              HttpClient calls to /api/* — forwards LOCALE_ID
+    ├── data.service.server.ts       SSR override: direct KV read + translation overlay
     ├── entity.ts                    Entity type
-    ├── home/                        Spartan smoke test + CDK Dialog
-    ├── cached/                      /cached/:id — KV-backed cacheable page
+    ├── home/                        Spartan smoke test + CDK Dialog (i18n-wrapped)
+    ├── cached/                      /cached/:id and /es/cached/:id — KV-backed cacheable page
     └── admin/                       /admin (list) · /admin/:id (edit) · /admin/purge (raw)
+locale/
+└── messages.es-ES.xlf               Hand-translated XLIFF for the es-ES build
 ```
 
 ## Local development
@@ -132,6 +139,11 @@ HOST=https://stack-test.aecintegrations.com pnpm test:extra
 | T5 | Concurrent PUT / purge storm | Surfaces rate-limit, dropped purges, or token-scope issues at small scale |
 | T6 | ETag / `If-None-Match` | Missing ETag = wasted bandwidth on hot pages; soft fail today, decide before Phase 2 |
 | T7 | Bundle size snapshot | Baseline `server.mjs` size so growth is visible; fails over 5 MB (half the 10 MB Worker limit) |
+| T8 | Locale URL dispatch | `/cached/:id` (en-US) vs `/es/cached/:id` (es-ES) — different `<html lang>`, different chrome, KV translation overlay applied per-locale |
+| T9 | Per-locale edge-cache isolation | URL prefix is the cache key — MISS-then-HIT independent per locale, no T1b-style cross-pollution between locales |
+| T10 | Locale-scoped purge semantics | `PUT /api/translations/:id/:locale` purges only that locale's URL; `PUT /api/data/:id` (canonical) cascades to every locale variant |
+| T11 | Per-field translation fallback | Missing fields in the overlay fall back to the canonical entity — proves the spec's `en-US` fallback pattern |
+| T12 | `ng extract-i18n` discipline | Wrapped chrome strings show up in the extracted XLIFF; catches drift if someone adds a hardcoded English string |
 
 #### Results — first run against `wrangler dev` (2026-05-12)
 
@@ -147,6 +159,25 @@ SKIP  T5b  purge_cache call not exercised locally
 SKIP  T6   no ETag emitted on /cached/:id — bandwidth-optimization gap, not a blocker
 PASS  T7   server upload 1089 KB (within Worker budget)
 ```
+
+#### Locale results — first run against `wrangler dev` (2026-05-13)
+
+```
+PASS  T8a   /cached/abc serves <html lang="en-US"> + English chrome
+PASS  T8b   /es/cached/abc serves <html lang="es-ES"> + Spanish chrome
+PASS  T8c   KV translation overlay applied to es-ES; no cross-locale bleed
+PASS  T9a   MISS-then-HIT independent per locale (en: MISS->HIT  es: MISS->HIT)
+PASS  T9b   cache HIT content matches its URL's locale (no cross-pollution)
+PASS  T10a  translation PUT purged /es/cached only (en stayed HIT)
+PASS  T10b  canonical PUT purged every locale variant
+PASS  T11   missing translation fields fall back to canonical body
+PASS  T12   ng extract-i18n produces XLIFF with wrapped chrome strings
+```
+
+The clean T9 result is the headline finding for Phase 2: locale is the same
+shape of risk as theme (T1b), but the spec's URL-prefix strategy means it
+doesn't fight URL-keyed cache — the cache is naturally segmented per locale.
+No `Vary` header or cookie-aware cache key required.
 
 **Phase 2 implications**
 
@@ -191,6 +222,24 @@ curl -s   "${HOST}/cached/abc" | grep -oE 'Edited via curl'   # > 0 = new conten
 
 # Isolation check — purging abc does NOT invalidate xyz
 curl -sI "${HOST}/cached/xyz" | grep -i cf-cache-status   # still HIT
+
+# Locale dispatch — different lang + chrome + entity content
+curl -s "${HOST}/cached/abc"    | grep -oE '<html[^>]*lang="[^"]*"'   # lang="en-US"
+curl -s "${HOST}/es/cached/abc" | grep -oE '<html[^>]*lang="[^"]*"'   # lang="es-ES"
+
+# Locale-scoped translation edit — only purges /es/cached/abc
+curl -s -X PUT -H 'content-type: application/json' \
+  -d '{"title":"Título actualizado","body":"cuerpo actualizado"}' \
+  "${HOST}/api/translations/abc/es-ES"
+curl -s -D - -o /dev/null "${HOST}/cached/abc"    | grep -i x-stack-test-cache   # HIT (untouched)
+curl -s -D - -o /dev/null "${HOST}/es/cached/abc" | grep -i x-stack-test-cache   # MISS (purged)
+
+# Canonical edit — cascades to every locale variant
+curl -s -X PUT -H 'content-type: application/json' \
+  -d '{"title":"English edit","body":"new english body"}' \
+  "${HOST}/api/data/abc"
+curl -s -D - -o /dev/null "${HOST}/cached/abc"    | grep -i x-stack-test-cache   # MISS
+curl -s -D - -o /dev/null "${HOST}/es/cached/abc" | grep -i x-stack-test-cache   # MISS
 ```
 
 ## Risk areas (from spec Section 6)
@@ -211,6 +260,14 @@ curl -sI "${HOST}/cached/xyz" | grep -i cf-cache-status   # still HIT
 - **Cloudflare API token scoping** — token must have `Zone.Cache Purge`
   on `aecintegrations.com` only. The `/admin/purge` raw-URL form is the
   test harness for verifying this in isolation.
+- **Locale × cache** — handled via URL prefix. `angular.json` sets
+  `sourceLocale: { code: 'en-US', subPath: '' }` (root) and `es-ES` at
+  subPath `es`. The Worker mirrors this in its `LOCALES` constant so the
+  canonical-entity purge can fan out to every locale variant. Because the
+  cache key is the URL, locales are naturally segmented — there is no
+  cookie-vs-cache trap (cf. T1b for theme). KV translation overlay lives at
+  `translations:entity:<id>:<locale>` with per-field fallback to the
+  canonical entity, mirroring the spec's `translations` table semantics.
 
 ## Decision criteria (Section 10)
 

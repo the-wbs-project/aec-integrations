@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en-US" datatype="plaintext" original="ng2.template">
+    <body>
+      <trans-unit id="app.brand" datatype="html">
+        <source> AECi · stack-test </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/app.ts</context>
+          <context context-type="linenumber">20,22</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.nav.home" datatype="html">
+        <source> Home </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/app.ts</context>
+          <context context-type="linenumber">30,32</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.nav.admin" datatype="html">
+        <source> Admin </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/app.ts</context>
+          <context context-type="linenumber">52,54</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.theme.label" datatype="html">
+        <source>theme</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/app.ts</context>
+          <context context-type="linenumber">61</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer" datatype="html">
+        <source> Stack-validation probe · Angular 21 zoneless · Cloudflare Workers SSR · Spartan brain primitives </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/app.ts</context>
+          <context context-type="linenumber">71,73</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="cached.intro" datatype="html">
+        <source> Server-rendered from KV. This response is cached at the edge for 5 minutes. Edit the entity at <x id="START_LINK" ctype="x-a" equiv-text="&lt;a
+            [routerLink]=&quot;[&apos;/admin&apos;, id()]&quot;
+            class=&quot;text-(--accent) underline underline-offset-2&quot;
+            &gt;"/>/admin/<x id="INTERPOLATION" equiv-text="{{ id() }}"/><x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a
+          &gt;"/> to trigger an automatic purge. </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/cached/cached.component.ts</context>
+          <context context-type="linenumber">30,38</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="cached.notFound" datatype="html">
+        <source> Entity not found. Try <x id="START_LINK" ctype="x-a" equiv-text="&lt;a routerLink=&quot;/cached/abc&quot; class=&quot;underline&quot;&gt;"/>/cached/abc<x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a&gt;"/> or <x id="START_LINK_1" equiv-text="&lt;a routerLink=&quot;/cached/xyz&quot; class=&quot;underline&quot;&gt;"/>/cached/xyz<x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a&gt;"/>. </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/cached/cached.component.ts</context>
+          <context context-type="linenumber">59,62</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.title" datatype="html">
+        <source> Stack validation probe </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.component.ts</context>
+          <context context-type="linenumber">18,20</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.intro" datatype="html">
+        <source> Smoke test for Angular 21 zoneless SSR on Cloudflare Workers, Tailwind v4, and Spartan brain primitives (Angular CDK overlay backing the dialog). Toggle the theme in the header to verify CSS custom properties switch server-side and client-side without FOUC. See <x id="START_TAG_CODE" ctype="x-code" equiv-text="&lt;code class=&quot;font-mono text-xs&quot;&gt;"/>/cached/:id<x id="CLOSE_TAG_CODE" ctype="x-code" equiv-text="&lt;/code&gt;"/> for cache tests and <x id="START_TAG_CODE" ctype="x-code" equiv-text="&lt;code class=&quot;font-mono text-xs&quot;&gt;"/>/admin<x id="CLOSE_TAG_CODE" ctype="x-code" equiv-text="&lt;/code&gt;"/> for data-driven invalidation. </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.component.ts</context>
+          <context context-type="linenumber">21,28</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.section.theme" datatype="html">
+        <source> theme state </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.component.ts</context>
+          <context context-type="linenumber">37,39</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.theme.light" datatype="html">
+        <source> Light </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.component.ts</context>
+          <context context-type="linenumber">53,54</context>
+        </context-group>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

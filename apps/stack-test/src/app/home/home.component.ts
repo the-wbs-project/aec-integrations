@@ -11,10 +11,13 @@ import { ThemeService } from '../theme.service';
   template: `
     <section class="space-y-8">
       <div>
-        <h1 class="text-2xl font-medium tracking-tight text-(--text-primary)">
+        <h1
+          class="text-2xl font-medium tracking-tight text-(--text-primary)"
+          i18n="@@home.title"
+        >
           Stack validation probe
         </h1>
-        <p class="mt-2 text-sm text-(--text-muted) max-w-prose">
+        <p class="mt-2 text-sm text-(--text-muted) max-w-prose" i18n="@@home.intro">
           Smoke test for Angular 21 zoneless SSR on Cloudflare Workers, Tailwind v4,
           and Spartan brain primitives (Angular CDK overlay backing the dialog).
           Toggle the theme in the header to verify CSS custom properties switch
@@ -27,7 +30,10 @@ import { ThemeService } from '../theme.service';
       <div
         class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm"
       >
-        <div class="text-xs uppercase tracking-wider text-(--text-muted)">
+        <div
+          class="text-xs uppercase tracking-wider text-(--text-muted)"
+          i18n="@@home.section.theme"
+        >
           theme state
         </div>
         <div class="text-sm grid grid-cols-2 gap-y-1">
@@ -42,6 +48,7 @@ import { ThemeService } from '../theme.service';
             type="button"
             (click)="theme.set('light')"
             class="text-xs px-3 py-1.5 rounded-md border border-(--border) bg-(--surface-muted) text-(--text-primary) hover:bg-(--accent) hover:text-(--accent-fg) hover:border-(--accent) cursor-pointer"
+            i18n="@@home.theme.light"
           >
             Light
           </button>

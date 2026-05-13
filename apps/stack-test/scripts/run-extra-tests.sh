@@ -350,6 +350,197 @@ else
 fi
 
 # -------------------------------------------------------------------------
+section "T8  Locale URL dispatch (chrome strings + KV translation overlay)"
+# -------------------------------------------------------------------------
+# Reset seeds (including Spanish translation overlay) before the locale block —
+# the T4 XSS test rewrites entity:abc, and translation tests below mutate the
+# es-ES overlay. The seed PUT to /api/data/abc above is canonical-only; we
+# rewrite the Spanish overlay with the original seed content here too.
+curl -fsS -X PUT -H 'content-type: application/json' \
+	-d '{"title":"Hola desde entity:abc","body":"Cuerpo en español sembrado para entity abc. Edítame en /admin/abc/translations/es-ES y la caché de /es/cached/abc se purgará."}' \
+	"$HOST/api/translations/abc/es-ES" > /dev/null || true
+purge_url "$HOST/cached/abc"
+purge_url "$HOST/es/cached/abc"
+
+EN_HTML=$(curl -fsS "$HOST/cached/abc")
+ES_HTML=$(curl -fsS "$HOST/es/cached/abc")
+
+EN_LANG=$(echo "$EN_HTML" | grep -oE '<html[^>]*lang="[^"]*"' | head -n1)
+ES_LANG=$(echo "$ES_HTML" | grep -oE '<html[^>]*lang="[^"]*"' | head -n1)
+
+# T8a: en-US default route serves en-US lang + English chrome
+if echo "$EN_LANG" | grep -q 'lang="en-US"' && echo "$EN_HTML" | grep -qE '>\s*Home\s*<'; then
+	pass "T8a /cached/abc serves <html lang=\"en-US\"> + English chrome"
+else
+	fail "T8a /cached/abc locale dispatch broken" \
+		"lang=$EN_LANG · Home present? $(echo "$EN_HTML" | grep -c 'Home')"
+fi
+
+# T8b: /es/ prefix dispatches to es-ES bundle
+if echo "$ES_LANG" | grep -q 'lang="es-ES"' && echo "$ES_HTML" | grep -qE '>\s*Inicio\s*<'; then
+	pass "T8b /es/cached/abc serves <html lang=\"es-ES\"> + Spanish chrome"
+else
+	fail "T8b /es/cached/abc locale dispatch broken" \
+		"lang=$ES_LANG · Inicio present? $(echo "$ES_HTML" | grep -c 'Inicio')"
+fi
+
+# T8c: KV translation overlay swaps the entity body for the Spanish page.
+# Canonical en body must not appear in the Spanish HTML, and the Spanish
+# overlay body must not leak into the English HTML.
+EN_HAS_ES=$(echo "$EN_HTML" | grep -c 'Hola desde entity:abc' || true)
+ES_HAS_EN=$(echo "$ES_HTML" | grep -c 'Hello from entity:abc' || true)
+ES_HAS_OVERLAY=$(echo "$ES_HTML" | grep -c 'Hola desde entity:abc' || true)
+if [ "$EN_HAS_ES" = "0" ] && [ "$ES_HAS_EN" = "0" ] && [ "$ES_HAS_OVERLAY" != "0" ]; then
+	pass "T8c KV translation overlay applied to es-ES; no cross-locale bleed"
+else
+	fail "T8c overlay/isolation broken" \
+		"en→es bleed=$EN_HAS_ES · es→en bleed=$ES_HAS_EN · es overlay present=$ES_HAS_OVERLAY"
+fi
+
+# -------------------------------------------------------------------------
+section "T9  Per-locale edge-cache isolation"
+# -------------------------------------------------------------------------
+# URL prefix is the cache key, so /cached/abc and /es/cached/abc should HIT
+# independently after MISS. No T1b-style cross-pollution.
+purge_url "$HOST/cached/abc"
+purge_url "$HOST/es/cached/abc"
+
+EN_MISS=$(cache_status "$HOST/cached/abc")
+sleep 0.4   # let edgeCache().put land
+EN_HIT=$(cache_status "$HOST/cached/abc")
+ES_MISS=$(cache_status "$HOST/es/cached/abc")
+sleep 0.4
+ES_HIT=$(cache_status "$HOST/es/cached/abc")
+
+if [ "$EN_MISS" = "MISS" ] && [ "$EN_HIT" = "HIT" ] \
+	&& [ "$ES_MISS" = "MISS" ] && [ "$ES_HIT" = "HIT" ]; then
+	pass "T9a MISS-then-HIT independent per locale (en: ${EN_MISS}->${EN_HIT}  es: ${ES_MISS}->${ES_HIT})"
+else
+	fail "T9a per-locale cache fill broken" \
+		"en: ${EN_MISS}->${EN_HIT}  es: ${ES_MISS}->${ES_HIT}"
+fi
+
+# T9b: a cached HIT on the English URL must serve English content; the cached
+# HIT on the Spanish URL must serve Spanish content. This is the live proof
+# that the URL-prefix cache key keeps locales from cross-polluting.
+EN_HIT_HTML=$(curl -fsS "$HOST/cached/abc")
+ES_HIT_HTML=$(curl -fsS "$HOST/es/cached/abc")
+if echo "$EN_HIT_HTML" | grep -qE '>\s*Home\s*<' \
+	&& echo "$ES_HIT_HTML" | grep -qE '>\s*Inicio\s*<' \
+	&& ! echo "$EN_HIT_HTML" | grep -qE '>\s*Inicio\s*<' \
+	&& ! echo "$ES_HIT_HTML" | grep -qE '>\s*Home\s*<'; then
+	pass "T9b cache HIT content matches its URL's locale (no cross-pollution)"
+else
+	fail "T9b locale content crossed cache boundary"
+fi
+
+# -------------------------------------------------------------------------
+section "T10  Locale-scoped purge semantics"
+# -------------------------------------------------------------------------
+# T10a: PUT /api/translations/:id/:locale purges ONLY that locale's URL.
+# Warm both caches, edit only the Spanish translation, expect:
+#   - /es/cached/abc       → MISS then re-render with new translation
+#   - /cached/abc          → still HIT (canonical untouched)
+purge_url "$HOST/cached/abc"
+purge_url "$HOST/es/cached/abc"
+# Prime both
+curl -fsS -o /dev/null "$HOST/cached/abc"
+curl -fsS -o /dev/null "$HOST/es/cached/abc"
+sleep 0.6
+
+T10A_NEW_TITLE="Título nuevo $(date +%s)"
+curl -fsS -X PUT -H 'content-type: application/json' \
+	-d "{\"title\":\"$T10A_NEW_TITLE\",\"body\":\"cuerpo actualizado\"}" \
+	"$HOST/api/translations/abc/es-ES" > /dev/null
+sleep 0.6   # let waitUntil flush the cache delete
+
+EN_AFTER=$(cache_status "$HOST/cached/abc")
+ES_AFTER=$(cache_status "$HOST/es/cached/abc")
+if [ "$EN_AFTER" = "HIT" ] && [ "$ES_AFTER" = "MISS" ]; then
+	pass "T10a translation PUT purged /es/cached only (en=$EN_AFTER  es=$ES_AFTER)"
+else
+	fail "T10a translation purge cascaded incorrectly" \
+		"en=$EN_AFTER (expected HIT)  es=$ES_AFTER (expected MISS)"
+fi
+# After the MISS render, the Spanish page must contain the new title.
+sleep 0.4
+ES_RERENDER=$(curl -fsS "$HOST/es/cached/abc")
+if echo "$ES_RERENDER" | grep -qF "$T10A_NEW_TITLE"; then
+	pass "T10a re-rendered Spanish page contains the new translation"
+else
+	fail "T10a Spanish page did not re-render with the new translation"
+fi
+
+# T10b: PUT /api/data/:id (canonical) purges every locale variant — canonical
+# is the fallback source for missing translation fields.
+curl -fsS -o /dev/null "$HOST/cached/abc"     # warm en
+curl -fsS -o /dev/null "$HOST/es/cached/abc"  # warm es
+sleep 0.6
+
+T10B_NEW_EN="English edit $(date +%s)"
+curl -fsS -X PUT -H 'content-type: application/json' \
+	-d "{\"title\":\"$T10B_NEW_EN\",\"body\":\"new english body\"}" \
+	"$HOST/api/data/abc" > /dev/null
+sleep 0.6
+
+EN_AFTER2=$(cache_status "$HOST/cached/abc")
+ES_AFTER2=$(cache_status "$HOST/es/cached/abc")
+if [ "$EN_AFTER2" = "MISS" ] && [ "$ES_AFTER2" = "MISS" ]; then
+	pass "T10b canonical PUT purged every locale (en=$EN_AFTER2  es=$ES_AFTER2)"
+else
+	fail "T10b canonical purge did not cascade to all locales" \
+		"en=$EN_AFTER2 (expected MISS)  es=$ES_AFTER2 (expected MISS)"
+fi
+
+# -------------------------------------------------------------------------
+section "T11  Per-field fallback to canonical"
+# -------------------------------------------------------------------------
+# Set the Spanish overlay to title-only (omit body) — the rendered Spanish
+# page must show the Spanish title alongside the canonical English body.
+T11_TITLE="Solo título es $(date +%s)"
+# We just edited canonical above; capture its body so we can confirm fallback.
+T11_CANONICAL_BODY="new english body"
+curl -fsS -X PUT -H 'content-type: application/json' \
+	-d "{\"title\":\"$T11_TITLE\"}" \
+	"$HOST/api/translations/abc/es-ES" > /dev/null
+sleep 0.6
+ES_FALLBACK=$(curl -fsS "$HOST/es/cached/abc")
+if echo "$ES_FALLBACK" | grep -qF "$T11_TITLE" \
+	&& echo "$ES_FALLBACK" | grep -qF "$T11_CANONICAL_BODY"; then
+	pass "T11 missing translation fields fall back to canonical body"
+else
+	HAS_TITLE=$(echo "$ES_FALLBACK" | grep -c "$T11_TITLE" || true)
+	HAS_BODY=$(echo "$ES_FALLBACK" | grep -c "$T11_CANONICAL_BODY" || true)
+	fail "T11 fallback to canonical broken" \
+		"es page has Spanish title=$HAS_TITLE  canonical body=$HAS_BODY (both should be ≥1)"
+fi
+reset_seed
+# Restore Spanish translation seed for subsequent test runs.
+curl -fsS -X PUT -H 'content-type: application/json' \
+	-d '{"title":"Hola desde entity:abc","body":"Cuerpo en español sembrado para entity abc. Edítame en /admin/abc/translations/es-ES y la caché de /es/cached/abc se purgará."}' \
+	"$HOST/api/translations/abc/es-ES" > /dev/null || true
+
+# -------------------------------------------------------------------------
+section "T12  i18n extraction (build-time discipline)"
+# -------------------------------------------------------------------------
+# Run ng extract-i18n into a tmp dir and assert the wrapped messages are present.
+# Detects regressions where someone adds a hardcoded English string.
+EXTRACT_DIR=$(mktemp -d)
+APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+if (cd "$APP_DIR" && pnpm exec ng extract-i18n --output-path "$EXTRACT_DIR" --out-file messages.xlf > "$EXTRACT_DIR/extract.log" 2>&1); then
+	if grep -q 'id="home.title"' "$EXTRACT_DIR/messages.xlf" \
+		&& grep -q 'id="app.nav.home"' "$EXTRACT_DIR/messages.xlf"; then
+		pass "T12 ng extract-i18n produces XLIFF with wrapped chrome strings"
+	else
+		fail "T12 extracted XLIFF missing expected message ids" \
+			"see $EXTRACT_DIR/messages.xlf"
+	fi
+else
+	fail "T12 ng extract-i18n failed" "see $EXTRACT_DIR/extract.log"
+fi
+rm -rf "$EXTRACT_DIR"
+
+# -------------------------------------------------------------------------
 section "summary"
 # -------------------------------------------------------------------------
 printf '  %s: %d   %s: %d   %s: %d\n' "$(c_pass)" $PASS "$(c_fail)" $FAIL "$(c_skip)" $SKIP

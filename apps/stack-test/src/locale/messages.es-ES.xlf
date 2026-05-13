@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en-US" target-language="es-ES" datatype="plaintext" original="ng2.template">
+    <body>
+      <trans-unit id="app.brand" datatype="html">
+        <source> AECi · stack-test </source>
+        <target> AECi · prueba-de-stack </target>
+      </trans-unit>
+      <trans-unit id="app.nav.home" datatype="html">
+        <source> Home </source>
+        <target> Inicio </target>
+      </trans-unit>
+      <trans-unit id="app.nav.admin" datatype="html">
+        <source> Admin </source>
+        <target> Administración </target>
+      </trans-unit>
+      <trans-unit id="app.theme.label" datatype="html">
+        <source>theme</source>
+        <target>tema</target>
+      </trans-unit>
+      <trans-unit id="app.footer" datatype="html">
+        <source> Stack-validation probe · Angular 21 zoneless · Cloudflare Workers SSR · Spartan brain primitives </source>
+        <target> Sonda de validación del stack · Angular 21 sin zonas · Cloudflare Workers SSR · primitivas Spartan brain </target>
+      </trans-unit>
+      <trans-unit id="cached.intro" datatype="html">
+        <source> Server-rendered from KV. This response is cached at the edge for 5 minutes. Edit the entity at <x id="START_LINK" ctype="x-a" equiv-text="&lt;a
+            [routerLink]=&quot;[&apos;/admin&apos;, id()]&quot;
+            class=&quot;text-(--accent) underline underline-offset-2&quot;
+            &gt;"/>/admin/<x id="INTERPOLATION" equiv-text="{{ id() }}"/><x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a
+          &gt;"/> to trigger an automatic purge. </source>
+        <target> Renderizado en el servidor desde KV. Esta respuesta se almacena en la caché del borde durante 5 minutos. Edita la entidad en <x id="START_LINK" ctype="x-a" equiv-text="&lt;a
+            [routerLink]=&quot;[&apos;/admin&apos;, id()]&quot;
+            class=&quot;text-(--accent) underline underline-offset-2&quot;
+            &gt;"/>/admin/<x id="INTERPOLATION" equiv-text="{{ id() }}"/><x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a
+          &gt;"/> para activar una purga automática. </target>
+      </trans-unit>
+      <trans-unit id="cached.notFound" datatype="html">
+        <source> Entity not found. Try <x id="START_LINK" ctype="x-a" equiv-text="&lt;a routerLink=&quot;/cached/abc&quot; class=&quot;underline&quot;&gt;"/>/cached/abc<x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a&gt;"/> or <x id="START_LINK_1" equiv-text="&lt;a routerLink=&quot;/cached/xyz&quot; class=&quot;underline&quot;&gt;"/>/cached/xyz<x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a&gt;"/>. </source>
+        <target> Entidad no encontrada. Prueba <x id="START_LINK" ctype="x-a" equiv-text="&lt;a routerLink=&quot;/cached/abc&quot; class=&quot;underline&quot;&gt;"/>/cached/abc<x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a&gt;"/> o <x id="START_LINK_1" equiv-text="&lt;a routerLink=&quot;/cached/xyz&quot; class=&quot;underline&quot;&gt;"/>/cached/xyz<x id="CLOSE_LINK" ctype="x-a" equiv-text="&lt;/a&gt;"/>. </target>
+      </trans-unit>
+      <trans-unit id="home.title" datatype="html">
+        <source> Stack validation probe </source>
+        <target> Sonda de validación del stack </target>
+      </trans-unit>
+      <trans-unit id="home.intro" datatype="html">
+        <source> Smoke test for Angular 21 zoneless SSR on Cloudflare Workers, Tailwind v4, and Spartan brain primitives (Angular CDK overlay backing the dialog). Toggle the theme in the header to verify CSS custom properties switch server-side and client-side without FOUC. See <x id="START_TAG_CODE" ctype="x-code" equiv-text="&lt;code class=&quot;font-mono text-xs&quot;&gt;"/>/cached/:id<x id="CLOSE_TAG_CODE" ctype="x-code" equiv-text="&lt;/code&gt;"/> for cache tests and <x id="START_TAG_CODE" ctype="x-code" equiv-text="&lt;code class=&quot;font-mono text-xs&quot;&gt;"/>/admin<x id="CLOSE_TAG_CODE" ctype="x-code" equiv-text="&lt;/code&gt;"/> for data-driven invalidation. </source>
+        <target> Prueba de humo para Angular 21 sin zonas con SSR en Cloudflare Workers, Tailwind v4, y primitivas Spartan brain (overlay de Angular CDK detrás del diálogo). Alterna el tema en la cabecera para verificar que las propiedades CSS personalizadas cambian tanto en el servidor como en el cliente sin FOUC. Consulta <x id="START_TAG_CODE" ctype="x-code" equiv-text="&lt;code class=&quot;font-mono text-xs&quot;&gt;"/>/cached/:id<x id="CLOSE_TAG_CODE" ctype="x-code" equiv-text="&lt;/code&gt;"/> para las pruebas de caché y <x id="START_TAG_CODE" ctype="x-code" equiv-text="&lt;code class=&quot;font-mono text-xs&quot;&gt;"/>/admin<x id="CLOSE_TAG_CODE" ctype="x-code" equiv-text="&lt;/code&gt;"/> para la invalidación basada en datos. </target>
+      </trans-unit>
+      <trans-unit id="home.section.theme" datatype="html">
+        <source> theme state </source>
+        <target> estado del tema </target>
+      </trans-unit>
+      <trans-unit id="home.theme.light" datatype="html">
+        <source> Light </source>
+        <target> Claro </target>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>

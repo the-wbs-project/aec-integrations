@@ -1,5 +1,5 @@
-import { HttpClient } from '@angular/common/http';
-import { Injectable, REQUEST, inject } from '@angular/core';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { Injectable, LOCALE_ID, REQUEST, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 
 import { Entity } from './entity';
@@ -7,17 +7,19 @@ import { Entity } from './entity';
 /**
  * Fetches entity data via the Worker's /api/* endpoints.
  *
- * During SSR, Angular's `withFetch()` adapter calls global fetch, which in the
- * Workers runtime makes a real HTTP request. We build an absolute URL from the
- * incoming request so SSR-side fetches don't fail with relative-URL errors.
- *
- * `provideClientHydration(withHttpTransferCache())` (configured in app.config)
- * captures these responses into TransferState so the client doesn't refetch.
+ * The active locale (from Angular's LOCALE_ID, set per-build by @angular/localize)
+ * is forwarded to the API so the Worker can apply the KV translation overlay for
+ * non-default locales. Locale-aware reads are GETs against a stable URL
+ * (`/api/data/:id?locale=...`); the cached HTML page itself differs by URL
+ * prefix (`/cached/:id` vs `/es/cached/:id`), so the edge cache is naturally
+ * segmented by locale — the same lesson as T1b but solved with URL instead of
+ * Vary headers.
  */
 @Injectable({ providedIn: 'root' })
 export class DataService {
   private readonly http = inject(HttpClient);
   private readonly request = inject(REQUEST, { optional: true });
+  protected readonly locale = inject(LOCALE_ID);
 
   private toAbsolute(path: string): string {
     if (this.request) {
@@ -27,16 +29,20 @@ export class DataService {
     return path;
   }
 
+  private localeParams(): HttpParams {
+    return new HttpParams().set('locale', this.locale);
+  }
+
   getEntity(id: string): Observable<Entity> {
     const url = this.toAbsolute(`/api/data/${id}`);
-    console.log('[ssr-debug] getEntity', { id, url, hasRequest: !!this.request });
-    return this.http.get<Entity>(url);
+    console.log('[ssr-debug] getEntity', { id, url, locale: this.locale });
+    return this.http.get<Entity>(url, { params: this.localeParams() });
   }
 
   listEntities(): Observable<Entity[]> {
     const url = this.toAbsolute('/api/entities');
-    console.log('[ssr-debug] listEntities', { url, hasRequest: !!this.request });
-    return this.http.get<Entity[]>(url);
+    console.log('[ssr-debug] listEntities', { url, locale: this.locale });
+    return this.http.get<Entity[]>(url, { params: this.localeParams() });
   }
 
   saveEntity(id: string, payload: { title: string; body: string }): Observable<{
@@ -49,6 +55,22 @@ export class DataService {
       entity: Entity;
       purge: { status: number; body: unknown };
     }>(this.toAbsolute(`/api/data/${id}`), payload);
+  }
+
+  saveTranslation(
+    id: string,
+    locale: string,
+    payload: { title?: string; body?: string },
+  ): Observable<{
+    kv: string;
+    translation: { title?: string; body?: string };
+    purge: { status: number; body: unknown };
+  }> {
+    return this.http.put<{
+      kv: string;
+      translation: { title?: string; body?: string };
+      purge: { status: number; body: unknown };
+    }>(this.toAbsolute(`/api/translations/${id}/${locale}`), payload);
   }
 
   rawPurge(url: string): Observable<{ status: number; body: unknown }> {
