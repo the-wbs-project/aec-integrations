@@ -32,9 +32,12 @@ This spec is the master document. Detailed content for the following areas lives
 |---|---|---|
 | `DATABASE_SCHEMA.md` | All Supabase tables, columns, indexes, relationships, Airtable migration plan | Complete |
 | `API_CONTRACTS.md` | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules | Complete |
-| `AUTH_AND_RLS.md` | Authorization model, role definitions, RLS policies per table | Placeholder — full definition pending |
+| `AUTH_AND_RLS.md` | Authorization model, role definitions, RLS policies per table | Complete |
+| `rls_policies.sql` | Executable baseline RLS policy script applied to the Supabase project | Complete |
 | `CICD_PLAN.md` | GitHub Actions pipeline, environments, deployments, rollback, secrets | Complete |
 | `TESTING_STRATEGY.md` | Test tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy | Complete |
+| `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
+| `CODE_REVIEW_CHECKLIST.md` | Pre-merge review categories and severity rubric for humans and LLMs | Complete |
 | `SEARCH_RANKING.md` | Algolia ranking customization, tuning, feedback loops | Pending |
 | `OPERATIONAL_RUNBOOKS.md` | Incident response, vendor dispute handling, recovery procedures | Pending (closer to launch) |
 | `STACK_VALIDATION_TEST.md` | Foundation stack test plan and results | Complete |
@@ -1003,18 +1006,20 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Figma Design System file created with theme tokens from Section 2a.2
 - [ ] Brand guidelines DOCX updated with dark-mode accent variants
 - [ ] Angular 21+ SSR project scaffolded in `apps/web/`, **zoneless** (`provideZonelessChangeDetection()`, no `zone.js`)
-- [ ] Hydration providers wired: `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — mirror `apps/stack-test/src/app/app.config.ts:18-25`
+- [ ] Hydration providers wired: `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — mirror `apps/stack-test/src/app/app.config.ts`
 - [ ] `@angular/localize` configured with `en-US` as default locale; `angular.json` `i18n.locales` block ready for `es-ES` and others (URL-prefix dispatch, no `Vary` headers — §7a.3)
 - [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to CSS custom property tokens for both themes; `@spartan-ng/brain/hlm-tailwind-preset.css` imported
-- [ ] Theme switcher (system / light / dark) implemented in root layout — SSR reads theme from cookie + `Sec-CH-Prefers-Color-Scheme`; client reconciles from `localStorage` + `matchMedia` (mirror `apps/stack-test/src/app/theme.service.ts:73-86`)
+- [ ] Theme switcher (system / light / dark) implemented in root layout — SSR reads theme from cookie + `Sec-CH-Prefers-Color-Scheme`; client reconciles from `localStorage` + `matchMedia` (mirror `apps/stack-test/src/app/theme.service.ts`)
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
-- [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/stack-test/src/server.ts:69-74, 212-229, 247-256`
-- [ ] Supabase connection via Prisma in `apps/api/` (Accelerate; no pg adapter — `DATABASE_SCHEMA.md` §1a)
+- [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/stack-test/src/server.ts`
+- [ ] Supabase connection via Prisma in `apps/api/` using the per-request Accelerate pattern validated in `apps/prisma-test/src/index.ts` (`PrismaClient` from `@prisma/client/edge` + `withAccelerate()`; `DATABASE_URL` is the `prisma://` URL; `DIRECT_URL` is CLI-only). See `DATABASE_SCHEMA.md` §1a.
+- [ ] Apply baseline RLS policies from `docs/rls_policies.sql` to the Supabase project (PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1)
 - [ ] Service binding between SSR Worker and API Worker
 - [ ] Datadog Browser RUM and Worker SDK installed and reporting
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped, both themes verified)
 - [ ] Validate SSR + cache plumbing with a "Hello World" page (mirror `apps/stack-test`)
+- [ ] Test infrastructure scaffolded per `TESTING_STRATEGY.md`: Vitest unit harness, Playwright e2e against `wrangler dev`, axe-core hook, Lighthouse CI, and a bash integration runner modeled on `apps/stack-test/scripts/run-extra-tests.sh` for cache/cookie/`Vary` regressions
 - [ ] Run first Claude Code task end-to-end against a Linear issue to calibrate the workflow
 
 ### Phase 2: Core data display (Week 3–4)
