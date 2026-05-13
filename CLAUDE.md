@@ -37,9 +37,9 @@ If your work touches a topic governed by one of these documents, that document i
 ## Stack at a glance
 
 - **Frontend:** Angular 21+ with SSR, zoneless change detection
-- **Styling:** Tailwind CSS + Spartan UI + Angular CDK
-- **Hosting:** Cloudflare Workers (SSR Worker + private API Worker via service binding)
-- **Database:** Supabase (PostgreSQL) + Prisma with `@prisma/adapter-pg-worker` (NOT Accelerate)
+- **Styling:** Tailwind CSS v4 + Spartan UI (brain primitives) + Angular CDK
+- **Hosting:** Cloudflare Workers (SSR Worker + private API Worker via service binding). SSR Worker runs with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills.
+- **Database:** Supabase (PostgreSQL) + Prisma with `@prisma/extension-accelerate` (HTTPS-based; no TCP pooler required for DB access from Workers — Accelerate is independent of `nodejs_compat`)
 - **Search:** Algolia + InstantSearch Angular
 - **Auth:** Supabase Auth (magic link + Google OAuth)
 - **Observability:** Datadog (RUM + APM + logs) and PostHog (product analytics)
@@ -53,9 +53,11 @@ If your work touches a topic governed by one of these documents, that document i
 
 These appear repeatedly in tasks and Claude Code may be tempted to violate them. Don't.
 
-- **No Prisma Accelerate.** Use `@prisma/adapter-pg-worker` with Supabase's connection pooler. Do NOT install `@prisma/extension-accelerate`. Do NOT import from `@prisma/client/edge`. The `prisma://` protocol is Accelerate; never use it. If Prisma tooling suggests Accelerate, push back.
-- **Cloudflare plan is Pro, not Enterprise.** Cache invalidation uses purge-by-URL, not purge-by-tag. Don't add `Cache-Tag` headers.
-- **Zoneless Angular.** No `zone.js`. Use `provideZonelessChangeDetection()`.
+- **Use Prisma Accelerate.** Instantiate `PrismaClient` from `@prisma/client/edge` and apply `withAccelerate()` per request. `DATABASE_URL` is the `prisma://` Accelerate URL (Worker runtime). `DIRECT_URL` is the Supabase pooler URL, used **only** by the Prisma CLI for migrations — never by Worker runtime code. Do NOT install `@prisma/adapter-pg-worker` and do NOT route Prisma through a TCP pooler from a Worker — Accelerate is HTTPS and works without `nodejs_compat` for the DB path. Validated pattern: `apps/prisma-test/src/index.ts:21-25`. Details in `docs/DATABASE_SCHEMA.md` §1a.
+- **`nodejs_compat` is for SSR, not for the DB.** The SSR Worker needs `compatibility_flags: ["nodejs_compat"]` because `@angular/ssr` reaches for Node polyfills at runtime. That flag is unrelated to database access — Prisma still goes via Accelerate (HTTPS), never via a pg adapter. Validated pattern: `apps/stack-test/wrangler.jsonc:14-15`.
+- **Cloudflare plan is Pro, not Enterprise.** Cache invalidation uses purge-by-URL, not purge-by-tag. Don't add `Cache-Tag` headers. Don't emit `Vary` headers that fragment the edge cache and undermine purge-by-URL — segment by URL path instead (e.g., locale prefix).
+- **Zoneless Angular.** No `zone.js`. Use `provideZonelessChangeDetection()`. Pair with `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))`. Validated pattern: `apps/stack-test/src/app/app.config.ts:18-25`.
+- **Cached SSR routes must render visitor-state-neutral HTML.** Edge cache is keyed by URL. If SSR reads a cookie (e.g., `theme`) and bakes it into the response, the first visitor poisons the cache for everyone. The Worker strips visitor-state cookies before forwarding to SSR for cacheable routes; the client reconciles after hydration. Validated pattern: `apps/stack-test/src/server.ts:212-229`.
 - **No pay-for-placement.** Search rankings are purely algorithmic. Paid vendor tiers (Stage 4+) affect profile richness, never ranking position.
 - **i18n from day one.** No hardcoded English strings in templates. Wrap everything in `i18n` attributes or `$localize` tags. Even though we launch English-only, retrofitting i18n is painful.
 - **Both themes always.** Every component must render correctly in light and dark themes. Verify both before submitting.

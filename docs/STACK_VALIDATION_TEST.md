@@ -219,7 +219,7 @@ The cookie approach is most robust. Test it.
 ```
 aeci-stack-test/
 ├── package.json
-├── wrangler.toml
+├── wrangler.jsonc
 ├── angular.json
 ├── tsconfig.json
 ├── tailwind.config.ts
@@ -276,7 +276,7 @@ aeci-stack-test/
 
 5. **Configure Cloudflare Workers deployment**
    - Install Wrangler
-   - Configure `wrangler.toml` with account ID, zone, route, compatibility date
+   - Configure `wrangler.jsonc` with account ID, zone, custom_domain route, compatibility date, and `"compatibility_flags": ["nodejs_compat"]` for SSR
    - Set `CLOUDFLARE_API_TOKEN` and `ZONE_ID` as Worker secrets via `wrangler secret put`
    - Verify build produces a Workers-compatible bundle (no Node.js shims)
 
@@ -304,20 +304,41 @@ aeci-stack-test/
 
 ## 9. Results log
 
-Fill in after running each scenario.
+Probe ran 2026-05-12 (foundation scenarios) and 2026-05-13 (i18n scenarios) against `apps/stack-test` deployed at `stack-test.aecintegrations.com`. Implementation lives at `apps/stack-test/`; integration harness at `apps/stack-test/scripts/run-extra-tests.sh` (T1–T12).
 
 | Section | Scenario | Result | Notes |
 |---|---|---|---|
-| 5.1 | Build & deploy | | |
-| 5.2 | Server-side rendering | | |
-| 5.3 | Hydration | | |
-| 5.4 | Zoneless behavior | | |
-| 5.5 | Theme system | | |
-| 5.6 | Edge caching | | |
-| 5.7 | Cache invalidation | | |
-| 5.8 | Spartan UI | | |
-| 5.9 | Tailwind integration | | |
-| 5.10 | Worker observability | | |
+| 5.1 | Build & deploy | ✅ | Single `server.mjs` ~1.1 MB; `zone.js` not in bundle; `wrangler deploy` succeeds |
+| 5.2 | Server-side rendering | ✅ | View-source shows rendered HTML; renders with JS off; TTFB well under 500ms |
+| 5.3 | Hydration | ✅ | No mismatch warnings with `withEventReplay()`; CDK Dialog hydrates cleanly because it's opened imperatively client-side |
+| 5.4 | Zoneless behavior | ✅ | `provideZonelessChangeDetection()` in `app.config.ts:18`; no `zone.js` dependency in `package.json` |
+| 5.5 | Theme system | ✅ | SSR reads cookie + `Sec-CH-Prefers-Color-Scheme`; client reconciles from `localStorage` + `matchMedia` — see `theme.service.ts:73-86` |
+| 5.6 | Edge caching | ✅ | URL-keyed segmentation works; `caches.default` MISS→HIT progression verified per T1 |
+| 5.7 | Cache invalidation | ✅ | Purge-by-URL works on Pro; locale-scoped purge and canonical cascade both verified (T10) |
+| 5.8 | Spartan UI | ✅ | Brain primitives only — `BrnButton`, `BrnDialog` work with zoneless; `helm` codegen avoided |
+| 5.9 | Tailwind integration | ✅ | Tailwind v4 with custom-property tokens; no FOUC |
+| 5.10 | Worker observability | ✅ | `wrangler tail` shows SSR logs; cache HITs don't invoke the Worker |
+
+### 9a. Outcomes summary (go/no-go)
+
+Validated as **go** for Phase 2. Highlights and gaps:
+
+**Validated** ✅
+- Zoneless Angular + Spartan brain + Angular CDK overlay: no hydration warnings, no zone.js shipped.
+- Cloudflare Workers SSR via `AngularAppEngine` with `nodejs_compat` (Node polyfills required by `@angular/ssr`; unrelated to DB path).
+- Edge caching via `caches.default` with URL-keyed segmentation; purge-by-URL works on Pro plan.
+- Per-locale build: single `server.mjs` dispatches `/` (en-US) and `/es` (es-ES); no per-locale deploy.
+- Per-field translation fallback (overlay layer); merge runs on both Worker and SSR sides.
+- Locale URL-prefix segments edge cache naturally — no `Vary` header needed (T9).
+
+**Gaps that informed doc updates** ⚠️
+- **T1b — theme-cookie pollution.** A naive SSR theme implementation reads the `theme` cookie and bakes it into rendered HTML; with URL-only cache keying, the first visitor primes the cache for everyone. Fixed in stack-test by stripping visitor-state cookies before forwarding to SSR (`src/server.ts:212-229`). Documented as a non-negotiable rule in `STAGE_1_SPEC.md §9.1a` and `CLAUDE.md`.
+- **T3a/b — "pinned 404".** Caching 200 "not found" with a 5-minute TTL pins stale state across entity creation. Stack-test ships with this gap; `apps/web/` must return HTTP 404 with ≤60s TTL from the start. See `STAGE_1_SPEC.md §9.1b`.
+- **T6 — no ETag.** Worker doesn't emit `ETag`; clients can't `If-None-Match` for bandwidth savings. Soft gap, deferred to Phase 2 decision.
+
+### 9b. Reusing the harness
+
+The bash integration test pattern at `apps/stack-test/scripts/run-extra-tests.sh` (T1–T12) covers behaviors that span multiple requests with edge-cache state (cookie/cache interaction, MISS→HIT, purge propagation, per-locale isolation). Vitest+Miniflare is fine for handler-logic tests but does not exercise the actual Cloudflare CDN cache. Port the T1–T12 pattern into `apps/web/` integration tests in Phase 1 — see `TESTING_STRATEGY.md §6`.
 
 ---
 

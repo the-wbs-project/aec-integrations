@@ -4,7 +4,7 @@
 **Version:** 1.0
 **Date:** May 2026
 **Database:** Supabase (PostgreSQL 16)
-**ORM:** Prisma
+**ORM:** Prisma (via `@prisma/extension-accelerate`)
 
 ---
 
@@ -13,6 +13,87 @@
 Source of truth for the Supabase database schema. Every table, column, index, constraint, and relationship lives here.
 
 Migrations are managed by Prisma. Migration files in `apps/api/prisma/migrations/` are the executable form of this document. When this document and the migrations disagree, the migrations are right — but every migration should be reflected back into this document in the same PR.
+
+---
+
+## 1a. Prisma client setup (Worker runtime)
+
+Workers talk to Supabase through Prisma Accelerate (HTTPS), not a TCP pooler. The validated reference implementation is `apps/prisma-test/` — cite specific lines below until the production API Worker replaces it.
+
+**Required dependencies (runtime):**
+
+- `@prisma/client`
+- `@prisma/extension-accelerate`
+
+**Required dependencies (dev):**
+
+- `prisma` (CLI)
+
+**Forbidden dependencies:**
+
+- `@prisma/adapter-pg-worker` — do not install. The adapter pattern requires `nodejs_compat` and a TCP pooler; we use Accelerate over HTTPS instead.
+
+**Imports:**
+
+```ts
+import { PrismaClient } from "@prisma/client/edge";
+import { withAccelerate } from "@prisma/extension-accelerate";
+```
+
+Importing `PrismaClient` from `@prisma/client` (without `/edge`) silently produces a client that does not work on Workers — flag it in review.
+
+**Per-request instantiation.** Do not cache the client in Worker module scope. Construct it per request and pass it to handlers via a helper. Modeled on `apps/prisma-test/src/index.ts:21-35`:
+
+```ts
+function getPrisma(env: Env) {
+  return new PrismaClient({ datasourceUrl: env.DATABASE_URL })
+    .$extends(withAccelerate());
+}
+
+async function withPrisma<T>(
+  env: Env,
+  handler: (prisma: ReturnType<typeof getPrisma>) => Promise<T>,
+) {
+  const prisma = getPrisma(env);
+  return handler(prisma);
+}
+```
+
+Handlers must accept the client as an argument rather than importing a singleton — this is what makes them testable (`TESTING_STRATEGY.md` §6.3).
+
+**Two URLs:**
+
+| Variable | Form | Used by | Bound where |
+|---|---|---|---|
+| `DATABASE_URL` | `prisma://accelerate.prisma-data.net/?api_key=...` | Worker runtime | Worker secret (`wrangler secret put DATABASE_URL`) + local `.dev.vars` |
+| `DIRECT_URL` | `postgresql://...supabase.com:6543/postgres?pgbouncer=true` (Supabase pooler) | Prisma CLI only (`migrate dev`, `migrate deploy`, `generate`) | CI env + local `.dev.vars` |
+
+The two-URL split is declared in the Prisma schema (`apps/prisma-test/prisma/schema.prisma:5-9`). Workers never see `DIRECT_URL`.
+
+**`wrangler.jsonc` rationale.** No `nodejs_compat` flag is needed for the database — Accelerate is HTTPS. Add `nodejs_compat` only for unrelated Node-API needs. See the canonical comment at `apps/prisma-test/wrangler.jsonc:7-11`.
+
+**BigInt JSON serialization.** Prisma returns `BigInt` for `BigInt` columns; `JSON.stringify` throws on them. Use the replacer pattern at `apps/prisma-test/src/index.ts:42-44`:
+
+```ts
+JSON.stringify(data, (_key, value) =>
+  typeof value === "bigint" ? value.toString() : value,
+);
+```
+
+Centralize this in a shared `json()` helper in the API Worker.
+
+**Prisma error → HTTP status mapping.** Validated mapping at `apps/prisma-test/src/index.ts:136-157`:
+
+| Prisma error substring | HTTP status |
+|---|---|
+| `Unique constraint failed` | 409 Conflict |
+| `Record to update not found` | 404 Not Found |
+| `Record to delete does not exist` | 404 Not Found |
+| (other) | 500 Internal Server Error |
+
+String matching is fragile; the production API Worker should switch to Prisma's typed error classes (`PrismaClientKnownRequestError` + `code`) once the centralized error middleware lands (`API_CONTRACTS.md` §8).
+
+**Build ordering.** `prisma generate` must run before any Worker build/deploy so the client matches the current schema. Mirror the PoC's script wiring at `apps/prisma-test/package.json:5-8`.
 
 ---
 
@@ -799,10 +880,42 @@ Not pursued in Stage 1.
 ## 17. Schema change process
 
 1. Modify Prisma schema in `apps/api/prisma/schema.prisma`
-2. Generate migration: `pnpm prisma migrate dev --name <description>`
+2. Generate migration locally: `pnpm prisma migrate dev --name <description>` (reads `DIRECT_URL` from `.dev.vars`; the Prisma CLI does not use Accelerate's `prisma://` URL)
 3. Review the generated SQL for correctness
 4. Update this document with the new schema
 5. Commit both the migration file and this document update in the same PR
 6. PR review verifies they agree
-7. Migration applied to staging on merge to `main`
-8. Migration applied to production on production approval (see `CICD_PLAN.md` §5)
+7. On merge to `main`, CI applies the migration to staging via `pnpm prisma migrate deploy` against the staging `DIRECT_URL`, **before** the new Worker code is deployed
+8. Migration applied to production on production approval — same `migrate deploy` command, prod `DIRECT_URL` (see `CICD_PLAN.md` §5)
+
+Note: `prisma generate` must run before any Worker build/deploy so the generated client matches the current schema (see §1a).
+
+---
+
+## 18. Transactional writes with audit log
+
+Every state-changing write must call `appendAuditLog()` (`STAGE_1_SPEC.md` §26, `CLAUDE.md` §"Datadog and audit logging"). Failure to log is a transactional failure — the mutation must not commit without its audit entry.
+
+**Pattern.** Wrap the mutation and the audit insert in `prisma.$transaction([...])` so both succeed or both roll back:
+
+```ts
+const [updated, _audit] = await prisma.$transaction([
+  prisma.product.update({ where: { id }, data: input }),
+  prisma.auditLog.create({ data: appendAuditLogEntry(...) }),
+]);
+```
+
+Prefer the **array form** for short writes — one HTTP round-trip via Accelerate.
+
+Use the **interactive form** (`prisma.$transaction(async (tx) => { ... })`) only when later statements depend on earlier results inside the transaction. Accelerate supports interactive transactions but each statement is a separate HTTPS round-trip, so latency multiplies — avoid for hot paths.
+
+**Cache invalidation runs after commit.** `invalidateForEntity()` must run *after* `$transaction()` resolves, never inside it. Wrap the call in `ctx.waitUntil()` so the response is not blocked on the purge:
+
+```ts
+ctx.waitUntil(invalidateForEntity(env, "product", id));
+return json({ row: updated });
+```
+
+A failed purge must not roll back the write. Log it; surface it via Datadog.
+
+**Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.
