@@ -28,6 +28,8 @@ For any task:
 | Database schema, migrations, RLS hooks | `docs/DATABASE_SCHEMA.md` |
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
+| Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
+| Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
 | Auth model and RLS policies | `docs/AUTH_AND_RLS.md` (placeholder — defer to spec until completed) |
 
 If your work touches a topic governed by one of these documents, that document is the source of truth — not your prior knowledge or assumptions.
