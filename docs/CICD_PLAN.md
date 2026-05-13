@@ -172,30 +172,36 @@ Triggered when a release tag is pushed.
 Wrangler is the only deployment tool. Single source of truth for Worker configuration.
 
 **Configuration files:**
-- `wrangler.toml` at repo root, with environment overrides (`[env.preview]`, `[env.staging]`, `[env.production]`)
+- `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.preview`, `env.staging`, `env.production`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/stack-test/wrangler.jsonc` and `apps/prisma-test/wrangler.jsonc`.
 - Compatibility date locked per environment to prevent surprise Worker runtime changes
+- SSR Worker requires `"compatibility_flags": ["nodejs_compat"]` — needed for `@angular/ssr` runtime Node polyfills. This is unrelated to database access; Prisma still uses Accelerate (HTTPS), see `DATABASE_SCHEMA.md` §1a.
+- API Worker does not need `nodejs_compat` (it talks to Supabase via Accelerate HTTPS).
+- Custom domain routing uses `routes` with `"custom_domain": true` per the `apps/stack-test/wrangler.jsonc:44-49` pattern, not zone-level `route` strings.
 
-**Pattern:**
-```toml
-name = "aeci-ssr"
-main = "dist/server/main.js"
-compatibility_date = "2026-05-13"
-compatibility_flags = ["nodejs_compat_v2"]
-
-[env.preview]
-name = "aeci-ssr-preview-${PR_NUMBER}"
-vars = { ENV = "preview" }
-
-[env.staging]
-name = "aeci-ssr-staging"
-route = "staging.aecintegrations.com/*"
-vars = { ENV = "staging" }
-
-[env.production]
-name = "aeci-ssr-production"
-route = "aecintegrations.com/*"
-vars = { ENV = "production" }
+**Pattern (SSR Worker — `apps/web/wrangler.jsonc`):**
+```jsonc
+{
+  "name": "aeci-ssr",
+  "main": "dist/server/server.mjs",
+  "compatibility_date": "2026-05-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": { "binding": "ASSETS", "directory": "./dist/browser" },
+  "observability": { "enabled": true },
+  "env": {
+    "preview": { "vars": { "ENV": "preview" } },
+    "staging": {
+      "vars": { "ENV": "staging" },
+      "routes": [{ "pattern": "staging.aecintegrations.com", "custom_domain": true }]
+    },
+    "production": {
+      "vars": { "ENV": "production" },
+      "routes": [{ "pattern": "aecintegrations.com", "custom_domain": true }]
+    }
+  }
+}
 ```
+
+The multi-locale Angular build emits a single `server.mjs` that dispatches by URL prefix (`/`, `/es`, etc.) — no per-locale deploys, no per-locale Workers. The deploy command is just `wrangler deploy --env <env>`. See `STAGE_1_SPEC.md` §7a.3a.
 
 ### 4.2 Service bindings
 
@@ -224,6 +230,8 @@ Supabase migrations run as part of the deploy pipeline.
 ### 5.1 Migration source
 
 Migrations live in `apps/api/prisma/migrations/` and are committed alongside code changes that depend on them. Generated via `pnpm prisma migrate dev` locally; applied via `pnpm prisma migrate deploy` in CI.
+
+Both commands read `DIRECT_URL` (the Supabase pooler `postgresql://` URL), not `DATABASE_URL` (the runtime Prisma Accelerate `prisma://` URL). Workers never see `DIRECT_URL`. See `DATABASE_SCHEMA.md` §1a for the two-URL split.
 
 ### 5.2 Forward-only
 
@@ -282,11 +290,12 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 
 | Secret | Purpose | Environments |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | Wrangler auth | All |
+| `CLOUDFLARE_API_TOKEN` | Wrangler auth + cache purge. Scope: **`Zone.Cache Purge` on `aecintegrations.com` only** (narrowest possible). Do not promote to a broader scope under deadline pressure — issue a new token with the same minimal scope and rotate. | All |
 | `CLOUDFLARE_ACCOUNT_ID` | Account identifier | All |
-| `CLOUDFLARE_ZONE_ID` | Zone for purge calls | staging, production |
+| `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; passed to `invalidateForEntity()` purge calls | staging, production |
 | `SUPABASE_ACCESS_TOKEN` | Migrations via Supabase CLI | All |
-| `SUPABASE_DB_URL` | Direct DB access for migrations | All |
+| `SUPABASE_DB_URL` | Supabase pooler URL; doubles as `DIRECT_URL` for `prisma migrate deploy` | All |
+| `DATABASE_URL` | Prisma Accelerate runtime URL (`prisma://...`); one per environment. Pushed to Worker via `wrangler secret put DATABASE_URL` | All |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase admin | All |
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |
 | `ALGOLIA_ADMIN_KEY` | Index management | All |
@@ -314,6 +323,13 @@ GitHub Actions does this via the `cloudflare/wrangler-action` step, pulling from
 Local secrets live in `.dev.vars` at the root of each Worker package. **Never committed.** A `.dev.vars.example` template is committed showing required keys with placeholder values.
 
 `pnpm dev` or `wrangler dev` reads `.dev.vars` automatically.
+
+**For any Worker that talks to Prisma**, `.dev.vars` must contain at minimum:
+
+- `DATABASE_URL` — Prisma Accelerate URL (`prisma://...`). Used at runtime.
+- `DIRECT_URL` — Supabase pooler URL (`postgresql://...`). Used by the Prisma CLI (`migrate dev`, `generate`).
+
+See the canonical comment block at `apps/prisma-test/wrangler.jsonc:7-11` for the deploy-side counterpart.
 
 ### 7.4 Rotation
 

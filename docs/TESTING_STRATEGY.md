@@ -258,6 +258,35 @@ describe('SSR Worker', () => {
 });
 ```
 
+### 6.3 Prisma in integration tests
+
+API Worker handlers must accept the Prisma client as an argument — the `withPrisma(env, handler)` shape in `DATABASE_SCHEMA.md` §1a (modeled on `apps/prisma-test/src/index.ts:29-35`). Do **not** import a module-level Prisma singleton; doing so makes handlers untestable without a live database.
+
+**Unit/handler tests** — inject a Prisma double. Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (e.g. `findMany`, `create`, `update`, `delete`). Assert on the call shape, not the return.
+
+**Higher-fidelity integration tests** — point `DATABASE_URL` at a dedicated preview Supabase Accelerate URL. Each test run must clean up after itself by truncating tables in `afterEach`/`afterAll`. Run serially or per-test-suite isolated to avoid cross-test interference.
+
+**Accelerate-specific constraint:** the common Node Postgres pattern of "open a transaction, run the test, rollback" does **not** work the same way over Accelerate's HTTPS boundary — `prisma.$transaction` is supported, but each interactive-transaction statement is a separate round-trip, and the transaction does not span the test's surrounding code. Use truncation, not rollback, for test isolation.
+
+**Audit + cache assertions.** Tests that exercise a write path should assert both the `prisma.$transaction(...)` call shape (mutation + `audit_log`) and the `ctx.waitUntil(invalidateForEntity(...))` call. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
+
+### 6.4 Edge-cache integration layer (complementary to Miniflare)
+
+Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise the actual Cloudflare CDN cache, real cookie/cache interactions, or real purge propagation. Some behaviors only manifest against `wrangler dev` (or a deployed preview) where multiple requests share edge-cache state.
+
+Keep a small bash- or Playwright-driven suite for these multi-request, edge-stateful scenarios — modeled on `apps/stack-test/scripts/run-extra-tests.sh` (T1–T12). The scenarios that earned their keep there:
+
+- **Cookie × cache pollution** — verify visitor-state cookies (theme, etc.) are stripped before SSR for cacheable routes; otherwise the first visitor's render poisons everyone else's response.
+- **`Vary` audit** — confirm no cached SSR response emits `Vary`; one variant per URL.
+- **404 / KV-miss path** — assert HTTP 404 with TTL ≤60s, not 200 with a long TTL (the "pinned 404" trap).
+- **MISS → HIT progression** — assert `X-*-Cache: MISS` then `HIT` for the same URL.
+- **Concurrent PUT/purge storm** — confirm rate-limit resilience.
+- **Per-locale cache isolation** — `/products/x` and `/es/products/x` cache independently; per-locale purge doesn't cascade across locales; canonical purge does cascade across all locales.
+- **Per-field translation fallback** — entity with partial overlay renders translated fields + canonical fallback for missing fields.
+- **`ng extract-i18n` discipline** — every chrome string in templates appears in the extracted XLIFF.
+
+Run this suite in CI against the preview deploy for the PR. It's slow relative to Miniflare (each test is a real HTTP round-trip) but covers gaps Miniflare cannot.
+
 ---
 
 ## 7. E2E testing — Playwright
@@ -412,14 +441,14 @@ Lighthouse CI runs against the preview deployment. Performance budget:
 
 Separate from Lighthouse but enforced in the same pipeline.
 
-| Asset | Budget |
-|---|---|
-| Main JS bundle (gzipped) | < 200 KB |
-| Initial CSS (gzipped) | < 30 KB |
-| Total page weight (gzipped, home page) | < 500 KB |
-| Worker bundle (uncompressed) | < 8 MB (Cloudflare limit is 10 MB) |
+| Asset | Budget | Threshold |
+|---|---|---|
+| Main JS bundle (gzipped) | < 200 KB | hard fail |
+| Initial CSS (gzipped) | < 30 KB | hard fail |
+| Total page weight (gzipped, home page) | < 500 KB | hard fail |
+| Worker bundle (uncompressed) | < 5 MB warn, < 10 MB hard fail | Cloudflare's hard ceiling is **10 MB**; warn at 5 MB to give headroom for locale additions |
 
-Use `size-limit` or `bundlewatch` to enforce in CI.
+Use `size-limit` or `bundlewatch` to enforce the JS/CSS budgets in CI. For the Worker bundle, mirror the snapshot pattern in `apps/stack-test/scripts/run-extra-tests.sh` (T7): print `dist/server/` size on every build, warn over 5 MB, fail over 10 MB. The 10 MB ceiling is enforced by Cloudflare at deploy time anyway, but failing in CI catches it earlier with a clearer error.
 
 ### 10.3 Pages tested
 

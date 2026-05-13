@@ -29,7 +29,7 @@ The most distinctive concern for this codebase. Code that diverges from the spec
 - Does the diff implement what the linked spec section describes?
 - If the diff modifies behavior covered by a spec section, does the spec get updated in the same PR?
 - Does the code use the entity types, error codes, and field names defined in `API_CONTRACTS.md` and `DATABASE_SCHEMA.md`?
-- Does the code respect the constraints in `CLAUDE.md` (no Prisma Accelerate, no `@prisma/client/edge`, no Cache-Tag, zoneless, both themes always, no pay-for-placement, i18n strings wrapped)?
+- Does the code respect the constraints in `CLAUDE.md` (Prisma uses `@prisma/extension-accelerate` and `@prisma/client/edge`; no `@prisma/adapter-pg-worker`; no Cache-Tag; zoneless; both themes always; no pay-for-placement; i18n strings wrapped)?
 
 If the spec is wrong, that's also a defect — flag it. Do not silently work around it.
 
@@ -64,6 +64,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Worker code using the Supabase service role key without justification (defeats RLS)
 - Role check missing or wrong (`role === 'admin'` vs `role === 'vendor_admin'` mix-up)
 - Vendor-scoped operations not checking `vendor_id` matches the authenticated user
+- Worker route writes to a table that has a permissive RLS policy for the calling user but the code uses the Supabase service-role key instead of the user's JWT (defeats RLS, masks auth-model violations). See `AUTH_AND_RLS.md` §6 for the operations that legitimately require service role — anything outside that list should use a JWT-scoped client.
 
 ### Performance
 
@@ -90,6 +91,8 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 ### Data integrity and audit
 
 - Write path that should call `appendAuditLog()` but doesn't
+- Write path that mutates an entity and writes `audit_log` outside a `prisma.$transaction(...)` — both must commit together (see `DATABASE_SCHEMA.md` §18)
+- `invalidateForEntity()` called inside a `prisma.$transaction(...)` instead of after it commits, or not wrapped in `ctx.waitUntil()` on the response path
 - Write path that should call `invalidateForEntity()` but doesn't
 - Migration that's not forward-only safe (drops a column the old code still reads)
 - Schema change without corresponding migration file
@@ -113,6 +116,10 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Non-cacheable response (user-specific, write) without `Cache-Control: private, no-store`
 - Write path that invalidates the wrong set of URLs (consult the URL invalidation map in `STAGE_1_SPEC.md` §9.3)
 - Cache key that includes user-specific data, fragmenting the cache
+- **BLOCKER** — Cached SSR route reads a request cookie and bakes the value into rendered HTML (cookie/cache pollution). Visitor-state cookies must be stripped before forwarding to SSR for cacheable routes, or the route must not be cached. See `STAGE_1_SPEC.md` §9.1a.
+- **BLOCKER** — 404 / not-found returns HTTP 200 with a long TTL (the "pinned 404" trap). 404 must return status 404 with TTL ≤60s. See `STAGE_1_SPEC.md` §9.1b.
+- **MAJOR** — Response emits a `Vary` header (`Vary: Cookie`, `Vary: Accept-Language`, etc.) that fragments the edge cache and undermines purge-by-URL on Pro. Reject unless there's an explicit, documented reason. Use URL-prefix segmentation (e.g., locale prefix) instead.
+- **MAJOR** — `CLOUDFLARE_API_TOKEN` scope broadened beyond `Zone.Cache Purge` on `aecintegrations.com`.
 
 ### Accessibility
 
@@ -133,6 +140,8 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Date or number formatted without locale awareness
 - New entity that should accept localized variants but doesn't write to `translations`
 - Logical CSS properties (margin-inline-start) NOT used in directional contexts — important for future RTL languages
+- **MAJOR** — New locale added without updating both `angular.json` `i18n.locales` and the SSR Worker's `LOCALES` constant. The two must stay in lockstep; an out-of-sync `LOCALES` means the Worker can't dispatch the new prefix or purge across it.
+- **MAJOR** — Translation merge code path that doesn't apply per-field fallback to canonical (missing overlay field → blank instead of canonical value). See `STAGE_1_SPEC.md` §7a.2.
 
 ### Theming
 
@@ -140,6 +149,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Color hardcoded instead of using a theme token (`--surface-base`, `--text-primary`, etc.)
 - Vendor-uploaded content not wrapped in the neutral media block container
 - Brand accent (Clay, Forest) used in a low-contrast context that fails WCAG AA
+- **BLOCKER** — A `data-theme`-dependent value is rendered in SSR for a cacheable route (same cookie/cache pollution rule as Caching above). Theme must be applied on the client after hydration for cached routes; server-rendered HTML is theme-neutral.
 
 ### Tests
 
@@ -171,6 +181,8 @@ Be especially vigilant about these in AI-authored PRs. They are easy to miss bec
 - **Copy-paste from outside this codebase.** Style, naming, or patterns that don't match the rest of the codebase signal copy-paste from training data — review extra carefully.
 - **Comments that confidently describe wrong behavior.** "// This handles the bot-score check" on code that doesn't check bot score.
 - **Stub or placeholder code committed.** `// TODO: implement actual logic` left in alongside passing tests — the tests are testing the stub, not real behavior.
+- **Prisma client constructed incorrectly for Workers.** Missing `withAccelerate()` extension, or imported from `@prisma/client` instead of `@prisma/client/edge`. Both are silently wrong on Workers and may even pass type-check. See `DATABASE_SCHEMA.md` §1a.
+- **Module-level Prisma client.** Constructed once at import time and reused across requests. Should be per-request via the `withPrisma(env, handler)` helper. Breaks request isolation and testability.
 
 ---
 
