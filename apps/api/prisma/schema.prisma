@@ -1,0 +1,18 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// Placeholder model so `prisma migrate dev` emits a non-empty baseline.
+// Replaced by the Stage 1 schema in Phase 2 (see docs/DATABASE_SCHEMA.md).
+model HealthCheck {
+  id        BigInt   @id @default(autoincrement())
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@map("health_check")
+}

@@ -1,10 +1,11 @@
-# Local dev secrets for @aec/api. Copy to `.dev.vars` and fill in.
-# `.dev.vars` is git-ignored at the repo root. For deployed Workers,
-# push secrets via: wrangler secret put <KEY> --env <preview|production>
+# Copy this file to .dev.vars for local `wrangler dev`. .dev.vars is git-ignored.
+# In deployed environments, set these via:
+#   wrangler secret put DATABASE_URL --env preview|staging|production
+#
+# DATABASE_URL is read by the Worker at runtime (and by `prisma generate`).
+# It is a Prisma Accelerate URL (HTTPS), not a direct Postgres connection.
+DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=REPLACE_ME"
 
-# Prisma Accelerate URL (prisma://...). Runtime.
-DATABASE_URL=
-
-# Supabase pooler URL (postgresql://...). Used only by the Prisma CLI
-# (`prisma migrate`, `prisma generate`); Workers never read this.
-DIRECT_URL=
+# DIRECT_URL is used ONLY by the Prisma CLI (migrate dev, migrate deploy).
+# The deployed Worker does NOT read this. It is the Supabase pooler URL.
+DIRECT_URL="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"

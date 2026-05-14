@@ -20,6 +20,7 @@
     "deploy:api": "pnpm --filter @aec/api deploy",
     "deploy:stack-test": "pnpm --filter @aec/stack-test deploy",
     "deploy:prisma-test": "pnpm --filter @aec/prisma-test deploy",
+    "test:coverage": "pnpm -r --if-present run test:coverage",
     "skills:update": "npx skills add coreyhaines31/marketingskills"
   }
 }
