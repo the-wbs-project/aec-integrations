@@ -35,8 +35,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
   PNPM_VERSION: '10.33.0'
+  # Opt JavaScript-based actions (checkout, setup-node, wrangler-action,
+  # download-artifact, sticky-pull-request-comment, pnpm/action-setup) onto
+  # Node.js 24. GitHub is forcing this default on 2026-06-02 and removing
+  # Node.js 20 from runners on 2026-09-16. See:
+  # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   lint-and-types:

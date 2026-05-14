@@ -82,7 +82,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 
 **Job: `lint-and-types`** (~2 min)
 1. Checkout
-2. Setup Node 22 with cache
+2. Setup Node 24 with cache
 3. `pnpm install --frozen-lockfile`
 4. `pnpm run lint` (ESLint + Prettier)
 5. `pnpm run typecheck` (`tsc --noEmit` across the monorepo)
