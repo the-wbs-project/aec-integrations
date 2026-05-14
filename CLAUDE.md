@@ -16,7 +16,7 @@ For any task:
 
 1. Find the relevant section of `docs/STAGE_1_SPEC.md`
 2. Follow the cross-references to companion documents (`docs/API_CONTRACTS.md`, `docs/DATABASE_SCHEMA.md`, etc.)
-3. The Linear issue you're working on should have a `Spec Section` custom field pointing to the governing section
+3. The Linear issue you're working on opens its description with `**Spec section:** §X.Y` pointing to the governing section (Linear has no custom-field feature on our plan; this is the convention enforced by the team issue templates `Build Issue Template`, `Bug Template`, `Vendor Claim Template`, `Correction Request Template`)
 4. If the spec is ambiguous or wrong, raise it — don't guess
 
 ## Documents that are source of truth
