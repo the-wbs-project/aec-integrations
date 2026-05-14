@@ -58,6 +58,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
+      # Prisma client is required for @aec/api typecheck (src/prisma.ts imports
+      # @prisma/client/edge). Generate without env vars — `prisma generate`
+      # doesn't connect to the DB.
+      - run: pnpm --filter @aec/api exec prisma generate
       - run: pnpm run lint
       - run: pnpm run typecheck
 
@@ -74,6 +78,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
+      # @aec/api unit tests transitively import @prisma/client/edge via
+      # src/routes/health.ts → src/prisma.ts. Generate the client first.
+      - run: pnpm --filter @aec/api exec prisma generate
       - run: pnpm run test:unit
 
   build-web:
