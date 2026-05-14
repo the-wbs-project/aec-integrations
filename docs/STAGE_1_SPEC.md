@@ -38,6 +38,7 @@ This spec is the master document. Detailed content for the following areas lives
 | `TESTING_STRATEGY.md` | Test tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy | Complete |
 | `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
 | `CODE_REVIEW_CHECKLIST.md` | Pre-merge review categories and severity rubric for humans and LLMs | Complete |
+| `BRAND_GUIDELINES.md` | Canonical brand colors (light + dark variants), Bone reclassification, Clay restriction, visual principles | Complete |
 | `SEARCH_RANKING.md` | Algolia ranking customization, tuning, feedback loops | Pending |
 | `OPERATIONAL_RUNBOOKS.md` | Incident response, vendor dispute handling, recovery procedures | Pending (closer to launch) |
 | `STACK_VALIDATION_TEST.md` | Foundation stack test plan and results | Complete |
@@ -126,7 +127,7 @@ Bone is reclassified from "the background" to "a warm-tinted accent surface." It
 ### 2a.4 Contrast validation
 
 - All text/background pairs verified for WCAG 2.1 AA contrast before launch
-- Clay (in both themes) does NOT pass AA for body text — restricted to badges, large text, and graphical elements only
+- Clay does not pass AA for body text in the light theme (Clay `#E89668` on white `#FFFFFF` is ~2.4:1). In the dark theme Clay technically passes (~10:1 on `#0A0A0A`), but is restricted to badges, large text, and graphical elements in both themes to keep the accent rare and on-brand. See `BRAND_GUIDELINES.md` §5 for permitted uses.
 - Contrast verification is automated in CI via a token-pair check matrix
 
 ### 2a.5 Theme handling for vendor-supplied content
