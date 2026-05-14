@@ -128,6 +128,12 @@ jobs:
           name: web-dist
           path: apps/web/dist
 
+      # wrangler-action invokes `wrangler deploy` directly, bypassing
+      # apps/api's `pnpm run deploy` script chain. Generate the Prisma client
+      # so esbuild can resolve @prisma/client/edge → .prisma/client/edge
+      # during bundling.
+      - run: pnpm --filter @aec/api exec prisma generate
+
       # API Worker comes up first (CICD_PLAN §4.3 atomic-deploy ordering:
       # API ready before SSR can call it). No service binding exists yet,
       # but we keep the convention so it's a no-op when wiring lands.
@@ -188,6 +194,10 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist
+
+      # wrangler-action bypasses the package.json `deploy` script chain,
+      # so generate the Prisma client explicitly before bundling.
+      - run: pnpm --filter @aec/api exec prisma generate
 
       - name: Deploy API
         uses: cloudflare/wrangler-action@v3
