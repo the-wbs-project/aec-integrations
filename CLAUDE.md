@@ -99,6 +99,18 @@ pnpm build
 
 Local secrets live in `.dev.vars` (per Worker package). Not committed. `.dev.vars.example` shows what's required.
 
+## Skills
+
+Shared Claude Code skills live in `.agents/skills/` and are checked into the repo so every contributor (and CI agents) get them automatically. The bundle currently comes from `coreyhaines31/marketingskills` (marketing/SEO/CRO/copywriting/etc.).
+
+To refresh to the latest upstream version:
+
+```bash
+pnpm skills:update
+```
+
+Then commit any changes under `.agents/skills/`.
+
 ## Git workflow
 
 - Branch from `main`
