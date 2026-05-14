@@ -12,6 +12,7 @@
     "deploy:landing": "pnpm --filter @aec/landing deploy",
     "deploy:web": "pnpm --filter @aec/web deploy",
     "deploy:stack-test": "pnpm --filter @aec/stack-test deploy",
-    "deploy:prisma-test": "pnpm --filter @aec/prisma-test deploy"
+    "deploy:prisma-test": "pnpm --filter @aec/prisma-test deploy",
+    "skills:update": "npx skills add coreyhaines31/marketingskills"
   }
 }
