@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
+  <file source-language="en-US" datatype="plaintext" original="ng2.template">
+    <body>
+      <trans-unit id="app.brand" datatype="html">
+        <source>AEC Integrations</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/app.ts</context>
+          <context context-type="linenumber">8,9</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.scaffold" datatype="html">
+        <source>AECi Phase 1.6 scaffold</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/app.ts</context>
+          <context context-type="linenumber">10,13</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.placeholder" datatype="html">
+        <source>AEC Integrations — coming soon.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.ts</context>
+          <context context-type="linenumber">5,8</context>
+        </context-group>
+      </trans-unit>
+    </body>
+  </file>
+</xliff>
