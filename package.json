@@ -8,12 +8,17 @@
     "dev:web": "pnpm --filter @aec/web dev",
     "dev:stack-test": "pnpm --filter @aec/stack-test dev",
     "dev:prisma-test": "pnpm --filter @aec/prisma-test dev",
+    "dev:api": "pnpm --filter @aec/api dev",
     "build:stack-test": "pnpm --filter @aec/stack-test build",
     "build:web": "pnpm --filter @aec/web build",
     "deploy:landing": "pnpm --filter @aec/landing deploy",
     "deploy:web": "pnpm --filter @aec/web deploy",
     "deploy:stack-test": "pnpm --filter @aec/stack-test deploy",
     "deploy:prisma-test": "pnpm --filter @aec/prisma-test deploy",
+    "deploy:api": "pnpm --filter @aec/api deploy",
+    "typecheck": "pnpm -r --if-present run typecheck",
+    "test:unit": "pnpm -r --if-present run test:unit",
+    "test:coverage": "pnpm -r --if-present run test:coverage",
     "skills:update": "npx skills add coreyhaines31/marketingskills"
   }
 }

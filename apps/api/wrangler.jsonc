@@ -1,0 +1,79 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aeci-api",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-07",
+  // Prisma Accelerate connects over HTTPS (no TCP), so Node-compat polyfills
+  // are not required and intentionally not enabled on the API Worker.
+  //
+  // Secrets (set via `wrangler secret put`):
+  //   DATABASE_URL — Prisma Accelerate URL (prisma://...) used by the Worker at runtime.
+  //   DIRECT_URL  — Supabase pooler URL used ONLY by the Prisma CLI for
+  //                 migrations (locally and in CI). Do not read it from
+  //                 Worker code.
+  "workers_dev": true,
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  },
+  "vars": {
+    "ENV": "preview"
+  },
+  "dev": {
+    "port": 8788
+  },
+  "env": {
+    "preview": {
+      "name": "aeci-api-preview",
+      "workers_dev": true,
+      "vars": {
+        "ENV": "preview"
+      },
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true
+        }
+      }
+    },
+    "staging": {
+      "name": "aeci-api-staging",
+      "vars": {
+        "ENV": "staging"
+      },
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true
+        }
+      },
+      "routes": [
+        {
+          "pattern": "staging-api.aecintegrations.com",
+          "custom_domain": true
+        }
+      ]
+    },
+    "production": {
+      "name": "aeci-api-production",
+      "vars": {
+        "ENV": "production"
+      },
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true
+        }
+      },
+      "routes": [
+        {
+          "pattern": "api.aecintegrations.com",
+          "custom_domain": true
+        }
+      ]
+    }
+  }
+}

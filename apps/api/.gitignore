@@ -1,0 +1,6 @@
+.dev.vars
+.wrangler
+.wrangler-dry-run
+coverage
+node_modules
+prisma/generated
