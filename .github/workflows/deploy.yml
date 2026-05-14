@@ -1,0 +1,195 @@
+# AEC Integrations — deploy pipeline.
+#
+# Scaffolded in AECI-27 (Phase 1.15). Follows docs/CICD_PLAN.md §3 with
+# a deliberately-trimmed surface for Phase 1:
+#
+#   PR push        → lint → typecheck → unit → build → preview deploy
+#   push to main   → lint → typecheck → unit → build → production deploy
+#                    (gated by GitHub Environment `production` reviewers)
+#
+# Deferred to later issues (tracked separately, NOT in this workflow yet):
+#   - staging environment (CICD_PLAN §2.2)
+#   - E2E / Lighthouse / axe-core jobs (CICD_PLAN §3.1)
+#   - Supabase migrations (CICD_PLAN §5)
+#   - Datadog deployment markers (CICD_PLAN §9.1)
+#   - Smoke tests against deployed URLs (CICD_PLAN §9.2)
+#
+# Required repo secrets (set under Settings → Secrets and variables → Actions):
+#   CLOUDFLARE_API_TOKEN   — scope per CICD_PLAN §7.1
+#   CLOUDFLARE_ACCOUNT_ID  — e62ec9d8012c3e0c225f8e4dbab76b79
+#
+# Required environment: GitHub Settings → Environments → `production`
+#   with required reviewers configured (CICD_PLAN §3.3).
+
+name: deploy
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel superseded runs on the same PR / branch.
+concurrency:
+  group: deploy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '22'
+  PNPM_VERSION: '10.33.0'
+
+jobs:
+  lint-and-types:
+    name: Lint & typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run lint
+      - run: pnpm run typecheck
+
+  unit-tests:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run test:unit
+
+  build-web:
+    name: Build SSR Worker
+    runs-on: ubuntu-latest
+    needs: [lint-and-types, unit-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aec/web build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+          retention-days: 7
+          if-no-files-found: error
+
+  deploy-preview:
+    name: Deploy preview
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+      # API Worker comes up first (CICD_PLAN §4.3 atomic-deploy ordering:
+      # API ready before SSR can call it). No service binding exists yet,
+      # but we keep the convention so it's a no-op when wiring lands.
+      - name: Deploy API preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env preview --name aec-api-pr-${{ github.event.pull_request.number }}
+          packageManager: pnpm
+
+      - name: Deploy SSR preview
+        id: deploy-ssr-preview
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy --env preview --name aec-web-pr-${{ github.event.pull_request.number }}
+          packageManager: pnpm
+
+      - name: Comment preview URLs on PR
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: aeci-preview
+          message: |
+            ### Preview deployed
+
+            - SSR: `aec-web-pr-${{ github.event.pull_request.number }}` → see [`workers.dev` URL in the deploy step output](${{ steps.deploy-ssr-preview.outputs.deployment-url || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }})
+            - API: `aec-api-pr-${{ github.event.pull_request.number }}` (private; hit `/health` to smoke)
+
+            Commit: `${{ github.event.pull_request.head.sha }}`
+
+  deploy-production:
+    name: Deploy production
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    environment:
+      # `production` is configured in repo Settings → Environments with
+      # required reviewers. This is the manual approval gate (CICD_PLAN §3.3).
+      name: production
+      url: https://aecintegrations.com
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+
+      - name: Deploy API
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env production
+          packageManager: pnpm
+
+      - name: Deploy SSR
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy --env production
+          packageManager: pnpm

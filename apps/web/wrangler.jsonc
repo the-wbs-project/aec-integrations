@@ -1,16 +1,25 @@
 /**
- * Wrangler config for the AEC Integrations web app.
+ * Wrangler config for the AEC Integrations web app (SSR Worker).
  *
  * SSR Worker scaffolded in AECI-21. Hono handles `/api/*`; everything else
- * falls through to Angular SSR (`@angular/ssr`). Edge cache, KV, and custom
- * domain routing are deferred to later Phase 1/Phase 7 issues.
+ * falls through to Angular SSR (`@angular/ssr`). `nodejs_compat` is required
+ * for the SSR runtime (Node polyfills used by `@angular/ssr`); see
+ * `CLAUDE.md` and `docs/CICD_PLAN.md` §4.1.
+ *
+ * The custom-domain route for production (`aecintegrations.com`) is declared
+ * here but DNS has NOT been flipped yet — that is Phase 7 (AECI-?? cutover).
+ * Until cutover, the route accepts the config; traffic still flows via
+ * `*.workers.dev`. Preview deploys use `workers_dev` URLs per PR.
+ *
+ * Edge cache, KV, cookie-stripping middleware, and the service binding to
+ * the private API Worker all land in subsequent Phase 1 issues.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "aec-web",
 	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
 	"main": "./dist/server/server.mjs",
-	"compatibility_date": "2026-05-12",
+	"compatibility_date": "2026-05-14",
 	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
 		"enabled": true
@@ -23,10 +32,22 @@
 		"directory": "./dist/browser"
 	},
 	"env": {
-		"production": {
+		"preview": {
 			"name": "aec-web",
 			"workers_dev": true,
+			"vars": { "ENV": "preview" },
 			"observability": { "enabled": true }
+		},
+		"production": {
+			"name": "aec-web",
+			"vars": { "ENV": "production" },
+			"observability": { "enabled": true },
+			"routes": [
+				{
+					"pattern": "aecintegrations.com",
+					"custom_domain": true
+				}
+			]
 		}
 	}
 }
