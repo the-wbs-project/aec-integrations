@@ -21,6 +21,7 @@
     "@angular/platform-server": "^21.2.0",
     "@angular/router": "^21.2.0",
     "@angular/ssr": "^21.2.9",
+    "@spartan-ng/brain": "0.0.1-alpha.689",
     "hono": "^4.12.12",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0"
@@ -29,7 +30,10 @@
     "@angular/build": "^21.2.9",
     "@angular/cli": "^21.2.9",
     "@angular/compiler-cli": "^21.2.0",
+    "@tailwindcss/postcss": "^4.3.0",
     "@types/node": "^20.17.19",
+    "postcss": "^8.5.14",
+    "tailwindcss": "^4.3.0",
     "typescript": "~5.9.2",
     "wrangler": "^4.90.0",
     "xhr2": "^0.2.1"

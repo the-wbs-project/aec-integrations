@@ -1,2 +1,114 @@
-/* Global styles. Intentionally empty — design tokens, Tailwind, and theming
-   land in subsequent Phase 1 issues (see Stage 1 spec §2a, §16). */
+/*
+ * Global styles for apps/web.
+ *
+ * Wires Tailwind v4 to the §2a.2 theme tokens (see docs/STAGE_1_SPEC.md).
+ * Tokens are declared as CSS custom properties on :root (light, default)
+ * and overridden under .theme-dark (added to <html> by the theme service in
+ * a later issue). The @theme block exposes them to Tailwind so utilities
+ * like `bg-surface-base`, `text-text-primary`, `border-border-default`
+ * resolve to the active theme.
+ *
+ * Hex values mirror §2a.2 byte-for-byte. Do not edit hexes without updating
+ * the spec and the Figma design system file in lockstep.
+ */
+
+@import "tailwindcss";
+@import "@spartan-ng/brain/hlm-tailwind-preset.css";
+
+:root {
+  color-scheme: light;
+
+  --surface-base: #FFFFFF;
+  --surface-raised: #FAFAFA;
+  --surface-sunken: #F4F4F5;
+  --border-default: #E4E4E7;
+  --border-strong: #D4D4D8;
+  --text-primary: #0A0A0A;
+  --text-secondary: #52525B;
+  --text-tertiary: #A1A1AA;
+  --accent-primary: #1E3A2F;
+  --accent-primary-hover: #2E5C45;
+  --accent-secondary: #E89668;
+  --accent-warm: #F5F2EA;
+}
+
+.theme-dark {
+  color-scheme: dark;
+
+  --surface-base: #0A0A0A;
+  --surface-raised: #18181B;
+  --surface-sunken: #09090B;
+  --border-default: #27272A;
+  --border-strong: #3F3F46;
+  --text-primary: #FAFAFA;
+  --text-secondary: #A1A1AA;
+  --text-tertiary: #71717A;
+  --accent-primary: #4A8870;
+  --accent-primary-hover: #5DA088;
+  --accent-secondary: #F0A887;
+  --accent-warm: #2A2520;
+}
+
+@theme inline {
+  --color-surface-base: var(--surface-base);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-border-default: var(--border-default);
+  --color-border-strong: var(--border-strong);
+  --color-text-primary: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-text-tertiary: var(--text-tertiary);
+  --color-accent-primary: var(--accent-primary);
+  --color-accent-primary-hover: var(--accent-primary-hover);
+  --color-accent-secondary: var(--accent-secondary);
+  --color-accent-warm: var(--accent-warm);
+}
+
+html {
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+}
+
+body {
+  background-color: var(--surface-base);
+  color: var(--text-primary);
+  margin: 0;
+  min-height: 100vh;
+}
+
+*,
+*::before,
+*::after {
+  border-color: var(--border-default);
+}
+
+hr {
+  border-color: var(--border-default);
+}
+
+a {
+  color: var(--accent-primary);
+}
+
+a:hover {
+  color: var(--accent-primary-hover);
+}
+
+::selection {
+  background-color: var(--accent-primary);
+  color: var(--surface-base);
+}
+
+::placeholder {
+  color: var(--text-tertiary);
+}
+
+:focus-visible {
+  outline-color: var(--accent-primary);
+}
+
+input,
+textarea,
+select {
+  caret-color: var(--accent-primary);
+}
