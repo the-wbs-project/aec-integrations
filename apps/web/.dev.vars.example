@@ -1,0 +1,10 @@
+# Local dev secrets for @aec/web (SSR Worker). Copy to `.dev.vars` and fill in.
+# `.dev.vars` is git-ignored at the repo root. For deployed Workers, push
+# secrets via: wrangler secret put <KEY> --env <preview|production>
+#
+# This file is intentionally near-empty right now: the SSR shell does not
+# read secrets directly. Auth, third-party integrations, and the service
+# binding to the private API Worker are wired in later Phase 1 issues, at
+# which point this file should grow to match.
+
+ENV=preview

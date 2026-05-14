@@ -1,0 +1,41 @@
+/**
+ * Wrangler config for the AEC Integrations private API Worker.
+ *
+ * No `compatibility_flags`: this Worker talks to Supabase via Prisma
+ * Accelerate (HTTPS), which does not require `nodejs_compat`. See
+ * `docs/DATABASE_SCHEMA.md` §1a and the canonical comment block at
+ * `apps/prisma-test/wrangler.jsonc:7-11`.
+ *
+ * The API Worker is private — no public route on production. The SSR
+ * Worker calls it via a service binding (wired in a separate issue).
+ *
+ * Secrets (`DATABASE_URL`, `DIRECT_URL`, third-party API keys) are not
+ * stored here. Local dev reads `.dev.vars`; deployed Workers use
+ * `wrangler secret put <KEY> --env <env>`.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aec-api",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-14",
+  "observability": {
+    "enabled": true
+  },
+  "dev": {
+    "port": 8790
+  },
+  "env": {
+    "preview": {
+      "name": "aec-api",
+      "workers_dev": true,
+      "vars": { "ENV": "preview" },
+      "observability": { "enabled": true }
+    },
+    "production": {
+      "name": "aec-api",
+      "vars": { "ENV": "production" },
+      "observability": { "enabled": true }
+    }
+  }
+}
