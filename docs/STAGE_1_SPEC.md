@@ -1355,13 +1355,17 @@ The existing Airtable staging layer remains the curator workspace; Supabase is t
 - **Cycles:** 2-week cadences enabled at the team level, aligned to build phases
 - **Workflow states:** default Linear states (Backlog, Todo, In Progress, In Review, Done, Cancelled) used across all projects. Vendor Requests uses labels to disambiguate workflow nuances within the same state set.
 - **Labels** (workspace-level):
-  - Cross-cutting: `frontend`, `backend`, `infra`, `data-model`, `seo`, `a11y`, `i18n`, `moderation`, `theme`, `blocker`
+  - Cross-cutting concern: `frontend`, `backend`, `infra`, `data-model`, `seo`, `a11y`, `i18n`, `moderation`, `theme`, `blocker`
+  - Issue type (Linear defaults, kept alongside the concern set): `Bug`, `Feature`, `Improvement`
   - Vendor Requests specific: `claim`, `correction`, `domain-check-pending`
-- **Custom fields:**
-  - `Spec Section` (text) — references back to the spec (e.g. "§5.2", "§7a.3")
+  - Vendor Requests label group (replaces a custom `Domain Match` select field): `domain-match:yes`, `domain-match:no`, `domain-match:pending`
+- **Issue conventions** (in place of native custom fields — Linear has no generic custom-field feature on any plan tier; verified against the live workspace UI and the public GraphQL schema):
+  - Every issue description opens with `**Spec section:** §X.Y` and `**Plan file:** \`.context/plans/NN-…md\``, enforced by team issue templates (`Build Issue Template`, `Bug Template`, `Vendor Claim Template`, `Correction Request Template`)
   - Acceptance criteria captured in issue description as markdown checklist (Linear-native)
   - Dependencies captured via Linear's native issue relations (blocks/blocked by)
-- **Vendor Requests custom fields:** `Submitter Email` (text), `Domain Match` (select), `Source URL` (text)
+- **Vendor Requests intake fields** (written by n8n into the issue, not Linear custom fields):
+  - `Submitter Email`, `Source URL` — embedded in the issue description body by the n8n workflow; `Source URL` is additionally posted as a Linear attachment so it renders as a clickable card
+  - `Domain Match` — set via the `domain-match:*` label group above (single-select by virtue of being a label group)
 
 ### 24.2 Linear ↔ GitHub integration
 
