@@ -13,12 +13,28 @@
       "root": "",
       "sourceRoot": "src",
       "prefix": "app",
+      "i18n": {
+        "sourceLocale": {
+          "code": "en-US",
+          "subPath": ""
+        },
+        "locales": {
+          // Example for future locales — keep `LOCALES` in apps/web/src/server.ts in sync.
+          // "es-ES": {
+          //   "translation": "src/locale/messages.es-ES.xlf",
+          //   "subPath": "es"
+          // }
+        }
+      },
       "architect": {
         "build": {
           "builder": "@angular/build:application",
           "options": {
             "browser": "src/main.ts",
-            "polyfills": [],
+            "polyfills": [
+              "@angular/localize/init"
+            ],
+            "localize": true,
             "tsConfig": "tsconfig.app.json",
             "assets": [
               {
