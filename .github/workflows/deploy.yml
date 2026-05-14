@@ -35,8 +35,14 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '24'
   PNPM_VERSION: '10.33.0'
+  # Opt JavaScript-based actions (checkout, setup-node, wrangler-action,
+  # download-artifact, sticky-pull-request-comment, pnpm/action-setup) onto
+  # Node.js 24. GitHub is forcing this default on 2026-06-02 and removing
+  # Node.js 20 from runners on 2026-09-16. See:
+  # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
   lint-and-types:
@@ -52,6 +58,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
+      # Prisma client is required for @aec/api typecheck (src/prisma.ts imports
+      # @prisma/client/edge). Generate without env vars — `prisma generate`
+      # doesn't connect to the DB.
+      - run: pnpm --filter @aec/api exec prisma generate
       - run: pnpm run lint
       - run: pnpm run typecheck
 
@@ -68,6 +78,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
+      # @aec/api unit tests transitively import @prisma/client/edge via
+      # src/routes/health.ts → src/prisma.ts. Generate the client first.
+      - run: pnpm --filter @aec/api exec prisma generate
       - run: pnpm run test:unit
 
   build-web:
@@ -114,6 +127,12 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist
+
+      # wrangler-action invokes `wrangler deploy` directly, bypassing
+      # apps/api's `pnpm run deploy` script chain. Generate the Prisma client
+      # so esbuild can resolve @prisma/client/edge → .prisma/client/edge
+      # during bundling.
+      - run: pnpm --filter @aec/api exec prisma generate
 
       # API Worker comes up first (CICD_PLAN §4.3 atomic-deploy ordering:
       # API ready before SSR can call it). No service binding exists yet,
@@ -175,6 +194,10 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist
+
+      # wrangler-action bypasses the package.json `deploy` script chain,
+      # so generate the Prisma client explicitly before bundling.
+      - run: pnpm --filter @aec/api exec prisma generate
 
       - name: Deploy API
         uses: cloudflare/wrangler-action@v3
