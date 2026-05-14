@@ -1,28 +1,32 @@
+/**
+ * Wrangler config for the AEC Integrations web app.
+ *
+ * SSR Worker scaffolded in AECI-21. Hono handles `/api/*`; everything else
+ * falls through to Angular SSR (`@angular/ssr`). Edge cache, KV, and custom
+ * domain routing are deferred to later Phase 1/Phase 7 issues.
+ */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "aec-web",
 	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-04-07",
+	"main": "./dist/server/server.mjs",
+	"compatibility_date": "2026-05-12",
 	"compatibility_flags": ["nodejs_compat"],
-	"workers_dev": true,
 	"observability": {
-		"logs": {
-			"enabled": true,
-			"invocation_logs": true
-		}
-	},
-	"assets": {
-		"directory": "./public",
-		"binding": "ASSETS"
+		"enabled": true
 	},
 	"dev": {
 		"port": 8788
 	},
+	"assets": {
+		"binding": "ASSETS",
+		"directory": "./dist/browser"
+	},
 	"env": {
 		"production": {
 			"name": "aec-web",
-			"workers_dev": true
+			"workers_dev": true,
+			"observability": { "enabled": true }
 		}
 	}
 }
