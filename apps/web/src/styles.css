@@ -1,3 +1,6 @@
+@import "tailwindcss";
+@import "@spartan-ng/brain/hlm-tailwind-preset.css";
+
 /*
  * Global styles for apps/web.
  *
@@ -11,9 +14,6 @@
  * Hex values mirror §2a.2 byte-for-byte. Do not edit hexes without updating
  * the spec and the Figma design system file in lockstep.
  */
-
-@import "tailwindcss";
-@import "@spartan-ng/brain/hlm-tailwind-preset.css";
 
 :root {
   color-scheme: light;
@@ -30,6 +30,9 @@
   --accent-primary-hover: #2E5C45;
   --accent-secondary: #E89668;
   --accent-warm: #F5F2EA;
+
+  /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
+  --radius: 0.5rem;
 }
 
 .theme-dark {
@@ -111,4 +114,14 @@ input,
 textarea,
 select {
   caret-color: var(--accent-primary);
+}
+
+/* CDK overlay defaults: dim the backdrop and center dialog panes. */
+.cdk-overlay-backdrop.cdk-overlay-backdrop-showing {
+  background-color: rgb(0 0 0 / 0.5);
+}
+
+.cdk-global-overlay-wrapper {
+  justify-content: center;
+  align-items: center;
 }

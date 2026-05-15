@@ -163,6 +163,13 @@ Every state-changing write must call `appendAuditLog()` which also forwards to D
 
 Every write that affects cacheable URLs must call `invalidateForEntity()`. See `docs/STAGE_1_SPEC.md` §9.3. URL map is in §9.3 — extend it when adding new cached routes.
 
+## MCP usage rules
+
+**Angular CLI MCP (`angular-cli`):**
+- Before writing, modifying, or analyzing any Angular code, call `get_best_practices` once per session.
+- For any Angular API question (signals, control flow, forms, router, SSR, zoneless), call `search_documentation` before answering from training data.
+- Use `list_projects` to orient before generating files in the workspace.
+
 ## Closing notes
 
 This file evolves. If a recurring instruction keeps coming up in code reviews, add it here. If a constraint is outdated, remove it. PR like any other doc change.
