@@ -11,6 +11,7 @@
     "prisma:migrate:dev": "dotenv -e .dev.vars -- prisma migrate dev",
     "prisma:migrate:deploy": "dotenv -e .dev.vars -- prisma migrate deploy",
     "prisma:studio": "dotenv -e .dev.vars -- prisma studio",
+    "db:apply-rls": "dotenv -e .dev.vars -- bash -c 'psql \"$DIRECT_URL\" -f ../../docs/rls_policies.sql'",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",

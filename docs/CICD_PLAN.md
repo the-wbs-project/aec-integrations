@@ -251,6 +251,25 @@ Migrations are forward-only. No automated rollback. If a migration is bad:
   2. Phase 2: Code writes only to new column; backfill old data
   3. Phase 3: Migration drops old column
 
+### 5.4 RLS and GRANT policies
+
+Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) live in `docs/rls_policies.sql`, outside `apps/api/prisma/migrations/`. They define what PostgREST exposes to the `anon`/`authenticated` roles; the Worker's privileged Postgres role bypasses both. See `docs/AUTH_AND_RLS.md` §1 for the three-layer model.
+
+**Apply order (per environment):**
+
+1. `pnpm --filter @aec/api prisma:migrate:deploy` — apply all pending schema migrations first, so every in-scope table exists.
+2. `psql "$DIRECT_URL" -f docs/rls_policies.sql` — (re)apply the RLS + GRANT policies on top.
+
+Locally, `pnpm --filter @aec/api db:apply-rls` runs step 2 with `DIRECT_URL` already loaded from `.dev.vars` via `dotenv-cli`. `psql` must be on `$PATH`.
+
+**Re-runnability.** The script is safe to re-run: every `create policy` is preceded by `drop policy if exists`, and the `REVOKE`/`GRANT`/`alter table ... enable row level security`/`create or replace function` statements are inherently idempotent. Re-run after every migration that adds a new public-schema table — `ALTER DEFAULT PRIVILEGES` already locks new tables to anon/auth, but the explicit `enable row level security` and policy definitions in this script only cover the tables it names.
+
+**Verification queries** (run after each apply):
+
+- `SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public';` — every in-scope table shows `rowsecurity = true`.
+- The two `role_table_grants` queries documented at the foot of `docs/rls_policies.sql` (see "VERIFICATION QUERIES" comment block) — confirm the expected anon / authenticated grant matrix.
+- PostgREST probes: anon `SELECT` on `audit_log`, `profiles`, `vendor_requests`, `workflow_instances`, `workflow_transitions`, `page_views` must return `42501 insufficient_privilege`. Anon `SELECT` on `taxonomy_categories`, `stats_cache` must return rows.
+
 ---
 
 ## 6. Rollback strategy
