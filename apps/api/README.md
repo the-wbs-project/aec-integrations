@@ -1,4 +1,4 @@
-# @aec/api
+# @aeci/api
 
 Private Cloudflare Worker exposing the AEC Integrations API. Reads and writes Supabase via Prisma using the **per-request Accelerate pattern** (`docs/DATABASE_SCHEMA.md` §1a, `CLAUDE.md` "Constraints").
 
@@ -18,10 +18,10 @@ cp .dev.vars.example .dev.vars
 # Fill in real DATABASE_URL (Accelerate) and DIRECT_URL (Supabase pooler)
 
 pnpm install
-pnpm --filter @aec/api prisma:generate
-pnpm --filter @aec/api prisma:migrate:dev   # applies baseline schema via DIRECT_URL
+pnpm --filter @aeci/api prisma:generate
+pnpm --filter @aeci/api prisma:migrate:dev   # applies baseline schema via DIRECT_URL
 
-pnpm --filter @aec/api dev
+pnpm --filter @aeci/api dev
 curl -i http://localhost:8788/api/health
 # Expect: 200, { ok: true, db: "ok", latencyMs: <int> }
 ```
@@ -29,9 +29,9 @@ curl -i http://localhost:8788/api/health
 ## Tests
 
 ```bash
-pnpm --filter @aec/api typecheck
-pnpm --filter @aec/api test:unit
-pnpm --filter @aec/api test:coverage
+pnpm --filter @aeci/api typecheck
+pnpm --filter @aeci/api test:unit
+pnpm --filter @aeci/api test:coverage
 ```
 
 Unit-test conventions live in `docs/UNIT_TESTING_GUIDE.md`. This package establishes the per-app Vitest pattern future apps will copy.
@@ -40,11 +40,11 @@ Unit-test conventions live in `docs/UNIT_TESTING_GUIDE.md`. This package establi
 
 ```bash
 # Preview (workers.dev)
-pnpm --filter @aec/api deploy
+pnpm --filter @aeci/api deploy
 
 # Staging / production
-pnpm --filter @aec/api deploy:staging
-pnpm --filter @aec/api deploy:production
+pnpm --filter @aeci/api deploy:staging
+pnpm --filter @aeci/api deploy:production
 ```
 
 ## Secrets (one-time per environment)

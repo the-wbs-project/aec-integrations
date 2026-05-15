@@ -1,4 +1,4 @@
-# `@aec/web`
+# `@aeci/web`
 
 The customer-facing Angular 21 SSR app for AEC Integrations. Renders on Cloudflare Workers, hydrates zoneless on the client, and talks to the private API Worker via a service binding.
 
@@ -8,8 +8,8 @@ For the full picture (data model, routes, caching, auth) read **`docs/STAGE_1_SP
 
 ```bash
 pnpm install                       # from the repo root
-pnpm --filter @aec/web build       # SSR + browser bundles
-pnpm --filter @aec/web dev         # wrangler dev with SSR
+pnpm --filter @aeci/web build       # SSR + browser bundles
+pnpm --filter @aeci/web dev         # wrangler dev with SSR
 ```
 
 The Spartan brain probe page lives at `/_demo/spartan` — use it to confirm primitives render, both themes apply, and keyboard focus traps inside the dialog.
