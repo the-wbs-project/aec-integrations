@@ -1,5 +1,5 @@
 {
-  "name": "@aec/landing",
+  "name": "@aeci/landing",
   "private": true,
   "scripts": {
     "dev": "wrangler dev",

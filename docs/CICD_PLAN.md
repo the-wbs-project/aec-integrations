@@ -257,10 +257,10 @@ Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) live in `docs/rls_polic
 
 **Apply order (per environment):**
 
-1. `pnpm --filter @aec/api prisma:migrate:deploy` — apply all pending schema migrations first, so every in-scope table exists.
+1. `pnpm --filter @aeci/api prisma:migrate:deploy` — apply all pending schema migrations first, so every in-scope table exists.
 2. `psql "$DIRECT_URL" -f docs/rls_policies.sql` — (re)apply the RLS + GRANT policies on top.
 
-Locally, `pnpm --filter @aec/api db:apply-rls` runs step 2 with `DIRECT_URL` already loaded from `.dev.vars` via `dotenv-cli`. `psql` must be on `$PATH`.
+Locally, `pnpm --filter @aeci/api db:apply-rls` runs step 2 with `DIRECT_URL` already loaded from `.dev.vars` via `dotenv-cli`. `psql` must be on `$PATH`.
 
 **Re-runnability.** The script is safe to re-run: every `create policy` is preceded by `drop policy if exists`, and the `REVOKE`/`GRANT`/`alter table ... enable row level security`/`create or replace function` statements are inherently idempotent. Re-run after every migration that adds a new public-schema table — `ALTER DEFAULT PRIVILEGES` already locks new tables to anon/auth, but the explicit `enable row level security` and policy definitions in this script only cover the tables it names.
 

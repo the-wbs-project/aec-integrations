@@ -1,5 +1,5 @@
 {
-  "name": "@aec/prisma-test",
+  "name": "@aeci/prisma-test",
   "private": true,
   "scripts": {
     "dev": "pnpm prisma:generate && wrangler dev",

@@ -1,3 +1,12 @@
+import type { ApiError } from "@aeci/shared";
+
+// Re-exported so Phase 2 endpoint handlers can pull the canonical envelope
+// type from the same module they already import response helpers from. The
+// centralized error middleware that produces values of this shape lands in
+// Phase 2; until then http.ts continues returning the simpler placeholder
+// shape below.
+export type { ApiError };
+
 export function json(data: unknown, init: ResponseInit = {}): Response {
   const headers = new Headers(init.headers);
   headers.set("Content-Type", "application/json; charset=utf-8");

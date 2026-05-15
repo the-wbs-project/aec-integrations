@@ -1,4 +1,4 @@
-# Local dev secrets for @aec/prisma-test. Copy to `.dev.vars` and fill in.
+# Local dev secrets for @aeci/prisma-test. Copy to `.dev.vars` and fill in.
 # `.dev.vars` is git-ignored at the repo root. For deployed Workers, push
 # secrets via: wrangler secret put <KEY>
 

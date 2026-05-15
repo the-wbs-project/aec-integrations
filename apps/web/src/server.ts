@@ -9,6 +9,14 @@
 import { AngularAppEngine, createRequestHandler } from '@angular/ssr';
 import { Hono } from 'hono';
 
+import type { ApiError } from '@aeci/shared';
+
+// Re-exported until SSR data loaders begin parsing API responses against the
+// shared envelope (Phase 2). Importing the type here also verifies the
+// `@aeci/shared` workspace dependency resolves through Angular's strict
+// TypeScript compilation pipeline.
+export type { ApiError };
+
 export type Bindings = {
   ASSETS: Fetcher;
 };
