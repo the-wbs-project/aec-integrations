@@ -31,6 +31,9 @@ For any task:
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
 | Auth model and RLS policies | `docs/AUTH_AND_RLS.md` (placeholder — defer to spec until completed) |
+| Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
+| Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
+| Brand book (palette, contrast, visual principles, DOCX export) | `docs/BRAND_GUIDELINES.md` |
 
 If your work touches a topic governed by one of these documents, that document is the source of truth — not your prior knowledge or assumptions.
 
@@ -62,6 +65,19 @@ These appear repeatedly in tasks and Claude Code may be tempted to violate them.
 - **i18n from day one.** No hardcoded English strings in templates. Wrap everything in `i18n` attributes or `$localize` tags. Even though we launch English-only, retrofitting i18n is painful.
 - **Both themes always.** Every component must render correctly in light and dark themes. Verify both before submitting.
 - **Accessibility is built-in, not bolted on.** Spartan + Angular CDK give you a11y by default — don't break it. Run axe-core locally before pushing.
+
+## Design checklist (UI-touching issues only)
+
+For any issue that touches rendered UI in `apps/web/`, run this checklist before pushing. Issues that don't render UI (API, schema, infra, docs, CI, types) skip it.
+
+`PRODUCT.md` (strategic context — users, brand, anti-references, principles) and `DESIGN.md` (visual system — colors, typography, components, do's/don'ts) are loaded by every Impeccable command before design work. If you're touching UI, both files are part of the contract.
+
+1. **Critique the surface first.** Run `/impeccable critique <surface>` (or the standalone `/critique`) to capture a baseline against PRODUCT.md and DESIGN.md before you change anything. The output lands in `.impeccable/critique/` (gitignored).
+2. **Build / refine via the matching skill.** For new features: `/impeccable craft <feature>`. For targeted refinement: `/impeccable typeset`, `/impeccable layout`, `/impeccable colorize`, `/impeccable distill`, `/impeccable normalize`. The shared design laws and the PRODUCT.md/DESIGN.md context are loaded automatically.
+3. **Polish before submitting.** Run `/impeccable polish` for the final pass on spacing, alignment, micro-detail.
+4. **Detect anti-patterns.** `npx impeccable detect <file-or-dir>` must report zero P0 findings. If P0s remain, fix or open a follow-up issue with the exact line references before merging.
+5. **Verify both themes.** Per the "Both themes always" constraint above. The theme switcher (`apps/web/src/app/theme.service.ts`) toggles `.theme-dark` on `<html>` — render in each.
+6. **Run a11y locally.** axe-core pass on the changed surface; resolve every error and `serious` violation before push.
 
 ## API contracts approach
 
@@ -101,13 +117,14 @@ Local secrets live in `.dev.vars` (per Worker package). Not committed. `.dev.var
 
 ## Skills
 
-Shared Claude Code skills live in `.agents/skills/` and are checked into the repo so every contributor (and CI agents) get them automatically. The bundle currently comes from `coreyhaines31/marketingskills` (marketing/SEO/CRO/copywriting/etc.).
+Shared Claude Code skills live in `.agents/skills/` and are checked into the repo so every contributor (and CI agents) get them automatically. `.claude/skills/` symlinks the same content for Claude Code's discovery path.
 
-To refresh to the latest upstream version:
+Two bundles co-exist:
 
-```bash
-pnpm skills:update
-```
+- **`coreyhaines31/marketingskills`** — marketing / SEO / CRO / copywriting / analytics. Refresh with `pnpm skills:update`. Adds skills under `.agents/skills/` (one per skill, e.g. `analytics/`, `seo-audit/`).
+- **`pbakaus/impeccable`** — design skill (single skill, 23 sub-commands: `craft`, `shape`, `teach`, `document`, `critique`, `audit`, `polish`, `bolder`, `quieter`, `distill`, `harden`, `onboard`, `animate`, `colorize`, `typeset`, `layout`, `delight`, `overdrive`, `clarify`, `adapt`, `optimize`, `extract`, `live`). Lives at `.agents/skills/impeccable/`. Refresh with `npx impeccable skills update` (the bundle ships its own self-updater) or reinstall via `npx -y impeccable skills install --force`. Reads `PRODUCT.md` and `DESIGN.md` at the repo root.
+
+If `pnpm skills:update` ever clobbers `impeccable/`, that's a bug — the marketingskills bundle should not ship a same-named skill. Treat the `impeccable/` directory under `.agents/skills/` as owned by the upstream `pbakaus/impeccable` bundle.
 
 Then commit any changes under `.agents/skills/`.
 

@@ -1,0 +1,336 @@
+---
+name: AEC Integrations
+description: Editorial directory and review platform for AEC software integrations. Light-theme default, dark-theme parity, Tailwind v4 + Spartan brain.
+colors:
+  # Light theme (default)
+  surface-base:           "oklch(100% 0 0)"
+  surface-raised:         "oklch(98.43% 0 0)"
+  surface-sunken:         "oklch(96.78% 0.0019 286.38)"
+  border-default:         "oklch(91.97% 0.0036 286.32)"
+  border-strong:          "oklch(87.20% 0.0055 286.32)"
+  text-primary:           "oklch(14.48% 0 0)"
+  text-secondary:         "oklch(43.86% 0.0145 285.94)"
+  text-tertiary:          "oklch(70.90% 0.0149 286.07)"
+  accent-primary:         "oklch(31.92% 0.0436 152.32)"
+  accent-primary-hover:   "oklch(43.83% 0.0658 152.61)"
+  accent-secondary:       "oklch(76.10% 0.1144 47.10)"
+  accent-warm:            "oklch(95.62% 0.0149 95.45)"
+  # Dark theme
+  dark-surface-base:      "oklch(14.48% 0 0)"
+  dark-surface-raised:    "oklch(21.78% 0.006 285.88)"
+  dark-surface-sunken:    "oklch(13.71% 0.0036 286.10)"
+  dark-border-default:    "oklch(27.41% 0.0055 286.04)"
+  dark-border-strong:     "oklch(37.07% 0.0119 285.81)"
+  dark-text-primary:      "oklch(98.43% 0 0)"
+  dark-text-secondary:    "oklch(70.90% 0.0149 286.07)"
+  dark-text-tertiary:     "oklch(55.21% 0.0163 285.94)"
+  dark-accent-primary:    "oklch(56.51% 0.0805 152.41)"
+  dark-accent-primary-hover: "oklch(64.02% 0.0867 152.69)"
+  dark-accent-secondary:  "oklch(78.50% 0.1141 47.85)"
+  dark-accent-warm:       "oklch(22.42% 0.0079 67.38)"
+typography:
+  display:
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(2.25rem, 4.5vw + 1rem, 4rem)"
+    fontWeight: 400
+    lineHeight: 1.05
+    letterSpacing: "-0.01em"
+  headline:
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)"
+    fontWeight: 600
+    lineHeight: 1.15
+    letterSpacing: "-0.005em"
+  title:
+    fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
+    fontSize: "1.5rem"
+    fontWeight: 600
+    lineHeight: 1.25
+    letterSpacing: "normal"
+  body:
+    fontFamily: '"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontSize: "1rem"
+    fontWeight: 400
+    lineHeight: 1.6
+    letterSpacing: "normal"
+  label:
+    fontFamily: '"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontSize: "0.8125rem"
+    fontWeight: 700
+    lineHeight: 1.4
+    letterSpacing: "0.01em"
+rounded:
+  none: "0"
+  sm: "0.25rem"
+  md: "0.5rem"
+  lg: "0.75rem"
+  xl: "1rem"
+  pill: "9999px"
+spacing:
+  "0": "0"
+  "1": "0.25rem"
+  "2": "0.5rem"
+  "3": "0.75rem"
+  "4": "1rem"
+  "5": "1.5rem"
+  "6": "2rem"
+  "7": "3rem"
+  "8": "4rem"
+  "9": "6rem"
+components:
+  button-primary:
+    backgroundColor: "{colors.accent-primary}"
+    textColor: "{colors.surface-base}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "{spacing.3} {spacing.5}"
+  button-primary-hover:
+    backgroundColor: "{colors.accent-primary-hover}"
+  button-secondary:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text-primary}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "{spacing.3} {spacing.5}"
+  button-secondary-hover:
+    backgroundColor: "{colors.surface-sunken}"
+    textColor: "{colors.accent-primary}"
+  button-ghost:
+    backgroundColor: "transparent"
+    textColor: "{colors.text-primary}"
+    typography: "{typography.label}"
+    rounded: "{rounded.md}"
+    padding: "{spacing.3} {spacing.4}"
+  card:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text-primary}"
+    rounded: "{rounded.lg}"
+    padding: "{spacing.5}"
+  card-hover:
+    backgroundColor: "{colors.surface-raised}"
+    textColor: "{colors.text-primary}"
+  input:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-primary}"
+    typography: "{typography.body}"
+    rounded: "{rounded.md}"
+    padding: "{spacing.3} {spacing.4}"
+  input-focus:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-primary}"
+  badge-verified:
+    backgroundColor: "{colors.accent-primary}"
+    textColor: "{colors.surface-base}"
+    typography: "{typography.label}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.1} {spacing.3}"
+  badge-pending:
+    backgroundColor: "{colors.surface-sunken}"
+    textColor: "{colors.text-secondary}"
+    typography: "{typography.label}"
+    rounded: "{rounded.sm}"
+    padding: "{spacing.1} {spacing.3}"
+  score-display:
+    backgroundColor: "transparent"
+    textColor: "{colors.accent-primary}"
+    typography: "{typography.headline}"
+    padding: "{spacing.0}"
+---
+
+# Design System: AEC Integrations
+
+## 1. Overview
+
+**Creative North Star: "The specifier's reference."**
+
+AECi reads as an editorial industry reference — a published artifact closer in spirit to a printed product specification or a specialist trade journal than to a SaaS landing page. The reader is an AEC professional making a serious decision; the surface should feel built for that job, not built for a marketing demo. Restraint, density, generous whitespace, sentence case, and a serif headline that borrows posture from `ENR` or `Architectural Record` — never from a startup landing page.
+
+The system rejects the AI-startup visual cohort entirely: no purple-to-blue gradients, no glassmorphism, no hero-metric template, no Inter / DM Sans / Plus Jakarta Sans / Geist / Mona Sans / Space Grotesk / IBM Plex Sans / Outfit / Fraunces / Newsreader / Playfair Display / Cormorant / DM Serif / Instrument Serif / Syne. It also rejects the horizontal-SaaS-directory cohort (G2, Capterra, GetApp): no equal-weight feature grids, no logo clouds as proof, no orange-and-cream marketplace cream. Forest, Bone, and Clay carry brand identity as accents; surfaces stay neutral and let content lead.
+
+**Key Characteristics:**
+
+- Editorial restraint over commercial enthusiasm. Sentence case everywhere.
+- Pair a refined serif (Source Serif 4) with an a11y-first sans (Atkinson Hyperlegible). The pairing itself is the brand statement.
+- Forest is the anchor accent. Clay is rare (≤5% per screen, large-text or graphical only). Bone is a warm-tinted accent surface, never a page background.
+- Borders separate surfaces. Shadows are reserved for modals, dropdowns, and focus rings.
+- Both themes always: light theme is the marketing default, dark theme has full token parity for app surfaces and reader preference.
+
+## 2. Colors
+
+A neutral surface palette with three brand accents (Forest, Clay, Bone) and two near-monochrome text scales. Frontmatter values are OKLCH for perceptual uniformity (and to enforce Impeccable's color doctrine); each color's documented hex equivalent is the canonical sRGB value used by `apps/web/src/styles.css` and `docs/BRAND_GUIDELINES.md`.
+
+### Primary
+
+- **Forest** (`#1E3A2F` / `oklch(31.92% 0.0436 152.32)`): the primary brand color. CTAs, links, headings, the connector mark, primary badges. Hover state is **Forest Hover** (`#2E5C45` / `oklch(43.83% 0.0658 152.61)`) — measurably brighter, never a synthetic opacity reduction.
+
+### Secondary
+
+- **Clay** (`#E89668` / `oklch(76.10% 0.1144 47.10)`): warm secondary accent. Connector mark, primary CTA fills where appropriate, "verified" / "featured" badges, high-emphasis highlights. Fails WCAG AA on white for body copy (~2.4:1) — see the Clay restriction below.
+
+### Tertiary
+
+- **Bone** (`#F5F2EA` / `oklch(95.62% 0.0149 95.45)`): warm-tinted *accent surface*. Hero bands on About, callout sections, marketing emphasis. **Not a page background.**
+
+### Neutral
+
+- **Surface base** (`#FFFFFF` / `oklch(100% 0 0)`): default page background, light theme.
+- **Surface raised** (`#FAFAFA` / `oklch(98.43% 0 0)`): cards, panels.
+- **Surface sunken** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): inset wells, code blocks, secondary states.
+- **Border default** (`#E4E4E7` / `oklch(91.97% 0.0036 286.32)`): standard separators (0.5px default, 1px emphasis).
+- **Border strong** (`#D4D4D8` / `oklch(87.20% 0.0055 286.32)`): emphasized borders (focus, featured states).
+- **Text primary** (`#0A0A0A` / `oklch(14.48% 0 0)`): body and headings. Near-black, not pure black — gentler against bright surfaces, lower halation.
+- **Text secondary** (`#52525B` / `oklch(43.86% 0.0145 285.94)`): supporting prose, captions.
+- **Text tertiary** (`#A1A1AA` / `oklch(70.90% 0.0149 286.07)`): hints, placeholders, metadata.
+
+### Dark theme
+
+Token parity with the light palette. Names mirror the light tokens with a `dark-` prefix. Forest and Clay use the brand-approved dark variants (not synthetic lightening). Cross-checked against `docs/BRAND_GUIDELINES.md` §3.
+
+- **Dark surface base** (`#0A0A0A` / `oklch(14.48% 0 0)`): page background. Near-black, intentionally — matches Material 3, Linear, Vercel, Tailwind `zinc-950`; reduces OLED smearing and halation.
+- **Dark surface raised** (`#18181B` / `oklch(21.78% 0.006 285.88)`).
+- **Dark surface sunken** (`#09090B` / `oklch(13.71% 0.0036 286.10)`).
+- **Dark border default** (`#27272A`); **Dark border strong** (`#3F3F46`).
+- **Dark text primary** (`#FAFAFA`); **Dark text secondary** (`#A1A1AA`); **Dark text tertiary** (`#71717A`).
+- **Dark Forest** (`#4A8870` / `oklch(56.51% 0.0805 152.41)`): primary accent in dark theme. **Dark Forest hover** (`#5DA088`).
+- **Dark Clay** (`#F0A887` / `oklch(78.50% 0.1141 47.85)`): same usage restrictions as light Clay (brand policy, not contrast).
+- **Dark Bone** (`#2A2520` / `oklch(22.42% 0.0079 67.38)`): warm-tinted dark accent surface.
+
+### Named Rules
+
+**The Surfaces-Are-Neutral Rule.** Brand colors are accents that layer on top of neutral surfaces. They are never the page background. Light theme `<body>` is `#FFFFFF`; dark theme `<body>` is `#0A0A0A`. Bone is *not* a page background — it is a warm-tinted accent surface used in callout bands and hero sections only.
+
+**The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest in light theme, Dark Forest in dark theme. No alternative primary color exists — proposals for "a second primary" are rejected.
+
+**The Clay-Restriction Rule.** Clay (and Dark Clay) is the rarest color in the system. ≤5% of any screen. Large-text (≥18pt regular or ≥14pt bold per WCAG) or graphical (icons, dividers, the connector mark) only. **Never as body text in either theme.** In light theme this is contrast-driven (Clay on white is ~2.4:1, fails AA). In dark theme it is brand policy: keeping Clay rare preserves its meaning as the high-emphasis accent.
+
+**The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (light theme), the dark surface-base is `#0A0A0A`, the dark text-primary is `#FAFAFA`. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation.
+
+## 3. Typography
+
+**Display Font:** Source Serif 4 (with Georgia, "Times New Roman", serif fallback)
+**Body Font:** Atkinson Hyperlegible (with system-ui, -apple-system, "Segoe UI", sans-serif fallback)
+**Label Font:** Atkinson Hyperlegible (same family as body, distinct role via size + weight)
+
+**Character:** Source Serif 4 carries the editorial / industry-publication posture of a printed reference — calmer and more grounded than the SaaS-default sans cohort, but without the stylized affectation of the reflex-reject serifs (Fraunces, Playfair Display, Cormorant, DM Serif, Instrument Serif). Atkinson Hyperlegible is an a11y-first sans designed by the Braille Institute for low-vision readers; pairing it with a serif display face makes the trust/transparency principle visible in the typography itself. The pairing is the brand statement: a system that treats the reader's vision as a constraint to engineer for, not an afterthought to "support."
+
+### Hierarchy
+
+- **Display** (Source Serif 4, 400, `clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em): hero headlines on About, Home, vendor profile mastheads. Used at most once per page.
+- **Headline** (Source Serif 4, 600, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, line-height 1.15, tracking -0.005em): page H1 on content pages and product surfaces.
+- **Title** (Source Serif 4, 600, 1.5rem / 24px, line-height 1.25): section H2 within long-form content; product surface card titles where editorial weight is wanted.
+- **Body** (Atkinson Hyperlegible, 400, 1rem / 16px, line-height 1.6): default body and reading text. Cap measure at 70ch on long-form pages; product surfaces use container constraints instead. **Use 700 (Bold) only for inline emphasis or product-surface affordances** — never for headings (those are Source Serif 4).
+- **Label** (Atkinson Hyperlegible, 700, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): button text, table headers, badges, form field labels. Sentence case (not uppercase — see the rule below).
+
+### Named Rules
+
+**The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule is absolute and applies to both registers.
+
+**The Two-Family Rule.** Source Serif 4 for display, headline, title. Atkinson Hyperlegible for body and label. No third typeface enters the system. Monospace appears only when rendering literal code (in `<code>` and `<pre>`) and uses the system monospace stack — it is not a brand face.
+
+**The Reflex-Reject Rule.** This system explicitly does not use, and will reject any proposal to introduce: Inter, DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Roboto, Open Sans, Arial, Fraunces, Newsreader, Lora, Crimson, Crimson Pro, Crimson Text, Playfair Display, Cormorant, Cormorant Garamond, DM Serif Display, DM Serif Text, Instrument Sans, Instrument Serif, Syne. The chosen pair (Source Serif 4 + Atkinson Hyperlegible) is the answer; the reflex list is the question that has already been refused.
+
+## 4. Elevation
+
+Borders separate surfaces. Shadows do not.
+
+The system is flat by default. Depth is conveyed through color (Bone callouts, sunken inset wells), spacing (generous whitespace around elevated content), and border weight — not through drop shadows on cards or buttons. Box-shadows appear only where a literal layer is rising off the page: modals, dropdowns, popover menus, and focus rings.
+
+### Shadow Vocabulary
+
+- **Modal / Dialog** (`box-shadow: 0 16px 48px -8px rgb(0 0 0 / 0.18), 0 4px 16px -2px rgb(0 0 0 / 0.10)`): for overlay surfaces (dialogs, command palettes). Pairs with a 50% opacity backdrop.
+- **Dropdown / Popover** (`box-shadow: 0 8px 24px -4px rgb(0 0 0 / 0.12), 0 2px 8px -1px rgb(0 0 0 / 0.06)`): for menu panes, autocomplete dropdowns, tooltips with body content.
+- **Focus ring** (`box-shadow: 0 0 0 2px var(--surface-base), 0 0 0 4px var(--accent-primary)`): keyboard-focus indicator. Always paired with a visible focus state — never `outline: none` without a replacement.
+
+### Named Rules
+
+**The Borders-Not-Shadows Rule.** Cards, buttons, badges, inputs, and tabs use borders to separate from their surface (0.5px default, 1px emphasis, 2px featured). Box-shadows on these elements are forbidden — they are an AI-design tell ("rounded rectangle with generic drop shadow") and do not match the editorial posture of the system.
+
+## 5. Components
+
+Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.
+
+### Buttons
+
+Spartan `BrnButton` directive provides the headless behavior; Tailwind utility classes bind to tokens.
+
+- **Shape:** `rounded.md` (8px). Never pill-shaped (`rounded.pill`) for primary actions — pill buttons read as social-media UI, not editorial.
+- **Primary** (`button-primary` / `button-primary-hover`): Forest fill (`accent-primary`), surface-base text. Padding `spacing.3 spacing.5` (12px / 24px). Sentence-case label using the `label` typography role. Hover: brightens to `accent-primary-hover`. No transform, no scale, no shadow on hover.
+- **Secondary** (`button-secondary` / `button-secondary-hover`): surface-raised fill, text-primary text, 0.5px border-default. Hover: surface sinks to `surface-sunken` and text shifts to `accent-primary`.
+- **Ghost** (`button-ghost`): transparent fill, text-primary text, no border. Hover: text shifts to `accent-primary`. Used for tertiary actions in dense product surfaces.
+- **States:** `:focus-visible` shows the focus-ring elevation token. `:disabled` reduces opacity to 0.6 and disables pointer events — does not change color (color shifts on disable look broken).
+
+### Cards
+
+Used for vendor profiles, integration cards, search result rows, and content modules.
+
+- **Corner Style:** `rounded.lg` (12px).
+- **Background:** `surface-raised` (light) / `dark-surface-raised` (dark).
+- **Shadow Strategy:** **None.** Borders separate surfaces. (See the Borders-Not-Shadows Rule above.)
+- **Border:** 0.5px solid `border-default`. Hover (when interactive) raises to 1px solid `border-strong` — no fill change, no shadow, no scale.
+- **Internal Padding:** `spacing.5` (24px). Dense list contexts may use `spacing.4` (16px).
+
+### Inputs / Fields
+
+Spartan brain provides form primitives; styling binds to tokens.
+
+- **Style:** 1px solid `border-default`, `surface-base` background, `rounded.md` corner. Padding `spacing.3 spacing.4` (12px / 16px). Body typography role.
+- **Focus:** border shifts to 1px solid `accent-primary`, paired with the focus-ring elevation. No glow halo, no underline animation — clean border swap.
+- **Error:** border shifts to 1px solid Clay-derived warning token (TBD as an extension on first error pattern); accompanied by an inline label and an icon (color is never the sole error signal).
+- **Disabled:** background fades to `surface-sunken`, text-secondary text. Pointer events disabled.
+
+### Badges
+
+- **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states.
+- **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with verified.
+
+### Score Display
+
+The signature data component for review scores. Source Serif 4 numerals (headline typography role) in Forest, no chart-junk decoration, no sparkline behind the number — the score *is* the visual.
+
+- **Numeric value:** Source Serif 4 600, headline scale (`clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`), Forest color (`accent-primary`).
+- **Label below:** Atkinson Hyperlegible label scale, text-secondary color.
+- **Range marker** (optional, sparse): a single vertical mark on a 1-10 axis with no fill, no gradient, no animation — visible at a glance, not a chart.
+
+### Navigation
+
+- **Style:** Atkinson Hyperlegible label scale, sentence case, text-primary color, transparent background.
+- **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
+- **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts).
+- **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled.
+
+## 6. Do's and Don'ts
+
+The strategic anti-references in `PRODUCT.md` carry through here as concrete visual prohibitions. Every PRODUCT.md anti-reference appears below as a "Don't" with the same language.
+
+### Do:
+
+- **Do** use OKLCH in CSS (`oklch(...)`) for color tokens. Hex values are documented as fallbacks but the canonical source is OKLCH (the front matter, plus `apps/web/src/styles.css`).
+- **Do** pair Source Serif 4 (display) with Atkinson Hyperlegible (body) — the chosen system pair. Use them in their assigned roles (display for headings, body for prose, label for buttons / badges / table headers).
+- **Do** use sentence case everywhere. Headings, buttons, labels, navigation, table headers, page titles, section titles.
+- **Do** use 0.5px borders to separate surfaces (`border-default`); 1px for emphasis; 2px for featured states.
+- **Do** keep Clay rare (≤5% per screen, large-text or graphical only). The connector mark, verified/featured badges, primary CTA fills where appropriate.
+- **Do** use Bone as a *warm-tinted accent surface* — hero bands, callout sections — never as a page background.
+- **Do** vary spacing for visual rhythm (4pt scale: 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96). Tight groupings, generous separations.
+- **Do** use container queries (`@container`) for component-level responsiveness; viewport queries for page layout.
+- **Do** respect `prefers-reduced-motion` on every transition. Default durations: 120ms (hover), 180ms (default), 280ms (page transitions).
+- **Do** show a visible focus-ring on every interactive element (`:focus-visible`). Never `outline: none` without a replacement.
+
+### Don't:
+
+- **Don't** use `border-left` or `border-right` greater than 1px as a colored accent stripe on cards, list items, callouts, or alerts. **Side-stripe borders are banned.** Rewrite with a full border, a background tint, leading numbers/icons, or no visual indicator at all.
+- **Don't** use gradient text (any combination of `background-clip` text fill plus a gradient `background`). **Gradient text is banned.** Solid colors only; emphasis via weight or size.
+- **Don't** use the hero-metric template (big number + small label + supporting stats + gradient accent). It's the SaaS cliché; the score-display component is the editorial alternative.
+- **Don't** use sparklines as decoration. Tiny charts that look sophisticated and convey nothing meaningful are noise.
+- **Don't** nest cards inside cards. Visual noise; flatten the hierarchy.
+- **Don't** use identical card grids (3×3 or 4-up cards each with icon + heading + 8 words). Vary the layout, vary card sizes, break the grid intentionally for emphasis.
+- **Don't** use any of the reflex-reject fonts: Inter, DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Roboto, Open Sans, Arial, Fraunces, Newsreader, Lora, Crimson Pro, Playfair Display, Cormorant, Cormorant Garamond, DM Serif Display, DM Serif Text, Instrument Sans, Instrument Serif, Syne. The chosen pair is Source Serif 4 + Atkinson Hyperlegible.
+- **Don't** use `#000` or `#fff` directly. Use `text-primary` (`#0A0A0A`) and `surface-base` (`#FFFFFF` for light, `#0A0A0A` for dark) tokens.
+- **Don't** use bounce or elastic easing on motion. Use exponential ease-out (`ease-out-quart` / `quint` / `expo`). Real objects decelerate smoothly.
+- **Don't** use glassmorphism (blur, glass cards, glow borders) decoratively. Rare and purposeful, or nothing.
+- **Don't** put box-shadows on cards or buttons. Borders separate surfaces; shadows are for modals, dropdowns, popovers, and focus rings.
+- **Don't** use the AI color palette: cyan-on-dark, purple-to-blue gradients, neon accents on dark backgrounds, gradient backgrounds for impact.
+- **Don't** use stock photography of construction sites, hard hats, or blueprints. The AEC visual cliché — the brand is editorial about AEC, not a costume of AEC.
+- **Don't** use emoji in UI chrome. Lucide icons exclusively. Emoji rendering is inconsistent across platforms and clashes with the editorial brand.
+- **Don't** use em dashes in UI copy (also not `--`). Use commas, colons, semicolons, periods, or parentheses.
+- **Don't** make every button primary. Use ghost and secondary variants — hierarchy matters.
+- **Don't** use modals as the first thought. Exhaust inline / progressive disclosure / drawer alternatives first.
