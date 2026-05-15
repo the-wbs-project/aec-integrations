@@ -1,5 +1,7 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
+
+import { ThemeService } from './theme.service';
 
 @Component({
   selector: 'app-root',
@@ -11,4 +13,7 @@ import { RouterOutlet } from '@angular/router';
   `,
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
-export class App {}
+export class App {
+  // Ensures ThemeService instantiates at bootstrap. UI toggle ships separately (AECI layout-shell).
+  protected readonly theme = inject(ThemeService);
+}

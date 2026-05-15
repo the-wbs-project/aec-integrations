@@ -6,6 +6,17 @@
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <script>
+    (function () {
+      try {
+        var m = document.cookie.match(/(?:^|;\s*)theme=([^;]+)/);
+        var stored = m ? m[1] : (window.localStorage && localStorage.getItem('theme'));
+        var mode = (stored === 'light' || stored === 'dark' || stored === 'system') ? stored : 'system';
+        var dark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) document.documentElement.classList.add('theme-dark');
+      } catch (e) {}
+    })();
+  </script>
 </head>
 <body>
   <app-root></app-root>
