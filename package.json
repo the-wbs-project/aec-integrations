@@ -9,6 +9,7 @@
     "dev:api": "pnpm --filter @aec/api dev",
     "dev:stack-test": "pnpm --filter @aec/stack-test dev",
     "dev:prisma-test": "pnpm --filter @aec/prisma-test dev",
+    "db:studio": "pnpm --filter @aec/api prisma:studio",
     "build": "pnpm -r --if-present run build",
     "build:stack-test": "pnpm --filter @aec/stack-test build",
     "build:web": "pnpm --filter @aec/web build",
