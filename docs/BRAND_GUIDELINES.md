@@ -98,7 +98,7 @@ Contrast verification is automated in CI via a token-pair check matrix (see `doc
 A small set of cross-cutting principles. Component-level implementation lives in the Angular + Spartan UI component library, not here.
 
 - **Sentence case everywhere.** Headings, buttons, labels, navigation items, table headers. Title Case reads as marketing; sentence case reads as editorial.
-- **Two font weights only: 400 (regular) and 500 (medium).** Never 600, 700, or 800. Inter at 600+ reads heavy and over-designed against the rest of the system.
+- **Typography: Source Serif 4 (display) + Atkinson Hyperlegible (body and label).** Source Serif 4 is the editorial / industry-publication anchor — used for display, headline, and title roles (weights 400 and 600). Atkinson Hyperlegible is the a11y-first body face (Braille Institute) — used for body prose and labels (weights 400 and 700). The pairing makes the trust/transparency principle visible in the typography itself. The full type scale, role definitions, and named rules live in `DESIGN.md` §3 (source of truth). The previous Inter-only / 400-and-500-only doctrine was retired in May 2026; the rationale is documented in §7a below.
 - **Borders separate surfaces; shadows don't.** Default border `0.5px`; `1px` for emphasis (inputs, focused elements); `2px` reserved for featured states. Box-shadows are for modals, dropdowns, and focus rings only — never on cards or buttons.
 - **Motion has a purpose.** Animate for feedback, transition, or focus. Decorative animation is noise. Default durations: 120ms (hover), 180ms (default), 280ms (page transitions).
 - **No pure black for text.** Use Ink `#0F1419` (light theme) or the theme's `--text-primary` token. Pure black plus pure white is harsher than the near-black/near-white pairings the design system already provides.
@@ -108,9 +108,21 @@ A small set of cross-cutting principles. Component-level implementation lives in
 
 ---
 
+## 7a. Why the typography doctrine changed (May 2026)
+
+Versions 1.0 of this brand book pinned a single sans-serif typeface (Inter) at two weights (400 / 500) with an explicit "no serif fonts anywhere" clause. AECI-38 (Phase 1.12a, May 2026) installed the Impeccable design skill (`pbakaus/impeccable`) and seeded `PRODUCT.md` and `DESIGN.md` at the repo root. Impeccable's `font-selection-procedure` explicitly rejects Inter as a reflex / training-data default that creates monoculture across projects (alongside DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Fraunces, Newsreader, Playfair Display, Cormorant, DM Serif, Instrument Serif, Syne).
+
+DESIGN.md is the source of truth for tokens going forward. When DESIGN.md and this book disagree on tokens, DESIGN.md wins and this book updates to match. The chosen pairing reflects the editorial / industry-publication aesthetic (a serif display face borrows posture from `ENR` and `Architectural Record`; an a11y-first body face makes the Transparent-by-default design principle visible). The two-weights-per-face cap is replaced with role-bound weights (display 400, headline 600, title 600, body 400, label 700) defined in DESIGN.md §3.
+
+The previous "no serif fonts anywhere" clause is rescinded for a *single* serif display face used in display / headline / title roles. Body text remains sans (Atkinson Hyperlegible). Monospace appears only in literal code (`<code>`, `<pre>`) using the system monospace stack — it is not a brand face.
+
+---
+
 ## 8. Related artifacts
 
-- **Implementation tokens & theme mechanics:** `docs/STAGE_1_SPEC.md` §2a (source of truth).
+- **Visual design system & component tokens (source of truth):** `DESIGN.md` at the repo root. Stitch-format YAML front matter for colors (OKLCH + hex), typography, spacing, radii, components; markdown body with the six fixed sections. When implementation drifts, DESIGN.md wins.
+- **Strategic product context:** `PRODUCT.md` at the repo root. Audience tiers, jobs-to-be-done, brand personality, anti-references, design principles, accessibility commitments. Loaded by every Impeccable command before design work.
+- **Implementation tokens & theme mechanics:** `docs/STAGE_1_SPEC.md` §2a (cross-references DESIGN.md; identical hex values).
 - **DOCX export of this document:** `branding/AEC-Integrations-Brand-Guidelines.docx` (regenerate via `scripts/build-brand-docx.sh`).
 - **Figma design system file:** "AEC Integrations — Design System" (color styles, text styles, components). Tokens in Figma mirror Tailwind config; changes in either system require updates to both.
 - **Logo and monogram files:** `branding/` directory.

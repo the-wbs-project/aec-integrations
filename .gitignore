@@ -5,3 +5,7 @@ dist
 .dev.vars
 .vars.dev
 .DS_Store
+
+# Per-run Impeccable critique / live snapshots — ephemeral, machine-local.
+# PRODUCT.md and DESIGN.md (the canonical context files) are committed.
+.impeccable/
