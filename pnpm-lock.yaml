@@ -167,6 +167,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@angular/cdk':
+        specifier: ^21.2.10
+        version: 21.2.10(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-browser@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)))(rxjs@7.8.2)
       '@angular/common':
         specifier: ^21.2.0
         version: 21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2)

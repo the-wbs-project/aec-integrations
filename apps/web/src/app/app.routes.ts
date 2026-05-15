@@ -6,4 +6,8 @@ export const routes: Routes = [
     pathMatch: 'full',
     loadComponent: () => import('./home/home').then((m) => m.Home),
   },
+  {
+    path: '_demo/spartan',
+    loadComponent: () => import('./demo/spartan-demo').then((m) => m.SpartanDemo),
+  },
 ];
