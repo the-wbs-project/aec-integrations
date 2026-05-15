@@ -10,6 +10,7 @@
     "prisma:generate": "dotenv -e .dev.vars -- prisma generate",
     "prisma:migrate:dev": "dotenv -e .dev.vars -- prisma migrate dev",
     "prisma:migrate:deploy": "dotenv -e .dev.vars -- prisma migrate deploy",
+    "prisma:studio": "dotenv -e .dev.vars -- prisma studio",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
