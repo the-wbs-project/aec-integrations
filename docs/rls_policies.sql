@@ -163,6 +163,11 @@ alter table translations           enable row level security;
 --       returns 42501 to any anon/auth request regardless of RLS.
 --
 -- No INSERT/UPDATE/DELETE grants anywhere. All writes are Worker-only.
+--
+-- Re-run safety: each `create policy` is preceded by `drop policy if exists`
+-- so the script can be re-applied (e.g. after schema changes) without
+-- failing on "policy already exists". Postgres has no `create policy if not
+-- exists` / `or replace`, so drop-then-create is the canonical pattern.
 -- =============================================================================
 
 
@@ -170,6 +175,7 @@ alter table translations           enable row level security;
 
 grant select on table vendors to anon, authenticated;
 
+drop policy if exists "vendors: public read promoted" on vendors;
 create policy "vendors: public read promoted"
   on vendors
   for select
@@ -181,6 +187,7 @@ create policy "vendors: public read promoted"
 
 grant select on table products to anon, authenticated;
 
+drop policy if exists "products: public read promoted" on products;
 create policy "products: public read promoted"
   on products
   for select
@@ -192,6 +199,7 @@ create policy "products: public read promoted"
 
 grant select on table integrations to anon, authenticated;
 
+drop policy if exists "integrations: public read when both endpoints promoted" on integrations;
 create policy "integrations: public read when both endpoints promoted"
   on integrations
   for select
@@ -208,16 +216,19 @@ grant select on table taxonomy_categories  to anon, authenticated;
 grant select on table taxonomy_disciplines to anon, authenticated;
 grant select on table taxonomy_phases      to anon, authenticated;
 
+drop policy if exists "taxonomy_categories: public read" on taxonomy_categories;
 create policy "taxonomy_categories: public read"
   on taxonomy_categories
   for select to anon, authenticated
   using (true);
 
+drop policy if exists "taxonomy_disciplines: public read" on taxonomy_disciplines;
 create policy "taxonomy_disciplines: public read"
   on taxonomy_disciplines
   for select to anon, authenticated
   using (true);
 
+drop policy if exists "taxonomy_phases: public read" on taxonomy_phases;
 create policy "taxonomy_phases: public read"
   on taxonomy_phases
   for select to anon, authenticated
@@ -232,26 +243,31 @@ grant select on table product_phases      to anon, authenticated;
 grant select on table product_vendors     to anon, authenticated;
 grant select on table product_extensions  to anon, authenticated;
 
+drop policy if exists "product_categories: public read when product promoted" on product_categories;
 create policy "product_categories: public read when product promoted"
   on product_categories
   for select to anon, authenticated
   using (exists (select 1 from products p where p.id = product_id and p.promotion_status = 'promoted'));
 
+drop policy if exists "product_disciplines: public read when product promoted" on product_disciplines;
 create policy "product_disciplines: public read when product promoted"
   on product_disciplines
   for select to anon, authenticated
   using (exists (select 1 from products p where p.id = product_id and p.promotion_status = 'promoted'));
 
+drop policy if exists "product_phases: public read when product promoted" on product_phases;
 create policy "product_phases: public read when product promoted"
   on product_phases
   for select to anon, authenticated
   using (exists (select 1 from products p where p.id = product_id and p.promotion_status = 'promoted'));
 
+drop policy if exists "product_vendors: public read when product promoted" on product_vendors;
 create policy "product_vendors: public read when product promoted"
   on product_vendors
   for select to anon, authenticated
   using (exists (select 1 from products p where p.id = product_id and p.promotion_status = 'promoted'));
 
+drop policy if exists "product_extensions: public read when both products promoted" on product_extensions;
 create policy "product_extensions: public read when both products promoted"
   on product_extensions
   for select to anon, authenticated
@@ -268,11 +284,13 @@ create policy "product_extensions: public read when both products promoted"
 
 grant select on table profiles to authenticated;
 
+drop policy if exists "profiles: owner read" on profiles;
 create policy "profiles: owner read"
   on profiles
   for select to authenticated
   using (auth.uid() = id);
 
+drop policy if exists "profiles: admin read all" on profiles;
 create policy "profiles: admin read all"
   on profiles
   for select to authenticated
@@ -283,11 +301,13 @@ create policy "profiles: admin read all"
 
 grant select on table reviews to anon, authenticated;
 
+drop policy if exists "reviews: public read approved" on reviews;
 create policy "reviews: public read approved"
   on reviews
   for select to anon, authenticated
   using (status = 'approved');
 
+drop policy if exists "reviews: owner read own" on reviews;
 create policy "reviews: owner read own"
   on reviews
   for select to authenticated
@@ -296,6 +316,7 @@ create policy "reviews: owner read own"
     and auth.is_active_user()
   );
 
+drop policy if exists "reviews: admin read all" on reviews;
 create policy "reviews: admin read all"
   on reviews
   for select to authenticated
@@ -306,6 +327,7 @@ create policy "reviews: admin read all"
 
 grant select on table stats_cache to anon, authenticated;
 
+drop policy if exists "stats_cache: public read" on stats_cache;
 create policy "stats_cache: public read"
   on stats_cache
   for select to anon, authenticated
@@ -316,6 +338,7 @@ create policy "stats_cache: public read"
 
 grant select on table translations to anon, authenticated;
 
+drop policy if exists "translations: public read" on translations;
 create policy "translations: public read"
   on translations
   for select to anon, authenticated
@@ -333,30 +356,35 @@ create policy "translations: public read"
 
 -- vendor_requests -------------------------------------------------------------
 -- No GRANT. RLS policy below is a no-op for PostgREST until grants are added.
+drop policy if exists "vendor_requests: admin read" on vendor_requests;
 create policy "vendor_requests: admin read"
   on vendor_requests
   for select to authenticated
   using (auth.is_admin());
 
 -- workflow_instances ----------------------------------------------------------
+drop policy if exists "workflow_instances: admin read" on workflow_instances;
 create policy "workflow_instances: admin read"
   on workflow_instances
   for select to authenticated
   using (auth.is_admin());
 
 -- workflow_transitions --------------------------------------------------------
+drop policy if exists "workflow_transitions: admin read" on workflow_transitions;
 create policy "workflow_transitions: admin read"
   on workflow_transitions
   for select to authenticated
   using (auth.is_admin());
 
 -- audit_log -------------------------------------------------------------------
+drop policy if exists "audit_log: admin read" on audit_log;
 create policy "audit_log: admin read"
   on audit_log
   for select to authenticated
   using (auth.is_admin());
 
 -- page_views ------------------------------------------------------------------
+drop policy if exists "page_views: admin read" on page_views;
 create policy "page_views: admin read"
   on page_views
   for select to authenticated
