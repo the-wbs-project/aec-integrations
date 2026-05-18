@@ -98,4 +98,25 @@ describe('createHealthHandler', () => {
     await buildApp(prisma).request('/api/health', {}, env, ctx);
     expect(ctx.waitUntil).not.toHaveBeenCalled();
   });
+
+  it("sets Cache-Control: 'private, no-store' on the success response (AECI-43)", async () => {
+    // Guards: /api/health must never be edge- or client-cached — a stale
+    // { ok: true, db: 'ok' } during a DB outage would be actively misleading.
+    const prisma = makeMockPrisma();
+    const res = await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it("sets Cache-Control: 'private, no-store' on the error response (AECI-43)", async () => {
+    // Guards: failure responses are even more dangerous to cache than success.
+    const prisma = makeMockPrisma({
+      queryRaw: vi.fn(async () => {
+        throw new Error('connection refused');
+      }),
+    });
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const res = await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
+    errorSpy.mockRestore();
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  });
 });
