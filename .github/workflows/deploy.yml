@@ -17,10 +17,16 @@
 #
 # Deferred (tracked separately, NOT in this workflow yet):
 #   - staging environment (CICD_PLAN §2.2)
-#   - E2E / Lighthouse / axe-core jobs (CICD_PLAN §3.1)
 #   - Supabase migrations (CICD_PLAN §5)
 #   - Datadog deployment markers (CICD_PLAN §9.1)
-#   - Smoke tests against deployed URLs (CICD_PLAN §9.2)
+#
+# Phase 1.19 (AECI-33) added:
+#   - e2e-tests-local           — Playwright + axe smoke against `pnpm dev:bound`
+#   - integration-runner-local  — apps/web/scripts/run-extra-tests.sh against local
+#   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED)
+#   - integration-runner-preview — extras script against preview URL (PARKED)
+#   - lighthouse                — Lighthouse CI, warn-only (PARKED)
+# The "preview" and "lighthouse" jobs activate when `deploy-preview` lands.
 #
 # Required repo secrets (still configured for the future prod trigger):
 #   CLOUDFLARE_API_TOKEN   — scope per CICD_PLAN §7.1
@@ -112,6 +118,142 @@ jobs:
           path: apps/web/dist
           retention-days: 7
           if-no-files-found: error
+
+  e2e-tests-local:
+    name: E2E + axe (local)
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/api exec prisma generate
+      # Cache Playwright browsers so subsequent runs skip the ~150MB download.
+      - uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @aeci/web exec playwright install-deps chromium
+      # Build the SSR Worker bundle before booting `dev:bound`. `dev:preview`
+      # invokes `wrangler dev` directly (no implicit build), so without this
+      # step wrangler fails with "dist/server/server.mjs was not found".
+      # `build-web` is a `needs:` dependency for ordering only — its artifact
+      # is not downloaded here, so we rebuild locally.
+      - run: pnpm --filter @aeci/web build
+      # Playwright's `webServer` in apps/web/playwright.config.ts boots
+      # `pnpm dev:bound` (both Workers) and waits for :8788 to be reachable.
+      - run: pnpm --filter @aeci/web run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
+
+  integration-runner-local:
+    name: Edge-cache integration runner (local)
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/api exec prisma generate
+      - run: pnpm --filter @aeci/web build
+      # Boot both Workers in the background; the extras script handles its own
+      # preflight reachability check before exercising HTTP.
+      - name: Boot dev:bound (API + SSR)
+        run: nohup pnpm dev:bound > dev-bound.log 2>&1 &
+      - name: Wait for SSR Worker on :8788
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/; then
+              echo "ssr up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "ssr did not come up in 60s"; tail -100 dev-bound.log; exit 1
+      - run: HOST=http://localhost:8788 ./apps/web/scripts/run-extra-tests.sh
+      - if: failure()
+        run: tail -200 dev-bound.log || true
+
+  e2e-tests-preview:
+    name: E2E + axe (preview URL)
+    # PARKED until `deploy-preview` job is added. When that lands, replace
+    # `if: false` with `needs: deploy-preview` and supply PLAYWRIGHT_BASE_URL.
+    if: false
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @aeci/web run test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ vars.PREVIEW_URL }}
+
+  integration-runner-preview:
+    name: Edge-cache integration runner (preview URL)
+    # PARKED — see e2e-tests-preview.
+    if: false
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: HOST="${PREVIEW_URL}" ./apps/web/scripts/run-extra-tests.sh
+        env:
+          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
+
+  lighthouse:
+    name: Lighthouse CI (warn-only)
+    # PARKED until `deploy-preview` lands; warn-only assertions per
+    # docs/CICD_PLAN.md §8 and AECI-33 spec — enforcement (error-level)
+    # flips in Phase 7.
+    if: false
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lighthouse
+        env:
+          LHCI_URL: ${{ vars.PREVIEW_URL }}
 
   deploy-production:
     name: Deploy production
