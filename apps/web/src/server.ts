@@ -1,21 +1,21 @@
 /**
  * Cloudflare Worker entry for the AEC Integrations web app.
  *
- * Hono dispatches `/api/*` routes; everything else falls through to Angular
- * SSR via `@angular/ssr`. The `API` binding is the private API Worker — see
- * `wrangler.jsonc` and `server-api-client.ts`. Edge cache, KV, and
- * cookie-stripping middleware land in subsequent issues.
+ * Thin shim: constructs the Angular SSR renderer and hands it to the
+ * Angular-free runtime in `./server-runtime`. All routing, classification,
+ * cookie hygiene, cache integration, and the `/api/*` service-binding
+ * passthrough live in `server-runtime.ts` so they can be unit-tested under
+ * plain-Node Vitest without booting Angular.
+ *
+ * See `server-runtime.ts` for the route-classification matrix and the §9.1 /
+ * §9.1a / §9.1b / §7a.3 contracts this Worker enforces.
  */
 
 import { AngularAppEngine, createRequestHandler } from '@angular/ssr';
-import { Hono } from 'hono';
 
 import type { ApiError } from '@aeci/shared';
 
-import {
-  ServerApiError,
-  createServerApiClient,
-} from './server-api-client';
+import { createApp, type SsrRenderer } from './server-runtime';
 
 // Re-exported until SSR data loaders begin parsing API responses against the
 // shared envelope (Phase 2). Importing the type here also verifies the
@@ -23,10 +23,7 @@ import {
 // TypeScript compilation pipeline.
 export type { ApiError };
 
-export type Bindings = {
-  ASSETS: Fetcher;
-  API: Fetcher;
-};
+export type { Bindings } from './server-runtime';
 
 const angularApp = new AngularAppEngine({
   allowedHosts: ['localhost', '127.0.0.1'],
@@ -37,40 +34,10 @@ const angularHandler = createRequestHandler(async (req) => {
   return res ?? new Response('Page not found.', { status: 404 });
 });
 
-const app = new Hono<{ Bindings: Bindings }>();
+const angularRenderer: SsrRenderer = async (request) => {
+  const res = await angularHandler(request);
+  return res ?? new Response('Page not found.', { status: 404 });
+};
 
-// Proxies the private API Worker's health endpoint through the service
-// binding. Real callers in Phase 2 use `createServerApiClient(env)` from
-// SSR data loaders; this route exists so the binding is exercised end-to-end
-// from a public surface (AECI-30 acceptance criterion).
-app.get('/api/health', async (c) => {
-  const api = createServerApiClient(c.env);
-  try {
-    const body = await api.request<unknown>('/api/health');
-    return c.json(body as Record<string, unknown>);
-  } catch (error) {
-    if (error instanceof ServerApiError) {
-      return c.json(
-        {
-          ok: false,
-          source: 'api-binding',
-          status: error.status,
-          code: error.code,
-          message: error.message,
-        },
-        { status: 502 },
-      );
-    }
-    throw error;
-  }
-});
-
-// Anything not matched by an explicit Hono route falls through to Angular SSR.
-app.all('*', async (c) => {
-  return (
-    (await angularHandler(c.req.raw)) ??
-    new Response('Page not found.', { status: 404 })
-  );
-});
-
+const app = createApp({ ssrRenderer: angularRenderer });
 export default app;
