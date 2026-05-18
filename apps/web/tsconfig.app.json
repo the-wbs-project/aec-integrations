@@ -11,5 +11,8 @@
   "include": [
     "src/**/*.ts",
     "worker-configuration.d.ts"
+  ],
+  "exclude": [
+    "src/**/*.spec.ts"
   ]
 }

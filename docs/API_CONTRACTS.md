@@ -723,7 +723,7 @@ The SSR Worker imports types from `@aeci/shared` and consumes the API via servic
 // In SSR Worker
 import type { GetProductResponse } from '@aeci/shared/api/products';
 
-const apiResponse = await env.API_WORKER.fetch(
+const apiResponse = await env.API.fetch(
   new Request('https://api/products/procore')
 );
 const product: GetProductResponse = await apiResponse.json();

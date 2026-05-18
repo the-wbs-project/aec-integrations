@@ -209,7 +209,7 @@ The SSR Worker calls the API Worker via service binding, configured per environm
 
 ```toml
 [[env.production.services]]
-binding = "API_WORKER"
+binding = "API"
 service = "aeci-api-production"
 ```
 

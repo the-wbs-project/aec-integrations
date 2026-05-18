@@ -115,6 +115,17 @@ pnpm build
 
 Local secrets live in `.dev.vars` (per Worker package). Not committed. `.dev.vars.example` shows what's required.
 
+### SSR ↔ API service binding in local dev
+
+The SSR Worker calls the private API Worker over a service binding (`env.API`). In local dev, wrangler's cross-Worker registry resolves the binding only when both Workers are running **and** the API Worker's registered name matches the SSR Worker's `service` value. The bound name is `aeci-api-preview`, which is the API Worker's `env.preview.name` — so the API Worker must be started with `--env preview`.
+
+```bash
+# Boots API on :8787 (as aeci-api-preview) and SSR on :8788 in parallel.
+pnpm dev:bound
+```
+
+`pnpm dev:bound` runs `pnpm -r --parallel --filter @aeci/api --filter @aeci/web run dev:preview`. Running only one of the two Workers leaves the binding unresolved and the SSR `/api/health` proxy will fail. The legacy single-Worker `pnpm dev:web` / `pnpm dev:api` scripts remain for solo-Worker iteration.
+
 ## Skills
 
 Shared Claude Code skills live in `.agents/skills/` and are checked into the repo so every contributor (and CI agents) get them automatically. `.claude/skills/` symlinks the same content for Claude Code's discovery path.

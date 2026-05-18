@@ -484,7 +484,7 @@ The SSR Worker calls these endpoints via Cloudflare service binding:
 ```typescript
 import type { GetProductResponse } from '@aeci/shared/api/products';
 
-const apiResponse = await env.API_WORKER.fetch(
+const apiResponse = await env.API.fetch(
   new Request('https://api/products/procore')
 );
 const product: GetProductResponse = await apiResponse.json();
