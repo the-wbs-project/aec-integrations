@@ -44,7 +44,17 @@
             "server": "src/main.server.ts",
             "outputMode": "server",
             "security": {
-              "allowedHosts": []
+              // Angular SSR SSRF guard — see `apps/web/src/server.ts` for the
+              // rationale (AECI-42). `*.workers.dev` covers preview deploys
+              // (`workers_dev: true`), `*.aecintegrations.com` covers future
+              // `www.` / `staging.` subdomains.
+              "allowedHosts": [
+                "localhost",
+                "127.0.0.1",
+                "aecintegrations.com",
+                "*.aecintegrations.com",
+                "*.workers.dev"
+              ]
             },
             "ssr": {
               "entry": "src/server.ts",
