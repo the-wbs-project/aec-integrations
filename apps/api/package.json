@@ -3,6 +3,7 @@
   "private": true,
   "scripts": {
     "dev": "pnpm prisma:generate && wrangler dev",
+    "dev:preview": "pnpm prisma:generate && wrangler dev --env preview --port 8787",
     "start": "pnpm dev",
     "deploy": "pnpm prisma:generate && wrangler deploy",
     "deploy:staging": "pnpm prisma:generate && wrangler deploy --env staging",

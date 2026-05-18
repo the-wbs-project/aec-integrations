@@ -146,6 +146,17 @@ jobs:
           command: deploy --env preview --name aec-api-pr-${{ github.event.pull_request.number }}
           packageManager: pnpm
 
+      # apps/web/wrangler.jsonc binds the `API` service to `aeci-api-preview`
+      # — the stable preview name — but PR previews deploy the API under a
+      # PR-scoped name (`aec-api-pr-<N>`) to keep PRs isolated. Wrangler has
+      # no flag to override `services[].service` at deploy time, so rewrite
+      # the binding string in place before the SSR deploy. The runner's
+      # checkout is throwaway; this never touches the committed file.
+      - name: Rewrite SSR service binding to PR-scoped API
+        run: |
+          sed -i 's|"service": "aeci-api-preview"|"service": "aec-api-pr-${{ github.event.pull_request.number }}"|' apps/web/wrangler.jsonc
+          grep -n '"service"' apps/web/wrangler.jsonc
+
       - name: Deploy SSR preview
         id: deploy-ssr-preview
         uses: cloudflare/wrangler-action@v3

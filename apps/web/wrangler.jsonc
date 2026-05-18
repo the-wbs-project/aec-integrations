@@ -11,8 +11,12 @@
  * Until cutover, the route accepts the config; traffic still flows via
  * `*.workers.dev`. Preview deploys use `workers_dev` URLs per PR.
  *
- * Edge cache, KV, cookie-stripping middleware, and the service binding to
- * the private API Worker all land in subsequent Phase 1 issues.
+ * The `services` bindings (`API`) call the private API Worker (`apps/api/`)
+ * over Cloudflare's internal RPC fabric — the API has no public ingress.
+ * See docs/STAGE_1_SPEC.md §6.2, §15.2 and docs/CICD_PLAN.md §4.2.
+ *
+ * Edge cache, KV, and cookie-stripping middleware land in subsequent
+ * Phase 1 issues.
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
@@ -36,7 +40,10 @@
 			"name": "aec-web",
 			"workers_dev": true,
 			"vars": { "ENV": "preview" },
-			"observability": { "enabled": true }
+			"observability": { "enabled": true },
+			"services": [
+				{ "binding": "API", "service": "aeci-api-preview" }
+			]
 		},
 		"production": {
 			"name": "aec-web",
@@ -47,6 +54,9 @@
 					"pattern": "aecintegrations.com",
 					"custom_domain": true
 				}
+			],
+			"services": [
+				{ "binding": "API", "service": "aeci-api-production" }
 			]
 		}
 	}

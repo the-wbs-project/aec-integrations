@@ -7,6 +7,7 @@
     "dev:landing": "pnpm --filter @aeci/landing dev",
     "dev:web": "pnpm --filter @aeci/web dev",
     "dev:api": "pnpm --filter @aeci/api dev",
+    "dev:bound": "pnpm --parallel --filter @aeci/api --filter @aeci/web run dev:preview",
     "dev:stack-test": "pnpm --filter @aeci/stack-test dev",
     "dev:prisma-test": "pnpm --filter @aeci/prisma-test dev",
     "db:studio": "pnpm --filter @aeci/api prisma:studio",
