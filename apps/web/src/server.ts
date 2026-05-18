@@ -27,9 +27,20 @@ export type { ApiError };
 
 export type { Bindings } from './server-runtime';
 
-const angularApp = new AngularAppEngine({
-  allowedHosts: ['localhost', '127.0.0.1'],
-});
+// `AngularAppEngine` is a module-scope singleton per Angular's docs
+// ("should be instantiated once and used as a singleton across the
+// server-side application"). Per-request env-driven `allowedHosts` is
+// therefore not an option — Cloudflare's `env` binding is only available
+// inside `fetch`. The hostname allowlist instead lives in
+// `apps/web/angular.json` at `projects.web.architect.build.options.security.allowedHosts`,
+// where Angular baked it into the build manifest. That list covers:
+//   - `localhost`, `127.0.0.1`               (local dev)
+//   - `*.workers.dev`                        (`workers_dev: true` preview deploys)
+//   - `aecintegrations.com`                  (production custom domain — Phase 7)
+//   - `*.aecintegrations.com`                (future `www.` / `staging.`)
+// See AECI-42 for the cutover context. Keep this list and `wrangler.jsonc`
+// routes in sync.
+const angularApp = new AngularAppEngine();
 
 const angularHandler = createRequestHandler(async (req) => {
   const res = await angularApp.handle(req);
