@@ -58,7 +58,9 @@ import { ThemeService } from './theme.service';
           (click)="theme.cycle()"
           class="text-sm px-3 py-1.5 rounded-md border border-(--border-strong) bg-(--surface-muted) text-(--text-primary) hover:bg-(--accent) hover:text-(--accent-fg) hover:border-(--accent) transition-colors cursor-pointer"
         >
-          <ng-container i18n="@@app.theme.label">theme</ng-container>: {{ theme.choice() }} ({{ theme.resolved() }})
+          <ng-container i18n="@@app.theme.label">theme</ng-container>: {{ theme.choice() }} ({{
+            theme.resolved()
+          }})
         </button>
       </header>
       <main class="flex-1 px-6 py-10 max-w-3xl w-full mx-auto">
@@ -68,7 +70,8 @@ import { ThemeService } from './theme.service';
         class="border-t border-(--border) px-6 py-4 text-xs text-(--text-muted)"
         i18n="@@app.footer"
       >
-        Stack-validation probe · Angular 21 zoneless · Cloudflare Workers SSR · Spartan brain primitives
+        Stack-validation probe · Angular 21 zoneless · Cloudflare Workers SSR · Spartan brain
+        primitives
       </footer>
     </div>
   `,

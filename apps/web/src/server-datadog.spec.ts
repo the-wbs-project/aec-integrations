@@ -124,9 +124,7 @@ describe('logToDatadog (web SSR Worker)', () => {
       message: 'x',
     });
     await Promise.all(promises);
-    expect(fetchSpy.mock.calls[0]![0]).toBe(
-      'https://http-intake.logs.datadoghq.eu/api/v2/logs',
-    );
+    expect(fetchSpy.mock.calls[0]![0]).toBe('https://http-intake.logs.datadoghq.eu/api/v2/logs');
   });
 
   it('propagates the explicit level into the status field', async () => {

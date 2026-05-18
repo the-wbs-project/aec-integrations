@@ -102,7 +102,10 @@ pnpm dev
 pnpm typecheck
 
 # Lint and format
-pnpm lint
+pnpm lint            # ESLint across all packages + Prettier --check
+pnpm lint:fix        # ESLint --fix across all packages + Prettier --write
+pnpm format          # Prettier --write .
+pnpm format:check    # Prettier --check .
 
 # Run tests
 pnpm test            # unit + integration

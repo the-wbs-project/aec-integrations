@@ -7,46 +7,46 @@
  * In dev: wrangler dev (Miniflare-backed; KV is local automatically).
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "aec-stack-test",
-	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
-	"main": "./dist/server/server.mjs",
-	"compatibility_date": "2026-05-12",
-	"compatibility_flags": ["nodejs_compat"],
-	"observability": {
-		"enabled": true
-	},
-	"upload_source_maps": true,
-	"dev": {
-		"port": 8789
-	},
-	"assets": {
-		"binding": "ASSETS",
-		"directory": "./dist/browser"
-	},
-	"kv_namespaces": [
-		{
-			"binding": "STACK_TEST_KV",
-			"id": "4a527a9567bc4286b55602b13ed525e4",
-			"preview_id": "29d16f75b68046468eafe9fb7c8bfa8b"
-		}
-	],
-	"env": {
-		"production": {
-			"name": "aec-stack-test",
-			"observability": { "enabled": true },
-			"kv_namespaces": [
-				{
-					"binding": "STACK_TEST_KV",
-					"id": "4a527a9567bc4286b55602b13ed525e4"
-				}
-			],
-			"routes": [
-				{
-					"pattern": "stack-test.aecintegrations.com",
-					"custom_domain": true
-				}
-			]
-		}
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aec-stack-test",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "main": "./dist/server/server.mjs",
+  "compatibility_date": "2026-05-12",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+  },
+  "upload_source_maps": true,
+  "dev": {
+    "port": 8789,
+  },
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/browser",
+  },
+  "kv_namespaces": [
+    {
+      "binding": "STACK_TEST_KV",
+      "id": "4a527a9567bc4286b55602b13ed525e4",
+      "preview_id": "29d16f75b68046468eafe9fb7c8bfa8b",
+    },
+  ],
+  "env": {
+    "production": {
+      "name": "aec-stack-test",
+      "observability": { "enabled": true },
+      "kv_namespaces": [
+        {
+          "binding": "STACK_TEST_KV",
+          "id": "4a527a9567bc4286b55602b13ed525e4",
+        },
+      ],
+      "routes": [
+        {
+          "pattern": "stack-test.aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
+    },
+  },
 }

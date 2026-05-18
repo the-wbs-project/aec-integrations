@@ -16,9 +16,9 @@
  *   3. No `DD_API_KEY` → no-op (dev convenience).
  */
 
-import type { Env } from "./env";
+import type { Env } from './env';
 
-export type DdLogLevel = "debug" | "info" | "warn" | "error";
+export type DdLogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export type DdLogEvent = {
   message: string;
@@ -28,12 +28,12 @@ export type DdLogEvent = {
 
 type WaitUntilContext = { waitUntil(promise: Promise<unknown>): void };
 
-const DEFAULT_SITE = "us5.datadoghq.com";
-const SERVICE = "aeci-api";
-const WORKER = "aeci-api";
-const APP = "aeci"; // Umbrella project tag — pairs both Workers under one app facet.
-const LOCALE = "en-US"; // Phase 1; tracks LOCALES in the SSR runtime.
-const DD_SOURCE = "worker";
+const DEFAULT_SITE = 'us5.datadoghq.com';
+const SERVICE = 'aeci-api';
+const WORKER = 'aeci-api';
+const APP = 'aeci'; // Umbrella project tag — pairs both Workers under one app facet.
+const LOCALE = 'en-US'; // Phase 1; tracks LOCALES in the SSR runtime.
+const DD_SOURCE = 'worker';
 
 /**
  * Derives the Datadog `hostname` from a `Request`. Workers have no machine
@@ -59,12 +59,12 @@ export function logToDatadog(
   const apiKey = env.DD_API_KEY;
   if (!apiKey) return;
 
-  const ddEnv = env.ENV ?? "preview";
+  const ddEnv = env.ENV ?? 'preview';
   const { message, level, ...rest } = event;
   const payload = {
     ...rest,
     message,
-    status: level ?? "info",
+    status: level ?? 'info',
     service: SERVICE,
     hostname: hostnameFromRequest(request),
     ddsource: DD_SOURCE,
@@ -78,15 +78,15 @@ export function logToDatadog(
     (async () => {
       try {
         await fetch(url, {
-          method: "POST",
+          method: 'POST',
           headers: {
-            "content-type": "application/json",
-            "dd-api-key": apiKey,
+            'content-type': 'application/json',
+            'dd-api-key': apiKey,
           },
           body: JSON.stringify(payload),
         });
       } catch (error) {
-        console.warn("logToDatadog: forward failed", error);
+        console.warn('logToDatadog: forward failed', error);
       }
     })(),
   );

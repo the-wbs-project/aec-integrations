@@ -1,0 +1,14 @@
+node_modules
+dist
+.angular
+.wrangler
+.agents
+.claude
+coverage
+playwright-report
+test-results
+**/*.min.js
+**/generated/**
+pnpm-lock.yaml
+*.md
+public

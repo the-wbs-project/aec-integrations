@@ -9,7 +9,7 @@ const serverConfig: ApplicationConfig = {
   providers: [
     provideServerRendering(withRoutes(serverRoutes)),
     { provide: DataService, useClass: ServerDataService },
-  ]
+  ],
 };
 
 export const config = mergeApplicationConfig(appConfig, serverConfig);

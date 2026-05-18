@@ -13,14 +13,14 @@
   "observability": {
     "logs": {
       "enabled": true,
-      "invocation_logs": true
-    }
+      "invocation_logs": true,
+    },
   },
   "assets": {
     "directory": "./public",
-    "binding": "ASSETS"
+    "binding": "ASSETS",
   },
   "dev": {
-    "port": 8787
-  }
+    "port": 8787,
+  },
 }

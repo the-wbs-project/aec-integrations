@@ -18,14 +18,12 @@ import { DataService } from '../data.service';
   template: `
     <section class="space-y-6">
       <div>
-        <h1 class="text-2xl font-medium tracking-tight text-(--text-primary)">
-          Raw URL purge
-        </h1>
+        <h1 class="text-2xl font-medium tracking-tight text-(--text-primary)">Raw URL purge</h1>
         <p class="mt-2 text-sm text-(--text-muted) max-w-prose">
           Hits Cloudflare's
-          <code class="font-mono text-xs">purge_cache</code> REST endpoint directly
-          with the URL you supply. Use this to verify token scoping and propagation
-          independently of the KV → purge data flow.
+          <code class="font-mono text-xs">purge_cache</code> REST endpoint directly with the URL you
+          supply. Use this to verify token scoping and propagation independently of the KV → purge
+          data flow.
         </p>
       </div>
 
@@ -34,10 +32,7 @@ import { DataService } from '../data.service';
         class="space-y-4 rounded-lg border border-(--border) bg-(--surface) p-6 shadow-sm"
       >
         <div class="space-y-2">
-          <label
-            for="purge-url"
-            class="block text-sm font-medium text-(--text-secondary)"
-          >
+          <label for="purge-url" class="block text-sm font-medium text-(--text-secondary)">
             URL to purge
           </label>
           <input
@@ -71,12 +66,8 @@ import { DataService } from '../data.service';
       </form>
 
       @if (result(); as r) {
-        <div
-          class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm"
-        >
-          <div class="text-xs uppercase tracking-wider text-(--text-muted)">
-            api response
-          </div>
+        <div class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm">
+          <div class="text-xs uppercase tracking-wider text-(--text-muted)">api response</div>
           <div class="text-sm text-(--text-secondary)">
             HTTP <span class="font-mono">{{ r.status }}</span>
           </div>

@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from 'zod';
 
 /**
  * Canonical error envelope returned by the API Worker for every non-2xx
@@ -37,5 +37,5 @@ export type PaginatedResponse<T> = {
   limit: number;
 };
 
-export const SortOrderSchema = z.enum(["asc", "desc"]);
+export const SortOrderSchema = z.enum(['asc', 'desc']);
 export type SortOrder = z.infer<typeof SortOrderSchema>;

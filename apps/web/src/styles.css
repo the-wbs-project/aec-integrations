@@ -1,5 +1,5 @@
-@import "tailwindcss";
-@import "@spartan-ng/brain/hlm-tailwind-preset.css";
+@import 'tailwindcss';
+@import '@spartan-ng/brain/hlm-tailwind-preset.css';
 
 /*
  * Global styles for apps/web.
@@ -24,22 +24,22 @@
 :root {
   color-scheme: light;
 
-  --surface-base:           oklch(100% 0 0);                      /* #FFFFFF */
-  --surface-raised:         oklch(98.43% 0 0);                    /* #FAFAFA */
-  --surface-sunken:         oklch(96.78% 0.0019 286.38);          /* #F4F4F5 */
-  --border-default:         oklch(91.97% 0.0036 286.32);          /* #E4E4E7 */
-  --border-strong:          oklch(87.20% 0.0055 286.32);          /* #D4D4D8 */
-  --text-primary:           oklch(14.48% 0 0);                    /* #0A0A0A */
-  --text-secondary:         oklch(43.86% 0.0145 285.94);          /* #52525B */
-  --text-tertiary:          oklch(70.90% 0.0149 286.07);          /* #A1A1AA */
-  --accent-primary:         oklch(31.92% 0.0436 152.32);          /* #1E3A2F (Forest) */
-  --accent-primary-hover:   oklch(43.83% 0.0658 152.61);          /* #2E5C45 (Forest hover) */
-  --accent-secondary:       oklch(76.10% 0.1144 47.10);           /* #E89668 (Clay) */
-  --accent-warm:            oklch(95.62% 0.0149 95.45);           /* #F5F2EA (Bone) */
+  --surface-base: oklch(100% 0 0); /* #FFFFFF */
+  --surface-raised: oklch(98.43% 0 0); /* #FAFAFA */
+  --surface-sunken: oklch(96.78% 0.0019 286.38); /* #F4F4F5 */
+  --border-default: oklch(91.97% 0.0036 286.32); /* #E4E4E7 */
+  --border-strong: oklch(87.2% 0.0055 286.32); /* #D4D4D8 */
+  --text-primary: oklch(14.48% 0 0); /* #0A0A0A */
+  --text-secondary: oklch(43.86% 0.0145 285.94); /* #52525B */
+  --text-tertiary: oklch(70.9% 0.0149 286.07); /* #A1A1AA */
+  --accent-primary: oklch(31.92% 0.0436 152.32); /* #1E3A2F (Forest) */
+  --accent-primary-hover: oklch(43.83% 0.0658 152.61); /* #2E5C45 (Forest hover) */
+  --accent-secondary: oklch(76.1% 0.1144 47.1); /* #E89668 (Clay) */
+  --accent-warm: oklch(95.62% 0.0149 95.45); /* #F5F2EA (Bone) */
 
   /* Typography (DESIGN.md §3 source of truth) */
-  --font-display: "Source Serif 4", Georgia, "Times New Roman", serif;
-  --font-body: "Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+  --font-body: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
   --radius: 0.5rem;
@@ -48,18 +48,18 @@
 .theme-dark {
   color-scheme: dark;
 
-  --surface-base:           oklch(14.48% 0 0);                    /* #0A0A0A */
-  --surface-raised:         oklch(21.78% 0.006 285.88);           /* #18181B */
-  --surface-sunken:         oklch(13.71% 0.0036 286.10);          /* #09090B */
-  --border-default:         oklch(27.41% 0.0055 286.04);          /* #27272A */
-  --border-strong:          oklch(37.07% 0.0119 285.81);          /* #3F3F46 */
-  --text-primary:           oklch(98.43% 0 0);                    /* #FAFAFA */
-  --text-secondary:         oklch(70.90% 0.0149 286.07);          /* #A1A1AA */
-  --text-tertiary:          oklch(55.21% 0.0163 285.94);          /* #71717A */
-  --accent-primary:         oklch(56.51% 0.0805 152.41);          /* #4A8870 (Forest dark) */
-  --accent-primary-hover:   oklch(64.02% 0.0867 152.69);          /* #5DA088 (Forest dark hover) */
-  --accent-secondary:       oklch(78.50% 0.1141 47.85);           /* #F0A887 (Clay dark) */
-  --accent-warm:            oklch(22.42% 0.0079 67.38);           /* #2A2520 (Bone dark) */
+  --surface-base: oklch(14.48% 0 0); /* #0A0A0A */
+  --surface-raised: oklch(21.78% 0.006 285.88); /* #18181B */
+  --surface-sunken: oklch(13.71% 0.0036 286.1); /* #09090B */
+  --border-default: oklch(27.41% 0.0055 286.04); /* #27272A */
+  --border-strong: oklch(37.07% 0.0119 285.81); /* #3F3F46 */
+  --text-primary: oklch(98.43% 0 0); /* #FAFAFA */
+  --text-secondary: oklch(70.9% 0.0149 286.07); /* #A1A1AA */
+  --text-tertiary: oklch(55.21% 0.0163 285.94); /* #71717A */
+  --accent-primary: oklch(56.51% 0.0805 152.41); /* #4A8870 (Forest dark) */
+  --accent-primary-hover: oklch(64.02% 0.0867 152.69); /* #5DA088 (Forest dark hover) */
+  --accent-secondary: oklch(78.5% 0.1141 47.85); /* #F0A887 (Clay dark) */
+  --accent-warm: oklch(22.42% 0.0079 67.38); /* #2A2520 (Bone dark) */
 }
 
 @theme inline {
@@ -95,7 +95,9 @@ body {
   min-height: 100vh;
 }
 
-h1, h2, h3 {
+h1,
+h2,
+h3 {
   font-family: var(--font-display);
   font-weight: 600;
   line-height: 1.15;

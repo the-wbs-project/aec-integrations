@@ -14,7 +14,7 @@
  * defaults to the local SSR Worker on :8788.
  */
 
-const baseUrl = process.env.LHCI_URL || "http://localhost:8788";
+const baseUrl = process.env.LHCI_URL || 'http://localhost:8788';
 
 /**
  * @type {import('@lhci/cli').LhciConfig}
@@ -33,29 +33,29 @@ module.exports = {
       settings: {
         // Run on desktop in Phase 1. Mobile profile added in Phase 7 alongside
         // cross-device QA.
-        preset: "desktop",
+        preset: 'desktop',
         // Skip Chromium-specific checks that don't apply in CI sandboxes.
-        skipAudits: ["uses-http2", "canonical"],
+        skipAudits: ['uses-http2', 'canonical'],
       },
     },
     assert: {
       assertions: {
         // Core Web Vitals — warn in Phase 1, errors in Phase 7.
-        "largest-contentful-paint": ["warn", { maxNumericValue: 2500 }],
-        "cumulative-layout-shift": ["warn", { maxNumericValue: 0.1 }],
-        "total-blocking-time": ["warn", { maxNumericValue: 200 }],
+        'largest-contentful-paint': ['warn', { maxNumericValue: 2500 }],
+        'cumulative-layout-shift': ['warn', { maxNumericValue: 0.1 }],
+        'total-blocking-time': ['warn', { maxNumericValue: 200 }],
         // Category-level scores. Accessibility flips to error in Phase 7.
-        "categories:performance": ["warn", { minScore: 0.8 }],
-        "categories:accessibility": ["warn", { minScore: 0.95 }],
-        "categories:best-practices": ["warn", { minScore: 0.9 }],
-        "categories:seo": ["warn", { minScore: 0.9 }],
+        'categories:performance': ['warn', { minScore: 0.8 }],
+        'categories:accessibility': ['warn', { minScore: 0.95 }],
+        'categories:best-practices': ['warn', { minScore: 0.9 }],
+        'categories:seo': ['warn', { minScore: 0.9 }],
       },
     },
     upload: {
       // Phase 1: keep reports as job artifacts only. Wire to LHCI Server
       // (`temporary-public-storage` or self-hosted) in Phase 7 for trend
       // tracking.
-      target: "temporary-public-storage",
+      target: 'temporary-public-storage',
     },
   },
 };

@@ -45,7 +45,10 @@ export class DataService {
     return this.http.get<Entity[]>(url, { params: this.localeParams() });
   }
 
-  saveEntity(id: string, payload: { title: string; body: string }): Observable<{
+  saveEntity(
+    id: string,
+    payload: { title: string; body: string },
+  ): Observable<{
     kv: string;
     entity: Entity;
     purge: { status: number; body: unknown };
@@ -74,9 +77,8 @@ export class DataService {
   }
 
   rawPurge(url: string): Observable<{ status: number; body: unknown }> {
-    return this.http.post<{ status: number; body: unknown }>(
-      this.toAbsolute('/api/purge'),
-      { url },
-    );
+    return this.http.post<{ status: number; body: unknown }>(this.toAbsolute('/api/purge'), {
+      url,
+    });
   }
 }

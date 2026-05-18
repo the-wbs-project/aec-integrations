@@ -14,7 +14,10 @@
     "build": "pnpm -r --if-present run build",
     "build:stack-test": "pnpm --filter @aeci/stack-test build",
     "build:web": "pnpm --filter @aeci/web build",
-    "lint": "pnpm -r --if-present run lint",
+    "lint": "pnpm -r run lint && pnpm run format:check",
+    "lint:fix": "pnpm -r run lint:fix && pnpm run format",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm run test:unit && pnpm run test:integration",
     "test:unit": "pnpm -r --if-present run test:unit",
@@ -29,5 +32,14 @@
     "deploy:prisma-test": "pnpm --filter @aeci/prisma-test deploy",
     "test:coverage": "pnpm -r --if-present run test:coverage",
     "skills:update": "npx skills add coreyhaines31/marketingskills"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "angular-eslint": "^21.4.0",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "globals": "^17.6.0",
+    "prettier": "^3.8.3",
+    "typescript-eslint": "^8.59.3"
   }
 }

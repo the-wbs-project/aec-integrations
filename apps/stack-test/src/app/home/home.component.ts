@@ -11,25 +11,19 @@ import { ThemeService } from '../theme.service';
   template: `
     <section class="space-y-8">
       <div>
-        <h1
-          class="text-2xl font-medium tracking-tight text-(--text-primary)"
-          i18n="@@home.title"
-        >
+        <h1 class="text-2xl font-medium tracking-tight text-(--text-primary)" i18n="@@home.title">
           Stack validation probe
         </h1>
         <p class="mt-2 text-sm text-(--text-muted) max-w-prose" i18n="@@home.intro">
-          Smoke test for Angular 21 zoneless SSR on Cloudflare Workers, Tailwind v4,
-          and Spartan brain primitives (Angular CDK overlay backing the dialog).
-          Toggle the theme in the header to verify CSS custom properties switch
-          server-side and client-side without FOUC. See
+          Smoke test for Angular 21 zoneless SSR on Cloudflare Workers, Tailwind v4, and Spartan
+          brain primitives (Angular CDK overlay backing the dialog). Toggle the theme in the header
+          to verify CSS custom properties switch server-side and client-side without FOUC. See
           <code class="font-mono text-xs">/cached/:id</code> for cache tests and
           <code class="font-mono text-xs">/admin</code> for data-driven invalidation.
         </p>
       </div>
 
-      <div
-        class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm"
-      >
+      <div class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm">
         <div
           class="text-xs uppercase tracking-wider text-(--text-muted)"
           i18n="@@home.section.theme"
@@ -71,17 +65,10 @@ import { ThemeService } from '../theme.service';
         </div>
       </div>
 
-      <div
-        class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-4 shadow-sm"
-      >
-        <div class="text-xs uppercase tracking-wider text-(--text-muted)">
-          form primitives
-        </div>
+      <div class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-4 shadow-sm">
+        <div class="text-xs uppercase tracking-wider text-(--text-muted)">form primitives</div>
         <div class="space-y-2">
-          <label
-            for="smoke-input"
-            class="block text-sm font-medium text-(--text-secondary)"
-          >
+          <label for="smoke-input" class="block text-sm font-medium text-(--text-secondary)">
             Sample input
           </label>
           <input
@@ -98,9 +85,7 @@ import { ThemeService } from '../theme.service';
         </div>
       </div>
 
-      <div
-        class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm"
-      >
+      <div class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm">
         <div class="text-xs uppercase tracking-wider text-(--text-muted)">
           overlay (Angular CDK via Spartan brain dialog)
         </div>
@@ -115,19 +100,16 @@ import { ThemeService } from '../theme.service';
         >
           Open dialog
         </button>
-
       </div>
 
       <ng-template #dialogTpl let-ref>
         <div
           class="rounded-lg border border-(--border) bg-(--surface) p-6 shadow-xl max-w-sm w-full space-y-4"
         >
-          <h2 class="text-lg font-medium text-(--text-primary)">
-            Hello from CDK Dialog
-          </h2>
+          <h2 class="text-lg font-medium text-(--text-primary)">Hello from CDK Dialog</h2>
           <p class="text-sm text-(--text-secondary)">
-            Backed by &#64;angular/cdk/dialog. If this opened without hydration
-            warnings and Esc closes it, the high-risk overlay scenario passes.
+            Backed by &#64;angular/cdk/dialog. If this opened without hydration warnings and Esc
+            closes it, the high-risk overlay scenario passes.
           </p>
           <div class="flex justify-end gap-2">
             <button

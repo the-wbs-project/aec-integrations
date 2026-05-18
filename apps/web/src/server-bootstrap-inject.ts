@@ -64,10 +64,7 @@ export function buildDatadogBootstrapScript(env: WebEnv): string | null {
  *     own 404 short-text payload would have no `</head>` anyway).
  *   - The HTML has no `</head>` token (defensive; SSR output always does).
  */
-export async function injectDatadogBootstrap(
-  response: Response,
-  env: WebEnv,
-): Promise<Response> {
+export async function injectDatadogBootstrap(response: Response, env: WebEnv): Promise<Response> {
   const script = buildDatadogBootstrapScript(env);
   if (!script) return response;
   if (response.status < 200 || response.status >= 300) return response;

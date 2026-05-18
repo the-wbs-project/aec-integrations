@@ -25,10 +25,13 @@ function recordingApiBinding(response?: Response): {
   const fetcher = {
     fetch: vi.fn(async (input: Request) => {
       calls.push(input);
-      return response ?? new Response(JSON.stringify({ ok: true }), {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
+      return (
+        response ??
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      );
     }),
   } as unknown as Fetcher;
   return {
@@ -179,9 +182,7 @@ describe('buildCacheControl', () => {
     expect(buildCacheControl({ edge: 3600, browser: 300 })).toBe(
       'public, max-age=300, s-maxage=3600',
     );
-    expect(buildCacheControl(NOT_FOUND_TTL)).toBe(
-      'public, max-age=60, s-maxage=60',
-    );
+    expect(buildCacheControl(NOT_FOUND_TTL)).toBe('public, max-age=60, s-maxage=60');
   });
 });
 
@@ -205,17 +206,13 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
     // The theme cookie must NOT be stripped on the /api/* path — the AECI-35
     // contract is that cookie stripping only runs on the cacheable branch.
     // Auth cookies obviously must survive too.
-    expect(forwarded.headers.get('cookie')).toBe(
-      'sb-access-token=abc.def.ghi; theme=dark',
-    );
+    expect(forwarded.headers.get('cookie')).toBe('sb-access-token=abc.def.ghi; theme=dark');
     expect(forwarded.method).toBe('GET');
     expect(new URL(forwarded.url).pathname).toBe('/api/health');
   });
 
   it('forwards non-GET /api/* requests (cookie-bearing writes)', async () => {
-    const { binding, calls } = recordingApiBinding(
-      new Response('{}', { status: 201 }),
-    );
+    const { binding, calls } = recordingApiBinding(new Response('{}', { status: 201 }));
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
 
     const req = new Request('https://aecintegrations.com/api/reviews', {
@@ -286,9 +283,7 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('cache-control')).toBe(
-      'public, max-age=300, s-maxage=900',
-    );
+    expect(res.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=900');
     expect(res.headers.get('vary')).toBeNull();
   });
 });
@@ -297,9 +292,7 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
   it('returns HTTP 404 with no-store for unknown (non-cacheable) routes', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(
-        new Response('Page not found.', { status: 404 }),
-      ),
+      ssrRenderer: fixedRenderer(new Response('Page not found.', { status: 404 })),
     });
 
     const res = await app.fetch(
@@ -316,9 +309,7 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
   it('returns HTTP 404 with TTL ≤60s for cacheable-route 404s (e.g. /products/missing)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({
-      ssrRenderer: fixedRenderer(
-        new Response('Not found', { status: 404 }),
-      ),
+      ssrRenderer: fixedRenderer(new Response('Not found', { status: 404 })),
     });
 
     const res = await app.fetch(
@@ -328,9 +319,7 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     );
 
     expect(res.status).toBe(404);
-    expect(res.headers.get('cache-control')).toBe(
-      'public, max-age=60, s-maxage=60',
-    );
+    expect(res.headers.get('cache-control')).toBe('public, max-age=60, s-maxage=60');
   });
 });
 
@@ -359,9 +348,7 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
     const { binding } = recordingApiBinding();
     const ctx = fakeExecutionContext();
     const app = createApp({
-      ssrRenderer: fixedRenderer(
-        new Response('<html>home</html>', { status: 200 }),
-      ),
+      ssrRenderer: fixedRenderer(new Response('<html>home</html>', { status: 200 })),
     });
 
     await app.fetch(
