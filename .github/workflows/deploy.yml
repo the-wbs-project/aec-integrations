@@ -145,6 +145,12 @@ jobs:
         run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
       - if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @aeci/web exec playwright install-deps chromium
+      # Build the SSR Worker bundle before booting `dev:bound`. `dev:preview`
+      # invokes `wrangler dev` directly (no implicit build), so without this
+      # step wrangler fails with "dist/server/server.mjs was not found".
+      # `build-web` is a `needs:` dependency for ordering only — its artifact
+      # is not downloaded here, so we rebuild locally.
+      - run: pnpm --filter @aeci/web build
       # Playwright's `webServer` in apps/web/playwright.config.ts boots
       # `pnpm dev:bound` (both Workers) and waits for :8788 to be reachable.
       - run: pnpm --filter @aeci/web run test:e2e
