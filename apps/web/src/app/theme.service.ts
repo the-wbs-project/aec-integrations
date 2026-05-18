@@ -11,13 +11,19 @@ import {
   signal,
 } from '@angular/core';
 
-export type Mode = 'system' | 'light' | 'dark';
-export type Resolved = 'light' | 'dark';
+import {
+  buildThemeCookieHeader,
+  nextMode,
+  parseThemeCookie,
+  resolveMode,
+  type Mode,
+  type Resolved,
+} from './theme.helpers';
 
-const COOKIE_NAME = 'theme';
+export type { Mode, Resolved } from './theme.helpers';
+
 const STORAGE_KEY = 'theme';
 const DARK_CLASS = 'theme-dark';
-const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
 
 @Injectable({ providedIn: 'root' })
 export class ThemeService {
@@ -29,11 +35,9 @@ export class ThemeService {
   private readonly _systemDark = signal<boolean>(this.readInitialSystemDark());
 
   readonly mode: Signal<Mode> = this._mode.asReadonly();
-  readonly resolved: Signal<Resolved> = computed(() => {
-    const m = this._mode();
-    if (m === 'system') return this._systemDark() ? 'dark' : 'light';
-    return m;
-  });
+  readonly resolved: Signal<Resolved> = computed(() =>
+    resolveMode(this._mode(), this._systemDark()),
+  );
 
   constructor() {
     effect(() => {
@@ -58,14 +62,12 @@ export class ThemeService {
     this._mode.set(mode);
     if (isPlatformBrowser(this.platformId)) {
       localStorage.setItem(STORAGE_KEY, mode);
-      document.cookie = `${COOKIE_NAME}=${mode}; Path=/; Max-Age=${COOKIE_MAX_AGE_SECONDS}; SameSite=Lax`;
+      document.cookie = buildThemeCookieHeader(mode);
     }
   }
 
   cycle(): void {
-    const order: Mode[] = ['light', 'dark', 'system'];
-    const next = order[(order.indexOf(this._mode()) + 1) % order.length];
-    this.setMode(next);
+    this.setMode(nextMode(this._mode()));
   }
 
   private readInitialMode(): Mode {
@@ -88,16 +90,4 @@ export class ThemeService {
   private readCookieFromDocument(): Mode | null {
     return parseThemeCookie(this.document.cookie);
   }
-}
-
-function parseThemeCookie(raw: string | null | undefined): Mode | null {
-  if (!raw) return null;
-  for (const part of raw.split(';')) {
-    const [name, ...rest] = part.trim().split('=');
-    if (name === COOKIE_NAME) {
-      const val = rest.join('=');
-      if (val === 'light' || val === 'dark' || val === 'system') return val;
-    }
-  }
-  return null;
 }
