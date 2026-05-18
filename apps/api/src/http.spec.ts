@@ -21,6 +21,33 @@ describe('json', () => {
     expect(badRequest('bad').status).toBe(400);
     expect(notFound().status).toBe(404);
   });
+
+  it("defaults Cache-Control to 'private, no-store'", () => {
+    // Guards: CODE_REVIEW_CHECKLIST.md requires non-cacheable API responses to
+    // explicitly opt out of caching. Without this default, /api/health and any
+    // future error/operational endpoint can be cached at the edge or by clients.
+    const response = json({ ok: true });
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('preserves a caller-supplied Cache-Control header (override path)', () => {
+    // Guards: cacheable endpoints (e.g. integrations index) must be able to set
+    // their own Cache-Control without json() clobbering it back to no-store.
+    const response = json({ items: [] }, { headers: { 'Cache-Control': 'public, max-age=60' } });
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=60');
+  });
+});
+
+describe('badRequest / notFound default caching', () => {
+  it("badRequest carries Cache-Control: 'private, no-store'", () => {
+    // Guards: error responses must never be cached — they can pin a stale
+    // failure for every subsequent visitor on the same URL.
+    expect(badRequest('bad').headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it("notFound carries Cache-Control: 'private, no-store'", () => {
+    expect(notFound().headers.get('Cache-Control')).toBe('private, no-store');
+  });
 });
 
 describe('notFound', () => {
