@@ -9,3 +9,10 @@ dist
 # Per-run Impeccable critique / live snapshots — ephemeral, machine-local.
 # PRODUCT.md and DESIGN.md (the canonical context files) are committed.
 .impeccable/
+
+# Test artifacts (Playwright, Vitest coverage, Lighthouse CI)
+playwright-report/
+test-results/
+.lighthouseci/
+coverage/
+out-tsc/

@@ -42,7 +42,8 @@ function fakeExecutionContext(): ExecutionContext {
     waitUntil: vi.fn(),
     passThroughOnException: vi.fn(),
     props: {},
-  };
+    exports: {},
+  } as unknown as ExecutionContext;
 }
 
 /**
