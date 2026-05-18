@@ -28,6 +28,9 @@ GitHub Actions is the CI/CD platform. Cloudflare Workers Builds is rejected for 
 
 ## 2. Environments
 
+> **Current state (deviation from spec) — set 2026-05-18.**
+> The implemented pipeline runs **CI only**: lint, typecheck, unit tests, build. No environment is deployed automatically. Per-PR preview deploys (`aec-web-pr-<N>` / `aec-api-pr-<N>`) have been removed, and the auto-deploy-to-production on merge to `main` has been removed. Production is shipped manually via `wrangler deploy --env production` from a developer machine until a deliberate trigger (workflow_dispatch, tag push, or staging-promote) is chosen. The 3-env target below remains the long-term goal. See `.github/workflows/deploy.yml` for the parked `deploy-production` job.
+
 Three environments, all on Cloudflare:
 
 | Environment | URL pattern | Triggered by | Auto/Manual | Data |
@@ -37,6 +40,8 @@ Three environments, all on Cloudflare:
 | **Production** | `aecintegrations.com` | Manual approval after staging | Manual | Production Supabase |
 
 ### 2.1 Preview environment
+
+> **Not currently wired — see §2 callout.** Per-PR preview deploys are disabled while the right preview model is being investigated.
 
 Spun up per PR. Provides a working deployment for human review and automated tests (E2E, accessibility, performance).
 
@@ -99,7 +104,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 3. Bundle size check against budget (defined in `TESTING_STRATEGY.md`)
 4. Upload build artifact for downstream jobs
 
-**Job: `deploy-preview`** (depends on `build`, ~2 min)
+**Job: `deploy-preview`** (depends on `build`, ~2 min) — *Not currently wired — see §2 callout.*
 1. Download build artifact
 2. `wrangler deploy --env preview` with PR-scoped name
 3. Run Supabase migrations against preview DB (if any new ones in the PR)
@@ -128,6 +133,8 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 
 ### 3.2 On merge to `main`
 
+> **Not currently wired — see §2 callout.** Merges to `main` re-run CI (lint, typecheck, unit tests, build) only; no environment is deployed.
+
 Re-runs all PR checks against the merged code (in case of merge conflicts), then deploys to staging.
 
 **Job: `deploy-staging`**
@@ -141,6 +148,8 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 8. Open GitHub Environment approval request
 
 ### 3.3 On manual production approval
+
+> **Not currently wired — see §2 callout.** The `deploy-production` job exists in `.github/workflows/deploy.yml` but is parked behind `if: false`; production ships manually via `wrangler deploy --env production` from a developer machine until a trigger is chosen.
 
 Triggered when Chris or Bill clicks "Approve" in GitHub Environments → Production.
 
