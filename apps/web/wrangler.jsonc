@@ -26,41 +26,41 @@
  *   DD_SITE             public; defaults to datadoghq.com when unset
  */
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "aeci-web",
-	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
-	"main": "./dist/server/server.mjs",
-	"compatibility_date": "2026-05-14",
-	"compatibility_flags": ["nodejs_compat"],
-	"observability": {
-		"enabled": true
-	},
-	"dev": {
-		"port": 8788
-	},
-	"assets": {
-		"binding": "ASSETS",
-		"directory": "./dist/browser"
-	},
-	"env": {
-		"preview": {
-			"name": "aeci-web",
-			"workers_dev": true,
-			"observability": { "enabled": true },
-			"vars": { "ENV": "preview", "DD_SITE": "us5.datadoghq.com" },
-			"services": [{ "binding": "API", "service": "aeci-api-preview" }]
-		},
-		"production": {
-			"name": "aeci-web",
-			"vars": { "ENV": "production", "DD_SITE": "us5.datadoghq.com" },
-			"observability": { "enabled": true },
-			"routes": [
-				{
-					"pattern": "aecintegrations.com",
-					"custom_domain": true
-				}
-			],
-			"services": [{ "binding": "API", "service": "aeci-api-production" }]
-		}
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aeci-web",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "main": "./dist/server/server.mjs",
+  "compatibility_date": "2026-05-14",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+  },
+  "dev": {
+    "port": 8788,
+  },
+  "assets": {
+    "binding": "ASSETS",
+    "directory": "./dist/browser",
+  },
+  "env": {
+    "preview": {
+      "name": "aeci-web",
+      "workers_dev": true,
+      "observability": { "enabled": true },
+      "vars": { "ENV": "preview", "DD_SITE": "us5.datadoghq.com" },
+      "services": [{ "binding": "API", "service": "aeci-api-preview" }],
+    },
+    "production": {
+      "name": "aeci-web",
+      "vars": { "ENV": "production", "DD_SITE": "us5.datadoghq.com" },
+      "observability": { "enabled": true },
+      "routes": [
+        {
+          "pattern": "aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
+      "services": [{ "binding": "API", "service": "aeci-api-production" }],
+    },
+  },
 }

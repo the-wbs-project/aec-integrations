@@ -11,7 +11,7 @@
  * keyed off the shared package. The current shape is deliberately minimal:
  * one `request<T>()` method, structured error mapping, no path registry.
  */
-import { ApiErrorSchema, type ApiError } from "@aeci/shared";
+import { ApiErrorSchema, type ApiError } from '@aeci/shared';
 
 export class ServerApiError extends Error {
   readonly status: number;
@@ -29,7 +29,7 @@ export class ServerApiError extends Error {
     details?: unknown;
   }) {
     super(init.message);
-    this.name = "ServerApiError";
+    this.name = 'ServerApiError';
     this.status = init.status;
     this.code = init.code;
     this.traceId = init.traceId ?? null;
@@ -44,14 +44,9 @@ export interface ServerApiClient {
 
 export function createServerApiClient(env: { API: Fetcher }): ServerApiClient {
   return {
-    async request<TResponse>(
-      path: string,
-      init?: RequestInit,
-    ): Promise<TResponse> {
-      if (!path.startsWith("/")) {
-        throw new TypeError(
-          `ServerApiClient.request: path must start with '/' (got '${path}')`,
-        );
+    async request<TResponse>(path: string, init?: RequestInit): Promise<TResponse> {
+      if (!path.startsWith('/')) {
+        throw new TypeError(`ServerApiClient.request: path must start with '/' (got '${path}')`);
       }
 
       const request = new Request(`https://api${path}`, init);
@@ -75,8 +70,8 @@ async function toServerApiError(response: Response): Promise<ServerApiError> {
   } catch {
     return new ServerApiError({
       status: response.status,
-      code: "UNKNOWN",
-      message: bodyText.slice(0, 500) || response.statusText || "Unknown error",
+      code: 'UNKNOWN',
+      message: bodyText.slice(0, 500) || response.statusText || 'Unknown error',
     });
   }
 
@@ -95,9 +90,9 @@ async function toServerApiError(response: Response): Promise<ServerApiError> {
 
   return new ServerApiError({
     status: response.status,
-    code: "UNKNOWN",
+    code: 'UNKNOWN',
     message:
-      typeof parsedJson === "object" && parsedJson !== null
+      typeof parsedJson === 'object' && parsedJson !== null
         ? JSON.stringify(parsedJson).slice(0, 500)
         : String(parsedJson).slice(0, 500),
   });

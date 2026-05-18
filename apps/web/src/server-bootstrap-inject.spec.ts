@@ -54,9 +54,7 @@ describe('buildDatadogBootstrapScript', () => {
   });
 
   it('escapes "<" so a stray token value cannot break out of the script', () => {
-    const script = buildDatadogBootstrapScript(
-      makeEnv({ DD_APPLICATION_ID: 'a</script>b' }),
-    );
+    const script = buildDatadogBootstrapScript(makeEnv({ DD_APPLICATION_ID: 'a</script>b' }));
     expect(script).not.toBeNull();
     expect(script).not.toContain('</script>b');
     expect(script).toContain('\\u003c/script>b');

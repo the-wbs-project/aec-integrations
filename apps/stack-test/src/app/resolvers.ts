@@ -15,24 +15,24 @@ import { Entity } from './entity';
  */
 
 export const entityResolver: ResolveFn<Entity | null> = async (route) => {
-	const data = inject(DataService);
-	const id = route.paramMap.get('id') ?? '';
-	console.log('[ssr-debug] entityResolver', id);
-	try {
-		return await firstValueFrom(data.getEntity(id));
-	} catch (err) {
-		console.log('[ssr-debug] entityResolver error', String(err));
-		return null;
-	}
+  const data = inject(DataService);
+  const id = route.paramMap.get('id') ?? '';
+  console.log('[ssr-debug] entityResolver', id);
+  try {
+    return await firstValueFrom(data.getEntity(id));
+  } catch (err) {
+    console.log('[ssr-debug] entityResolver error', String(err));
+    return null;
+  }
 };
 
 export const entitiesResolver: ResolveFn<Entity[]> = async () => {
-	const data = inject(DataService);
-	console.log('[ssr-debug] entitiesResolver');
-	try {
-		return await firstValueFrom(data.listEntities());
-	} catch (err) {
-		console.log('[ssr-debug] entitiesResolver error', String(err));
-		return [];
-	}
+  const data = inject(DataService);
+  console.log('[ssr-debug] entitiesResolver');
+  try {
+    return await firstValueFrom(data.listEntities());
+  } catch (err) {
+    console.log('[ssr-debug] entitiesResolver error', String(err));
+    return [];
+  }
 };

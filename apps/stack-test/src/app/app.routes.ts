@@ -11,25 +11,21 @@ export const routes: Routes = [
   {
     path: 'cached/:id',
     resolve: { entity: entityResolver },
-    loadComponent: () =>
-      import('./cached/cached.component').then((m) => m.CachedComponent),
+    loadComponent: () => import('./cached/cached.component').then((m) => m.CachedComponent),
   },
   {
     path: 'admin',
     pathMatch: 'full',
     resolve: { entities: entitiesResolver },
-    loadComponent: () =>
-      import('./admin/admin-list.component').then((m) => m.AdminListComponent),
+    loadComponent: () => import('./admin/admin-list.component').then((m) => m.AdminListComponent),
   },
   {
     path: 'admin/purge',
-    loadComponent: () =>
-      import('./admin/purge.component').then((m) => m.PurgeComponent),
+    loadComponent: () => import('./admin/purge.component').then((m) => m.PurgeComponent),
   },
   {
     path: 'admin/:id',
     resolve: { entity: entityResolver },
-    loadComponent: () =>
-      import('./admin/edit.component').then((m) => m.EditComponent),
+    loadComponent: () => import('./admin/edit.component').then((m) => m.EditComponent),
   },
 ];

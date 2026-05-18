@@ -16,7 +16,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "@aeci/shared": "workspace:*",

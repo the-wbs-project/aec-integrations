@@ -41,10 +41,7 @@ type SaveResult = {
         class="space-y-4 rounded-lg border border-(--border) bg-(--surface) p-6 shadow-sm"
       >
         <div class="space-y-2">
-          <label
-            for="edit-title"
-            class="block text-sm font-medium text-(--text-secondary)"
-          >
+          <label for="edit-title" class="block text-sm font-medium text-(--text-secondary)">
             Title
           </label>
           <input
@@ -59,10 +56,7 @@ type SaveResult = {
         </div>
 
         <div class="space-y-2">
-          <label
-            for="edit-body"
-            class="block text-sm font-medium text-(--text-secondary)"
-          >
+          <label for="edit-body" class="block text-sm font-medium text-(--text-secondary)">
             Body
           </label>
           <textarea
@@ -103,12 +97,8 @@ type SaveResult = {
       </form>
 
       @if (result(); as r) {
-        <div
-          class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm"
-        >
-          <div class="text-xs uppercase tracking-wider text-(--text-muted)">
-            last save result
-          </div>
+        <div class="rounded-lg border border-(--border) bg-(--surface) p-5 space-y-3 shadow-sm">
+          <div class="text-xs uppercase tracking-wider text-(--text-muted)">last save result</div>
           <div class="grid grid-cols-[8rem_1fr] gap-y-2 text-sm">
             <span class="text-(--text-secondary)">KV write</span>
             <span class="font-mono text-(--text-primary)">{{ r.kv }}</span>
@@ -176,16 +166,18 @@ export class EditComponent {
     if (this.saving()) return;
     this.saving.set(true);
     this.error.set(null);
-    this.data.saveEntity(this.id(), { title: this.titleInput(), body: this.bodyInput() }).subscribe({
-      next: (r) => {
-        this.result.set(r);
-        this.saving.set(false);
-      },
-      error: (err) => {
-        this.error.set(err?.message ?? String(err));
-        this.saving.set(false);
-      },
-    });
+    this.data
+      .saveEntity(this.id(), { title: this.titleInput(), body: this.bodyInput() })
+      .subscribe({
+        next: (r) => {
+          this.result.set(r);
+          this.saving.set(false);
+        },
+        error: (err) => {
+          this.error.set(err?.message ?? String(err));
+          this.saving.set(false);
+        },
+      });
   }
 
   protected purgeJson(r: SaveResult): string {

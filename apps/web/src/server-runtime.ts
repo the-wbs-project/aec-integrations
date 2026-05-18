@@ -110,10 +110,11 @@ export function stripVisitorStateCookies(request: Request): Request {
   const cookie = request.headers.get('cookie');
   if (!cookie) return request;
 
-  const stripPattern = new RegExp(
-    `^(?:${VISITOR_STATE_COOKIES.map(escapeRegExp).join('|')})=`,
-  );
-  const parts = cookie.split(';').map((p) => p.trim()).filter(Boolean);
+  const stripPattern = new RegExp(`^(?:${VISITOR_STATE_COOKIES.map(escapeRegExp).join('|')})=`);
+  const parts = cookie
+    .split(';')
+    .map((p) => p.trim())
+    .filter(Boolean);
   const kept = parts.filter((p) => !stripPattern.test(p));
   if (kept.length === parts.length) return request;
 
@@ -152,13 +153,25 @@ type RoutePattern = {
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/', ttl: { edge: 900, browser: 300 } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
-  { match: (p) => p === '/legal' || p.startsWith('/legal/'), ttl: { edge: 86_400, browser: 3_600 } },
+  {
+    match: (p) => p === '/legal' || p.startsWith('/legal/'),
+    ttl: { edge: 86_400, browser: 3_600 },
+  },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
-  { match: (p) => p === '/products' || p === '/vendors' || p === '/integrations', ttl: { edge: 1_800, browser: 300 } },
-  { match: (p) => p === '/categories' || p.startsWith('/categories/'), ttl: { edge: 1_800, browser: 300 } },
-  { match: (p) => p === '/disciplines' || p.startsWith('/disciplines/'), ttl: { edge: 1_800, browser: 300 } },
+  {
+    match: (p) => p === '/products' || p === '/vendors' || p === '/integrations',
+    ttl: { edge: 1_800, browser: 300 },
+  },
+  {
+    match: (p) => p === '/categories' || p.startsWith('/categories/'),
+    ttl: { edge: 1_800, browser: 300 },
+  },
+  {
+    match: (p) => p === '/disciplines' || p.startsWith('/disciplines/'),
+    ttl: { edge: 1_800, browser: 300 },
+  },
   { match: (p) => p === '/phases' || p.startsWith('/phases/'), ttl: { edge: 1_800, browser: 300 } },
 ];
 
@@ -339,9 +352,7 @@ export function createApp(options: {
   app.all('/api/*', (c) => c.env.API.fetch(c.req.raw));
 
   // Everything else: cache-aware SSR pipeline.
-  app.all('*', (c) =>
-    handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse),
-  );
+  app.all('*', (c) => handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse));
 
   return app;
 }

@@ -1,15 +1,15 @@
-import type { Context } from "hono";
+import type { Context } from 'hono';
 
-import { logToDatadog } from "../datadog";
-import type { Env } from "../env";
-import { json } from "../http";
-import { getPrisma, type AcceleratedPrisma } from "../prisma";
+import { logToDatadog } from '../datadog';
+import type { Env } from '../env';
+import { json } from '../http';
+import { getPrisma, type AcceleratedPrisma } from '../prisma';
 
 export type HealthResponse =
-  | { ok: true; db: "ok"; latencyMs: number }
-  | { ok: false; db: "error"; latencyMs: number; error: string };
+  | { ok: true; db: 'ok'; latencyMs: number }
+  | { ok: false; db: 'error'; latencyMs: number; error: string };
 
-type PrismaFactory = (env: Env) => Pick<AcceleratedPrisma, "$queryRaw">;
+type PrismaFactory = (env: Env) => Pick<AcceleratedPrisma, '$queryRaw'>;
 
 export function createHealthHandler(
   prismaFor: PrismaFactory = getPrisma,
@@ -21,37 +21,36 @@ export function createHealthHandler(
     try {
       await prisma.$queryRaw`SELECT 1`;
       const latencyMs = Math.round(performance.now() - started);
-      const body: HealthResponse = { ok: true, db: "ok", latencyMs };
+      const body: HealthResponse = { ok: true, db: 'ok', latencyMs };
       // AECI-31 smoke test: every /api/health call emits a Datadog log entry.
       // Distinct success / failure messages so Datadog Log Explorer can pivot
       // on `@route:/api/health @outcome:ok` vs `@outcome:db_error` without
       // parsing message strings.
       logToDatadog(c.executionCtx, c.env, c.req.raw, {
         message: `/api/health ok (${latencyMs}ms)`,
-        route: "/api/health",
-        outcome: "ok",
+        route: '/api/health',
+        outcome: 'ok',
         latencyMs,
-        db: "ok",
+        db: 'ok',
       });
       return json(body);
     } catch (error) {
       const latencyMs = Math.round(performance.now() - started);
-      const errorMessage =
-        error instanceof Error ? error.message : "Unexpected error";
+      const errorMessage = error instanceof Error ? error.message : 'Unexpected error';
       const body: HealthResponse = {
         ok: false,
-        db: "error",
+        db: 'error',
         latencyMs,
         error: errorMessage,
       };
       console.error(`/api/health failed after ${latencyMs}ms`, error);
       logToDatadog(c.executionCtx, c.env, c.req.raw, {
         message: `/api/health failed: ${errorMessage} (${latencyMs}ms)`,
-        level: "error",
-        route: "/api/health",
-        outcome: "db_error",
+        level: 'error',
+        route: '/api/health',
+        outcome: 'db_error',
         latencyMs,
-        db: "error",
+        db: 'error',
         error: errorMessage,
       });
       return json(body, { status: 500 });

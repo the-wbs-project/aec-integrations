@@ -1,4 +1,4 @@
-import { defineConfig } from "vitest/config";
+import { defineConfig } from 'vitest/config';
 
 // Vitest config for Miniflare-based Worker integration tests.
 //
@@ -12,8 +12,8 @@ import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   test: {
-    environment: "node",
-    include: ["src/**/*.integration.spec.ts"],
+    environment: 'node',
+    include: ['src/**/*.integration.spec.ts'],
     // Miniflare boot + module evaluation can run long on a cold runner.
     testTimeout: 30_000,
     hookTimeout: 30_000,

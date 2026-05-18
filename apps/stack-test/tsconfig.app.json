@@ -4,16 +4,8 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "./out-tsc/app",
-    "types": [
-      "node",
-      "@angular/localize"
-    ]
+    "types": ["node", "@angular/localize"]
   },
-  "include": [
-    "src/**/*.ts",
-    "worker-configuration.d.ts"
-  ],
-  "exclude": [
-    "src/**/*.spec.ts"
-  ]
+  "include": ["src/**/*.ts", "worker-configuration.d.ts"],
+  "exclude": ["src/**/*.spec.ts"]
 }
