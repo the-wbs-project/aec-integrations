@@ -53,10 +53,9 @@
 
 import { Hono } from 'hono';
 
-export type Bindings = {
-  ASSETS: Fetcher;
-  API: Fetcher;
-};
+import type { WebEnv } from './env';
+
+export type Bindings = WebEnv;
 
 // ─── i18n ──────────────────────────────────────────────────────────────────
 
@@ -251,10 +250,30 @@ function withCacheHeaders(response: Response, routeTtl: CacheTtl): Response {
  */
 type WaitUntilContext = { waitUntil(promise: Promise<unknown>): void };
 
+/**
+ * Optional post-SSR hook. `server.ts` uses this to (a) inject the Datadog RUM
+ * bootstrap `<script>` into the rendered HTML before it reaches the edge
+ * cache, so the cached payload already carries deployment-scoped public
+ * tokens, and (b) emit a per-render Datadog log so any SSR hit produces
+ * visible signal in Datadog Logs. Kept generic (no Datadog vocabulary in this
+ * file) so `createApp` remains a pure cache/cookie/SSR pipeline.
+ *
+ * Receives the request and the waitUntil-capable ctx so transforms can fan
+ * out async side-effects (logging, metrics) without blocking the response.
+ */
+export type ResponseTransform = (
+  response: Response,
+  env: Bindings,
+  request: Request,
+  ctx: WaitUntilContext,
+) => Promise<Response> | Response;
+
 async function handleSsr(
   request: Request,
+  env: Bindings,
   renderer: SsrRenderer,
   ctx: WaitUntilContext,
+  transformResponse?: ResponseTransform,
 ): Promise<Response> {
   const url = new URL(request.url);
   const ttl = request.method === 'GET' ? cacheControlForRoute(url) : null;
@@ -262,7 +281,10 @@ async function handleSsr(
   if (ttl === null) {
     // Non-cacheable branch: pass cookies through, never cache.
     const rendered = await renderer(request);
-    return ensureNoStore(rendered);
+    const transformed = transformResponse
+      ? await transformResponse(rendered, env, request, ctx)
+      : rendered;
+    return ensureNoStore(transformed);
   }
 
   // Cacheable branch: edge-cache lookup, then cookie-stripped render on miss.
@@ -275,7 +297,12 @@ async function handleSsr(
 
   const sanitized = stripVisitorStateCookies(request);
   const rendered = await renderer(sanitized);
-  const response = withCacheHeaders(rendered, ttl);
+  // Transform BEFORE cache write so the cached payload carries any
+  // deployment-scoped inserts (e.g. Datadog public tokens).
+  const transformed = transformResponse
+    ? await transformResponse(rendered, env, request, ctx)
+    : rendered;
+  const response = withCacheHeaders(transformed, ttl);
 
   // Per §9.1: only 2xx is stored. 404s are *returned* with NOT_FOUND_TTL via
   // the response's Cache-Control header (so Cloudflare honors it edge-side),
@@ -295,10 +322,14 @@ async function handleSsr(
  * stub without booting Angular; the Worker entry (`server.ts`) supplies the
  * real Angular renderer.
  */
-export function createApp(options: { ssrRenderer: SsrRenderer }): Hono<{
+export function createApp(options: {
+  ssrRenderer: SsrRenderer;
+  transformResponse?: ResponseTransform;
+}): Hono<{
   Bindings: Bindings;
 }> {
   const renderer = options.ssrRenderer;
+  const transformResponse = options.transformResponse;
   const app = new Hono<{ Bindings: Bindings }>();
 
   // /api/* — raw passthrough to the private API Worker via the service
@@ -308,7 +339,9 @@ export function createApp(options: { ssrRenderer: SsrRenderer }): Hono<{
   app.all('/api/*', (c) => c.env.API.fetch(c.req.raw));
 
   // Everything else: cache-aware SSR pipeline.
-  app.all('*', (c) => handleSsr(c.req.raw, renderer, c.executionCtx));
+  app.all('*', (c) =>
+    handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse),
+  );
 
   return app;
 }

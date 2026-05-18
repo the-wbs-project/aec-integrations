@@ -414,3 +414,59 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
     expect(renderer).not.toHaveBeenCalled();
   });
 });
+
+describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', () => {
+  it('invokes the hook with the rendered response and env on cacheable routes', async () => {
+    const { binding } = recordingApiBinding();
+    const transform = vi.fn(async (res: Response) => {
+      const body = await res.clone().text();
+      return new Response(`${body}|injected`, {
+        status: res.status,
+        headers: res.headers,
+      });
+    });
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>home</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+      transformResponse: transform,
+    });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(transform).toHaveBeenCalledTimes(1);
+    // Second arg of the hook is the Worker env — the AECI-31 injector reads
+    // DD_* secrets from it. Identity check is enough: same object we passed in.
+    expect(transform.mock.calls[0]![1]).toBe(binding);
+    expect(await res.text()).toContain('|injected');
+  });
+
+  it('invokes the hook on non-cacheable routes too (admin pages must get RUM)', async () => {
+    const { binding } = recordingApiBinding();
+    const transform = vi.fn(async (res: Response) => res);
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>account</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+      transformResponse: transform,
+    });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/account/settings'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(transform).toHaveBeenCalledTimes(1);
+  });
+});
