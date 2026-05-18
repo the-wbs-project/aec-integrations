@@ -1,80 +1,86 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "aeci-api",
-  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-04-07",
-  // The API Worker is PRIVATE. It is reachable only via the SSR Worker's
-  // `API` service binding (see `apps/web/wrangler.jsonc`). No `routes:` and
-  // `workers_dev: false` for every published env so there is no public
-  // ingress. Per docs/STAGE_1_SPEC.md §15.2 and docs/CICD_PLAN.md §4.2.
-  //
-  // Prisma Accelerate connects over HTTPS (no TCP), so Node-compat polyfills
-  // are not required and intentionally not enabled on the API Worker.
-  //
-  // Secrets (set via `wrangler secret put`):
-  //   DATABASE_URL — Prisma Accelerate URL (prisma://...) used by the Worker at runtime.
-  //   DIRECT_URL  — Supabase pooler URL used ONLY by the Prisma CLI for
-  //                 migrations (locally and in CI). Do not read it from
-  //                 Worker code.
-  "workers_dev": false,
-  // Smart Placement is intentionally NOT enabled. Prisma Accelerate is a
-  // globally distributed HTTPS pool: this Worker always reaches the nearest
-  // Accelerate edge, and Accelerate (not us) handles the edge-to-origin DB
-  // routing. Smart Placement can't influence the slow leg, and shifting the
-  // Worker away from users would only hurt cache-hit and short-query
-  // latencies. If we ever add a single-region direct backend, reconsider.
-  "observability": {
-    "logs": {
-      "enabled": true,
-      "invocation_logs": true
-    }
-  },
-  "vars": {
-    "ENV": "preview"
-  },
-  "dev": {
-    "port": 8787
-  },
-  "env": {
-    "preview": {
-      "name": "aeci-api-preview",
-      "workers_dev": false,
-      "vars": {
-        "ENV": "preview"
-      },
-      "observability": {
-        "logs": {
-          "enabled": true,
-          "invocation_logs": true
-        }
-      }
-    },
-    "staging": {
-      "name": "aeci-api-staging",
-      "workers_dev": false,
-      "vars": {
-        "ENV": "staging"
-      },
-      "observability": {
-        "logs": {
-          "enabled": true,
-          "invocation_logs": true
-        }
-      }
-    },
-    "production": {
-      "name": "aeci-api-production",
-      "workers_dev": false,
-      "vars": {
-        "ENV": "production"
-      },
-      "observability": {
-        "logs": {
-          "enabled": true,
-          "invocation_logs": true
-        }
-      }
-    }
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "aeci-api",
+	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-04-07",
+	// The API Worker is PRIVATE. It is reachable only via the SSR Worker's
+	// `API` service binding (see `apps/web/wrangler.jsonc`). No `routes:` and
+	// `workers_dev: false` for every published env so there is no public
+	// ingress. Per docs/STAGE_1_SPEC.md §15.2 and docs/CICD_PLAN.md §4.2.
+	//
+	// Prisma Accelerate connects over HTTPS (no TCP), so Node-compat polyfills
+	// are not required and intentionally not enabled on the API Worker.
+	//
+	// Secrets (set via `wrangler secret put`):
+	//   DATABASE_URL — Prisma Accelerate URL (prisma://...) used by the Worker at runtime.
+	//   DIRECT_URL  — Supabase pooler URL used ONLY by the Prisma CLI for
+	//                 migrations (locally and in CI). Do not read it from
+	//                 Worker code.
+	//   DD_API_KEY  — Datadog Logs HTTP intake key (AECI-31). `logToDatadog()`
+	//                 no-ops when this is unset, so non-DD envs are unaffected.
+	"workers_dev": false,
+	// Smart Placement is intentionally NOT enabled. Prisma Accelerate is a
+	// globally distributed HTTPS pool: this Worker always reaches the nearest
+	// Accelerate edge, and Accelerate (not us) handles the edge-to-origin DB
+	// routing. Smart Placement can't influence the slow leg, and shifting the
+	// Worker away from users would only hurt cache-hit and short-query
+	// latencies. If we ever add a single-region direct backend, reconsider.
+	"observability": {
+		"logs": {
+			"enabled": true,
+			"invocation_logs": true
+		}
+	},
+	"vars": {
+		"ENV": "preview",
+		"DD_SITE": "us5.datadoghq.com"
+	},
+	"dev": {
+		"port": 8787
+	},
+	"env": {
+		"preview": {
+			"name": "aeci-api-preview",
+			"workers_dev": false,
+			"vars": {
+				"ENV": "preview",
+				"DD_SITE": "us5.datadoghq.com"
+			},
+			"observability": {
+				"logs": {
+					"enabled": true,
+					"invocation_logs": true
+				}
+			}
+		},
+		"staging": {
+			"name": "aeci-api-staging",
+			"workers_dev": false,
+			"vars": {
+				"ENV": "staging",
+				"DD_SITE": "us5.datadoghq.com"
+			},
+			"observability": {
+				"logs": {
+					"enabled": true,
+					"invocation_logs": true
+				}
+			}
+		},
+		"production": {
+			"name": "aeci-api-production",
+			"workers_dev": false,
+			"vars": {
+				"ENV": "production",
+				"DD_SITE": "us5.datadoghq.com"
+			},
+			"observability": {
+				"logs": {
+					"enabled": true,
+					"invocation_logs": true
+				}
+			}
+		}
+	}
 }

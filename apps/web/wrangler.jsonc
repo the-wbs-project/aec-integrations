@@ -17,10 +17,17 @@
  *
  * Edge cache, KV, and cookie-stripping middleware land in subsequent
  * Phase 1 issues.
+ *
+ * Datadog (AECI-31) — secrets, NOT vars, so values stay out of git. Push per
+ * env with `wrangler secret put <KEY> --env <preview|production>`:
+ *   DD_APPLICATION_ID   client-exposed RUM application id (rendered into HTML)
+ *   DD_CLIENT_TOKEN     client-exposed RUM client token   (rendered into HTML)
+ *   DD_API_KEY          server-only; Datadog Logs HTTP intake
+ *   DD_SITE             public; defaults to datadoghq.com when unset
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "aec-web",
+	"name": "aeci-web",
 	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
 	"main": "./dist/server/server.mjs",
 	"compatibility_date": "2026-05-14",
@@ -37,17 +44,15 @@
 	},
 	"env": {
 		"preview": {
-			"name": "aec-web",
+			"name": "aeci-web",
 			"workers_dev": true,
-			"vars": { "ENV": "preview" },
 			"observability": { "enabled": true },
-			"services": [
-				{ "binding": "API", "service": "aeci-api-preview" }
-			]
+			"vars": { "ENV": "preview", "DD_SITE": "us5.datadoghq.com" },
+			"services": [{ "binding": "API", "service": "aeci-api-preview" }]
 		},
 		"production": {
-			"name": "aec-web",
-			"vars": { "ENV": "production" },
+			"name": "aeci-web",
+			"vars": { "ENV": "production", "DD_SITE": "us5.datadoghq.com" },
 			"observability": { "enabled": true },
 			"routes": [
 				{
@@ -55,9 +60,7 @@
 					"custom_domain": true
 				}
 			],
-			"services": [
-				{ "binding": "API", "service": "aeci-api-production" }
-			]
+			"services": [{ "binding": "API", "service": "aeci-api-production" }]
 		}
 	}
 }

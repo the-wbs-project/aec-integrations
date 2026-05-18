@@ -9,3 +9,11 @@ DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=REPLACE_ME"
 # DIRECT_URL is used ONLY by the Prisma CLI (migrate dev, migrate deploy).
 # The deployed Worker does NOT read this. It is the Supabase pooler URL.
 DIRECT_URL="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+
+# ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
+# DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
+# HTTP intake). When empty, the helper is a no-op so dev boots cleanly.
+DD_API_KEY=
+# Optional. Datadog region host. Defaults to datadoghq.com when unset.
+# Examples: datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com
+DD_SITE=datadoghq.com
