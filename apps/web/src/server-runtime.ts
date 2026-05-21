@@ -90,6 +90,21 @@ export function stripLocalePrefix(pathname: string): {
   return { locale: DEFAULT_LOCALE, path: pathname };
 }
 
+// ─── Preview-route gate ────────────────────────────────────────────────────
+
+/**
+ * `/preview/*` hosts dev-only ports of v0.dev screens (see
+ * `apps/web/src/app/preview/preview.routes.ts`). The routes are registered in
+ * every Angular build so they're available on `*.workers.dev` preview Worker
+ * deploys, but production must return 404 — production users should never see
+ * these surfaces. Locale prefixes are stripped first so future-locale
+ * `/es/preview/...` URLs also hit the gate.
+ */
+export function isPreviewPath(pathname: string): boolean {
+  const { path } = stripLocalePrefix(pathname);
+  return path === '/preview' || path.startsWith('/preview/');
+}
+
 // ─── Cookie hygiene ────────────────────────────────────────────────────────
 
 /**
@@ -352,7 +367,21 @@ export function createApp(options: {
   app.all('/api/*', (c) => c.env.API.fetch(c.req.raw));
 
   // Everything else: cache-aware SSR pipeline.
-  app.all('*', (c) => handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse));
+  app.all('*', (c) => {
+    // `/preview/*` is dev/preview-only. Block in production before invoking
+    // Angular so the lazy preview chunks never load on the production Worker.
+    // See `isPreviewPath` above for the path-shape contract.
+    if (c.env.ENV === 'production') {
+      const url = new URL(c.req.url);
+      if (isPreviewPath(url.pathname)) {
+        return new Response('Page not found.', {
+          status: 404,
+          headers: { 'Cache-Control': 'private, no-store' },
+        });
+      }
+    }
+    return handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse);
+  });
 
   return app;
 }
