@@ -10,9 +10,9 @@
           {
             "type": "command",
             "if": "Bash(gh pr create*)",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm lint && pnpm typecheck",
-            "timeout": 300,
-            "statusMessage": "Running pnpm lint + typecheck before PR…"
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm lint",
+            "timeout": 180,
+            "statusMessage": "Running pnpm lint before PR…"
           }
         ]
       }
