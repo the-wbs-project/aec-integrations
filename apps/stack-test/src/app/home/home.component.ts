@@ -1,5 +1,12 @@
 import { Dialog } from '@angular/cdk/dialog';
-import { Component, TemplateRef, inject, signal, viewChild } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  TemplateRef,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { BrnButton } from '@spartan-ng/brain/button';
 
@@ -8,6 +15,7 @@ import { ThemeService } from '../theme.service';
 @Component({
   selector: 'stack-home',
   imports: [FormsModule, BrnButton],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="space-y-8">
       <div>

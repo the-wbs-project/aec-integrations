@@ -1,4 +1,11 @@
-import { Component, computed, effect, inject, signal } from '@angular/core';
+import {
+  ChangeDetectionStrategy,
+  Component,
+  computed,
+  effect,
+  inject,
+  signal,
+} from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
@@ -24,6 +31,7 @@ type SaveResult = {
 @Component({
   selector: 'stack-admin-edit',
   imports: [FormsModule, RouterLink, BrnButton],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="space-y-6">
       <div>

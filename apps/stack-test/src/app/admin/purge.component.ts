@@ -1,4 +1,4 @@
-import { Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { BrnButton } from '@spartan-ng/brain/button';
@@ -15,6 +15,7 @@ import { DataService } from '../data.service';
 @Component({
   selector: 'stack-admin-purge',
   imports: [FormsModule, RouterLink, BrnButton],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="space-y-6">
       <div>
