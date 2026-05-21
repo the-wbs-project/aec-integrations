@@ -1,15 +1,7 @@
 import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { BrnButton } from '@spartan-ng/brain/button';
-import {
-  BrnPopover,
-  BrnPopoverContent,
-  BrnPopoverTrigger,
-} from '@spartan-ng/brain/popover';
-import {
-  BrnTabs,
-  BrnTabsList,
-  BrnTabsTrigger,
-} from '@spartan-ng/brain/tabs';
+import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
+import { BrnTabs, BrnTabsList, BrnTabsTrigger } from '@spartan-ng/brain/tabs';
 
 import {
   CategoryRanking,
@@ -63,8 +55,7 @@ export class VendorDetail {
     const base =
       '-mb-px cursor-pointer border-b-2 px-1 pb-3 text-sm font-medium tracking-wide transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary)';
     const active = 'border-(--accent-primary) text-(--text-primary)';
-    const inactive =
-      'border-transparent text-(--text-tertiary) hover:text-(--text-secondary)';
+    const inactive = 'border-transparent text-(--text-tertiary) hover:text-(--text-secondary)';
     return `${base} ${this.activeTab() === key ? active : inactive}`;
   }
 

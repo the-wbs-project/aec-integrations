@@ -15,7 +15,6 @@ import { Routes } from '@angular/router';
 export const previewRoutes: Routes = [
   {
     path: 'vendor-detail',
-    loadComponent: () =>
-      import('./vendor-detail/vendor-detail').then((m) => m.VendorDetail),
+    loadComponent: () => import('./vendor-detail/vendor-detail').then((m) => m.VendorDetail),
   },
 ];
