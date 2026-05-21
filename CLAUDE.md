@@ -74,11 +74,12 @@ For any issue that touches rendered UI in `apps/web/`, run this checklist before
 `PRODUCT.md` (strategic context — users, brand, anti-references, principles) and `DESIGN.md` (visual system — colors, typography, components, do's/don'ts) are loaded by every Impeccable command before design work. If you're touching UI, both files are part of the contract.
 
 1. **Critique the surface first.** Run `/impeccable critique <surface>` (or the standalone `/critique`) to capture a baseline against PRODUCT.md and DESIGN.md before you change anything. The output lands in `.impeccable/critique/` (gitignored).
-2. **Build / refine via the matching skill.** For new features: `/impeccable craft <feature>`. For targeted refinement: `/impeccable typeset`, `/impeccable layout`, `/impeccable colorize`, `/impeccable distill`, `/impeccable normalize`. The shared design laws and the PRODUCT.md/DESIGN.md context are loaded automatically.
-3. **Polish before submitting.** Run `/impeccable polish` for the final pass on spacing, alignment, micro-detail.
-4. **Detect anti-patterns.** `npx impeccable detect <file-or-dir>` must report zero P0 findings. If P0s remain, fix or open a follow-up issue with the exact line references before merging.
-5. **Verify both themes.** Per the "Both themes always" constraint above. The theme switcher (`apps/web/src/app/theme.service.ts`) toggles `.theme-dark` on `<html>` — render in each.
-6. **Run a11y locally.** axe-core pass on the changed surface; resolve every error and `serious` violation before push.
+2. **Pick the anchor reference before building.** If the surface is new or its visual direction is unsettled, consult Mobbin (`mcp__mobbin__*` — see §"MCP usage rules") and record the chosen anchor site in the Linear issue or commit message. From that point, components for this surface come from the *same* anchor site unless an exception is explicitly justified. Binding rule: `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule".
+3. **Build / refine via the matching skill.** For new features: `/impeccable craft <feature>`. For targeted refinement: `/impeccable typeset`, `/impeccable layout`, `/impeccable colorize`, `/impeccable distill`, `/impeccable normalize`. The shared design laws and the PRODUCT.md/DESIGN.md context are loaded automatically.
+4. **Polish before submitting.** Run `/impeccable polish` for the final pass on spacing, alignment, micro-detail.
+5. **Detect anti-patterns.** `npx impeccable detect <file-or-dir>` must report zero P0 findings. If P0s remain, fix or open a follow-up issue with the exact line references before merging.
+6. **Verify both themes.** Per the "Both themes always" constraint above. The theme switcher (`apps/web/src/app/theme.service.ts`) toggles `.theme-dark` on `<html>` — render in each.
+7. **Run a11y locally.** axe-core pass on the changed surface; resolve every error and `serious` violation before push.
 
 ## API contracts approach
 
@@ -201,6 +202,12 @@ Every write that affects cacheable URLs must call `invalidateForEntity()`. See `
 - Before writing, modifying, or analyzing any Angular code, call `get_best_practices` once per session.
 - For any Angular API question (signals, control flow, forms, router, SSR, zoneless), call `search_documentation` before answering from training data.
 - Use `list_projects` to orient before generating files in the workspace.
+
+**Mobbin MCP (`mobbin`):**
+- What it is: a visual reference library of real shipping apps — flows, screens, and component patterns sourced from production iOS, Android, and web products.
+- When to use: any UI-touching issue. During `/impeccable shape` (or equivalent) to pick the named anchor reference(s) for a surface; during `/impeccable craft` or component-level work to look up patterns *from the same anchor site* already chosen for that surface.
+- Auth: surfaced tools are `mcp__mobbin__authenticate` and `mcp__mobbin__complete_authentication`. Call `authenticate` first, then `complete_authentication`; additional Mobbin tools become callable in the same session after auth completes.
+- **The anchor-site rule.** Once a surface picks a Mobbin site as its theme, additional components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — the originating theme site stays the visual anchor (composition, hierarchy, density, atmosphere). This protects editorial coherence: AECi should read as one publication, not a mashup. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule" for the binding rule.
 
 ## Closing notes
 
