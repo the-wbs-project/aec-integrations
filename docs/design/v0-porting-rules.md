@@ -2,7 +2,7 @@
 
 > The canonical translation table from v0.dev output to our stack. **Read this end-to-end before porting any v0 screen.** It's the contract the port is reviewed against.
 >
-> Companion to [`docs/design/v0-system-prompt.md`](./v0-system-prompt.md) (what v0 sees) and [`docs/design/workflow.md`](./workflow.md) (the loop). Canonical visual system is in [`DESIGN.md`](../../DESIGN.md); tokens are defined in [`apps/web/src/styles.css`](../../apps/web/src/styles.css). For a working reference component, see [`apps/web/src/app/demo/spartan-demo.ts`](../../apps/web/src/app/demo/spartan-demo.ts).
+> Companion to [`docs/design/v0-system-prompt.md`](./v0-system-prompt.md) (what v0 sees) and [`docs/design/workflow.md`](./workflow.md) (the loop). Canonical visual system is in [`DESIGN.md`](../../DESIGN.md); tokens are defined in [`apps/web/src/styles.css`](../../apps/web/src/styles.css). For a working reference component, see [`apps/web/src/app/demo/spartan-demo.ts`](../../apps/web/src/app/demo/spartan-demo.ts). Broader Angular/TypeScript conventions and lint enforcement live in [`ANGULAR_STYLE_GUIDE.md`](../../ANGULAR_STYLE_GUIDE.md).
 
 ---
 

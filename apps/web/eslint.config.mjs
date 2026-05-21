@@ -1,15 +1,13 @@
 import tseslint from 'typescript-eslint';
-import angular from 'angular-eslint';
 import globals from 'globals';
-import { ignores, tsBase, prettierCompat } from '../../eslint.config.base.mjs';
+import { ignores, tsBase, angularBase, prettierCompat } from '../../eslint.config.base.mjs';
 
 export default tseslint.config(
   ignores,
   ...tsBase,
+  ...angularBase,
   {
     files: ['**/*.ts'],
-    extends: [...angular.configs.tsRecommended],
-    processor: angular.processInlineTemplates,
     languageOptions: {
       globals: {
         ...globals.browser,
@@ -26,10 +24,6 @@ export default tseslint.config(
         { type: 'element', prefix: ['app', 'aec'], style: 'kebab-case' },
       ],
     },
-  },
-  {
-    files: ['**/*.html'],
-    extends: [...angular.configs.templateRecommended, ...angular.configs.templateAccessibility],
   },
   prettierCompat,
 );

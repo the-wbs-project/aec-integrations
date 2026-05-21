@@ -50,6 +50,7 @@ function merge(entity: Entity, overlay: TranslationOverlay | null): Entity {
   };
 }
 
+// eslint-disable-next-line @angular-eslint/use-injectable-provided-in -- explicitly provided via { provide: DataService, useClass: ServerDataService } in app.config.server.ts; providedIn: 'root' would leak this server-only override into the client bundle.
 @Injectable()
 export class ServerDataService extends DataService {
   override getEntity(id: string): Observable<Entity> {
