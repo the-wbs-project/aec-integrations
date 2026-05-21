@@ -9,6 +9,7 @@ import {
   cacheControlForRoute,
   createApp,
   isCacheableRoute,
+  isPreviewPath,
   stripLocalePrefix,
   stripVisitorStateCookies,
   type Bindings,
@@ -133,6 +134,21 @@ describe('stripVisitorStateCookies', () => {
     const req = new Request('https://x/', { headers: { cookie: cookieHeader } });
     const stripped = stripVisitorStateCookies(req);
     expect(stripped.headers.get('cookie')).toBe('session=keep-me');
+  });
+});
+
+describe('isPreviewPath', () => {
+  it('matches /preview and /preview/* paths', () => {
+    expect(isPreviewPath('/preview')).toBe(true);
+    expect(isPreviewPath('/preview/vendor-detail')).toBe(true);
+    expect(isPreviewPath('/preview/anything/deeper')).toBe(true);
+  });
+
+  it('does not match unrelated paths or sibling segments', () => {
+    expect(isPreviewPath('/')).toBe(false);
+    expect(isPreviewPath('/previews')).toBe(false);
+    expect(isPreviewPath('/products/preview')).toBe(false);
+    expect(isPreviewPath('/preview-something')).toBe(false);
   });
 });
 
@@ -285,6 +301,49 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=900');
     expect(res.headers.get('vary')).toBeNull();
+  });
+});
+
+describe('createApp /preview/* production gate', () => {
+  it('returns 404 with no-store on /preview/* when ENV is production (renderer never invoked)', async () => {
+    const { binding } = recordingApiBinding();
+    const ssrRenderer = vi.fn<SsrRenderer>(async () =>
+      fixedRenderer(new Response('<html>preview</html>', { status: 200 }))(
+        new Request('https://x/'),
+      ),
+    );
+    const app = createApp({ ssrRenderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/preview/vendor-detail'),
+      { ...binding, ENV: 'production' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(ssrRenderer).not.toHaveBeenCalled();
+  });
+
+  it('serves /preview/* on preview Worker deploys (ENV !== production)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>preview screen</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    });
+
+    const res = await app.fetch(
+      new Request('https://aeci-web.workers.dev/preview/vendor-detail'),
+      { ...binding, ENV: 'preview' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('<html>preview screen</html>');
   });
 });
 
