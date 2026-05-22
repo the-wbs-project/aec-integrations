@@ -90,10 +90,25 @@ DARK_HASH=$(body_hash -H 'Cookie: theme=dark' "$HOST/")
 NONE_HASH=$(body_hash "$HOST/")
 
 if [ "$LIGHT_HASH" = "$DARK_HASH" ] && [ "$LIGHT_HASH" = "$NONE_HASH" ]; then
-	pass "T1 / SSR HTML is byte-identical across theme cookie variants"
+	pass "T1a / SSR HTML is byte-identical across theme cookie variants"
 else
-	fail "T1 cookie-strip broken — SSR HTML differs by theme cookie" \
+	fail "T1a cookie-strip broken — SSR HTML differs by theme cookie" \
 		"light=$LIGHT_HASH dark=$DARK_HASH none=$NONE_HASH"
+fi
+
+# T1b — name the §9.1a contract explicitly: with a theme cookie set, the SSR'd
+# `<html>` element must NOT carry a `theme-dark` / `theme-light` class. T1a's
+# byte-equality implies this, but AECI-36 AC #4 names it directly. The client
+# reconciles the theme post-hydration from localStorage + matchMedia.
+HTML_TAG_DARK=$(curl -fsS -H 'Cookie: theme=dark' "$HOST/" | grep -oE '<html[^>]*>' | head -n1 || true)
+HTML_TAG_LIGHT=$(curl -fsS -H 'Cookie: theme=light' "$HOST/" | grep -oE '<html[^>]*>' | head -n1 || true)
+if [ -z "$HTML_TAG_DARK" ] || [ -z "$HTML_TAG_LIGHT" ]; then
+	fail "T1b could not locate <html> element in SSR response"
+elif echo "$HTML_TAG_DARK $HTML_TAG_LIGHT" | grep -qE 'theme-(dark|light)|data-theme='; then
+	fail "T1b <html> carries visitor-state theme class/attr — cache poisoning risk" \
+		"dark: $HTML_TAG_DARK | light: $HTML_TAG_LIGHT"
+else
+	pass "T1b <html> has no theme class/attr regardless of theme cookie"
 fi
 
 # -------------------------------------------------------------------------
@@ -207,6 +222,50 @@ elif [ "$UNKNOWN_HASH" != "$ROOT_HASH" ]; then
 else
 	fail "T5b /xx/ served identical bytes to / — cache key may collide" \
 		"hash=$UNKNOWN_HASH code=$UNKNOWN_CODE"
+fi
+
+# -------------------------------------------------------------------------
+section "T6  Cache-Control on / matches §9.2 (AECI-36 AC #2)"
+# -------------------------------------------------------------------------
+# §9.2 pins `/` at 15min edge / 5min browser. `server-runtime.ts` produces
+# `public, max-age=300, s-maxage=900` via `buildCacheControl({edge:900,
+# browser:300})`. Assert at the wire so a regression in the TTL table is
+# caught immediately.
+ROOT_CC=$(get_headers "$HOST/" | awk -F': ' 'tolower($1)=="cache-control"{print $2}' | tr -d '\r' || true)
+ROOT_SMAX=$(echo "$ROOT_CC" | grep -oE 's-maxage=[0-9]+' | head -n1 | cut -d= -f2 || true)
+ROOT_MAX=$(echo "$ROOT_CC" | grep -oE 'max-age=[0-9]+' | head -n1 | cut -d= -f2 || true)
+if [ "$ROOT_SMAX" = "900" ] && [ "$ROOT_MAX" = "300" ]; then
+	pass "T6 / Cache-Control: $ROOT_CC"
+else
+	fail "T6 / Cache-Control does not match §9.2 (expected max-age=300, s-maxage=900)" \
+		"got: $ROOT_CC"
+fi
+
+# -------------------------------------------------------------------------
+section "T7  Edge cache HIT on second request (AECI-36 AC #3, deployed only)"
+# -------------------------------------------------------------------------
+# AC #3 asserts the second consecutive request to `/` is served from cache.
+# Cloudflare exposes this via `cf-cache-status: HIT` and/or `age: >0`.
+# Miniflare doesn't model the edge cache the same way, so SKIP locally and
+# direct the operator at the deployed runner.
+if [ $IS_LOCAL -eq 1 ]; then
+	skip "T7 cache HIT detection requires real edge cache" \
+		"re-run with HOST=https://<preview>.workers.dev to validate"
+else
+	# Prime, wait briefly for cache.put to land, then re-request and inspect.
+	curl -fsS -o /dev/null "$HOST/"
+	sleep 0.8
+	HEADERS_TWO=$(get_headers "$HOST/")
+	CF_STATUS=$(echo "$HEADERS_TWO" | awk -F': ' 'tolower($1)=="cf-cache-status"{print $2}' | tr -d '\r' | head -n1)
+	AGE=$(echo "$HEADERS_TWO" | awk -F': ' 'tolower($1)=="age"{print $2}' | tr -d '\r' | head -n1)
+	if [ "$CF_STATUS" = "HIT" ]; then
+		pass "T7 second request returned cf-cache-status: HIT (age=${AGE:-?})"
+	elif [ -n "$AGE" ] && [ "$AGE" -gt 0 ] 2>/dev/null; then
+		pass "T7 second request served from cache (age=$AGE, cf-cache-status=${CF_STATUS:-absent})"
+	else
+		fail "T7 second request did not show cache HIT" \
+			"cf-cache-status=${CF_STATUS:-absent} age=${AGE:-absent}"
+	fi
 fi
 
 # -------------------------------------------------------------------------
