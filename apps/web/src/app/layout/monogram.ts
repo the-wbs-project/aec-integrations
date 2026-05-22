@@ -1,16 +1,18 @@
 import { NgOptimizedImage } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
-
-import { ThemeService } from '../theme.service';
 
 /**
  * Theme-aware AECi monogram. Acts as the home link.
  *
- * The two monogram variants in `apps/web/public/branding/` are named for the
- * theme they belong with (not for their fill colour): `monogram-light.svg`
- * is the dark-on-light variant used in the light theme, and `monogram-dark.svg`
- * is the light-on-dark variant used in the dark theme.
+ * Both variants are always present in the SSR HTML; CSS hides the inactive
+ * one via `dark:hidden` / `dark:block` driven by the `.theme-dark` class on
+ * `<html>`. This keeps the SSR output visitor-state-neutral so the edge cache
+ * is never poisoned by a per-visitor `sec-ch-prefers-color-scheme` header.
+ *
+ * The two files in `apps/web/public/branding/` are named for their theme:
+ * `monogram-light.svg` = dark-on-light (light theme), `monogram-dark.svg` =
+ * light-on-dark (dark theme).
  */
 @Component({
   selector: 'aec-monogram',
@@ -24,18 +26,27 @@ import { ThemeService } from '../theme.service';
       aria-label="AEC Integrations — home"
     >
       <img
-        [ngSrc]="src()"
+        ngSrc="/branding/monogram-light.svg"
         [width]="size()"
         [height]="size()"
         alt=""
         priority
-        class="block rounded-md"
+        class="block rounded-md dark:hidden"
+      />
+      <img
+        ngSrc="/branding/monogram-dark.svg"
+        [width]="size()"
+        [height]="size()"
+        alt=""
+        priority
+        class="hidden rounded-md dark:block"
       />
       @if (showWordmark()) {
         <span
           class="font-display font-semibold tracking-tight text-(--text-primary)"
           i18n="@@app.brand"
-        >AEC Integrations</span>
+          >AEC Integrations</span
+        >
       }
     </a>
   `,
@@ -43,12 +54,4 @@ import { ThemeService } from '../theme.service';
 export class Monogram {
   readonly size = input(32);
   readonly showWordmark = input(true);
-
-  private readonly theme = inject(ThemeService);
-
-  protected readonly src = computed(() =>
-    this.theme.resolved() === 'dark'
-      ? '/branding/monogram-dark.svg'
-      : '/branding/monogram-light.svg',
-  );
 }

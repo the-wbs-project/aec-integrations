@@ -22,18 +22,11 @@ import { Monogram } from './monogram';
       <div class="mx-auto grid max-w-7xl gap-10 px-8 py-12 sm:grid-cols-2 lg:grid-cols-3">
         <div>
           <aec-monogram [size]="28" />
-          <p
-            class="mt-3 max-w-xs text-sm text-(--text-secondary)"
-            i18n="@@app.footer.tagline"
-          >
+          <p class="mt-3 max-w-xs text-sm text-(--text-secondary)" i18n="@@app.footer.tagline">
             Vendor-verified reviews for AEC software integrations.
           </p>
         </div>
-        <nav
-          class="text-sm"
-          i18n-aria-label="@@app.footer.legal.aria"
-          aria-label="Legal"
-        >
+        <nav class="text-sm" i18n-aria-label="@@app.footer.legal.aria" aria-label="Legal">
           <p
             class="mb-3 text-xs uppercase tracking-wide text-(--text-tertiary)"
             i18n="@@app.footer.legal.eyebrow"
@@ -79,11 +72,7 @@ import { Monogram } from './monogram';
             </li>
           </ul>
         </nav>
-        <nav
-          class="text-sm"
-          i18n-aria-label="@@app.footer.company.aria"
-          aria-label="Company"
-        >
+        <nav class="text-sm" i18n-aria-label="@@app.footer.company.aria" aria-label="Company">
           <p
             class="mb-3 text-xs uppercase tracking-wide text-(--text-tertiary)"
             i18n="@@app.footer.company.eyebrow"
@@ -104,7 +93,9 @@ import { Monogram } from './monogram';
         </nav>
       </div>
       <div class="border-t border-(--border-default) px-8 py-4 text-xs text-(--text-tertiary)">
-        <p class="mx-auto max-w-7xl" i18n="@@app.footer.copyright">© {{ year }} AEC Integrations.</p>
+        <p class="mx-auto max-w-7xl" i18n="@@app.footer.copyright">
+          © {{ year }} AEC Integrations.
+        </p>
       </div>
     </footer>
   `,
