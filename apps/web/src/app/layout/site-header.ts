@@ -1,0 +1,89 @@
+/**
+ * Site header.
+ *
+ * Anchor: Stripe (stripe.com) — selected during the AECI-32 layout-options
+ * review. Composition cues: generous header padding, monogram + wordmark left,
+ * centered primary nav, theme toggle + pill-shaped Sign-in CTA right, and a
+ * warm Bone "shelf" beneath the header that reads as editorial structure
+ * rather than chrome. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule".
+ *
+ * Spec: §16 Phase 1 ("Basic layout shell"); §3.1 (route inventory drives nav
+ * placeholders); §2a (theming); §21 (a11y).
+ */
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink, RouterLinkActive } from '@angular/router';
+
+import { Monogram } from './monogram';
+import { ThemeToggle } from './theme-toggle';
+
+@Component({
+  selector: 'aec-site-header',
+  imports: [RouterLink, RouterLinkActive, Monogram, ThemeToggle],
+  changeDetection: ChangeDetectionStrategy.OnPush,
+  template: `
+    <header class="bg-(--surface-base)">
+      <div class="mx-auto flex max-w-7xl items-center gap-8 px-8 py-5">
+        <aec-monogram />
+        <nav
+          class="hidden flex-1 items-center justify-center gap-7 text-sm font-medium md:flex"
+          i18n-aria-label="@@app.nav.primary.aria"
+          aria-label="Primary"
+        >
+          <a
+            routerLink="/products"
+            routerLinkActive="text-(--accent-primary)"
+            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.nav.products"
+          >
+            Products
+          </a>
+          <a
+            routerLink="/vendors"
+            routerLinkActive="text-(--accent-primary)"
+            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.nav.vendors"
+          >
+            Vendors
+          </a>
+          <a
+            routerLink="/integrations"
+            routerLinkActive="text-(--accent-primary)"
+            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.nav.integrations"
+          >
+            Integrations
+          </a>
+          <a
+            routerLink="/categories"
+            routerLinkActive="text-(--accent-primary)"
+            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.nav.categories"
+          >
+            Categories
+          </a>
+        </nav>
+        <div class="flex items-center gap-3">
+          <label class="relative hidden lg:block">
+            <span class="sr-only" i18n="@@app.header.search.label">Search</span>
+            <input
+              type="search"
+              i18n-placeholder="@@app.header.search.placeholder"
+              placeholder="Search integrations"
+              class="h-9 w-52 rounded-full border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-tertiary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            />
+          </label>
+          <aec-theme-toggle />
+          <a
+            routerLink="/auth/login"
+            class="inline-flex items-center rounded-full bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.header.signIn"
+          >
+            Sign in
+          </a>
+        </div>
+      </div>
+      <div class="h-1 w-full bg-(--accent-warm)" aria-hidden="true"></div>
+    </header>
+  `,
+})
+export class SiteHeader {}

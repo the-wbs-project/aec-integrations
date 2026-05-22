@@ -2,25 +2,410 @@
 <xliff version="1.2" xmlns="urn:oasis:names:tc:xliff:document:1.2">
   <file source-language="en-US" datatype="plaintext" original="ng2.template">
     <body>
+      <trans-unit id="demo.spartan.heading" datatype="html">
+        <source> Spartan brain primitives </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/demo/spartan-demo.ts</context>
+          <context context-type="linenumber">30,32</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="demo.spartan.subheading" datatype="html">
+        <source> Internal probe page proving @spartan-ng/brain and Angular CDK are wired correctly. Toggle between light and dark themes and verify keyboard focus. </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/demo/spartan-demo.ts</context>
+          <context context-type="linenumber">33,36</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="demo.spartan.trigger" datatype="html">
+        <source>Open demo dialog</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/demo/spartan-demo.ts</context>
+          <context context-type="linenumber">45,48</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="demo.spartan.dialog.title" datatype="html">
+        <source> Brain primitives are working </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/demo/spartan-demo.ts</context>
+          <context context-type="linenumber">59,61</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="demo.spartan.dialog.description" datatype="html">
+        <source> This dialog uses BrnDialog + Angular CDK overlay and focus trap. Tab moves focus inside, Escape closes the dialog, and focus returns to the trigger button. </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/demo/spartan-demo.ts</context>
+          <context context-type="linenumber">66,69</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="demo.spartan.dialog.close" datatype="html">
+        <source> Close </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/demo/spartan-demo.ts</context>
+          <context context-type="linenumber">76,78</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.eyebrow" datatype="html">
+        <source> AEC Integrations </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.ts</context>
+          <context context-type="linenumber">11,13</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.heading" datatype="html">
+        <source> Coming soon </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.ts</context>
+          <context context-type="linenumber">17,19</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="home.lede" datatype="html">
+        <source> The vendor-verified directory for AEC software integrations is in pre-launch. The home page lands in Phase 4. </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/home/home.ts</context>
+          <context context-type="linenumber">20,22</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.brand.aria" datatype="html">
+        <source>AEC Integrations — home</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/monogram.ts</context>
+          <context context-type="linenumber">24,27</context>
+        </context-group>
+      </trans-unit>
       <trans-unit id="app.brand" datatype="html">
         <source>AEC Integrations</source>
         <context-group purpose="location">
-          <context context-type="sourcefile">src/app/app.ts</context>
-          <context context-type="linenumber">8,9</context>
+          <context context-type="sourcefile">src/app/layout/monogram.ts</context>
+          <context context-type="linenumber">38,40</context>
         </context-group>
       </trans-unit>
-      <trans-unit id="app.footer.scaffold" datatype="html">
-        <source>AECi Phase 1.6 scaffold</source>
+      <trans-unit id="app.footer.tagline" datatype="html">
+        <source> Vendor-verified reviews for AEC software integrations. </source>
         <context-group purpose="location">
-          <context context-type="sourcefile">src/app/app.ts</context>
-          <context context-type="linenumber">10,13</context>
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">29,31</context>
         </context-group>
       </trans-unit>
-      <trans-unit id="home.placeholder" datatype="html">
-        <source>AEC Integrations — coming soon.</source>
+      <trans-unit id="app.footer.legal.aria" datatype="html">
+        <source>Legal</source>
         <context-group purpose="location">
-          <context context-type="sourcefile">src/app/home/home.ts</context>
-          <context context-type="linenumber">5,8</context>
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">36,38</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.legal.eyebrow" datatype="html">
+        <source> Legal </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">41,43</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.legal.terms" datatype="html">
+        <source> Terms </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">50,52</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.legal.privacy" datatype="html">
+        <source> Privacy </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">59,61</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.legal.reviewGuidelines" datatype="html">
+        <source> Review guidelines </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">68,70</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.legal.listingAccuracy" datatype="html">
+        <source> Listing accuracy </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">77,79</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.company.aria" datatype="html">
+        <source>Company</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">86,88</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.company.eyebrow" datatype="html">
+        <source> Company </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">91,93</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.contact" datatype="html">
+        <source> Contact </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">100,101</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.footer.copyright" datatype="html">
+        <source>© <x id="INTERPOLATION" equiv-text="{{ year }}"/> AEC Integrations.</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-footer.ts</context>
+          <context context-type="linenumber">107,108</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.nav.primary.aria" datatype="html">
+        <source>Primary</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">31,33</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.nav.products" datatype="html">
+        <source> Products </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">38,40</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.nav.vendors" datatype="html">
+        <source> Vendors </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">46,48</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.nav.integrations" datatype="html">
+        <source> Integrations </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">54,56</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.nav.categories" datatype="html">
+        <source> Categories </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">62,64</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.header.search.label" datatype="html">
+        <source>Search</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">67,69</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.header.search.placeholder" datatype="html">
+        <source>Search integrations</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">71,72</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.header.signIn" datatype="html">
+        <source> Sign in </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/site-header.ts</context>
+          <context context-type="linenumber">81,83</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.skipLink" datatype="html">
+        <source> Skip to main content </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/skip-link.ts</context>
+          <context context-type="linenumber">17,21</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.theme.toggle.aria" datatype="html">
+        <source>Cycle theme</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/theme-toggle.ts</context>
+          <context context-type="linenumber">24,26</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.theme.label.system" datatype="html">
+        <source>System</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/theme-toggle.ts</context>
+          <context context-type="linenumber">29,31</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.theme.label.light" datatype="html">
+        <source>Light</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/theme-toggle.ts</context>
+          <context context-type="linenumber">32,34</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="app.theme.label.dark" datatype="html">
+        <source>Dark</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/layout/theme-toggle.ts</context>
+          <context context-type="linenumber">35,37</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.eyebrow" datatype="html">
+        <source> Vendor profile </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">21,23</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.visit-website" datatype="html">
+        <source>Visit website</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">39,40</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.top-ranking-label" datatype="html">
+        <source> Top-ranked product </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">60,62</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.top-ranking-in" datatype="html">
+        <source>in</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">72,73</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.based-on" datatype="html">
+        <source>Based on</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">78,79</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.dual-verified-reviews" datatype="html">
+        <source>dual-verified reviews</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">81,85</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.tab.overview" datatype="html">
+        <source> Overview </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">98,100</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.tab.products" datatype="html">
+        <source>Products</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">101,102</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.company-card.title" datatype="html">
+        <source> Company </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">128,130</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.company-card.hq" datatype="html">
+        <source> HQ </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">133,135</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.company-card.founded" datatype="html">
+        <source> Founded </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">142,144</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.company-card.ownership" datatype="html">
+        <source> Ownership </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">151,153</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.company-card.employees" datatype="html">
+        <source> Employees </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">160,162</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.support-card.title" datatype="html">
+        <source> Customer support </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">177,179</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.support-card.hours" datatype="html">
+        <source> Hours </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">182,184</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.support-card.channels" datatype="html">
+        <source> Channels </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">191,193</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.support-card.sla" datatype="html">
+        <source> SLA </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">199,201</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.product.rankings-title" datatype="html">
+        <source> Category rankings </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">240,242</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.product.unranked" datatype="html">
+        <source>Unranked</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">255,258</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.product.reviews" datatype="html">
+        <source>reviews</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">303,305</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.product.distribution-title" datatype="html">
+        <source> Review distribution </source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">317,319</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.product.total" datatype="html">
+        <source>total</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">322,324</context>
+        </context-group>
+      </trans-unit>
+      <trans-unit id="preview.vendor-detail.product.last-reviewed" datatype="html">
+        <source>Last reviewed</source>
+        <context-group purpose="location">
+          <context context-type="sourcefile">src/app/preview/vendor-detail/vendor-detail.html</context>
+          <context context-type="linenumber">352,354</context>
         </context-group>
       </trans-unit>
     </body>
