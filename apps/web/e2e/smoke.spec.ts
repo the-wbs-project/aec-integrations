@@ -18,7 +18,7 @@ test.describe('home page (smoke)', () => {
 
     // Stable copy seeded by `apps/web/src/app/home/home.ts` until the real
     // home page lands. If/when home content changes, update this assertion.
-    await expect(page.getByText('AEC Integrations — coming soon.')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Coming soon' })).toBeVisible();
   });
 
   test('has no accessibility violations at /', async ({ page }) => {

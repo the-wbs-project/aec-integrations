@@ -4,7 +4,7 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
   selector: 'app-home',
   template: `
     <section class="mx-auto max-w-3xl px-6 py-16">
-      <p class="mb-3 text-xs uppercase tracking-wide text-(--text-tertiary)" i18n="@@home.eyebrow">
+      <p class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)" i18n="@@home.eyebrow">
         AEC Integrations
       </p>
       <h1

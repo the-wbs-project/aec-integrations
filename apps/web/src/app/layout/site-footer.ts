@@ -28,7 +28,7 @@ import { Monogram } from './monogram';
         </div>
         <nav class="text-sm" i18n-aria-label="@@app.footer.legal.aria" aria-label="Legal">
           <p
-            class="mb-3 text-xs uppercase tracking-wide text-(--text-tertiary)"
+            class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"
             i18n="@@app.footer.legal.eyebrow"
           >
             Legal
@@ -74,7 +74,7 @@ import { Monogram } from './monogram';
         </nav>
         <nav class="text-sm" i18n-aria-label="@@app.footer.company.aria" aria-label="Company">
           <p
-            class="mb-3 text-xs uppercase tracking-wide text-(--text-tertiary)"
+            class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"
             i18n="@@app.footer.company.eyebrow"
           >
             Company
@@ -92,7 +92,7 @@ import { Monogram } from './monogram';
           </ul>
         </nav>
       </div>
-      <div class="border-t border-(--border-default) px-8 py-4 text-xs text-(--text-tertiary)">
+      <div class="border-t border-(--border-default) px-8 py-4 text-xs text-(--text-secondary)">
         <p class="mx-auto max-w-7xl" i18n="@@app.footer.copyright">
           © {{ year }} AEC Integrations.
         </p>
