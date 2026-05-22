@@ -465,17 +465,19 @@ create index profiles_banned_idx on profiles(banned_at) where banned_at is not n
 **Trigger:** create a profile row automatically when a user signs up via Supabase Auth.
 
 ```sql
-create or replace function handle_new_user() returns trigger as $$
+create or replace function public.handle_new_user() returns trigger as $$
 begin
-  insert into profiles (id) values (new.id);
+  insert into public.profiles (id) values (new.id);
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public, pg_temp;
 
 create trigger on_auth_user_created
   after insert on auth.users
-  for each row execute function handle_new_user();
+  for each row execute function public.handle_new_user();
 ```
+
+**SECURITY DEFINER convention:** Every `SECURITY DEFINER` function must include an explicit `SET search_path` to prevent search-path injection attacks. For functions in the `public` schema use `SET search_path = public, pg_temp`; for functions in the `auth` schema that reference `public.profiles` use `SET search_path = public, auth`. See `AUTH_AND_RLS.md` §6.1 for the auth-schema helper pattern.
 
 ### 7.2 `reviews`
 
