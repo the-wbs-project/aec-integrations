@@ -1,6 +1,17 @@
+import { z } from 'zod';
 import { describe, expect, it } from 'vitest';
 
-import { ApiErrorSchema, PaginationQuerySchema, SortOrderSchema } from './common';
+import {
+  ApiErrorSchema,
+  LinkRefSchema,
+  PageQuerySchema,
+  paginatedResponseSchema,
+  ProductLinkSchema,
+  SortOrderSchema,
+  VendorLinkSchema,
+} from './common';
+
+const validUuid = '11111111-2222-4333-8444-555555555555';
 
 describe('ApiErrorSchema', () => {
   it('parses a minimal valid envelope', () => {
@@ -54,20 +65,142 @@ describe('ApiErrorSchema', () => {
   });
 });
 
-describe('PaginationQuerySchema', () => {
-  it('coerces string query params to numbers and applies defaults', () => {
-    const parsed = PaginationQuerySchema.parse({ limit: '5' });
-    expect(parsed.limit).toBe(5);
-    expect(parsed.offset).toBe(0);
+describe('LinkRefSchema', () => {
+  it('parses a valid id/name/slug triple', () => {
+    const parsed = LinkRefSchema.parse({
+      id: validUuid,
+      name: 'Procore',
+      slug: 'procore',
+    });
+    expect(parsed.name).toBe('Procore');
   });
 
-  it('rejects limit > 100', () => {
-    const result = PaginationQuerySchema.safeParse({ limit: 200 });
+  it('rejects a non-UUID id', () => {
+    const result = LinkRefSchema.safeParse({
+      id: 'not-a-uuid',
+      name: 'Procore',
+      slug: 'procore',
+    });
     expect(result.success).toBe(false);
   });
 
-  it('rejects negative offset', () => {
-    const result = PaginationQuerySchema.safeParse({ offset: -1 });
+  it('rejects an empty name', () => {
+    const result = LinkRefSchema.safeParse({
+      id: validUuid,
+      name: '',
+      slug: 'procore',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty slug', () => {
+    const result = LinkRefSchema.safeParse({
+      id: validUuid,
+      name: 'Procore',
+      slug: '',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('VendorLinkSchema / ProductLinkSchema', () => {
+  it('accepts a logo URL', () => {
+    const parsed = VendorLinkSchema.parse({
+      id: validUuid,
+      name: 'Procore',
+      slug: 'procore',
+      logo_url: 'https://cdn.brandfetch.io/procore.png',
+    });
+    expect(parsed.logo_url).toBe('https://cdn.brandfetch.io/procore.png');
+  });
+
+  it('accepts a null logo URL', () => {
+    const parsed = ProductLinkSchema.parse({
+      id: validUuid,
+      name: 'Procore',
+      slug: 'procore',
+      logo_url: null,
+    });
+    expect(parsed.logo_url).toBeNull();
+  });
+
+  it('rejects a logo_url that is not a URL', () => {
+    const result = VendorLinkSchema.safeParse({
+      id: validUuid,
+      name: 'Procore',
+      slug: 'procore',
+      logo_url: 'not a url',
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('PageQuerySchema', () => {
+  it('applies defaults when no params given', () => {
+    const parsed = PageQuerySchema.parse({});
+    expect(parsed.page).toBe(1);
+    expect(parsed.perPage).toBe(24);
+  });
+
+  it('coerces string query params', () => {
+    const parsed = PageQuerySchema.parse({ page: '3', perPage: '50' });
+    expect(parsed.page).toBe(3);
+    expect(parsed.perPage).toBe(50);
+  });
+
+  it('accepts perPage at the cap', () => {
+    const parsed = PageQuerySchema.parse({ perPage: 100 });
+    expect(parsed.perPage).toBe(100);
+  });
+
+  it('rejects perPage > 100', () => {
+    const result = PageQuerySchema.safeParse({ perPage: 200 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects perPage < 1', () => {
+    const result = PageQuerySchema.safeParse({ perPage: 0 });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects page < 1', () => {
+    const result = PageQuerySchema.safeParse({ page: 0 });
+    expect(result.success).toBe(false);
+  });
+});
+
+describe('paginatedResponseSchema', () => {
+  const itemSchema = z.object({ id: z.string() });
+  const wrapped = paginatedResponseSchema(itemSchema);
+
+  it('parses a valid wrapped page', () => {
+    const parsed = wrapped.parse({
+      data: [{ id: 'a' }, { id: 'b' }],
+      page: 1,
+      perPage: 24,
+      total: 2,
+    });
+    expect(parsed.data).toHaveLength(2);
+    expect(parsed.total).toBe(2);
+  });
+
+  it('rejects a negative total', () => {
+    const result = wrapped.safeParse({
+      data: [],
+      page: 1,
+      perPage: 24,
+      total: -1,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects items that fail the inner schema', () => {
+    const result = wrapped.safeParse({
+      data: [{ id: 123 }],
+      page: 1,
+      perPage: 24,
+      total: 1,
+    });
     expect(result.success).toBe(false);
   });
 });
@@ -78,7 +211,7 @@ describe('SortOrderSchema', () => {
     expect(SortOrderSchema.parse('desc')).toBe('desc');
   });
 
-  it('rejects other values', () => {
+  it('rejects uppercase variants', () => {
     expect(SortOrderSchema.safeParse('DESC').success).toBe(false);
   });
 });
