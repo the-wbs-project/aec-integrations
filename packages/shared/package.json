@@ -26,6 +26,10 @@
     "./errors/*": {
       "types": "./src/errors/*.ts",
       "default": "./src/errors/*.ts"
+    },
+    "./slug": {
+      "types": "./src/slug.ts",
+      "default": "./src/slug.ts"
     }
   },
   "scripts": {
