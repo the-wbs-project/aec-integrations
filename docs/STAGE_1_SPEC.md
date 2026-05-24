@@ -615,7 +615,7 @@ The site launches in `en-US` only, but every layer is built to support additiona
 - `hreflang` tags auto-generated in `<head>` once multiple locales exist
 - Sitemap includes localized URLs per page
 
-**URL prefix is the cache key for locale — not `Vary` headers.** The edge cache segments naturally by URL prefix (`/products/...` for `en-US`, `/es/products/...` for `es-ES`). Do not emit `Vary: Cookie` or `Vary: Accept-Language` on cached responses — `Vary` fragments the edge cache and breaks purge-by-URL semantics on the Pro plan. Validated in `apps/stack-test` scenarios T8–T9.
+**URL prefix is the cache key for locale.** The edge cache segments naturally by URL prefix (`/products/...` for `en-US`, `/es/products/...` for `es-ES`). `Vary: Accept-Language` is permitted on cached responses (it advertises the dimension to well-behaved proxies; Cloudflare's edge cache key isn't affected since the URL prefix already segments the cache). Any other `Vary` value (`Cookie`, `User-Agent`, etc.) is still forbidden — those fragment the edge cache without a corresponding tag advantage. See `docs/CACHE_STRATEGY.md` §7 for the full SEO header set. Validated in `apps/stack-test` scenarios T8–T9.
 
 ### 7a.3a Build artifact for multi-locale
 
@@ -720,58 +720,17 @@ Stack-test currently returns 200 for KV-miss with a 5-minute TTL — documented 
 
 ### 9.2 TTLs
 
-| Route pattern | Edge TTL | Browser TTL |
-|---|---|---|
-| `/` | 15 min | 5 min |
-| `/products/:slug` | 1 hr | 5 min |
-| `/vendors/:slug` | 1 hr | 5 min |
-| `/integrations/:id` | 1 hr | 5 min |
-| `/categories/*`, `/disciplines/*`, `/phases/*` | 30 min | 5 min |
-| `/products`, `/vendors`, `/integrations` (listing) | 30 min | 5 min |
-| `/about`, `/legal/*` | 24 hr | 1 hr |
-| `/search`, `/auth/*`, `/account` | No cache | No cache |
+**Superseded.** See `docs/CACHE_STRATEGY.md` §4 for current TTLs per route class. The Phase 2 Spec tightened these values (detail pages dropped from 1 hr to 15 min edge; browser `max-age` went to 0 across the board). The entries previously in this section are historical.
 
 ### 9.3 Cache invalidation
 
-**Cloudflare plan: Pro.** Cache-Tag and purge-by-tag are Enterprise-only features and are not available on Pro. Invalidation is implemented via purge-by-URL, which is available on all plans, propagates globally in under 30 seconds, and is rate-limited but generous enough for our write volume.
+**Superseded by `docs/CACHE_STRATEGY.md`.** From Phase 2 onward, invalidation is tag-based: Cloudflare made `Cache-Tag` and purge-by-tag available on all plans in April 2025, so AECi sets a `Cache-Tag` header on every cacheable SSR response and invalidates via a single `POST /admin/purge` endpoint. The URL-invalidation map and `invalidateForEntity()` helper previously described in this section are no longer the strategy.
 
-**URL invalidation map:**
-
-Each write event invalidates a known set of URLs. The single write-event pipeline (Section 20.5) computes this set and issues one or more purge-by-URL calls.
-
-| Write event | URLs to purge |
-|---|---|
-| Product updated | `/products/{slug}`, `/vendors/{vendor-slug}`, each linked `/categories/{slug}`, each linked `/disciplines/{slug}`, each linked `/phases/{slug}`, `/products` (listing), `/` (if featured in stats) |
-| Vendor updated | `/vendors/{slug}`, each `/products/{slug}` for child products, `/vendors` (listing) |
-| Integration updated | `/integrations/{id}`, source `/products/{slug}`, target `/products/{slug}`, `/integrations` (listing) |
-| Review approved | `/products/{slug}`, `/` (if stats affected) |
-| Daily stats refresh | `/`, `/products`, `/vendors`, `/integrations` |
-
-Typical product update invalidates 10–15 URLs; review approval invalidates 1–2. Both are well within Pro plan purge rate limits.
-
-**Implementation:**
-
-A single helper function `invalidateForEntity(entityType, entityId)` lives in the API Worker. It:
-1. Looks up the affected entity in Supabase to get its slug and relationships
-2. Computes the URL list per the table above
-3. Calls Cloudflare's purge-by-URL REST endpoint with the URL list (batched up to 30 URLs per call)
-4. Logs the purge result to Datadog
-
-Every write path that modifies cacheable data calls this helper. No manual cache management elsewhere in the codebase.
-
-**Forward compatibility:**
-
-If we later upgrade to Enterprise, the helper switches internally to purge-by-tag (a single call replacing the URL list lookup). Callers don't change. Plan upgrade is a one-function refactor, not a spec rewrite.
-
-**Cache-Tag headers (deferred):**
-
-The spec previously described tagging responses with `Cache-Tag` headers. On Pro this header is ignored by Cloudflare's cache. We omit it at launch. If/when we upgrade to Enterprise, responses will need `Cache-Tag` headers added — a small mechanical change handled in the response middleware.
-
-**No `Vary` headers on cached SSR responses.** `Vary: Cookie`, `Vary: Accept-Language`, or any other request-derived `Vary` fragments the edge cache per variant and undermines purge-by-URL (a single purge call may not invalidate all variants). Locale segmentation is done via URL prefix (§7a.3); visitor state (theme, etc.) is reconciled client-side after hydration (§9.1a).
+For tag vocabulary, TTLs, composition rules, the purge endpoint shape, and the SEO header set (which now permits `Vary: Accept-Language` because URL-prefix locale dispatch already segments the cache), see `docs/CACHE_STRATEGY.md`. The implementation lands in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10). The visitor-state-neutral rule (§9.1a) and the pinned-404 trap (§9.1b) above remain authoritative.
 
 **Cloudflare API token scoping:**
 
-The `CLOUDFLARE_API_TOKEN` used by `invalidateForEntity()` must be scoped to **`Zone.Cache Purge` on `aecintegrations.com` only** — the narrowest possible scope. `CLOUDFLARE_ZONE_ID` identifies the target zone. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope. Validated pattern: `apps/stack-test/wrangler.jsonc:36-43` plus env secrets.
+The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Cache Purge` on `aecintegrations.com` only** — the narrowest possible scope. `CLOUDFLARE_ZONE_ID` identifies the target zone. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope. Validated pattern: `apps/stack-test/wrangler.jsonc:36-43` plus env secrets.
 
 ### 9.4 API response caching
 
@@ -1033,8 +992,8 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Vendor detail page
 - [ ] Integration detail page
 - [ ] Category/discipline/phase browse pages
-- [ ] Edge caching configured with per-route TTLs
-- [ ] `invalidateForEntity()` helper implemented for purge-by-URL (Section 9.3)
+- [ ] Edge caching configured with per-route TTLs (see `docs/CACHE_STRATEGY.md` §4)
+- [ ] `Cache-Tag` write helper + `POST /admin/purge` endpoint implemented (see `docs/CACHE_STRATEGY.md` §3, §5; lands in AECI-56)
 - [ ] Single write-event pipeline scaffolded (Section 20.5)
 - [ ] SSR Worker writes server-side page_views rows with CF header enrichment
 
@@ -1201,7 +1160,7 @@ A single write to products, vendors, or integrations triggers all downstream con
 
 1. Database update
 2. Algolia incremental sync (real-time in Stage 2; daily batch in Stage 1)
-3. Cloudflare cache invalidation via `invalidateForEntity()` helper (purge-by-URL on Pro plan; see Section 9.3)
+3. Cloudflare cache invalidation via `POST /admin/purge` with the relevant `Cache-Tag` list (see `docs/CACHE_STRATEGY.md` §5)
 4. IndexNow notification for affected URLs
 5. `updated_at` bumped → reflected in next sitemap fetch
 
