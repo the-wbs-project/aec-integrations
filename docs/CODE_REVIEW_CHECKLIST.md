@@ -2,7 +2,7 @@
 
 **Audience:** LLMs and humans performing pre-merge code review.
 **Scope:** All changes in this branch against the base branch.
-**Companion documents:** `STAGE_1_SPEC.md` (intent), `API_CONTRACTS.md` (contracts), `DATABASE_SCHEMA.md` (data layer), `CLAUDE.md` (stack constraints), `ANGULAR_STYLE_GUIDE.md` (Angular + TypeScript conventions, lint enforcement), `UNIT_TESTING_GUIDE.md` (test standards).
+**Companion documents:** `STAGE_1_SPEC.md` (intent), `API_CONTRACTS.md` (contracts), `DATABASE_SCHEMA.md` (data layer), `CLAUDE.md` (stack constraints), `ANGULAR_STYLE_GUIDE.md` (Angular + TypeScript conventions, lint enforcement), `UNIT_TESTING_GUIDE.md` (test standards), `CODE_REVIEW_EXEMPTIONS.md` (findings the team has consciously accepted or deferred).
 
 ---
 
@@ -12,6 +12,7 @@ Before flagging anything, read the surrounding context of each changed file — 
 
 Then:
 
+0. **Load `CODE_REVIEW_EXEMPTIONS.md`.** Any finding the rest of this document would otherwise produce gets cross-checked against the active entries there. Matching findings are dropped silently from the output (do not list them, do not mention the exemption ID). Expired entries — where the linked Linear issue has closed or the date has passed — do **not** suppress findings; report the underlying issue normally and add one line at the bottom of the review noting the expired exemption ID. See `CODE_REVIEW_EXEMPTIONS.md` §"How this file works" for the active/expired rules.
 1. Find the Linear issue this PR claims to address. Read the issue and the linked spec section. Does the diff implement what was asked? Implementation that doesn't match intent is the most expensive defect class.
 2. Walk the diff file by file. For each, ask the questions in the categories below.
 3. Compile findings into the output format at the bottom.
@@ -269,5 +270,6 @@ Before posting the review, verify:
 4. Each blocker or major issue cites a specific file and line
 5. Each issue explains *why* it matters, not just what it is
 6. The summary matches what you actually checked
+7. You loaded `CODE_REVIEW_EXEMPTIONS.md` and applied every active entry before composing the review — and you noted any expired entries at the bottom
 
 A review that flags 30 minor things and misses the real bug is worse than a review that says "approved" with no thought. Calibrate.
