@@ -106,8 +106,9 @@ Lint: ✅ `@angular-eslint/template/prefer-control-flow`, `@angular-eslint/templ
 - Pattern: `private readonly themeService = inject(ThemeService);`
 - Optional dependencies: `inject(REQUEST, { optional: true })` — reference: `apps/web/src/app/theme.service.ts:32`.
 - Injection tokens (e.g., `DOCUMENT`, `PLATFORM_ID`, `REQUEST`) get injected, never reached for as globals.
+- **Do not call `inject()` inside the constructor body.** `@angular-eslint/prefer-inject` only catches constructor-parameter DI and will not flag `inject()` called inside `constructor() { ... }`. A `no-restricted-syntax` rule in `eslint.config.base.mjs` closes this gap and will error on that pattern.
 
-Lint: ✅ `@angular-eslint/prefer-inject`.
+Lint: ✅ `@angular-eslint/prefer-inject` + `no-restricted-syntax` (constructor-body `inject()`).
 
 ---
 
@@ -288,6 +289,7 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs` and `apps/stack-
 | `@angular-eslint/component-class-suffix` | **off** (override) | §6 |
 | `@angular-eslint/directive-class-suffix` | **off** (override) | §6 |
 | `@angular-eslint/prefer-inject` | error | §9 |
+| `no-restricted-syntax` (constructor-body `inject()`) | error | §9 |
 | `@angular-eslint/prefer-host-metadata-property` | error | §10 |
 | `@angular-eslint/computed-must-return` | error | §11 |
 | `@angular-eslint/prefer-signal-model` | error | §12 |
