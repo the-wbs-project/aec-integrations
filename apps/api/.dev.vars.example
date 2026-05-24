@@ -6,9 +6,26 @@
 # It is a Prisma Accelerate URL (HTTPS), not a direct Postgres connection.
 DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=REPLACE_ME"
 
-# DIRECT_URL is used ONLY by the Prisma CLI (migrate dev, migrate deploy).
-# The deployed Worker does NOT read this. It is the Supabase pooler URL.
+# DIRECT_URL is used ONLY by `prisma migrate deploy`. The deployed Worker
+# does NOT read this. It is the Supabase pooler URL.
+# (`prisma migrate dev` is not supported on this repo — see the NOTE in
+# apps/api/prisma/schema.prisma datasource block. Hand-write migrations and
+# apply via `pnpm prisma:migrate:deploy`.)
 DIRECT_URL="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+
+# ─── Integration tests (AECI-48) ───────────────────────────────────────────
+# Used by `pnpm test:integration`. Not bound to the deployed Worker — these
+# only feed local/CI integration suites that talk to Supabase's PostgREST
+# surface directly. Tests `describe.skipIf` themselves when any are unset.
+#
+# SUPABASE_URL: your project URL, e.g. https://abcd1234.supabase.co
+SUPABASE_URL=
+# Public anon JWT (Supabase dashboard → Project Settings → API).
+SUPABASE_ANON_KEY=
+# Access token for a non-admin authenticated user. Refresh by signing in to
+# the project from an incognito session and copying the access_token from
+# the dashboard's auth.users row, or mint one via the Supabase admin API.
+SUPABASE_TEST_USER_JWT=
 
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
