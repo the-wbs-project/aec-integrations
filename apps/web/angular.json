@@ -31,9 +31,7 @@
           "builder": "@angular/build:application",
           "options": {
             "browser": "src/main.ts",
-            "polyfills": [
-              "@angular/localize/init"
-            ],
+            "polyfills": ["@angular/localize/init"],
             "localize": true,
             "tsConfig": "tsconfig.app.json",
             "assets": [
@@ -42,21 +40,27 @@
                 "input": "public"
               }
             ],
-            "styles": [
-              "src/styles.css"
-            ],
+            "styles": ["src/styles.css"],
             "server": "src/main.server.ts",
             "outputMode": "server",
             "security": {
-              "allowedHosts": []
+              // Angular SSR SSRF guard — see `apps/web/src/server.ts` for the
+              // rationale (AECI-42). `*.workers.dev` covers preview deploys
+              // (`workers_dev: true`), `*.aecintegrations.com` covers future
+              // `www.` / `staging.` subdomains.
+              "allowedHosts": [
+                "localhost",
+                "127.0.0.1",
+                "aecintegrations.com",
+                "*.aecintegrations.com",
+                "*.workers.dev"
+              ]
             },
             "ssr": {
               "entry": "src/server.ts",
               "experimentalPlatform": "neutral"
             },
-            "externalDependencies": [
-              "cloudflare:workers"
-            ],
+            "externalDependencies": ["cloudflare:workers"],
             "outputPath": "dist"
           },
           "configurations": {

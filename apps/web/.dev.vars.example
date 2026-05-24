@@ -1,10 +1,19 @@
 # Local dev secrets for @aec/web (SSR Worker). Copy to `.dev.vars` and fill in.
 # `.dev.vars` is git-ignored at the repo root. For deployed Workers, push
 # secrets via: wrangler secret put <KEY> --env <preview|production>
-#
-# This file is intentionally near-empty right now: the SSR shell does not
-# read secrets directly. Auth, third-party integrations, and the service
-# binding to the private API Worker are wired in later Phase 1 issues, at
-# which point this file should grow to match.
 
 ENV=preview
+
+# ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
+# DD_APPLICATION_ID + DD_CLIENT_TOKEN are explicitly client-exposed (rendered
+# into the SSR HTML so @datadog/browser-rum can pick them up). Stored as
+# secrets here only to keep values out of git — the SSR Worker inlines them
+# into HTML so they reach the browser at hydration time.
+# DD_API_KEY is server-only (Datadog Logs HTTP intake).
+# All three no-op when empty, so dev boots cleanly without a Datadog account.
+DD_APPLICATION_ID=
+DD_CLIENT_TOKEN=
+DD_API_KEY=
+# Optional. Defaults to datadoghq.com. Use datadoghq.eu / us3.datadoghq.com /
+# us5.datadoghq.com / ap1.datadoghq.com as appropriate for the DD region.
+DD_SITE=datadoghq.com

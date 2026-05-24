@@ -12,6 +12,7 @@ import {
 import { provideRouter } from '@angular/router';
 
 import { routes } from './app.routes';
+import { provideDatadogRum } from './datadog.provider';
 
 export const appConfig: ApplicationConfig = {
   providers: [
@@ -23,5 +24,6 @@ export const appConfig: ApplicationConfig = {
       withEventReplay(),
       withHttpTransferCacheOptions({ includePostRequests: false }),
     ),
+    provideDatadogRum(),
   ],
 };

@@ -37,20 +37,19 @@ Shared TypeScript types in `packages/shared/`, with Zod schemas at API boundarie
 packages/shared/
 ├── src/
 │   ├── api/
-│   │   ├── common.ts          # Shared types: PaginatedResponse, ApiError, etc.
-│   │   ├── products.ts        # Product endpoint schemas
-│   │   ├── vendors.ts         # Vendor endpoint schemas
-│   │   ├── integrations.ts    # Integration endpoint schemas
-│   │   ├── reviews.ts         # Review endpoint schemas
-│   │   ├── requests.ts        # Claim and correction schemas
-│   │   ├── stats.ts           # Stats endpoint schemas
-│   │   └── admin.ts           # Admin endpoint schemas
-│   ├── errors/
-│   │   └── codes.ts           # Error code constants
-│   └── entities/
-│       ├── product.ts         # Product entity type
-│       ├── vendor.ts          # Vendor entity type
-│       └── integration.ts     # Integration entity type
+│   │   ├── common.ts          # LinkRef, VendorLink, ProductLink, PageQuery,
+│   │   │                      # paginatedResponseSchema, ApiError, SortOrder
+│   │   ├── products.ts        # ProductListItem / ProductDetail / ProductsListQuery / ProductsListResponse
+│   │   ├── vendors.ts         # VendorListItem / VendorDetail / VendorsListQuery / VendorsListResponse
+│   │   ├── integrations.ts    # IntegrationListItem / IntegrationDetail / IntegrationsListQuery / IntegrationsListResponse
+│   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Discipline/Phase Detail, TaxonomyResponse
+│   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
+│   │   ├── reviews.ts         # (Phase 5)
+│   │   ├── requests.ts        # (Phase 6 — claim and correction)
+│   │   ├── stats.ts           # (Phase 4)
+│   │   └── admin.ts           # (Phase 6+)
+│   └── errors/
+│       └── codes.ts           # Machine-readable error code constants
 └── package.json
 ```
 
@@ -60,36 +59,71 @@ packages/shared/
 
 ### 3.1 Pagination
 
-All list endpoints return paginated responses with a consistent shape.
+All Phase 2 list endpoints return paginated responses with a consistent page-based shape, per `STAGE_1_PHASE_2_SPEC.md` §7.3. The canonical schema lives in `packages/shared/src/api/common.ts`.
 
 ```typescript
 import { z } from 'zod';
 
-export const PaginationQuerySchema = z.object({
-  offset: z.coerce.number().int().min(0).default(0),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+export const PageQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  perPage: z.coerce.number().int().min(1).max(100).default(24),
 });
 
-export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
+export type PageQuery = z.infer<typeof PageQuerySchema>;
 
 export type PaginatedResponse<T> = {
   data: T[];
+  page: number;
+  perPage: number;
   total: number;
-  offset: number;
-  limit: number;
 };
+
+// Runtime schema builder — wrap any item schema into a paginated response.
+export const paginatedResponseSchema = <T extends z.ZodType>(itemSchema: T) =>
+  z.object({
+    data: z.array(itemSchema),
+    page: z.number().int().min(1),
+    perPage: z.number().int().min(1).max(100),
+    total: z.number().int().min(0),
+  });
 ```
+
+> **Note:** later endpoint sections (§6.6 Reviews, §6.10 Admin) still describe the older `PaginationQuerySchema` (offset/limit) pending phase-specific realignment. New work uses `PageQuerySchema`.
 
 ### 3.2 Sorting
 
+Each Phase 2 list endpoint exposes a **combined sort key** — a single enum that encodes both the field and (implicitly) the direction. The API Worker resolves the direction per the rule below; the public query carries no separate `order` field.
+
 ```typescript
-export const SortSchema = z.object({
-  sort: z.string().optional(),    // field name
-  order: z.enum(['asc', 'desc']).default('asc'),
-});
+// Per-entity sort enums live alongside their endpoint schemas
+// (`packages/shared/src/api/products.ts` etc.).
+export const ProductSortSchema = z
+  .enum(['created', 'name', 'updated'])
+  .default('created');
+
+export const VendorSortSchema = z
+  .enum(['created', 'name', 'updated'])
+  .default('created');
+
+export const IntegrationSortSchema = z
+  .enum(['name', 'created'])
+  .default('name');
 ```
 
-Allowed sort fields are per-endpoint and enforced via a separate enum schema.
+**Default-direction rule** (Phase 2 Spec §7.4):
+
+| Sort key | Direction |
+|---|---|
+| `created` | DESC |
+| `updated` | DESC |
+| `name` | ASC |
+
+Per-entity defaults (Phase 2 Spec §7.4):
+
+- `/api/products`, `/api/vendors` → `created` (i.e. created DESC, "newest first")
+- `/api/integrations` → `name` (alphabetical; groups by source product since names render as `"Source → Target"`)
+
+`SortOrderSchema = z.enum(['asc', 'desc'])` is retained in `common.ts` for server-side helpers, but does not appear in any Phase 2 public query.
 
 ### 3.3 Error response
 
@@ -108,6 +142,43 @@ export const ApiErrorSchema = z.object({
 
 export type ApiError = z.infer<typeof ApiErrorSchema>;
 ```
+
+### 3.4 Hydration depth
+
+Per `STAGE_1_PHASE_2_SPEC.md` §7.2, detail responses embed the **display fields** of related entities — they don't return only IDs and they don't expect callers to chain-fetch. The baseline hydration primitive is `LinkRef`; richer refs add a logo where the page renders one.
+
+```typescript
+export const LinkRefSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  slug: z.string().min(1),
+});
+
+// VendorLink and ProductLink extend LinkRef with logo_url.
+export const VendorLinkSchema = LinkRefSchema.extend({
+  logo_url: z.string().url().nullable(),
+});
+
+export const ProductLinkSchema = LinkRefSchema.extend({
+  logo_url: z.string().url().nullable(),
+});
+```
+
+Per-detail hydration rules:
+
+| Detail response | Field | Embedded shape |
+|---|---|---|
+| `ProductDetail` | `vendor` | `VendorLink` |
+| `ProductDetail` | `categories` / `disciplines` / `phases` | `LinkRef[]` |
+| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `IntegrationListItem[]` |
+| `ProductDetail` | `related_products` | `ProductListItem[]` |
+| `VendorDetail` | `products` | `ProductListItem[]` |
+| `IntegrationDetail` | `source` / `target` | `ProductLink` |
+| `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
+| `IntegrationDetail` | `powered_by_product` | `ProductLink \| null` |
+| `CategoryDetail` / `DisciplineDetail` / `PhaseDetail` | `products` | `ProductListItem[]` |
+
+Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
 
 ---
 
@@ -178,108 +249,95 @@ Default to client-side localization. Stage 1 server returns English; frontend ca
 
 ## 5. Entity types
 
-Canonical types for the three core entities. These are used both as response shapes and as the basis for transformation to Algolia records.
+Canonical types for the three core entities. Phase 2 splits each entity into a **lean list item** (returned by list endpoints) and a **hydrated detail** (returned only by the `:slug` or `:id` endpoint). The list-item shape is also the shape embedded in other entities' detail responses — see §3.4 for the hydration table.
+
+All schemas below live in `packages/shared/src/api/` and are the source of truth.
 
 ### 5.1 Product
 
 ```typescript
-export type Product = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  website: string | null;
-  tool_integrations_url: string | null;
-  api_docs_url: string | null;
-  has_api_docs: boolean;
-  product_role: 'application' | 'connector' | 'hybrid';
-  logo_url: string | null;
+export const ProductListItemSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  logo_url: z.string().url().nullable(),
+  product_role: z.enum(['application', 'connector', 'hybrid']),
+  vendor: VendorLinkSchema,
+  integration_count: z.number().int().min(0),
+  review_count: z.number().int().min(0),
+  rating_overall_avg: z.number().nullable(),
+  rating_onboarding_avg: z.number().nullable(),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
 
-  vendor: VendorRef;
-  categories: TaxonomyRef[];
-  disciplines: TaxonomyRef[];
-  phases: TaxonomyRef[];
-
-  integration_count: number;
-  review_count: number;
-  rating_overall_avg: number | null;
-  rating_onboarding_avg: number | null;
-
-  created_at: string;
-  updated_at: string;
-};
-
-export type VendorRef = {
-  id: string;
-  slug: string;
-  company_name: string;
-};
-
-export type TaxonomyRef = {
-  id: string;
-  name: string;
-  slug: string;
-};
+export const ProductDetailSchema = ProductListItemSchema.extend({
+  description: z.string().nullable(),
+  website: z.string().url().nullable(),
+  tool_integrations_url: z.string().url().nullable(),
+  api_docs_url: z.string().url().nullable(),
+  has_api_docs: z.boolean(),
+  categories: z.array(LinkRefSchema),
+  disciplines: z.array(LinkRefSchema),
+  phases: z.array(LinkRefSchema),
+  integrations_as_source: z.array(IntegrationListItemSchema),
+  integrations_as_target: z.array(IntegrationListItemSchema),
+  related_products: z.array(ProductListItemSchema),
+});
 ```
 
 ### 5.2 Vendor
 
 ```typescript
-export type Vendor = {
-  id: string;
-  slug: string;
-  company_name: string;
-  description: string | null;
-  website: string | null;
-  headquarters: string | null;
-  founded_year: number | null;
-  logo_url: string | null;
-  verified: boolean;
+export const VendorListItemSchema = z.object({
+  id: z.string().uuid(),
+  slug: z.string().min(1),
+  company_name: z.string().min(1),
+  logo_url: z.string().url().nullable(),
+  verified: z.boolean(),
+  product_count: z.number().int().min(0),
+  integration_count: z.number().int().min(0),
+  review_count: z.number().int().min(0),
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
 
-  product_count: number;
-  integration_count: number;
-  review_count: number;
-
-  created_at: string;
-  updated_at: string;
-};
+export const VendorDetailSchema = VendorListItemSchema.extend({
+  description: z.string().nullable(),
+  website: z.string().url().nullable(),
+  headquarters: z.string().nullable(),
+  founded_year: z.number().int().nullable(),
+  products: z.array(ProductListItemSchema),
+});
 ```
+
+The public sort key `name` on `/api/vendors` maps to the `company_name` column server-side (vendors have no plain `name` column).
 
 ### 5.3 Integration
 
 ```typescript
-export type Integration = {
-  id: string;
-  name: string;
+export const IntegrationListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner']),
+  mechanism_name: z.string().nullable(),
+  direction: z.enum(['one-way', 'bidirectional']).nullable(),
+  source: ProductLinkSchema,
+  target: ProductLinkSchema,
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
 
-  source: ProductRef;
-  target: ProductRef;
-
-  mechanism_kind: 'native' | 'iPaaS' | 'marketplace-app' | 'api' | 'webhook' | 'partner';
-  mechanism_name: string | null;
-  direction: 'one-way' | 'bidirectional' | null;
-
-  description: string | null;
-  listing_url: string | null;
-  docs_url: string | null;
-  mechanism_url: string | null;
-
-  built_by_vendor: VendorRef | null;
-  powered_by_product: ProductRef | null;
-
-  pricing_model: string | null;
-  maturity: string | null;
-
-  created_at: string;
-  updated_at: string;
-};
-
-export type ProductRef = {
-  id: string;
-  slug: string;
-  name: string;
-  logo_url: string | null;
-};
+export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
+  description: z.string().nullable(),
+  listing_url: z.string().url().nullable(),
+  docs_url: z.string().url().nullable(),
+  mechanism_url: z.string().url().nullable(),
+  built_by_vendor: VendorLinkSchema.nullable(),
+  powered_by_product: ProductLinkSchema.nullable(),
+  pricing_model: z.string().nullable(),
+  maturity: z.string().nullable(),
+});
 ```
 
 ### 5.4 Review
@@ -315,10 +373,11 @@ export type ReviewerRef = {
 
 #### `GET /api/products`
 
-List products with filters.
+List products with filters. Default sort `created` (DESC) per §3.2 / Phase 2 Spec §7.4.
 
 ```typescript
-export const ListProductsQuerySchema = PaginationQuerySchema.extend({
+export const ProductsListQuerySchema = PageQuerySchema.extend({
+  sort: ProductSortSchema,                         // default 'created'
   search: z.string().optional(),
   category_id: z.string().uuid().optional(),
   discipline_id: z.string().uuid().optional(),
@@ -326,24 +385,19 @@ export const ListProductsQuerySchema = PaginationQuerySchema.extend({
   vendor_id: z.string().uuid().optional(),
   product_role: z.enum(['application', 'connector', 'hybrid']).optional(),
   has_api_docs: z.coerce.boolean().optional(),
-  sort: z.enum(['name', 'integration_count', 'review_count', 'created_at']).default('name'),
-  order: z.enum(['asc', 'desc']).default('asc'),
 });
 
-export type ListProductsQuery = z.infer<typeof ListProductsQuerySchema>;
-export type ListProductsResponse = PaginatedResponse<Product>;
+export type ProductsListQuery = z.infer<typeof ProductsListQuerySchema>;
+export const ProductsListResponseSchema = paginatedResponseSchema(ProductListItemSchema);
+export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 ```
 
 #### `GET /api/products/:slug`
 
-Get full product detail by slug.
+Get full product detail by slug. Hydration per §3.4.
 
 ```typescript
-export type GetProductResponse = Product & {
-  integrations_as_source: Integration[];
-  integrations_as_target: Integration[];
-  related_products: Product[];        // by category and integration overlap
-};
+export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 ```
 
 Errors: `NOT_FOUND` if no product matches the slug.
@@ -372,23 +426,23 @@ export type ListReviewsResponse = PaginatedResponse<Review> & {
 
 #### `GET /api/vendors`
 
+Default sort `created` (DESC). The public `name` key maps to `company_name` server-side.
+
 ```typescript
-export const ListVendorsQuerySchema = PaginationQuerySchema.extend({
+export const VendorsListQuerySchema = PageQuerySchema.extend({
+  sort: VendorSortSchema,                          // default 'created'
   search: z.string().optional(),
   verified: z.coerce.boolean().optional(),
-  sort: z.enum(['company_name', 'product_count', 'integration_count', 'created_at']).default('company_name'),
-  order: z.enum(['asc', 'desc']).default('asc'),
 });
 
-export type ListVendorsResponse = PaginatedResponse<Vendor>;
+export const VendorsListResponseSchema = paginatedResponseSchema(VendorListItemSchema);
+export type VendorsListResponse = z.infer<typeof VendorsListResponseSchema>;
 ```
 
 #### `GET /api/vendors/:slug`
 
 ```typescript
-export type GetVendorResponse = Vendor & {
-  products: Product[];
-};
+export type VendorDetail = z.infer<typeof VendorDetailSchema>;
 ```
 
 Errors: `NOT_FOUND`.
@@ -397,37 +451,68 @@ Errors: `NOT_FOUND`.
 
 #### `GET /api/integrations`
 
+Default sort `name` (ASC). Filter fields use the camelCase names from the Phase 2 Spec example query.
+
 ```typescript
-export const ListIntegrationsQuerySchema = PaginationQuerySchema.extend({
+export const IntegrationsListQuerySchema = PageQuerySchema.extend({
+  sort: IntegrationSortSchema,                     // default 'name'
   search: z.string().optional(),
-  source_product_id: z.string().uuid().optional(),
-  target_product_id: z.string().uuid().optional(),
+  sourceProductId: z.string().uuid().optional(),
+  targetProductId: z.string().uuid().optional(),
   mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner']).optional(),
   direction: z.enum(['one-way', 'bidirectional']).optional(),
-  sort: z.enum(['name', 'mechanism_kind', 'created_at']).default('name'),
-  order: z.enum(['asc', 'desc']).default('asc'),
 });
 
-export type ListIntegrationsResponse = PaginatedResponse<Integration>;
+export const IntegrationsListResponseSchema = paginatedResponseSchema(IntegrationListItemSchema);
+export type IntegrationsListResponse = z.infer<typeof IntegrationsListResponseSchema>;
 ```
 
 #### `GET /api/integrations/:id`
 
 ```typescript
-export type GetIntegrationResponse = Integration;
+export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 ```
 
 ### 6.4 Taxonomy
 
-#### `GET /api/taxonomy/categories`
+#### `GET /api/categories`
 
 ```typescript
-export type ListCategoriesResponse = {
-  data: (TaxonomyRef & { product_count: number })[];
-};
+export const CategoriesListResponseSchema = z.object({
+  data: z.array(TaxonomyTermWithCountSchema),
+});
 ```
 
-Same shape for `/disciplines` and `/phases`.
+Not paginated — the taxonomy is small by design (Phase 2 Spec §3.1).
+
+#### `GET /api/categories/:slug`, `/api/disciplines/:slug`, `/api/phases/:slug`
+
+```typescript
+export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
+  description: z.string().nullable(),
+  display_order: z.number().int(),
+  product_count: z.number().int().min(0),
+});
+
+// Each detail extends the term with the products carrying that term.
+// Kept as three distinct schemas (not aliases) so future divergence is cheap.
+export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
+  products: z.array(ProductListItemSchema),
+});
+// `DisciplineDetailSchema` / `PhaseDetailSchema` follow the same shape.
+```
+
+#### `GET /api/taxonomy`
+
+```typescript
+export const TaxonomyResponseSchema = z.object({
+  categories: z.array(TaxonomyTermWithCountSchema),
+  disciplines: z.array(TaxonomyTermWithCountSchema),
+  phases: z.array(TaxonomyTermWithCountSchema),
+});
+```
+
+Used by the SSR Worker to populate nav, footer, and the `/categories` flat list.
 
 ### 6.5 Stats
 
@@ -539,23 +624,21 @@ Errors: `UNAUTHENTICATED`.
 
 ### 6.9 Tracking
 
-#### `POST /api/track/pageview`
+#### `POST /api/page-views`
 
-Lean endpoint for client-side pageview tracking. Server-side enrichment is done by the SSR Worker on page render; this endpoint exists for client-side SPA navigation events.
+Lean fire-and-forget capture hook for client-side pageviews per Phase 2 Spec §7.1. Returns `204` with no body. In Phase 2 the handler is a no-op; Phase 4 wires it to the `page_views` table once that table lands. The shape was simplified from the earlier `TrackPageviewSchema` draft (path / product_id / vendor_id / session_id / referrer) to match the Phase 2 contract.
 
 ```typescript
-export const TrackPageviewSchema = z.object({
-  path: z.string(),
-  product_id: z.string().uuid().optional(),
-  vendor_id: z.string().uuid().optional(),
-  session_id: z.string(),
-  referrer: z.string().optional(),
+export const PageViewPayloadSchema = z.object({
+  route: z.string().min(1),
+  entity_type: z.string().optional(),
+  entity_id: z.string().optional(),
 });
 
-export type TrackPageviewResponse = { ok: true };
+export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-Fire-and-forget; user-blocking errors are never raised.
+User-blocking errors are never raised.
 
 ### 6.10 Admin endpoints
 
@@ -723,7 +806,7 @@ The SSR Worker imports types from `@aeci/shared` and consumes the API via servic
 // In SSR Worker
 import type { GetProductResponse } from '@aeci/shared/api/products';
 
-const apiResponse = await env.API_WORKER.fetch(
+const apiResponse = await env.API.fetch(
   new Request('https://api/products/procore')
 );
 const product: GetProductResponse = await apiResponse.json();

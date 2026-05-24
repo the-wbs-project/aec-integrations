@@ -1,4 +1,4 @@
-import { Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { map } from 'rxjs';
@@ -19,6 +19,7 @@ import { Entity } from '../entity';
 @Component({
   selector: 'stack-cached',
   imports: [RouterLink],
+  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let e = entity();
     <section class="space-y-6">
@@ -27,11 +28,9 @@ import { Entity } from '../entity';
           /cached/{{ id() }}
         </h1>
         <p class="mt-2 text-sm text-(--text-muted) max-w-prose" i18n="@@cached.intro">
-          Server-rendered from KV. This response is cached at the edge for 5 minutes.
-          Edit the entity at
-          <a
-            [routerLink]="['/admin', id()]"
-            class="text-(--accent) underline underline-offset-2"
+          Server-rendered from KV. This response is cached at the edge for 5 minutes. Edit the
+          entity at
+          <a [routerLink]="['/admin', id()]" class="text-(--accent) underline underline-offset-2"
             >/admin/{{ id() }}</a
           >
           to trigger an automatic purge.
@@ -39,12 +38,8 @@ import { Entity } from '../entity';
       </div>
 
       @if (e) {
-        <div
-          class="rounded-lg border border-(--border) bg-(--surface) p-6 space-y-3 shadow-sm"
-        >
-          <div class="text-xs uppercase tracking-wider text-(--text-muted)">
-            entity:{{ e.id }}
-          </div>
+        <div class="rounded-lg border border-(--border) bg-(--surface) p-6 space-y-3 shadow-sm">
+          <div class="text-xs uppercase tracking-wider text-(--text-muted)">entity:{{ e.id }}</div>
           <h2 class="text-lg font-medium text-(--text-primary)">{{ e.title }}</h2>
           <p class="text-sm text-(--text-secondary) whitespace-pre-wrap">{{ e.body }}</p>
           <div class="text-xs text-(--text-muted) pt-2 border-t border-(--border)">
@@ -70,8 +65,8 @@ import { Entity } from '../entity';
           <span class="font-mono text-(--text-secondary)">{{ renderedAt }}</span>
         </div>
         <div>
-          On a cache HIT this timestamp stays the same as the original render. On a
-          purge + miss it will change.
+          On a cache HIT this timestamp stays the same as the original render. On a purge + miss it
+          will change.
         </div>
       </div>
     </section>

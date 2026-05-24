@@ -26,13 +26,19 @@
     "./errors/*": {
       "types": "./src/errors/*.ts",
       "default": "./src/errors/*.ts"
+    },
+    "./slug": {
+      "types": "./src/slug.ts",
+      "default": "./src/slug.ts"
     }
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "dependencies": {
     "zod": "^4.4.3"

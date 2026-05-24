@@ -2,7 +2,7 @@
 
 **Audience:** LLMs and humans performing pre-merge code review.
 **Scope:** All changes in this branch against the base branch.
-**Companion documents:** `STAGE_1_SPEC.md` (intent), `API_CONTRACTS.md` (contracts), `DATABASE_SCHEMA.md` (data layer), `CLAUDE.md` (stack constraints), `UNIT_TESTING_GUIDE.md` (test standards), `CODE_REVIEW_EXEMPTIONS.md` (findings the team has consciously accepted or deferred).
+**Companion documents:** `STAGE_1_SPEC.md` (intent), `API_CONTRACTS.md` (contracts), `DATABASE_SCHEMA.md` (data layer), `CLAUDE.md` (stack constraints), `ANGULAR_STYLE_GUIDE.md` (Angular + TypeScript conventions, lint enforcement), `UNIT_TESTING_GUIDE.md` (test standards), `CODE_REVIEW_EXEMPTIONS.md` (findings the team has consciously accepted or deferred).
 
 ---
 
@@ -74,7 +74,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Missing indexes for new query patterns (check `DATABASE_SCHEMA.md` — was the new index added?)
 - Synchronous blocking work in Worker request handlers (heavy CPU on the request path)
 - Missing debounce/throttle on high-frequency event handlers (search-as-you-type, scroll, resize)
-- Heavy computation inside Angular templates (move to computed signals or pipes)
+- Heavy computation inside Angular templates (move to computed signals or pipes) — see `ANGULAR_STYLE_GUIDE.md` §8, §11
 - Large data structures loaded into memory when streaming would work
 - Cache headers missing or wrong TTL on cacheable responses
 - `ctx.waitUntil()` missing on fire-and-forget side effects (writes that block the response unnecessarily)
@@ -147,7 +147,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 ### Theming
 
 - New component renders correctly in light but not dark (or vice versa)
-- Color hardcoded instead of using a theme token (`--surface-base`, `--text-primary`, etc.)
+- Color hardcoded instead of using a theme token (`--surface-base`, `--text-primary`, etc.) — see `ANGULAR_STYLE_GUIDE.md` §20 (tokens, not literals)
 - Vendor-uploaded content not wrapped in the neutral media block container
 - Brand accent (Clay, Forest) used in a low-contrast context that fails WCAG AA
 - **BLOCKER** — A `data-theme`-dependent value is rendered in SSR for a cacheable route (same cookie/cache pollution rule as Caching above). Theme must be applied on the client after hydration for cached routes; server-rendered HTML is theme-neutral.
@@ -184,6 +184,7 @@ Be especially vigilant about these in AI-authored PRs. They are easy to miss bec
 - **Stub or placeholder code committed.** `// TODO: implement actual logic` left in alongside passing tests — the tests are testing the stub, not real behavior.
 - **Prisma client constructed incorrectly for Workers.** Missing `withAccelerate()` extension, or imported from `@prisma/client` instead of `@prisma/client/edge`. Both are silently wrong on Workers and may even pass type-check. See `DATABASE_SCHEMA.md` §1a.
 - **Module-level Prisma client.** Constructed once at import time and reused across requests. Should be per-request via the `withPrisma(env, handler)` helper. Breaks request isolation and testability.
+- **Angular-decorator carryover.** `@HostBinding` / `@HostListener` / `@Input` / `@Output` / `ngClass` / `ngStyle` / `*ngIf` / `*ngFor` / `*ngSwitch` / `[(ngModel)]` in a form context — all banned. Use the `host: { ... }` metadata object, `input()` / `output()` / `model()`, `[class.X]` / `[style.X]` bindings, `@if` / `@for` / `@switch`, and reactive forms. `pnpm lint` catches most of these; if one slips past lint, flag it as a BLOCKER. See `ANGULAR_STYLE_GUIDE.md` for the full enforcement matrix.
 
 ---
 

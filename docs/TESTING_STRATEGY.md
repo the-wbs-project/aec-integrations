@@ -242,7 +242,7 @@ describe('SSR Worker', () => {
       scriptPath: './dist/server/main.js',
       bindings: { ENV: 'test' },
       serviceBindings: {
-        API_WORKER: (req) => new Response(JSON.stringify({ mocked: true })),
+        API: (req) => new Response(JSON.stringify({ mocked: true })),
       },
     });
   });

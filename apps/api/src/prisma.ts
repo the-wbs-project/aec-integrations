@@ -1,7 +1,7 @@
-import { PrismaClient } from "@prisma/client/edge";
-import { withAccelerate } from "@prisma/extension-accelerate";
+import { PrismaClient } from '@prisma/client/edge';
+import { withAccelerate } from '@prisma/extension-accelerate';
 
-import type { Env } from "./env";
+import type { Env } from './env';
 
 export type AcceleratedPrisma = ReturnType<typeof getPrisma>;
 

@@ -30,9 +30,11 @@ For any task:
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
+| Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
 | Auth model and RLS policies | `docs/AUTH_AND_RLS.md` (placeholder — defer to spec until completed) |
 | Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
 | Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
+| Angular / TypeScript conventions (zoneless, signals, control flow, OnPush, SSR safety, file naming, lint rules) | `ANGULAR_STYLE_GUIDE.md` (repo root) |
 | Brand book (palette, contrast, visual principles, DOCX export) | `docs/BRAND_GUIDELINES.md` |
 
 If your work touches a topic governed by one of these documents, that document is the source of truth — not your prior knowledge or assumptions.
@@ -58,8 +60,8 @@ These appear repeatedly in tasks and Claude Code may be tempted to violate them.
 
 - **Use Prisma Accelerate.** Instantiate `PrismaClient` from `@prisma/client/edge` and apply `withAccelerate()` per request. `DATABASE_URL` is the `prisma://` Accelerate URL (Worker runtime). `DIRECT_URL` is the Supabase pooler URL, used **only** by the Prisma CLI for migrations — never by Worker runtime code. Do NOT install `@prisma/adapter-pg-worker` and do NOT route Prisma through a TCP pooler from a Worker — Accelerate is HTTPS and works without `nodejs_compat` for the DB path. Validated pattern: `apps/prisma-test/src/index.ts:21-25`. Details in `docs/DATABASE_SCHEMA.md` §1a.
 - **`nodejs_compat` is for SSR, not for the DB.** The SSR Worker needs `compatibility_flags: ["nodejs_compat"]` because `@angular/ssr` reaches for Node polyfills at runtime. That flag is unrelated to database access — Prisma still goes via Accelerate (HTTPS), never via a pg adapter. Validated pattern: `apps/stack-test/wrangler.jsonc:14-15`.
-- **Cloudflare plan is Pro, not Enterprise.** Cache invalidation uses purge-by-URL, not purge-by-tag. Don't add `Cache-Tag` headers. Don't emit `Vary` headers that fragment the edge cache and undermine purge-by-URL — segment by URL path instead (e.g., locale prefix).
-- **Zoneless Angular.** No `zone.js`. Use `provideZonelessChangeDetection()`. Pair with `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))`. Validated pattern: `apps/stack-test/src/app/app.config.ts:18-25`.
+- **Cloudflare plan is Pro.** `Cache-Tag` and purge-by-tag are available on **all plans as of April 2025** and are the AECi strategy from Phase 2 onward. Every cacheable SSR response sets `Cache-Tag` via the AECI-56 helper; invalidation goes through `POST /admin/purge` with a tag list. `Vary: Accept-Language` is permitted because URL-prefix locale dispatch already handles actual variance; any other `Vary` value (`Cookie`, `User-Agent`, etc.) is still forbidden — those fragment the edge cache without a corresponding tag advantage. See `docs/CACHE_STRATEGY.md` for tag vocabulary, TTLs, the purge endpoint shape, and the SEO header set.
+- **Zoneless Angular.** No `zone.js`. Use `provideZonelessChangeDetection()`. Pair with `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))`. Validated pattern: `apps/stack-test/src/app/app.config.ts:18-25`. See `ANGULAR_STYLE_GUIDE.md` for the full set of Angular and TypeScript conventions (signals, control flow, OnPush, SSR safety, host bindings, `NgOptimizedImage`, `inject()` DI, file naming) and the ESLint rules that enforce them.
 - **Cached SSR routes must render visitor-state-neutral HTML.** Edge cache is keyed by URL. If SSR reads a cookie (e.g., `theme`) and bakes it into the response, the first visitor poisons the cache for everyone. The Worker strips visitor-state cookies before forwarding to SSR for cacheable routes; the client reconciles after hydration. Validated pattern: `apps/stack-test/src/server.ts:212-229`.
 - **No pay-for-placement.** Search rankings are purely algorithmic. Paid vendor tiers (Stage 4+) affect profile richness, never ranking position.
 - **i18n from day one.** No hardcoded English strings in templates. Wrap everything in `i18n` attributes or `$localize` tags. Even though we launch English-only, retrofitting i18n is painful.
@@ -73,11 +75,12 @@ For any issue that touches rendered UI in `apps/web/`, run this checklist before
 `PRODUCT.md` (strategic context — users, brand, anti-references, principles) and `DESIGN.md` (visual system — colors, typography, components, do's/don'ts) are loaded by every Impeccable command before design work. If you're touching UI, both files are part of the contract.
 
 1. **Critique the surface first.** Run `/impeccable critique <surface>` (or the standalone `/critique`) to capture a baseline against PRODUCT.md and DESIGN.md before you change anything. The output lands in `.impeccable/critique/` (gitignored).
-2. **Build / refine via the matching skill.** For new features: `/impeccable craft <feature>`. For targeted refinement: `/impeccable typeset`, `/impeccable layout`, `/impeccable colorize`, `/impeccable distill`, `/impeccable normalize`. The shared design laws and the PRODUCT.md/DESIGN.md context are loaded automatically.
-3. **Polish before submitting.** Run `/impeccable polish` for the final pass on spacing, alignment, micro-detail.
-4. **Detect anti-patterns.** `npx impeccable detect <file-or-dir>` must report zero P0 findings. If P0s remain, fix or open a follow-up issue with the exact line references before merging.
-5. **Verify both themes.** Per the "Both themes always" constraint above. The theme switcher (`apps/web/src/app/theme.service.ts`) toggles `.theme-dark` on `<html>` — render in each.
-6. **Run a11y locally.** axe-core pass on the changed surface; resolve every error and `serious` violation before push.
+2. **Pick the anchor reference before building.** If the surface is new or its visual direction is unsettled, consult Mobbin (`mcp__mobbin__*` — see §"MCP usage rules") and record the chosen anchor site in the Linear issue or commit message. From that point, components for this surface come from the *same* anchor site unless an exception is explicitly justified. Binding rule: `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule".
+3. **Build / refine via the matching skill.** For new features: `/impeccable craft <feature>`. For targeted refinement: `/impeccable typeset`, `/impeccable layout`, `/impeccable colorize`, `/impeccable distill`, `/impeccable normalize`. The shared design laws and the PRODUCT.md/DESIGN.md context are loaded automatically.
+4. **Polish before submitting.** Run `/impeccable polish` for the final pass on spacing, alignment, micro-detail.
+5. **Detect anti-patterns.** `npx impeccable detect <file-or-dir>` must report zero P0 findings. If P0s remain, fix or open a follow-up issue with the exact line references before merging.
+6. **Verify both themes.** Per the "Both themes always" constraint above. The theme switcher (`apps/web/src/app/theme.service.ts`) toggles `.theme-dark` on `<html>` — render in each.
+7. **Run a11y locally.** axe-core pass on the changed surface; resolve every error and `serious` violation before push.
 
 ## API contracts approach
 
@@ -102,7 +105,10 @@ pnpm dev
 pnpm typecheck
 
 # Lint and format
-pnpm lint
+pnpm lint            # ESLint across all packages + Prettier --check
+pnpm lint:fix        # ESLint --fix across all packages + Prettier --write
+pnpm format          # Prettier --write .
+pnpm format:check    # Prettier --check .
 
 # Run tests
 pnpm test            # unit + integration
@@ -114,6 +120,17 @@ pnpm build
 ```
 
 Local secrets live in `.dev.vars` (per Worker package). Not committed. `.dev.vars.example` shows what's required.
+
+### SSR ↔ API service binding in local dev
+
+The SSR Worker calls the private API Worker over a service binding (`env.API`). In local dev, wrangler's cross-Worker registry resolves the binding only when both Workers are running **and** the API Worker's registered name matches the SSR Worker's `service` value. The bound name is `aeci-api-preview`, which is the API Worker's `env.preview.name` — so the API Worker must be started with `--env preview`.
+
+```bash
+# Boots API on :8787 (as aeci-api-preview) and SSR on :8788 in parallel.
+pnpm dev:bound
+```
+
+`pnpm dev:bound` runs `pnpm -r --parallel --filter @aeci/api --filter @aeci/web run dev:preview`. Running only one of the two Workers leaves the binding unresolved and the SSR `/api/health` proxy will fail. The legacy single-Worker `pnpm dev:web` / `pnpm dev:api` scripts remain for solo-Worker iteration.
 
 ## Skills
 
@@ -178,7 +195,7 @@ Every state-changing write must call `appendAuditLog()` which also forwards to D
 
 ## Cache invalidation
 
-Every write that affects cacheable URLs must call `invalidateForEntity()`. See `docs/STAGE_1_SPEC.md` §9.3. URL map is in §9.3 — extend it when adding new cached routes.
+Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`apps/web/src/server/cache-tags.ts`). Writes that affect cached pages call `POST /admin/purge` with the relevant tag list. Tag vocabulary, TTLs, composition rules, and the helper signature live in `docs/CACHE_STRATEGY.md`. The `invalidateForEntity()` / URL-invalidation-map approach in `docs/STAGE_1_SPEC.md` §9.3 is superseded.
 
 ## MCP usage rules
 
@@ -186,6 +203,12 @@ Every write that affects cacheable URLs must call `invalidateForEntity()`. See `
 - Before writing, modifying, or analyzing any Angular code, call `get_best_practices` once per session.
 - For any Angular API question (signals, control flow, forms, router, SSR, zoneless), call `search_documentation` before answering from training data.
 - Use `list_projects` to orient before generating files in the workspace.
+
+**Mobbin MCP (`mobbin`):**
+- What it is: a visual reference library of real shipping apps — flows, screens, and component patterns sourced from production iOS, Android, and web products.
+- When to use: any UI-touching issue. During `/impeccable shape` (or equivalent) to pick the named anchor reference(s) for a surface; during `/impeccable craft` or component-level work to look up patterns *from the same anchor site* already chosen for that surface.
+- Auth: surfaced tools are `mcp__mobbin__authenticate` and `mcp__mobbin__complete_authentication`. Call `authenticate` first, then `complete_authentication`; additional Mobbin tools become callable in the same session after auth completes.
+- **The anchor-site rule.** Once a surface picks a Mobbin site as its theme, additional components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — the originating theme site stays the visual anchor (composition, hierarchy, density, atmosphere). This protects editorial coherence: AECi should read as one publication, not a mashup. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule" for the binding rule.
 
 ## Closing notes
 

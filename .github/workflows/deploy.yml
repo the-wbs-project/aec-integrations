@@ -1,20 +1,34 @@
-# AEC Integrations — deploy pipeline.
+# AEC Integrations — CI pipeline (deploys parked).
 #
-# Scaffolded in AECI-27 (Phase 1.15). Follows docs/CICD_PLAN.md §3 with
-# a deliberately-trimmed surface for Phase 1:
+# Current posture (set 2026-05-18, AECI / no-issue housekeeping):
+#   PR push        → lint → typecheck → unit → build         (no deploy)
+#   push to main   → lint → typecheck → unit → build         (no deploy)
 #
-#   PR push        → lint → typecheck → unit → build → preview deploy
-#   push to main   → lint → typecheck → unit → build → production deploy
-#                    (gated by GitHub Environment `production` reviewers)
+# Rationale:
+#   - Per-PR preview deploys (aec-web-pr-<N> / aec-api-pr-<N>) were removed.
+#     A future preview model (shared vs. per-PR vs. full staging) is still
+#     under investigation; see docs/CICD_PLAN.md §2 deviation callout.
+#   - Auto-deploy-to-production on merge to `main` was removed. Production
+#     ships manually (`wrangler deploy --env production` from a developer
+#     machine) until a deliberate trigger (workflow_dispatch / tag / etc.)
+#     is chosen. The `deploy-production` job below is preserved but parked
+#     behind `if: false` so re-enabling is a one-line change once a trigger
+#     is wired.
 #
-# Deferred to later issues (tracked separately, NOT in this workflow yet):
+# Deferred (tracked separately, NOT in this workflow yet):
 #   - staging environment (CICD_PLAN §2.2)
-#   - E2E / Lighthouse / axe-core jobs (CICD_PLAN §3.1)
 #   - Supabase migrations (CICD_PLAN §5)
 #   - Datadog deployment markers (CICD_PLAN §9.1)
-#   - Smoke tests against deployed URLs (CICD_PLAN §9.2)
 #
-# Required repo secrets (set under Settings → Secrets and variables → Actions):
+# Phase 1.19 (AECI-33) added:
+#   - e2e-tests-local           — Playwright + axe smoke against `pnpm dev:bound`
+#   - integration-runner-local  — apps/web/scripts/run-extra-tests.sh against local
+#   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED)
+#   - integration-runner-preview — extras script against preview URL (PARKED)
+#   - lighthouse                — Lighthouse CI, warn-only (PARKED)
+# The "preview" and "lighthouse" jobs activate when `deploy-preview` lands.
+#
+# Required repo secrets (still configured for the future prod trigger):
 #   CLOUDFLARE_API_TOKEN   — scope per CICD_PLAN §7.1
 #   CLOUDFLARE_ACCOUNT_ID  — e62ec9d8012c3e0c225f8e4dbab76b79
 #
@@ -38,9 +52,9 @@ env:
   NODE_VERSION: '24'
   PNPM_VERSION: '10.33.0'
   # Opt JavaScript-based actions (checkout, setup-node, wrangler-action,
-  # download-artifact, sticky-pull-request-comment, pnpm/action-setup) onto
-  # Node.js 24. GitHub is forcing this default on 2026-06-02 and removing
-  # Node.js 20 from runners on 2026-09-16. See:
+  # download-artifact, pnpm/action-setup) onto Node.js 24. GitHub is forcing
+  # this default on 2026-06-02 and removing Node.js 20 from runners on
+  # 2026-09-16. See:
   # https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
@@ -105,14 +119,11 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  deploy-preview:
-    name: Deploy preview
-    if: github.event_name == 'pull_request'
+  e2e-tests-local:
+    name: E2E + axe (local)
     runs-on: ubuntu-latest
     needs: [build-web]
-    permissions:
-      contents: read
-      pull-requests: write
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -123,54 +134,135 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
-        with:
-          name: web-dist
-          path: apps/web/dist
-
-      # wrangler-action invokes `wrangler deploy` directly, bypassing
-      # apps/api's `pnpm run deploy` script chain. Generate the Prisma client
-      # so esbuild can resolve @prisma/client/edge → .prisma/client/edge
-      # during bundling.
       - run: pnpm --filter @aeci/api exec prisma generate
-
-      # API Worker comes up first (CICD_PLAN §4.3 atomic-deploy ordering:
-      # API ready before SSR can call it). No service binding exists yet,
-      # but we keep the convention so it's a no-op when wiring lands.
-      - name: Deploy API preview
-        uses: cloudflare/wrangler-action@v3
+      # Cache Playwright browsers so subsequent runs skip the ~150MB download.
+      - uses: actions/cache@v4
+        id: playwright-cache
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          command: deploy --env preview --name aec-api-pr-${{ github.event.pull_request.number }}
-          packageManager: pnpm
-
-      - name: Deploy SSR preview
-        id: deploy-ssr-preview
-        uses: cloudflare/wrangler-action@v3
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
+      - if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @aeci/web exec playwright install-deps chromium
+      # Build the SSR Worker bundle before booting `dev:bound`. `dev:preview`
+      # invokes `wrangler dev` directly (no implicit build), so without this
+      # step wrangler fails with "dist/server/server.mjs was not found".
+      # `build-web` is a `needs:` dependency for ordering only — its artifact
+      # is not downloaded here, so we rebuild locally.
+      - run: pnpm --filter @aeci/web build
+      # Playwright's `webServer` in apps/web/playwright.config.ts boots
+      # `pnpm dev:bound` (both Workers) and waits for :8788 to be reachable.
+      - run: pnpm --filter @aeci/web run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/web
-          command: deploy --env preview --name aec-web-pr-${{ github.event.pull_request.number }}
-          packageManager: pnpm
+          name: playwright-report
+          path: apps/web/playwright-report
+          retention-days: 7
+          if-no-files-found: ignore
 
-      - name: Comment preview URLs on PR
-        uses: marocchino/sticky-pull-request-comment@v2
+  integration-runner-local:
+    name: Edge-cache integration runner (local)
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
         with:
-          header: aeci-preview
-          message: |
-            ### Preview deployed
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/api exec prisma generate
+      - run: pnpm --filter @aeci/web build
+      # Boot both Workers in the background; the extras script handles its own
+      # preflight reachability check before exercising HTTP.
+      - name: Boot dev:bound (API + SSR)
+        run: nohup pnpm dev:bound > dev-bound.log 2>&1 &
+      - name: Wait for SSR Worker on :8788
+        run: |
+          for i in $(seq 1 60); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/; then
+              echo "ssr up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "ssr did not come up in 60s"; tail -100 dev-bound.log; exit 1
+      - run: HOST=http://localhost:8788 ./apps/web/scripts/run-extra-tests.sh
+      - if: failure()
+        run: tail -200 dev-bound.log || true
 
-            - SSR: `aec-web-pr-${{ github.event.pull_request.number }}` → see [`workers.dev` URL in the deploy step output](${{ steps.deploy-ssr-preview.outputs.deployment-url || format('https://github.com/{0}/actions/runs/{1}', github.repository, github.run_id) }})
-            - API: `aec-api-pr-${{ github.event.pull_request.number }}` (private; hit `/health` to smoke)
+  e2e-tests-preview:
+    name: E2E + axe (preview URL)
+    # PARKED until `deploy-preview` job is added. When that lands, replace
+    # `if: false` with `needs: deploy-preview` and supply PLAYWRIGHT_BASE_URL.
+    if: false
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
+      - run: pnpm --filter @aeci/web run test:e2e
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ vars.PREVIEW_URL }}
 
-            Commit: `${{ github.event.pull_request.head.sha }}`
+  integration-runner-preview:
+    name: Edge-cache integration runner (preview URL)
+    # PARKED — see e2e-tests-preview.
+    if: false
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: HOST="${PREVIEW_URL}" ./apps/web/scripts/run-extra-tests.sh
+        env:
+          PREVIEW_URL: ${{ vars.PREVIEW_URL }}
+
+  lighthouse:
+    name: Lighthouse CI (warn-only)
+    # PARKED until `deploy-preview` lands; warn-only assertions per
+    # docs/CICD_PLAN.md §8 and AECI-33 spec — enforcement (error-level)
+    # flips in Phase 7.
+    if: false
+    runs-on: ubuntu-latest
+    needs: [build-web]
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lighthouse
+        env:
+          LHCI_URL: ${{ vars.PREVIEW_URL }}
 
   deploy-production:
     name: Deploy production
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # PARKED. This job is intentionally never triggered by CI right now.
+    # Production ships manually via `wrangler deploy --env production` until
+    # a trigger model (workflow_dispatch / tag / promote-from-staging) is
+    # chosen. To re-enable: change `if: false` to the chosen condition and
+    # add the matching entry to the `on:` block above.
+    if: false
     runs-on: ubuntu-latest
     needs: [build-web]
     environment:

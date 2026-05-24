@@ -205,6 +205,8 @@ Token parity with the light palette. Names mirror the light tokens with a `dark-
 
 **The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (light theme), the dark surface-base is `#0A0A0A`, the dark text-primary is `#FAFAFA`. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation.
 
+**The Anchor-Site Rule.** When a surface uses a Mobbin reference site as its theme, components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — and the originating theme site remains the visual anchor for composition, hierarchy, density, and atmosphere. This protects editorial coherence: AECi reads as one publication, not a mashup of unrelated apps. Record the anchor site with the surface (Linear issue or commit message) so future iterations stay aligned. Access Mobbin via the `mcp__mobbin__*` MCP server — see `CLAUDE.md` §"MCP usage rules" for auth flow and the matching design-checklist step.
+
 ## 3. Typography
 
 **Display Font:** Source Serif 4 (with Georgia, "Times New Roman", serif fallback)

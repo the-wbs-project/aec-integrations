@@ -1,0 +1,95 @@
+import { z } from 'zod';
+
+import {
+  paginatedResponseSchema,
+  PageQuerySchema,
+  ProductLinkSchema,
+  VendorLinkSchema,
+} from './common';
+
+/**
+ * Integration mechanism enum. Mirrors the `mechanism_kind` column on the
+ * `integrations` table (docs/DATABASE_SCHEMA.md §3) and stays in lockstep with
+ * the directory editorial taxonomy in PRODUCT.md.
+ */
+export const IntegrationMechanismKindSchema = z.enum([
+  'native',
+  'iPaaS',
+  'marketplace-app',
+  'api',
+  'webhook',
+  'partner',
+]);
+
+export type IntegrationMechanismKind = z.infer<typeof IntegrationMechanismKindSchema>;
+
+export const IntegrationDirectionSchema = z.enum(['one-way', 'bidirectional']);
+
+export type IntegrationDirection = z.infer<typeof IntegrationDirectionSchema>;
+
+/**
+ * Public sort key for `GET /api/integrations`. Phase 2 Spec §7.4: default
+ * `name ASC`. Server-side maps `name → ASC`, `created → DESC` per §7.4.
+ */
+export const IntegrationSortSchema = z.enum(['name', 'created']).default('name');
+
+export type IntegrationSort = z.infer<typeof IntegrationSortSchema>;
+
+/**
+ * Lean shape returned by `GET /api/integrations` list rows and embedded in
+ * `ProductDetail.integrations_as_source` / `integrations_as_target`. Source
+ * and target products are hydrated as `ProductLink` (id + name + slug + logo)
+ * per Phase 2 Spec §7.2.
+ */
+export const IntegrationListItemSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().min(1),
+  mechanism_kind: IntegrationMechanismKindSchema,
+  mechanism_name: z.string().nullable(),
+  direction: IntegrationDirectionSchema.nullable(),
+  source: ProductLinkSchema,
+  target: ProductLinkSchema,
+  created_at: z.string().datetime(),
+  updated_at: z.string().datetime(),
+});
+
+export type IntegrationListItem = z.infer<typeof IntegrationListItemSchema>;
+
+/**
+ * Full integration detail returned by `GET /api/integrations/:id`. Adds the
+ * description, links, optional vendor / connector product, and editorial
+ * metadata (pricing, maturity) on top of the list-item shape.
+ */
+export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
+  description: z.string().nullable(),
+  listing_url: z.string().url().nullable(),
+  docs_url: z.string().url().nullable(),
+  mechanism_url: z.string().url().nullable(),
+  built_by_vendor: VendorLinkSchema.nullable(),
+  powered_by_product: ProductLinkSchema.nullable(),
+  pricing_model: z.string().nullable(),
+  maturity: z.string().nullable(),
+});
+
+export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
+
+/**
+ * Query for `GET /api/integrations`. Filter fields use the camelCase names
+ * called out in the AECI-50 acceptance criteria (`sourceProductId`,
+ * `targetProductId`); enum-valued filters keep the snake_case form that
+ * matches the underlying columns.
+ */
+export const IntegrationsListQuerySchema = PageQuerySchema.extend({
+  sort: IntegrationSortSchema,
+  search: z.string().optional(),
+  sourceProductId: z.string().uuid().optional(),
+  targetProductId: z.string().uuid().optional(),
+  mechanism_kind: IntegrationMechanismKindSchema.optional(),
+  direction: IntegrationDirectionSchema.optional(),
+});
+
+export type IntegrationsListQuery = z.infer<typeof IntegrationsListQuerySchema>;
+
+export const IntegrationsListResponseSchema = paginatedResponseSchema(IntegrationListItemSchema);
+
+export type IntegrationsListResponse = z.infer<typeof IntegrationsListResponseSchema>;

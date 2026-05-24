@@ -7,7 +7,9 @@
     "deploy": "wrangler deploy --env production",
     "ship": "wrangler deploy --env production",
     "sync:secrets:local": "bash sync-secrets.sh local",
-    "sync:secrets:production": "bash sync-secrets.sh production"
+    "sync:secrets:production": "bash sync-secrets.sh production",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
   },
   "devDependencies": {
     "wrangler": "^4.86.0"

@@ -1,53 +1,49 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "landing-page",
-	"account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
-	"main": "src/index.ts",
-	"compatibility_date": "2026-04-07",
-	"compatibility_flags": ["nodejs_compat"],
-	"workers_dev": false,
-	"observability": {
-		"logs": {
-			"enabled": true,
-			"invocation_logs": true
-		},
-		"traces": {
-			"enabled": false
-		}
-	},
-	"assets": {
-		"directory": "./public",
-		"binding": "ASSETS"
-	},
-	"analytics_engine_datasets": [
-		{ "binding": "ANALYTICS", "dataset": "landing-page" }
-	],
-	"vars": {
-		"SUPABASE_URL": "http://127.0.0.1:54321",
-		"NOTIFICATION_FROM": "notifications@aecintegrations.com",
-		"NOTIFICATION_TO": "chrisw@thewbsproject.com"
-	},
-	"env": {
-		"production": {
-			"name": "landing-page",
-			"analytics_engine_datasets": [
-				{ "binding": "ANALYTICS", "dataset": "landing-page" }
-			],
-			"vars": {
-				"SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
-				"NOTIFICATION_FROM": "notifications@aecintegrations.com",
-				"NOTIFICATION_TO": "chrisw@thewbsproject.com"
-			},
-			"routes": [
-				{
-					"pattern": "www.aecintegrations.com",
-					"custom_domain": true
-				},
-				{
-					"pattern": "aecintegrations.com",
-					"custom_domain": true
-				}
-			]
-		}
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "landing-page",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+    "traces": {
+      "enabled": false,
+    },
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+  },
+  "analytics_engine_datasets": [{ "binding": "ANALYTICS", "dataset": "landing-page" }],
+  "vars": {
+    "SUPABASE_URL": "http://127.0.0.1:54321",
+    "NOTIFICATION_FROM": "notifications@aecintegrations.com",
+    "NOTIFICATION_TO": "chrisw@thewbsproject.com",
+  },
+  "env": {
+    "production": {
+      "name": "landing-page",
+      "analytics_engine_datasets": [{ "binding": "ANALYTICS", "dataset": "landing-page" }],
+      "vars": {
+        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        "NOTIFICATION_FROM": "notifications@aecintegrations.com",
+        "NOTIFICATION_TO": "chrisw@thewbsproject.com",
+      },
+      "routes": [
+        {
+          "pattern": "www.aecintegrations.com",
+          "custom_domain": true,
+        },
+        {
+          "pattern": "aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
+    },
+  },
 }
