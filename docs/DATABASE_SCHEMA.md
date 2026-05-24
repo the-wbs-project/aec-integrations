@@ -533,34 +533,50 @@ create unique index reviews_unique_per_user_product
 
 Mirror of Linear issues for claim and correction requests. Local audit trail.
 
+Target is a **loose polymorphic FK** — `(target_type, target_id)` with a CHECK on
+`target_type` and no hard FK on `target_id`. Application-level referential
+checks live in the Phase 6 form submission handler. Rationale: keeps room for
+Stage 2 to add claim/correction for additional entity types without another
+migration. See Phase 2 Spec §5.2.
+
 ```sql
 create table vendor_requests (
   id uuid primary key default gen_random_uuid(),
   kind text not null check (kind in ('claim', 'correction')),
 
-  -- Target of the request
-  vendor_id uuid references vendors(id),
-  product_id uuid references products(id),
+  -- Target (loose polymorphic; no hard FK on target_id)
+  target_type text not null check (target_type in ('product', 'vendor')),
+  target_id   uuid not null,
 
-  -- Submission data
-  submitted_email text not null,
-  submitted_name text,
-  payload jsonb not null,
+  -- Submitter
+  submitter_email text not null,
+  submitter_name  text,
+  submitter_role  text,
+
+  -- Domain-match outcome computed at submission time
+  domain_match text not null default 'pending'
+    check (domain_match in ('pending', 'match', 'no_match', 'manual_review')),
+
+  -- Submission content
+  body       text not null,
+  source_url text,
+
+  -- Status
+  status text not null default 'open'
+    check (status in ('open', 'in_review', 'resolved', 'rejected')),
 
   -- External system link
   linear_issue_id text,
 
-  -- Status
-  status text not null default 'open' check (status in ('open', 'resolved', 'rejected')),
+  -- Lifecycle
+  created_at  timestamptz not null default now(),
   resolved_at timestamptz,
-
-  created_at timestamptz not null default now()
+  resolved_by uuid references profiles(id) on delete set null
 );
 
-create index vendor_requests_kind_status_idx on vendor_requests(kind, status, created_at desc);
-create index vendor_requests_vendor_idx on vendor_requests(vendor_id) where vendor_id is not null;
-create index vendor_requests_product_idx on vendor_requests(product_id) where product_id is not null;
-create index vendor_requests_linear_idx on vendor_requests(linear_issue_id) where linear_issue_id is not null;
+create index vendor_requests_status_idx     on vendor_requests(status);
+create index vendor_requests_target_idx     on vendor_requests(target_type, target_id);
+create index vendor_requests_created_at_idx on vendor_requests(created_at desc);
 ```
 
 ### 8.2 `workflow_instances`

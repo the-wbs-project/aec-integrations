@@ -143,7 +143,7 @@ Only `vendor_requests` lands in Phase 2.
 
 ### 5.1 `vendor_requests` schema
 
-Refer to `DATABASE_SCHEMA.md` for canonical column list. Decisions baked in here:
+Canonical column list for Phase 2 (mirrored in `DATABASE_SCHEMA.md` §8.1). Decisions baked in here:
 
 ```
 vendor_requests

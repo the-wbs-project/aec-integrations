@@ -21,6 +21,14 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
+  // NOTE: `prisma migrate dev` is intentionally NOT supported on this repo.
+  // The auth_integration migration adds a cross-schema FK to auth.users,
+  // which Prisma's drift detector can only accept by declaring `auth` in
+  // `schemas` — but that then makes Prisma compare its (necessarily stub)
+  // model of auth.users against gotrue's full schema, demanding a wipe.
+  // Resolved by using `prisma migrate deploy` exclusively: hand-write the
+  // SQL for new migrations, then deploy. See docs/AUTH_AND_RLS.md §11 for
+  // the local workflow.
 }
 
 // Retained from AECI-28; proves the per-request Accelerate path. Do not drop.
@@ -36,47 +44,46 @@ model HealthCheck {
 // =============================================================================
 
 model Vendor {
-  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  slug           String    @unique
-  companyName    String    @map("company_name")
-  description    String?
-  website        String?
-  headquarters   String?
-  foundedYear    Int?      @map("founded_year")
-  publicPrivate  String?   @map("public_private")
-  parentCompany  String?   @map("parent_company")
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug          String  @unique
+  companyName   String  @map("company_name")
+  description   String?
+  website       String?
+  headquarters  String?
+  foundedYear   Int?    @map("founded_year")
+  publicPrivate String? @map("public_private")
+  parentCompany String? @map("parent_company")
 
-  linkedinUrl    String?   @map("linkedin_url")
-  crunchbaseUrl  String?   @map("crunchbase_url")
-  wikiUrl        String?   @map("wiki_url")
-  sourceUrl      String?   @map("source_url")
-  githubOrg      String?   @map("github_org")
-  phoneNumber    String?   @map("phone_number")
-  contactEmail   String?   @map("contact_email")
+  linkedinUrl   String? @map("linkedin_url")
+  crunchbaseUrl String? @map("crunchbase_url")
+  wikiUrl       String? @map("wiki_url")
+  sourceUrl     String? @map("source_url")
+  githubOrg     String? @map("github_org")
+  phoneNumber   String? @map("phone_number")
+  contactEmail  String? @map("contact_email")
 
-  verified         Boolean @default(false)
-  promotionStatus  String  @default("pending") @map("promotion_status")
-  adminNotes       String? @map("admin_notes")
+  verified        Boolean @default(false)
+  promotionStatus String  @default("pending") @map("promotion_status")
+  adminNotes      String? @map("admin_notes")
 
   vqsCredibility Decimal?  @map("vqs_credibility") @db.Decimal(4, 2)
-  vqsMomentum    Decimal?  @map("vqs_momentum")    @db.Decimal(4, 2)
-  vqsFit         Decimal?  @map("vqs_fit")         @db.Decimal(4, 2)
-  vqsTotal       Decimal?  @map("vqs_total")       @db.Decimal(4, 2)
+  vqsMomentum    Decimal?  @map("vqs_momentum") @db.Decimal(4, 2)
+  vqsFit         Decimal?  @map("vqs_fit") @db.Decimal(4, 2)
+  vqsTotal       Decimal?  @map("vqs_total") @db.Decimal(4, 2)
   vqsComputedAt  DateTime? @map("vqs_computed_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  productVendors      ProductVendor[]
-  builtIntegrations   Integration[]      @relation("IntegrationBuiltByVendor")
-  pageViews           PageView[]
-  vendorRequests      VendorRequest[]
-  profiles            Profile[]
+  productVendors    ProductVendor[]
+  builtIntegrations Integration[]   @relation("IntegrationBuiltByVendor")
+  pageViews         PageView[]
+  profiles          Profile[]
 
-  @@index([slug],            map: "vendors_slug_idx")
-  @@index([companyName],     map: "vendors_company_name_idx")
+  @@index([slug], map: "vendors_slug_idx")
+  @@index([companyName], map: "vendors_company_name_idx")
   @@index([promotionStatus], map: "vendors_promotion_status_idx")
-  @@index([verified],        map: "vendors_verified_idx")
+  @@index([verified], map: "vendors_verified_idx")
   @@map("vendors")
 }
 
@@ -100,7 +107,7 @@ model Product {
   // and (later) DB triggers are deferred to Phase 2.
   integrationCount    Int      @default(0) @map("integration_count")
   reviewCount         Int      @default(0) @map("review_count")
-  ratingOverallAvg    Decimal? @map("rating_overall_avg")    @db.Decimal(3, 2)
+  ratingOverallAvg    Decimal? @map("rating_overall_avg") @db.Decimal(3, 2)
   ratingOnboardingAvg Decimal? @map("rating_onboarding_avg") @db.Decimal(3, 2)
 
   researchStatus  String  @default("pending") @map("research_status")
@@ -133,15 +140,14 @@ model Product {
   extensionsAsExtension ProductExtension[]  @relation("ProductExtensionAsExtension")
   extensionsAsHost      ProductExtension[]  @relation("ProductExtensionAsHost")
   reviews               Review[]
-  vendorRequests        VendorRequest[]
   pageViews             PageView[]
 
-  @@index([slug],             map: "products_slug_idx")
-  @@index([name],             map: "products_name_idx")
-  @@index([promotionStatus],  map: "products_promotion_status_idx")
-  @@index([researchStatus],   map: "products_research_status_idx")
-  @@index([priorityTier],     map: "products_priority_tier_idx")
-  @@index([productRole],      map: "products_product_role_idx")
+  @@index([slug], map: "products_slug_idx")
+  @@index([name], map: "products_name_idx")
+  @@index([promotionStatus], map: "products_promotion_status_idx")
+  @@index([researchStatus], map: "products_research_status_idx")
+  @@index([priorityTier], map: "products_priority_tier_idx")
+  @@index([productRole], map: "products_product_role_idx")
   @@index([updatedAt(sort: Desc)], map: "products_updated_at_idx")
   @@map("products")
 }
@@ -157,29 +163,29 @@ model Integration {
   mechanismName String? @map("mechanism_name")
   direction     String?
 
-  builtByVendorId      String? @map("built_by_vendor_id")      @db.Uuid
-  poweredByProductId   String? @map("powered_by_product_id")   @db.Uuid
+  builtByVendorId    String? @map("built_by_vendor_id") @db.Uuid
+  poweredByProductId String? @map("powered_by_product_id") @db.Uuid
 
-  description   String?
-  listingUrl    String? @map("listing_url")
-  docsUrl       String? @map("docs_url")
-  website       String?
-  mechanismUrl  String? @map("mechanism_url")
-  pricingModel  String? @map("pricing_model")
-  maturity      String?
-  notes         String?
+  description  String?
+  listingUrl   String? @map("listing_url")
+  docsUrl      String? @map("docs_url")
+  website      String?
+  mechanismUrl String? @map("mechanism_url")
+  pricingModel String? @map("pricing_model")
+  maturity     String?
+  notes        String?
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  sourceProduct    Product  @relation("IntegrationSource",          fields: [sourceProductId],    references: [id], onDelete: Cascade)
-  targetProduct    Product  @relation("IntegrationTarget",          fields: [targetProductId],    references: [id], onDelete: Cascade)
-  builtByVendor    Vendor?  @relation("IntegrationBuiltByVendor",   fields: [builtByVendorId],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+  sourceProduct    Product  @relation("IntegrationSource", fields: [sourceProductId], references: [id], onDelete: Cascade)
+  targetProduct    Product  @relation("IntegrationTarget", fields: [targetProductId], references: [id], onDelete: Cascade)
+  builtByVendor    Vendor?  @relation("IntegrationBuiltByVendor", fields: [builtByVendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
   poweredByProduct Product? @relation("IntegrationPoweredByProduct", fields: [poweredByProductId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([sourceProductId], map: "integrations_source_idx")
   @@index([targetProductId], map: "integrations_target_idx")
-  @@index([mechanismKind],   map: "integrations_mechanism_kind_idx")
+  @@index([mechanismKind], map: "integrations_mechanism_kind_idx")
   // Partial indexes added in raw SQL:
   //   integrations_built_by_idx    (built_by_vendor_id)    WHERE built_by_vendor_id    IS NOT NULL
   //   integrations_powered_by_idx  (powered_by_product_id) WHERE powered_by_product_id IS NOT NULL
@@ -240,11 +246,11 @@ model TaxonomyPhase {
 // =============================================================================
 
 model ProductCategory {
-  productId  String   @map("product_id")  @db.Uuid
+  productId  String   @map("product_id") @db.Uuid
   categoryId String   @map("category_id") @db.Uuid
   createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  product  Product          @relation(fields: [productId],  references: [id], onDelete: Cascade)
+  product  Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
   category TaxonomyCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade)
 
   @@id([productId, categoryId])
@@ -253,11 +259,11 @@ model ProductCategory {
 }
 
 model ProductDiscipline {
-  productId    String   @map("product_id")    @db.Uuid
+  productId    String   @map("product_id") @db.Uuid
   disciplineId String   @map("discipline_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  product    Product            @relation(fields: [productId],    references: [id], onDelete: Cascade)
+  product    Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
   discipline TaxonomyDiscipline @relation(fields: [disciplineId], references: [id], onDelete: Cascade)
 
   @@id([productId, disciplineId])
@@ -267,11 +273,11 @@ model ProductDiscipline {
 
 model ProductPhase {
   productId String   @map("product_id") @db.Uuid
-  phaseId   String   @map("phase_id")   @db.Uuid
+  phaseId   String   @map("phase_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   product Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
-  phase   TaxonomyPhase @relation(fields: [phaseId],   references: [id], onDelete: Cascade)
+  phase   TaxonomyPhase @relation(fields: [phaseId], references: [id], onDelete: Cascade)
 
   @@id([productId, phaseId])
   @@index([phaseId], map: "product_phases_phase_idx")
@@ -280,12 +286,12 @@ model ProductPhase {
 
 model ProductVendor {
   productId String   @map("product_id") @db.Uuid
-  vendorId  String   @map("vendor_id")  @db.Uuid
+  vendorId  String   @map("vendor_id") @db.Uuid
   isPrimary Boolean  @default(true) @map("is_primary")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  vendor  Vendor  @relation(fields: [vendorId],  references: [id], onDelete: Cascade)
+  vendor  Vendor  @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
   @@id([productId, vendorId])
   @@index([vendorId], map: "product_vendors_vendor_idx")
@@ -293,12 +299,12 @@ model ProductVendor {
 }
 
 model ProductExtension {
-  productId     String   @map("product_id")      @db.Uuid
+  productId     String   @map("product_id") @db.Uuid
   hostProductId String   @map("host_product_id") @db.Uuid
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  product     Product @relation("ProductExtensionAsExtension", fields: [productId],     references: [id], onDelete: Cascade)
-  hostProduct Product @relation("ProductExtensionAsHost",      fields: [hostProductId], references: [id], onDelete: Cascade)
+  product     Product @relation("ProductExtensionAsExtension", fields: [productId], references: [id], onDelete: Cascade)
+  hostProduct Product @relation("ProductExtensionAsHost", fields: [hostProductId], references: [id], onDelete: Cascade)
 
   @@id([productId, hostProductId])
   @@index([hostProductId], map: "product_extensions_host_idx")
@@ -327,15 +333,16 @@ model Profile {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  vendor              Vendor?              @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  reviewsAuthored     Review[]             @relation("ReviewReviewer")
-  reviewsModerated    Review[]             @relation("ReviewModerator")
-  workflowsInitiated  WorkflowInstance[]
-  workflowTransitions WorkflowTransition[]
-  auditLogEntries     AuditLog[]
-  pageViews           PageView[]
+  vendor                 Vendor?              @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  reviewsAuthored        Review[]             @relation("ReviewReviewer")
+  reviewsModerated       Review[]             @relation("ReviewModerator")
+  workflowsInitiated     WorkflowInstance[]
+  workflowTransitions    WorkflowTransition[]
+  auditLogEntries        AuditLog[]
+  pageViews              PageView[]
+  vendorRequestsResolved VendorRequest[]      @relation("VendorRequestResolver")
 
-  @@index([role],     map: "profiles_role_idx")
+  @@index([role], map: "profiles_role_idx")
   // Partial indexes added in raw SQL:
   //   profiles_vendor_idx (vendor_id) WHERE vendor_id IS NOT NULL
   //   profiles_banned_idx (banned_at) WHERE banned_at IS NOT NULL
@@ -343,19 +350,19 @@ model Profile {
 }
 
 model Review {
-  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  productId       String   @map("product_id") @db.Uuid
-  reviewerId      String?  @map("reviewer_id") @db.Uuid
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId  String  @map("product_id") @db.Uuid
+  reviewerId String? @map("reviewer_id") @db.Uuid
 
-  ratingOverall    Int @map("rating_overall")    @db.SmallInt
+  ratingOverall    Int @map("rating_overall") @db.SmallInt
   ratingOnboarding Int @map("rating_onboarding") @db.SmallInt
 
   title String
   body  String
 
-  roleAtCompany   String? @map("role_at_company")
-  yearsUsing      Int?    @map("years_using") @db.SmallInt
-  wouldRecommend  String? @map("would_recommend")
+  roleAtCompany  String? @map("role_at_company")
+  yearsUsing     Int?    @map("years_using") @db.SmallInt
+  wouldRecommend String? @map("would_recommend")
 
   status          String    @default("pending")
   rejectionReason String?   @map("rejection_reason")
@@ -369,12 +376,12 @@ model Review {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  product   Product  @relation(fields: [productId],  references: [id], onDelete: Cascade)
-  reviewer  Profile? @relation("ReviewReviewer",  fields: [reviewerId],  references: [id], onDelete: SetNull)
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  reviewer  Profile? @relation("ReviewReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
   moderator Profile? @relation("ReviewModerator", fields: [moderatedBy], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([productId, status],              map: "reviews_product_status_idx")
-  @@index([status, createdAt(sort: Desc)],  map: "reviews_status_created_idx")
+  @@index([productId, status], map: "reviews_product_status_idx")
+  @@index([status, createdAt(sort: Desc)], map: "reviews_status_created_idx")
   // Partial / conditional indexes added in raw SQL:
   //   reviews_reviewer_idx          (reviewer_id) WHERE reviewer_id IS NOT NULL
   //   reviews_unique_per_user_product UNIQUE (product_id, reviewer_id)
@@ -386,40 +393,44 @@ model Review {
 // Operations and workflow (§8)
 // =============================================================================
 
+// Phase 2 Spec §5.1 shape. Loose polymorphic FK via (target_type, target_id);
+// application-level validation lives in the Phase 6 form handler.
 model VendorRequest {
   id   String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   kind String
 
-  vendorId  String? @map("vendor_id")  @db.Uuid
-  productId String? @map("product_id") @db.Uuid
+  targetType String @map("target_type")
+  targetId   String @map("target_id") @db.Uuid
 
-  submittedEmail String  @map("submitted_email")
-  submittedName  String? @map("submitted_name")
-  payload        Json    @db.JsonB
+  submitterEmail String  @map("submitter_email")
+  submitterName  String? @map("submitter_name")
+  submitterRole  String? @map("submitter_role")
 
+  domainMatch String @default("pending") @map("domain_match")
+
+  body      String
+  sourceUrl String? @map("source_url")
+
+  status        String  @default("open")
   linearIssueId String? @map("linear_issue_id")
 
-  status     String    @default("open")
-  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedAt   DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolvedById String?   @map("resolved_by") @db.Uuid
 
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  resolvedBy Profile? @relation("VendorRequestResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
 
-  vendor  Vendor?  @relation(fields: [vendorId],  references: [id], onDelete: NoAction, onUpdate: NoAction)
-  product Product? @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([kind, status, createdAt(sort: Desc)], map: "vendor_requests_kind_status_idx")
-  // Partial indexes added in raw SQL:
-  //   vendor_requests_vendor_idx  (vendor_id)        WHERE vendor_id        IS NOT NULL
-  //   vendor_requests_product_idx (product_id)       WHERE product_id       IS NOT NULL
-  //   vendor_requests_linear_idx  (linear_issue_id)  WHERE linear_issue_id  IS NOT NULL
+  @@index([status], map: "vendor_requests_status_idx")
+  @@index([targetType, targetId], map: "vendor_requests_target_idx")
+  @@index([createdAt(sort: Desc)], map: "vendor_requests_created_at_idx")
   @@map("vendor_requests")
 }
 
 model WorkflowInstance {
-  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workflowType String  @map("workflow_type")
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workflowType String @map("workflow_type")
   // Polymorphic: FK target varies by workflowType; not enforced at DB level.
-  entityId     String  @map("entity_id") @db.Uuid
+  entityId     String @map("entity_id") @db.Uuid
 
   currentState  String  @map("current_state")
   linearIssueId String? @map("linear_issue_id")
@@ -440,8 +451,8 @@ model WorkflowInstance {
 }
 
 model WorkflowTransition {
-  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  workflowId String  @map("workflow_id") @db.Uuid
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  workflowId String @map("workflow_id") @db.Uuid
 
   fromState String? @map("from_state")
   toState   String  @map("to_state")
@@ -452,7 +463,7 @@ model WorkflowTransition {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   workflow WorkflowInstance @relation(fields: [workflowId], references: [id], onDelete: Cascade)
-  actor    Profile?         @relation(fields: [actorId],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+  actor    Profile?         @relation(fields: [actorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([workflowId, createdAt], map: "workflow_transitions_workflow_idx")
   @@map("workflow_transitions")
@@ -469,7 +480,7 @@ model AuditLog {
   entityId   String? @map("entity_id") @db.Uuid
 
   beforeState Json? @map("before_state") @db.JsonB
-  afterState  Json? @map("after_state")  @db.JsonB
+  afterState  Json? @map("after_state") @db.JsonB
   metadata    Json? @db.JsonB
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -477,8 +488,8 @@ model AuditLog {
   actor Profile? @relation(fields: [actorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
   @@index([entityType, entityId, createdAt(sort: Desc)], map: "audit_log_entity_idx")
-  @@index([action, createdAt(sort: Desc)],               map: "audit_log_action_idx")
-  @@index([createdAt(sort: Desc)],                       map: "audit_log_created_at_idx")
+  @@index([action, createdAt(sort: Desc)], map: "audit_log_action_idx")
+  @@index([createdAt(sort: Desc)], map: "audit_log_created_at_idx")
   // Partial index added in raw SQL:
   //   audit_log_actor_idx (actor_id, created_at DESC) WHERE actor_id IS NOT NULL
   @@map("audit_log")
@@ -492,8 +503,8 @@ model PageView {
   id        BigInt  @id @default(autoincrement())
   path      String
   productId String? @map("product_id") @db.Uuid
-  vendorId  String? @map("vendor_id")  @db.Uuid
-  userId    String? @map("user_id")    @db.Uuid
+  vendorId  String? @map("vendor_id") @db.Uuid
+  userId    String? @map("user_id") @db.Uuid
   sessionId String? @map("session_id")
   referrer  String?
 
@@ -510,10 +521,10 @@ model PageView {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   product Product? @relation(fields: [productId], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  vendor  Vendor?  @relation(fields: [vendorId],  references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user    Profile? @relation(fields: [userId],    references: [id], onDelete: NoAction, onUpdate: NoAction)
+  vendor  Vendor?  @relation(fields: [vendorId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user    Profile? @relation(fields: [userId], references: [id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@index([path,      createdAt], map: "page_views_path_idx")
+  @@index([path, createdAt], map: "page_views_path_idx")
   @@index([cfCountry, createdAt], map: "page_views_country_idx")
   // Partial indexes added in raw SQL:
   //   page_views_product_idx (product_id, created_at) WHERE product_id IS NOT NULL
