@@ -71,6 +71,18 @@ export const angularBase = [
       '@angular-eslint/prefer-standalone': 'error',
       '@angular-eslint/prefer-on-push-component-change-detection': 'error',
       '@angular-eslint/prefer-inject': 'error',
+      // `@angular-eslint/prefer-inject` catches constructor-parameter DI but
+      // does NOT catch `inject()` called inside a constructor body instead of
+      // at field initialization. This rule closes that gap. Style guide §9.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector:
+            'MethodDefinition[kind="constructor"] CallExpression[callee.name="inject"]',
+          message:
+            'Call inject() at field initialization, not inside the constructor body. See ANGULAR_STYLE_GUIDE.md §9.',
+        },
+      ],
       '@angular-eslint/prefer-host-metadata-property': 'error',
       '@angular-eslint/prefer-signal-model': 'error',
       '@angular-eslint/prefer-output-emitter-ref': 'error',
