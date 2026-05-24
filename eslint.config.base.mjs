@@ -77,8 +77,7 @@ export const angularBase = [
       'no-restricted-syntax': [
         'error',
         {
-          selector:
-            'MethodDefinition[kind="constructor"] CallExpression[callee.name="inject"]',
+          selector: 'MethodDefinition[kind="constructor"] CallExpression[callee.name="inject"]',
           message:
             'Call inject() at field initialization, not inside the constructor body. See ANGULAR_STYLE_GUIDE.md §9.',
         },
