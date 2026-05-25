@@ -212,9 +212,20 @@ In `packages/shared/src/slug.ts`:
 - Reject a fixed list of reserved words: `api`, `admin`, `products`, `vendors`, `integrations`, `categories`, `disciplines`, `phases`, `claim`, `correction`, `404`, `sitemap.xml`, `robots.txt`
 - On collision, append vendor-slug suffix; on further collision, append `-2`, `-3`
 
-### 6.4 Backfill
+### 6.4 Backfill / normalization
 
-A one-shot script in `apps/api/scripts/backfill-slugs.ts` reads every product and vendor with `slug IS NULL`, generates a slug, writes it back, logs collisions. Idempotent (skips rows with non-null slugs). Run via Wrangler local dev against the production Supabase URL through the privileged role.
+AECI-39 (baseline migration) shipped `products.slug` and `vendors.slug` as `NOT NULL` with a UNIQUE index, so there are no `slug IS NULL` rows to fill. The Phase 2.7 script in `apps/api/scripts/backfill-slugs.ts` is therefore a **slug-normalization pass**: it reads every product and vendor, recomputes `slugify(displayName)` via `packages/shared/src/slug.ts`, and writes the result back when the stored slug differs from the canonical form. Collisions are resolved through `disambiguateSlug` (vendor-suffix path, then numeric). Vendors are processed before products so a vendor's post-normalization slug is available when a product needs the vendor-suffix path.
+
+Idempotent: rows already at canonical slugs are SKIPPED. Re-running on a clean DB produces zero writes. A `--dry-run` flag prints the planned writes without executing them. Reserved-word collisions (e.g. a product literally named "Admin") and empty-name inputs are logged as `ERRORED` and require a human rename + re-run.
+
+Runs through the privileged Postgres role (Prisma Accelerate is configured with the service-role connection string), bypassing RLS by design.
+
+```bash
+pnpm --filter @aeci/api db:backfill-slugs -- --dry-run   # plan
+pnpm --filter @aeci/api db:backfill-slugs                # apply
+```
+
+The accompanying migration `20260524100000_phase_2_slug_unique/migration.sql` is an idempotent guard that re-asserts the unique indexes via `CREATE UNIQUE INDEX IF NOT EXISTS`. The constraint already exists from baseline; the migration documents the §6.4 contract and survives a fresh DB build that for any reason skipped the baseline indexes.
 
 ### 6.5 Integrations: no slug
 

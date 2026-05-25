@@ -27,6 +27,15 @@ SUPABASE_ANON_KEY=
 # the dashboard's auth.users row, or mint one via the Supabase admin API.
 SUPABASE_TEST_USER_JWT=
 
+# ─── Slug backfill integration test (AECI-53) ──────────────────────────────
+# Direct Postgres URL used by `apps/api/src/integration/backfill-slugs.spec.ts`
+# only. Points at a local Supabase dev DB or any throwaway Postgres with the
+# schema migrations applied. The script under test (`scripts/backfill-slugs.ts`)
+# uses the Accelerate-flavoured `DATABASE_URL` in production; the test bypasses
+# Accelerate for speed. The test `describe.skipIf` itself when this is unset.
+# Example: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+TEST_DATABASE_URL=
+
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
 # HTTP intake). When empty, the helper is a no-op so dev boots cleanly.
