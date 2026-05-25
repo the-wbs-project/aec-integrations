@@ -90,9 +90,7 @@ test.describe('layout shells (preview routes)', () => {
       // Wait for the client-side theme service to apply .theme-dark from
       // localStorage. No explicit timeout — inherits the test-level default
       // so CI machines with slower hydration don't produce false failures.
-      await page.waitForFunction(() =>
-        document.documentElement.classList.contains('theme-dark'),
-      );
+      await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
 
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
