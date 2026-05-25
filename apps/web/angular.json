@@ -98,6 +98,15 @@
             }
           },
           "defaultConfiguration": "development"
+        },
+        "test": {
+          "builder": "@angular/build:unit-test",
+          "options": {
+            "runner": "vitest",
+            "buildTarget": "web:build:development",
+            "tsConfig": "tsconfig.component-spec.json",
+            "include": ["src/**/*.component.spec.ts"]
+          }
         }
       }
     }

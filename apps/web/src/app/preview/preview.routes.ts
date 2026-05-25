@@ -17,4 +17,18 @@ export const previewRoutes: Routes = [
     path: 'vendor-detail',
     loadComponent: () => import('./vendor-detail/vendor-detail').then((m) => m.VendorDetail),
   },
+  {
+    path: 'layouts/detail',
+    loadComponent: () =>
+      import('./layouts/detail-layout-preview').then((m) => m.DetailLayoutPreview),
+  },
+  {
+    path: 'layouts/browse',
+    loadComponent: () =>
+      import('./layouts/browse-layout-preview').then((m) => m.BrowseLayoutPreview),
+  },
+  {
+    path: 'layouts/index',
+    loadComponent: () => import('./layouts/index-layout-preview').then((m) => m.IndexLayoutPreview),
+  },
 ];

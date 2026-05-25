@@ -237,7 +237,7 @@ importers:
     devDependencies:
       '@angular/build':
         specifier: ^21.2.9
-        version: 21.2.10(8706c61b85d0da22f758cb63d36d8d8f)
+        version: 21.2.10(d382a40862a0264f82814fbc4edbfbad)
       '@angular/cli':
         specifier: ^21.2.9
         version: 21.2.10(@types/node@20.19.41)(chokidar@5.0.0)
@@ -261,7 +261,10 @@ importers:
         version: 20.19.41
       '@vitest/coverage-v8':
         specifier: ^3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(yaml@2.8.0))
+        version: 3.2.4(vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0))
+      jsdom:
+        specifier: ^28.1.0
+        version: 28.1.0
       miniflare:
         specifier: ^4.20260510.0
         version: 4.20260515.0
@@ -276,7 +279,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(yaml@2.8.0)
+        version: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
       wrangler:
         specifier: ^4.90.0
         version: 4.90.0(@cloudflare/workers-types@4.20260511.1)
@@ -8460,65 +8463,6 @@ snapshots:
       eslint: 10.4.0(jiti@2.7.0)
       typescript: 5.9.3
 
-  '@angular/build@21.2.10(8706c61b85d0da22f758cb63d36d8d8f)':
-    dependencies:
-      '@ampproject/remapping': 2.3.0
-      '@angular-devkit/architect': 0.2102.10(chokidar@5.0.0)
-      '@angular/compiler': 21.2.12
-      '@angular/compiler-cli': 21.2.12(@angular/compiler@21.2.12)(typescript@5.9.3)
-      '@babel/core': 7.29.0
-      '@babel/helper-annotate-as-pure': 7.27.3
-      '@babel/helper-split-export-declaration': 7.24.7
-      '@inquirer/confirm': 5.1.21(@types/node@20.19.41)
-      '@vitejs/plugin-basic-ssl': 2.1.4(vite@7.3.2(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0))
-      beasties: 0.4.1
-      browserslist: 4.28.2
-      esbuild: 0.27.3
-      https-proxy-agent: 7.0.6
-      istanbul-lib-instrument: 6.0.3
-      jsonc-parser: 3.3.1
-      listr2: 9.0.5
-      magic-string: 0.30.21
-      mrmime: 2.0.1
-      parse5-html-rewriting-stream: 8.0.0
-      picomatch: 4.0.4
-      piscina: 5.1.4
-      rolldown: 1.0.0-rc.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
-      sass: 1.97.3
-      semver: 7.7.4
-      source-map-support: 0.5.21
-      tinyglobby: 0.2.15
-      tslib: 2.8.1
-      typescript: 5.9.3
-      undici: 7.24.4
-      vite: 7.3.2(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
-      watchpack: 2.5.1
-    optionalDependencies:
-      '@angular/core': 21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)
-      '@angular/localize': 21.2.12(@angular/compiler-cli@21.2.12(@angular/compiler@21.2.12)(typescript@5.9.3))(@angular/compiler@21.2.12)
-      '@angular/platform-browser': 21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))
-      '@angular/platform-server': 21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/compiler@21.2.12)(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-browser@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)))(rxjs@7.8.2)
-      '@angular/ssr': 21.2.10(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-server@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/compiler@21.2.12)(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-browser@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)))(rxjs@7.8.2))(@angular/router@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-browser@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)))(rxjs@7.8.2))
-      less: 4.5.1
-      lmdb: 3.5.1
-      postcss: 8.5.14
-      tailwindcss: 4.3.0
-      vitest: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(yaml@2.8.0)
-    transitivePeerDependencies:
-      - '@emnapi/core'
-      - '@emnapi/runtime'
-      - '@types/node'
-      - chokidar
-      - jiti
-      - lightningcss
-      - sass-embedded
-      - stylus
-      - sugarss
-      - supports-color
-      - terser
-      - tsx
-      - yaml
-
   '@angular/build@21.2.10(be40e0388d0c6d915693a5411d8c9df1)':
     dependencies:
       '@ampproject/remapping': 2.3.0
@@ -8563,6 +8507,65 @@ snapshots:
       postcss: 8.5.14
       tailwindcss: 4.3.0
       vitest: 4.1.6(@types/node@20.19.41)(jsdom@28.1.0)(vite@7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0))
+    transitivePeerDependencies:
+      - '@emnapi/core'
+      - '@emnapi/runtime'
+      - '@types/node'
+      - chokidar
+      - jiti
+      - lightningcss
+      - sass-embedded
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+      - tsx
+      - yaml
+
+  '@angular/build@21.2.10(d382a40862a0264f82814fbc4edbfbad)':
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@angular-devkit/architect': 0.2102.10(chokidar@5.0.0)
+      '@angular/compiler': 21.2.12
+      '@angular/compiler-cli': 21.2.12(@angular/compiler@21.2.12)(typescript@5.9.3)
+      '@babel/core': 7.29.0
+      '@babel/helper-annotate-as-pure': 7.27.3
+      '@babel/helper-split-export-declaration': 7.24.7
+      '@inquirer/confirm': 5.1.21(@types/node@20.19.41)
+      '@vitejs/plugin-basic-ssl': 2.1.4(vite@7.3.2(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0))
+      beasties: 0.4.1
+      browserslist: 4.28.2
+      esbuild: 0.27.3
+      https-proxy-agent: 7.0.6
+      istanbul-lib-instrument: 6.0.3
+      jsonc-parser: 3.3.1
+      listr2: 9.0.5
+      magic-string: 0.30.21
+      mrmime: 2.0.1
+      parse5-html-rewriting-stream: 8.0.0
+      picomatch: 4.0.4
+      piscina: 5.1.4
+      rolldown: 1.0.0-rc.4(@emnapi/core@1.10.0)(@emnapi/runtime@1.10.0)
+      sass: 1.97.3
+      semver: 7.7.4
+      source-map-support: 0.5.21
+      tinyglobby: 0.2.15
+      tslib: 2.8.1
+      typescript: 5.9.3
+      undici: 7.24.4
+      vite: 7.3.2(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
+      watchpack: 2.5.1
+    optionalDependencies:
+      '@angular/core': 21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)
+      '@angular/localize': 21.2.12(@angular/compiler-cli@21.2.12(@angular/compiler@21.2.12)(typescript@5.9.3))(@angular/compiler@21.2.12)
+      '@angular/platform-browser': 21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))
+      '@angular/platform-server': 21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/compiler@21.2.12)(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-browser@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)))(rxjs@7.8.2)
+      '@angular/ssr': 21.2.10(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-server@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/compiler@21.2.12)(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-browser@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)))(rxjs@7.8.2))(@angular/router@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(@angular/platform-browser@21.2.12(@angular/common@21.2.12(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2))(rxjs@7.8.2))(@angular/core@21.2.12(@angular/compiler@21.2.12)(rxjs@7.8.2)))(rxjs@7.8.2))
+      less: 4.5.1
+      lmdb: 3.5.1
+      postcss: 8.5.14
+      tailwindcss: 4.3.0
+      vitest: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -11969,6 +11972,25 @@ snapshots:
     dependencies:
       vite: 7.3.2(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
 
+  '@vitest/coverage-v8@3.2.4(vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0))':
+    dependencies:
+      '@ampproject/remapping': 2.3.0
+      '@bcoe/v8-coverage': 1.0.2
+      ast-v8-to-istanbul: 0.3.12
+      debug: 4.4.3
+      istanbul-lib-coverage: 3.2.2
+      istanbul-lib-report: 3.0.1
+      istanbul-lib-source-maps: 5.0.6
+      istanbul-reports: 3.2.0
+      magic-string: 0.30.21
+      magicast: 0.3.5
+      std-env: 3.10.0
+      test-exclude: 7.0.2
+      tinyrainbow: 2.0.0
+      vitest: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
+    transitivePeerDependencies:
+      - supports-color
+
   '@vitest/coverage-v8@3.2.4(vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(yaml@2.8.0))':
     dependencies:
       '@ampproject/remapping': 2.3.0
@@ -12004,6 +12026,14 @@ snapshots:
       '@vitest/utils': 4.1.6
       chai: 6.2.2
       tinyrainbow: 3.1.0
+
+  '@vitest/mocker@3.2.4(vite@7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0))':
+    dependencies:
+      '@vitest/spy': 3.2.4
+      estree-walker: 3.0.3
+      magic-string: 0.30.21
+    optionalDependencies:
+      vite: 7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
 
   '@vitest/mocker@3.2.4(vite@7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(yaml@2.8.0))':
     dependencies:
@@ -16738,6 +16768,27 @@ snapshots:
 
   vary@1.1.2: {}
 
+  vite-node@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0):
+    dependencies:
+      cac: 6.7.14
+      debug: 4.4.3
+      es-module-lexer: 1.7.0
+      pathe: 2.0.3
+      vite: 7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
+    transitivePeerDependencies:
+      - '@types/node'
+      - jiti
+      - less
+      - lightningcss
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+      - tsx
+      - yaml
+
   vite-node@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(yaml@2.8.0):
     dependencies:
       cac: 6.7.14
@@ -16815,6 +16866,48 @@ snapshots:
       sass-embedded: 1.99.0
       terser: 5.47.1
       yaml: 2.8.0
+
+  vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0):
+    dependencies:
+      '@types/chai': 5.2.3
+      '@vitest/expect': 3.2.4
+      '@vitest/mocker': 3.2.4(vite@7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0))
+      '@vitest/pretty-format': 3.2.4
+      '@vitest/runner': 3.2.4
+      '@vitest/snapshot': 3.2.4
+      '@vitest/spy': 3.2.4
+      '@vitest/utils': 3.2.4
+      chai: 5.3.3
+      debug: 4.4.3
+      expect-type: 1.3.0
+      magic-string: 0.30.21
+      pathe: 2.0.3
+      picomatch: 4.0.4
+      std-env: 3.10.0
+      tinybench: 2.9.0
+      tinyexec: 0.3.2
+      tinyglobby: 0.2.16
+      tinypool: 1.1.1
+      tinyrainbow: 2.0.0
+      vite: 7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
+      vite-node: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(yaml@2.8.0)
+      why-is-node-running: 2.3.0
+    optionalDependencies:
+      '@types/node': 20.19.41
+      jsdom: 28.1.0
+    transitivePeerDependencies:
+      - jiti
+      - less
+      - lightningcss
+      - msw
+      - sass
+      - sass-embedded
+      - stylus
+      - sugarss
+      - supports-color
+      - terser
+      - tsx
+      - yaml
 
   vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(yaml@2.8.0):
     dependencies:

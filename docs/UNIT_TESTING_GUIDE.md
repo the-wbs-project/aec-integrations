@@ -91,7 +91,25 @@ it('rejects body under 50 chars', () => {
 
 ### Angular components (zoneless)
 
-Use Angular Testing Library (`@testing-library/angular`) and signal-aware patterns.
+#### Harness
+
+Angular component specs run under the `@angular/build:unit-test` builder with the Vitest runner (Angular 21 native). The wiring lives in:
+
+- `apps/web/angular.json` — `test` architect target pointing at `tsconfig.component-spec.json` with `include: ["src/**/*.component.spec.ts"]`
+- `apps/web/tsconfig.component-spec.json` — dedicated tsconfig so only Angular specs are compiled (the wider `tsconfig.spec.json` also includes server vitest specs which would fail Angular's strict compile)
+- `apps/web/package.json` — `test:component` script runs `ng test`; `test:unit` runs server vitest first, then `test:component`
+
+Server-side Vitest (`apps/web/vitest.config.ts`) explicitly excludes `*.component.spec.ts` so the two test runners never see each other's files. **Always use the `.component.spec.ts` suffix for Angular tests** — using bare `.spec.ts` will route the file to server vitest, where Angular's DI and DOM are absent.
+
+Local dev: `pnpm exec ng test` (one-shot) or pass `--watch` for re-run on change. CI invokes `pnpm test:unit` from the root and picks up both pipelines automatically.
+
+#### Patterns
+
+Bare `TestBed` from `@angular/core/testing` is the default; reach for `@testing-library/angular` only if a spec needs richer semantic querying than `nativeElement.querySelector(...)` provides.
+
+For pure structural shells with named slots (e.g. the layout components in `apps/web/src/app/layouts/`), define a tiny inline host component that projects test markers and assert on what reaches the DOM. Example: `apps/web/src/app/layouts/detail-layout.component.spec.ts`.
+
+Cover:
 
 - Conditional rendering: render with each set of inputs, assert the right thing is on screen
 - User interactions: simulate the interaction, assert the resulting state change or emitted output
@@ -99,7 +117,7 @@ Use Angular Testing Library (`@testing-library/angular`) and signal-aware patter
 - Output emissions: spy on the output, trigger the action, assert it emitted with the right value
 - Both themes: if the component has theme-dependent behavior, test both light and dark
 
-Prefer `screen.getByRole('button', { name: /submit/i })` over CSS selectors or `getByTestId`. Use `getByTestId` only when no semantic query works.
+Prefer semantic queries (`querySelector('main[aria-label]')`, `getByRole` if `@testing-library/angular` is in use) over CSS class selectors or `data-testid` — fall back to `data-testid` only when no semantic anchor exists (e.g. projected slot markers in a host fixture).
 
 Do NOT test:
 - Pure rendering with no logic (the framework does this)
