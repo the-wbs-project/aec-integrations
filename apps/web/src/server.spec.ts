@@ -227,6 +227,37 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
     expect(new URL(forwarded.url).pathname).toBe('/api/health');
   });
 
+  it('forwards GET /api/version to the API Worker unchanged (AECI-74)', async () => {
+    // Guards: AECI-74 contract — apps/web must serve the same /api/version
+    // shape as apps/api. The existing /api/* catch-all already does this;
+    // this test pins it so a future refactor (e.g., per-route handlers) can't
+    // silently break the promote-to-prod workflow's version probe.
+    const apiBody = JSON.stringify({
+      sha: 'abc123def456',
+      deployedAt: '2026-05-25T03:30:00.000Z',
+      environment: 'preview',
+    });
+    const { binding, calls } = recordingApiBinding(
+      new Response(apiBody, {
+        status: 200,
+        headers: {
+          'content-type': 'application/json; charset=utf-8',
+          'cache-control': 'private, no-store',
+        },
+      }),
+    );
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
+
+    const req = new Request('https://aecintegrations.com/api/version');
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe(apiBody);
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+    expect(calls).toHaveLength(1);
+    expect(new URL(calls[0]!.url).pathname).toBe('/api/version');
+  });
+
   it('forwards non-GET /api/* requests (cookie-bearing writes)', async () => {
     const { binding, calls } = recordingApiBinding(new Response('{}', { status: 201 }));
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
