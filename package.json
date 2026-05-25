@@ -19,6 +19,7 @@
     "db:diff": "supabase db diff --linked --schema public",
     "db:new": "supabase migration new",
     "db:list": "supabase migration list",
+    "db:pull": "pnpm --filter @aeci/api prisma:pull && pnpm --filter @aeci/api prisma:generate",
     "build": "pnpm -r --if-present run build",
     "build:stack-test": "pnpm --filter @aeci/stack-test build",
     "build:web": "pnpm --filter @aeci/web build",

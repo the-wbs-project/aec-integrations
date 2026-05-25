@@ -13,18 +13,28 @@ Private Cloudflare Worker exposing the AEC Integrations API. Reads and writes Su
 
 ## Local development
 
+Schema migrations are owned by the Supabase CLI (`supabase/migrations/`), not
+Prisma. Prisma is used here only to generate the typed client. See
+`docs/migrations.md` and `docs/prisma.md` for the full contract.
+
 ```bash
 cp .dev.vars.example .dev.vars
 # Fill in real DATABASE_URL (Accelerate) and DIRECT_URL (Supabase pooler)
 
 pnpm install
-pnpm --filter @aeci/api prisma:generate
-pnpm --filter @aeci/api prisma:migrate:dev   # applies baseline schema via DIRECT_URL
+pnpm db:start                                 # local Supabase stack
+pnpm db:reset                                 # apply supabase/migrations + seed
+pnpm --filter @aeci/api db:apply-rls          # apply RLS policies on top
+pnpm --filter @aeci/api prisma:generate       # produce typed client
 
 pnpm --filter @aeci/api dev
 curl -i http://localhost:8788/api/health
 # Expect: 200, { ok: true, db: "ok", latencyMs: <int> }
 ```
+
+After authoring a new migration with `pnpm db:new <name>` and applying it via
+`pnpm db:reset`, run `pnpm db:pull` from the repo root to refresh
+`prisma/schema.prisma` against the local DB and regenerate the client.
 
 ## Tests
 
