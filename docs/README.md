@@ -23,6 +23,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`API_CONTRACTS.md`](./API_CONTRACTS.md) | Active | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules. |
 | [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Placeholder | Authorization model and Row-Level Security policies. Full definition pending. |
 | [`CICD_PLAN.md`](./CICD_PLAN.md) | Active | GitHub Actions pipeline, environments, deployments, rollback, secrets management. |
+| [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |
 | [`TESTING_STRATEGY.md`](./TESTING_STRATEGY.md) | Active | Testing tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy. |
 | [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
 | [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |
