@@ -12,3 +12,7 @@ test-results
 pnpm-lock.yaml
 *.md
 public
+
+# Supabase CLI runtime state — gitignored, not for prettier
+supabase/.temp/
+supabase/.branches/

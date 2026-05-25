@@ -25,7 +25,8 @@ For any task:
 |---|---|
 | What we're building and why | `docs/STAGE_1_SPEC.md` |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
-| Database schema, migrations, RLS hooks | `docs/DATABASE_SCHEMA.md` |
+| Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
+| Migration workflow (writing / applying SQL via Supabase CLI) | `docs/migrations.md` |
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
@@ -58,7 +59,8 @@ If your work touches a topic governed by one of these documents, that document i
 
 These appear repeatedly in tasks and Claude Code may be tempted to violate them. Don't.
 
-- **Use Prisma Accelerate.** Instantiate `PrismaClient` from `@prisma/client/edge` and apply `withAccelerate()` per request. `DATABASE_URL` is the `prisma://` Accelerate URL (Worker runtime). `DIRECT_URL` is the Supabase pooler URL, used **only** by the Prisma CLI for migrations — never by Worker runtime code. Do NOT install `@prisma/adapter-pg-worker` and do NOT route Prisma through a TCP pooler from a Worker — Accelerate is HTTPS and works without `nodejs_compat` for the DB path. Validated pattern: `apps/prisma-test/src/index.ts:21-25`. Details in `docs/DATABASE_SCHEMA.md` §1a.
+- **Use Prisma Accelerate.** Instantiate `PrismaClient` from `@prisma/client/edge` and apply `withAccelerate()` per request. `DATABASE_URL` is the `prisma://` Accelerate URL (Worker runtime). `DIRECT_URL` is the Supabase pooler URL, used **only** by the Supabase CLI for migrations — never by Worker runtime code. Do NOT install `@prisma/adapter-pg-worker` and do NOT route Prisma through a TCP pooler from a Worker — Accelerate is HTTPS and works without `nodejs_compat` for the DB path. Validated pattern: `apps/prisma-test/src/index.ts:21-25`. Details in `docs/DATABASE_SCHEMA.md` §1a.
+- **Supabase CLI owns migrations.** SQL migration files live in `supabase/migrations/`, generated via `pnpm db:new <name>` and applied via `pnpm db:reset` (local) or `pnpm db:push` (linked remote). Prisma is invoked **only** for `prisma generate` (typed client); `prisma migrate` is not used. Do not reintroduce `apps/api/prisma/migrations/` or any `prisma migrate deploy` script. See `docs/migrations.md` for the workflow.
 - **`nodejs_compat` is for SSR, not for the DB.** The SSR Worker needs `compatibility_flags: ["nodejs_compat"]` because `@angular/ssr` reaches for Node polyfills at runtime. That flag is unrelated to database access — Prisma still goes via Accelerate (HTTPS), never via a pg adapter. Validated pattern: `apps/stack-test/wrangler.jsonc:14-15`.
 - **Cloudflare plan is Pro.** `Cache-Tag` and purge-by-tag are available on **all plans as of April 2025** and are the AECi strategy from Phase 2 onward. Every cacheable SSR response sets `Cache-Tag` via the AECI-56 helper; invalidation goes through `POST /admin/purge` with a tag list. `Vary: Accept-Language` is permitted because URL-prefix locale dispatch already handles actual variance; any other `Vary` value (`Cookie`, `User-Agent`, etc.) is still forbidden — those fragment the edge cache without a corresponding tag advantage. See `docs/CACHE_STRATEGY.md` for tag vocabulary, TTLs, the purge endpoint shape, and the SEO header set.
 - **Zoneless Angular.** No `zone.js`. Use `provideZonelessChangeDetection()`. Pair with `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))`. Validated pattern: `apps/stack-test/src/app/app.config.ts:18-25`. See `ANGULAR_STYLE_GUIDE.md` for the full set of Angular and TypeScript conventions (signals, control flow, OnPush, SSR safety, host bindings, `NgOptimizedImage`, `inject()` DI, file naming) and the ESLint rules that enforce them.

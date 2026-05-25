@@ -26,6 +26,9 @@ importers:
       prettier:
         specifier: ^3.8.3
         version: 3.8.3
+      supabase:
+        specifier: ^2.101.0
+        version: 2.101.0
       typescript-eslint:
         specifier: ^8.59.3
         version: 8.59.3(eslint@10.4.0(jiti@2.7.0))(typescript@5.9.3)
@@ -243,7 +246,7 @@ importers:
     devDependencies:
       '@angular/build':
         specifier: ^21.2.9
-        version: 21.2.10(51261d8cfd9d8f1f53f72452389a6c06)
+        version: 21.2.10(2d3627d2357dc5b314c65d8144c8ade1)
       '@angular/cli':
         specifier: ^21.2.9
         version: 21.2.10(@types/node@20.19.41)(chokidar@5.0.0)
@@ -267,7 +270,7 @@ importers:
         version: 20.19.41
       '@vitest/coverage-v8':
         specifier: ^3.2.4
-        version: 3.2.4(vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(tsx@4.22.3)(yaml@2.8.0))
+        version: 3.2.4(vitest@3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(tsx@4.22.3)(yaml@2.8.0))
       jsdom:
         specifier: ^28.1.0
         version: 28.1.0
@@ -285,7 +288,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^3.2.4
-        version: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(tsx@4.22.3)(yaml@2.8.0)
+        version: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.99.0)(terser@5.47.1)(tsx@4.22.3)(yaml@2.8.0)
       wrangler:
         specifier: ^4.90.0
         version: 4.90.0(@cloudflare/workers-types@4.20260511.1)
@@ -3303,6 +3306,50 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
+
+  '@supabase/cli-darwin-arm64@2.101.0':
+    resolution: {integrity: sha512-SoWYzu2CIE+rADWsZH6H0YZYF8nV2YMelZLbjAqzahb5RRgFOTMWGhKCUj6g4KlNvocUnU19JObUJ7oCx/9aHg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@supabase/cli-darwin-x64@2.101.0':
+    resolution: {integrity: sha512-rPES03BF9KYkirq3X1Yll+T+eORueRvC858Yp2+2aQMvB4qxi6k+WI+ilCQ7NGzOJ3G0jl/ZG/KsSjZIa4AJ6g==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@supabase/cli-linux-arm64-musl@2.101.0':
+    resolution: {integrity: sha512-B5JFFKKpJLLMwn8vWUB7j5euZPytiDOLo9WYXp0mshg45OaFKjRcDImSzBzx4k0W8MK2x75rFEURca90Ic60Ug==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [musl]
+
+  '@supabase/cli-linux-arm64@2.101.0':
+    resolution: {integrity: sha512-E+hN1GRIFEi+U1Jf4Omw/gjwpSRTpJ5jai58tQana15AaXt3GCoG7z2YzWVnzD/mvAubTqA7SLHsV+A2lcdTGQ==}
+    cpu: [arm64]
+    os: [linux]
+    libc: [glibc]
+
+  '@supabase/cli-linux-x64-musl@2.101.0':
+    resolution: {integrity: sha512-pr9Ar1/aVaQVqjNSfwRgXHWJznQTIaxblGO+hKIl9k55Ajahiq8GConCwx6DjX1Wa9VW//5Dji+O0pkmFSfcHw==}
+    cpu: [x64]
+    os: [linux]
+    libc: [musl]
+
+  '@supabase/cli-linux-x64@2.101.0':
+    resolution: {integrity: sha512-7iU9uA+8pbmW5uz+yGxU0fM83a+8SH/gtKmSSRZrOu9vIGcugg9gLbN9GlWkG5P7I7wEjnoVKb7Jzea6onSeQA==}
+    cpu: [x64]
+    os: [linux]
+    libc: [glibc]
+
+  '@supabase/cli-windows-arm64@2.101.0':
+    resolution: {integrity: sha512-mSnFDhTIAe9cr1iifv+DTQzpY/0WphywED2YT3yMGeu94jjxrXrreQkywxEaeSXTnc4ys1umtnWOB1CaBlYKag==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@supabase/cli-windows-x64@2.101.0':
+    resolution: {integrity: sha512-xzZpybVWq62VF102abZr1EP3BbA2bYecwYm3G2dJk+6ua7nAIodu1fiGHAvBSR0BLGQmesNb6KCneawNL3XBsQ==}
+    cpu: [x64]
+    os: [win32]
 
   '@tailwindcss/node@4.3.0':
     resolution: {integrity: sha512-aFb4gUhFOgdh9AXo4IzBEOzBkkAxm9VigwDJnMIYv3lcfXCJVesNfbEaBl4BNgVRyid92AmdviqwBUBRKSeY3g==}
@@ -7534,6 +7581,10 @@ packages:
     peerDependencies:
       postcss: ^8.5.13
 
+  supabase@2.101.0:
+    resolution: {integrity: sha512-9wqlvXGeI+VjOMUKOGEpcZzTJGLia6IOv8LWN3W2u8F6Xiv4ZqAuTuXCp3MWfkhV5x9KQaBtN5d6IiLEMWzkJA==}
+    hasBin: true
+
   supports-color@10.2.2:
     resolution: {integrity: sha512-SS+jx45GF1QjgEXQx4NJZV9ImqmO2NPz5FNsIHrsDjh2YsHnawpan7SNQ1o8NuhrbHZy9AZhIoCUiCeaW/C80g==}
     engines: {node: '>=18'}
@@ -8635,7 +8686,7 @@ snapshots:
       eslint: 10.4.0(jiti@2.7.0)
       typescript: 5.9.3
 
-  '@angular/build@21.2.10(5015bf73fe44b86229a6e5b4c0888796)':
+  '@angular/build@21.2.10(2d3627d2357dc5b314c65d8144c8ade1)':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@angular-devkit/architect': 0.2102.10(chokidar@5.0.0)
@@ -8694,7 +8745,7 @@ snapshots:
       - tsx
       - yaml
 
-  '@angular/build@21.2.10(51261d8cfd9d8f1f53f72452389a6c06)':
+  '@angular/build@21.2.10(5015bf73fe44b86229a6e5b4c0888796)':
     dependencies:
       '@ampproject/remapping': 2.3.0
       '@angular-devkit/architect': 0.2102.10(chokidar@5.0.0)
@@ -8737,7 +8788,7 @@ snapshots:
       lmdb: 3.5.1
       postcss: 8.5.14
       tailwindcss: 4.3.0
-      vitest: 3.2.4(@types/node@20.19.41)(jiti@2.7.0)(jsdom@28.1.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(tsx@4.22.3)(yaml@2.8.0)
+      vitest: 4.1.6(@types/node@20.19.41)(jsdom@28.1.0)(vite@7.3.3(@types/node@20.19.41)(jiti@2.7.0)(less@4.5.1)(lightningcss@1.32.0)(sass-embedded@1.99.0)(sass@1.97.3)(terser@5.47.1)(tsx@4.22.3)(yaml@2.8.0))
     transitivePeerDependencies:
       - '@emnapi/core'
       - '@emnapi/runtime'
@@ -11875,6 +11926,30 @@ snapshots:
   '@speed-highlight/core@1.2.15': {}
 
   '@standard-schema/spec@1.1.0': {}
+
+  '@supabase/cli-darwin-arm64@2.101.0':
+    optional: true
+
+  '@supabase/cli-darwin-x64@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-arm64-musl@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-arm64@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-x64-musl@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-x64@2.101.0':
+    optional: true
+
+  '@supabase/cli-windows-arm64@2.101.0':
+    optional: true
+
+  '@supabase/cli-windows-x64@2.101.0':
+    optional: true
 
   '@tailwindcss/node@4.3.0':
     dependencies:
@@ -16687,6 +16762,17 @@ snapshots:
       browserslist: 4.28.2
       postcss: 8.5.14
       postcss-selector-parser: 7.1.1
+
+  supabase@2.101.0:
+    optionalDependencies:
+      '@supabase/cli-darwin-arm64': 2.101.0
+      '@supabase/cli-darwin-x64': 2.101.0
+      '@supabase/cli-linux-arm64': 2.101.0
+      '@supabase/cli-linux-arm64-musl': 2.101.0
+      '@supabase/cli-linux-x64': 2.101.0
+      '@supabase/cli-linux-x64-musl': 2.101.0
+      '@supabase/cli-windows-arm64': 2.101.0
+      '@supabase/cli-windows-x64': 2.101.0
 
   supports-color@10.2.2: {}
 

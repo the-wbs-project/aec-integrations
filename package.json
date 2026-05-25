@@ -11,6 +11,14 @@
     "dev:stack-test": "pnpm --filter @aeci/stack-test dev",
     "dev:prisma-test": "pnpm --filter @aeci/prisma-test dev",
     "db:studio": "pnpm --filter @aeci/api prisma:studio",
+    "db:start": "supabase start",
+    "db:stop": "supabase stop",
+    "db:status": "supabase status",
+    "db:reset": "supabase db reset",
+    "db:push": "supabase db push --linked",
+    "db:diff": "supabase db diff --linked --schema public",
+    "db:new": "supabase migration new",
+    "db:list": "supabase migration list",
     "build": "pnpm -r --if-present run build",
     "build:stack-test": "pnpm --filter @aeci/stack-test build",
     "build:web": "pnpm --filter @aeci/web build",
@@ -40,6 +48,7 @@
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.6.0",
     "prettier": "^3.8.3",
+    "supabase": "^2.101.0",
     "typescript-eslint": "^8.59.3"
   }
 }

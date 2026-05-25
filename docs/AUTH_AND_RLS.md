@@ -414,49 +414,34 @@ When a test fails, the error code tells you which layer rejected the request:
 
 ## 11. Applying the migration
 
-The SQL file `rls_policies.sql` lives in `apps/api/prisma/migrations/<timestamp>_auth_grants_and_rls/migration.sql` (matching Prisma's migration layout per `DATABASE_SCHEMA.md`).
+Schema migrations live in `supabase/migrations/`; RLS policy + GRANT
+definitions live in `docs/rls_policies.sql`. Apply schema first, then
+policies on top:
 
 ```bash
 # Local development
-supabase start
-pnpm --filter @aeci/api prisma:migrate:deploy   # applies schema migrations
-pnpm --filter @aeci/api db:apply-rls            # applies GRANTs + RLS policies
-pnpm test:auth
-pnpm test:rls
+pnpm db:start            # boot Postgres + auth + PostgREST + Storage + Studio
+pnpm db:reset            # apply every migration in supabase/migrations/ + seed.sql
+pnpm --filter @aeci/api db:apply-rls   # apply GRANTs + RLS policies
+pnpm --filter @aeci/api test:integration
 ```
 
 `db:apply-rls` execs into the local Supabase Postgres container as
 `supabase_admin` (the only superuser locally — `postgres` lacks
-permission on the `auth` schema). For production, RLS application is
-handled by the deploy pipeline; the equivalent manual recipe is
+permission on the `auth` schema). For staging/production, the apply
+sequence runs through `supabase db push --linked` (schema) followed by
+the RLS application step from CI (wiring deferred to AECI-71; see
+`CICD_PLAN.md` §5). The equivalent manual recipe is
 `psql "$DIRECT_URL" -f docs/rls_policies.sql` with `$DIRECT_URL`
 pointing at a connection with rights on the `auth` schema.
 
-### Why `prisma migrate dev` is unsupported on this repo
-
-The auth_integration migration adds a cross-schema FK
-(`public.profiles.id → auth.users(id)`). Prisma's drift detection
-only accepts cross-schema FKs when the target schema is listed in
-`datasource.schemas`. But once `auth` is declared, Prisma also expects
-to find a Prisma model matching the full live `auth.users` schema —
-gotrue ships ~30 columns (`email`, `encrypted_password`,
-`raw_user_meta_data`, …) that we have no business modeling. Stubbing
-auth.users with just `id` + `@@ignore` does not suppress drift
-detection (`@@ignore` only hides the model from the generated client).
-
-The escape hatch: **hand-write migrations and apply via
-`pnpm prisma:migrate:deploy`**. Workflow for evolving the schema:
-
-1. Edit `apps/api/prisma/schema.prisma` (Prisma model side).
-2. Create `apps/api/prisma/migrations/<timestamp>_<name>/migration.sql`
-   by hand. Look at recent migrations for SQL conventions (text +
-   CHECK constraint instead of Postgres ENUM, partial indexes via raw
-   SQL, etc.).
-3. `pnpm --filter @aeci/api prisma:migrate:deploy` applies it.
-4. `pnpm --filter @aeci/api prisma:generate` refreshes the client.
-
-`prisma migrate diff` (no shadow DB) can help generate the SQL diff
-between current schema and live DB, then you adjust the result.
+Defence-in-depth: every public-schema `CREATE TABLE` triggers the
+`ensure_rls` event trigger (added by
+`supabase/migrations/20260525064254_capture_rls_auto_enable.sql`),
+which auto-enables row level security on the new table. The policy
+bodies in `rls_policies.sql` then attach the actual rules. Both must
+agree — RLS-enabled with no matching policy means the table is read-
+locked to PostgREST clients.
 
 ### 11.1 Verification queries
 
