@@ -134,6 +134,20 @@ pnpm dev:bound
 
 `pnpm dev:bound` runs `pnpm -r --parallel --filter @aeci/api --filter @aeci/web run dev:preview`. Running only one of the two Workers leaves the binding unresolved and the SSR `/api/health` proxy will fail. The legacy single-Worker `pnpm dev:web` / `pnpm dev:api` scripts remain for solo-Worker iteration.
 
+### Version reporting (AECI-74)
+
+`apps/api` exposes `GET /api/version` returning `{ sha, deployedAt, environment }`. The SSR Worker proxies the same path via the existing `/api/*` service binding, so `GET /api/version` on `apps/web` reports identical values. AECI-71's `promote-to-prod` workflow uses this to verify staging is at the commit being promoted.
+
+`COMMIT_SHA` and `DEPLOYED_AT` are injected via `wrangler --var` and override the `"unknown"` / epoch placeholders declared in `apps/api/wrangler.jsonc`. The existing `apps/api` `dev` and `dev:preview` scripts derive them from `git rev-parse HEAD` and `date -u +%Y-%m-%dT%H:%M:%S.000Z`. **Any new `wrangler dev` / `wrangler deploy` invocation that targets the API Worker must pass these flags** or the endpoint will report `sha: "unknown"`:
+
+```bash
+wrangler deploy --env staging \
+  --var COMMIT_SHA:"$GITHUB_SHA" \
+  --var DEPLOYED_AT:"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
+```
+
+CI wiring (resolving `$GITHUB_SHA` and the workflow timestamp) lands in AECI-71.
+
 ## Skills
 
 Shared Claude Code skills live in `.agents/skills/` and are checked into the repo so every contributor (and CI agents) get them automatically. `.claude/skills/` symlinks the same content for Claude Code's discovery path.

@@ -35,6 +35,9 @@
   "vars": {
     "ENV": "preview",
     "DD_SITE": "us5.datadoghq.com",
+    // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+    "COMMIT_SHA": "unknown",
+    "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
   },
   "dev": {
     "port": 8787,
@@ -46,6 +49,9 @@
       "vars": {
         "ENV": "preview",
         "DD_SITE": "us5.datadoghq.com",
+        // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
       },
       "observability": {
         "logs": {
@@ -60,6 +66,9 @@
       "vars": {
         "ENV": "staging",
         "DD_SITE": "us5.datadoghq.com",
+        // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
       },
       "observability": {
         "logs": {
@@ -74,6 +83,9 @@
       "vars": {
         "ENV": "production",
         "DD_SITE": "us5.datadoghq.com",
+        // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
       },
       "observability": {
         "logs": {
