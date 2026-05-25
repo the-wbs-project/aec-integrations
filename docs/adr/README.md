@@ -19,6 +19,6 @@ See [adr.github.io](https://adr.github.io/) for the convention.
 
 ## Written ADRs
 
-- `0007-prisma-migrate-dev-unsupported.md` — status **Open**: documents why `prisma migrate dev` doesn't work against our Supabase setup, the dead-end approaches already tried, and possible future paths.
+- `0007-prisma-migrate-dev-unsupported.md` — status **Superseded by AECI-72**: documents the original Catch-22 between Prisma's drift detector and Supabase's `auth.users` schema. Resolved by retiring Prisma migrations entirely and adopting Supabase CLI migrations (`supabase/migrations/`). See `docs/migrations.md` for the current workflow.
 
 Add new ADRs when a decision could surprise someone six months from now.

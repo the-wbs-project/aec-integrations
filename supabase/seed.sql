@@ -1,0 +1,10 @@
+-- =============================================================================
+-- Local-dev seed data. Applied automatically by `supabase db reset` against
+-- the local stack started with `supabase start`. NOT applied to staging or
+-- production by `supabase db push` (see docs/migrations.md).
+--
+-- Keep this file small and idempotent — `db reset` drops the DB before
+-- re-running migrations and then loads this. Heavy or curator-managed data
+-- belongs in Airtable + the curator sync flow (DATABASE_SCHEMA.md §13), not
+-- here.
+-- =============================================================================

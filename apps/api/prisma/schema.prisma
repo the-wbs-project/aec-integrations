@@ -21,14 +21,9 @@ datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
-  // NOTE: `prisma migrate dev` is intentionally NOT supported on this repo.
-  // The auth_integration migration adds a cross-schema FK to auth.users,
-  // which Prisma's drift detector can only accept by declaring `auth` in
-  // `schemas` — but that then makes Prisma compare its (necessarily stub)
-  // model of auth.users against gotrue's full schema, demanding a wipe.
-  // Resolved by using `prisma migrate deploy` exclusively: hand-write the
-  // SQL for new migrations, then deploy. See docs/AUTH_AND_RLS.md §11 for
-  // the local workflow.
+  // Migrations are managed by Supabase CLI in `supabase/migrations/`.
+  // See `docs/migrations.md`. Prisma is used here only to generate the typed
+  // client; `prisma migrate` is not run against this repo (AECI-72).
 }
 
 // Retained from AECI-28; proves the per-request Accelerate path. Do not drop.

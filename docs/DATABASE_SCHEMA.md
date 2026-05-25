@@ -3,8 +3,8 @@
 **Referenced by:** `STAGE_1_SPEC.md` §5, §22, §26
 **Version:** 1.0
 **Date:** May 2026
-**Database:** Supabase (PostgreSQL 16)
-**ORM:** Prisma (via `@prisma/extension-accelerate`)
+**Database:** Supabase (PostgreSQL 17)
+**ORM:** Prisma (via `@prisma/extension-accelerate`) — typed client only; migrations run through Supabase CLI (see `docs/migrations.md`).
 
 ---
 
@@ -12,7 +12,7 @@
 
 Source of truth for the Supabase database schema. Every table, column, index, constraint, and relationship lives here.
 
-Migrations are managed by Prisma. Migration files in `apps/api/prisma/migrations/` are the executable form of this document. When this document and the migrations disagree, the migrations are right — but every migration should be reflected back into this document in the same PR.
+Migrations are managed by the **Supabase CLI**. Migration files in `supabase/migrations/` are the executable form of this document. When this document and the migrations disagree, the migrations are right — but every migration should be reflected back into this document in the same PR. The workflow for writing and applying migrations lives in `docs/migrations.md`.
 
 ---
 
@@ -66,7 +66,7 @@ Handlers must accept the client as an argument rather than importing a singleton
 | Variable | Form | Used by | Bound where |
 |---|---|---|---|
 | `DATABASE_URL` | `prisma://accelerate.prisma-data.net/?api_key=...` | Worker runtime | Worker secret (`wrangler secret put DATABASE_URL`) + local `.dev.vars` |
-| `DIRECT_URL` | `postgresql://...supabase.com:6543/postgres?pgbouncer=true` (Supabase pooler) | Prisma CLI only (`migrate dev`, `migrate deploy`, `generate`) | CI env + local `.dev.vars` |
+| `DIRECT_URL` | `postgresql://...supabase.com:6543/postgres?pgbouncer=true` (Supabase pooler) | Supabase CLI (`supabase db push / pull / diff`); also `prisma db pull` if schema introspection is needed | CI env + local `.dev.vars` |
 
 The two-URL split is declared in the Prisma schema (`apps/prisma-test/prisma/schema.prisma:5-9`). Workers never see `DIRECT_URL`.
 
@@ -897,16 +897,20 @@ Not pursued in Stage 1.
 
 ## 17. Schema change process
 
-1. Modify Prisma schema in `apps/api/prisma/schema.prisma`
-2. Generate migration locally: `pnpm prisma migrate dev --name <description>` (reads `DIRECT_URL` from `.dev.vars`; the Prisma CLI does not use Accelerate's `prisma://` URL)
-3. Review the generated SQL for correctness
-4. Update this document with the new schema
-5. Commit both the migration file and this document update in the same PR
-6. PR review verifies they agree
-7. On merge to `main`, CI applies the migration to staging via `pnpm prisma migrate deploy` against the staging `DIRECT_URL`, **before** the new Worker code is deployed
-8. Migration applied to production on production approval — same `migrate deploy` command, prod `DIRECT_URL` (see `CICD_PLAN.md` §5)
+Migrations are authored as raw SQL and applied via the Supabase CLI. The full workflow (when-to-migrate, naming, idempotency, local test loop, RLS interaction) lives in `docs/migrations.md` — this section is the short version specific to keeping the Prisma typed client in sync.
 
-Note: `prisma generate` must run before any Worker build/deploy so the generated client matches the current schema (see §1a).
+1. Create the migration file: `pnpm db:new <short_description>` produces `supabase/migrations/<utc-timestamp>_<name>.sql`.
+2. Write the SQL by hand. Idempotent where cheap (see `docs/migrations.md` §3.4).
+3. Update `apps/api/prisma/schema.prisma` so the model matches the new shape (Prisma still generates the typed client; the schema file is no longer the migration source but it MUST agree with the migrations).
+4. Update this document with the new schema (table inventory, column intent, indexes).
+5. Local test: `pnpm db:reset` (applies all migrations + seed against the local stack), then `pnpm --filter @aeci/api db:apply-rls` and `pnpm --filter @aeci/api test:integration`.
+6. Verify zero drift against the linked dev project with `pnpm db:diff`.
+7. Commit the migration file, `schema.prisma` change, and this document update together in the same PR.
+8. PR review verifies all three agree.
+9. On merge to `main`, CI applies the migration to staging via `supabase db push --linked` against the staging project, **before** the new Worker code is deployed (wiring is AECI-71; see `CICD_PLAN.md` §5).
+10. Migration applied to production on production approval — same command, prod project (see `CICD_PLAN.md` §5).
+
+Note: `prisma generate` must run before any Worker build/deploy so the generated client matches the current schema (see §1a). The Prisma CLI is no longer used for migrations — `prisma migrate dev` and `prisma migrate deploy` were retired in AECI-72.
 
 ---
 

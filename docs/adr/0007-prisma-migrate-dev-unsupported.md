@@ -1,10 +1,12 @@
 # ADR 0007: `prisma migrate dev` is unsupported on this repo
 
-**Status:** Open — current workaround in place, but the underlying problem is unresolved and a proper fix is worth investigating.
+**Status:** **Superseded by AECI-72 (2026-05-25)** — the underlying constraint no longer applies. Prisma migrations were retired entirely in favour of Supabase CLI migrations (`supabase/migrations/`). `prisma migrate dev` and `prisma migrate deploy` are no longer used; Prisma is now invoked only for `prisma generate` (typed client). See `docs/migrations.md` for the new workflow.
 
-**Date:** 2026-05-24
+The rest of this ADR is retained for historical context — it documents the Catch-22 between Prisma's drift detector and Supabase's `auth.users` schema that motivated the move away from Prisma's migration system entirely.
 
-**Context owner:** Whoever picks this back up — start by reading the whole document, then run the verification steps in §6 to reproduce the current state.
+**Date:** 2026-05-24 (original) · **Superseded:** 2026-05-25
+
+**Context owner:** N/A — historical document.
 
 ---
 

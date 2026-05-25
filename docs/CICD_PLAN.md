@@ -234,13 +234,15 @@ Implementation: deploy API Worker first, run health check, deploy SSR Worker, ru
 
 ## 5. Database migrations
 
+> **Pending AECI-71.** This section describes the *target* CI flow once the env-strategy issue wires migration application into the pipeline. As of AECI-72, the migration tool changed from Prisma to Supabase CLI but the CI invocations below are not yet automated — `supabase db push --linked` is run manually against the dev project by developers. AECI-71 owns turning these manual steps into pipeline jobs.
+
 Supabase migrations run as part of the deploy pipeline.
 
 ### 5.1 Migration source
 
-Migrations live in `apps/api/prisma/migrations/` and are committed alongside code changes that depend on them. Generated via `pnpm prisma migrate dev` locally; applied via `pnpm prisma migrate deploy` in CI.
+Migrations live in `supabase/migrations/` and are committed alongside code changes that depend on them. Generated via `pnpm db:new <name>` locally (see `docs/migrations.md`); applied via `pnpm db:push` (which runs `supabase db push --linked`) in CI.
 
-Both commands read `DIRECT_URL` (the Supabase pooler `postgresql://` URL), not `DATABASE_URL` (the runtime Prisma Accelerate `prisma://` URL). Workers never see `DIRECT_URL`. See `DATABASE_SCHEMA.md` §1a for the two-URL split.
+`supabase db push` reads `DIRECT_URL` (the Supabase pooler `postgresql://` URL), not `DATABASE_URL` (the runtime Prisma Accelerate `prisma://` URL). Workers never see `DIRECT_URL`. See `DATABASE_SCHEMA.md` §1a for the two-URL split.
 
 ### 5.2 Forward-only
 
@@ -262,11 +264,11 @@ Migrations are forward-only. No automated rollback. If a migration is bad:
 
 ### 5.4 RLS and GRANT policies
 
-Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) live in `docs/rls_policies.sql`, outside `apps/api/prisma/migrations/`. They define what PostgREST exposes to the `anon`/`authenticated` roles; the Worker's privileged Postgres role bypasses both. See `docs/AUTH_AND_RLS.md` §1 for the three-layer model.
+Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) live in `docs/rls_policies.sql`, outside `supabase/migrations/`. They define what PostgREST exposes to the `anon`/`authenticated` roles; the Worker's privileged Postgres role bypasses both. See `docs/AUTH_AND_RLS.md` §1 for the three-layer model.
 
 **Apply order (per environment):**
 
-1. `pnpm --filter @aeci/api prisma:migrate:deploy` — apply all pending schema migrations first, so every in-scope table exists.
+1. `pnpm db:push` — apply all pending schema migrations first via `supabase db push --linked`, so every in-scope table exists.
 2. `psql "$DIRECT_URL" -f docs/rls_policies.sql` — (re)apply the RLS + GRANT policies on top.
 
 Locally, `pnpm --filter @aeci/api db:apply-rls` runs step 2 with `DIRECT_URL` already loaded from `.dev.vars` via `dotenv-cli`. `psql` must be on `$PATH`.
@@ -322,7 +324,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `CLOUDFLARE_ACCOUNT_ID` | Account identifier | All |
 | `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; passed to `invalidateForEntity()` purge calls | staging, production |
 | `SUPABASE_ACCESS_TOKEN` | Migrations via Supabase CLI | All |
-| `SUPABASE_DB_URL` | Supabase pooler URL; doubles as `DIRECT_URL` for `prisma migrate deploy` | All |
+| `SUPABASE_DB_URL` | Supabase pooler URL; doubles as `DIRECT_URL` for `supabase db push --linked` | All |
 | `DATABASE_URL` | Prisma Accelerate runtime URL (`prisma://...`); one per environment. Pushed to Worker via `wrangler secret put DATABASE_URL` | All |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase admin | All |
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |

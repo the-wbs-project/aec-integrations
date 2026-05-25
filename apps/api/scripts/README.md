@@ -77,7 +77,7 @@ final slug.
 ### Migration
 
 The companion migration
-`apps/api/prisma/migrations/20260524100000_phase_2_slug_unique/migration.sql`
+`supabase/migrations/20260524100000_phase_2_slug_unique.sql`
 re-asserts the unique indexes on `vendors.slug` and `products.slug` via
 `CREATE UNIQUE INDEX IF NOT EXISTS`. The baseline migration already created
 both indexes, so this is a no-op against the current schema but documents the
@@ -85,5 +85,7 @@ both indexes, so this is a no-op against the current schema but documents the
 indexes. Apply with:
 
 ```bash
-pnpm --filter @aeci/api prisma:migrate:deploy
+pnpm db:push         # remote (linked project)
+# — or —
+pnpm db:reset        # local stack via supabase start
 ```
