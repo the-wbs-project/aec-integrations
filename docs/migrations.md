@@ -73,7 +73,9 @@ Prefer `CREATE INDEX IF NOT EXISTS`, `DROP POLICY IF EXISTS ... CREATE POLICY ..
 
 ### 3.5 Keep `schema.prisma` in sync
 
-Prisma still generates the typed client. After your migration applies, update `apps/api/prisma/schema.prisma` to mirror the new shape so `pnpm --filter @aeci/api prisma:generate` produces a client that matches reality. The schema file and the migration SQL must agree; PR review verifies they do.
+Prisma still generates the typed client. After your migration applies locally, run `pnpm db:pull` from the repo root to introspect the local DB into `apps/api/prisma/schema.prisma` and regenerate the Prisma client in one step. The migration SQL and the resulting `schema.prisma` diff must describe the same change; PR review verifies they do.
+
+See `docs/prisma.md` for the full contract — why `schema.prisma` is treated as derived-from-DB, why `db:pull` targets the local container by hard-coded URL, and the forward reference to AECI-71's drift detection.
 
 ---
 
@@ -162,7 +164,7 @@ The CLI's link state (project ref, pooler URL, db password if cached) lives unde
 ## 10. Common pitfalls
 
 - **Editing a migration after merge.** Never. Write a new forward migration.
-- **Forgetting to update `schema.prisma`.** Causes type drift between the typed client and the actual DB shape. The PR reviewer should catch this.
+- **Forgetting to update `schema.prisma`.** Causes type drift between the typed client and the actual DB shape. Run `pnpm db:pull` after every `pnpm db:reset` — it introspects local and regenerates the client. See `docs/prisma.md` §3. PR reviewer should also catch this.
 - **Putting RLS policy bodies in a migration.** Spreads policy definitions across multiple files. Keep them in `docs/rls_policies.sql`.
 - **Running `supabase db push --linked` from a feature branch against staging or prod.** That's an out-of-band write; only the AECI-71 CI flow should do that (when wired).
 - **Running `supabase migration repair`.** Only useful when reconciling a brand-new project's empty history with a repo that already has migrations. Don't repair against shared staging or prod without coordination.

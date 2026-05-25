@@ -6,7 +6,6 @@
     "start": "pnpm dev",
     "deploy": "pnpm prisma:generate && wrangler deploy",
     "prisma:generate": "dotenv -e .dev.vars -- prisma generate",
-    "prisma:migrate:dev": "dotenv -e .dev.vars -- prisma migrate dev",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"
   },

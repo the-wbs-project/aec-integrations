@@ -6,5 +6,7 @@
 DATABASE_URL=
 
 # Supabase pooler URL (postgresql://...). Used only by the Prisma CLI
-# (`prisma migrate`, `prisma generate`); Workers never read this.
+# (`prisma generate`, ad-hoc `prisma db pull` against remote envs); Workers
+# never read this. `prisma migrate` is not used in this repo — see
+# docs/prisma.md.
 DIRECT_URL=

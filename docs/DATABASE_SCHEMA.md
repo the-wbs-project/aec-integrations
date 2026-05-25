@@ -95,6 +95,8 @@ String matching is fragile; the production API Worker should switch to Prisma's 
 
 **Build ordering.** `prisma generate` must run before any Worker build/deploy so the client matches the current schema. Mirror the PoC's script wiring at `apps/prisma-test/package.json:5-8`.
 
+**Prisma as query-builder only.** `schema.prisma` is downstream of `supabase/migrations/`; refresh it via `pnpm db:pull` after every applied migration. The full contract (workflow, why `db:pull` targets the local container, what to never run) lives in `docs/prisma.md`.
+
 ---
 
 ## 2. Current state
