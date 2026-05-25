@@ -135,6 +135,25 @@ components:
     textColor: "{colors.accent-primary}"
     typography: "{typography.headline}"
     padding: "{spacing.0}"
+  detail-layout:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-primary}"
+    padding: "{spacing.8} {spacing.6}"
+    md_padding: "{spacing.12} {spacing.8}"
+    sectionDivider: "1px solid {colors.border-default}"
+  browse-layout:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-primary}"
+    padding: "{spacing.8} {spacing.6}"
+    md_padding: "{spacing.12} {spacing.8}"
+    sectionDivider: "1px solid {colors.border-default}"
+  index-layout:
+    backgroundColor: "{colors.surface-base}"
+    textColor: "{colors.text-primary}"
+    padding: "{spacing.8} {spacing.6}"
+    md_padding: "{spacing.12} {spacing.8}"
+    rowDivider: "1px solid {colors.border-default}"
+    headerTypography: "{typography.label}"
 ---
 
 # Design System: AEC Integrations
@@ -299,6 +318,29 @@ The signature data component for review scores. Source Serif 4 numerals (headlin
 - **Default → hover:** color shifts to `accent-primary`. No underline-on-hover for top-level nav (reserved for inline body links).
 - **Active route:** color = `accent-primary`, paired with a 2px bottom border in `accent-primary` for primary nav. Border on the *element*, not as a side stripe (forbidden — see Do's and Don'ts).
 - **Mobile:** collapses into a CDK-overlay dropdown with focus trap. No hamburger-as-mystery — the toggle is labeled.
+
+### Layout shells
+
+Three reusable Angular shells (`apps/web/src/app/layouts/`) — every Phase 2 page projects body content into one of them via named slots (shadcn-style composition). No state, no inputs; structure only. Anchor inherited from the AECi site chrome (Stripe — see Named Rules).
+
+All three share the same outer container: `max-w-7xl` centered, `surface-base` background, `text-primary` text, 24px horizontal / 32px vertical padding on phones, 32px / 48px on `md` and up. Section dividers use `border-default` (0.5–1px). No box-shadows.
+
+- **DetailLayout** (`<aec-detail-layout>`) — for product / vendor / integration detail pages.
+  - **Slots:** `breadcrumbs`, `hero` (required), `metadata` (right column), `body` (required).
+  - **Grid:** `md:` two-column (2fr main / 1fr metadata) with sticky-top metadata; collapses to single column with metadata below hero on phones.
+  - **Internal rhythm:** hero bordered below; body sections stack with `space-y-12`; metadata sidebar uses `space-y-6`.
+
+- **BrowseLayout** (`<aec-browse-layout>`) — for the card-grid browse pages (Phase 3 filters).
+  - **Slots:** `header` (required), `filters` (Phase 3 placeholder), `grid` (required).
+  - **Grid:** `md:` two-column (1fr filters / 3fr grid) with sticky-top filters; filters collapse above grid on phones.
+  - **Internal rhythm:** header bordered below; grid uses container's own card spacing.
+
+- **IndexLayout** (`<aec-index-layout>`) — for sortable, paginated table listings.
+  - **Slots:** `header` (required), `table-header` (rendered into `<thead>`), `table-body` (rendered into `<tbody>`), `pagination`.
+  - **Table:** semantic `<table>` with `min-w-[40rem]`; wrapped in a horizontally scrollable container on phones. Row dividers from `border-default`. Header typography uses the `label` role in uppercase.
+  - **Pagination:** bordered above, flex row with summary copy left + button group right.
+
+Every visible string and every ARIA label is i18n-wrapped (`@@app.layouts.{detail|browse|index}.{slot}.aria`). Concrete pages add their own i18n keys for projected content.
 
 ## 6. Do's and Don'ts
 
