@@ -17,3 +17,18 @@ DD_API_KEY=
 # Optional. Defaults to datadoghq.com. Use datadoghq.eu / us3.datadoghq.com /
 # us5.datadoghq.com / ap1.datadoghq.com as appropriate for the DD region.
 DD_SITE=datadoghq.com
+
+# ─── Cache-tag purge (AECI-56) ─────────────────────────────────────────────
+# ADMIN_PURGE_TOKEN: bearer the caller of POST /admin/purge must present.
+#   Locally pick anything (e.g. `dev-admin-token`). In deployed envs push via
+#   `wrangler secret put ADMIN_PURGE_TOKEN --env <preview|production>`.
+# CF_PURGE_API_TOKEN: Cloudflare API token the purge handler uses to call
+#   CF's purge-by-tag API. Must be scoped to `Zone.Cache Purge` on
+#   `aecintegrations.com` ONLY (docs/CACHE_STRATEGY.md §5 line 109).
+# CF_ZONE_ID: Cloudflare zone the purge call targets. Public; can move into
+#   `wrangler.jsonc` `vars` per env once known.
+# All three are optional locally — the endpoint will 401 / return
+# `cf_credentials_missing` until configured. Don't commit real values.
+ADMIN_PURGE_TOKEN=
+CF_PURGE_API_TOKEN=
+CF_ZONE_ID=

@@ -24,6 +24,15 @@
  *   DD_CLIENT_TOKEN     client-exposed RUM client token   (rendered into HTML)
  *   DD_API_KEY          server-only; Datadog Logs HTTP intake
  *   DD_SITE             public; defaults to datadoghq.com when unset
+ *
+ * Cache-tag purge (AECI-56 / Phase 2.10):
+ *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents
+ *   CF_PURGE_API_TOKEN  secret; CF API token, scoped to Zone.Cache Purge on
+ *                       aecintegrations.com ONLY (docs/CACHE_STRATEGY.md §5)
+ *   CF_ZONE_ID          public var; CF zone the purge call targets
+ *
+ * Push secrets per env (`wrangler secret put`); set `CF_ZONE_ID` under the
+ * per-env `vars` block once the production / preview zone IDs are known.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",

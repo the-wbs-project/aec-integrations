@@ -304,6 +304,85 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
   });
 });
 
+describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () => {
+  function appReturningOk(): ReturnType<typeof createApp> {
+    return createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>x</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    });
+  }
+
+  it.each([
+    ['/', 'route:index,taxonomy'],
+    ['/products', 'route:index,index:products'],
+    ['/products/procore', 'route:detail,product:procore'],
+    ['/vendors/autodesk', 'route:detail,vendor:autodesk'],
+    ['/integrations/abc-123', 'route:detail,integration:abc-123'],
+    ['/categories/structural', 'route:browse,category:structural'],
+    ['/disciplines/architecture', 'route:browse,discipline:architecture'],
+    ['/phases/preconstruction', 'route:browse,phase:preconstruction'],
+  ])('cacheable path %s emits Cache-Tag=%s', async (path, expected) => {
+    const { binding } = recordingApiBinding();
+    const res = await appReturningOk().fetch(
+      new Request(`https://aecintegrations.com${path}`),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-tag')).toBe(expected);
+  });
+
+  it('omits Cache-Tag for static cacheable pages with no §2 entity (/about, /legal/*)', async () => {
+    const { binding } = recordingApiBinding();
+    for (const path of ['/about', '/legal/privacy']) {
+      const res = await appReturningOk().fetch(
+        new Request(`https://aecintegrations.com${path}`),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+      expect(res.status).toBe(200);
+      // Route tag still set; entity-specific tag absent.
+      expect(res.headers.get('cache-tag')).toBe('route:index');
+    }
+  });
+
+  it('does not write Cache-Tag on non-cacheable paths (/account/settings)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>account</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    });
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/account/settings'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.headers.get('cache-tag')).toBeNull();
+  });
+
+  it('does not write Cache-Tag on cacheable-route 404 responses', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('Not found', { status: 404 })),
+    });
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/products/missing'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-tag')).toBeNull();
+  });
+});
+
 describe('createApp /preview/* production gate', () => {
   it('returns 404 with no-store on /preview/* when ENV is production (renderer never invoked)', async () => {
     const { binding } = recordingApiBinding();
