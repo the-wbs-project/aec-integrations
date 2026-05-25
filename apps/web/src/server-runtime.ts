@@ -54,6 +54,8 @@
 import { Hono } from 'hono';
 
 import type { WebEnv } from './env';
+import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
+import { createAdminPurgeHandler } from './server/routes/admin-purge';
 
 export type Bindings = WebEnv;
 
@@ -248,8 +250,17 @@ function ensureNoStore(response: Response): Response {
  * Wraps a rendered SSR response with the cache headers for a cacheable route.
  * 404s receive `NOT_FOUND_TTL` (§9.1b); 2xx receive the route's TTL. Other
  * statuses (5xx, redirects) are returned non-cacheable.
+ *
+ * On 2xx, also writes `Cache-Tag` from the provided inputs (AECI-56 /
+ * `docs/CACHE_STRATEGY.md` §2–3). 404s skip `Cache-Tag` — they aren't stored
+ * in `caches.default` (see `handleSsr`), so the tag would never be a target
+ * of purge-by-tag.
  */
-function withCacheHeaders(response: Response, routeTtl: CacheTtl): Response {
+function withCacheHeaders(
+  response: Response,
+  routeTtl: CacheTtl,
+  tagInputs: CacheTagInputs | null,
+): Response {
   const isOk = response.status >= 200 && response.status < 300;
   const is404 = response.status === 404;
 
@@ -258,6 +269,9 @@ function withCacheHeaders(response: Response, routeTtl: CacheTtl): Response {
   const ttl = is404 ? NOT_FOUND_TTL : routeTtl;
   const headers = new Headers(response.headers);
   headers.set('Cache-Control', buildCacheControl(ttl));
+  if (isOk && tagInputs) {
+    headers.set('Cache-Tag', buildCacheTags(tagInputs));
+  }
   // Belt-and-braces: never let an upstream Vary slip through on a cacheable
   // response — it fragments the edge cache and breaks purge-by-URL (§7a.3,
   // §9.3). Locale is segmented by URL prefix, visitor state is client-only.
@@ -330,7 +344,9 @@ async function handleSsr(
   const transformed = transformResponse
     ? await transformResponse(rendered, env, request, ctx)
     : rendered;
-  const response = withCacheHeaders(transformed, ttl);
+  const { path: localePath } = stripLocalePrefix(url.pathname);
+  const tagInputs = cacheTagInputsForPath(localePath);
+  const response = withCacheHeaders(transformed, ttl, tagInputs);
 
   // Per §9.1: only 2xx is stored. 404s are *returned* with NOT_FOUND_TTL via
   // the response's Cache-Control header (so Cloudflare honors it edge-side),
@@ -365,6 +381,11 @@ export function createApp(options: {
   // the API Worker untouched. No envelope normalization on this path; SSR
   // data loaders that want normalization go through `createServerApiClient`.
   app.all('/api/*', (c) => c.env.API.fetch(c.req.raw));
+
+  // POST /admin/purge — manual cache-tag invalidation (AECI-56, Phase 2.10).
+  // Non-cacheable; the handler authenticates with `ADMIN_PURGE_TOKEN` and
+  // proxies to Cloudflare's purge-by-tag API.
+  app.post('/admin/purge', createAdminPurgeHandler());
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {

@@ -48,18 +48,20 @@ Codified so callers don't re-derive the rules per surface:
 
 ### Cache-Tag header construction helper
 
-Building the header is a single helper, implemented in Phase 2.10 ([AECI-56](https://linear.app/aec-integrations/issue/AECI-56)). Reference signature only — implementation lives in `apps/web/src/server/cache-tags.ts`:
+Building the header is a single helper, implemented in Phase 2.10 ([AECI-56](https://linear.app/aec-integrations/issue/AECI-56)). Lives at `apps/web/src/server/cache-tags.ts`:
 
 ```typescript
 buildCacheTags(opts: {
   route: 'detail' | 'index' | 'browse';
-  entityType: 'product' | 'vendor' | 'integration' | 'category' | 'discipline' | 'phase' | 'taxonomy' | 'sitemap';
-  entityId: string;                // slug for entities, '*' for index/taxonomy/sitemap
-  embeddedEntities?: Array<{ type: string; id: string }>;
+  entity?: { type: string; slug?: string; id?: string };
+  embedded?: ReadonlyArray<{ type: string; slug?: string; id?: string }>;
+  taxonomy?: boolean;
 }): string;
 ```
 
-Callers don't construct `Cache-Tag` strings by hand. Adding a new entity type means extending the helper and §2 of this doc, not editing call sites.
+`entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `discipline`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes that render the taxonomy nav (home today; more in Phase 4+). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+
+The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change. Callers never construct `Cache-Tag` strings by hand.
 
 ---
 
