@@ -59,13 +59,29 @@
       "vars": { "ENV": "preview", "DD_SITE": "us5.datadoghq.com" },
       "services": [{ "binding": "API", "service": "aeci-api-preview" }],
     },
+    "staging": {
+      "name": "aeci-web-staging",
+      "vars": { "ENV": "staging", "DD_SITE": "us5.datadoghq.com" },
+      "observability": { "enabled": true },
+      "routes": [
+        {
+          "pattern": "staging.aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
+      "services": [{ "binding": "API", "service": "aeci-api-staging" }],
+    },
     "production": {
-      "name": "aeci-web",
+      "name": "aeci-web-production",
       "vars": { "ENV": "production", "DD_SITE": "us5.datadoghq.com" },
       "observability": { "enabled": true },
       "routes": [
         {
           "pattern": "aecintegrations.com",
+          "custom_domain": true,
+        },
+        {
+          "pattern": "www.aecintegrations.com",
           "custom_domain": true,
         },
       ],
