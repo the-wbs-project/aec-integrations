@@ -241,23 +241,31 @@ jobs:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        # `set -e` would kill the loop on jq parse errors (non-JSON body
+        # during early propagation), so suppress jq failures explicitly with
+        # `|| true`. 15 attempts × 6s = 90s budget; fresh workers.dev
+        # subdomains can take 30-60s to propagate via DNS the first time.
         run: |
-          set -euo pipefail
-          for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            response=$(curl -fsS \
+          set -uo pipefail
+          for attempt in $(seq 1 15); do
+            body_file=$(mktemp)
+            status=$(curl -sS -o "$body_file" -w '%{http_code}' \
               -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
               -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-              "${PREVIEW_URL}/api/version" || true)
-            actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
-            if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
-              echo "Preview deploy verified at SHA $actual_sha (attempt $attempt)"
-              echo "Response: $response"
+              "${PREVIEW_URL}/api/version" || echo "curl-fail")
+            actual_sha=$(jq -r '.sha // empty' < "$body_file" 2>/dev/null || true)
+            if [ "$status" = "200" ] && [ "$actual_sha" = "$EXPECTED_SHA" ]; then
+              echo "Preview deploy verified at SHA $actual_sha (attempt $attempt, status $status)"
+              echo "Response: $(cat "$body_file")"
+              rm -f "$body_file"
               exit 0
             fi
-            echo "Attempt $attempt: expected $EXPECTED_SHA, got '$actual_sha'. Retrying in 6s..."
+            body_excerpt=$(head -c 200 "$body_file" | tr -d '\n')
+            echo "Attempt $attempt: status=$status, sha='$actual_sha', expected '$EXPECTED_SHA', body[:200]='$body_excerpt'. Retrying in 6s..."
+            rm -f "$body_file"
             sleep 6
           done
-          echo "::error::${PREVIEW_URL}/api/version did not report $EXPECTED_SHA within 60s"
+          echo "::error::${PREVIEW_URL}/api/version did not report $EXPECTED_SHA within 90s"
           exit 1
 
       # ---------------------------------------------------------------------
