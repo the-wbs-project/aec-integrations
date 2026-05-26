@@ -83,9 +83,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @aeci/api exec prisma generate
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
 
       # `supabase db start` boots only the Postgres container (no Studio,
       # Inbucket, Imgproxy, Edge Runtime, etc.) — the lightweight subset
