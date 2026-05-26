@@ -22,4 +22,11 @@ export type Env = {
    */
   DD_API_KEY?: string;
   DD_SITE?: string;
+  /**
+   * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
+   * Optional: handler falls back to a direct Prisma fetch when the binding is
+   * absent (e.g. local `wrangler dev` without `--remote`). 5-minute TTL is
+   * the staleness bound until admin/purge lands (Phase 2.10).
+   */
+  TAXONOMY_KV?: KVNamespace;
 };
