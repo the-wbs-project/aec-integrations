@@ -21,16 +21,14 @@
 #   *   `prisma db pull` or `prisma migrate diff` failure (e.g. connection
 #       refused, P4002 introspection error)
 #
-# KNOWN ISSUE — P4002 on cross-schema FK:
-#   `prisma db pull` against any DB containing the FK
-#   `public.profiles.id -> auth.users(id)` fails with Prisma error P4002
-#   ("Cross schema references are only allowed when the target schema is
-#   listed in the schemas property of your datasource"). See docs/prisma.md §7.
-#   Until that FK is resolved by the issue that owns it, refresh-staging
-#   step 9 will hard-stop here on every run. That is the spec-mandated
-#   behavior (HARD STOP on drift), so the workflow correctly skips the
-#   Worker deploys in step 10. Run this script locally against the local
-#   Supabase container to verify it works end-to-end once the FK is fixed.
+# HISTORICAL — P4002 on cross-schema FK (resolved AECI-80):
+#   `prisma db pull` used to fail with P4002 against any DB containing the
+#   FK `public.profiles.id -> auth.users(id)`. AECI-80 enabled Prisma's
+#   `multiSchema` feature in `apps/api/prisma/schema.prisma` (declaring
+#   `schemas = ["public", "auth"]`) and modeled the full auth.* shape,
+#   which lets introspection resolve the cross-schema reference. If P4002
+#   ever returns, check that the datasource still has the `schemas` line.
+#   See docs/prisma.md §7 for the full story.
 
 set -euo pipefail
 

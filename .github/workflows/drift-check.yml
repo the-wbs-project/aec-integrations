@@ -26,13 +26,12 @@
 #   3. Commit the regenerated `apps/api/prisma/schema.prisma`.
 #   4. Push. The drift-check job will re-run and pass.
 #
-# KNOWN ISSUE — P4002 on cross-schema FK:
-#   `prisma db pull` against any DB containing the FK
-#   `public.profiles.id -> auth.users(id)` fails with Prisma P4002. See
-#   `scripts/prisma-drift-check.sh:24-33` and `docs/prisma.md` §7. Until that
-#   FK is resolved by the issue that owns it, this workflow will fail on
-#   every migration-touching PR — which is the spec-mandated hard-stop. The
-#   fix lands in a separate issue; AECI-80 only sets up the gate.
+# NOTE — historically P4002 on the cross-schema FK
+# `public.profiles.id -> auth.users(id)` blocked every introspection. That
+# was resolved in AECI-80 by enabling Prisma's `multiSchema` feature and
+# modeling the full `auth.*` shape in `apps/api/prisma/schema.prisma`. See
+# `docs/prisma.md` §7. This workflow now reports real drift, not the
+# landmine.
 
 name: drift-check
 
@@ -120,7 +119,7 @@ jobs:
             echo "::error::  2. pnpm db:pull     # regenerate schema.prisma from local DB"
             echo "::error::  3. commit apps/api/prisma/schema.prisma and push"
             echo "::error::"
-            echo "::error::If the failure is Prisma P4002 (cross-schema FK), see docs/prisma.md §7 — that is the documented hard-stop, not a regression introduced by this PR."
+            echo "::error::If the failure is Prisma P4002 (cross-schema FK), the datasource block in apps/api/prisma/schema.prisma is missing 'schemas = [\"public\", \"auth\"]'. See docs/prisma.md §7."
           }
 
       - name: Stop local Postgres

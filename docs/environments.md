@@ -149,7 +149,7 @@ What happens, in order (each numbered step matches a job step in the workflow):
 | Failure | Where | What it means / what to do |
 | --- | --- | --- |
 | `permission denied for schema public` during step 4/5 | Step 4 wipe or step 5 restore | `DIRECT_URL_STAGING` doesn't have owner-level access. The staging DB role used by the secret must own the public schema; the Supabase pooler URL with the `postgres` user does. |
-| Drift check exits 1 with Prisma `P4002` | Step 9 | Same known issue documented under §"Promote runbook" — cross-schema FK `public.profiles.id → auth.users(id)`. Workflow hard-stops, Workers don't deploy. See `docs/prisma.md` §7. |
+| Drift check exits 1 | Step 9 | Staging schema diverges from `apps/api/prisma/schema.prisma`. Almost always means a migration was committed without re-pulling. Resolve by running `pnpm db:reset && pnpm db:pull` against the local DB used to author the migration, committing the regenerated schema, and re-deploying. Workflow hard-stops here on purpose — Workers don't deploy against a drifted DB. |
 | `supabase db push --linked` says "no migrations to apply" but `pnpm db:list` shows pending | Step 6 | The migration-history table from prod is ahead of the committed `supabase/migrations/` files. Usually means an out-of-band manual migration was applied to prod. Resolve with `supabase migration repair`. |
 | Smoke test (step 11) times out at 60s | Step 11 | Worker deploy completed but propagation lagging, or the Cloudflare Access service token (CF_ACCESS_CLIENT_ID/SECRET) rotated. Check `docs/access.md` §2. |
 | `auth.users` count after step 8 is lower than expected | Step 4 wiped too much | Verify `auth.users CASCADE` didn't take out something else. Re-run the workflow — it's idempotent. |
@@ -198,7 +198,7 @@ pnpm db:reset
 
 That's the literal command CI runs.
 
-**Known landmine — Prisma P4002.** `prisma db pull` against any DB containing the FK `public.profiles.id → auth.users(id)` fails with P4002 ("Cross schema references are only allowed when the target schema is listed in the schemas property of your datasource"). Documented in `scripts/prisma-drift-check.sh:24-33` and `docs/prisma.md` §7. Until that FK is restructured, every migration-touching PR will see drift-check fail with P4002. The fix lands in a separate issue; do not try to work around it inside `drift-check.yml`.
+**Historical note.** AECI-80 originally inherited a P4002 hard-stop from the cross-schema FK `public.profiles.id → auth.users(id)`. That was resolved in the same PR by enabling Prisma's `multiSchema` feature and modeling the full `auth.*` shape in `apps/api/prisma/schema.prisma`. The full story is in `docs/prisma.md` §7. If you ever see P4002 again, the schema's `schemas = ["public", "auth"]` line on the datasource has likely been removed — restore it.
 
 ## Promote runbook
 
@@ -231,7 +231,7 @@ For Worker code: `wrangler rollback --env production` against `apps/api` and `ap
 | Failure | Where | What it means / what to do |
 | --- | --- | --- |
 | `staging is at <x>, refusing to promote <y>` | `pre-promotion-checks` | Staging's `/api/version` doesn't match `inputs.commit_sha`. Either re-deploy staging on the target SHA or change the input. |
-| Drift check exits 1 with Prisma `P4002` | `apply-prod-migrations` | Known issue carried over from AECI-77 — cross-schema FK `public.profiles.id → auth.users(id)` makes `prisma db pull` fail. The drift step will hard-stop here until that FK is resolved in a separate issue. See `scripts/prisma-drift-check.sh:24-33` and `docs/prisma.md` §7. |
+| Drift check exits 1 | `apply-prod-migrations` | Prod schema diverges from `apps/api/prisma/schema.prisma`. Almost always means a migration was applied to prod without the corresponding `schema.prisma` update being merged. Hard-stop; Workers don't deploy. Fix by syncing `schema.prisma` via `pnpm db:pull` against a fresh DB built from migrations, opening a follow-up PR. |
 | Migrations applied but `/api/version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way. Inspect the `wrangler-action` step logs; if SSR is wedged, `wrangler rollback --env production` on `apps/web`. |
 | R2 upload fails | `apply-prod-migrations` | The snapshot is step 4 — migrations have NOT run yet, so it's safe to re-run after fixing R2 access. Check `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT`. |
 | Snapshot needed but the bucket lifecycle already expired it | — | Snapshots live 30 days. Older incidents require a Supabase point-in-time restore. |
