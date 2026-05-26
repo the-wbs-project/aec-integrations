@@ -45,9 +45,19 @@ API_DIR="$REPO_ROOT/apps/api"
 
 cd "$API_DIR"
 
+# `apps/api/prisma/schema.prisma` declares both `url = env("DATABASE_URL")`
+# and `directUrl = env("DIRECT_URL")`. Prisma's `get-config` validates both
+# env vars whenever it loads the schema (regardless of which connection it
+# would actually use), so we set them to the same value here. Against the
+# DB URLs this script is called with (local Postgres in drift-check.yml,
+# `DIRECT_URL_STAGING`/`DIRECT_URL_PRODUCTION` in the refresh/promote
+# workflows) there is no Accelerate intermediary — directUrl == url.
+export DATABASE_URL="$DB_URL"
+export DIRECT_URL="$DB_URL"
+
 # --print writes the introspected datamodel to stdout instead of overwriting
 # schema.prisma — so we can diff schema.prisma (expected) against actual.
-DATABASE_URL="$DB_URL" pnpm exec prisma db pull \
+pnpm exec prisma db pull \
   --schema=./prisma/schema.prisma \
   --print > /tmp/db-actual.prisma
 
