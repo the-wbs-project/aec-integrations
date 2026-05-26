@@ -118,10 +118,10 @@ this document codifies.
 
 ---
 
-## 7. Known limitation: `db:pull` and the auth FK
+## 7. Resolved: cross-schema FK via `multiSchema`
 
-Until the cross-schema FK `profiles.id → auth.users.id` is resolved (tracked
-separately), `pnpm db:pull` fails with Prisma error **P4002**:
+Historically, `pnpm db:pull` failed with Prisma error **P4002** because of
+the cross-schema FK `profiles.id → auth.users.id`:
 
 ```
 The schema of the introspected database was inconsistent: Cross schema
@@ -130,17 +130,31 @@ property of your datasource. `public.profiles` points to `auth.users` in
 constraint `profiles_id_fkey`.
 ```
 
-This is the exact failure documented in `docs/adr/0007-prisma-migrate-dev-unsupported.md`
-§3 — Prisma walks every FK during introspection regardless of the
-`--schemas` flag. The workarounds (declare `auth` in `schemas` and pull all
-of gotrue's tables, or drop the FK and replace with a trigger) are both
-out of scope for AECI-73. The `pnpm db:pull` script is in place and ready
-to use the moment the FK question is resolved by the issue that owns it.
+**Fixed in AECI-80** by enabling Prisma's `multiSchema` feature
+(GA in Prisma 6+ — no `previewFeatures` flag needed) and listing both
+`public` and `auth` in the datasource:
 
-Until then, schema.prisma updates for migrations that touch `public.profiles`
-or any other table referencing `auth.users` are authored by hand alongside
-the SQL migration. PR review verifies the two agree. The forthcoming AECI-71
-drift checks will still flag any divergence in CI.
+```prisma
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+  schemas   = ["public", "auth"]
+}
+```
+
+`apps/api/prisma/schema.prisma` now models the full `auth.*` shape
+(produced by `prisma db pull`) at the bottom of the file. The Worker does
+not query auth tables via Prisma client — Supabase gotrue owns them — but
+they live in the schema so:
+
+1. The cross-schema FK on `Profile.id → auth.users(id)` resolves.
+2. The AECI-80 PR-time drift check covers the entire DB, not just `public.*`.
+
+`pnpm db:pull` is now the canonical way to regenerate `schema.prisma`
+after a migration. See §3 ("Workflow"). The AECI-71 drift checks (PR,
+post-refresh-staging, post-promote-to-prod) verify schema.prisma stays in
+sync with the migrations.
 
 ---
 

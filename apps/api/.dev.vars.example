@@ -35,6 +35,22 @@ SUPABASE_TEST_USER_JWT=
 # Example: postgresql://postgres:postgres@127.0.0.1:54322/postgres
 TEST_DATABASE_URL=
 
+# ─── Local seeding from staging (AECI-80) ──────────────────────────────────
+# Opt-in. Only required if you run `pnpm db:seed-from-staging` to pull
+# staging's data shape into your local Postgres. Workers never read this —
+# it is consumed only by `scripts/seed-from-staging.sh` from your shell
+# (the script reads the variable from the environment, not from .dev.vars).
+#
+# Where to find it: Supabase Dashboard → `aeci-development` project →
+# Project Settings → Database → Connection string → "URI" (use the
+# "Transaction" / pooler form). Looks like:
+#   postgresql://postgres:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
+#
+# Export it in your shell (.zshrc / .bashrc / direnv) — DO NOT paste it
+# into .dev.vars, because the Worker has no use for it and shouldn't see
+# raw Postgres credentials.
+# DIRECT_URL_STAGING="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
 # HTTP intake). When empty, the helper is a no-op so dev boots cleanly.
