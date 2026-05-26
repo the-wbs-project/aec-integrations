@@ -91,7 +91,7 @@ jobs:
       #     wire protocol as both prod and staging.
       #   - Supabase CLI (for `supabase db push --linked` in step 6).
       # ---------------------------------------------------------------------
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4

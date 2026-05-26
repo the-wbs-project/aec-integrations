@@ -217,7 +217,7 @@ jobs:
       # postgresql-client-17 (matches supabase/postgres:17.x per
       # docs/migrations.md §4), and the Supabase CLI.
       # -----------------------------------------------------------------------
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
@@ -339,7 +339,7 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha }}
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
