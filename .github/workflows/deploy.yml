@@ -1,39 +1,40 @@
-# AEC Integrations — CI pipeline (deploys parked).
+# AEC Integrations — CI pipeline.
 #
-# Current posture (set 2026-05-18, AECI / no-issue housekeeping):
+# Current posture (AECI-76 / sub-issue (a) of AECI-71):
 #   PR push        → lint → typecheck → unit → build         (no deploy)
-#   push to main   → lint → typecheck → unit → build         (no deploy)
+#   push to main   → lint → typecheck → unit → build → deploy-staging
 #
-# Rationale:
-#   - Per-PR preview deploys (aec-web-pr-<N> / aec-api-pr-<N>) were removed.
-#     A future preview model (shared vs. per-PR vs. full staging) is still
-#     under investigation; see docs/CICD_PLAN.md §2 deviation callout.
-#   - Auto-deploy-to-production on merge to `main` was removed. Production
-#     ships manually (`wrangler deploy --env production` from a developer
-#     machine) until a deliberate trigger (workflow_dispatch / tag / etc.)
-#     is chosen. The `deploy-production` job below is preserved but parked
-#     behind `if: false` so re-enabling is a one-line change once a trigger
-#     is wired.
+# Promotion to production happens via the separate `promote-to-prod.yml`
+# workflow (AECI-78), triggered manually with explicit commit_sha + a
+# `production` GH Environment approval gate. There is intentionally no
+# auto-deploy-to-prod here.
 #
-# Deferred (tracked separately, NOT in this workflow yet):
-#   - staging environment (CICD_PLAN §2.2)
-#   - Supabase migrations (CICD_PLAN §5)
-#   - Datadog deployment markers (CICD_PLAN §9.1)
+# Per-PR ephemeral previews land in AECI-79 via `pr-preview.yml`. Until
+# then, the e2e-tests-preview / integration-runner-preview / lighthouse
+# jobs below stay parked.
+#
+# `deploy-staging` is gated on `vars.STAGING_ENABLED == 'true'`. Flip the
+# repo variable after the manual prerequisites in `docs/environments.md`
+# are complete (DNS, GH Actions secrets, Worker secrets, GH Environments,
+# Supabase projects). Until then, the job is skipped — not failing — so
+# merges to main stay green.
 #
 # Phase 1.19 (AECI-33) added:
 #   - e2e-tests-local           — Playwright + axe smoke against `pnpm dev:bound`
 #   - integration-runner-local  — apps/web/scripts/run-extra-tests.sh against local
-#   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED)
-#   - integration-runner-preview — extras script against preview URL (PARKED)
-#   - lighthouse                — Lighthouse CI, warn-only (PARKED)
-# The "preview" and "lighthouse" jobs activate when `deploy-preview` lands.
+#   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED, AECI-79)
+#   - integration-runner-preview — extras script against preview URL (PARKED, AECI-79)
+#   - lighthouse                — Lighthouse CI, warn-only (PARKED, Phase 7)
 #
-# Required repo secrets (still configured for the future prod trigger):
-#   CLOUDFLARE_API_TOKEN   — scope per CICD_PLAN §7.1
-#   CLOUDFLARE_ACCOUNT_ID  — e62ec9d8012c3e0c225f8e4dbab76b79
+# Required repo secrets:
+#   CLOUDFLARE_API_TOKEN     — scoped narrowly per CICD_PLAN §7.1
+#   CLOUDFLARE_ACCOUNT_ID    — e62ec9d8012c3e0c225f8e4dbab76b79
+#   CF_ACCESS_CLIENT_ID      — service-token client id (docs/access.md §1)
+#   CF_ACCESS_CLIENT_SECRET  — service-token client secret (docs/access.md §1)
 #
-# Required environment: GitHub Settings → Environments → `production`
-#   with required reviewers configured (CICD_PLAN §3.3).
+# Required repo variables:
+#   STAGING_ENABLED          — set to "true" after the manual prerequisites
+#                              in docs/environments.md are complete.
 
 name: deploy
 
@@ -255,21 +256,18 @@ jobs:
         env:
           LHCI_URL: ${{ vars.PREVIEW_URL }}
 
-  deploy-production:
-    name: Deploy production
-    # PARKED. This job is intentionally never triggered by CI right now.
-    # Production ships manually via `wrangler deploy --env production` until
-    # a trigger model (workflow_dispatch / tag / promote-from-staging) is
-    # chosen. To re-enable: change `if: false` to the chosen condition and
-    # add the matching entry to the `on:` block above.
-    if: false
+  deploy-staging:
+    name: Deploy staging
+    # Runs on push to `main` once Chris flips `vars.STAGING_ENABLED` to "true"
+    # after completing the manual prerequisites in `docs/environments.md`
+    # (DNS, secrets, GH Environments, Supabase projects). The repo-variable
+    # gate keeps merges to main green during the bootstrap window.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_ENABLED == 'true'
     runs-on: ubuntu-latest
-    needs: [build-web]
+    needs: [build-web, e2e-tests-local, integration-runner-local]
     environment:
-      # `production` is configured in repo Settings → Environments with
-      # required reviewers. This is the manual approval gate (CICD_PLAN §3.3).
-      name: production
-      url: https://aecintegrations.com
+      name: staging
+      url: https://staging.aecintegrations.com
     permissions:
       contents: read
     steps:
@@ -291,13 +289,22 @@ jobs:
       # so generate the Prisma client explicitly before bundling.
       - run: pnpm --filter @aeci/api exec prisma generate
 
+      # Single timestamp shared by both Worker deploys so /api/version
+      # reports a coherent DEPLOYED_AT for the whole release.
+      - name: Compute deploy timestamp
+        id: ts
+        run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      # API deploys FIRST. The SSR Worker's `services.API` binding talks to
+      # `aeci-api-staging`; deploying API ahead of web means any brief
+      # mismatch lands in the safer direction (API ahead of web).
       - name: Deploy API
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/api
-          command: deploy --env production
+          command: deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
           packageManager: pnpm
 
       - name: Deploy SSR
@@ -306,5 +313,31 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/web
-          command: deploy --env production
+          command: deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
           packageManager: pnpm
+
+      # Cloudflare Worker deploys propagate quickly but not instantly; poll
+      # /api/version until it reports the new SHA (or fail after the budget).
+      - name: Smoke test staging /api/version
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            response=$(curl -fsS \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              https://staging.aecintegrations.com/api/version || true)
+            actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
+            if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
+              echo "Staging deploy verified at SHA $actual_sha (attempt $attempt)"
+              echo "Response: $response"
+              exit 0
+            fi
+            echo "Attempt $attempt: expected $EXPECTED_SHA, got '$actual_sha'. Retrying in 6s…"
+            sleep 6
+          done
+          echo "::error::Staging /api/version did not report $EXPECTED_SHA within 60s"
+          exit 1
