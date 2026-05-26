@@ -247,9 +247,11 @@ jobs:
         # subdomains can take 30-60s to propagate via DNS the first time.
         run: |
           set -uo pipefail
+          last_headers_file=$(mktemp)
           for attempt in $(seq 1 15); do
             body_file=$(mktemp)
-            status=$(curl -sS -o "$body_file" -w '%{http_code}' \
+            headers_file=$(mktemp)
+            status=$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' \
               -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
               -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
               "${PREVIEW_URL}/api/version" || echo "curl-fail")
@@ -257,15 +259,37 @@ jobs:
             if [ "$status" = "200" ] && [ "$actual_sha" = "$EXPECTED_SHA" ]; then
               echo "Preview deploy verified at SHA $actual_sha (attempt $attempt, status $status)"
               echo "Response: $(cat "$body_file")"
-              rm -f "$body_file"
+              rm -f "$body_file" "$headers_file" "$last_headers_file"
               exit 0
             fi
             body_excerpt=$(head -c 200 "$body_file" | tr -d '\n')
             echo "Attempt $attempt: status=$status, sha='$actual_sha', expected '$EXPECTED_SHA', body[:200]='$body_excerpt'. Retrying in 6s..."
-            rm -f "$body_file"
+            cp "$headers_file" "$last_headers_file"
+            rm -f "$body_file" "$headers_file"
             sleep 6
           done
           echo "::error::${PREVIEW_URL}/api/version did not report $EXPECTED_SHA within 90s"
+          # On final failure, dump headers from the last attempt + decode the
+          # CF Access JWT `meta` param if present. `service_token_status:true`
+          # in the decoded payload means the policy accepted the token (and
+          # the 302 is for an unrelated reason); `false` means the token was
+          # rejected — likely a policy / GH-secrets mismatch (see
+          # docs/access.md §5).
+          echo "=== Response headers from final attempt ==="
+          cat "$last_headers_file" || true
+          location=$(grep -i '^location:' "$last_headers_file" | head -1 | tr -d '\r')
+          if [ -n "$location" ]; then
+            meta=$(printf '%s' "$location" | sed -n 's/.*meta=\([^&]*\).*/\1/p')
+            if [ -n "$meta" ]; then
+              echo "=== Decoded CF Access meta JWT payload ==="
+              payload=$(printf '%s' "$meta" | cut -d. -f2)
+              # base64url -> base64 + pad
+              pad=$(( (4 - ${#payload} % 4) % 4 ))
+              padded="${payload}$(printf '=%.0s' $(seq 1 "$pad"))"
+              printf '%s' "$padded" | tr '_-' '/+' | base64 -d 2>/dev/null | jq . 2>/dev/null || echo "(could not decode payload)"
+            fi
+          fi
+          rm -f "$last_headers_file"
           exit 1
 
       # ---------------------------------------------------------------------
