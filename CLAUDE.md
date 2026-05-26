@@ -28,6 +28,7 @@ For any task:
 | Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
 | Migration workflow (writing / applying SQL via Supabase CLI) | `docs/migrations.md` |
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
+| Cloudflare Access for non-prod environments (allowlist, service token rotation, lockout) | `docs/access.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
