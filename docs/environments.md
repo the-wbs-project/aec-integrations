@@ -1,6 +1,8 @@
 # Environments
 
-> **Status (AECI-76, stub).** This file documents the topology and the manual setup checklist needed to bring the staging deploy online. The full operator runbook (how to trigger each button, what to do when something fails, how to recover an orphaned PR branch DB, etc.) lands in [AECI-80](https://linear.app/aec-integrations/issue/AECI-80) at the close of the AECI-71 epic. Until then, refer back to the AECI-71 issue body for any detail not yet captured here.
+> **Operator runbook.** Topology, promotion model, both manual buttons (`refresh-staging`, `promote-to-prod`), PR-preview lifecycle, PR-time drift gate, local seeding, secrets, and the one-time manual bootstrap checklist. If you only need to push a code change to staging or prod, the **Promote runbook** and **Refresh runbook** sections below are sufficient — everything above them is reference; everything below is reference + setup.
+>
+> Cross-references at the bottom point at companion docs that own narrower contracts (CI/CD plan, migrations, Prisma-as-query-builder, Cloudflare Access).
 
 ## Topology
 
@@ -85,7 +87,118 @@ wrangler delete --name aeci-web-pr-<N> --force
 wrangler delete --name aeci-api-pr-<N> --force
 ```
 
-Under Option 1 there are no Supabase branches to audit — none are created. If we ever switch to Option 2 or 3, that audit step must be added here.
+Under Option 1 there are no Supabase branches to audit — none are created. If we ever switch to Option 2 or 3 (per-PR branch DBs), an additional audit step lives below.
+
+### Manually deleting a Supabase branch DB
+
+Documented for completeness — under Option 1 (current) no per-PR branches exist, so this should never be needed. Kept here for two reasons: (a) human-runnable fallback if we adopt Option 2/3 and `pr-preview.yml` ever fails its cleanup step, and (b) recovery path if a branch is created manually (`supabase branch create …`) during ad-hoc testing and forgotten.
+
+```bash
+# Required: SUPABASE_MANAGEMENT_API_TOKEN with `branches:write` scope.
+# Get one at https://supabase.com/dashboard/account/tokens (personal access
+# token) or via the GH Actions secret of the same name in this repo.
+
+# 1. List branches on the dev project. Look for the orphan by `git_branch` or `name`.
+curl -sS \
+  -H "Authorization: Bearer $SUPABASE_MANAGEMENT_API_TOKEN" \
+  "https://api.supabase.com/v1/projects/$SUPABASE_DEV_PROJECT_REF/branches" \
+  | jq '.[] | {id, name, git_branch, status}'
+
+# 2. Delete the orphan by its branch ID (NOT name).
+curl -sS -X DELETE \
+  -H "Authorization: Bearer $SUPABASE_MANAGEMENT_API_TOKEN" \
+  "https://api.supabase.com/v1/branches/<branch-id>"
+
+# 3. Confirm it's gone — re-run the list call and grep for the ID.
+```
+
+Cost note: branch DBs bill per active day. A forgotten branch is the silent budget leak `pr-preview.yml` close-handling was designed to prevent.
+
+## Refresh-staging runbook
+
+The [`refresh-staging.yml`](../.github/workflows/refresh-staging.yml) workflow (AECI-77) restores prod data into the dev project's `main` branch (= staging), scrubs credentials, seeds test accounts, and redeploys staging Workers. It's the "give me realistic data" button. Trigger it from the GitHub Actions UI:
+
+1. Repo → Actions → **refresh-staging** → **Run workflow** → branch `main` → **Run workflow**.
+2. No inputs, no approval gate. The `staging-refresh` GH Environment is configured with no reviewers because the workflow is idempotent.
+3. Concurrency group `refresh-staging` queues overlapping clicks rather than cancelling — a second press while the first is still running just waits, it does not stomp.
+
+What happens, in order (each numbered step matches a job step in the workflow):
+
+1. Checkout `main`.
+2. Install pnpm, Node, PostgreSQL 17 client, Supabase CLI, generate Prisma client.
+3. `pg_dump` prod (DIRECT_URL_PRODUCTION) into three artifacts: full public schema, auth-data-only, and `supabase_migrations.schema_migrations` history.
+4. Wipe staging (`DROP SCHEMA public CASCADE`, truncate `auth.users`/`sessions`/`refresh_tokens`, truncate migration history).
+5. `pg_restore` the three dumps into staging.
+6. `supabase db push --linked --include-all` — applies any migration committed under `supabase/migrations/` that isn't yet in the migration-history table just restored from prod. This is the **only** moment staging schema can be ahead of prod schema.
+7. `psql -f scripts/scrub-auth-credentials.sql` — nulls passwords + tokens for every `auth.users` row carried over from prod. Real users remain enumerable (so RLS / FKs work for debugging) but cannot authenticate.
+8. `psql -f scripts/seed-staging-users.sql` — idempotent seed of four test accounts (chrisw, billh, reviewer, admin) with known passwords. See the SQL file for the credentials.
+9. **Drift check (HARD STOP).** `scripts/prisma-drift-check.sh $DIRECT_URL_STAGING`. If staging's actual schema doesn't match `apps/api/prisma/schema.prisma`, the workflow exits before deploying Workers. This is the spec's "do not let an inconsistent staging hide from operators" rule.
+10. Deploy `aeci-api-staging` then `aeci-web-staging` via `wrangler-action`, passing `--var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
+11. Smoke test `https://staging.aecintegrations.com/api/health` with Cloudflare Access headers; poll `/api/version` until it reports the workflow's commit SHA (60-second budget).
+12. Job summary table: migrations applied, auth.users count, seeded-account count, commit SHA, actor, status.
+
+**What to expect:** total runtime ~5-10 minutes. The drift check (step 9) is the most likely failure point — see "Common failure modes" below.
+
+**When to press it:**
+- Staging data has drifted from prod and you want fresh shape.
+- Test users have accumulated cruft from manual review work.
+- After landing a destructive migration on `main`, before pressing promote — refresh first to confirm the migration applies cleanly against prod-shaped data.
+
+**Common failure modes:**
+
+| Failure | Where | What it means / what to do |
+| --- | --- | --- |
+| `permission denied for schema public` during step 4/5 | Step 4 wipe or step 5 restore | `DIRECT_URL_STAGING` doesn't have owner-level access. The staging DB role used by the secret must own the public schema; the Supabase pooler URL with the `postgres` user does. |
+| Drift check exits 1 with Prisma `P4002` | Step 9 | Same known issue documented under §"Promote runbook" — cross-schema FK `public.profiles.id → auth.users(id)`. Workflow hard-stops, Workers don't deploy. See `docs/prisma.md` §7. |
+| `supabase db push --linked` says "no migrations to apply" but `pnpm db:list` shows pending | Step 6 | The migration-history table from prod is ahead of the committed `supabase/migrations/` files. Usually means an out-of-band manual migration was applied to prod. Resolve with `supabase migration repair`. |
+| Smoke test (step 11) times out at 60s | Step 11 | Worker deploy completed but propagation lagging, or the Cloudflare Access service token (CF_ACCESS_CLIENT_ID/SECRET) rotated. Check `docs/access.md` §2. |
+| `auth.users` count after step 8 is lower than expected | Step 4 wiped too much | Verify `auth.users CASCADE` didn't take out something else. Re-run the workflow — it's idempotent. |
+
+If a refresh leaves staging in an inconsistent state (drift fired, but you need staging usable for unrelated work), the fix is to either resolve the drift cause and re-press the button, or hand-revert by re-applying the prior good dump from R2 (the prod snapshots in `aeci-prod-snapshots` are functionally interchangeable as "any prod-shaped data").
+
+## Drift check (PR-time)
+
+The [`drift-check.yml`](../.github/workflows/drift-check.yml) workflow (AECI-80) is the **first** of the three drift layers from AECI-71. It runs on every PR that touches `supabase/migrations/**`, `apps/api/prisma/schema.prisma`, `scripts/prisma-drift-check.sh`, or itself. Most PRs skip it entirely thanks to the `paths:` filter — you'll only see it on schema-changing work.
+
+**What it does:**
+
+1. Boots a fresh local Supabase Postgres 17 on the runner (`supabase db start`).
+2. Applies every migration in `supabase/migrations/` via `supabase db reset --local --no-seed`. Same path `pnpm db:reset` runs locally — CI and local stay in lock-step.
+3. Runs `scripts/prisma-drift-check.sh` against the fresh DB. The script does `prisma db pull --print` + `prisma migrate diff --exit-code` and exits 1 on any non-empty diff.
+
+**When it fails — how to fix:**
+
+Drift means the committed `apps/api/prisma/schema.prisma` doesn't match what the migrations actually produce. Almost always: a migration was committed without re-pulling the schema. Fix locally:
+
+```bash
+git checkout <your-branch>
+pnpm db:reset                          # apply all migrations to local
+pnpm db:pull                           # regenerate schema.prisma from local DB
+git add apps/api/prisma/schema.prisma
+git commit -m "chore: regenerate schema.prisma after migration"
+git push
+```
+
+The drift-check job will re-run on the new commit and pass.
+
+**Three layers, recap.** This is layer 1. The remaining two are documented above and below:
+
+| Layer | Workflow | Step | Against |
+| --- | --- | --- | --- |
+| 1. PR check | `drift-check.yml` | every step (whole job) | fresh local DB built from migrations |
+| 2. Post-refresh | `refresh-staging.yml` | step 9 | staging post-restore + post-migrate |
+| 3. Post-promote | `promote-to-prod.yml` | `apply-prod-migrations` job | prod post-migrate |
+
+**Re-running manually.** If you want to reproduce the PR-time check on your laptop:
+
+```bash
+pnpm db:reset
+./scripts/prisma-drift-check.sh 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+```
+
+That's the literal command CI runs.
+
+**Known landmine — Prisma P4002.** `prisma db pull` against any DB containing the FK `public.profiles.id → auth.users(id)` fails with P4002 ("Cross schema references are only allowed when the target schema is listed in the schemas property of your datasource"). Documented in `scripts/prisma-drift-check.sh:24-33` and `docs/prisma.md` §7. Until that FK is restructured, every migration-touching PR will see drift-check fail with P4002. The fix lands in a separate issue; do not try to work around it inside `drift-check.yml`.
 
 ## Promote runbook
 
@@ -122,6 +235,62 @@ For Worker code: `wrangler rollback --env production` against `apps/api` and `ap
 | Migrations applied but `/api/version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way. Inspect the `wrangler-action` step logs; if SSR is wedged, `wrangler rollback --env production` on `apps/web`. |
 | R2 upload fails | `apply-prod-migrations` | The snapshot is step 4 — migrations have NOT run yet, so it's safe to re-run after fixing R2 access. Check `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT`. |
 | Snapshot needed but the bucket lifecycle already expired it | — | Snapshots live 30 days. Older incidents require a Supabase point-in-time restore. |
+
+## Local dev: seeding from staging
+
+[`scripts/seed-from-staging.sh`](../scripts/seed-from-staging.sh) (AECI-80) pulls staging's data shape into your local Postgres. Wrapped by `pnpm db:seed-from-staging`. This is the only sanctioned way to get realistic data on a laptop — **prod credentials never leave Cloudflare and GitHub Actions**.
+
+### Prereqs
+
+1. Local Supabase running: `pnpm db:start` (boots Postgres 17 on 54322).
+2. `DIRECT_URL_STAGING` exported in your shell. Get it from:
+   - Supabase Dashboard → `aeci-development` project → Project Settings → Database → Connection string → **URI** (pooler / Transaction mode, port 6543).
+   - The same value Chris has in `gh secret` as `DIRECT_URL_STAGING`.
+
+Add it to your shell config (`.zshrc` / `.bashrc` / `direnv` `.envrc`) — do **not** paste it into `.dev.vars`. The Worker has no use for raw Postgres credentials; only the seed script reads this variable.
+
+### Running
+
+```bash
+pnpm db:start                         # if not already up
+export DIRECT_URL_STAGING='postgresql://postgres:...@aws-0-...pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1'
+pnpm db:seed-from-staging
+pnpm db:studio                        # http://localhost:54323 — inspect
+```
+
+Runtime: ~30-90 seconds depending on staging size.
+
+### What you get
+
+- **Public schema:** every table, view, function, RLS policy as it currently exists in staging — same shape staging serves over PostgREST. Realistic row counts of vendors / products / integrations / reviews.
+- **`auth.users` rows:** every staging user (which itself is every prod user, credential-scrubbed). IDs match staging, so FKs into `public` (e.g. `reviews.user_id`) all resolve. None of these accounts can authenticate — passwords are NULL.
+- **Test accounts:** the four seeded by `seed-staging-users.sql` (chrisw, billh, reviewer, admin) — these **can** authenticate, with known passwords listed in the SQL file. Use these for local sign-in.
+- **Migration history:** `supabase_migrations.schema_migrations` is restored from staging, so subsequent `pnpm db:push` / `pnpm db:reset` work without confusion.
+
+### Safety guarantees
+
+The script:
+- Is **read-only** against staging — only `pg_dump` calls, no writes.
+- **Refuses to run** against a `LOCAL_DATABASE_URL` that isn't `127.0.0.1` or `localhost` — drops the public schema on its target, so this is non-negotiable.
+- **Refuses to run** without `DIRECT_URL_STAGING` set, without `pg_dump`/`pg_restore`/`psql`/`pg_isready` on PATH, or without local Postgres responding on the target URL.
+- Re-runs the auth-credential scrub locally (defensive — staging is already scrubbed; cheap to do twice).
+- Is **idempotent.** Re-running drops + restores cleanly. No accumulating state.
+
+### Why staging, not prod
+
+- Prod database credentials are GH-Actions-only and Cloudflare-Worker-only. They never land on a laptop. Period.
+- Staging already mirrors prod's shape (refresh-staging.yml restores prod data on demand) with credentials scrubbed — the same payload, made safe to look at.
+- Pattern B (R2 snapshot file) is a follow-up if staging connections ever become a bottleneck. Until then, staging is the source.
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `pg_dump: error: connection to server ... failed` | DIRECT_URL_STAGING is wrong or rotated | Re-fetch from Supabase dashboard (see Prereqs). |
+| `Local Postgres at ... is not accepting connections.` | Forgot `pnpm db:start` | Run it. |
+| `pg_dump` not found | Missing PostgreSQL client | macOS: `brew install libpq && brew link --force libpq`. Linux: `apt install postgresql-client-17` (PGDG repo). |
+| `permission denied for schema public` | Local DB is in a half-reset state | `pnpm db:reset` then re-run. |
+| Restore looks complete but `pnpm db:studio` shows no rows | Browsed to wrong DB | Studio defaults to `postgres` on 54322 — verify the connection bar. |
 
 ## Secrets
 

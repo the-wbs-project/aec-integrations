@@ -1,0 +1,128 @@
+# AEC Integrations — PR-time drift detection (AECI-80, sub-issue (e) of AECI-71).
+#
+# This is layer 1 of the three-layer drift model in AECI-71's "Drift detection"
+# section:
+#
+#   1. PR check         — THIS workflow. Fresh DB built from all migrations,
+#                         then `prisma db pull` + `prisma migrate diff`.
+#   2. Post-refresh     — `refresh-staging.yml` step 9, against staging.
+#   3. Post-promote     — `promote-to-prod.yml` apply-prod-migrations job,
+#                         against prod.
+#
+# How it works:
+#   - Path-filtered. Only fires on PRs that touch `supabase/migrations/**`,
+#     `apps/api/prisma/schema.prisma`, the drift script, or this workflow file.
+#     Most PRs skip it entirely.
+#   - Boots a local Supabase stack on the runner (Postgres 17 — matches
+#     `supabase/config.toml` `major_version = 17`) and applies every migration
+#     via `supabase db reset --local`. This is the same path local devs run
+#     via `pnpm db:reset`, so CI and local stay in lock-step.
+#   - Calls `scripts/prisma-drift-check.sh` against the fresh DB. The script
+#     exits 1 on drift, which fails this job and blocks the PR.
+#
+# How developers fix a failing drift check:
+#   1. Pull the branch locally.
+#   2. `pnpm db:reset && pnpm db:pull`.
+#   3. Commit the regenerated `apps/api/prisma/schema.prisma`.
+#   4. Push. The drift-check job will re-run and pass.
+#
+# KNOWN ISSUE — P4002 on cross-schema FK:
+#   `prisma db pull` against any DB containing the FK
+#   `public.profiles.id -> auth.users(id)` fails with Prisma P4002. See
+#   `scripts/prisma-drift-check.sh:24-33` and `docs/prisma.md` §7. Until that
+#   FK is resolved by the issue that owns it, this workflow will fail on
+#   every migration-touching PR — which is the spec-mandated hard-stop. The
+#   fix lands in a separate issue; AECI-80 only sets up the gate.
+
+name: drift-check
+
+on:
+  pull_request:
+    paths:
+      - 'supabase/migrations/**'
+      - 'apps/api/prisma/schema.prisma'
+      - 'scripts/prisma-drift-check.sh'
+      - '.github/workflows/drift-check.yml'
+
+# Cancel superseded runs when a PR is force-pushed; the latest commit is the
+# one we care about.
+concurrency:
+  group: drift-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  # Opt JS-based actions onto Node 24 ahead of the 2026-06-02 default flip;
+  # mirrors `.github/workflows/refresh-staging.yml` and `deploy.yml`.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  drift:
+    name: Schema vs migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      # Prisma CLI (called by scripts/prisma-drift-check.sh) needs the
+      # generated client available. Same step as refresh-staging.yml.
+      - name: Generate Prisma client
+        run: pnpm --filter @aeci/api exec prisma generate
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # `supabase db start` boots only the Postgres container (no Studio,
+      # Inbucket, Imgproxy, Edge Runtime, etc.) — the lightweight subset
+      # needed for `db reset` to apply migrations. Cold-start ~30-60s.
+      - name: Boot local Postgres 17
+        run: supabase db start
+
+      # `supabase db reset --local --no-seed` drops the local DB, recreates
+      # public/auth schemas, and replays every file in `supabase/migrations/`
+      # in lexical order. Same command `pnpm db:reset` runs locally.
+      # `--no-seed` skips `supabase/seed.sql` — drift only cares about
+      # schema produced by migrations, not seed data.
+      - name: Apply all migrations
+        run: supabase db reset --local --no-seed
+
+      # The drift check itself. Local DB is on the standard Supabase port
+      # 54322 with the default `postgres:postgres` credentials per
+      # `supabase/config.toml`.
+      - name: Drift check (schema.prisma vs migrations-produced DB)
+        run: ./scripts/prisma-drift-check.sh 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+
+      # Surface a readable hint when the check fails. `if: failure()` ensures
+      # this only runs when the previous step exited non-zero — it does not
+      # override the failure, just adds context to the run log.
+      - name: Explain drift on failure
+        if: failure()
+        run: |
+          {
+            echo "::error::Schema drift detected between supabase/migrations/ and apps/api/prisma/schema.prisma."
+            echo "::error::To fix locally:"
+            echo "::error::  1. pnpm db:reset    # apply migrations to local DB"
+            echo "::error::  2. pnpm db:pull     # regenerate schema.prisma from local DB"
+            echo "::error::  3. commit apps/api/prisma/schema.prisma and push"
+            echo "::error::"
+            echo "::error::If the failure is Prisma P4002 (cross-schema FK), see docs/prisma.md §7 — that is the documented hard-stop, not a regression introduced by this PR."
+          }
+
+      - name: Stop local Postgres
+        if: always()
+        run: supabase stop || true
