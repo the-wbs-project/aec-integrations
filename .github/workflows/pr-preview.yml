@@ -196,12 +196,20 @@ jobs:
         run: |
           set -euo pipefail
           sed -i.bak \
-            "s/\"aeci-api-preview\"/\"${API_WORKER_NAME}\"/" \
+            "s/\"aeci-api-preview\"/\"${API_WORKER_NAME}\"/g" \
             apps/web/wrangler.jsonc
           rm -f apps/web/wrangler.jsonc.bak
-          # Sanity-check the rewrite actually happened.
-          grep -q "\"${API_WORKER_NAME}\"" apps/web/wrangler.jsonc
-          grep -c "aeci-api-preview" apps/web/wrangler.jsonc | grep -qx '0'
+          # Belt-and-braces: assert the rewrite happened AND no stale ref
+          # remains. `grep -c` exits 1 on zero matches under `set -e`, so
+          # use explicit `if grep -q` to test instead.
+          if grep -q "aeci-api-preview" apps/web/wrangler.jsonc; then
+            echo "::error::sed failed: 'aeci-api-preview' still present in apps/web/wrangler.jsonc"
+            exit 1
+          fi
+          if ! grep -q "\"${API_WORKER_NAME}\"" apps/web/wrangler.jsonc; then
+            echo "::error::sed failed: new binding '${API_WORKER_NAME}' not present in apps/web/wrangler.jsonc"
+            exit 1
+          fi
           echo "Service binding rewritten to ${API_WORKER_NAME}"
 
       # ---------------------------------------------------------------------
