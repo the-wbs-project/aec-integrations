@@ -30,6 +30,14 @@ export function badRequest(message: string): Response {
   return json({ error: message }, { status: 400 });
 }
 
+export function noContent(init: ResponseInit = {}): Response {
+  const headers = new Headers(init.headers);
+  if (!headers.has('Cache-Control')) {
+    headers.set('Cache-Control', 'private, no-store');
+  }
+  return new Response(null, { ...init, status: 204, headers });
+}
+
 export function notFound(message = 'Route not found'): Response {
   return json({ error: message }, { status: 404 });
 }

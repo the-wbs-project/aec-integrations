@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { badRequest, json, notFound } from './http';
+import { badRequest, json, noContent, notFound } from './http';
 
 describe('json', () => {
   it('serializes BigInt values as decimal strings', async () => {
@@ -55,5 +55,32 @@ describe('notFound', () => {
     // Guards: default message is the documented unmatched-route response.
     const response = notFound();
     expect(await response.json()).toEqual({ error: 'Route not found' });
+  });
+});
+
+describe('noContent', () => {
+  it('returns a 204 response with an empty body', async () => {
+    // Guards: AECI-55 capture endpoint must respond 204 with no body — a
+    // body or non-204 status breaks the fire-and-forget contract.
+    const response = noContent();
+    expect(response.status).toBe(204);
+    expect(response.body).toBeNull();
+    expect(await response.text()).toBe('');
+  });
+
+  it("defaults Cache-Control to 'private, no-store'", () => {
+    // Guards: 204 responses inherit the same no-cache default as json().
+    expect(noContent().headers.get('Cache-Control')).toBe('private, no-store');
+  });
+
+  it('preserves a caller-supplied Cache-Control header', () => {
+    // Guards: parity with json() — future callers can override if needed.
+    const response = noContent({ headers: { 'Cache-Control': 'public, max-age=0' } });
+    expect(response.headers.get('Cache-Control')).toBe('public, max-age=0');
+  });
+
+  it('does not set a Content-Type header (body-less response)', () => {
+    // Guards: 204 has no body, so a Content-Type would be misleading.
+    expect(noContent().headers.get('Content-Type')).toBeNull();
   });
 });
