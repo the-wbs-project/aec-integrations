@@ -76,6 +76,7 @@ All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL
 | Variable | Value | Purpose |
 | --- | --- | --- |
 | `STAGING_ENABLED` | `"true"` once Chris finishes the manual checklist below | Gates the `deploy-staging` job. Skipped (not failed) while empty/false, so merges to main stay green during bootstrap. |
+| `SUPABASE_DEV_PROJECT_REF` | The Supabase project ref for `aeci-development` (the dev/staging project, host the `main` branch DB used as staging) | Consumed by `refresh-staging.yml` (AECI-77) for `supabase link --project-ref` before `supabase db push --linked`. Set once when the dev project is provisioned per §1 below. |
 
 ## Manual prerequisites — Chris's checklist before `STAGING_ENABLED=true`
 
@@ -165,6 +166,7 @@ wrangler secret put ADMIN_PURGE_TOKEN --env staging
 
 ### 7. Flip the gate
 
+- [ ] `gh variable set SUPABASE_DEV_PROJECT_REF --body "<dev-ref>"` (consumed by `refresh-staging.yml` — AECI-77).
 - [ ] `gh variable set STAGING_ENABLED --body "true"` (or set in the UI).
 
 The next push to `main` will trigger `deploy-staging`. The smoke test will assert `staging.aecintegrations.com/api/version` returns `{ sha: <merge commit>, environment: "staging" }`.

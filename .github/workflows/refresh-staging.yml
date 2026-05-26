@@ -1,0 +1,331 @@
+# AEC Integrations — staging refresh button (AECI-77, sub-issue (b) of AECI-71).
+#
+# Press-a-button workflow that:
+#   1. Dumps prod (auth data + public schema + supabase_migrations history).
+#   2. Wipes staging (public schema, auth tables, supabase_migrations).
+#   3. Restores prod data into staging.
+#   4. Applies any migrations staging is missing (`supabase db push --linked`).
+#   5. Scrubs auth credentials so real prod users can't authenticate.
+#   6. Seeds the four test accounts (chrisw, billh, reviewer, admin).
+#   7. Runs the Prisma drift check — HARD STOP on any non-empty diff.
+#   8. Deploys staging Workers (API first, then SSR).
+#   9. Smoke-tests /api/health + verifies /api/version reports the new SHA.
+#
+# Implements AECI-71 "Action 1" 1-12 verbatim, with two deliberate
+# clarifications captured in the run plan and the AECI-77 PR description:
+#
+#   (i)  `supabase_migrations.schema_migrations` is dumped+restored from prod
+#        in addition to the spec's auth-data + public dumps. Without this,
+#        staging's migration-history table keeps its old high-water mark and
+#        `supabase db push --linked` in step 6 silently skips any migration
+#        whose row never made it into the prod dump.
+#
+#   (ii) The drift check (step 9) is run verbatim per AECI-71's snippet. As
+#        documented in `docs/prisma.md` §7, `prisma db pull` against any DB
+#        containing the FK `public.profiles.id -> auth.users(id)` fails with
+#        P4002 until that FK is restructured. Refresh-staging will hard-stop
+#        here on every run until the FK issue is resolved separately. That
+#        is the spec-mandated behavior — Workers are NOT deployed when the
+#        drift step fails, which is the acceptance criterion.
+#
+# This workflow requires the manual prerequisites in `docs/environments.md`
+# §1-§7 (Supabase projects, DNS, GH Environments, Worker secrets) plus the
+# `vars.SUPABASE_DEV_PROJECT_REF` repo variable that this PR adds to the
+# `docs/environments.md` repo-variable table.
+#
+# Required GH Actions secrets:
+#   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod (read).
+#   DIRECT_URL_STAGING       Supabase pooler `postgresql://...` for the dev
+#                            project's `main` branch (read/write).
+#   SUPABASE_ACCESS_TOKEN    For `supabase link` / `supabase db push --linked`.
+#   CLOUDFLARE_API_TOKEN     Scoped per `docs/CICD_PLAN.md` §7.1.
+#   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
+#   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`).
+#   CF_ACCESS_CLIENT_SECRET  Same token's secret.
+#
+# Required GH Actions repo variables:
+#   SUPABASE_DEV_PROJECT_REF Dev (= staging) Supabase project ref.
+
+name: refresh-staging
+
+on:
+  workflow_dispatch:
+
+# Refreshes are destructive and not idempotent across overlapping runs; queue
+# rather than cancel so a second click after the first finishes runs cleanly.
+concurrency:
+  group: refresh-staging
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  # Opt JS-based actions onto Node 24 ahead of the 2026-06-02 default flip;
+  # mirrors `.github/workflows/deploy.yml`.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  refresh:
+    name: Refresh staging from prod
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: staging-refresh
+      url: https://staging.aecintegrations.com
+    permissions:
+      contents: read
+    steps:
+      # ---------------------------------------------------------------------
+      # Step 1: Checkout main
+      # ---------------------------------------------------------------------
+      - uses: actions/checkout@v4
+
+      # ---------------------------------------------------------------------
+      # Step 2: Install toolchain
+      #   - Node + pnpm + workspace deps (for Prisma CLI in step 9 and the
+      #     pre-deploy `prisma generate` in step 10).
+      #   - postgresql-client-17 (matches supabase/postgres:17.x per
+      #     `docs/migrations.md` §4) so pg_dump and pg_restore speak the same
+      #     wire protocol as both prod and staging.
+      #   - Supabase CLI (for `supabase db push --linked` in step 6).
+      # ---------------------------------------------------------------------
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      # Prisma client is needed both for the drift check (step 9) and the
+      # API Worker bundle that wrangler will deploy (step 10).
+      - run: pnpm --filter @aeci/api exec prisma generate
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          set -euo pipefail
+          sudo install -d /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /etc/apt/keyrings/pgdg.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          pg_dump --version
+          pg_restore --version
+          psql --version
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # ---------------------------------------------------------------------
+      # Step 3: Dump prod
+      #   - public schema (full)
+      #   - auth schema (data only — Supabase manages the structure)
+      #   - supabase_migrations.schema_migrations (clarification (i))
+      # ---------------------------------------------------------------------
+      - name: Dump prod
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
+        run: |
+          set -euo pipefail
+          pg_dump \
+            --format=custom \
+            --no-owner --no-privileges \
+            --schema=public \
+            --file=/tmp/prod-public.dump \
+            "$PGURL"
+          pg_dump \
+            --format=custom \
+            --no-owner --no-privileges \
+            --data-only --schema=auth \
+            --file=/tmp/prod-auth-data.dump \
+            "$PGURL"
+          # Plain SQL keeps the migration-history seed auditable in workflow
+          # logs and lets us pipe straight through psql without pg_restore.
+          pg_dump \
+            --no-owner --no-privileges \
+            --schema=supabase_migrations \
+            --file=/tmp/prod-supabase-migrations.sql \
+            "$PGURL"
+          ls -lh /tmp/prod-*.dump /tmp/prod-supabase-migrations.sql
+
+      # ---------------------------------------------------------------------
+      # Step 4: Wipe staging
+      #   Drop+recreate public schema (cascade clears every table/view/fn).
+      #   Truncate auth.users CASCADE (and refresh_tokens/sessions explicitly,
+      #   though CASCADE would also clear them); the FK chain is
+      #   refresh_tokens -> sessions -> users.
+      #   Truncate supabase_migrations.schema_migrations so the restored
+      #   history takes over cleanly (clarification (i)).
+      # ---------------------------------------------------------------------
+      - name: Wipe staging public + auth data + migration history
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 "$PGURL" <<'SQL'
+            DROP SCHEMA public CASCADE;
+            CREATE SCHEMA public;
+            GRANT ALL ON SCHEMA public TO postgres;
+            GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+
+            TRUNCATE auth.refresh_tokens;
+            TRUNCATE auth.sessions CASCADE;
+            TRUNCATE auth.users CASCADE;
+
+            TRUNCATE supabase_migrations.schema_migrations;
+          SQL
+
+      # ---------------------------------------------------------------------
+      # Step 5: Restore prod data into staging
+      # ---------------------------------------------------------------------
+      - name: Restore prod data into staging
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: |
+          set -euo pipefail
+          pg_restore \
+            --no-owner --no-privileges \
+            --dbname="$PGURL" \
+            /tmp/prod-public.dump
+          pg_restore \
+            --no-owner --no-privileges \
+            --dbname="$PGURL" \
+            /tmp/prod-auth-data.dump
+          psql -v ON_ERROR_STOP=1 "$PGURL" -f /tmp/prod-supabase-migrations.sql
+
+      # ---------------------------------------------------------------------
+      # Step 6: Apply pending migrations to staging
+      #   This is where staging schema can move ahead of prod schema — any
+      #   migration committed under `supabase/migrations/` but not yet in
+      #   the migration-history table just restored from prod gets applied.
+      # ---------------------------------------------------------------------
+      - name: Apply pending migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "${{ vars.SUPABASE_DEV_PROJECT_REF }}"
+          supabase db push --linked --include-all
+
+      # ---------------------------------------------------------------------
+      # Step 7: Scrub auth credentials
+      # ---------------------------------------------------------------------
+      - name: Scrub auth credentials
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/scrub-auth-credentials.sql
+
+      # ---------------------------------------------------------------------
+      # Step 8: Seed staging test accounts
+      # ---------------------------------------------------------------------
+      - name: Seed staging test accounts
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/seed-staging-users.sql
+
+      # ---------------------------------------------------------------------
+      # Step 9: Drift check (HARD STOP)
+      #   Per AECI-71 acceptance criterion: if drift is detected, the workflow
+      #   MUST NOT proceed to Worker deploys. `set -e` + no `if: always()` on
+      #   subsequent steps guarantees that.
+      #   See script header for P4002 known issue (clarification (ii)).
+      # ---------------------------------------------------------------------
+      - name: Drift check (staging vs schema.prisma)
+        env:
+          STAGING_DB_URL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: ./scripts/prisma-drift-check.sh "$STAGING_DB_URL"
+
+      # ---------------------------------------------------------------------
+      # Step 10: Deploy staging Workers (API first, SSR second)
+      #   Same pattern as .github/workflows/deploy.yml `deploy-staging` job —
+      #   wrangler-action bypasses the package.json `deploy` script, so
+      #   `pnpm exec prisma generate` was already run in step 2.
+      # ---------------------------------------------------------------------
+      - name: Compute deploy timestamp
+        id: ts
+        run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy API (staging)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+          packageManager: pnpm
+
+      - name: Deploy SSR (staging)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+          packageManager: pnpm
+
+      # ---------------------------------------------------------------------
+      # Step 11: Smoke tests
+      #   (a) GET /api/health -> 200 (per AECI-77 spec).
+      #   (b) Poll /api/version until it reports the new SHA (satisfies the
+      #       "/api/version reports the workflow commit SHA after deploy"
+      #       acceptance criterion). Mirrors the loop in deploy.yml.
+      # ---------------------------------------------------------------------
+      - name: Smoke test /api/health
+        env:
+          HOST: https://staging.aecintegrations.com
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: ./scripts/smoke-test.sh
+
+      - name: Verify /api/version reports the new SHA
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            response=$(curl -fsS \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              https://staging.aecintegrations.com/api/version || true)
+            actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
+            if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
+              echo "Staging deploy verified at SHA $actual_sha (attempt $attempt)"
+              echo "Response: $response"
+              exit 0
+            fi
+            echo "Attempt $attempt: expected $EXPECTED_SHA, got '$actual_sha'. Retrying in 6s..."
+            sleep 6
+          done
+          echo "::error::Staging /api/version did not report $EXPECTED_SHA within 60s"
+          exit 1
+
+      # ---------------------------------------------------------------------
+      # Step 12: Summary
+      # ---------------------------------------------------------------------
+      - name: Summary
+        if: always()
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: |
+          set +e
+          migration_count=$(psql -At "$PGURL" -c "SELECT COUNT(*) FROM supabase_migrations.schema_migrations;" 2>/dev/null || echo "?")
+          auth_user_count=$(psql -At "$PGURL" -c "SELECT COUNT(*) FROM auth.users;" 2>/dev/null || echo "?")
+          seeded_count=$(psql -At "$PGURL" -c "SELECT COUNT(*) FROM auth.users WHERE email LIKE '%@thewbsproject.com' OR email LIKE '%@aeci.local';" 2>/dev/null || echo "?")
+          {
+            echo "## refresh-staging summary"
+            echo
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| commit SHA | \`${{ github.sha }}\` |"
+            echo "| job status | ${{ job.status }} |"
+            echo "| migrations applied (staging) | $migration_count |"
+            echo "| auth.users (staging) | $auth_user_count |"
+            echo "| seeded test accounts present | $seeded_count |"
+            echo "| started at | ${{ github.event.repository.updated_at }} |"
+            echo "| triggered by | ${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
