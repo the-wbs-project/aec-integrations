@@ -9,9 +9,11 @@
 # `production` GH Environment approval gate. There is intentionally no
 # auto-deploy-to-prod here.
 #
-# Per-PR ephemeral previews land in AECI-79 via `pr-preview.yml`. Until
-# then, the e2e-tests-preview / integration-runner-preview / lighthouse
-# jobs below stay parked.
+# Per-PR ephemeral previews live in the separate `pr-preview.yml` workflow
+# (AECI-79). The e2e-tests-preview / integration-runner-preview / lighthouse
+# jobs below remain parked: they need a deployed-preview URL but live in this
+# workflow, and cross-workflow `needs:` isn't a thing. Un-parking means either
+# moving them into pr-preview.yml or wiring a `workflow_run` trigger here.
 #
 # `deploy-staging` is gated on `vars.STAGING_ENABLED == 'true'`. Flip the
 # repo variable after the manual prerequisites in `docs/environments.md`
@@ -22,8 +24,8 @@
 # Phase 1.19 (AECI-33) added:
 #   - e2e-tests-local           — Playwright + axe smoke against `pnpm dev:bound`
 #   - integration-runner-local  — apps/web/scripts/run-extra-tests.sh against local
-#   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED, AECI-79)
-#   - integration-runner-preview — extras script against preview URL (PARKED, AECI-79)
+#   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED — see header note re: pr-preview.yml)
+#   - integration-runner-preview — extras script against preview URL (PARKED — see header note re: pr-preview.yml)
 #   - lighthouse                — Lighthouse CI, warn-only (PARKED, Phase 7)
 #
 # Required repo secrets:
