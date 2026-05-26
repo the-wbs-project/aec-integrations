@@ -101,9 +101,20 @@ String matching is fragile; the production API Worker should switch to Prisma's 
 
 ## 2. Current state
 
-**Supabase is empty.** The production data currently lives in Airtable (base `appy81IdGJY6Fngf9`) as the staging/research layer. Stage 1 builds out the Supabase schema and migrates curated data from Airtable to Supabase as a one-way promotion.
+**Supabase is empty for AECi Stage 1 purposes.** The production data currently lives in Airtable (base `appy81IdGJY6Fngf9`) as the staging/research layer. Stage 1 builds out the Supabase schema and migrates curated data from Airtable to Supabase as a one-way promotion.
 
 Migration approach is documented in Section 10.
+
+### 2a. Pre-AECI landing-page tables
+
+The `public` schema on the production Supabase project (`aeci-production`, formerly the sole dev/landing DB) carries two tables that predate the AECI Stage 1 schema and are **out of scope for everything in this document**:
+
+| Table | Owner | Purpose |
+| --- | --- | --- |
+| `public.feedback` | `apps/landing/` | Lead-capture feedback form (`apps/landing/src/services/feedback.ts`). Write-only from `anon` via PostgREST. |
+| `public.mailing_list` | `apps/landing/` | Pre-launch mailing-list signups (`apps/landing/src/services/subscribe.ts`). Write-only from `anon` via PostgREST. |
+
+These tables are captured in `supabase/migrations/20260101000000_landing_baseline.sql` so they reproduce on a fresh `pnpm db:reset` (and on the empty `aeci-development` project once it's bootstrapped). No AECI Stage 1 code reads or writes them. Treat them as the landing app's private surface that happens to share a Postgres instance with us.
 
 ---
 
