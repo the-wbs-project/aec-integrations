@@ -1,0 +1,454 @@
+# AEC Integrations — production promote button (AECI-78, sub-issue (c) of AECI-71).
+#
+# Two-button workflow that promotes a known-good staging commit to production.
+# This is the ONLY way production gets new code — there is no auto-deploy to
+# prod (see docs/CICD_PLAN.md §2.3 and docs/environments.md "Promotion model").
+#
+# Three jobs, in order:
+#
+#   1. pre-promotion-checks (unattended)
+#      - Validates `confirm == PROMOTE`.
+#      - Checks out the repo at `inputs.commit_sha`.
+#      - Hits `staging.aecintegrations.com/api/version` and asserts the SHA
+#        matches `inputs.commit_sha`. The verbatim failure message —
+#        `staging is at <actual>, refusing to promote <input>` — is what
+#        AECI-78 acceptance criterion #2 looks for.
+#      - Prints `supabase migration list --linked` against prod into the run
+#        log and step summary so Chris reads the pending SQL inline before
+#        approving the next job.
+#
+#   2. apply-prod-migrations  (gated by GH Environment `production`)
+#      - Approval pause: the run blocks here until Chris (the required
+#        reviewer per docs/environments.md §4) clicks Approve.
+#      - `pg_dump` of prod (public + auth data + supabase_migrations) into
+#        `prod-pre-<sha>.dump`, uploaded to R2 bucket `aeci-prod-snapshots`
+#        via the S3-compatible API. This is the rollback-insurance snapshot.
+#      - `supabase db push --linked` against the linked prod project.
+#      - `scripts/prisma-drift-check.sh` (AECI-77) against `DIRECT_URL_PRODUCTION`.
+#        HARD STOP on non-zero exit — workflow does not proceed to Worker deploys.
+#
+#   3. deploy-prod-workers
+#      - Same shape as `deploy.yml` `deploy-staging`: API deploys FIRST so any
+#        brief mismatch lands with the safer (API-ahead-of-SSR) ordering.
+#      - Both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
+#        per CLAUDE.md non-negotiable.
+#      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
+#      - Polls `aecintegrations.com/api/version` (public, no Access headers)
+#        until it reports `inputs.commit_sha`. Fails after 60s.
+#
+# Known gotcha (carried over from AECI-77): `prisma-drift-check.sh` against any
+# DB containing the cross-schema FK `public.profiles.id -> auth.users(id)`
+# fails with Prisma P4002 ("Cross schema references are only allowed when the
+# target schema is listed in the schemas property of your datasource"). See
+# scripts/prisma-drift-check.sh:24-33 and docs/prisma.md §7. Until that FK is
+# resolved separately, this workflow hard-stops at the drift step on every
+# run — which is the spec-mandated behavior (HARD STOP on drift).
+#
+# Required GH Actions secrets:
+#   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod
+#                            (read+write — pg_dump and supabase db push).
+#   SUPABASE_ACCESS_TOKEN    For `supabase link` / `supabase migration list`
+#                            / `supabase db push --linked`.
+#   CLOUDFLARE_API_TOKEN     Scoped per docs/CICD_PLAN.md §7.1.
+#   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
+#   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`,
+#                            docs/access.md §1) — used for the staging
+#                            `/api/version` probe in pre-promotion-checks.
+#   CF_ACCESS_CLIENT_SECRET  Same token's secret.
+#   R2_ACCESS_KEY_ID         R2 access key for bucket `aeci-prod-snapshots`.
+#   R2_SECRET_ACCESS_KEY     Matching secret.
+#   R2_ENDPOINT              S3-compatible R2 endpoint URL
+#                            (https://<account>.r2.cloudflarestorage.com).
+#   DATADOG_API_KEY          Datadog deploy-marker intake (docs/CICD_PLAN.md §9.1).
+#
+# Required GH Actions repo variables:
+#   SUPABASE_PROD_PROJECT_REF  Prod Supabase project ref (jgxebjufabtwkcgxjqvk
+#                              per docs/environments.md §1).
+
+name: promote-to-prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full 40-char commit SHA already verified in staging'
+        required: true
+        type: string
+      confirm:
+        description: 'Type PROMOTE to confirm'
+        required: true
+        type: string
+
+# Promotes are destructive (migrations + Worker swap) and not idempotent across
+# overlapping runs; queue rather than cancel so a second click after the first
+# finishes runs cleanly.
+concurrency:
+  group: promote-to-prod
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  # Opt JS-based actions onto Node 24 ahead of the 2026-06-02 default flip;
+  # mirrors .github/workflows/deploy.yml and refresh-staging.yml.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  # ===========================================================================
+  # Job 1: Pre-promotion checks (unattended)
+  # ===========================================================================
+  pre-promotion-checks:
+    name: Pre-promotion checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # -----------------------------------------------------------------------
+      # Step 1: Validate `confirm` input.
+      #   GH Actions workflow_dispatch inputs don't support pattern validation
+      #   server-side, so check it as the very first step. Fails fast with a
+      #   message that surfaces in the run log.
+      # -----------------------------------------------------------------------
+      - name: Validate confirm input
+        run: |
+          if [ "${{ inputs.confirm }}" != "PROMOTE" ]; then
+            echo "::error::confirm must equal PROMOTE (received: '${{ inputs.confirm }}')"
+            exit 1
+          fi
+          echo "confirm=PROMOTE accepted"
+
+      # -----------------------------------------------------------------------
+      # Step 2: Checkout at the input SHA (NOT main).
+      #   Promotes must be against an explicit commit. Checking out main would
+      #   defeat the purpose of the explicit-sha gate.
+      # -----------------------------------------------------------------------
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      # -----------------------------------------------------------------------
+      # Step 3: Toolchain
+      #   Supabase CLI only — pre-promotion-checks doesn't run pnpm/Prisma.
+      # -----------------------------------------------------------------------
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # -----------------------------------------------------------------------
+      # Step 4: Assert staging.aecintegrations.com/api/version reports the
+      #         same SHA we are about to promote. Staging sits behind
+      #         Cloudflare Access (docs/access.md §1), so we attach the
+      #         service-token headers.
+      # -----------------------------------------------------------------------
+      - name: Verify staging is at inputs.commit_sha
+        env:
+          EXPECTED_SHA: ${{ inputs.commit_sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          response=$(curl -fsS \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            https://staging.aecintegrations.com/api/version)
+          actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
+          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
+            echo "::error::staging is at $actual_sha, refusing to promote $EXPECTED_SHA"
+            exit 1
+          fi
+          echo "Staging /api/version matches input SHA: $actual_sha"
+          echo "Response: $response"
+
+      # -----------------------------------------------------------------------
+      # Step 5: Print the pending-migration list against prod into the run
+      #         log AND $GITHUB_STEP_SUMMARY so Chris can read it before
+      #         approving the next job. Uses `supabase migration list --linked`
+      #         which talks to the linked project via SUPABASE_ACCESS_TOKEN
+      #         (no DIRECT_URL needed at this stage).
+      # -----------------------------------------------------------------------
+      - name: List pending migrations vs prod
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "${{ vars.SUPABASE_PROD_PROJECT_REF }}"
+
+          # Capture the migration list so we can both print it and embed it
+          # in the step summary. `supabase migration list --linked` exits 0
+          # whether or not there are pending migrations.
+          supabase migration list --linked | tee /tmp/migration-list.txt
+
+          {
+            echo "## Pending migrations (prod)"
+            echo
+            echo '```'
+            cat /tmp/migration-list.txt
+            echo '```'
+            echo
+            echo "Approve the **apply-prod-migrations** job to apply any rows above that are missing on prod."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ===========================================================================
+  # Job 2: Apply prod migrations (gated by GH Environment `production`)
+  # ===========================================================================
+  apply-prod-migrations:
+    name: Apply prod migrations
+    needs: pre-promotion-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The `production` GH Environment has chrisw@thewbsproject.com as a
+    # required reviewer (docs/environments.md §4). The run blocks here until
+    # he clicks Approve in the GitHub Actions UI.
+    environment:
+      name: production
+      url: https://aecintegrations.com
+    permissions:
+      contents: read
+    outputs:
+      r2_object_key: ${{ steps.snapshot.outputs.r2_object_key }}
+      dump_size_bytes: ${{ steps.snapshot.outputs.dump_size_bytes }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      # -----------------------------------------------------------------------
+      # Toolchain: pnpm + Node + Prisma client (for the drift check),
+      # postgresql-client-17 (matches supabase/postgres:17.x per
+      # docs/migrations.md §4), and the Supabase CLI.
+      # -----------------------------------------------------------------------
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/api exec prisma generate
+
+      - name: Install PostgreSQL 17 client
+        run: |
+          set -euo pipefail
+          sudo install -d /etc/apt/keyrings
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo gpg --dearmor -o /etc/apt/keyrings/pgdg.gpg
+          echo "deb [signed-by=/etc/apt/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          pg_dump --version
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      # -----------------------------------------------------------------------
+      # Snapshot: pg_dump prod into R2 BEFORE we touch the DB.
+      #   - public schema (full)
+      #   - auth schema (data only — Supabase manages structure)
+      #   - supabase_migrations.schema_migrations (so a restore can rebuild
+      #     migration history without re-running every SQL file)
+      # Object key: prod-pre-<sha>.dump (truncated to 12 chars in the name for
+      # readability; full SHA appears in the summary block).
+      # -----------------------------------------------------------------------
+      - name: Snapshot prod -> R2
+        id: snapshot
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          INPUT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          short_sha="${INPUT_SHA:0:12}"
+          dump_path="/tmp/prod-pre-${short_sha}.dump"
+          object_key="prod-pre-${short_sha}.dump"
+
+          # Single custom-format archive containing public + auth-data +
+          # supabase_migrations. Custom format compresses and lets pg_restore
+          # selectively replay schemas if we ever need to.
+          pg_dump \
+            --format=custom \
+            --no-owner --no-privileges \
+            --schema=public \
+            --schema=supabase_migrations \
+            --file="$dump_path" \
+            "$PGURL"
+          # auth schema data-only dump (separate file because pg_dump can't
+          # mix --schema and --data-only --schema cleanly in one invocation).
+          pg_dump \
+            --format=custom \
+            --no-owner --no-privileges \
+            --data-only --schema=auth \
+            --file="/tmp/prod-pre-${short_sha}-auth.dump" \
+            "$PGURL"
+
+          ls -lh /tmp/prod-pre-*.dump
+
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp \
+            "$dump_path" \
+            "s3://aeci-prod-snapshots/${object_key}"
+          aws --endpoint-url "$R2_ENDPOINT" s3 cp \
+            "/tmp/prod-pre-${short_sha}-auth.dump" \
+            "s3://aeci-prod-snapshots/prod-pre-${short_sha}-auth.dump"
+
+          dump_size_bytes=$(stat -c '%s' "$dump_path")
+          echo "r2_object_key=${object_key}" >> "$GITHUB_OUTPUT"
+          echo "dump_size_bytes=${dump_size_bytes}" >> "$GITHUB_OUTPUT"
+
+      # -----------------------------------------------------------------------
+      # Apply pending migrations to prod via supabase db push --linked.
+      # -----------------------------------------------------------------------
+      - name: Apply pending migrations
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          supabase link --project-ref "${{ vars.SUPABASE_PROD_PROJECT_REF }}"
+          supabase db push --linked --include-all
+
+      # -----------------------------------------------------------------------
+      # Drift check (HARD STOP).
+      #   set -e + no `if: always()` on downstream means a non-zero exit here
+      #   prevents the Worker deploys from running. Acceptance criterion is
+      #   that drift is treated as a stop condition.
+      # -----------------------------------------------------------------------
+      - name: Drift check (prod vs schema.prisma)
+        env:
+          DIRECT_URL_PRODUCTION: ${{ secrets.DIRECT_URL_PRODUCTION }}
+        run: ./scripts/prisma-drift-check.sh "$DIRECT_URL_PRODUCTION"
+
+  # ===========================================================================
+  # Job 3: Deploy production Workers
+  # ===========================================================================
+  deploy-prod-workers:
+    name: Deploy production Workers
+    needs: apply-prod-migrations
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # No environment block — approval already happened on the migrations job.
+    # Re-attaching the production environment here would request a second
+    # approval for the same release.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+
+      # wrangler-action bypasses the package.json `deploy` script chain, so
+      # generate the Prisma client explicitly before bundling.
+      - run: pnpm --filter @aeci/api exec prisma generate
+
+      # Single timestamp shared by both Worker deploys so /api/version reports
+      # a coherent DEPLOYED_AT for the whole release.
+      - name: Compute deploy timestamp
+        id: ts
+        run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      # API deploys FIRST. The SSR Worker's `services.API` binding talks to
+      # `aeci-api-production`; deploying API ahead of SSR means any brief
+      # mismatch lands in the safer direction (API ahead of SSR).
+      - name: Deploy API (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/api
+          command: deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+          packageManager: pnpm
+
+      - name: Deploy SSR (production)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+          packageManager: pnpm
+
+      # -----------------------------------------------------------------------
+      # Datadog deployment marker (docs/CICD_PLAN.md §9.1). Markers show as
+      # vertical lines on dashboards so any post-deploy regression is easy to
+      # correlate with the release.
+      # -----------------------------------------------------------------------
+      - name: Datadog deployment marker
+        env:
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          INPUT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \
+            -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -nc \
+                  --arg sha "$INPUT_SHA" \
+                  --arg actor "${{ github.actor }}" \
+                  '{
+                    title: "Production deployment",
+                    text: ("Deployed commit " + $sha + " by " + $actor),
+                    tags: [
+                      "env:production",
+                      "service:aeci-ssr",
+                      ("commit:" + $sha)
+                    ]
+                  }')"
+
+      # -----------------------------------------------------------------------
+      # Smoke test: poll aecintegrations.com/api/version until it reports the
+      # promoted SHA, or fail after the 60s budget. Production is public so
+      # no Cloudflare Access headers are needed; the API Worker is private and
+      # is exercised transitively via the SSR service binding.
+      # -----------------------------------------------------------------------
+      - name: Smoke test production /api/version
+        env:
+          EXPECTED_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            response=$(curl -fsS https://aecintegrations.com/api/version || true)
+            actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
+            if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
+              echo "Production deploy verified at SHA $actual_sha (attempt $attempt)"
+              echo "Response: $response"
+              exit 0
+            fi
+            echo "Attempt $attempt: expected $EXPECTED_SHA, got '$actual_sha'. Retrying in 6s..."
+            sleep 6
+          done
+          echo "::error::Production /api/version did not report $EXPECTED_SHA within 60s"
+          exit 1
+
+      # -----------------------------------------------------------------------
+      # Summary.
+      # -----------------------------------------------------------------------
+      - name: Summary
+        if: always()
+        env:
+          INPUT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          {
+            echo "## promote-to-prod summary"
+            echo
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| commit SHA | \`$INPUT_SHA\` |"
+            echo "| job status | ${{ job.status }} |"
+            echo "| R2 snapshot | s3://aeci-prod-snapshots/${{ needs.apply-prod-migrations.outputs.r2_object_key }} |"
+            echo "| snapshot size (bytes) | ${{ needs.apply-prod-migrations.outputs.dump_size_bytes }} |"
+            echo "| DEPLOYED_AT | ${{ steps.ts.outputs.deployed_at }} |"
+            echo "| triggered by | ${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

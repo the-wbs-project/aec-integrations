@@ -35,6 +35,42 @@ local → PR preview → staging (auto on merge to main) → production (manual)
 
 There is intentionally **no auto-deploy to production**.
 
+## Promote runbook
+
+The [`promote-to-prod.yml`](../.github/workflows/promote-to-prod.yml) workflow (AECI-78) is the only way prod gets new code. Trigger it from the GitHub Actions UI:
+
+1. Repo → Actions → **promote-to-prod** → **Run workflow**.
+2. `commit_sha`: paste the full 40-char SHA you already verified on staging (matches what `https://staging.aecintegrations.com/api/version` reports).
+3. `confirm`: type `PROMOTE` exactly.
+4. Click **Run workflow**.
+
+What happens, in order:
+
+- **Pre-promotion checks (unattended, ~2 min)** — `pre-promotion-checks` job. Validates `confirm`, hits `staging.aecintegrations.com/api/version` with Cloudflare Access headers, and refuses to continue unless the staging SHA matches `inputs.commit_sha`. Then prints `supabase migration list --linked` against prod into the run log **and** the job summary so you can read the pending SQL inline before approving the next job.
+- **Approval pause** — the `apply-prod-migrations` job enters the `production` GH Environment and blocks. The GitHub Actions UI shows "Waiting for review". Read the migration list in the previous job's summary before clicking Approve.
+- **After approval (~5–10 min)** — `pg_dump` of prod → R2 (`aeci-prod-snapshots/prod-pre-<short-sha>.dump` plus a companion `-auth.dump` for auth-schema data), `supabase db push --linked`, drift check via `scripts/prisma-drift-check.sh` against `DIRECT_URL_PRODUCTION`. **HARD STOP on drift** — Workers don't deploy if drift is detected.
+- **Worker deploys** — API first (`aeci-api-production`), SSR second (`aeci-web-production`). Each `wrangler deploy` line passes `--var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
+- **Deploy marker + smoke** — Datadog `/api/v1/events` marker (docs/CICD_PLAN.md §9.1) tagged `env:production`, `service:aeci-ssr`, `commit:<sha>`. Then polls `https://aecintegrations.com/api/version` (public — no Access headers) until it returns `{ "sha": "<input>", "environment": "production" }`. Fails after a 60-second budget.
+
+**Recovering from a bad promote.** The R2 snapshot is the rollback insurance. For DB:
+
+```bash
+aws --endpoint-url "$R2_ENDPOINT" s3 cp s3://aeci-prod-snapshots/prod-pre-<short-sha>.dump .
+pg_restore --clean --no-owner --no-privileges --dbname "$DIRECT_URL_PRODUCTION" prod-pre-<short-sha>.dump
+```
+
+For Worker code: `wrangler rollback --env production` against `apps/api` and `apps/web` (docs/CICD_PLAN.md §6.1). Snapshots live 30 days per the bucket lifecycle rule — older incidents require a Supabase point-in-time restore.
+
+**Common failure modes:**
+
+| Failure | Where | What it means / what to do |
+| --- | --- | --- |
+| `staging is at <x>, refusing to promote <y>` | `pre-promotion-checks` | Staging's `/api/version` doesn't match `inputs.commit_sha`. Either re-deploy staging on the target SHA or change the input. |
+| Drift check exits 1 with Prisma `P4002` | `apply-prod-migrations` | Known issue carried over from AECI-77 — cross-schema FK `public.profiles.id → auth.users(id)` makes `prisma db pull` fail. The drift step will hard-stop here until that FK is resolved in a separate issue. See `scripts/prisma-drift-check.sh:24-33` and `docs/prisma.md` §7. |
+| Migrations applied but `/api/version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way. Inspect the `wrangler-action` step logs; if SSR is wedged, `wrangler rollback --env production` on `apps/web`. |
+| R2 upload fails | `apply-prod-migrations` | The snapshot is step 4 — migrations have NOT run yet, so it's safe to re-run after fixing R2 access. Check `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT`. |
+| Snapshot needed but the bucket lifecycle already expired it | — | Snapshots live 30 days. Older incidents require a Supabase point-in-time restore. |
+
 ## Secrets
 
 Secrets are stored in three places:
@@ -55,7 +91,8 @@ Secrets are stored in three places:
 | `CLOUDFLARE_API_TOKEN` | ❌ | ❌ | ✅ | Scoped narrowly per CICD_PLAN §7.1. |
 | `CLOUDFLARE_ACCOUNT_ID` | ❌ | ❌ | ✅ | `e62ec9d8012c3e0c225f8e4dbab76b79` |
 | `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` | ❌ | ❌ | ✅ | Service token for non-prod smoke tests (`docs/access.md` §1). |
-| `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_ENDPOINT` | ❌ | ❌ | ✅ | Prod snapshot uploads (AECI-78). Bucket: `aeci-prod-snapshots`. |
+| `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_ENDPOINT` | ❌ | ❌ | ✅ | Prod snapshot uploads (AECI-78). Bucket `aeci-prod-snapshots`, object key `prod-pre-<short-sha>.dump` (12-char truncated input SHA). Uploaded via AWS CLI against `R2_ENDPOINT` (S3-compatible). |
+| `DATADOG_API_KEY` | ❌ | ❌ | ✅ | Used by `promote-to-prod.yml` (AECI-78) to POST deploy markers to Datadog `/api/v1/events` per CICD_PLAN §9.1. |
 | `LOOPS_API_KEY` (test) | ✅ on staging Workers | ❌ | — | Sends to allowlisted addresses only in staging. |
 | `LOOPS_API_KEY` (prod) | ❌ | ✅ on prod Workers | — | Sends to real users. |
 | Datadog `DD_*` (per `apps/web/wrangler.jsonc` header) | ✅ per env | ✅ per env | — | RUM + Logs intake. |
@@ -77,6 +114,7 @@ All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL
 | --- | --- | --- |
 | `STAGING_ENABLED` | `"true"` once Chris finishes the manual checklist below | Gates the `deploy-staging` job. Skipped (not failed) while empty/false, so merges to main stay green during bootstrap. |
 | `SUPABASE_DEV_PROJECT_REF` | The Supabase project ref for `aeci-development` (the dev/staging project, host the `main` branch DB used as staging) | Consumed by `refresh-staging.yml` (AECI-77) for `supabase link --project-ref` before `supabase db push --linked`. Set once when the dev project is provisioned per §1 below. |
+| `SUPABASE_PROD_PROJECT_REF` | The Supabase project ref for `aeci-production` (`jgxebjufabtwkcgxjqvk` per §1) | Consumed by `promote-to-prod.yml` (AECI-78) for `supabase link --project-ref` before `supabase migration list --linked` (pre-promotion check) and `supabase db push --linked` (apply-prod-migrations). |
 
 ## Manual prerequisites — Chris's checklist before `STAGING_ENABLED=true`
 
@@ -170,6 +208,31 @@ wrangler secret put ADMIN_PURGE_TOKEN --env staging
 - [ ] `gh variable set STAGING_ENABLED --body "true"` (or set in the UI).
 
 The next push to `main` will trigger `deploy-staging`. The smoke test will assert `staging.aecintegrations.com/api/version` returns `{ sha: <merge commit>, environment: "staging" }`.
+
+### 8. Production bootstrap — Chris's checklist for `promote-to-prod.yml` (AECI-78)
+
+These steps must land before the first successful `promote-to-prod.yml` run. None of them are reversible from CI — they create infrastructure outside the repo.
+
+- [ ] **R2 bucket.** Cloudflare dashboard → R2 → **Create bucket** named `aeci-prod-snapshots` in the same account (`e62ec9d8012c3e0c225f8e4dbab76b79`).
+- [ ] **R2 lifecycle rule.** On the bucket → Settings → Object lifecycle rules → add a rule that deletes all objects after 30 days. Acceptance criterion #4 requires this; a manual spot-check that an old object disappeared after the window is the verification.
+- [ ] **R2 access keys.** R2 → Manage R2 API Tokens → create a token scoped to `aeci-prod-snapshots` (read + write). Push the three values:
+  ```bash
+  gh secret set R2_ACCESS_KEY_ID --body "<key id>"
+  gh secret set R2_SECRET_ACCESS_KEY --body "<secret>"
+  gh secret set R2_ENDPOINT --body "https://<account>.r2.cloudflarestorage.com"
+  ```
+- [ ] **Production Supabase secrets.** Once prod Supabase is fully bootstrapped (per §1):
+  ```bash
+  gh secret set DATABASE_URL_PRODUCTION --body "<prisma:// Accelerate URL>"
+  gh secret set DIRECT_URL_PRODUCTION   --body "<postgresql://... pooler URL>"
+  gh secret set SUPABASE_SERVICE_ROLE_KEY_PRODUCTION --body "<service role key>"
+  ```
+- [ ] **Datadog deploy-marker secret.** `gh secret set DATADOG_API_KEY --body "<key>"` (already exists for Worker runtime intake; CI needs its own copy to POST to `/api/v1/events`).
+- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`.
+- [ ] **Production project ref repo variable.** `gh variable set SUPABASE_PROD_PROJECT_REF --body "jgxebjufabtwkcgxjqvk"` (per §1).
+- [ ] **Verify GH Environment.** The `production` GH Environment (created in §4) must list `chrisw@thewbsproject.com` as a required reviewer. Without that, the workflow's `apply-prod-migrations` job will not pause for approval.
+
+Once all boxes are ticked, dry-run the workflow with a deliberately wrong `commit_sha` to verify the negative path: `pre-promotion-checks` must fail at step 4 with `staging is at <actual>, refusing to promote <input>` and the run must stop before any downstream job (acceptance criterion #2).
 
 ## What lives where
 

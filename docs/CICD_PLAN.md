@@ -28,8 +28,11 @@ GitHub Actions is the CI/CD platform. Cloudflare Workers Builds is rejected for 
 
 ## 2. Environments
 
-> **Current state (deviation from spec) — set 2026-05-18.**
-> The implemented pipeline runs **CI only**: lint, typecheck, unit tests, build. No environment is deployed automatically. Per-PR preview deploys (`aec-web-pr-<N>` / `aec-api-pr-<N>`) have been removed, and the auto-deploy-to-production on merge to `main` has been removed. Production is shipped manually via `wrangler deploy --env production` from a developer machine until a deliberate trigger (workflow_dispatch, tag push, or staging-promote) is chosen. The 3-env target below remains the long-term goal. See `.github/workflows/deploy.yml` for the parked `deploy-production` job.
+> **Current state (deviation from spec) — set 2026-05-18, updated 2026-05-26.**
+> - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
+> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with explicit `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. There is intentionally **no auto-deploy to production**.
+> - **Per-PR preview deploys** (`aeci-web-pr-<N>` / `aeci-api-pr-<N>`) are still parked behind `if: false` in `deploy.yml`; they land in AECI-79.
+> The 3-env target below is now wired end-to-end except for previews.
 
 Three environments, all on Cloudflare:
 
@@ -68,10 +71,10 @@ Mirror of production, but with test data and isolated from real users.
 
 ### 2.3 Production environment
 
-The real site. Promoted from staging via manual approval.
+The real site. Promoted from staging via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
 
 - Deployed only after staging deployment is verified
-- Manual approval gate in GitHub Environments (Chris or Bill clicks "Approve" button)
+- Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `apply-prod-migrations` job in `.github/workflows/promote-to-prod.yml`)
 - Connects to production Supabase
 - Production Algolia indexes
 - Datadog under `env:production` tag, with deployment markers
@@ -150,19 +153,29 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 
 ### 3.3 On manual production approval
 
-> **Not currently wired — see §2 callout.** The `deploy-production` job exists in `.github/workflows/deploy.yml` but is parked behind `if: false`; production ships manually via `wrangler deploy --env production` from a developer machine until a trigger is chosen.
+Production deploys run via `.github/workflows/promote-to-prod.yml` (AECI-78). See `docs/environments.md` → "Promote runbook" for the operator flow.
 
-Triggered when Chris or Bill clicks "Approve" in GitHub Environments → Production.
+Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inputs) and gated by the `production` GH Environment approval on the `apply-prod-migrations` job. Three jobs in order:
 
-**Job: `deploy-production`**
-1. Verify the staging deployment is the one being promoted (commit hash match)
-2. Run pending Supabase migrations against production
-3. `wrangler deploy --env production`
-4. Run smoke test suite against production
-5. Update Algolia production indexes if schema changed
-6. Send deployment marker to Datadog with version tag
-7. Notify Slack: "Production deployed, commit {sha}"
-8. Auto-create GitHub Release if commit is tagged
+**Job: `pre-promotion-checks`**
+1. Validate `confirm == PROMOTE`
+2. Checkout at `inputs.commit_sha`
+3. Assert `staging.aecintegrations.com/api/version` reports the same SHA, else fail with `staging is at <actual>, refusing to promote <input>`
+4. Print `supabase migration list --linked` against prod into the step summary
+
+**Job: `apply-prod-migrations`** (gated by GH Environment `production`)
+1. `pg_dump` prod → R2 (`aeci-prod-snapshots/prod-pre-<short-sha>.dump`)
+2. `supabase db push --linked`
+3. `scripts/prisma-drift-check.sh` against `DIRECT_URL_PRODUCTION` — HARD STOP on drift
+
+**Job: `deploy-prod-workers`**
+1. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
+2. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
+3. Post Datadog deployment marker (§9.1)
+4. Poll `aecintegrations.com/api/version` until it returns the promoted SHA (60s budget)
+5. Write summary (commit, R2 snapshot path, snapshot size, DEPLOYED_AT, actor)
+
+Algolia index updates, release-tag automation, and Slack notifications are out of scope until later epics.
 
 ### 3.4 On release tag (e.g. `v1.0.0`)
 
