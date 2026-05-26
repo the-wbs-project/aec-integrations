@@ -118,40 +118,36 @@ this document codifies.
 
 ---
 
-## 7. Resolved: cross-schema FK via `multiSchema`
+## 7. Single-schema: `public` only, auth synced via triggers
 
-Historically, `pnpm db:pull` failed with Prisma error **P4002** because of
-the cross-schema FK `profiles.id → auth.users.id`:
-
-```
-The schema of the introspected database was inconsistent: Cross schema
-references are only allowed when the target schema is listed in the schemas
-property of your datasource. `public.profiles` points to `auth.users` in
-constraint `profiles_id_fkey`.
-```
-
-**Fixed in AECI-80** by enabling Prisma's `multiSchema` feature
-(GA in Prisma 6+ — no `previewFeatures` flag needed) and listing both
-`public` and `auth` in the datasource:
+`apps/api/prisma/schema.prisma` is single-schema (`schemas = ["public"]`).
+Prisma does not model the Supabase `auth.*` surface at all.
 
 ```prisma
 datasource db {
   provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
-  schemas   = ["public", "auth"]
+  schemas   = ["public"]
 }
 ```
 
-`apps/api/prisma/schema.prisma` now models the full `auth.*` shape
-(produced by `prisma db pull`) at the bottom of the file. The Worker does
-not query auth tables via Prisma client — Supabase gotrue owns them — but
-they live in the schema so:
+This is the post-AECI-69 shape. Earlier iterations of this repo carried a
+cross-schema FK `profiles.id → auth.users(id) ON DELETE CASCADE`, which
+forced Prisma into multi-schema mode and dragged the entire `auth.*`
+mirror (~500 lines) into `schema.prisma` via `prisma db pull`. Every
+Supabase gotrue release would then churn the mirror on the next
+`db:pull`. AECI-69 dropped the FK and replaced its cascade semantics with
+a sibling AFTER DELETE trigger on `auth.users` (`on_auth_user_deleted` →
+`public.handle_auth_user_delete()`), so we get the same delete behaviour
+without the schema bleed-through.
 
-1. The cross-schema FK on `Profile.id → auth.users(id)` resolves.
-2. The AECI-80 PR-time drift check covers the entire DB, not just `public.*`.
+Canonical doc for the trigger pattern: `docs/AUTH_AND_RLS.md` §8.1
+("Auth → public sync triggers"). Historical record of the multi-schema
+detour and the three workarounds we tried before settling on the trigger
+approach: `docs/adr/0007-prisma-migrate-dev-unsupported.md`.
 
-`pnpm db:pull` is now the canonical way to regenerate `schema.prisma`
+`pnpm db:pull` is the canonical way to regenerate `schema.prisma`
 after a migration. See §3 ("Workflow"). The AECI-71 drift checks (PR,
 post-refresh-staging, post-promote-to-prod) verify schema.prisma stays in
 sync with the migrations.

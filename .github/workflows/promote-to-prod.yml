@@ -36,13 +36,12 @@
 #      - Polls `aecintegrations.com/api/version` (public, no Access headers)
 #        until it reports `inputs.commit_sha`. Fails after 60s.
 #
-# Known gotcha (carried over from AECI-77): `prisma-drift-check.sh` against any
-# DB containing the cross-schema FK `public.profiles.id -> auth.users(id)`
-# fails with Prisma P4002 ("Cross schema references are only allowed when the
-# target schema is listed in the schemas property of your datasource"). See
-# scripts/prisma-drift-check.sh:24-33 and docs/prisma.md §7. Until that FK is
-# resolved separately, this workflow hard-stops at the drift step on every
-# run — which is the spec-mandated behavior (HARD STOP on drift).
+# Historical gotcha (carried over from AECI-77): `prisma-drift-check.sh`
+# used to fail with Prisma P4002 against any DB containing the cross-schema
+# FK `public.profiles.id -> auth.users(id)`. AECI-69 removed that FK
+# (replaced by a trigger-based sync — see docs/AUTH_AND_RLS.md §8.1), so
+# the P4002 landmine is gone and the drift step now reports real drift.
+# Hard-stop-on-drift behaviour is still in force per the AECI-71 spec.
 #
 # Required GH Actions secrets:
 #   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod

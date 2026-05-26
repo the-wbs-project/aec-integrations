@@ -448,11 +448,16 @@ create index product_extensions_host_idx on product_extensions(host_product_id);
 
 ### 7.1 `profiles`
 
-Extends `auth.users`. Created on first login via Supabase Auth trigger.
+Extends `auth.users`. Lifecycle is kept in sync by two triggers on
+`auth.users` (not a cross-schema FK — see `docs/AUTH_AND_RLS.md` §8.1
+for the rationale): `on_auth_user_created` inserts a profile on signup,
+`on_auth_user_deleted` removes it on auth delete.
 
 ```sql
 create table profiles (
-  id uuid primary key references auth.users(id) on delete cascade,
+  -- Same UUID as auth.users.id, kept in sync by triggers (AECI-69).
+  -- No cross-schema FK — see docs/AUTH_AND_RLS.md §8.1.
+  id uuid primary key,
   display_name text,
   role text not null default 'reviewer' check (role in ('reviewer', 'admin', 'vendor_admin')),
   vendor_id uuid references vendors(id), -- null for Stage 1, used in Stage 2 vendor portal

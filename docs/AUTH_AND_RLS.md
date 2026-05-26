@@ -299,9 +299,11 @@ Bans are applied manually by an admin via SQL in the dashboard until a Stage 2 a
 
 ## 8. GDPR right-to-erasure
 
-The schema does most of the work via cascading FKs:
+The schema does most of the work via a mix of triggers and cascading FKs:
 
-- `profiles.id REFERENCES auth.users(id) ON DELETE CASCADE`
+- `public.profiles.id` is kept in sync with `auth.users.id` via the
+  `on_auth_user_deleted` AFTER DELETE trigger on `auth.users` — not a
+  cross-schema FK. See §8.1 for the trigger pattern.
 - `reviews.reviewer_id REFERENCES profiles(id) ON DELETE SET NULL`
 - `page_views.user_id` and `audit_log.actor_id` reference `profiles(id)` without ON DELETE — they retain a dangling UUID until a background sweep nulls them
 
@@ -309,12 +311,68 @@ The schema does most of the work via cascading FKs:
 
 1. User clicks Delete in `/account`
 2. Worker calls Supabase Auth Admin API to delete the user
-3. Postgres cascades: `auth.users` removed → `profiles` cascade-deleted → `reviews.reviewer_id` set null
+3. `auth.users` row is deleted → `on_auth_user_deleted` trigger fires → `public.profiles` row is removed → `reviews.reviewer_id` set null via FK cascade
 4. Worker writes audit entry `account.deleted` with the now-gone user's ID as metadata
 5. Loops sends confirmation email
 6. Background sweep (or same Worker call) nulls `page_views.user_id` and `audit_log.actor_id`
 
 No client-side path exists to read or modify deleted users' data — GRANTs block the sensitive tables entirely, and the rows that remain on public tables have NULL where the user ID used to be.
+
+### 8.1 Auth → public sync triggers
+
+`public.profiles.id` carries the same UUID as the corresponding
+`auth.users.id`, but there is **no cross-schema FK between them**.
+Lifecycle is kept in sync by two triggers on `auth.users`:
+
+| Event                                | Trigger                  | Function                              | Effect                                       |
+| ------------------------------------ | ------------------------ | ------------------------------------- | -------------------------------------------- |
+| `AFTER INSERT ON auth.users`         | `on_auth_user_created`   | `public.handle_new_user()`            | `INSERT INTO public.profiles (id) VALUES (NEW.id)` |
+| `AFTER DELETE ON auth.users`         | `on_auth_user_deleted`   | `public.handle_auth_user_delete()`    | `DELETE FROM public.profiles WHERE id = OLD.id`    |
+
+**Why triggers instead of an FK.** Until AECI-69 (2026-05-26), this was
+`profiles.id REFERENCES auth.users(id) ON DELETE CASCADE`. That worked
+fine at runtime, but it forced `apps/api/prisma/schema.prisma` to enable
+multi-schema and mirror the entire `auth.*` gotrue surface (~500 lines
+of models that churned on every Supabase upgrade). Replacing the FK
+with a trigger gives the same delete-cascade behaviour with none of the
+Prisma overhead. The reasoning chain — including the three failed
+attempts to keep the FK and live with multi-schema — is in
+`docs/adr/0007-prisma-migrate-dev-unsupported.md` §5.3.
+
+**Insert-time integrity.** Without the FK, in principle a `profiles` row
+could be inserted referencing a non-existent `auth.users.id`. In
+practice every `profiles` row is created by `on_auth_user_created`
+firing from a real `auth.users` INSERT — the Worker never inserts into
+`profiles` directly. RLS and GRANTs reinforce this: the `authenticated`
+role has no INSERT privilege on `profiles`.
+
+**Canonical pattern for future `auth.users` triggers.** If we add more
+sync triggers in the future, use this shape (mirrors AECI-44's
+hardening rule for every `SECURITY DEFINER` function):
+
+```sql
+CREATE OR REPLACE FUNCTION public.<name>()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, pg_temp
+AS $$
+BEGIN
+  -- mutate public.* using NEW / OLD as appropriate
+  RETURN <NEW | OLD>;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS <trigger_name> ON auth.users;
+CREATE TRIGGER <trigger_name>
+  AFTER <INSERT | UPDATE | DELETE> ON auth.users
+  FOR EACH ROW EXECUTE FUNCTION public.<name>();
+```
+
+Coverage: `apps/api/src/integration/auth_user_delete_trigger.spec.ts`
+asserts the DELETE trigger fires for both the Supabase admin API
+delete path and a direct `DELETE FROM auth.users`. Any new sync
+trigger should land with the same dual-path test.
 
 ---
 
