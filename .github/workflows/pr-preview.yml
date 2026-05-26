@@ -1,0 +1,291 @@
+# AEC Integrations — per-PR ephemeral preview deployments (AECI-79, sub-issue
+# (d) of AECI-71).
+#
+# Triggered on `pull_request` for first-party branches only — forks have no
+# secrets, so the action would just fail noisily otherwise.
+#
+# `deploy` job (opened / synchronize / reopened):
+#   1. Build the SSR Worker bundle.
+#   2. `wrangler deploy --env preview --name aeci-web-pr-<N>` with COMMIT_SHA
+#      + DEPLOYED_AT injected per the CLAUDE.md "Version reporting (AECI-74)"
+#      pattern. `--name` overrides the `env.preview.name` field in
+#      `apps/web/wrangler.jsonc` so each PR gets its own Worker on the
+#      `*.aec-integrations.workers.dev` wildcard.
+#   3. Smoke-test the new Worker via /api/version with Cloudflare Access
+#      headers; assert the reported `sha` matches the PR head SHA. Mirrors
+#      the polling loop in refresh-staging.yml.
+#   4. Sticky PR comment with the preview URL and a copy-paste curl snippet.
+#
+# `cleanup` job (closed, merged or not):
+#   1. `wrangler delete` the preview Worker (idempotent — swallows 404 so a
+#      re-opened-then-closed PR doesn't fail when there's nothing to clean).
+#   2. Update the sticky comment to "torn down".
+#
+# DB strategy: **Option 1 (shared dev DB)** — confirmed with Chris during
+# AECI-79 planning. Preview Workers share the existing `aeci-api-preview`
+# Worker (deployed by AECI-76), which connects via Prisma Accelerate to the
+# dev project's `main` branch (= the staging DB). No per-PR API Worker, no
+# Supabase Management API calls. See `docs/environments.md` §"PR previews"
+# for the trade-off and the revisit conditions for Options 2 and 3.
+#
+# Required GH Actions secrets (all already configured):
+#   CLOUDFLARE_API_TOKEN     Scoped per `docs/CICD_PLAN.md` §7.1.
+#   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
+#   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`).
+#   CF_ACCESS_CLIENT_SECRET  Same token's secret.
+#
+# Required GH Actions repo variables: none.
+
+name: pr-preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+# Per-PR concurrency. `cancel-in-progress: true` lets a fresh push abort the
+# in-flight deploy; the `closed` event arrives as its own run after that and
+# won't be cancelled because each closed run lands in a separate (empty)
+# queue once the deploy run completes.
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  # Mirrors `deploy.yml` / `refresh-staging.yml`: opt JS-based actions onto
+  # Node 24 ahead of the 2026-06-02 default flip.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  # The PR-scoped Worker name derived from the PR number. Used by both jobs
+  # for naming consistency and as the smoke-test hostname.
+  PREVIEW_WORKER_NAME: aeci-web-pr-${{ github.event.pull_request.number }}
+  PREVIEW_URL: https://aeci-web-pr-${{ github.event.pull_request.number }}.aec-integrations.workers.dev
+
+jobs:
+  deploy:
+    name: Deploy PR preview
+    # First-party PRs only. Fork PRs don't receive secrets, so the deploy
+    # would fail anyway — skip cleanly instead of red-Xing every external PR.
+    if: |
+      github.event.action != 'closed'
+        && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # ---------------------------------------------------------------------
+      # Step 1: Checkout PR head
+      # ---------------------------------------------------------------------
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # ---------------------------------------------------------------------
+      # Step 2: Install toolchain
+      #   Same shape as refresh-staging.yml step 2 — pnpm + node + workspace
+      #   install + prisma generate (the web build transitively bundles the
+      #   shared package, but `pnpm --filter @aeci/api exec prisma generate`
+      #   keeps the workspace consistent if any future preview job touches
+      #   the API bundle).
+      # ---------------------------------------------------------------------
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/api exec prisma generate
+
+      # ---------------------------------------------------------------------
+      # Step 3: Build SSR Worker bundle
+      #   The `deploy:preview` package script runs `pnpm run build && wrangler
+      #   deploy --env preview`, but wrangler-action bypasses package scripts.
+      #   Reproduce the build step here so the bundle exists before deploy.
+      # ---------------------------------------------------------------------
+      - run: pnpm --filter @aeci/web build
+
+      # ---------------------------------------------------------------------
+      # Step 4: Compute the deploy timestamp shared by --var DEPLOYED_AT
+      #   AECI-74 contract: ISO-8601 UTC, millisecond precision.
+      # ---------------------------------------------------------------------
+      - name: Compute deploy timestamp
+        id: ts
+        run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      # ---------------------------------------------------------------------
+      # Step 5: Deploy SSR Worker (PR-scoped name)
+      #   `--name` overrides `env.preview.name` in apps/web/wrangler.jsonc;
+      #   everything else (workers_dev, service binding to aeci-api-preview,
+      #   vars, observability) is inherited from the env.preview block.
+      #
+      #   No per-PR API Worker — `aeci-api-preview` is shared. The service
+      #   binding in env.preview already points at it.
+      # ---------------------------------------------------------------------
+      - name: Deploy SSR Worker (preview)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: deploy --env preview --name ${{ env.PREVIEW_WORKER_NAME }} --var COMMIT_SHA:${{ github.event.pull_request.head.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+          packageManager: pnpm
+
+      # ---------------------------------------------------------------------
+      # Step 6: Verify /api/version reports the PR head SHA
+      #   Mirrors refresh-staging.yml :283-305. Cloudflare Access fronts the
+      #   wildcard *.aec-integrations.workers.dev (docs/access.md :42) so the
+      #   service-token headers are required even for the smoke test.
+      # ---------------------------------------------------------------------
+      - name: Verify /api/version reports the PR head SHA
+        env:
+          EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            response=$(curl -fsS \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              "${PREVIEW_URL}/api/version" || true)
+            actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
+            if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
+              echo "Preview deploy verified at SHA $actual_sha (attempt $attempt)"
+              echo "Response: $response"
+              exit 0
+            fi
+            echo "Attempt $attempt: expected $EXPECTED_SHA, got '$actual_sha'. Retrying in 6s..."
+            sleep 6
+          done
+          echo "::error::${PREVIEW_URL}/api/version did not report $EXPECTED_SHA within 60s"
+          exit 1
+
+      # ---------------------------------------------------------------------
+      # Step 7: Sticky PR comment with the preview URL + curl snippet
+      #   `header` keeps subsequent runs editing the same comment instead of
+      #   stacking. The Access curl snippet mirrors docs/access.md :139-146.
+      # ---------------------------------------------------------------------
+      - name: Sticky preview comment
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-preview
+          message: |
+            ### Preview deployed
+
+            - **URL:** ${{ env.PREVIEW_URL }}
+            - **Commit:** `${{ github.event.pull_request.head.sha }}`
+            - **Deployed at:** `${{ steps.ts.outputs.deployed_at }}`
+
+            Hit it directly (Cloudflare Access fronts the `*.aec-integrations.workers.dev` wildcard):
+
+            ```bash
+            curl \
+              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+              ${{ env.PREVIEW_URL }}/api/version
+            ```
+
+            Human access uses the OTP-to-email flow in the "AECi Non-Prod" Cloudflare Access app — see `docs/access.md` §1.
+
+            Preview Worker tears down automatically when this PR is closed.
+
+      # ---------------------------------------------------------------------
+      # Step 8: Run summary
+      # ---------------------------------------------------------------------
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## pr-preview summary"
+            echo
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| PR | #${{ github.event.pull_request.number }} |"
+            echo "| commit SHA | \`${{ github.event.pull_request.head.sha }}\` |"
+            echo "| worker name | \`${{ env.PREVIEW_WORKER_NAME }}\` |"
+            echo "| preview URL | ${{ env.PREVIEW_URL }} |"
+            echo "| job status | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  cleanup:
+    name: Tear down PR preview
+    # Closed (merged or not). First-party only — fork PRs never deployed
+    # anything, so there's nothing to delete and no secrets to authenticate.
+    if: |
+      github.event.action == 'closed'
+        && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      # ---------------------------------------------------------------------
+      # Step 1: Checkout (needed so wrangler-action can read wrangler.jsonc
+      # for the account resolution path; `wrangler delete` itself only uses
+      # --name + accountId).
+      # ---------------------------------------------------------------------
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+
+      # ---------------------------------------------------------------------
+      # Step 2: Delete the preview Worker
+      #   Idempotent. A re-opened-then-closed PR (or a closed PR whose
+      #   deploy never succeeded) should not fail this step — `|| true`
+      #   on the shell wrapper would mask other errors, so instead use
+      #   `continue-on-error: true` on the action and assert success in the
+      #   summary step. The Worker name carries no DB state under Option 1.
+      # ---------------------------------------------------------------------
+      - name: Delete preview Worker
+        id: delete
+        continue-on-error: true
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/web
+          command: delete --name ${{ env.PREVIEW_WORKER_NAME }} --force
+          packageManager: pnpm
+
+      # ---------------------------------------------------------------------
+      # Step 3: Update sticky comment
+      # ---------------------------------------------------------------------
+      - name: Sticky preview comment (torn down)
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: pr-preview
+          message: |
+            ### Preview torn down
+
+            PR closed — `${{ env.PREVIEW_WORKER_NAME }}` has been deleted.
+
+            Re-open this PR to redeploy a fresh preview on the current head SHA.
+
+      # ---------------------------------------------------------------------
+      # Step 4: Run summary
+      # ---------------------------------------------------------------------
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## pr-preview cleanup summary"
+            echo
+            echo "| metric | value |"
+            echo "|---|---|"
+            echo "| PR | #${{ github.event.pull_request.number }} |"
+            echo "| worker name | \`${{ env.PREVIEW_WORKER_NAME }}\` |"
+            echo "| delete step outcome | ${{ steps.delete.outcome }} |"
+            echo "| job status | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

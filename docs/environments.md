@@ -35,6 +35,54 @@ local → PR preview → staging (auto on merge to main) → production (manual)
 
 There is intentionally **no auto-deploy to production**.
 
+## PR previews
+
+Every PR against `main` gets an ephemeral preview Worker named `aeci-web-pr-<N>` on the `*.aec-integrations.workers.dev` wildcard, deployed by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) on `pull_request` `opened` / `synchronize` / `reopened` and torn down on `closed`. First-party PRs only — fork PRs skip cleanly since they receive no secrets.
+
+### DB strategy: Option 1 (shared dev DB)
+
+Preview Workers bind to the **shared** `aeci-api-preview` Worker (deployed by AECI-76), which connects via Prisma Accelerate to the dev project's `main` branch — the same DB that staging serves. The web Worker's `services.API` binding in `apps/web/wrangler.jsonc` `env.preview` is already wired this way; the PR-preview workflow only overrides `--name` for the SSR Worker, not the service binding.
+
+This is the simplest of three options the AECI-79 issue body enumerated:
+
+1. **(picked)** Shared dev DB. No per-PR Supabase branches; no Management API calls. Trade-off: previews cannot exercise migrations that haven't yet landed on `main`. Migration safety is covered by the PR-level drift check (`drift-check.yml`, future per AECI-71 build sequence) and by `refresh-staging.yml`'s drift gate.
+2. Per-PR Supabase branch DB enrolled in Prisma Accelerate via the Prisma Data Platform API. Preserves migration isolation and respects the CLAUDE.md Accelerate-only baseline, but requires PDP API access from CI plus a per-PR API Worker and a deploy-time override of the SSR Worker's service binding.
+3. Per-PR Supabase branch DB consumed by `@prisma/adapter-pg-worker` (preview-only carve-out from CLAUDE.md), with `nodejs_compat` enabled on the preview API Worker. Same isolation as (2) without PDP API dependency, but introduces a documented exception to the Accelerate-only contract.
+
+**Revisit conditions for (2) or (3).** Escalate if a migration-bearing PR ships a regression that per-PR DB isolation would have caught — e.g., a destructive migration whose effects are only visible against newly-shaped data. The orphan-detection runbook below assumes Option 1.
+
+### Hitting a preview manually
+
+Cloudflare Access fronts the `*.aec-integrations.workers.dev` wildcard via the "AECi Non-Prod" app (see [`docs/access.md`](./access.md) §2). Use the `aeci-gh-actions` service token from a shell:
+
+```bash
+export N=123  # PR number
+curl \
+  -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+  -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+  "https://aeci-web-pr-${N}.aec-integrations.workers.dev/api/version"
+```
+
+For browser access, the same Access app accepts OTP-to-email for the allowlisted human identities listed in `docs/access.md` §1.
+
+### Orphan detection (monthly)
+
+The `pr-preview.yml` cleanup job is idempotent and runs on every PR close, including merges and re-opens, so the steady-state should be zero orphan Workers. Audit monthly:
+
+```bash
+# List all preview Workers for this account.
+wrangler deployments list --name aeci-web-pr-XXXX  # one per suspected PR
+# Or, broader: enumerate via the Cloudflare Workers API and grep ^aeci-web-pr-
+```
+
+For any name `aeci-web-pr-<N>` whose PR is closed in Linear / GitHub, delete it:
+
+```bash
+wrangler delete --name aeci-web-pr-<N> --force
+```
+
+Under Option 1 there are no Supabase branches to audit — none are created. If we ever switch to Option 2 or 3, that audit step must be added here.
+
 ## Promote runbook
 
 The [`promote-to-prod.yml`](../.github/workflows/promote-to-prod.yml) workflow (AECI-78) is the only way prod gets new code. Trigger it from the GitHub Actions UI:

@@ -31,30 +31,26 @@ GitHub Actions is the CI/CD platform. Cloudflare Workers Builds is rejected for 
 > **Current state (deviation from spec) — set 2026-05-18, updated 2026-05-26.**
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
 > - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with explicit `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. There is intentionally **no auto-deploy to production**.
-> - **Per-PR preview deploys** (`aeci-web-pr-<N>` / `aeci-api-pr-<N>`) are still parked behind `if: false` in `deploy.yml`; they land in AECI-79.
-> The 3-env target below is now wired end-to-end except for previews.
+> - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `*.aec-integrations.workers.dev`); the API Worker is shared (`aeci-api-preview`) and connects to the dev project's `main` branch via Prisma Accelerate. See `docs/environments.md` §"PR previews" for the DB-strategy decision (Option 1 — shared dev DB).
+> The 3-env target below is now wired end-to-end.
 
 Three environments, all on Cloudflare:
 
 | Environment | URL pattern | Triggered by | Auto/Manual | Data |
 |---|---|---|---|---|
-| **Preview** | `pr-{N}-aeci.{workers-dev-subdomain}.workers.dev` | Every PR push | Auto | Supabase preview branch or shared dev DB |
+| **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | Shared dev DB via `aeci-api-preview` (Option 1, see environments.md) |
 | **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | Staging Supabase project |
 | **Production** | `aecintegrations.com` | Manual approval after staging | Manual | Production Supabase |
 
 ### 2.1 Preview environment
 
-> **Not currently wired — see §2 callout.** Per-PR preview deploys are disabled while the right preview model is being investigated.
+Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-79). Provides a working deployment for human review; automated test jobs against the preview URL (E2E, accessibility, Lighthouse) remain parked in `deploy.yml` pending separate work to bridge them across workflows.
 
-Spun up per PR. Provides a working deployment for human review and automated tests (E2E, accessibility, performance).
-
-- Each PR gets a unique URL using the PR number
-- Auto-deletes when PR is closed or merged
-- Connects to a Supabase preview branch (Supabase Branching feature) if available, else shared dev DB
-- Algolia connects to a dev-only index (`products_dev`, `vendors_dev`, `integrations_dev`)
-- Datadog reports under `env:preview` tag
-- Loops is mocked (no real emails sent from preview)
-- Linear is mocked (no real issues created)
+- Each PR gets a unique SSR Worker `aeci-web-pr-<N>` at `https://aeci-web-pr-<N>.aec-integrations.workers.dev`.
+- Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
+- **DB:** shared dev project `main` branch via the shared `aeci-api-preview` Worker and Prisma Accelerate. No per-PR Supabase branches (Option 1; see `docs/environments.md` §"PR previews" for the trade-off and revisit conditions for Options 2/3).
+- Fronted by the "AECi Non-Prod" Cloudflare Access app — service token for CI, OTP-to-email for humans (see `docs/access.md`).
+- Algolia, Datadog, Loops, and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to).
 
 ### 2.2 Staging environment
 
@@ -108,11 +104,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 3. Bundle size check against budget (defined in `TESTING_STRATEGY.md`)
 4. Upload build artifact for downstream jobs
 
-**Job: `deploy-preview`** (depends on `build`, ~2 min) — *Not currently wired — see §2 callout.*
-1. Download build artifact
-2. `wrangler deploy --env preview` with PR-scoped name
-3. Run Supabase migrations against preview DB (if any new ones in the PR)
-4. Comment on PR with preview URL
+**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies `/api/version` reports the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. No Supabase migrations are applied per-PR under the current Option 1 strategy.
 
 **Job: `e2e-tests`** (depends on `deploy-preview`, ~5 min)
 1. Wait for preview deployment health check
