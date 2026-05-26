@@ -83,15 +83,28 @@ The following must be done by hand (Supabase and Cloudflare dashboards + `gh sec
 
 ### 1. Supabase projects
 
-- [ ] **Rename** the current Supabase project to `aeci-development` (Supabase Dashboard → Project Settings → General → Project name). The project ref stays the same.
-- [ ] **Provision a new project** named `aeci-production` in the same Supabase org. Region: match the existing dev project (lowest latency to Workers).
-- [ ] **Bootstrap the prod project schema**:
+Production existed before the AECI Stage 1 migration system did — it holds the
+live landing-page `feedback` and `mailing_list` tables written by
+`apps/landing/` via PostgREST (see `20260101000000_landing_baseline.sql`). So
+the dual-environment split is built around keeping that DB *as production* and
+provisioning a fresh empty project for development:
+
+- [x] **Rename** the existing Supabase project to `aeci-production` (Supabase Dashboard → Project Settings → General → Project name). Project ref `jgxebjufabtwkcgxjqvk` stays the same. This is the prod URL the landing Worker already points at.
+- [x] **Provision a new empty project** named `aeci-development` in the same Supabase org. Region: match the prod project (lowest latency to Workers).
+- [ ] **Reconcile prod migration history.** Prod's `supabase_migrations.schema_migrations` table has one stray row (`20260525060654`) from a manual repair attempt and is missing every AECI baseline. Before pushing, clear the stray row and record the landing baseline as already-applied (the tables exist; the SQL must not re-run):
   ```bash
-  supabase link --project-ref <prod-ref>
-  pnpm db:push   # applies every supabase/migrations/*.sql to prod
+  supabase link --project-ref jgxebjufabtwkcgxjqvk        # aeci-production
+  npx supabase migration repair --linked --status reverted 20260525060654
+  npx supabase migration repair --linked --status applied  20260101000000
+  pnpm db:push   # applies the six AECI baselines on top of feedback/mailing_list
   ```
-  Then `supabase link --project-ref <dev-ref>` to leave the CLI pointed at dev (default for day-to-day work).
-- [ ] Verify both projects show all six baseline migrations in `supabase migration list`.
+- [ ] **Bootstrap the dev project schema** (it's empty, so this is a clean push of all seven migrations):
+  ```bash
+  supabase link --project-ref <dev-ref>
+  pnpm db:push
+  ```
+  Then `supabase link --project-ref <dev-ref>` is the day-to-day default (the CLI link should sit pointed at dev unless explicitly flipped for a prod operation).
+- [ ] Verify both projects show all seven migrations in `pnpm db:list`. Dev should show all seven matched on both columns; prod should show the same once the steps above run successfully.
 
 ### 2. Cloudflare DNS
 
