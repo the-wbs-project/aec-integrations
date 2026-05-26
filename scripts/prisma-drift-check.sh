@@ -21,14 +21,13 @@
 #   *   `prisma db pull` or `prisma migrate diff` failure (e.g. connection
 #       refused, P4002 introspection error)
 #
-# HISTORICAL — P4002 on cross-schema FK (resolved AECI-80):
+# HISTORICAL — P4002 on cross-schema FK (resolved AECI-69):
 #   `prisma db pull` used to fail with P4002 against any DB containing the
-#   FK `public.profiles.id -> auth.users(id)`. AECI-80 enabled Prisma's
-#   `multiSchema` feature in `apps/api/prisma/schema.prisma` (declaring
-#   `schemas = ["public", "auth"]`) and modeled the full auth.* shape,
-#   which lets introspection resolve the cross-schema reference. If P4002
-#   ever returns, check that the datasource still has the `schemas` line.
-#   See docs/prisma.md §7 for the full story.
+#   FK `public.profiles.id -> auth.users(id)`. AECI-80 first worked
+#   around it by enabling `multiSchema` and mirroring the entire `auth.*`
+#   shape into `apps/api/prisma/schema.prisma`. AECI-69 then dropped the
+#   FK in favour of a trigger-based sync (see docs/AUTH_AND_RLS.md §8.1),
+#   so the schema is now single-schema `public` and P4002 cannot recur.
 
 set -euo pipefail
 

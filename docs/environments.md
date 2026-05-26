@@ -198,7 +198,7 @@ pnpm db:reset
 
 That's the literal command CI runs.
 
-**Historical note.** AECI-80 originally inherited a P4002 hard-stop from the cross-schema FK `public.profiles.id → auth.users(id)`. That was resolved in the same PR by enabling Prisma's `multiSchema` feature and modeling the full `auth.*` shape in `apps/api/prisma/schema.prisma`. The full story is in `docs/prisma.md` §7. If you ever see P4002 again, the schema's `schemas = ["public", "auth"]` line on the datasource has likely been removed — restore it.
+**Historical note.** AECI-80 originally inherited a P4002 hard-stop from the cross-schema FK `public.profiles.id → auth.users(id)`. AECI-80 first worked around it by enabling Prisma's `multiSchema` feature and mirroring the full `auth.*` shape in `apps/api/prisma/schema.prisma`; AECI-69 then dropped the FK entirely in favour of a trigger-based sync (see `docs/AUTH_AND_RLS.md` §8.1) and reverted the schema to single-schema `public` only. P4002 cannot recur in this shape. The full story is in `docs/prisma.md` §7 and `docs/adr/0007-prisma-migrate-dev-unsupported.md`.
 
 ## Promote runbook
 

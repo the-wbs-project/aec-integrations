@@ -20,13 +20,15 @@
 #        `supabase db push --linked` in step 6 silently skips any migration
 #        whose row never made it into the prod dump.
 #
-#   (ii) The drift check (step 9) is run verbatim per AECI-71's snippet. As
-#        documented in `docs/prisma.md` §7, `prisma db pull` against any DB
-#        containing the FK `public.profiles.id -> auth.users(id)` fails with
-#        P4002 until that FK is restructured. Refresh-staging will hard-stop
-#        here on every run until the FK issue is resolved separately. That
-#        is the spec-mandated behavior — Workers are NOT deployed when the
-#        drift step fails, which is the acceptance criterion.
+#   (ii) The drift check (step 9) is run verbatim per AECI-71's snippet.
+#        Historically `prisma db pull` failed with P4002 against any DB
+#        containing the cross-schema FK `public.profiles.id -> auth.users(id)`;
+#        AECI-69 removed that FK (replaced by a trigger-based sync —
+#        see docs/AUTH_AND_RLS.md §8.1), so the drift step now reports
+#        real drift rather than the P4002 landmine. Workers are still NOT
+#        deployed when the drift step fails (the AECI-71 acceptance
+#        criterion); this comment is retained because the wiring is the
+#        same — only the failure mode that's expected has changed.
 #
 # This workflow requires the manual prerequisites in `docs/environments.md`
 # §1-§7 (Supabase projects, DNS, GH Environments, Worker secrets) plus the

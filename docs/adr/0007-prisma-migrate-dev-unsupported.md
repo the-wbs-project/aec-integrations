@@ -1,12 +1,43 @@
 # ADR 0007: `prisma migrate dev` is unsupported on this repo
 
-**Status:** **Superseded by AECI-72 (2026-05-25)** — the underlying constraint no longer applies. Prisma migrations were retired entirely in favour of Supabase CLI migrations (`supabase/migrations/`). `prisma migrate dev` and `prisma migrate deploy` are no longer used; Prisma is now invoked only for `prisma generate` (typed client). See `docs/migrations.md` for the new workflow.
+**Status:** **Superseded by AECI-72 (2026-05-25); root cause resolved by AECI-69 (2026-05-26)** — both pillars of the original constraint are gone. Prisma migrations were retired entirely in favour of Supabase CLI migrations (`supabase/migrations/`) under AECI-72, and AECI-69 then implemented §5.3 below (drop the cross-schema FK; replace its `ON DELETE CASCADE` semantics with a sibling AFTER DELETE trigger on `auth.users`) so the `auth.*` mirror no longer needs to live in `schema.prisma`. See `docs/migrations.md` for the canonical workflow and the **Resolution** section below for the cleanup that landed.
 
-The rest of this ADR is retained for historical context — it documents the Catch-22 between Prisma's drift detector and Supabase's `auth.users` schema that motivated the move away from Prisma's migration system entirely.
+The rest of this ADR is retained for historical context — it documents the Catch-22 between Prisma's drift detector and Supabase's `auth.users` schema that motivated both the move away from Prisma migrations and the §5.3 FK removal.
 
-**Date:** 2026-05-24 (original) · **Superseded:** 2026-05-25
+**Date:** 2026-05-24 (original) · **Superseded:** 2026-05-25 · **Root cause resolved:** 2026-05-26
 
 **Context owner:** N/A — historical document.
+
+---
+
+## Resolution (AECI-69, 2026-05-26)
+
+The cross-schema FK that drove this ADR was dropped in migration
+`supabase/migrations/20260526083101_drop_profiles_auth_fk_add_delete_trigger.sql`.
+In its place, the `ON DELETE CASCADE` semantics are provided by a sibling
+AFTER DELETE trigger on `auth.users`:
+
+- `public.handle_auth_user_delete()` — `SECURITY DEFINER` with pinned
+  `search_path` per the AECI-44 hardening rule. Deletes
+  `public.profiles WHERE id = OLD.id`.
+- `on_auth_user_deleted` — AFTER DELETE FOR EACH ROW trigger that fires
+  the function. Mirrors the existing `on_auth_user_created` INSERT trigger
+  in shape and lifecycle.
+
+Because the FK is gone, `apps/api/prisma/schema.prisma` no longer needs
+`schemas = ["public", "auth"]`, the `multiSchema` preview feature, or the
+~500-line `auth.*` model mirror that `prisma db pull` was forced to
+maintain. The schema is now single-schema (`public` only) and the
+gotrue-side churn that used to land in every `db:pull` no longer touches
+this repo.
+
+Coverage: `apps/api/src/integration/auth_user_delete_trigger.spec.ts`
+asserts the trigger fires for both the Supabase admin API delete path
+and a direct `DELETE FROM auth.users` via Prisma `$executeRaw` — the
+second case protects against a future admin-API cleanup path that would
+silently bypass the trigger.
+
+Canonical doc: `docs/AUTH_AND_RLS.md` → "Auth → public sync triggers".
 
 ---
 
