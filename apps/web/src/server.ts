@@ -11,7 +11,7 @@
  * §9.1a / §9.1b / §7a.3 contracts this Worker enforces.
  */
 
-import { AngularAppEngine, createRequestHandler } from '@angular/ssr';
+import { AngularAppEngine } from '@angular/ssr';
 
 import type { ApiError } from '@aeci/shared';
 
@@ -42,13 +42,14 @@ export type { Bindings } from './server-runtime';
 // routes in sync.
 const angularApp = new AngularAppEngine();
 
-const angularHandler = createRequestHandler(async (req) => {
-  const res = await angularApp.handle(req);
-  return res ?? new Response('Page not found.', { status: 404 });
-});
-
-const angularRenderer: SsrRenderer = async (request) => {
-  const res = await angularHandler(request);
+// Note: we bypass `createRequestHandler` (which wraps a `(req) => ...`
+// handler) because we need to forward the runtime's per-request
+// `AeciRequestContext` as the second arg to `angularApp.handle(req, ctx)` —
+// `@angular/ssr` v21 wires that arg into DI as `REQUEST_CONTEXT` whenever
+// `RenderMode.Server` is in effect (see `@angular/ssr/fesm2022/ssr.mjs:1270`).
+// Resolvers retrieve it with `inject(REQUEST_CONTEXT)`.
+const angularRenderer: SsrRenderer = async (request, ctx) => {
+  const res = await angularApp.handle(request, ctx);
   return res ?? new Response('Page not found.', { status: 404 });
 };
 

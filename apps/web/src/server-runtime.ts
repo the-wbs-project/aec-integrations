@@ -54,7 +54,9 @@
 import { Hono } from 'hono';
 
 import type { WebEnv } from './env';
+import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
+import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
 
 export type Bindings = WebEnv;
@@ -174,7 +176,10 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
+  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. Vendors and
+  // integrations stay on the legacy TTL until AECI-59 / AECI-60 land their
+  // detail pages and update the matrix to match.
+  { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   {
@@ -220,7 +225,15 @@ export function buildCacheControl(ttl: CacheTtl): string {
 
 // ─── SSR pipeline ──────────────────────────────────────────────────────────
 
-export type SsrRenderer = (request: Request) => Promise<Response>;
+/**
+ * SSR renderer contract. The runtime creates an `AeciRequestContext` per
+ * request and passes it as the second arg; the renderer (in `server.ts`)
+ * forwards it to `AngularAppEngine.handle(req, ctx)` so resolvers can mutate
+ * it via Angular's built-in `REQUEST_CONTEXT` token. The runtime reads it
+ * back after rendering to merge embedded cache tags and fire the page-view
+ * payload. See `server/request-context.ts` for the contract.
+ */
+export type SsrRenderer = (request: Request, ctx: AeciRequestContext) => Promise<Response>;
 
 /**
  * Returns Cloudflare's default edge cache, or `null` when running outside the
@@ -310,23 +323,71 @@ export type ResponseTransform = (
   ctx: WaitUntilContext,
 ) => Promise<Response> | Response;
 
+/**
+ * Schedule a fire-and-forget `POST /api/page-views` against the API Worker
+ * via the service binding. Phase 2 endpoint is a no-op (AECI-55); Phase 4
+ * wires the actual write. Errors are swallowed — the page render must not
+ * fail because analytics did. The payload shape is pinned in
+ * `packages/shared/src/api/page-views.ts` (`PageViewPayloadSchema`).
+ */
+function firePageView(
+  execCtx: WaitUntilContext,
+  env: Bindings,
+  payload: NonNullable<AeciRequestContext['pageView']>,
+): void {
+  execCtx.waitUntil(
+    env.API.fetch(
+      new Request('https://api/api/page-views', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+      }),
+    )
+      .then(() => undefined)
+      .catch(() => undefined),
+  );
+}
+
+/**
+ * Merge resolver-supplied embedded entities into the path-derived tag inputs.
+ * `cacheTagInputsForPath` is path-only; the resolver knows which vendor and
+ * which integrations the page actually renders. Returns `null` when the path
+ * isn't cacheable (matching `cacheTagInputsForPath`'s contract).
+ */
+function mergeEmbeddedTags(
+  base: CacheTagInputs | null,
+  embedded: readonly { type: string; slug?: string; id?: string }[],
+): CacheTagInputs | null {
+  if (!base) return null;
+  if (embedded.length === 0) return base;
+  return {
+    ...base,
+    embedded: base.embedded ? [...base.embedded, ...embedded] : [...embedded],
+  };
+}
+
 async function handleSsr(
   request: Request,
   env: Bindings,
   renderer: SsrRenderer,
-  ctx: WaitUntilContext,
+  execCtx: WaitUntilContext,
   transformResponse?: ResponseTransform,
 ): Promise<Response> {
   const url = new URL(request.url);
   const ttl = request.method === 'GET' ? cacheControlForRoute(url) : null;
+  const reqCtx = createRequestContext(createServerApiClient(env));
 
   if (ttl === null) {
     // Non-cacheable branch: pass cookies through, never cache.
-    const rendered = await renderer(request);
+    const rendered = await renderer(request, reqCtx);
     const transformed = transformResponse
-      ? await transformResponse(rendered, env, request, ctx)
+      ? await transformResponse(rendered, env, request, execCtx)
       : rendered;
-    return ensureNoStore(transformed);
+    const finalResponse = ensureNoStore(transformed);
+    if (reqCtx.pageView && finalResponse.status >= 200 && finalResponse.status < 300) {
+      firePageView(execCtx, env, reqCtx.pageView);
+    }
+    return finalResponse;
   }
 
   // Cacheable branch: edge-cache lookup, then cookie-stripped render on miss.
@@ -338,14 +399,14 @@ async function handleSsr(
   }
 
   const sanitized = stripVisitorStateCookies(request);
-  const rendered = await renderer(sanitized);
+  const rendered = await renderer(sanitized, reqCtx);
   // Transform BEFORE cache write so the cached payload carries any
   // deployment-scoped inserts (e.g. Datadog public tokens).
   const transformed = transformResponse
-    ? await transformResponse(rendered, env, request, ctx)
+    ? await transformResponse(rendered, env, request, execCtx)
     : rendered;
   const { path: localePath } = stripLocalePrefix(url.pathname);
-  const tagInputs = cacheTagInputsForPath(localePath);
+  const tagInputs = mergeEmbeddedTags(cacheTagInputsForPath(localePath), reqCtx.embedded);
   const response = withCacheHeaders(transformed, ttl, tagInputs);
 
   // Per §9.1: only 2xx is stored. 404s are *returned* with NOT_FOUND_TTL via
@@ -353,7 +414,16 @@ async function handleSsr(
   // but we don't put them into the Worker's `caches.default` — keeps the
   // recovery story simple when an entity is created moments later.
   if (cache && response.status >= 200 && response.status < 300) {
-    ctx.waitUntil(cache.put(cacheKey, response.clone()));
+    execCtx.waitUntil(cache.put(cacheKey, response.clone()));
+  }
+
+  // Phase 2 §3.1 + AC: SSR fires `POST /api/page-views` after the response is
+  // built. Only on 2xx — 404 / 5xx renders don't pollute view counts. Fires
+  // on cache MISS only (HIT returns early above and never enters this branch),
+  // which is acceptable for Phase 2's no-op endpoint; Phase 4 can revisit if
+  // HIT-firing is needed.
+  if (reqCtx.pageView && response.status >= 200 && response.status < 300) {
+    firePageView(execCtx, env, reqCtx.pageView);
   }
 
   return response;

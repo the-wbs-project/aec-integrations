@@ -72,6 +72,40 @@ export class MetaService {
     for (const tag of tags) this.meta.updateTag(tag);
   }
 
+  /**
+   * Meta for a "not found" response on a detail route. Sets a noindex robots
+   * meta so the panel-bodied 404 never gets indexed (the inline panel is a
+   * stopgap until AECI-62 lands the global 404 shell — even then, the panel's
+   * URL is the entity URL the visitor typed, so we want crawlers to skip).
+   * Title and description are deliberately generic — we know the slug missed
+   * but not what the visitor meant.
+   *
+   * Spec anchors: Stage 1 Spec §9.1b ("Pinned 404 trap" — never index a 404)
+   * and §20.7 (404 page noindex). Pairs with `RESPONSE_INIT.status = 404`
+   * set by the resolver so the runtime emits a real HTTP 404 with
+   * `NOT_FOUND_TTL`.
+   */
+  setNotFoundMeta(input: { kind: EntityKind; slug: string; canonical: string }): void {
+    const title = $localize`:@@meta.notFoundTitle:Not found — AEC Integrations`;
+    const description = $localize`:@@meta.notFoundDescription:The page you were looking for could not be found.`;
+
+    this.title.setTitle(title);
+    this.meta.updateTag({ name: 'description', content: description });
+    this.meta.updateTag({ name: 'robots', content: 'noindex' });
+    this.upsertCanonical(stripQueryParams(input.canonical));
+
+    // Belt-and-braces: if a prior render path on the same Worker instance set
+    // a product/vendor JSON-LD, remove it so the 404 doesn't ship stale
+    // structured data. JSON-LD script elements use the `data-aeci-jsonld`
+    // attribute set by `upsertJsonLdScript` (line 100).
+    const head = this.document.head;
+    for (const script of head.querySelectorAll(
+      'script[type="application/ld+json"][data-aeci-jsonld]',
+    )) {
+      script.remove();
+    }
+  }
+
   setProductJsonLd(product: ProductDetail): void {
     this.upsertJsonLdScript('product', buildProductJsonLd(product));
   }
