@@ -33,6 +33,12 @@
 #   CLOUDFLARE_ACCOUNT_ID    — e62ec9d8012c3e0c225f8e4dbab76b79
 #   CF_ACCESS_CLIENT_ID      — service-token client id (docs/access.md §1)
 #   CF_ACCESS_CLIENT_SECRET  — service-token client secret (docs/access.md §1)
+#   DATABASE_URL_STAGING     — Prisma Accelerate URL for the dev project's main
+#                              branch. e2e-tests-local writes this into the API
+#                              Worker's `.dev.vars` so `pnpm dev:bound` can
+#                              actually serve `/api/*` (otherwise Prisma throws
+#                              `PrismaClientInitializationError`). Same secret
+#                              pr-preview.yml uses for Option 1 (shared dev DB).
 #
 # Required repo variables:
 #   STAGING_ENABLED          — set to "true" after the manual prerequisites
@@ -150,6 +156,28 @@ jobs:
       # `build-web` is a `needs:` dependency for ordering only — its artifact
       # is not downloaded here, so we rebuild locally.
       - run: pnpm --filter @aeci/web build
+      # Wire DATABASE_URL into the API Worker before `dev:bound` boots it.
+      # `wrangler dev` reads secrets from `apps/api/.dev.vars` (gitignored).
+      # Without this file the Worker boots with `DATABASE_URL` unset and
+      # every Prisma query throws `PrismaClientInitializationError`, which
+      # propagates as a 500 to the SSR Worker — turning AECI-57's product
+      # detail "missing slug → 404" path into a generic 404 (no panel
+      # rendered) and AECI-58's product index into an error state with no
+      # table to assert against.
+      #
+      # `DATABASE_URL_STAGING` is the dev project's Accelerate URL (Option 1
+      # shared dev DB — same value pr-preview.yml uses). The e2e suite is
+      # data-shape-tolerant (assertions don't depend on specific rows), so
+      # any dev/staging-shaped DB works.
+      - name: Write apps/api/.dev.vars for `pnpm dev:bound`
+        env:
+          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
+        run: |
+          if [ -z "$DATABASE_URL_VALUE" ]; then
+            echo "::error::DATABASE_URL_STAGING secret is empty. E2E job needs it to boot the API Worker with a working Prisma connection. Configure under repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
       # Playwright's `webServer` in apps/web/playwright.config.ts boots
       # `pnpm dev:bound` (both Workers) and waits for :8788 to be reachable.
       - run: pnpm --filter @aeci/web run test:e2e
