@@ -74,6 +74,27 @@ describe('GET /api/products', () => {
     expect(body.data[0].vendor).toMatchObject({ slug: 'procore', name: 'Procore Technologies' });
   });
 
+  it('hydrates `primary_category` on each list row, lowest displayOrder wins', async () => {
+    const prisma = makeMockAcceleratedPrisma({
+      product: { findMany: [procoreProductRow], count: 1 },
+    });
+    const res = await listApp(prisma).request(
+      '/api/products',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    const body = (await res.json()) as {
+      data: Array<{ primary_category: { slug: string } | null }>;
+    };
+    expect(body.data[0].primary_category).toEqual({
+      id: '00000000-0000-4000-8000-000000030001',
+      name: 'Project Management',
+      slug: 'project-management',
+    });
+  });
+
   it('maps `sort=name` to { name: "asc" }', async () => {
     const prisma = makeMockAcceleratedPrisma({
       product: { findMany: [], count: 0 },

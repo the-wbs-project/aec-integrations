@@ -91,6 +91,23 @@ describe('toProductListItem', () => {
     expect(out.rating_overall_avg).toBeNull();
     expect(out.rating_onboarding_avg).toBeNull();
   });
+
+  it('picks the lowest-displayOrder linked category as primary_category', () => {
+    // procore links to Project Management (order=1) and Field Management
+    // (order=null). The null-order entry is treated as Infinity so the
+    // explicit "1" wins regardless of join order.
+    const out = toProductListItem(procoreProductRow);
+    expect(out.primary_category).toEqual({
+      id: '00000000-0000-4000-8000-000000030001',
+      name: 'Project Management',
+      slug: 'project-management',
+    });
+  });
+
+  it('returns null primary_category when no categories are linked', () => {
+    const out = toProductListItem(reviztoProductRow);
+    expect(out.primary_category).toBeNull();
+  });
 });
 
 describe('toVendorListItem', () => {
