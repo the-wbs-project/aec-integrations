@@ -68,9 +68,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
 
       - uses: actions/setup-node@v4
         with:
@@ -84,9 +83,8 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @aeci/api exec prisma generate
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
 
       # `supabase db start` boots only the Postgres container (no Studio,
       # Inbucket, Imgproxy, Edge Runtime, etc.) — the lightweight subset

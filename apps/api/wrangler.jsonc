@@ -42,6 +42,19 @@
   "dev": {
     "port": 8787,
   },
+  // AECI-54: TAXONOMY_KV powers `GET /api/taxonomy` read-through caching with
+  // a 5-minute TTL. Each environment has its own namespace so preview/staging
+  // never poisons production. `preview_id` here wires `aeci-api-taxonomy-preview`
+  // for unscoped `wrangler dev`; per-env blocks below override with each env's
+  // own namespace ID. Handler at `src/routes/taxonomy.ts` falls back to a
+  // direct Prisma query when the binding is absent, so this stays optional.
+  "kv_namespaces": [
+    {
+      "binding": "TAXONOMY_KV",
+      "id": "331fc1cfc6e0421b985442ac934748fa",
+      "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+    },
+  ],
   "env": {
     "preview": {
       "name": "aeci-api-preview",
@@ -53,6 +66,13 @@
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
       },
+      "kv_namespaces": [
+        {
+          "binding": "TAXONOMY_KV",
+          "id": "331fc1cfc6e0421b985442ac934748fa",
+          "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+        },
+      ],
       "observability": {
         "logs": {
           "enabled": true,
@@ -70,6 +90,12 @@
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
       },
+      "kv_namespaces": [
+        {
+          "binding": "TAXONOMY_KV",
+          "id": "dcc927dc53be4fdb9b7c5279e4803539",
+        },
+      ],
       "observability": {
         "logs": {
           "enabled": true,
@@ -87,6 +113,12 @@
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
       },
+      "kv_namespaces": [
+        {
+          "binding": "TAXONOMY_KV",
+          "id": "35d63b5b3c4b492c9d4e6f2041d60136",
+        },
+      ],
       "observability": {
         "logs": {
           "enabled": true,

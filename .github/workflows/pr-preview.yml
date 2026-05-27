@@ -110,9 +110,8 @@ jobs:
       #   keeps the workspace consistent if any future preview job touches
       #   the API bundle).
       # ---------------------------------------------------------------------
-      - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -149,13 +148,11 @@ jobs:
       #   synchronize runs reuse the secret already on the Worker.
       # ---------------------------------------------------------------------
       - name: Deploy API Worker (preview, PR-scoped)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          command: deploy --env preview --name ${{ env.API_WORKER_NAME }} --var COMMIT_SHA:${{ github.event.pull_request.head.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
-          packageManager: pnpm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: pnpm exec wrangler deploy --env preview --name ${{ env.API_WORKER_NAME }} --var COMMIT_SHA:${{ github.event.pull_request.head.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # ---------------------------------------------------------------------
       # Step 6: Push DATABASE_URL to the per-PR API Worker
@@ -219,13 +216,11 @@ jobs:
       #   observability) is inherited from the env.preview block.
       # ---------------------------------------------------------------------
       - name: Deploy SSR Worker (preview)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/web
-          command: deploy --env preview --name ${{ env.PREVIEW_WORKER_NAME }} --var COMMIT_SHA:${{ github.event.pull_request.head.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
-          packageManager: pnpm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/web
+        run: pnpm exec wrangler deploy --env preview --name ${{ env.PREVIEW_WORKER_NAME }} --var COMMIT_SHA:${{ github.event.pull_request.head.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # ---------------------------------------------------------------------
       # Step 9: Verify /api/version reports the PR head SHA
@@ -360,9 +355,8 @@ jobs:
       # ---------------------------------------------------------------------
       - uses: actions/checkout@v4
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -384,24 +378,20 @@ jobs:
       - name: Delete SSR preview Worker
         id: delete-web
         continue-on-error: true
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/web
-          command: delete --name ${{ env.PREVIEW_WORKER_NAME }} --force
-          packageManager: pnpm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/web
+        run: pnpm exec wrangler delete --name ${{ env.PREVIEW_WORKER_NAME }} --force
 
       - name: Delete API preview Worker
         id: delete-api
         continue-on-error: true
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          command: delete --name ${{ env.API_WORKER_NAME }} --force
-          packageManager: pnpm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: pnpm exec wrangler delete --name ${{ env.API_WORKER_NAME }} --force
 
       # ---------------------------------------------------------------------
       # Step 3: Update sticky comment

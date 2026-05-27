@@ -130,9 +130,8 @@ jobs:
       # Step 3: Toolchain
       #   Supabase CLI only — pre-promotion-checks doesn't run pnpm/Prisma.
       # -----------------------------------------------------------------------
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
 
       # -----------------------------------------------------------------------
       # Step 4: Assert staging.aecintegrations.com/api/version reports the
@@ -217,9 +216,8 @@ jobs:
       # postgresql-client-17 (matches supabase/postgres:17.x per
       # docs/migrations.md §4), and the Supabase CLI.
       # -----------------------------------------------------------------------
-      - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -239,9 +237,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends postgresql-client-17
           pg_dump --version
 
-      - uses: supabase/setup-cli@v1
-        with:
-          version: latest
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
 
       # -----------------------------------------------------------------------
       # Snapshot: pg_dump prod into R2 BEFORE we touch the DB.
@@ -339,9 +336,8 @@ jobs:
         with:
           ref: ${{ inputs.commit_sha }}
 
-      - uses: pnpm/action-setup@v4
-        with:
-          version: ${{ env.PNPM_VERSION }}
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
@@ -362,22 +358,18 @@ jobs:
       # `aeci-api-production`; deploying API ahead of SSR means any brief
       # mismatch lands in the safer direction (API ahead of SSR).
       - name: Deploy API (production)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/api
-          command: deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
-          packageManager: pnpm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       - name: Deploy SSR (production)
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/web
-          command: deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
-          packageManager: pnpm
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/web
+        run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # -----------------------------------------------------------------------
       # Datadog deployment marker (docs/CICD_PLAN.md §9.1). Markers show as
