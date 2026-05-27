@@ -144,10 +144,12 @@ describe('ProductsIndex', () => {
     fixture.detectChanges();
 
     // Second request fails.
-    httpMock.expectOne((r) => r.url === '/api/products').flush(
-      { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
-      { status: 500, statusText: 'Server Error' },
-    );
+    httpMock
+      .expectOne((r) => r.url === '/api/products')
+      .flush(
+        { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
+        { status: 500, statusText: 'Server Error' },
+      );
     fixture.detectChanges();
 
     // The error row must be visible; stale page-1 data must not be shown.
