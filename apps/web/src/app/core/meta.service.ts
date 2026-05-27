@@ -10,16 +10,32 @@ import {
   buildOgTags,
   buildProductJsonLd,
   buildVendorJsonLd,
+  isBrowseKind,
+  ogTypeForKind,
   stripQueryParams,
   truncateAtWordBoundary,
 } from './meta.helpers';
 
 /**
- * Entity kinds the service knows how to title. Detail kinds get the bare
- * `"{name} — AEC Integrations"` title; browse kinds get the `"… tools — …"`
- * variant per Phase 2 Spec §9.1.
+ * Entity kinds the service knows how to title.
+ *
+ * - Detail kinds (`product`, `vendor`, `integration`) get the bare
+ *   `"{name} — AEC Integrations"` title and `og:type=article`.
+ * - Browse kinds (`category`, `discipline`, `phase`) get the
+ *   `"{name} tools — AEC Integrations"` variant and `og:type=website`
+ *   (per Phase 2 Spec §9.1).
+ * - `index` (used by `/products`, `/vendors`, `/integrations`) gets the bare
+ *   `"{name} — AEC Integrations"` title (no "tools" infix) and
+ *   `og:type=website` — an index is not an article.
  */
-export type EntityKind = 'product' | 'vendor' | 'integration' | 'category' | 'discipline' | 'phase';
+export type EntityKind =
+  | 'product'
+  | 'vendor'
+  | 'integration'
+  | 'category'
+  | 'discipline'
+  | 'phase'
+  | 'index';
 
 export interface SetEntityMetaInput {
   entity: EntityKind;
@@ -28,8 +44,6 @@ export interface SetEntityMetaInput {
   canonical: string;
   ogImage?: string;
 }
-
-const BROWSE_KINDS: ReadonlySet<EntityKind> = new Set(['category', 'discipline', 'phase']);
 
 /**
  * Centralized SEO metadata composer for every Phase 2 page. Sets `<title>`,
@@ -47,7 +61,7 @@ export class MetaService {
   private readonly document = inject(DOCUMENT);
 
   setEntityMeta(input: SetEntityMetaInput): void {
-    const suffix = BROWSE_KINDS.has(input.entity)
+    const suffix = isBrowseKind(input.entity)
       ? $localize`:@@meta.browseTitleSuffix: tools — AEC Integrations`
       : $localize`:@@meta.titleSuffix: — AEC Integrations`;
 
@@ -61,7 +75,7 @@ export class MetaService {
     const canonical = stripQueryParams(input.canonical);
     this.upsertCanonical(canonical);
 
-    const ogType = BROWSE_KINDS.has(input.entity) ? 'website' : 'article';
+    const ogType = ogTypeForKind(input.entity);
     const tags = buildOgTags({
       title,
       description,

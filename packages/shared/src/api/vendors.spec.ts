@@ -35,6 +35,7 @@ const validProductListItem = {
     slug: 'procore',
     logo_url: null,
   },
+  primary_category: null,
   integration_count: 12,
   review_count: 5,
   rating_overall_avg: 4.2,

@@ -24,7 +24,7 @@
  * ────────────────────────────────────────────────────────────────────────────
  * CACHEABLE (cookies stripped, edge-cached with route-specific TTL):
  *   /                                       → 15min edge / 5min browser
- *   /products, /vendors, /integrations      → 30min edge / 5min browser
+ *   /products, /vendors, /integrations      → 5min  edge / 0     browser  (§8.3)
  *   /products/:slug, /vendors/:slug,
  *     /integrations/:id                     → 1hr  edge / 5min browser
  *   /categories/*, /disciplines/*,
@@ -177,9 +177,13 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
+  // Phase 2 Spec §8.3 — index pages: edge 5 min, browser 0. The shorter edge
+  // TTL is fine because the routes also carry `index:<entity>` tags that the
+  // /admin/purge endpoint can invalidate on writes; the browser is told to
+  // refetch on every navigation so users always see fresh server HTML.
   {
     match: (p) => p === '/products' || p === '/vendors' || p === '/integrations',
-    ttl: { edge: 1_800, browser: 300 },
+    ttl: { edge: 300, browser: 0 },
   },
   {
     match: (p) => p === '/categories' || p.startsWith('/categories/'),
@@ -310,6 +314,32 @@ export type ResponseTransform = (
   ctx: WaitUntilContext,
 ) => Promise<Response> | Response;
 
+/**
+ * Fire-and-forget page-view capture for cacheable SSR routes (AECI-58 wiring
+ * for the AECI-55 capture endpoint). POSTs `{ route }` to the private API
+ * Worker via the service binding, dropped through `ctx.waitUntil` so the
+ * outer response is never delayed. Phase 2 the endpoint is a no-op write
+ * (returns 204); Phase 4 wires the `page_views` table.
+ *
+ * Errors are intentionally swallowed: a flaky capture path must never bubble
+ * as a 5xx on the user's HTML response. The `.catch(() => {})` lives inside
+ * the promise handed to `waitUntil` so the Workers runtime doesn't surface
+ * the rejection either.
+ */
+function firePageView(env: Bindings, ctx: WaitUntilContext, route: string): void {
+  ctx.waitUntil(
+    env.API.fetch(
+      new Request('https://api/api/page-views', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ route }),
+      }),
+    )
+      .then(() => undefined)
+      .catch(() => undefined),
+  );
+}
+
 async function handleSsr(
   request: Request,
   env: Bindings,
@@ -329,12 +359,19 @@ async function handleSsr(
     return ensureNoStore(transformed);
   }
 
+  const { path: localePath } = stripLocalePrefix(url.pathname);
+
   // Cacheable branch: edge-cache lookup, then cookie-stripped render on miss.
+  // page-view capture fires on BOTH branches so cached hits are also counted
+  // (the metric reflects visitor arrivals, not SSR misses).
   const cache = getEdgeCache();
   const cacheKey = new Request(url.toString(), { method: 'GET' });
   if (cache) {
     const hit = await cache.match(cacheKey);
-    if (hit) return hit;
+    if (hit) {
+      firePageView(env, ctx, localePath);
+      return hit;
+    }
   }
 
   const sanitized = stripVisitorStateCookies(request);
@@ -344,7 +381,6 @@ async function handleSsr(
   const transformed = transformResponse
     ? await transformResponse(rendered, env, request, ctx)
     : rendered;
-  const { path: localePath } = stripLocalePrefix(url.pathname);
   const tagInputs = cacheTagInputsForPath(localePath);
   const response = withCacheHeaders(transformed, ttl, tagInputs);
 
@@ -356,6 +392,7 @@ async function handleSsr(
     ctx.waitUntil(cache.put(cacheKey, response.clone()));
   }
 
+  firePageView(env, ctx, localePath);
   return response;
 }
 

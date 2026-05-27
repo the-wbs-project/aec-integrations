@@ -66,6 +66,17 @@ const taxonomyLinkSelect = {
   slug: true,
 } as const;
 
+/**
+ * Variant of `taxonomyLinkSelect` for places that need to resolve a "primary"
+ * taxonomy term from a list of joins — adds `displayOrder` so the mapper can
+ * pick the lowest-display-order term (with a name tiebreak when display order
+ * is null or tied).
+ */
+const taxonomyLinkWithOrderSelect = {
+  ...taxonomyLinkSelect,
+  displayOrder: true,
+} as const;
+
 /** Fields needed for `IntegrationListItem`. Source + target hydrate as `ProductLink`. */
 export const integrationListSelect = {
   id: true,
@@ -95,7 +106,10 @@ export const integrationDetailSelect = {
 /**
  * Fields needed for `ProductListItem`. The `vendor` field is hydrated by
  * fetching all `ProductVendor` rows with the vendor display columns and
- * ordering by `isPrimary desc` — the mapper picks index 0.
+ * ordering by `isPrimary desc` — the mapper picks index 0. The
+ * `primary_category` field is resolved the same way: pull every linked
+ * category with its `displayOrder`, then `pickPrimaryCategory()` returns the
+ * one with the lowest order (name tiebreak).
  */
 export const productListSelect = {
   id: true,
@@ -116,6 +130,11 @@ export const productListSelect = {
     },
     orderBy: { isPrimary: 'desc' as const },
   },
+  productCategories: {
+    select: {
+      category: { select: taxonomyLinkWithOrderSelect },
+    },
+  },
 } as const;
 
 /**
@@ -123,7 +142,9 @@ export const productListSelect = {
  * of the integration graph as `IntegrationListItem[]`, and a related-products
  * roll-up. `related_products` ships a baseline implementation (same primary
  * category, exclude self, latest 6) — refining the algorithm is out of scope
- * for AECI-54, see comment on `selectRelatedProducts`.
+ * for AECI-54, see comment on `selectRelatedProducts`. `productCategories`
+ * inherits the order-aware shape from the spread; the detail mapper drops the
+ * `displayOrder` field when shaping the `categories: LinkRef[]` array.
  */
 export const productDetailSelect = {
   ...productListSelect,
@@ -132,7 +153,6 @@ export const productDetailSelect = {
   toolIntegrationsUrl: true,
   apiDocsUrl: true,
   hasApiDocs: true,
-  productCategories: { select: { category: { select: taxonomyLinkSelect } } },
   productDisciplines: { select: { discipline: { select: taxonomyLinkSelect } } },
   productPhases: { select: { phase: { select: taxonomyLinkSelect } } },
   sourceIntegrations: { select: integrationListSelect },
@@ -213,6 +233,7 @@ export type RawProductListRow = {
   createdAt: Date | string;
   updatedAt: Date | string;
   productVendors: RawProductVendor[];
+  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
 };
 
 export type RawProductDetailRow = RawProductListRow & {
@@ -221,7 +242,6 @@ export type RawProductDetailRow = RawProductListRow & {
   toolIntegrationsUrl: string | null;
   apiDocsUrl: string | null;
   hasApiDocs: boolean;
-  productCategories: Array<{ category: RawTaxonomyLink }>;
   productDisciplines: Array<{ discipline: RawTaxonomyLink }>;
   productPhases: Array<{ phase: RawTaxonomyLink }>;
   sourceIntegrations: RawIntegrationListRow[];
@@ -229,6 +249,7 @@ export type RawProductDetailRow = RawProductListRow & {
 };
 
 type RawTaxonomyLink = { id: string; name: string; slug: string };
+type RawTaxonomyLinkWithOrder = RawTaxonomyLink & { displayOrder: number | null };
 
 type RawProductLink = {
   id: string;
@@ -393,6 +414,34 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
   };
 }
 
+/**
+ * Resolves the "primary" linked category for a product. Strategy: lowest
+ * `displayOrder` wins (most prominently surfaced in editorial taxonomy);
+ * null `displayOrder` is treated as `Infinity` (least prominent); ties break
+ * alphabetically by name for determinism.
+ *
+ * Returns `null` when the product has no category joins — the public schema
+ * makes `primary_category` nullable specifically for this case.
+ */
+function pickPrimaryCategory(
+  rows: Array<{ category: RawTaxonomyLinkWithOrder }>,
+): { id: string; name: string; slug: string } | null {
+  if (rows.length === 0) return null;
+  let best = rows[0]!.category;
+  for (let i = 1; i < rows.length; i++) {
+    const candidate = rows[i]!.category;
+    const candidateOrder = candidate.displayOrder ?? Number.POSITIVE_INFINITY;
+    const bestOrder = best.displayOrder ?? Number.POSITIVE_INFINITY;
+    if (
+      candidateOrder < bestOrder ||
+      (candidateOrder === bestOrder && candidate.name.localeCompare(best.name) < 0)
+    ) {
+      best = candidate;
+    }
+  }
+  return { id: best.id, name: best.name, slug: best.slug };
+}
+
 function pickPrimaryVendor(rows: RawProductVendor[]): VendorLink | null {
   if (rows.length === 0) return null;
   // `orderBy: { isPrimary: 'desc' }` puts the primary row first; fall back to
@@ -423,6 +472,7 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
     logo_url: raw.logoUrl,
     product_role: coerceProductRole(raw.productRole),
     vendor: pickPrimaryVendor(raw.productVendors) ?? VENDOR_FALLBACK,
+    primary_category: pickPrimaryCategory(raw.productCategories),
     integration_count: raw.integrationCount,
     review_count: raw.reviewCount,
     rating_overall_avg: toNumberOrNull(raw.ratingOverallAvg),
@@ -443,7 +493,11 @@ export function toProductDetail(
     tool_integrations_url: raw.toolIntegrationsUrl,
     api_docs_url: raw.apiDocsUrl,
     has_api_docs: raw.hasApiDocs,
-    categories: raw.productCategories.map((r) => r.category),
+    categories: raw.productCategories.map((r) => ({
+      id: r.category.id,
+      name: r.category.name,
+      slug: r.category.slug,
+    })),
     disciplines: raw.productDisciplines.map((r) => r.discipline),
     phases: raw.productPhases.map((r) => r.phase),
     integrations_as_source: raw.sourceIntegrations.map(toIntegrationListItem),

@@ -17,6 +17,24 @@ const procoreVendorLink = {
   logoUrl: 'https://example.com/logos/procore.png' as string | null,
 };
 
+const projectManagementCategoryWithOrder = {
+  id: '00000000-0000-4000-8000-000000030001',
+  name: 'Project Management',
+  slug: 'project-management',
+  displayOrder: 1 as number | null,
+};
+
+/**
+ * Null-displayOrder category — exercises the `pickPrimaryCategory()` rule
+ * that treats `null` as `Infinity` so the explicitly-ordered category wins.
+ */
+const fieldManagementCategoryWithOrder = {
+  id: '00000000-0000-4000-8000-000000030002',
+  name: 'Field Management',
+  slug: 'field-management',
+  displayOrder: null as number | null,
+};
+
 export const procoreProductRow: RawProductListRow = {
   id: PROCORE_PRODUCT_ID,
   slug: 'procore',
@@ -30,6 +48,10 @@ export const procoreProductRow: RawProductListRow = {
   createdAt: new Date('2024-03-01T00:00:00Z'),
   updatedAt: new Date('2024-06-15T00:00:00Z'),
   productVendors: [{ isPrimary: true, vendor: procoreVendorLink }],
+  productCategories: [
+    { category: fieldManagementCategoryWithOrder },
+    { category: projectManagementCategoryWithOrder },
+  ],
 };
 
 export const reviztoProductRow: RawProductListRow = {
@@ -45,6 +67,7 @@ export const reviztoProductRow: RawProductListRow = {
   createdAt: new Date('2024-04-15T00:00:00Z'),
   updatedAt: new Date('2024-04-15T00:00:00Z'),
   productVendors: [{ isPrimary: true, vendor: procoreVendorLink }],
+  productCategories: [],
 };
 
 export const procoreProductDetailRow: RawProductDetailRow = {
@@ -54,15 +77,6 @@ export const procoreProductDetailRow: RawProductDetailRow = {
   toolIntegrationsUrl: 'https://www.procore.com/integrations',
   apiDocsUrl: 'https://developers.procore.com',
   hasApiDocs: true,
-  productCategories: [
-    {
-      category: {
-        id: '00000000-0000-4000-8000-000000030001',
-        name: 'Project Management',
-        slug: 'project-management',
-      },
-    },
-  ],
   productDisciplines: [
     {
       discipline: {

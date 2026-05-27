@@ -10,6 +10,11 @@ export const routes: Routes = [
     path: '_demo/spartan',
     loadComponent: () => import('./demo/spartan-demo').then((m) => m.SpartanDemo),
   },
+  {
+    path: 'products',
+    pathMatch: 'full',
+    loadComponent: () => import('./products/products-index').then((m) => m.ProductsIndex),
+  },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
   // SSR Worker for `ENV === 'production'`. See `apps/web/src/server-runtime.ts`

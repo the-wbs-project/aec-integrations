@@ -87,6 +87,34 @@ export function buildEntityTitle(name: string, suffix: string): string {
   return `${name}${suffix}`;
 }
 
+/**
+ * Entity-kind classifier shared by the service. Kept here (not in
+ * `meta.service.ts`) so the kind→og:type decision is pure-testable in plain
+ * Node without booting Angular. `index` joins browse kinds in the `website`
+ * bucket — an index page is not an article — while detail kinds map to
+ * `article`. See Phase 2 Spec §9.1.
+ */
+export type MetaEntityKind =
+  | 'product'
+  | 'vendor'
+  | 'integration'
+  | 'category'
+  | 'discipline'
+  | 'phase'
+  | 'index';
+
+const BROWSE_META_KINDS: ReadonlySet<MetaEntityKind> = new Set(['category', 'discipline', 'phase']);
+
+const WEBSITE_META_KINDS: ReadonlySet<MetaEntityKind> = new Set([...BROWSE_META_KINDS, 'index']);
+
+export function isBrowseKind(kind: MetaEntityKind): boolean {
+  return BROWSE_META_KINDS.has(kind);
+}
+
+export function ogTypeForKind(kind: MetaEntityKind): 'article' | 'website' {
+  return WEBSITE_META_KINDS.has(kind) ? 'website' : 'article';
+}
+
 /** Build the full Open Graph + Twitter Card tag set in one pass. */
 export function buildOgTags(input: OgTagInput): MetaTag[] {
   return [

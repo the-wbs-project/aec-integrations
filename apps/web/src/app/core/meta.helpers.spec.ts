@@ -9,6 +9,8 @@ import {
   buildOgTags,
   buildProductJsonLd,
   buildVendorJsonLd,
+  isBrowseKind,
+  ogTypeForKind,
   stripQueryParams,
   truncateAtWordBoundary,
 } from './meta.helpers';
@@ -286,5 +288,41 @@ describe('buildVendorJsonLd', () => {
     expect(ld).not.toHaveProperty('logo');
     expect(ld).not.toHaveProperty('address');
     expect(ld).not.toHaveProperty('foundingDate');
+  });
+});
+
+describe('isBrowseKind', () => {
+  it('returns true for category / discipline / phase', () => {
+    expect(isBrowseKind('category')).toBe(true);
+    expect(isBrowseKind('discipline')).toBe(true);
+    expect(isBrowseKind('phase')).toBe(true);
+  });
+
+  it('returns false for index pages (no "tools" infix in title)', () => {
+    expect(isBrowseKind('index')).toBe(false);
+  });
+
+  it('returns false for detail kinds', () => {
+    expect(isBrowseKind('product')).toBe(false);
+    expect(isBrowseKind('vendor')).toBe(false);
+    expect(isBrowseKind('integration')).toBe(false);
+  });
+});
+
+describe('ogTypeForKind', () => {
+  it('returns "article" for detail kinds', () => {
+    expect(ogTypeForKind('product')).toBe('article');
+    expect(ogTypeForKind('vendor')).toBe('article');
+    expect(ogTypeForKind('integration')).toBe('article');
+  });
+
+  it('returns "website" for browse kinds', () => {
+    expect(ogTypeForKind('category')).toBe('website');
+    expect(ogTypeForKind('discipline')).toBe('website');
+    expect(ogTypeForKind('phase')).toBe('website');
+  });
+
+  it('returns "website" for index kind — index is not an article', () => {
+    expect(ogTypeForKind('index')).toBe('website');
   });
 });
