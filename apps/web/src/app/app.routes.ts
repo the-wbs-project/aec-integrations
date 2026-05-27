@@ -12,6 +12,11 @@ export const routes: Routes = [
     path: '_demo/spartan',
     loadComponent: () => import('./demo/spartan-demo').then((m) => m.SpartanDemo),
   },
+  {
+    path: 'products',
+    pathMatch: 'full',
+    loadComponent: () => import('./products/products-index').then((m) => m.ProductsIndex),
+  },
   // AECI-57 — Phase 2.11 product detail page + Phase 6 placeholder stubs.
   // The detail route resolves data SSR-side via the service binding (see
   // `productDetailResolver`); the placeholders are noindex inline panels

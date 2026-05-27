@@ -31,6 +31,11 @@ export type ProductSort = z.infer<typeof ProductSortSchema>;
  * category / discipline / phase, and products on a vendor detail. The vendor
  * field is hydrated as `VendorLink` (id + display fields + logo) per Phase 2
  * Spec §7.2 so cards can render without a second fetch.
+ *
+ * `primary_category` carries the highest-display-order category the product
+ * belongs to (or `null` when the product has no categories). Added so the
+ * AECI-58 index page can render a category cell on each `ProductCard` row
+ * without a chain-fetch — same §7.2 rule that drives `vendor` hydration.
  */
 export const ProductListItemSchema = z.object({
   id: z.string().uuid(),
@@ -39,6 +44,7 @@ export const ProductListItemSchema = z.object({
   logo_url: z.string().url().nullable(),
   product_role: ProductRoleSchema,
   vendor: VendorLinkSchema,
+  primary_category: LinkRefSchema.nullable(),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),

@@ -17,6 +17,12 @@ const validVendorLink = {
   logo_url: 'https://cdn.example.com/procore.png',
 };
 
+const validPrimaryCategory = {
+  id: uuid(10),
+  name: 'Project management',
+  slug: 'project-management',
+};
+
 const validListItem = {
   id: uuid(2),
   slug: 'procore-platform',
@@ -24,6 +30,7 @@ const validListItem = {
   logo_url: null,
   product_role: 'application' as const,
   vendor: validVendorLink,
+  primary_category: validPrimaryCategory,
   integration_count: 12,
   review_count: 5,
   rating_overall_avg: 4.2,
@@ -61,6 +68,21 @@ describe('ProductListItemSchema', () => {
       ...validListItem,
       product_role: 'unknown',
     });
+    expect(result.success).toBe(false);
+  });
+
+  it('accepts null primary_category (product with no category links)', () => {
+    const parsed = ProductListItemSchema.parse({
+      ...validListItem,
+      primary_category: null,
+    });
+    expect(parsed.primary_category).toBeNull();
+  });
+
+  it('rejects when primary_category is missing', () => {
+    const item: Record<string, unknown> = { ...validListItem };
+    delete item.primary_category;
+    const result = ProductListItemSchema.safeParse(item);
     expect(result.success).toBe(false);
   });
 });

@@ -24,7 +24,7 @@
  * ────────────────────────────────────────────────────────────────────────────
  * CACHEABLE (cookies stripped, edge-cached with route-specific TTL):
  *   /                                       → 15min edge / 5min browser
- *   /products, /vendors, /integrations      → 30min edge / 5min browser
+ *   /products, /vendors, /integrations      → 5min  edge / 0     browser  (§8.3)
  *   /products/:slug, /vendors/:slug,
  *     /integrations/:id                     → 1hr  edge / 5min browser
  *   /categories/*, /disciplines/*,
@@ -182,9 +182,13 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
+  // Phase 2 Spec §8.3 — index pages: edge 5 min, browser 0. The shorter edge
+  // TTL is fine because the routes also carry `index:<entity>` tags that the
+  // /admin/purge endpoint can invalidate on writes; the browser is told to
+  // refetch on every navigation so users always see fresh server HTML.
   {
     match: (p) => p === '/products' || p === '/vendors' || p === '/integrations',
-    ttl: { edge: 1_800, browser: 300 },
+    ttl: { edge: 300, browser: 0 },
   },
   {
     match: (p) => p === '/categories' || p.startsWith('/categories/'),
@@ -329,6 +333,12 @@ export type ResponseTransform = (
  * wires the actual write. Errors are swallowed — the page render must not
  * fail because analytics did. The payload shape is pinned in
  * `packages/shared/src/api/page-views.ts` (`PageViewPayloadSchema`).
+ *
+ * Cacheable routes fire on BOTH cache HIT and MISS so the metric reflects
+ * visitor arrivals rather than SSR misses. On HIT the resolver never runs,
+ * so the runtime synthesizes a minimal `{ route }` payload from the locale-
+ * stripped path; on MISS the resolver may attach a richer payload (with
+ * entity_type / entity_id) via `AeciRequestContext.pageView`.
  */
 function firePageView(
   execCtx: WaitUntilContext,
@@ -390,12 +400,21 @@ async function handleSsr(
     return finalResponse;
   }
 
+  const { path: localePath } = stripLocalePrefix(url.pathname);
+
   // Cacheable branch: edge-cache lookup, then cookie-stripped render on miss.
+  // page-view capture fires on BOTH branches so cached hits are also counted
+  // (the metric reflects visitor arrivals, not SSR misses). On HIT the
+  // resolver never runs, so we synthesize a minimal `{ route }` payload; on
+  // MISS a resolver may attach a richer payload via `reqCtx.pageView`.
   const cache = getEdgeCache();
   const cacheKey = new Request(url.toString(), { method: 'GET' });
   if (cache) {
     const hit = await cache.match(cacheKey);
-    if (hit) return hit;
+    if (hit) {
+      firePageView(execCtx, env, { route: localePath });
+      return hit;
+    }
   }
 
   const sanitized = stripVisitorStateCookies(request);
@@ -405,7 +424,6 @@ async function handleSsr(
   const transformed = transformResponse
     ? await transformResponse(rendered, env, request, execCtx)
     : rendered;
-  const { path: localePath } = stripLocalePrefix(url.pathname);
   const tagInputs = mergeEmbeddedTags(cacheTagInputsForPath(localePath), reqCtx.embedded);
   const response = withCacheHeaders(transformed, ttl, tagInputs);
 
@@ -418,12 +436,11 @@ async function handleSsr(
   }
 
   // Phase 2 §3.1 + AC: SSR fires `POST /api/page-views` after the response is
-  // built. Only on 2xx — 404 / 5xx renders don't pollute view counts. Fires
-  // on cache MISS only (HIT returns early above and never enters this branch),
-  // which is acceptable for Phase 2's no-op endpoint; Phase 4 can revisit if
-  // HIT-firing is needed.
-  if (reqCtx.pageView && response.status >= 200 && response.status < 300) {
-    firePageView(execCtx, env, reqCtx.pageView);
+  // built. Only on 2xx — 404 / 5xx renders don't pollute view counts. Prefer
+  // the resolver-attached payload (carries entity_type/entity_id when
+  // available); otherwise fall back to the path-derived `{ route }`.
+  if (response.status >= 200 && response.status < 300) {
+    firePageView(execCtx, env, reqCtx.pageView ?? { route: localePath });
   }
 
   return response;

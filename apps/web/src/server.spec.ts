@@ -160,7 +160,12 @@ describe('cacheControlForRoute', () => {
     ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 3_600, browser: 300 }],
     ['/integrations/abc-123', { edge: 3_600, browser: 300 }],
-    ['/products', { edge: 1_800, browser: 300 }],
+    // §8.3 — index pages are 5 min edge / 0 browser. Browse pages (category /
+    // discipline / phase) stay at 30 min edge / 5 min browser per the same
+    // table.
+    ['/products', { edge: 300, browser: 0 }],
+    ['/vendors', { edge: 300, browser: 0 }],
+    ['/integrations', { edge: 300, browser: 0 }],
     ['/categories/design', { edge: 1_800, browser: 300 }],
     ['/disciplines/structural', { edge: 1_800, browser: 300 }],
     ['/phases/preconstruction', { edge: 1_800, browser: 300 }],
@@ -527,7 +532,9 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
       ctx,
     );
 
-    expect(ctx.waitUntil).toHaveBeenCalledOnce();
+    // ctx.waitUntil is called twice on a cacheable miss: once to put the
+    // response into caches.default, once to fire the AECI-58 page-view hook.
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
     expect(cacheStub.put).toHaveBeenCalledOnce();
   });
 
@@ -629,7 +636,7 @@ describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', (
   });
 });
 
-// ─── AeciRequestContext (AECI-57 Step A) ───────────────────────────────────
+// ─── AECI-57 resolver-supplied Cache-Tag merge ─────────────────────────────
 
 describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () => {
   it('merges ctx.embedded entities into Cache-Tag on a 2xx cacheable response', async () => {
@@ -718,10 +725,136 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
   });
 });
 
-describe('createApp fire-and-forget POST /api/page-views (AECI-57)', () => {
-  it('fires exactly one POST /api/page-views via waitUntil on a 2xx cacheable response', async () => {
+// ─── AECI-58: SSR → POST /api/page-views fire-and-forget hook ──────────────
+// Extended in AECI-57 to cover resolver-supplied payloads (entity_type /
+// entity_id) and the 404 status gate.
+
+describe('createApp page-view capture (AECI-58)', () => {
+  let originalCaches: unknown;
+  let cacheStub: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+
+  beforeEach(() => {
+    originalCaches = (globalThis as { caches?: unknown }).caches;
+    cacheStub = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn().mockResolvedValue(undefined),
+    };
+    (globalThis as { caches: unknown }).caches = { default: cacheStub };
+  });
+
+  afterEach(() => {
+    if (originalCaches === undefined) {
+      delete (globalThis as { caches?: unknown }).caches;
+    } else {
+      (globalThis as { caches: unknown }).caches = originalCaches;
+    }
+  });
+
+  function pageViewCalls(calls: Request[]): Request[] {
+    return calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+  }
+
+  it('fires POST /api/page-views with the locale-stripped route on a cacheable SSR miss', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/products?page=2'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = pageViewCalls(calls);
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.method).toBe('POST');
+    expect(pv[0]!.headers.get('content-type')).toContain('application/json');
+    // Query string is not part of the captured route — `cacheControlForRoute`
+    // matches by pathname only and the body mirrors that.
+    expect(await pv[0]!.clone().json()).toEqual({ route: '/products' });
+  });
+
+  it('fires page-views again on a cache HIT (visitor arrivals, not just SSR misses)', async () => {
+    cacheStub.match.mockResolvedValueOnce(
+      new Response('<html>cached</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/products'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)).toHaveLength(1);
+  });
+
+  it('does NOT fire page-views on non-cacheable routes', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>account</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/account/settings'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)).toHaveLength(0);
+  });
+
+  it('does NOT fire page-views on /api/* passthrough requests', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/api/health'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    // The /api/health request itself is the only API call; no page-view.
+    expect(pageViewCalls(calls)).toHaveLength(0);
+  });
+
+  it('never throws when the API binding rejects (fire-and-forget semantics)', async () => {
+    const calls: Request[] = [];
+    const rejectingFetcher = {
+      fetch: vi.fn(async (req: Request) => {
+        calls.push(req);
+        if (new URL(req.url).pathname === '/api/page-views') {
+          throw new Error('api down');
+        }
+        return new Response('ok', { status: 200 });
+      }),
+    } as unknown as Fetcher;
+    const binding = { API: rejectingFetcher, ASSETS: {} as Fetcher };
+
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>ok</html>', { status: 200 })),
+    });
+
+    const ctx = fakeExecutionContext();
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/products'),
+      binding as unknown as Bindings,
+      ctx,
+    );
+
+    // The user-facing response is still 200; the page-view rejection is
+    // swallowed inside the waitUntil promise.
+    expect(res.status).toBe(200);
+    expect(calls.some((c) => new URL(c.url).pathname === '/api/page-views')).toBe(true);
+  });
+
+  it('uses the resolver-supplied payload (entity_type / entity_id) when present', async () => {
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
-    const execCtx = fakeExecutionContext();
     const renderer: SsrRenderer = async (_req, ctx) => {
       ctx.pageView = {
         route: '/products/:slug',
@@ -735,27 +868,25 @@ describe('createApp fire-and-forget POST /api/page-views (AECI-57)', () => {
     await app.fetch(
       new Request('https://aecintegrations.com/products/procore'),
       binding as unknown as Bindings,
-      execCtx,
+      fakeExecutionContext(),
     );
 
-    // waitUntil is called twice on a cacheable 2xx: once for cache.put, once
-    // for the page-view fetch. Filter for the page-view by inspecting calls.
-    const pageViewCalls = calls.filter((c) => new URL(c.url).pathname === '/api/page-views');
-    expect(pageViewCalls).toHaveLength(1);
-    expect(pageViewCalls[0]!.method).toBe('POST');
-    expect(pageViewCalls[0]!.headers.get('content-type')).toBe('application/json');
-    expect(await pageViewCalls[0]!.clone().json()).toEqual({
+    const pv = pageViewCalls(calls);
+    expect(pv).toHaveLength(1);
+    expect(await pv[0]!.clone().json()).toEqual({
       route: '/products/:slug',
       entity_type: 'product',
       entity_id: 'prod-uuid',
     });
   });
 
-  it('does NOT fire POST /api/page-views when the renderer returns 404 (resolver set RESPONSE_INIT.status=404)', async () => {
+  it('does NOT fire POST /api/page-views when the renderer returns 404', async () => {
+    // A resolver that 404s sets RESPONSE_INIT.status=404; the runtime must
+    // gate page-view firing on response status so missing entities don't
+    // pollute view counts. Even if the resolver did push a payload, the
+    // status gate suppresses it.
     const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
     const renderer: SsrRenderer = async (_req, ctx) => {
-      // A real resolver would NOT set pageView on the 404 branch, but if it
-      // did, the runtime must still gate by response status.
       ctx.pageView = { route: '/products/:slug', entity_type: 'product', entity_id: 'x' };
       return new Response('Not found', { status: 404 });
     };
@@ -767,53 +898,6 @@ describe('createApp fire-and-forget POST /api/page-views (AECI-57)', () => {
       fakeExecutionContext(),
     );
 
-    const pageViewCalls = calls.filter((c) => new URL(c.url).pathname === '/api/page-views');
-    expect(pageViewCalls).toHaveLength(0);
-  });
-
-  it('does NOT fire POST /api/page-views when ctx.pageView is null', async () => {
-    const { binding, calls } = recordingApiBinding();
-    const renderer: SsrRenderer = async () => new Response('<html>x</html>', { status: 200 });
-    const app = createApp({ ssrRenderer: renderer });
-
-    await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    const pageViewCalls = calls.filter((c) => new URL(c.url).pathname === '/api/page-views');
-    expect(pageViewCalls).toHaveLength(0);
-  });
-
-  it('swallows an API error from the page-view call (must not surface to the visitor)', async () => {
-    // Inject a binding that throws on /api/page-views — the SSR response must
-    // still be the rendered HTML, not an error. We can't directly assert the
-    // swallowed promise resolves without unhandled-rejection noise, so we
-    // assert the response is unaffected.
-    const apiFetch = vi.fn(async (req: Request) => {
-      if (new URL(req.url).pathname === '/api/page-views') {
-        throw new Error('page-view backend down');
-      }
-      return new Response(null, { status: 204 });
-    });
-    const binding = {
-      API: { fetch: apiFetch } as unknown as Fetcher,
-      ASSETS: {} as Fetcher,
-    };
-    const renderer: SsrRenderer = async (_req, ctx) => {
-      ctx.pageView = { route: '/products/:slug', entity_type: 'product', entity_id: 'p' };
-      return new Response('<html>x</html>', { status: 200 });
-    };
-    const app = createApp({ ssrRenderer: renderer });
-
-    const res = await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    expect(await res.text()).toBe('<html>x</html>');
+    expect(pageViewCalls(calls)).toHaveLength(0);
   });
 });
