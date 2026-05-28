@@ -135,6 +135,10 @@ jobs:
   # extra minute.
   db-migrate-dev:
     name: Apply migrations to dev DB
+    # DISABLED — see docs/deployment-issues.md (Accelerate schema-cache lag
+    # after `supabase db push` blocks downstream jobs even when this one
+    # succeeds). Re-enable by removing `if: false`.
+    if: false
     runs-on: ubuntu-latest
     needs: [lint-and-types, unit-tests]
     timeout-minutes: 10
@@ -206,11 +210,12 @@ jobs:
 
   e2e-tests-local:
     name: E2E + axe (local)
+    # DISABLED — see docs/deployment-issues.md. Playwright drives `pnpm dev:bound`
+    # against the shared dev DB via the SSR Worker's `/api/*` proxy; Accelerate's
+    # cached schema stays stale after migrations land and queries fail validation.
+    # Re-enable by removing `if: false` once the Accelerate cache problem is solved.
+    if: false
     runs-on: ubuntu-latest
-    # `db-migrate-dev` gates this job because Playwright drives `pnpm dev:bound`
-    # against the shared dev DB via the SSR Worker's `/api/*` proxy. If the dev
-    # DB is behind HEAD, Prisma queries fail validation and every test that
-    # touches the API surface flakes.
     needs: [build-web, db-migrate-dev]
     timeout-minutes: 15
     steps:
@@ -274,8 +279,11 @@ jobs:
 
   integration-runner-local:
     name: Edge-cache integration runner (local)
+    # DISABLED — see docs/deployment-issues.md. Runs against the same shared
+    # dev DB via `pnpm dev:bound`; latent same Accelerate cache failure mode
+    # as `e2e-tests-local`. Re-enable by removing `if: false`.
+    if: false
     runs-on: ubuntu-latest
-    # See `e2e-tests-local` — same rationale for the db-migrate-dev gate.
     needs: [build-web, db-migrate-dev]
     timeout-minutes: 10
     steps:

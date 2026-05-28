@@ -57,9 +57,16 @@
 
 name: pr-preview
 
+# DISABLED — see docs/deployment-issues.md. The per-PR API Worker inherits the
+# same Accelerate schema-cache lag that blocks `deploy.yml`'s e2e-tests-local
+# job, and during the pre-AECI-57 bootstrap window this workflow was silently
+# pushing empty `DATABASE_URL` values to per-PR Workers (the `DATABASE_URL_STAGING`
+# secret didn't exist). Re-enable by restoring the `pull_request:` trigger
+# below once the underlying issues are resolved.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+  # pull_request:
+  #   types: [opened, synchronize, reopened, closed]
 
 # Per-PR concurrency. `cancel-in-progress: true` lets a fresh push abort the
 # in-flight deploy; the `closed` event arrives as its own run after that and
