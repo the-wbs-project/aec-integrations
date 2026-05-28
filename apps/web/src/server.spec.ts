@@ -157,7 +157,7 @@ describe('cacheControlForRoute', () => {
     ['/', { edge: 900, browser: 300 }],
     ['/about', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
-    ['/products/procore', { edge: 3_600, browser: 300 }],
+    ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 3_600, browser: 300 }],
     ['/integrations/abc-123', { edge: 3_600, browser: 300 }],
     // §8.3 — index pages are 5 min edge / 0 browser. Browse pages (category /
@@ -422,9 +422,10 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
 describe('createApp /preview/* production gate', () => {
   it('returns 404 with no-store on /preview/* when ENV is production (renderer never invoked)', async () => {
     const { binding } = recordingApiBinding();
-    const ssrRenderer = vi.fn<SsrRenderer>(async () =>
+    const ssrRenderer = vi.fn<SsrRenderer>(async (_req, ctx) =>
       fixedRenderer(new Response('<html>preview</html>', { status: 200 }))(
         new Request('https://x/'),
+        ctx,
       ),
     );
     const app = createApp({ ssrRenderer });
@@ -635,7 +636,98 @@ describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', (
   });
 });
 
+// ─── AECI-57 resolver-supplied Cache-Tag merge ─────────────────────────────
+
+describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () => {
+  it('merges ctx.embedded entities into Cache-Tag on a 2xx cacheable response', async () => {
+    const { binding } = recordingApiBinding();
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      // Simulate a product detail resolver pushing vendor + integration tags
+      // it learned from the API response.
+      ctx.embedded.push({ type: 'vendor', slug: 'autodesk' });
+      ctx.embedded.push({ type: 'integration', id: 'abc-123' });
+      ctx.embedded.push({ type: 'integration', id: 'def-456' });
+      return new Response('<html>product</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/products/procore'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('cache-tag')).toBe(
+      'route:detail,product:procore,vendor:autodesk,integration:abc-123,integration:def-456',
+    );
+  });
+
+  it('deduplicates entity tags when the same value appears twice', async () => {
+    // The merge layer relies on `buildCacheTags`'s Set dedupe; this test pins
+    // that the contract is end-to-end, not just in the helper.
+    const { binding } = recordingApiBinding();
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.embedded.push({ type: 'integration', id: 'abc' });
+      ctx.embedded.push({ type: 'integration', id: 'abc' });
+      return new Response('<html>x</html>', { status: 200 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/products/procore'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.headers.get('cache-tag')).toBe('route:detail,product:procore,integration:abc');
+  });
+
+  it('does not write Cache-Tag on a cacheable-route 404, even with embedded tags pushed', async () => {
+    // Sanity check: if a resolver pushed embedded tags before realising the
+    // entity was missing, the 404 short-circuit in `withCacheHeaders` still
+    // takes precedence. 404s have no entity, so no tag should be written.
+    const { binding } = recordingApiBinding();
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.embedded.push({ type: 'vendor', slug: 'should-not-leak' });
+      return new Response('Not found', { status: 404 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/products/missing'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-tag')).toBeNull();
+  });
+
+  it('leaves Cache-Tag at the path-derived value when ctx.embedded is empty', async () => {
+    // Empty array is the common case for routes that haven't been wired with
+    // a resolver yet — the merge must not introduce trailing commas or extra
+    // entries.
+    const { binding } = recordingApiBinding();
+    const renderer: SsrRenderer = async () => new Response('<html>x</html>', { status: 200 });
+    const app = createApp({ ssrRenderer: renderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/products/procore'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.headers.get('cache-tag')).toBe('route:detail,product:procore');
+  });
+});
+
 // ─── AECI-58: SSR → POST /api/page-views fire-and-forget hook ──────────────
+// Extended in AECI-57 to cover resolver-supplied payloads (entity_type /
+// entity_id) and the 404 status gate.
 
 describe('createApp page-view capture (AECI-58)', () => {
   let originalCaches: unknown;
@@ -759,5 +851,53 @@ describe('createApp page-view capture (AECI-58)', () => {
     // swallowed inside the waitUntil promise.
     expect(res.status).toBe(200);
     expect(calls.some((c) => new URL(c.url).pathname === '/api/page-views')).toBe(true);
+  });
+
+  it('uses the resolver-supplied payload (entity_type / entity_id) when present', async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.pageView = {
+        route: '/products/:slug',
+        entity_type: 'product',
+        entity_id: 'prod-uuid',
+      };
+      return new Response('<html>x</html>', { status: 200 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/products/procore'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = pageViewCalls(calls);
+    expect(pv).toHaveLength(1);
+    expect(await pv[0]!.clone().json()).toEqual({
+      route: '/products/:slug',
+      entity_type: 'product',
+      entity_id: 'prod-uuid',
+    });
+  });
+
+  it('does NOT fire POST /api/page-views when the renderer returns 404', async () => {
+    // A resolver that 404s sets RESPONSE_INIT.status=404; the runtime must
+    // gate page-view firing on response status so missing entities don't
+    // pollute view counts. Even if the resolver did push a payload, the
+    // status gate suppresses it.
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const renderer: SsrRenderer = async (_req, ctx) => {
+      ctx.pageView = { route: '/products/:slug', entity_type: 'product', entity_id: 'x' };
+      return new Response('Not found', { status: 404 });
+    };
+    const app = createApp({ ssrRenderer: renderer });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/products/missing'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(pageViewCalls(calls)).toHaveLength(0);
   });
 });

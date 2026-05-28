@@ -4,5 +4,9 @@
     "outDir": "./out-tsc/component-spec",
     "types": ["node", "vitest/globals", "@angular/localize"]
   },
-  "include": ["src/**/*.component.spec.ts"]
+  // `worker-configuration.d.ts` brings in Cloudflare global types (Fetcher,
+  // ExecutionContext, etc.) that some `src/` modules reference transitively
+  // when imported into Angular component specs (e.g. `server-api-client.ts`
+  // is imported by AECI-57's resolver spec).
+  "include": ["src/**/*.component.spec.ts", "worker-configuration.d.ts"]
 }
