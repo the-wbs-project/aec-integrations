@@ -25,8 +25,8 @@
  * CACHEABLE (cookies stripped, edge-cached with route-specific TTL):
  *   /                                       → 15min edge / 5min browser
  *   /products, /vendors, /integrations      → 5min  edge / 0     browser  (§8.3)
- *   /products/:slug, /vendors/:slug,
- *     /integrations/:id                     → 1hr  edge / 5min browser
+ *   /products/:slug, /vendors/:slug          → 15min edge / 0     browser  (§8.3)
+ *   /integrations/:id                        → 1hr  edge / 5min browser
  *   /categories/*, /disciplines/*,
  *     /phases/*                             → 30min edge / 5min browser
  *   /about, /legal/*                        → 24hr edge / 1hr  browser
@@ -176,11 +176,11 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. Vendors and
-  // integrations stay on the legacy TTL until AECI-59 / AECI-60 land their
-  // detail pages and update the matrix to match.
+  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. Integrations
+  // stay on the legacy TTL until AECI-60 lands the detail page and updates
+  // the matrix to match.
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
-  { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
+  { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
   // Phase 2 Spec §8.3 — index pages: edge 5 min, browser 0. The shorter edge
   // TTL is fine because the routes also carry `index:<entity>` tags that the

@@ -17,7 +17,9 @@ export type VendorSort = z.infer<typeof VendorSortSchema>;
 /**
  * Lean vendor shape returned by `GET /api/vendors` and used inside any
  * response that lists vendors. Logo is included so vendor cards can render
- * without a follow-up fetch.
+ * without a follow-up fetch. `headquarters` and `founded_year` are included
+ * here (not only on `VendorDetail`) so `/vendors` index rows can show HQ and
+ * founded year without a follow-up fetch — AECI-59 acceptance criteria.
  */
 export const VendorListItemSchema = z.object({
   id: z.string().uuid(),
@@ -25,6 +27,8 @@ export const VendorListItemSchema = z.object({
   company_name: z.string().min(1),
   logo_url: z.string().url().nullable(),
   verified: z.boolean(),
+  headquarters: z.string().nullable(),
+  founded_year: z.number().int().nullable(),
   product_count: z.number().int().min(0),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
@@ -37,13 +41,13 @@ export type VendorListItem = z.infer<typeof VendorListItemSchema>;
 /**
  * Full vendor detail returned by `GET /api/vendors/:slug`. Embeds the
  * vendor's products as `ProductListItem[]` (Phase 2 Spec §7.2) so the detail
- * page renders without chain-fetching.
+ * page renders without chain-fetching. `headquarters` and `founded_year`
+ * already live on `VendorListItem`; the detail shape adds the editorial
+ * description and website.
  */
 export const VendorDetailSchema = VendorListItemSchema.extend({
   description: z.string().nullable(),
   website: z.string().url().nullable(),
-  headquarters: z.string().nullable(),
-  founded_year: z.number().int().nullable(),
   products: z.array(ProductListItemSchema),
 });
 
