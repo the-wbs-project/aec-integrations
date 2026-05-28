@@ -24,7 +24,7 @@ import { RouterLink } from '@angular/router';
       aria-labelledby="product-not-found-title"
     >
       <p
-        class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+        class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
         i18n="@@products.notFound.eyebrow"
       >
         404 — Not found

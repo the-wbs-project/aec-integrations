@@ -38,6 +38,30 @@ export class ServerApiError extends Error {
   }
 }
 
+/**
+ * Structural type guard for `ServerApiError`.
+ *
+ * `instanceof ServerApiError` is unsafe here because the SSR bundle and the
+ * Angular bundle each get their own copy of this class — the Worker entry
+ * (`server.ts`) constructs errors via the worker-bundle copy, but resolvers
+ * importing `ServerApiError` from the Angular bundle compare against a
+ * different class identity, so `instanceof` returns `false` and errors
+ * propagate uncaught (see the AECI-57 404 regression where Angular SSR
+ * returned `null` and the worker served the plain "Page not found." fallback).
+ *
+ * Name + structural property checks survive the bundle split because both
+ * copies of the constructor set `this.name = 'ServerApiError'` and the
+ * `status` / `code` fields.
+ */
+export function isServerApiError(err: unknown): err is ServerApiError {
+  return (
+    err instanceof Error &&
+    err.name === 'ServerApiError' &&
+    typeof (err as { status?: unknown }).status === 'number' &&
+    typeof (err as { code?: unknown }).code === 'string'
+  );
+}
+
 export interface ServerApiClient {
   request<TResponse>(path: string, init?: RequestInit): Promise<TResponse>;
 }

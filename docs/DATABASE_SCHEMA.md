@@ -183,6 +183,9 @@ create table vendors (
   phone_number text,
   contact_email text,
 
+  -- Brandfetch / logo (mirrors products.logo_url)
+  logo_url text,
+
   -- Operational
   verified boolean not null default false, -- true after vendor claims (Stage 2+)
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),

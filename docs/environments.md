@@ -358,13 +358,13 @@ provisioning a fresh empty project for development:
   npx supabase migration repair --linked --status applied  20260101000000
   pnpm db:push   # applies the six AECI baselines on top of feedback/mailing_list
   ```
-- [ ] **Bootstrap the dev project schema** (it's empty, so this is a clean push of all seven migrations):
+- [ ] **Bootstrap the dev project schema** (it's empty, so this is a clean push of all eight migrations — seven AECi baselines plus the landing baseline; AECI-67 `capture_rls_auto_enable` and AECI-69 `drop_profiles_auth_fk_add_delete_trigger` landed after this section was first written):
   ```bash
   supabase link --project-ref <dev-ref>
   pnpm db:push
   ```
   Then `supabase link --project-ref <dev-ref>` is the day-to-day default (the CLI link should sit pointed at dev unless explicitly flipped for a prod operation).
-- [ ] Verify both projects show all seven migrations in `pnpm db:list`. Dev should show all seven matched on both columns; prod should show the same once the steps above run successfully.
+- [ ] Verify both projects show all eight migrations in `pnpm db:list`. Dev should show all eight matched on both columns; prod should show the same once the steps above run successfully.
 
 ### 2. Cloudflare DNS
 

@@ -135,10 +135,12 @@ jobs:
   # extra minute.
   db-migrate-dev:
     name: Apply migrations to dev DB
-    # DISABLED — see docs/deployment-issues.md (Accelerate schema-cache lag
-    # after `supabase db push` blocks downstream jobs even when this one
-    # succeeds). Re-enable by removing `if: false`.
-    if: false
+    # Re-enabled 2026-05-28 after empirically measuring Accelerate schema-cache
+    # lag with `scripts/measure-accelerate-lag.mjs`. Observed lag from
+    # `supabase db push` returning to a typed Prisma query succeeding: 1.1s
+    # (single cycle; SIN edge). Documented "minutes to hours" worst-case in
+    # docs/deployment-issues.md #6 was not reproduced. `sleep 30` step below
+    # provides margin; bump if CI flakes after schema-changing PRs.
     runs-on: ubuntu-latest
     needs: [lint-and-types, unit-tests]
     timeout-minutes: 10
@@ -186,6 +188,13 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase db push --linked --include-all
+      # Wait for Prisma Accelerate to pick up the schema change before any
+      # downstream job (e2e-tests-local, integration-runner-local, per-PR
+      # Workers) issues typed Prisma queries against the dev DB. See
+      # `scripts/measure-accelerate-lag.mjs` for the empirical measurement
+      # that produced this number; 30s = 1.1s observed + ~30s margin.
+      - name: Wait for Prisma Accelerate cache propagation
+        run: sleep 30
 
   build-web:
     name: Build SSR Worker
@@ -210,11 +219,9 @@ jobs:
 
   e2e-tests-local:
     name: E2E + axe (local)
-    # DISABLED — see docs/deployment-issues.md. Playwright drives `pnpm dev:bound`
-    # against the shared dev DB via the SSR Worker's `/api/*` proxy; Accelerate's
-    # cached schema stays stale after migrations land and queries fail validation.
-    # Re-enable by removing `if: false` once the Accelerate cache problem is solved.
-    if: false
+    # Re-enabled 2026-05-28. Depends on `db-migrate-dev` which now sleeps 30s
+    # post-push to let Accelerate's schema cache catch up. See the
+    # measurement note on `db-migrate-dev` above.
     runs-on: ubuntu-latest
     needs: [build-web, db-migrate-dev]
     timeout-minutes: 15
@@ -279,10 +286,8 @@ jobs:
 
   integration-runner-local:
     name: Edge-cache integration runner (local)
-    # DISABLED — see docs/deployment-issues.md. Runs against the same shared
-    # dev DB via `pnpm dev:bound`; latent same Accelerate cache failure mode
-    # as `e2e-tests-local`. Re-enable by removing `if: false`.
-    if: false
+    # Re-enabled 2026-05-28. Same rationale as `e2e-tests-local` — depends on
+    # `db-migrate-dev` which now waits for Accelerate cache propagation.
     runs-on: ubuntu-latest
     needs: [build-web, db-migrate-dev]
     timeout-minutes: 10
