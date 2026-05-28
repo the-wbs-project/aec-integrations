@@ -65,6 +65,8 @@ model Vendor {
   phoneNumber   String? @map("phone_number")
   contactEmail  String? @map("contact_email")
 
+  logoUrl String? @map("logo_url")
+
   verified        Boolean @default(false)
   promotionStatus String  @default("pending") @map("promotion_status")
   adminNotes      String? @map("admin_notes")
