@@ -16,7 +16,7 @@ import {
   fieldManagementCategoryRow,
   projectManagementCategoryRow,
 } from '../test/fixtures/taxonomy';
-import { procoreVendorRow } from '../test/fixtures/vendors';
+import { autodeskVendorRow, procoreVendorRow } from '../test/fixtures/vendors';
 import {
   toIntegrationDetail,
   toIntegrationListItem,
@@ -120,6 +120,18 @@ describe('toVendorListItem', () => {
   it('maps companyName → company_name', () => {
     const out = toVendorListItem(procoreVendorRow);
     expect(out.company_name).toBe('Procore Technologies');
+  });
+
+  it('surfaces headquarters and foundedYear on the list shape', () => {
+    const out = toVendorListItem(procoreVendorRow);
+    expect(out.headquarters).toBe('Carpinteria, CA');
+    expect(out.founded_year).toBe(2002);
+  });
+
+  it('keeps null headquarters and foundedYear as null', () => {
+    const out = toVendorListItem(autodeskVendorRow);
+    expect(out.headquarters).toBeNull();
+    expect(out.founded_year).toBeNull();
   });
 });
 

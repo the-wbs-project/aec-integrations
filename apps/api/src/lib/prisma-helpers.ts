@@ -161,13 +161,17 @@ export const productDetailSelect = {
 
 /** Fields needed for `VendorListItem`. Counts come from join tables/aggregations
  *  (denormalized columns on `vendors` are not present in this PR's schema).
- *  The mapper computes counts from the `_count` Prisma helper. */
+ *  The mapper computes counts from the `_count` Prisma helper.
+ *  `headquarters` and `foundedYear` live on the list shape so `/vendors` index
+ *  rows can show them without a follow-up fetch (AECI-59 acceptance criteria). */
 export const vendorListSelect = {
   id: true,
   slug: true,
   companyName: true,
   logoUrl: true,
   verified: true,
+  headquarters: true,
+  foundedYear: true,
   createdAt: true,
   updatedAt: true,
   _count: {
@@ -179,13 +183,12 @@ export const vendorListSelect = {
 } as const;
 
 /** Detail variant — adds the descriptive editorial fields and the vendor's
- *  products as `ProductListItem[]`. */
+ *  products as `ProductListItem[]`. `headquarters` / `foundedYear` inherit
+ *  from the list shape. */
 export const vendorDetailSelect = {
   ...vendorListSelect,
   description: true,
   website: true,
-  headquarters: true,
-  foundedYear: true,
   productVendors: {
     select: {
       product: { select: productListSelect },
@@ -294,6 +297,8 @@ export type RawVendorListRow = {
   companyName: string;
   logoUrl: string | null;
   verified: boolean;
+  headquarters: string | null;
+  foundedYear: number | null;
   createdAt: Date | string;
   updatedAt: Date | string;
   _count: { productVendors: number; builtIntegrations: number };
@@ -302,8 +307,6 @@ export type RawVendorListRow = {
 export type RawVendorDetailRow = RawVendorListRow & {
   description: string | null;
   website: string | null;
-  headquarters: string | null;
-  foundedYear: number | null;
   productVendors: Array<{ product: RawProductListRow }>;
 };
 
@@ -513,6 +516,8 @@ export function toVendorListItem(raw: RawVendorListRow): VendorListItem {
     company_name: raw.companyName,
     logo_url: raw.logoUrl,
     verified: raw.verified,
+    headquarters: raw.headquarters,
+    founded_year: raw.foundedYear,
     product_count: raw._count.productVendors,
     integration_count: raw._count.builtIntegrations,
     review_count: 0, // No reviews join in Phase 2 vendor list shape; placeholder per schema until Phase 5 wires review aggregates.
@@ -526,8 +531,6 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
     ...toVendorListItem(raw),
     description: raw.description,
     website: raw.website,
-    headquarters: raw.headquarters,
-    founded_year: raw.foundedYear,
     products: raw.productVendors.map((r) => toProductListItem(r.product)),
   };
 }

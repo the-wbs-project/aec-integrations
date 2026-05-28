@@ -16,6 +16,8 @@ const validVendorListItem = {
   company_name: 'Procore Technologies',
   logo_url: null,
   verified: true,
+  headquarters: 'Carpinteria, CA',
+  founded_year: 2002,
   product_count: 3,
   integration_count: 12,
   review_count: 5,
@@ -66,16 +68,34 @@ describe('VendorListItemSchema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('accepts nullable headquarters and founded_year', () => {
+    const parsed = VendorListItemSchema.parse({
+      ...validVendorListItem,
+      headquarters: null,
+      founded_year: null,
+    });
+    expect(parsed.headquarters).toBeNull();
+    expect(parsed.founded_year).toBeNull();
+  });
+
+  it('rejects a non-integer founded_year', () => {
+    const result = VendorListItemSchema.safeParse({
+      ...validVendorListItem,
+      founded_year: 2002.5,
+    });
+    expect(result.success).toBe(false);
+  });
 });
 
 describe('VendorDetailSchema', () => {
   it('parses a detail with empty products list', () => {
     const parsed = VendorDetailSchema.parse({
       ...validVendorListItem,
-      description: null,
-      website: null,
       headquarters: null,
       founded_year: null,
+      description: null,
+      website: null,
       products: [],
     });
     expect(parsed.products).toEqual([]);
@@ -86,24 +106,11 @@ describe('VendorDetailSchema', () => {
       ...validVendorListItem,
       description: 'Construction tech vendor.',
       website: 'https://procore.com',
-      headquarters: 'Carpinteria, CA',
-      founded_year: 2002,
       products: [validProductListItem],
     });
     expect(parsed.products).toHaveLength(1);
     expect(parsed.founded_year).toBe(2002);
-  });
-
-  it('rejects when founded_year is not an integer', () => {
-    const result = VendorDetailSchema.safeParse({
-      ...validVendorListItem,
-      description: null,
-      website: null,
-      headquarters: null,
-      founded_year: 2002.5,
-      products: [],
-    });
-    expect(result.success).toBe(false);
+    expect(parsed.headquarters).toBe('Carpinteria, CA');
   });
 });
 

@@ -295,6 +295,8 @@ export const VendorListItemSchema = z.object({
   company_name: z.string().min(1),
   logo_url: z.string().url().nullable(),
   verified: z.boolean(),
+  headquarters: z.string().nullable(),
+  founded_year: z.number().int().nullable(),
   product_count: z.number().int().min(0),
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
@@ -305,8 +307,6 @@ export const VendorListItemSchema = z.object({
 export const VendorDetailSchema = VendorListItemSchema.extend({
   description: z.string().nullable(),
   website: z.string().url().nullable(),
-  headquarters: z.string().nullable(),
-  founded_year: z.number().int().nullable(),
   products: z.array(ProductListItemSchema),
 });
 ```
