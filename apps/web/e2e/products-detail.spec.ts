@@ -3,9 +3,9 @@
  *
  * Two paths are covered here without depending on seeded data:
  *   1. 404 path (`/products/:slug` with a slug that isn't in the dev DB).
- *      Asserts the inline NotFound panel renders, the response is a real
- *      HTTP 404 (not the pinned-404 trap — see Stage 1 Spec §9.1b), and the
- *      cache headers honour `NOT_FOUND_TTL`.
+ *      Asserts the global 404 shell renders (AECI-62), the response is a real
+ *      HTTP 404 (not the pinned-404 trap — see Stage 1 Spec §9.1b), the cache
+ *      headers honour `NOT_FOUND_TTL`, and `Cache-Tag: route:404` is set.
  *   2. Placeholder CTAs (`/products/:slug/claim`, `/products/:slug/correction`)
  *      render the "Coming soon — Phase 6" panel with `<meta name="robots"
  *      content="noindex">`.
@@ -29,30 +29,43 @@ test.describe('product detail — 404 path', () => {
 
     expect(res.status(), 'must be a real 404 — never the pinned-404 trap').toBe(404);
 
-    // §8.3 / §9.1b — 404s on cacheable routes get a short edge TTL.
-    expect(res.headers()['cache-control']).toBe('public, max-age=60, s-maxage=60');
+    // §8.3 / §9.1b / AECI-62 AC — 404s on cacheable routes carry a short edge
+    // TTL but no browser cache, so a re-navigation after admin fixes the
+    // entity revalidates immediately.
+    expect(res.headers()['cache-control']).toBe('public, max-age=0, s-maxage=60');
 
-    // Per cache-tags.ts: 404s on cacheable routes skip Cache-Tag (they aren't
-    // stored in the Worker's `caches.default` so the tag would never be a
-    // purge target).
-    expect(res.headers()['cache-tag']).toBeUndefined();
+    // AECI-62 AC — single sentinel tag so admin can bulk-purge negative
+    // responses after a config fix.
+    expect(res.headers()['cache-tag']).toBe('route:404');
   });
 
-  test('404 body renders the inline NotFound panel (i18n copy)', async ({ page }) => {
+  test('404 body renders the global NotFound shell (i18n copy)', async ({ page }) => {
     const res = await page.goto('/products/no-such-slug-aeci-57');
     expect(res?.status()).toBe(404);
 
-    // Eyebrow + headline from `product-not-found.ts`.
+    // Eyebrow + headline from `not-found.ts` (AECI-62).
     await expect(page.getByText('404 — Not found', { exact: true })).toBeVisible();
-    await expect(
-      page.getByRole('heading', { name: "We couldn't find a product with that slug." }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: "We couldn't find that page." })).toBeVisible();
 
-    // The two recovery links: "Browse all products" → /products,
-    // "Go home" → /. Locator targets the visible-text label.
-    await expect(page.getByRole('link', { name: 'Browse all products' })).toHaveAttribute(
+    // The four AC-pinned recovery links live inside the 404 shell's directory
+    // nav landmark — scope to it so the site-header's primary nav doesn't
+    // double-match.
+    const directory = page.getByRole('navigation', { name: 'Browse the directory' });
+    await expect(directory.getByRole('link', { name: /Products/ })).toHaveAttribute(
       'href',
       /\/products$/,
+    );
+    await expect(directory.getByRole('link', { name: /Vendors/ })).toHaveAttribute(
+      'href',
+      /\/vendors$/,
+    );
+    await expect(directory.getByRole('link', { name: /Integrations/ })).toHaveAttribute(
+      'href',
+      /\/integrations$/,
+    );
+    await expect(directory.getByRole('link', { name: /Categories/ })).toHaveAttribute(
+      'href',
+      /\/categories$/,
     );
     await expect(page.getByRole('link', { name: 'Go home' })).toHaveAttribute('href', '/');
   });

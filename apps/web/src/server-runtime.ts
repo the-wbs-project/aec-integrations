@@ -158,11 +158,23 @@ function escapeRegExp(input: string): string {
 export type CacheTtl = { edge: number; browser: number };
 
 /**
- * §9.1b — 404 responses on cacheable routes get a short TTL so newly-created
- * entities become visible quickly. Status code remains 404 so monitoring and
+ * §9.1b / AECI-62 AC — 404 responses on cacheable routes get a short edge
+ * TTL (so newly-created entities become visible quickly) and `max-age=0` so
+ * browsers always revalidate. Status code remains 404 so monitoring and
  * sitemap tooling can distinguish real misses from stale cache.
  */
-export const NOT_FOUND_TTL: CacheTtl = { edge: 60, browser: 60 };
+export const NOT_FOUND_TTL: CacheTtl = { edge: 60, browser: 0 };
+
+/**
+ * AECI-62 AC — every 404 emitted by the cacheable branch carries this single
+ * tag so the admin purge endpoint can bulk-invalidate negative responses
+ * after a config fix (e.g. typo in route table, slug regenerated). 404s have
+ * no entity-level tag — they aren't a particular product/vendor, they're an
+ * absence. Kept as a constant rather than going through
+ * `cacheTagInputsForPath` so the path-mapping table stays focused on
+ * positive lookups.
+ */
+export const CACHE_TAG_NOT_FOUND = 'route:404';
 
 type RoutePattern = {
   match: (path: string) => boolean;
@@ -269,9 +281,12 @@ function ensureNoStore(response: Response): Response {
  * statuses (5xx, redirects) are returned non-cacheable.
  *
  * On 2xx, also writes `Cache-Tag` from the provided inputs (AECI-56 /
- * `docs/CACHE_STRATEGY.md` §2–3). 404s skip `Cache-Tag` — they aren't stored
- * in `caches.default` (see `handleSsr`), so the tag would never be a target
- * of purge-by-tag.
+ * `docs/CACHE_STRATEGY.md` §2–3). On 404, writes the single `route:404`
+ * sentinel tag (AECI-62) so the admin purge endpoint can bulk-invalidate
+ * negative responses after a config fix — 404s still aren't stored in
+ * `caches.default` (see `handleSsr`), but Cloudflare's edge does cache them
+ * per the response's `Cache-Control`, and a tag is the only way to evict
+ * those without waiting for TTL expiry.
  */
 function withCacheHeaders(
   response: Response,
@@ -288,6 +303,9 @@ function withCacheHeaders(
   headers.set('Cache-Control', buildCacheControl(ttl));
   if (isOk && tagInputs) {
     headers.set('Cache-Tag', buildCacheTags(tagInputs));
+  }
+  if (is404) {
+    headers.set('Cache-Tag', CACHE_TAG_NOT_FOUND);
   }
   // Belt-and-braces: never let an upstream Vary slip through on a cacheable
   // response — it fragments the edge cache and breaks purge-by-URL (§7a.3,
@@ -393,7 +411,14 @@ async function handleSsr(
     const transformed = transformResponse
       ? await transformResponse(rendered, env, request, execCtx)
       : rendered;
-    const finalResponse = ensureNoStore(transformed);
+    // §9.1b / AECI-62 — 404 on a non-cacheable path (unknown URL hitting the
+    // wildcard route) must still carry NOT_FOUND_TTL + the route:404 sentinel
+    // tag. Without this, the edge would serve `private, no-store` and admin
+    // would lose the bulk-purge handle for negative responses.
+    const finalResponse =
+      transformed.status === 404
+        ? withCacheHeaders(transformed, NOT_FOUND_TTL, null)
+        : ensureNoStore(transformed);
     if (reqCtx.pageView && finalResponse.status >= 200 && finalResponse.status < 300) {
       firePageView(execCtx, env, reqCtx.pageView);
     }
