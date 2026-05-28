@@ -1,9 +1,11 @@
 # Deployment & CI Issues — Stage 1 Bootstrap
 
-**Status:** Multiple CI/deployment workflows are **disabled in source** pending
-follow-up. Files remain in `.github/workflows/` for future re-enablement.
+**Status:** Originally documented disabled workflows are now **re-enabled** as
+of 2026-05-28 after the Accelerate schema-cache lag was measured empirically
+(see [Resolution: 2026-05-28](#resolution-2026-05-28) below). The original
+narrative is preserved for context.
 
-**Last updated:** 2026-05-27
+**Last updated:** 2026-05-28
 
 This document captures the chain of bootstrap problems uncovered while trying
 to land [AECI-57](https://linear.app/aec-integrations/issue/AECI-57) and
@@ -20,18 +22,18 @@ verified against a real remote DB**. When the first AECI-57 e2e tests
 actually exercised the API surface in CI, every layer of bootstrap turned
 out to be missing or misconfigured. Each fix surfaced the next layer.
 
-Disabled in `.github/workflows/`:
+Workflow status as of 2026-05-28:
 
-| Workflow / job | State | Why |
+| Workflow / job | State | Note |
 |---|---|---|
-| `deploy.yml` → `db-migrate-dev` | `if: false` | Works mechanically, but blocked by Accelerate schema-cache lag downstream. |
-| `deploy.yml` → `e2e-tests-local` | `if: false` | Fails on Accelerate schema cache after migration push. |
-| `deploy.yml` → `integration-runner-local` | `if: false` | Runs against the same shared dev DB; same failure mode latent. |
-| `deploy.yml` → `deploy-staging` | Already gated on `STAGING_ENABLED` (unset) | Untouched. |
-| `pr-preview.yml` | Trigger changed to `workflow_dispatch` only | Per-PR API Worker was being deployed with an empty `DATABASE_URL` because the secret it pushed (`DATABASE_URL_STAGING`) was unset for the full bootstrap window. Now that the secret exists, the Worker would inherit the same Accelerate cache lag as above. |
-| `refresh-staging.yml` | Already `workflow_dispatch` only | Untouched. |
-| `promote-to-prod.yml` | Already `workflow_dispatch` + environment-gated | Untouched. |
-| `drift-check.yml` | Active | Local Postgres only; no remote dependency. Safe to leave on. |
+| `deploy.yml` → `db-migrate-dev` | **Re-enabled** | Sleeps 30s post-`supabase db push` to clear the Accelerate schema-cache window; see [Resolution: 2026-05-28](#resolution-2026-05-28). |
+| `deploy.yml` → `e2e-tests-local` | **Re-enabled** | Depends on `db-migrate-dev`; inherits the post-push wait. |
+| `deploy.yml` → `integration-runner-local` | **Re-enabled** | Same. |
+| `deploy.yml` → `deploy-staging` | Still gated on `STAGING_ENABLED` (unset) | Flip to `"true"` once you're ready for merge-to-main auto-deploy. Staging was manually deployed on 2026-05-28 and is reachable at `staging.aecintegrations.com`. |
+| `pr-preview.yml` | **Re-enabled** (`pull_request` trigger restored) | Same Accelerate fix as above. `workflow_dispatch` retained for manual replays. |
+| `refresh-staging.yml` | `workflow_dispatch` only | By design. |
+| `promote-to-prod.yml` | `workflow_dispatch` + environment-gated | By design. |
+| `drift-check.yml` | Active | Local Postgres only. |
 
 Still active and useful:
 
@@ -170,3 +172,53 @@ plus addressing the underlying problem.
 `pr-preview.yml`'s `on:` trigger was changed from `pull_request:` to
 `workflow_dispatch:` only — same effect (workflow doesn't auto-run on
 PRs) but preserves the option to manually invoke it for testing.
+
+---
+
+## Resolution: 2026-05-28
+
+The Accelerate schema-cache lag (row #6 above) was measured empirically and
+the previously-disabled jobs are re-enabled. Walk-through:
+
+### What we did
+
+1. Deployed `aeci-api-staging` + `aeci-web-staging` against the
+   `aeci-development` Supabase project (project ref `lfqxneqihbejrkufvafw`).
+   Reachable at `https://staging.aecintegrations.com`, gated by the existing
+   "AECi Non-Prod" Cloudflare Access app (per `docs/access.md` §1).
+2. Built `scripts/measure-accelerate-lag.mjs` — a self-contained diagnostic
+   harness that adds a throwaway column via `supabase db push --linked`,
+   polls a temporary `/api/lag-probe` endpoint with a typed Prisma query
+   until 200, and records the elapsed time. Hard-coded production-refusal
+   guard.
+3. Ran the harness against staging.
+
+### What we measured
+
+| Cycle | Result |
+|---|---|
+| 1 | **1.1 seconds** from push-completes to typed query returns 200 (SIN edge). |
+| 2–5 | Aborted by a now-fixed harness bug (migration-history divergence when files were deleted between cycles). |
+
+`max + 30s = 31s` → `sleep 30` is the configured wait in `db-migrate-dev`.
+
+### What this is and isn't
+
+- **Is**: empirical evidence that the wall-clock from `supabase db push --linked`
+  returning to a typed Prisma query succeeding is in single-digit seconds for
+  this DB / probe shape.
+- **Isn't**: a measurement of the exact failure mode in row #6. The original
+  symptom was `PrismaClientValidationError` (Accelerate's introspected schema
+  cache rejecting an unknown field); our probe produced
+  `PrismaClientKnownRequestError` (Postgres rejecting the column reference
+  itself). Different error layer, same observed magnitude. If CI still flakes
+  on schema-changing PRs, escalate to the Prisma Platform schema-refresh API
+  (option 2 above) — the `sleep 30` may not be sufficient for the cache-rejection
+  path.
+
+### Knobs for future tuning
+
+- `.github/workflows/deploy.yml` → `db-migrate-dev` → `Wait for Prisma Accelerate cache propagation` step. Bump `30` to a larger value if CI flakes return.
+- `scripts/measure-accelerate-lag.mjs` is reusable. Re-run if you ever need a
+  fresh measurement; the bug that aborted cycles 2-5 in the original run is
+  fixed.
