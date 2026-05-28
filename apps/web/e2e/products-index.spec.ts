@@ -89,7 +89,10 @@ test.describe('/products — product index (AECI-58)', () => {
     await expect(page).toHaveURL(/\?.*sort=name/);
 
     // The column's `<th>` should reflect the active state via aria-sort.
-    await expect(page.locator('th[aria-sort="descending"]')).toBeVisible();
+    // Per Phase 2 Spec §7.4 / `apps/api/src/lib/sort.ts:resolveProductSort`,
+    // the `name` sort key is fixed to ascending direction — the column header
+    // for Name renders with `direction="ascending"` (see `products-index.ts`).
+    await expect(page.locator('th[aria-sort="ascending"]')).toBeVisible();
   });
 
   test('Pagination Next button advances ?page= when more than one page exists', async ({
