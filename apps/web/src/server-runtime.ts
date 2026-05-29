@@ -25,8 +25,8 @@
  * CACHEABLE (cookies stripped, edge-cached with route-specific TTL):
  *   /                                       → 15min edge / 5min browser
  *   /products, /vendors, /integrations      → 5min  edge / 0     browser  (§8.3)
- *   /products/:slug, /vendors/:slug          → 15min edge / 0     browser  (§8.3)
- *   /integrations/:id                        → 1hr  edge / 5min browser
+ *   /products/:slug, /vendors/:slug,
+ *     /integrations/:id                      → 15min edge / 0     browser  (§8.3)
  *   /categories/*, /disciplines/*,
  *     /phases/*                             → 30min edge / 5min browser
  *   /about, /legal/*                        → 24hr edge / 1hr  browser
@@ -57,7 +57,9 @@ import type { WebEnv } from './env';
 import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
+import { buildRobotsTxt } from './server/robots';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
+import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
 
 export type Bindings = WebEnv;
 
@@ -188,12 +190,12 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. Integrations
-  // stay on the legacy TTL until AECI-60 lands the detail page and updates
-  // the matrix to match.
+  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-60 brought
+  // /integrations/:id onto this matrix (it was on a legacy 1hr/5min TTL before
+  // the detail page existed).
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
-  { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 3_600, browser: 300 } },
+  { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   // Phase 2 Spec §8.3 — index pages: edge 5 min, browser 0. The shorter edge
   // TTL is fine because the routes also carry `index:<entity>` tags that the
   // /admin/purge endpoint can invalidate on writes; the browser is told to
@@ -504,6 +506,46 @@ export function createApp(options: {
   // Non-cacheable; the handler authenticates with `ADMIN_PURGE_TOKEN` and
   // proxies to Cloudflare's purge-by-tag API.
   app.post('/admin/purge', createAdminPurgeHandler());
+
+  // GET /sitemap.xml — SEO discovery surface (AECI-63 / Phase 2.17). Handled
+  // here, not by Angular: it enumerates every public entity from the API via
+  // the service binding. `Cache-Tag: sitemap,taxonomy` is set literally rather
+  // than via `buildCacheTags` (which only emits `route:*`/entity tags). On an
+  // API failure we return a non-cacheable 500 so a transient error is never
+  // pinned at the edge for the hour-long sitemap TTL.
+  app.get('/sitemap.xml', async (c) => {
+    const base = new URL(c.req.url).origin;
+    try {
+      const entries = await resolveSitemapEntries(createServerApiClient(c.env), base);
+      return new Response(buildSitemapXml(entries), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': buildCacheControl({ edge: 3600, browser: 0 }),
+          'Cache-Tag': 'sitemap,taxonomy',
+        },
+      });
+    } catch {
+      return new Response('sitemap unavailable', {
+        status: 500,
+        headers: { 'Cache-Control': 'private, no-store' },
+      });
+    }
+  });
+
+  // GET /robots.txt — allows the public surface, points at the sitemap. The
+  // `Sitemap:` line is derived from the request origin so it is correct per
+  // environment. Long-lived edge + browser TTL (CACHE_STRATEGY.md §4).
+  app.get('/robots.txt', (c) => {
+    const origin = new URL(c.req.url).origin;
+    return new Response(buildRobotsTxt(origin), {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 86_400 }),
+      },
+    });
+  });
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {
