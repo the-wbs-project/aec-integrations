@@ -10,14 +10,11 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 
 ## Where to start
 
-**Always read `docs/STAGE_1_SPEC.md` first.** It is the master spec and references every other document. The first section ("Companion Documents") is an index of what lives where.
+`docs/STAGE_1_SPEC.md` is the master spec and the contract — but it's 1,600+ lines. **Don't read it end-to-end; load only the section that governs your task.**
 
-For any task:
-
-1. Find the relevant section of `docs/STAGE_1_SPEC.md`
-2. Follow the cross-references to companion documents (`docs/API_CONTRACTS.md`, `docs/DATABASE_SCHEMA.md`, etc.)
-3. The Linear issue you're working on opens its description with `**Spec section:** §X.Y` pointing to the governing section (Linear has no custom-field feature on our plan; this is the convention enforced by the team issue templates `Build Issue Template`, `Bug Template`, `Vendor Claim Template`, `Correction Request Template`)
-4. If the spec is ambiguous or wrong, raise it — don't guess
+1. For any AECI-* task, **invoke the `spec-anchor` skill.** It fetches the Linear issue, parses its `**Spec section:** §X.Y` line, loads just that section from `docs/STAGE_1_SPEC.md`, and follows the cross-references into the companion docs (`docs/API_CONTRACTS.md`, `docs/DATABASE_SCHEMA.md`, etc.). (The `§X.Y` convention is enforced by the team Linear issue templates — Linear has no custom-field feature on our plan.)
+2. If you're not working from an AECI issue, jump straight to the governing doc via the source-of-truth table below. The spec's first section ("Companion Documents") is the full index of what lives where.
+3. If the spec is ambiguous or wrong, raise it — don't guess
 
 ## Documents that are source of truth
 
@@ -151,16 +148,16 @@ CI wiring (resolving `$GITHUB_SHA` and the workflow timestamp) lands in AECI-71.
 
 ## Skills
 
-Shared Claude Code skills live in `.agents/skills/` and are checked into the repo so every contributor (and CI agents) get them automatically. `.claude/skills/` symlinks the same content for Claude Code's discovery path.
+Shared Claude Code skills live in `.agents/skills/`, checked into the repo so every contributor (and CI agents) get them automatically.
 
-Two bundles co-exist:
+Two skills are checked in for the engineering build phase:
 
-- **`coreyhaines31/marketingskills`** — marketing / SEO / CRO / copywriting / analytics. Refresh with `pnpm skills:update`. Adds skills under `.agents/skills/` (one per skill, e.g. `analytics/`, `seo-audit/`).
-- **`pbakaus/impeccable`** — design skill (single skill, 23 sub-commands: `craft`, `shape`, `teach`, `document`, `critique`, `audit`, `polish`, `bolder`, `quieter`, `distill`, `harden`, `onboard`, `animate`, `colorize`, `typeset`, `layout`, `delight`, `overdrive`, `clarify`, `adapt`, `optimize`, `extract`, `live`). Lives at `.agents/skills/impeccable/`. Refresh with `npx impeccable skills update` (the bundle ships its own self-updater) or reinstall via `npx -y impeccable skills install --force`. Reads `PRODUCT.md` and `DESIGN.md` at the repo root.
+- **`spec-anchor`** — local skill that anchors AECI-* work to the relevant `docs/STAGE_1_SPEC.md` section (see "Where to start").
+- **`pbakaus/impeccable`** — design skill (single skill, 23 sub-commands: `craft`, `shape`, `teach`, `document`, `critique`, `audit`, `polish`, `bolder`, `quieter`, `distill`, `harden`, `onboard`, `animate`, `colorize`, `typeset`, `layout`, `delight`, `overdrive`, `clarify`, `adapt`, `optimize`, `extract`, `live`). Lives at `.agents/skills/impeccable/`. Refresh with `npx impeccable skills update` or reinstall via `npx -y impeccable skills install --force`. Reads `PRODUCT.md` and `DESIGN.md` at the repo root.
 
-If `pnpm skills:update` ever clobbers `impeccable/`, that's a bug — the marketingskills bundle should not ship a same-named skill. Treat the `impeccable/` directory under `.agents/skills/` as owned by the upstream `pbakaus/impeccable` bundle.
+The **`coreyhaines31/marketingskills`** bundle (marketing / SEO / CRO / copywriting / analytics — ~39 skills, ~36k lines) was removed from the tree to keep the engineering repo lean and out of codebase search. Restore it when doing marketing work with `pnpm skills:update`. It installs under `.agents/skills/` (one dir per skill) and must never clobber `impeccable/` — if it ships a same-named skill, that's a bug.
 
-Then commit any changes under `.agents/skills/`.
+Commit any changes under `.agents/skills/`.
 
 ## Git workflow
 

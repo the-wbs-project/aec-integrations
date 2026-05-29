@@ -10,7 +10,7 @@
           {
             "type": "command",
             "if": "Bash(gh pr create*)",
-            "command": "cd \"$CLAUDE_PROJECT_DIR\" && pnpm lint",
+            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); case \"$cmd\" in *\"gh pr create\"*) cd \"$CLAUDE_PROJECT_DIR\" && pnpm lint ;; *) exit 0 ;; esac",
             "timeout": 180,
             "statusMessage": "Running pnpm lint before PR…"
           }

@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
+import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 export const routes: Routes = [
   {
@@ -35,6 +36,29 @@ export const routes: Routes = [
     path: 'products/:slug',
     loadComponent: () => import('./products/product-detail').then((m) => m.ProductDetailPage),
     resolve: { product: productDetailResolver },
+  },
+  // AECI-59 — Phase 2.13 vendor index, detail, and Phase 6 placeholder stubs.
+  // Same shape as the product block above: resolver runs SSR-side, hydration
+  // reads from TransferState; placeholders are noindex inline panels.
+  {
+    path: 'vendors',
+    pathMatch: 'full',
+    loadComponent: () => import('./vendors/vendors-index').then((m) => m.VendorsIndex),
+  },
+  {
+    path: 'vendors/:slug/claim',
+    loadComponent: () =>
+      import('./vendors/claim-placeholder').then((m) => m.VendorClaimPlaceholder),
+  },
+  {
+    path: 'vendors/:slug/correction',
+    loadComponent: () =>
+      import('./vendors/correction-placeholder').then((m) => m.VendorCorrectionPlaceholder),
+  },
+  {
+    path: 'vendors/:slug',
+    loadComponent: () => import('./vendors/vendor-detail').then((m) => m.VendorDetailPage),
+    resolve: { vendor: vendorDetailResolver },
   },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the

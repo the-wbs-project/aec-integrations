@@ -158,7 +158,7 @@ describe('cacheControlForRoute', () => {
     ['/about', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0 }],
-    ['/vendors/autodesk', { edge: 3_600, browser: 300 }],
+    ['/vendors/autodesk', { edge: 900, browser: 0 }],
     ['/integrations/abc-123', { edge: 3_600, browser: 300 }],
     // §8.3 — index pages are 5 min edge / 0 browser. Browse pages (category /
     // discipline / phase) stay at 30 min edge / 5 min browser per the same

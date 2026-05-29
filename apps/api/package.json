@@ -11,6 +11,7 @@
     "prisma:generate": "dotenv -e .dev.vars -- prisma generate",
     "prisma:pull": "dotenv -e .dev.vars -- prisma db pull --url=postgresql://postgres:postgres@127.0.0.1:54322/postgres",
     "prisma:studio": "dotenv -e .dev.vars -- prisma studio",
+    "cf-typegen": "wrangler types",
     "db:apply-rls": "docker exec -e PGPASSWORD=postgres -i supabase_db_aec-integrations psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f - < ../../docs/rls_policies.sql",
     "db:backfill-slugs": "dotenv -e .dev.vars -- tsx scripts/backfill-slugs.ts",
     "typecheck": "tsc --noEmit",
