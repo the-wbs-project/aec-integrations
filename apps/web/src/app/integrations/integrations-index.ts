@@ -127,7 +127,7 @@ function parseSort(raw: string | null): SortKey {
           <div class="flex-1 space-y-1.5">
             <label
               for="filter-source"
-              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@integrations.index.filter.source.label"
             >
               Source product
@@ -156,7 +156,7 @@ function parseSort(raw: string | null): SortKey {
           <div class="flex-1 space-y-1.5">
             <label
               for="filter-target"
-              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+              class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@integrations.index.filter.target.label"
             >
               Target product
