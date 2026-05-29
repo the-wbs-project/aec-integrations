@@ -1,0 +1,14 @@
+{
+  "name": "AECi — cache hit rate < 70% (15m)",
+  "type": "query alert",
+  "query": "sum(last_15m):( count:aeci.page.render.duration_ms{cache_status:hit,env:production} / count:aeci.page.render.duration_ms{env:production} ) * 100 < 70",
+  "message": "Edge cache hit rate for SSR pages has dropped below 70% (sustained 15m). This usually means a bad/over-broad purge, a TTL regression, or a cache-poisoning bug.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#low-cache-hit-rate\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-web", "phase:2", "managed-by:aeci-66"],
+  "options": {
+    "thresholds": { "critical": 70 },
+    "notify_no_data": false,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 120
+  }
+}

@@ -38,7 +38,7 @@ import type { Context } from 'hono';
 import { z } from 'zod';
 
 import type { WebEnv } from '../../env';
-import { logToDatadog } from '../../server-datadog';
+import { logToDatadog, submitCount } from '../../server-datadog';
 
 /** Body schema for `POST /admin/purge`. Cloudflare's purge-by-tag accepts up
  * to 30 tags per request (Pro plan); we mirror that limit so a single call
@@ -110,6 +110,15 @@ export function createAdminPurgeHandler(
       outcome: cfOutcome.ok ? 'ok' : 'cf_failed',
       cf_status: cfOutcome.status,
     });
+
+    // AECI-66 / Phase 2 §14 — also emit the `aeci.cache.purge` count metric
+    // (the log above powers debugging; this powers the dashboard's
+    // purge-by-source widget). Tagged by `source` (manual / future webhook) and
+    // `outcome` so failed purges are distinguishable.
+    submitCount(ctx, env, request, 'aeci.cache.purge', 1, [
+      `source:${source}`,
+      `outcome:${cfOutcome.ok ? 'ok' : 'cf_failed'}`,
+    ]);
 
     // 5. Respond.
     if (cfOutcome.ok) {

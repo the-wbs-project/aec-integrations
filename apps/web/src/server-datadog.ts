@@ -99,3 +99,130 @@ export function logToDatadog(
     })(),
   );
 }
+
+/**
+ * SSR Worker → Datadog custom metrics (AECI-66 / Phase 2.20).
+ *
+ * AECI-31 only stood up the *logs* pipe (`logToDatadog` above → the logs
+ * intake). Phase 2 §14 also needs true custom metrics with percentiles, so
+ * these helpers POST to the Datadog *metrics* intake. They are NOT DogStatsD —
+ * Workers can't run an agent — they're direct HTTP submissions that reuse the
+ * exact AECI-31 discipline:
+ *
+ *   1. `ctx.waitUntil(...)` so the POST never blocks the response.
+ *   2. Failure to forward MUST NOT throw — swallow + `console.warn`.
+ *   3. No `DD_API_KEY` → no-op (dev convenience). Metric submission
+ *      authenticates with the API key alone; no app key at runtime.
+ *
+ * Note the host differs from the logs intake: metrics use `api.{site}`, logs
+ * use `http-intake.logs.{site}`.
+ *
+ * Two metric shapes are supported:
+ *   - `submitDistribution` → `/api/v1/distribution_points` (global distribution;
+ *     Datadog computes p50/p95/p99 server-side). Used for the two duration
+ *     metrics so percentiles are accurate across the fleet.
+ *   - `submitCount` → `/api/v2/series` with `type: 1` (count). Used for the
+ *     purge counter.
+ *
+ * Caller tags are appended to the shared base tags (`env`, `app`, `service`,
+ * `worker`, `locale`) — the same vocabulary as the logs `ddtags` string.
+ */
+
+/** v2 metric intake type enum: 0 unspecified, 1 count, 2 rate, 3 gauge. */
+const DD_METRIC_TYPE_COUNT = 1;
+
+function metricBaseTags(env: WebEnv): string[] {
+  const ddEnv = env.ENV ?? 'preview';
+  return [
+    `env:${ddEnv}`,
+    `app:${APP}`,
+    `service:${SERVICE}`,
+    `worker:${WORKER}`,
+    `locale:${LOCALE}`,
+  ];
+}
+
+function postMetric(ctx: WaitUntilContext, apiKey: string, url: string, payload: unknown): void {
+  ctx.waitUntil(
+    (async () => {
+      try {
+        await fetch(url, {
+          method: 'POST',
+          headers: {
+            'content-type': 'application/json',
+            'dd-api-key': apiKey,
+          },
+          body: JSON.stringify(payload),
+        });
+      } catch (error) {
+        // Swallow — observability MUST NOT break the request path.
+        console.warn('submitMetric: forward failed', error);
+      }
+    })(),
+  );
+}
+
+/**
+ * Submit a single distribution point. `value` is the measured sample (e.g. a
+ * render duration in ms); Datadog aggregates points into a distribution so
+ * percentile queries (`p95:aeci.page.render.duration_ms`) work without
+ * client-side bucketing.
+ */
+export function submitDistribution(
+  ctx: WaitUntilContext,
+  env: WebEnv,
+  request: Request,
+  metric: string,
+  value: number,
+  tags: string[] = [],
+): void {
+  const apiKey = env.DD_API_KEY;
+  if (!apiKey) return;
+
+  const site = env.DD_SITE || DEFAULT_SITE;
+  const url = `https://api.${site}/api/v1/distribution_points`;
+  const timestamp = Math.floor(Date.now() / 1000);
+  const payload = {
+    series: [
+      {
+        metric,
+        points: [[timestamp, [value]]],
+        host: hostnameFromRequest(request),
+        tags: [...metricBaseTags(env), ...tags],
+      },
+    ],
+  };
+  postMetric(ctx, apiKey, url, payload);
+}
+
+/**
+ * Submit a count metric (monotonic increment over the submission interval).
+ * Used for `aeci.cache.purge`, where each call records one purge event.
+ */
+export function submitCount(
+  ctx: WaitUntilContext,
+  env: WebEnv,
+  request: Request,
+  metric: string,
+  value: number,
+  tags: string[] = [],
+): void {
+  const apiKey = env.DD_API_KEY;
+  if (!apiKey) return;
+
+  const site = env.DD_SITE || DEFAULT_SITE;
+  const url = `https://api.${site}/api/v2/series`;
+  const timestamp = Math.floor(Date.now() / 1000);
+  const payload = {
+    series: [
+      {
+        metric,
+        type: DD_METRIC_TYPE_COUNT,
+        points: [{ timestamp, value }],
+        tags: [...metricBaseTags(env), ...tags],
+        resources: [{ name: hostnameFromRequest(request), type: 'host' }],
+      },
+    ],
+  };
+  postMetric(ctx, apiKey, url, payload);
+}

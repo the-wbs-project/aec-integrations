@@ -309,8 +309,8 @@ describe('POST /admin/purge — Cloudflare passthrough', () => {
   });
 });
 
-describe('POST /admin/purge — Datadog logging', () => {
-  it('emits aeci.cache.purge with source=manual by default via ctx.waitUntil', async () => {
+describe('POST /admin/purge — Datadog logging + metric', () => {
+  it('forwards both a log and a count metric via ctx.waitUntil (source=manual default)', async () => {
     const fetchMock = vi.fn().mockResolvedValue(ok());
     const app = makeApp(fetchMock as unknown as typeof fetch);
     const ctx = fakeExecutionContext();
@@ -321,28 +321,30 @@ describe('POST /admin/purge — Datadog logging', () => {
       ctx,
     );
 
-    expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
-
-    // The Datadog forward is the first waitUntil. We can't easily inspect its
-    // payload without intercepting global fetch — assert the call shape via a
-    // second fetch spy below.
+    // Two fire-and-forget forwards now: the structured log (AECI-31) and the
+    // `aeci.cache.purge` count metric (AECI-66). Payloads asserted below.
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
   });
 
-  it('reflects ?source=webhook in the logged payload', async () => {
-    // Spy on global fetch so we can capture the Datadog payload. The CF call
-    // goes via the injected fetchMock, so global fetch only sees the DD POST.
+  it('reflects ?source=webhook in both the log and the count metric', async () => {
+    // Spy on global fetch so we can capture the Datadog payloads. The CF call
+    // goes via the injected fetchMock, so global fetch only sees the DD POSTs:
+    // one to the logs intake (/api/v2/logs), one to the metrics intake
+    // (/api/v2/series).
     const fetchMock = vi.fn().mockResolvedValue(ok());
     const app = makeApp(fetchMock as unknown as typeof fetch);
 
     const originalFetch = globalThis.fetch;
-    const ddPayloads: unknown[] = [];
+    const ddCalls: { url: string; body: Record<string, unknown> }[] = [];
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
-      if (init?.body) ddPayloads.push(JSON.parse(init.body as string));
+      if (init?.body) {
+        ddCalls.push({ url: String(input), body: JSON.parse(init.body as string) });
+      }
       return new Response('{}', { status: 202 });
     }) as typeof fetch;
 
     const ctx = fakeExecutionContext();
-    // Real waitUntil so the DD fetch actually fires.
+    // Real waitUntil so the DD fetches actually fire.
     const pending: Promise<unknown>[] = [];
     (ctx as unknown as { waitUntil: (p: Promise<unknown>) => void }).waitUntil = (p) => {
       pending.push(p);
@@ -363,11 +365,22 @@ describe('POST /admin/purge — Datadog logging', () => {
       globalThis.fetch = originalFetch;
     }
 
-    expect(ddPayloads).toHaveLength(1);
-    const payload = ddPayloads[0] as Record<string, unknown>;
-    expect(payload['message']).toBe('aeci.cache.purge');
-    expect(payload['source']).toBe('webhook');
-    expect(payload['tags_count']).toBe(1);
-    expect(payload['outcome']).toBe('ok');
+    const log = ddCalls.find((c) => c.url.includes('/api/v2/logs'))?.body;
+    expect(log).toMatchObject({
+      message: 'aeci.cache.purge',
+      source: 'webhook',
+      tags_count: 1,
+      outcome: 'ok',
+    });
+
+    const metric = ddCalls.find((c) => c.url.includes('/api/v2/series'))?.body as
+      | { series: { metric: string; type: number; tags: string[] }[] }
+      | undefined;
+    expect(metric).toBeDefined();
+    expect(metric!.series[0]!.metric).toBe('aeci.cache.purge');
+    expect(metric!.series[0]!.type).toBe(1); // count
+    expect(metric!.series[0]!.tags).toEqual(
+      expect.arrayContaining(['source:webhook', 'outcome:ok']),
+    );
   });
 });

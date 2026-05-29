@@ -30,6 +30,8 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
+| Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
+| Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
 | Auth model and RLS policies | `docs/AUTH_AND_RLS.md` (placeholder — defer to spec until completed) |
 | Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
 | Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
