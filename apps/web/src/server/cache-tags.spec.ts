@@ -131,7 +131,10 @@ describe('cacheTagInputsForPath', () => {
     ['/products/procore', { route: 'detail', entity: { type: 'product', slug: 'procore' } }],
     ['/vendors/autodesk', { route: 'detail', entity: { type: 'vendor', slug: 'autodesk' } }],
     ['/integrations/abc-123', { route: 'detail', entity: { type: 'integration', id: 'abc-123' } }],
-    ['/categories', { route: 'browse', entity: { type: 'category', slug: '*' } }],
+    [
+      '/categories',
+      { route: 'index', entity: { type: 'index', slug: 'categories' }, taxonomy: true },
+    ],
     [
       '/categories/structural',
       { route: 'browse', entity: { type: 'category', slug: 'structural' } },
