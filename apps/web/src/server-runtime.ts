@@ -57,7 +57,9 @@ import type { WebEnv } from './env';
 import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
+import { buildRobotsTxt } from './server/robots';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
+import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
 
 export type Bindings = WebEnv;
 
@@ -498,6 +500,46 @@ export function createApp(options: {
   // Non-cacheable; the handler authenticates with `ADMIN_PURGE_TOKEN` and
   // proxies to Cloudflare's purge-by-tag API.
   app.post('/admin/purge', createAdminPurgeHandler());
+
+  // GET /sitemap.xml — SEO discovery surface (AECI-63 / Phase 2.17). Handled
+  // here, not by Angular: it enumerates every public entity from the API via
+  // the service binding. `Cache-Tag: sitemap,taxonomy` is set literally rather
+  // than via `buildCacheTags` (which only emits `route:*`/entity tags). On an
+  // API failure we return a non-cacheable 500 so a transient error is never
+  // pinned at the edge for the hour-long sitemap TTL.
+  app.get('/sitemap.xml', async (c) => {
+    const base = new URL(c.req.url).origin;
+    try {
+      const entries = await resolveSitemapEntries(createServerApiClient(c.env), base);
+      return new Response(buildSitemapXml(entries), {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/xml; charset=utf-8',
+          'Cache-Control': buildCacheControl({ edge: 3600, browser: 0 }),
+          'Cache-Tag': 'sitemap,taxonomy',
+        },
+      });
+    } catch {
+      return new Response('sitemap unavailable', {
+        status: 500,
+        headers: { 'Cache-Control': 'private, no-store' },
+      });
+    }
+  });
+
+  // GET /robots.txt — allows the public surface, points at the sitemap. The
+  // `Sitemap:` line is derived from the request origin so it is correct per
+  // environment. Long-lived edge + browser TTL (CACHE_STRATEGY.md §4).
+  app.get('/robots.txt', (c) => {
+    const origin = new URL(c.req.url).origin;
+    return new Response(buildRobotsTxt(origin), {
+      status: 200,
+      headers: {
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 86_400 }),
+      },
+    });
+  });
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {
