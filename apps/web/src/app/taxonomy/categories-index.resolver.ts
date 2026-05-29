@@ -11,14 +11,7 @@
  * `TransferState`. Client flow: read the list back out of `TransferState`.
  */
 import { isPlatformServer } from '@angular/common';
-import {
-  PLATFORM_ID,
-  REQUEST,
-  REQUEST_CONTEXT,
-  TransferState,
-  inject,
-  makeStateKey,
-} from '@angular/core';
+import { PLATFORM_ID, REQUEST_CONTEXT, TransferState, inject, makeStateKey } from '@angular/core';
 import { ResolveFn } from '@angular/router';
 
 import type { CategoriesListResponse } from '@aeci/shared';
@@ -40,10 +33,8 @@ export const categoriesIndexResolver: ResolveFn<CategoriesListResponse | null> =
 
   // Server path.
   const meta = inject(MetaService);
-  const request = inject(REQUEST, { optional: true });
   const ctx = inject(REQUEST_CONTEXT) as AeciRequestContext | null;
-  const origin = request ? new URL(request.url).origin : 'https://aecintegrations.com';
-  const canonical = `${origin}/categories`;
+  const canonical = 'https://aecintegrations.com/categories';
 
   if (!ctx) {
     transferState.set(STATE_KEY, null);
