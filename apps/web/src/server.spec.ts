@@ -591,6 +591,108 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
   });
 });
 
+describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
+  let originalCaches: unknown;
+  let cacheStub: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    originalCaches = (globalThis as { caches?: unknown }).caches;
+    cacheStub = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn().mockResolvedValue(undefined),
+    };
+    (globalThis as { caches: unknown }).caches = { default: cacheStub };
+    // Only metric submission uses global fetch here; the API binding is a
+    // separate mock, so any distribution_points POST is unambiguously a metric.
+    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    if (originalCaches === undefined) {
+      delete (globalThis as { caches?: unknown }).caches;
+    } else {
+      (globalThis as { caches: unknown }).caches = originalCaches;
+    }
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function envWithDatadog(): Bindings {
+    const { binding } = recordingApiBinding();
+    return {
+      ...binding,
+      DD_API_KEY: 'secret-key',
+      DD_SITE: 'us5.datadoghq.com',
+      ENV: 'preview',
+    } as unknown as Bindings;
+  }
+
+  function renderMetricSeries(): { metric: string; tags: string[] } | undefined {
+    const call = fetchSpy.mock.calls.find((c) =>
+      String(c[0]).includes('/api/v1/distribution_points'),
+    );
+    return call ? JSON.parse(call[1]!.body as string).series[0] : undefined;
+  }
+
+  it('emits aeci.page.render.duration_ms with cache_status:MISS + route_class on a cacheable miss', async () => {
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>p</html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      ),
+    });
+    await app.fetch(
+      new Request('https://aecintegrations.com/products/procore'),
+      envWithDatadog(),
+      fakeExecutionContext(),
+    );
+    const series = renderMetricSeries();
+    expect(series?.metric).toBe('aeci.page.render.duration_ms');
+    expect(series!.tags).toEqual(
+      expect.arrayContaining(['route_class:detail', 'cache_status:MISS', 'status_code:200']),
+    );
+  });
+
+  it('emits cache_status:HIT (without invoking SSR) on a cache hit', async () => {
+    cacheStub.match.mockResolvedValueOnce(
+      new Response('<html>cached</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const renderer = vi.fn();
+    const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
+    await app.fetch(
+      new Request('https://aecintegrations.com/'),
+      envWithDatadog(),
+      fakeExecutionContext(),
+    );
+    expect(renderer).not.toHaveBeenCalled();
+    const series = renderMetricSeries();
+    expect(series!.tags).toEqual(
+      expect.arrayContaining(['route_class:index', 'cache_status:HIT', 'status_code:200']),
+    );
+  });
+
+  it('does not emit a render metric on non-cacheable routes (no route_class)', async () => {
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>acct</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    });
+    await app.fetch(
+      new Request('https://aecintegrations.com/account/settings'),
+      envWithDatadog(),
+      fakeExecutionContext(),
+    );
+    expect(renderMetricSeries()).toBeUndefined();
+  });
+});
+
 describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', () => {
   it('invokes the hook with the rendered response and env on cacheable routes', async () => {
     const { binding } = recordingApiBinding();

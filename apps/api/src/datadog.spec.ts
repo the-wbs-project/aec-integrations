@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from './env';
-import { logToDatadog } from './datadog';
+import { logToDatadog, submitDistribution } from './datadog';
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
@@ -120,5 +120,55 @@ describe('logToDatadog (API Worker)', () => {
     logToDatadog(ctx as never, makeEnv(), makeRequest(), { message: 'x' });
     await expect(Promise.all(promises)).resolves.not.toThrow();
     expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe('submitDistribution (API Worker, AECI-66)', () => {
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('is a no-op when DD_API_KEY is absent', () => {
+    const { ctx } = makeCtx();
+    submitDistribution(
+      ctx as never,
+      makeEnv({ DD_API_KEY: undefined }),
+      makeRequest(),
+      'aeci.api.query.duration_ms',
+      5,
+    );
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('posts a distribution point to the metrics intake tagged for the API Worker', async () => {
+    const { ctx, promises } = makeCtx();
+    submitDistribution(ctx as never, makeEnv(), makeRequest(), 'aeci.api.query.duration_ms', 23, [
+      'endpoint:/api/products/:slug',
+      'status:200',
+    ]);
+    await Promise.all(promises);
+
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe('https://api.us5.datadoghq.com/api/v1/distribution_points');
+    const series = JSON.parse(init!.body as string).series[0];
+    expect(series.metric).toBe('aeci.api.query.duration_ms');
+    expect(series.points[0][1]).toEqual([23]);
+    expect(series.tags).toEqual(
+      expect.arrayContaining([
+        'service:aeci-api',
+        'worker:aeci-api',
+        'endpoint:/api/products/:slug',
+        'status:200',
+      ]),
+    );
   });
 });

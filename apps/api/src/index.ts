@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Env } from './env';
 import { errorHandler } from './errors';
 import { notFound } from './http';
+import { metricsMiddleware } from './metrics-middleware';
 import { createCategoriesListHandler, createCategoryDetailHandler } from './routes/categories';
 import { createDisciplineDetailHandler } from './routes/disciplines';
 import { createHealthHandler } from './routes/health';
@@ -18,6 +19,11 @@ import { createVendorDetailHandler, createVendorsListHandler } from './routes/ve
 import { createVersionHandler } from './routes/version';
 
 const app = new Hono<{ Bindings: Env }>();
+
+// AECI-66 / Phase 2 §14 — time every request and emit
+// `aeci.api.query.duration_ms` tagged by endpoint + status. Registered first so
+// it wraps the legacy routes, the Phase 2.8 sub-router, and the `*` fallthrough.
+app.use('*', metricsMiddleware());
 
 // Legacy routes (predating Phase 2.8). Keep their existing error shape via the
 // `apps/api/src/http.ts` helpers — migrating them to the canonical §3.3

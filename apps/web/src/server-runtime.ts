@@ -54,6 +54,7 @@
 import { Hono } from 'hono';
 
 import type { WebEnv } from './env';
+import { submitDistribution } from './server-datadog';
 import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
@@ -409,6 +410,7 @@ async function handleSsr(
   execCtx: WaitUntilContext,
   transformResponse?: ResponseTransform,
 ): Promise<Response> {
+  const start = Date.now();
   const url = new URL(request.url);
   const ttl = request.method === 'GET' ? cacheControlForRoute(url) : null;
   const reqCtx = createRequestContext(createServerApiClient(env));
@@ -435,6 +437,26 @@ async function handleSsr(
 
   const { path: localePath } = stripLocalePrefix(url.pathname);
 
+  // AECI-66 / Phase 2 §14 — emit `aeci.page.render.duration_ms` for cacheable
+  // routes, tagged by `route_class` (detail/index/browse) + `cache_status`
+  // (HIT/MISS), plus `status_code` so the dashboard's 4xx/5xx widget can split
+  // on it. Non-cacheable paths (the 404 wildcard, non-GET) have no route_class
+  // and are intentionally excluded from this histogram — they remain covered by
+  // the `ssr.render` log. Documented in docs/OBSERVABILITY.md.
+  const routeClass = cacheTagInputsForPath(localePath)?.route;
+  const emitRenderMetric = (cacheStatus: 'HIT' | 'MISS', statusCode: number): void => {
+    if (!routeClass) return;
+    // `status_class` (2xx/4xx/5xx) is what the error-rate widget + monitor split
+    // on — Datadog tag filters can't do numeric `>= 400` on `status_code`. Note
+    // Datadog lowercases tag values, so `cache_status:HIT` is queried as `hit`.
+    submitDistribution(execCtx, env, request, 'aeci.page.render.duration_ms', Date.now() - start, [
+      `route_class:${routeClass}`,
+      `cache_status:${cacheStatus}`,
+      `status_code:${statusCode}`,
+      `status_class:${Math.floor(statusCode / 100)}xx`,
+    ]);
+  };
+
   // Cacheable branch: edge-cache lookup, then cookie-stripped render on miss.
   // page-view capture fires on BOTH branches so cached hits are also counted
   // (the metric reflects visitor arrivals, not SSR misses). On HIT the
@@ -445,6 +467,7 @@ async function handleSsr(
   if (cache) {
     const hit = await cache.match(cacheKey);
     if (hit) {
+      emitRenderMetric('HIT', hit.status);
       firePageView(execCtx, env, { route: localePath });
       return hit;
     }
@@ -459,6 +482,7 @@ async function handleSsr(
     : rendered;
   const tagInputs = mergeEmbeddedTags(cacheTagInputsForPath(localePath), reqCtx.embedded);
   const response = withCacheHeaders(transformed, ttl, tagInputs);
+  emitRenderMetric('MISS', response.status);
 
   // Per §9.1: only 2xx is stored. 404s are *returned* with NOT_FOUND_TTL via
   // the response's Cache-Control header (so Cloudflare honors it edge-side),
