@@ -29,6 +29,7 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 | `index:products` / `index:vendors` / `index:integrations` / `index:categories` | The respective index pages |
 | `sitemap` | `sitemap.xml` |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
+| `route:404` | Single sentinel tag on every 404 response — both cacheable-route 404s and non-cacheable-path 404s (see §4). Used for bulk-purge via `POST /admin/purge` after a config fix (e.g. slug regenerated, route table corrected). 404s have no entity identity so this is the only invalidation handle. Emitted by `withCacheHeaders` in `server-runtime.ts`, not by `buildCacheTags`. |
 
 Every cacheable response carries **at minimum**:
 
@@ -84,6 +85,8 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 Per [AECI-43](https://linear.app/aec-integrations/issue/AECI-43), API responses themselves remain `Cache-Control: private, no-store`. Only SSR HTML is edge-cached.
 
 Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/search`) are excluded from the cacheable branch in the SSR Worker entry — they emit `Cache-Control: private, no-store` and never reach the tag/TTL machinery. See `STAGE_1_SPEC.md` §9.1 and [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) for the route classifier.
+
+**Exception — 404 responses on non-cacheable paths (AECI-62):** if the Angular SSR renderer returns HTTP 404 on a non-cacheable path (e.g. an unknown URL caught by the `**` wildcard route), the Worker applies `NOT_FOUND_TTL` (`max-age=0, s-maxage=60`) and `Cache-Tag: route:404` instead of `private, no-store`. The 404 content is session-neutral (no user-specific data), so edge caching is safe and prevents a flood of unknown URLs from melting the SSR Worker. The `route:404` tag provides the same bulk-purge handle as on cacheable routes. All other non-cacheable responses (2xx, 3xx, 5xx) continue to emit `private, no-store`.
 
 ---
 

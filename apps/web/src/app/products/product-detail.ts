@@ -7,9 +7,8 @@ import { map } from 'rxjs';
 import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shared';
 
 import { DetailLayout } from '../layouts/detail-layout';
+import { NotFound } from '../not-found/not-found';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
-
-import { ProductNotFound } from './product-not-found';
 
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
@@ -18,8 +17,10 @@ import { ProductNotFound } from './product-not-found';
  * Phase 2 decision — see §3.2). All data is supplied by
  * `productDetailResolver` via `route.data['product']`:
  *
- *   - `product === null` → render the inline NotFound panel; the resolver
- *     already set `RESPONSE_INIT.status = 404` and `MetaService.setNotFoundMeta`.
+ *   - `product === null` → render the global `aec-not-found` shell (AECI-62);
+ *     the resolver already set `RESPONSE_INIT.status = 404` and
+ *     `MetaService.setNotFoundMeta`. URL stays at /products/:slug so the
+ *     visitor can correct a typo in place — no router redirect.
  *   - `product` set → render hero / metadata sidebar / description /
  *     integrations sections inside the shared `DetailLayout`.
  *
@@ -37,12 +38,12 @@ import { ProductNotFound } from './product-not-found';
  */
 @Component({
   selector: 'aec-product-detail',
-  imports: [DetailLayout, NgOptimizedImage, ProductNotFound, RouterLink, TaxonomyBadge],
+  imports: [DetailLayout, NgOptimizedImage, NotFound, RouterLink, TaxonomyBadge],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let p = product();
     @if (p === null) {
-      <aec-product-not-found [slug]="slug()" />
+      <aec-not-found />
     } @else {
       <aec-detail-layout>
         <ol
@@ -396,10 +397,6 @@ export class ProductDetailPage {
   protected readonly product = toSignal<ProductDetail | null, ProductDetail | null>(
     this.route.data.pipe(map((d) => (d['product'] ?? null) as ProductDetail | null)),
     { initialValue: (this.route.snapshot.data['product'] ?? null) as ProductDetail | null },
-  );
-
-  protected readonly slug = computed(
-    () => this.route.snapshot.paramMap.get('slug') ?? this.product()?.slug ?? '',
   );
 
   protected readonly initial = computed(() => {

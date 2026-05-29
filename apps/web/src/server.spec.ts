@@ -203,7 +203,9 @@ describe('buildCacheControl', () => {
     expect(buildCacheControl({ edge: 3600, browser: 300 })).toBe(
       'public, max-age=300, s-maxage=3600',
     );
-    expect(buildCacheControl(NOT_FOUND_TTL)).toBe('public, max-age=60, s-maxage=60');
+    // AECI-62 — 404s revalidate on every navigation (max-age=0); edge still
+    // holds them for 60s so a flood of 404s doesn't melt the SSR Worker.
+    expect(buildCacheControl(NOT_FOUND_TTL)).toBe('public, max-age=0, s-maxage=60');
   });
 });
 
@@ -404,7 +406,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     expect(res.headers.get('cache-tag')).toBeNull();
   });
 
-  it('does not write Cache-Tag on cacheable-route 404 responses', async () => {
+  it('writes Cache-Tag: route:404 on cacheable-route 404 responses (AECI-62)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({
       ssrRenderer: fixedRenderer(new Response('Not found', { status: 404 })),
@@ -415,7 +417,9 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
       fakeExecutionContext(),
     );
     expect(res.status).toBe(404);
-    expect(res.headers.get('cache-tag')).toBeNull();
+    // Single sentinel tag — 404s have no entity identity, just the absence
+    // class. Bulk-purge target after admin fixes a config typo, etc.
+    expect(res.headers.get('cache-tag')).toBe('route:404');
   });
 });
 
@@ -464,7 +468,11 @@ describe('createApp /preview/* production gate', () => {
 });
 
 describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
-  it('returns HTTP 404 with no-store for unknown (non-cacheable) routes', async () => {
+  it('returns HTTP 404 with NOT_FOUND_TTL + route:404 tag for unknown (non-cacheable) routes', async () => {
+    // AECI-62 — the global `**` wildcard route is non-cacheable per the
+    // matcher table, but 404s on that branch must still carry NOT_FOUND_TTL
+    // so a fix at the routing layer propagates quickly, and the route:404
+    // sentinel tag so admin can bulk-purge after a fix.
     const { binding } = recordingApiBinding();
     const app = createApp({
       ssrRenderer: fixedRenderer(new Response('Page not found.', { status: 404 })),
@@ -477,8 +485,8 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     );
 
     expect(res.status).toBe(404);
-    const cc = res.headers.get('cache-control') ?? '';
-    expect(cc).toMatch(/no-store|max-age=0/);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+    expect(res.headers.get('cache-tag')).toBe('route:404');
   });
 
   it('returns HTTP 404 with TTL ≤60s for cacheable-route 404s (e.g. /products/missing)', async () => {
@@ -494,7 +502,8 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     );
 
     expect(res.status).toBe(404);
-    expect(res.headers.get('cache-control')).toBe('public, max-age=60, s-maxage=60');
+    // AECI-62 — browser revalidates every navigation; edge caches for 60s.
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
   });
 });
 
@@ -686,10 +695,11 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
     expect(res.headers.get('cache-tag')).toBe('route:detail,product:procore,integration:abc');
   });
 
-  it('does not write Cache-Tag on a cacheable-route 404, even with embedded tags pushed', async () => {
+  it('overrides embedded tags with the sentinel route:404 on a cacheable-route 404', async () => {
     // Sanity check: if a resolver pushed embedded tags before realising the
     // entity was missing, the 404 short-circuit in `withCacheHeaders` still
-    // takes precedence. 404s have no entity, so no tag should be written.
+    // takes precedence — the resolver's leaked entity tags must not leak into
+    // the response. The single sentinel tag wins (AECI-62).
     const { binding } = recordingApiBinding();
     const renderer: SsrRenderer = async (_req, ctx) => {
       ctx.embedded.push({ type: 'vendor', slug: 'should-not-leak' });
@@ -704,7 +714,7 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
     );
 
     expect(res.status).toBe(404);
-    expect(res.headers.get('cache-tag')).toBeNull();
+    expect(res.headers.get('cache-tag')).toBe('route:404');
   });
 
   it('leaves Cache-Tag at the path-derived value when ctx.embedded is empty', async () => {

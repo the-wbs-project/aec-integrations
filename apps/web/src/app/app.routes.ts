@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 
+import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
@@ -66,5 +67,14 @@ export const routes: Routes = [
   {
     path: 'preview',
     loadChildren: () => import('./preview/preview.routes').then((m) => m.previewRoutes),
+  },
+  // AECI-62 — Phase 2.16 global 404. Must be the last entry so every other
+  // route gets a chance to match first. The resolver sets RESPONSE_INIT.status
+  // to 404 and the noindex meta tags; the SSR runtime then emits NOT_FOUND_TTL
+  // (60s edge / 0 browser) and `Cache-Tag: route:404` per AECI-56.
+  {
+    path: '**',
+    loadComponent: () => import('./not-found/not-found').then((m) => m.NotFound),
+    resolve: { _: notFoundResolver },
   },
 ];

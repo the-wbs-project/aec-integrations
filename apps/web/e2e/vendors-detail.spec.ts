@@ -29,13 +29,14 @@ test.describe('vendor detail — 404 path', () => {
 
     expect(res.status(), 'must be a real 404 — never the pinned-404 trap').toBe(404);
 
-    // §8.3 / §9.1b — 404s on cacheable routes get a short edge TTL.
-    expect(res.headers()['cache-control']).toBe('public, max-age=60, s-maxage=60');
+    // §8.3 / §9.1b / AECI-62 AC — 404s on cacheable routes carry a short edge
+    // TTL but no browser cache, so a re-navigation after admin fixes the
+    // entity revalidates immediately.
+    expect(res.headers()['cache-control']).toBe('public, max-age=0, s-maxage=60');
 
-    // Per cache-tags.ts: 404s on cacheable routes skip Cache-Tag (they aren't
-    // stored in the Worker's `caches.default` so the tag would never be a
-    // purge target).
-    expect(res.headers()['cache-tag']).toBeUndefined();
+    // AECI-62 AC — single sentinel tag so admin can bulk-purge negative
+    // responses after a config fix.
+    expect(res.headers()['cache-tag']).toBe('route:404');
   });
 
   test('404 body renders the inline NotFound panel (i18n copy)', async ({ page }) => {
