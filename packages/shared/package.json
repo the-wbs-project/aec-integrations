@@ -30,6 +30,10 @@
     "./slug": {
       "types": "./src/slug.ts",
       "default": "./src/slug.ts"
+    },
+    "./audit-log": {
+      "types": "./src/audit-log.ts",
+      "default": "./src/audit-log.ts"
     }
   },
   "scripts": {
