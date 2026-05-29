@@ -14,6 +14,7 @@
     "cf-typegen": "wrangler types",
     "db:apply-rls": "docker exec -e PGPASSWORD=postgres -i supabase_db_aec-integrations psql -U supabase_admin -d postgres -v ON_ERROR_STOP=1 -f - < ../../docs/rls_policies.sql",
     "db:backfill-slugs": "dotenv -e .dev.vars -- tsx scripts/backfill-slugs.ts",
+    "db:airtable-migrate": "dotenv -e .dev.vars -- tsx scripts/airtable-to-supabase-bulk-migrate.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",

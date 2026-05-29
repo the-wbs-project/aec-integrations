@@ -57,6 +57,20 @@ TEST_DATABASE_URL=
 # raw Postgres credentials.
 # DIRECT_URL_STAGING="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
 
+# ─── Airtable bulk migration (AECI-83) ─────────────────────────────────────
+# Consumed ONLY by `scripts/airtable-to-supabase-bulk-migrate.ts` (one-time
+# Airtable → Supabase migration). Workers never read these. The script writes
+# to production Supabase via DIRECT_URL above using the privileged role — point
+# DIRECT_URL at a SESSION-capable connection (Supabase "Session" pooler or the
+# direct 5432 endpoint), because the script uses interactive transactions.
+#
+# AIRTABLE_PAT: a Personal Access Token with scopes data.records:read,
+# data.records:write, and schema.bases:write on the base below (the script
+# creates a `supabase_uuid` field and writes the rec-ID→UUID mapping back).
+AIRTABLE_PAT=
+# The Airtable base holding the curator workspace.
+AIRTABLE_BASE_ID=appy81IdGJY6Fngf9
+
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
 # HTTP intake). When empty, the helper is a no-op so dev boots cleanly.
