@@ -95,6 +95,7 @@ export const routes: Routes = [
     loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
     data: { kind: 'phase' },
     resolve: { term: phaseBrowseResolver },
+  },
   // AECI-60 — Phase 2.14 integration index + detail. Integrations are keyed by
   // record ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side
   // via the service binding; hydration reads from TransferState. A null result

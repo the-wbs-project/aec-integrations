@@ -159,7 +159,7 @@ describe('cacheControlForRoute', () => {
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 900, browser: 0 }],
-    ['/integrations/abc-123', { edge: 3_600, browser: 300 }],
+    ['/integrations/abc-123', { edge: 900, browser: 0 }],
     // CACHE_STRATEGY.md §4 — index pages AND taxonomy browse pages (category /
     // discipline / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
     // taxonomy rows from a stale 30 min edge.)
