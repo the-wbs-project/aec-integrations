@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 
+import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
@@ -59,6 +60,23 @@ export const routes: Routes = [
     path: 'vendors/:slug',
     loadComponent: () => import('./vendors/vendor-detail').then((m) => m.VendorDetailPage),
     resolve: { vendor: vendorDetailResolver },
+  },
+  // AECI-60 — Phase 2.14 integration index + detail. Integrations are keyed by
+  // record ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side
+  // via the service binding; hydration reads from TransferState. A null result
+  // renders the global 404 shell. No claim/correction routes — explicitly out
+  // of scope for Stage 1 (Phase 6 covers product + vendor only).
+  {
+    path: 'integrations',
+    pathMatch: 'full',
+    loadComponent: () =>
+      import('./integrations/integrations-index').then((m) => m.IntegrationsIndex),
+  },
+  {
+    path: 'integrations/:id',
+    loadComponent: () =>
+      import('./integrations/integration-detail').then((m) => m.IntegrationDetailPage),
+    resolve: { integration: integrationDetailResolver },
   },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the

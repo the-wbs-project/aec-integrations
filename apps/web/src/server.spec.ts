@@ -159,7 +159,10 @@ describe('cacheControlForRoute', () => {
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 900, browser: 0 }],
-    ['/integrations/abc-123', { edge: 3_600, browser: 300 }],
+    // AECI-60 brought /integrations/:id onto the §8.3 detail TTL (15min edge /
+    // 0 browser), matching products/vendors. It was on a legacy 1hr/5min TTL
+    // before the detail page existed.
+    ['/integrations/abc-123', { edge: 900, browser: 0 }],
     // §8.3 — index pages are 5 min edge / 0 browser. Browse pages (category /
     // discipline / phase) stay at 30 min edge / 5 min browser per the same
     // table.
