@@ -123,7 +123,11 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   if (path === '/integrations')
     return { route: 'index', entity: { type: 'index', slug: 'integrations' } };
 
-  if (path === '/categories') return { route: 'browse', entity: { type: 'category', slug: '*' } };
+  // `/categories` is the flat index (AECI-61), not a browse facet: per
+  // CACHE_STRATEGY.md §2 it carries `index:categories` + `taxonomy` (it renders
+  // the full taxonomy), distinct from the per-slug browse pages below.
+  if (path === '/categories')
+    return { route: 'index', entity: { type: 'index', slug: 'categories' }, taxonomy: true };
   if ((m = /^\/categories\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'category', slug: m[1]! } };
 

@@ -204,15 +204,21 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/products' || p === '/vendors' || p === '/integrations',
     ttl: { edge: 300, browser: 0 },
   },
+  // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index
+  // are `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav),
+  // same as the other index/browse routes. The earlier 30-min edge here
+  // predated AECI-61 and contradicted the canonical doc (spec §3.1's "30 min" is
+  // stale — CACHE_STRATEGY.md supersedes it for caching). Per-slug pages also
+  // carry `{type}:{slug}` + embedded `product:{slug}` tags for targeted purge.
   {
     match: (p) => p === '/categories' || p.startsWith('/categories/'),
-    ttl: { edge: 1_800, browser: 300 },
+    ttl: { edge: 300, browser: 0 },
   },
   {
     match: (p) => p === '/disciplines' || p.startsWith('/disciplines/'),
-    ttl: { edge: 1_800, browser: 300 },
+    ttl: { edge: 300, browser: 0 },
   },
-  { match: (p) => p === '/phases' || p.startsWith('/phases/'), ttl: { edge: 1_800, browser: 300 } },
+  { match: (p) => p === '/phases' || p.startsWith('/phases/'), ttl: { edge: 300, browser: 0 } },
 ];
 
 /**

@@ -3,6 +3,12 @@ import { Routes } from '@angular/router';
 import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
+import { categoriesIndexResolver } from './taxonomy/categories-index.resolver';
+import {
+  categoryBrowseResolver,
+  disciplineBrowseResolver,
+  phaseBrowseResolver,
+} from './taxonomy/taxonomy-browse.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 export const routes: Routes = [
@@ -60,6 +66,35 @@ export const routes: Routes = [
     path: 'vendors/:slug',
     loadComponent: () => import('./vendors/vendor-detail').then((m) => m.VendorDetailPage),
     resolve: { vendor: vendorDetailResolver },
+  },
+  // AECI-61 — Phase 2.15 taxonomy browse pages + `/categories` flat list. The
+  // three browse routes share one component + one resolver factory, keyed by
+  // the static `data.kind`; `/categories` is the only flat-list page in Stage 1
+  // (discipline / phase indexes are deferred). Resolvers run SSR-side; hydration
+  // reads from TransferState.
+  {
+    path: 'categories',
+    pathMatch: 'full',
+    loadComponent: () => import('./taxonomy/categories-index').then((m) => m.CategoriesIndex),
+    resolve: { categories: categoriesIndexResolver },
+  },
+  {
+    path: 'categories/:slug',
+    loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
+    data: { kind: 'category' },
+    resolve: { term: categoryBrowseResolver },
+  },
+  {
+    path: 'disciplines/:slug',
+    loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
+    data: { kind: 'discipline' },
+    resolve: { term: disciplineBrowseResolver },
+  },
+  {
+    path: 'phases/:slug',
+    loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
+    data: { kind: 'phase' },
+    resolve: { term: phaseBrowseResolver },
   },
   // AECI-60 — Phase 2.14 integration index + detail. Integrations are keyed by
   // record ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side

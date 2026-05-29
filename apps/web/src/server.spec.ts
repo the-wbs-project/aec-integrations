@@ -159,19 +159,17 @@ describe('cacheControlForRoute', () => {
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 900, browser: 0 }],
-    // AECI-60 brought /integrations/:id onto the §8.3 detail TTL (15min edge /
-    // 0 browser), matching products/vendors. It was on a legacy 1hr/5min TTL
-    // before the detail page existed.
     ['/integrations/abc-123', { edge: 900, browser: 0 }],
-    // §8.3 — index pages are 5 min edge / 0 browser. Browse pages (category /
-    // discipline / phase) stay at 30 min edge / 5 min browser per the same
-    // table.
+    // CACHE_STRATEGY.md §4 — index pages AND taxonomy browse pages (category /
+    // discipline / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
+    // taxonomy rows from a stale 30 min edge.)
     ['/products', { edge: 300, browser: 0 }],
     ['/vendors', { edge: 300, browser: 0 }],
     ['/integrations', { edge: 300, browser: 0 }],
-    ['/categories/design', { edge: 1_800, browser: 300 }],
-    ['/disciplines/structural', { edge: 1_800, browser: 300 }],
-    ['/phases/preconstruction', { edge: 1_800, browser: 300 }],
+    ['/categories', { edge: 300, browser: 0 }],
+    ['/categories/design', { edge: 300, browser: 0 }],
+    ['/disciplines/structural', { edge: 300, browser: 0 }],
+    ['/phases/preconstruction', { edge: 300, browser: 0 }],
   ])('returns the §9.2 TTL for %s', (path, expected) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toEqual(expected);
   });
@@ -363,6 +361,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     ['/products/procore', 'route:detail,product:procore'],
     ['/vendors/autodesk', 'route:detail,vendor:autodesk'],
     ['/integrations/abc-123', 'route:detail,integration:abc-123'],
+    ['/categories', 'route:index,index:categories,taxonomy'],
     ['/categories/structural', 'route:browse,category:structural'],
     ['/disciplines/architecture', 'route:browse,discipline:architecture'],
     ['/phases/preconstruction', 'route:browse,phase:preconstruction'],
