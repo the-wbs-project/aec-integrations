@@ -153,7 +153,7 @@ async function promote(fake: Fake, body: unknown) {
 const auditActions = (fake: Fake) => fake.audit.map((e) => e.action as string);
 
 describe('createPromoteHandler', () => {
-  it('creates a product with vendor, taxonomy, and an integration to a promoted product', async () => {
+  it('creates a product with vendor and taxonomy', async () => {
     const fake = makeFake();
     // Seed the already-promoted "other endpoint" product.
     const existingProd = uuid(1);
@@ -193,7 +193,6 @@ describe('createPromoteHandler', () => {
 
     expect(b.vendors[0]).toMatchObject({ ref: 'v1', slug: 'autodesk', operation: 'created' });
     expect(b.product).toMatchObject({ ref: 'p1', slug: 'revit', operation: 'created' });
-    expect(b.integrations[0]).toMatchObject({ ref: 'i1', operation: 'created' });
     expect(b.taxonomy.categories).toHaveLength(2);
     expect(b.taxonomy.disciplines).toHaveLength(1);
     expect(b.skipped).toHaveLength(0);
@@ -201,21 +200,17 @@ describe('createPromoteHandler', () => {
     // Join rows reflect the bundle.
     expect(fake.models.productVendor.rows.size).toBe(1);
     expect(fake.models.productCategory.rows.size).toBe(2);
-    // Integration links source=this product, target=the seeded product.
-    const intg = [...fake.models.integration.rows.values()][0];
-    expect(intg.sourceProductId).toBe(b.product.id);
-    expect(intg.targetProductId).toBe(existingProd);
-    // builtByVendor { ref: 'v1' } resolved to the freshly-created vendor.
-    expect(intg.builtByVendorId).toBe(b.vendors[0].id);
+
+    // TODO(AECI-86): integration seeding is temporarily disabled in promote.ts
+    // while the vendor/product flow is validated on staging, so no integration
+    // row is created and `b.integrations` stays empty. Re-enable alongside the
+    // commented-out block in promote.ts.
+    expect(b.integrations).toHaveLength(0);
+    expect(fake.models.integration.rows.size).toBe(0);
 
     // Audit: one row per create.
     expect(auditActions(fake)).toEqual(
-      expect.arrayContaining([
-        'vendor.created',
-        'category.created',
-        'product.created',
-        'integration.created',
-      ]),
+      expect.arrayContaining(['vendor.created', 'category.created', 'product.created']),
     );
     // Every audit row tagged with the source.
     expect(
@@ -308,7 +303,11 @@ describe('createPromoteHandler', () => {
     expect(auditActions(fake)).not.toContain('category.created');
   });
 
-  it('skips an integration whose other endpoint is not promoted', async () => {
+  // TODO(AECI-86): integration seeding is temporarily disabled in promote.ts, so
+  // the skip/self-link resolution these two cases exercise does not run yet (every
+  // pushed integration is silently a no-op). Un-skip alongside re-enabling the
+  // commented-out integration block in promote.ts.
+  it.skip('skips an integration whose other endpoint is not promoted', async () => {
     const fake = makeFake();
     const res = await promote(fake, {
       product: { ref: 'p1', name: 'Revit' },
@@ -326,7 +325,7 @@ describe('createPromoteHandler', () => {
     expect(fake.models.integration.rows.size).toBe(0);
   });
 
-  it('skips a self-referential integration', async () => {
+  it.skip('skips a self-referential integration', async () => {
     const fake = makeFake();
     const res = await promote(fake, {
       product: { ref: 'p1', name: 'Revit' },
