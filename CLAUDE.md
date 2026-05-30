@@ -22,6 +22,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 |---|---|
 | What we're building and why | `docs/STAGE_1_SPEC.md` |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
+| Review-app → Supabase promotion push (`POST /api/promote` payload/response, idempotency, integration rule) | `docs/REVIEW_APP_PROMOTE_API.md` |
 | Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
 | Migration workflow (writing / applying SQL via Supabase CLI) | `docs/migrations.md` |
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
