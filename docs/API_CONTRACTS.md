@@ -724,6 +724,67 @@ export const LinearWebhookSchema = z.object({
 
 Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md` §26).
 
+### 6.12 Promotion (review-app push)
+
+#### `POST /api/promote`
+
+Push-based Airtable → Supabase promotion. The review application sends one
+product plus its dependencies (vendors, taxonomy, integrations); the Worker
+upserts the whole bundle in a single transaction and returns the created/updated
+IDs so the review app can persist the mapping and re-push edits. Supersedes the
+pull-based CLI `scripts/airtable-to-supabase-bulk-migrate.ts` (deprecated).
+
+**Auth:** `Authorization: Bearer <REVIEW_APP_TOKEN>` (a Wrangler secret, compared
+constant-time). Missing/invalid → `401 UNAUTHENTICATED`. This is machine-to-
+machine auth, not a user session.
+
+**Idempotency:** the review app holds the IDs — there is no `external_id` column
+on Supabase. An entity carrying `supabaseId` is **updated** by that ID; absent →
+**created** and its new ID is returned. Slugs are server-generated (never sent by
+the client) and stay stable across updates.
+
+Schemas live in `packages/shared/src/api/promote.ts` (`PromotePayloadSchema`,
+`PromoteResponse`). Intra-payload links use a client-local `ref`; cross-request
+links use `supabaseId`.
+
+`product` is **optional**: a vendor-only or integration-only push (e.g. "I edited
+just the vendor on review and want it live") omits it. The payload must contain at
+least one of `vendors`, `product`, or `integrations`.
+
+```typescript
+// Request (abridged — see promote.ts for all optional fields)
+export const PromotePayloadSchema = z.object({
+  vendors: z.array(PromoteVendorSchema).default([]),      // { ref, supabaseId?, companyName, isPrimary?, ... }
+  product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], disciplines[], phases[], extensionOf[], ... }
+  integrations: z.array(PromoteIntegrationSchema).default([]),
+  //  integrations[i].sourceProduct / targetProduct: { ref: <product.ref> } | { supabaseId }
+  //  (a { ref } endpoint requires `product`; without it, reference products by supabaseId)
+});
+
+// Response — `product` is null for a vendor-only / integration-only push
+export interface PromoteResponse {
+  vendors: { ref: string; id: string; slug: string; operation: 'created' | 'updated' }[];
+  product: { ref: string; id: string; slug: string; operation: 'created' | 'updated' } | null;
+  integrations: { ref: string; id: string; operation: 'created' | 'updated' }[];
+  taxonomy: {
+    categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
+    disciplines: { slug: string; id: string; operation: 'created' | 'reused' }[];
+    phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
+  };
+  skipped: { ref: string; kind: 'integration' | 'extension'; reason: string }[];
+}
+```
+
+**Integration rule (product-driven, from AECI-83):** an integration is written
+only when both endpoints resolve — one is the product in this bundle (`ref`), the
+other must already be promoted (`supabaseId`). Integrations whose other endpoint
+isn't promoted yet land in `skipped[]` rather than failing the request. Every
+create/update writes an `audit_log` row in the same transaction (§26).
+
+Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
+`ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the
+review app: `docs/REVIEW_APP_PROMOTE_API.md`.
+
 ---
 
 ## 7. Validation rules

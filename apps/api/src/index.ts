@@ -3,6 +3,7 @@ import { Hono } from 'hono';
 import type { Env } from './env';
 import { errorHandler } from './errors';
 import { notFound } from './http';
+import { requireReviewAppAuth } from './lib/review-auth';
 import { metricsMiddleware } from './metrics-middleware';
 import { createCategoriesListHandler, createCategoryDetailHandler } from './routes/categories';
 import { createDisciplineDetailHandler } from './routes/disciplines';
@@ -14,6 +15,7 @@ import {
 import { createPageViewsHandler } from './routes/page-views';
 import { createPhaseDetailHandler } from './routes/phases';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
+import { createPromoteHandler } from './routes/promote';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
@@ -55,6 +57,12 @@ phase28.get('/api/disciplines/:slug', createDisciplineDetailHandler());
 phase28.get('/api/phases/:slug', createPhaseDetailHandler());
 
 phase28.get('/api/taxonomy', createTaxonomyHandler());
+
+// Review-app push endpoint (promotion). Bearer-auth middleware runs first so an
+// unauthenticated request never reaches the DB; both it and the handler throw
+// `ApiError`/`ZodError`, which `errorHandler()` renders as the canonical
+// envelope. See `docs/REVIEW_APP_PROMOTE_API.md`.
+phase28.post('/api/promote', requireReviewAppAuth(), createPromoteHandler());
 
 app.route('/', phase28);
 

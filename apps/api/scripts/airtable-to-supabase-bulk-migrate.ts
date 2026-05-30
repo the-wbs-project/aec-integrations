@@ -1,4 +1,12 @@
 /**
+ * ⚠️ DEPRECATED (superseded by `POST /api/promote`).
+ *
+ * Promotion is now PUSH-based: the review application sends each promoted
+ * product (plus its vendors, taxonomy, and integrations) to the main AECi API,
+ * which upserts them and returns the created IDs. See `apps/api/src/routes/
+ * promote.ts` and the hand-off spec `docs/REVIEW_APP_PROMOTE_API.md`. This
+ * pull-based CLI is retained as a one-shot bulk fallback only — prefer the API.
+ *
  * AECI-83 / Phase 2.0 — one-time bulk migration: Airtable → Supabase.
  *
  * Reads every Airtable Product with `promotion_status='promoted'` and writes the
@@ -701,6 +709,10 @@ function formatCounters(label: string, c: EntityCounters): string {
 }
 
 async function main() {
+  console.warn(
+    '[DEPRECATED] This pull-based bulk migration is superseded by POST /api/promote ' +
+      '(push from the review app). See docs/REVIEW_APP_PROMOTE_API.md. Continuing…',
+  );
   const dryRun = process.argv.includes('--dry-run');
   const directUrl = process.env.DIRECT_URL;
   const pat = process.env.AIRTABLE_PAT;

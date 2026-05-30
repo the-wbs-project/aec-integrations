@@ -71,6 +71,15 @@ AIRTABLE_PAT=
 # The Airtable base holding the curator workspace.
 AIRTABLE_BASE_ID=appy81IdGJY6Fngf9
 
+# ─── Review-app promotion push (POST /api/promote) ─────────────────────────
+# Bearer token the review application presents to push promoted records into
+# Supabase. The WORKER reads this at runtime (unlike the migration vars above),
+# so set it as a Wrangler secret in deployed envs:
+#   wrangler secret put REVIEW_APP_TOKEN --env preview|staging|production
+# Generate a high-entropy value, e.g. `openssl rand -hex 32`. Absent → every
+# /api/promote request is rejected 401 (fail-closed).
+REVIEW_APP_TOKEN=
+
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
 # HTTP intake). When empty, the helper is a no-op so dev boots cleanly.
