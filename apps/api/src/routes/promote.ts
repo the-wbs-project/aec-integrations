@@ -23,10 +23,20 @@
  *     `skipped[]` rather than failing the request — this preserves the
  *     product-driven "both endpoints promoted" rule from AECI-83.
  *
- * TODO(cache): promotion mutates cacheable product/vendor/integration pages.
- * Once `POST /admin/purge` lands (Phase 2.10, see `docs/CACHE_STRATEGY.md`),
- * call it here with the affected `Cache-Tag`s. The pull-based migration didn't
- * purge either; acceptable pre-launch.
+ * Cache purge (AECI-105): promotion mutates cacheable product / vendor /
+ * taxonomy pages, so after the transaction commits the handler purges the
+ * affected `Cache-Tag`s via the web Worker's `POST /admin/purge` (over the
+ * `WEB` service binding, `?source=promote`). Tags are derived in
+ * `cacheTagsForPromote` to match what SSR emits (`docs/CACHE_STRATEGY.md` §2).
+ * The purge is **best-effort and post-commit**: it runs via `ctx.waitUntil`
+ * (never blocks or fails the already-committed promote) and a failure is logged
+ * to Datadog — worst-case staleness reverts to the edge TTL (≤15 min), i.e. no
+ * regression vs. before this change. When `WEB` / `ADMIN_PURGE_TOKEN` are unset
+ * (e.g. local `pnpm dev:bound`) the purge is a graceful no-op.
+ *
+ * Two known, bounded staleness gaps remain out of scope (documented in
+ * `docs/REVIEW_APP_PROMOTE_API.md`): embedded reverse-tagging is Phase 4, and
+ * integration tags wait on AECI-86 re-enabling integration seeding below.
  */
 
 import {
@@ -50,6 +60,7 @@ import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
 import { getPrisma, type AcceleratedPrisma } from '../prisma';
+import { cacheTagsForPromote } from './promote-cache-tags';
 
 type PrismaFactory = (env: Env) => AcceleratedPrisma;
 
@@ -201,6 +212,68 @@ function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undef
 }
 
 const AUDIT_META = { source: 'review-app-promote' } as const;
+
+// ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
+// `POST /admin/purge` (web Worker) accepts ≤30 tags per call (mirrors
+// `PurgeRequestSchema.max(30)`); a promote rarely touches that many, so chunking
+// is defensive. The host in the URL is irrelevant for a service-binding fetch —
+// the web Worker routes on the path — so we use an internal sentinel host.
+const PURGE_TAG_BATCH = 30;
+const PURGE_URL = 'https://internal/admin/purge?source=promote';
+
+/**
+ * Best-effort, post-commit edge-cache purge for a promote. No-ops when the `WEB`
+ * binding or `ADMIN_PURGE_TOKEN` is absent, or when nothing cacheable changed.
+ * Batches are fired concurrently; a failed batch is logged (Datadog `warn`) and
+ * swallowed so it never affects the already-committed promote. The web Worker
+ * records each call's outcome as `aeci.cache.purge{source:promote,outcome:*}` —
+ * the API-side log here covers only the case where the call never reaches it.
+ */
+async function purgeAfterPromote(
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+): Promise<void> {
+  const web = c.env.WEB;
+  const token = c.env.ADMIN_PURGE_TOKEN;
+  if (!web || !token) return;
+
+  const tags = cacheTagsForPromote(response);
+  if (tags.length === 0) return;
+
+  const batches: string[][] = [];
+  for (let i = 0; i < tags.length; i += PURGE_TAG_BATCH) {
+    batches.push(tags.slice(i, i + PURGE_TAG_BATCH));
+  }
+
+  await Promise.allSettled(
+    batches.map(async (batch) => {
+      try {
+        const res = await web.fetch(PURGE_URL, {
+          method: 'POST',
+          headers: {
+            authorization: `Bearer ${token}`,
+            'content-type': 'application/json',
+          },
+          body: JSON.stringify({ tags: batch }),
+        });
+        if (!res.ok) logPurgeFailure(c, batch, `admin/purge responded ${res.status}`);
+      } catch (err) {
+        logPurgeFailure(c, batch, err instanceof Error ? err.message : String(err));
+      }
+    }),
+  );
+}
+
+function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason: string): void {
+  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    level: 'warn',
+    message: 'aeci.api.promote.cache_purge_failed',
+    source: 'review-app-promote',
+    reason,
+    tags: batch.join(','),
+    tags_count: batch.length,
+  });
+}
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 export function createPromoteHandler(
@@ -556,6 +629,13 @@ export function createPromoteHandler(
       },
       { maxWait: 10_000, timeout: 20_000 },
     );
+
+    // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort
+    // and post-commit — fired via `waitUntil` so it never blocks or fails the
+    // response. No-ops when `WEB` / `ADMIN_PURGE_TOKEN` are unset.
+    if (c.env.WEB && c.env.ADMIN_PURGE_TOKEN) {
+      c.executionCtx.waitUntil(purgeAfterPromote(c, response));
+    }
 
     return json(response);
   };

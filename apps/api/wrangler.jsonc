@@ -19,6 +19,17 @@
   //                 Worker code.
   //   DD_API_KEY  — Datadog Logs HTTP intake key (AECI-31). `logToDatadog()`
   //                 no-ops when this is unset, so non-DD envs are unaffected.
+  //   ADMIN_PURGE_TOKEN — bearer presented to the web Worker's POST /admin/purge
+  //                 (AECI-105). MUST equal the web Worker's `ADMIN_PURGE_TOKEN`.
+  //                 Absent → promote skips cache purge (graceful no-op).
+  //
+  // The `WEB` service binding (per-env blocks below) points back at the SSR
+  // Worker so `POST /api/promote` can purge edge cache tags after a commit
+  // (AECI-105). This is the inverse of the web Worker's `API` binding — a
+  // deliberate web↔api cycle (no runtime recursion: /admin/purge doesn't call
+  // back into the API). It's only bound per-env; unscoped `wrangler dev` /
+  // `pnpm dev:bound` leaves `WEB` unresolved, so local promotes no-op the purge
+  // — expected, not a bug.
   "workers_dev": false,
   // Smart Placement is intentionally NOT enabled. Prisma Accelerate is a
   // globally distributed HTTPS pool: this Worker always reaches the nearest
@@ -59,6 +70,9 @@
     "preview": {
       "name": "aeci-api-preview",
       "workers_dev": false,
+      // AECI-105: purge edge cache after promote by calling the web Worker's
+      // POST /admin/purge over this binding. Preview web Worker is `aeci-web`.
+      "services": [{ "binding": "WEB", "service": "aeci-web" }],
       "vars": {
         "ENV": "preview",
         "DD_SITE": "us5.datadoghq.com",
@@ -83,6 +97,8 @@
     "staging": {
       "name": "aeci-api-staging",
       "workers_dev": false,
+      // AECI-105: purge edge cache after promote (see preview note).
+      "services": [{ "binding": "WEB", "service": "aeci-web-staging" }],
       "vars": {
         "ENV": "staging",
         "DD_SITE": "us5.datadoghq.com",
@@ -106,6 +122,8 @@
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
+      // AECI-105: purge edge cache after promote (see preview note).
+      "services": [{ "binding": "WEB", "service": "aeci-web-production" }],
       "vars": {
         "ENV": "production",
         "DD_SITE": "us5.datadoghq.com",
