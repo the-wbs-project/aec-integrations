@@ -101,7 +101,8 @@ Shared TypeScript types in `packages/shared/`, validated at runtime with Zod sch
 # Install dependencies
 pnpm install
 
-# Run locally (uses .dev.vars for secrets)
+# Run locally — boots the AECi app: SSR Worker (:8788) + private API Worker (:8787), bound.
+# Alias for `pnpm dev:bound` (uses .dev.vars for secrets). The legacy landing page is `pnpm dev:landing`.
 pnpm dev
 
 # Type check across the monorepo

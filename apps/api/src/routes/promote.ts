@@ -467,6 +467,12 @@ export function createPromoteHandler(
         // TODO(AECI-86): Integration seeding temporarily disabled while we validate
         // the vendor/product promote flow on staging. Re-enable (and uncomment the
         // block below) once the site looks correct without integration data.
+        //
+        // PM DECISION: skipping integrations on this endpoint right now is a
+        // deliberate product call (per PM direction) — not an oversight or a bug.
+        // Integrations are intentionally NOT promoted via POST /api/promote for the
+        // moment; the AECI-83 bulk-migrate script remains the integration migration
+        // path in the interim. Re-enable under AECI-86 when product gives the go.
         // https://linear.app/aec-integrations/issue/AECI-86
         /*
         const affectedProducts = new Set<string>();
