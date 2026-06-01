@@ -222,6 +222,13 @@ describe.skipIf(!testDbUrl)('bulkMigrate — integration (AECI-83)', () => {
     expect(p1.integrationCount).toBe(1);
     expect(p2.integrationCount).toBe(1);
 
+    // Review aggregates recomputed by the shared helper (AECI-104): the
+    // migration writes no reviews, so review_count is 0 and the rating averages
+    // are NULL, matching the "approved-only / NULL-at-zero" rule.
+    expect(p1.reviewCount).toBe(0);
+    expect(p1.ratingOverallAvg).toBeNull();
+    expect(p1.ratingOnboardingAvg).toBeNull();
+
     // audit rows written for each entity create.
     expect(
       await prisma.auditLog.count({ where: { action: 'product.created', entityId: p1.id } }),

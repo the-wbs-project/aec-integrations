@@ -532,13 +532,12 @@ export function createPromoteHandler(
           affectedProducts.add(targetId);
         }
 
-        // ── Recompute denormalized integration_count for touched products ─────
-        for (const id of affectedProducts) {
-          const count = await tx.integration.count({
-            where: { OR: [{ sourceProductId: id }, { targetProductId: id }] },
-          });
-          await tx.product.update({ where: { id }, data: { integrationCount: count } });
-        }
+        // ── Recompute denormalized counts for touched products (AECI-104) ─────
+        // When AECI-86 re-enables this block, also add `review: ModelDelegate`
+        // to PromoteTx and import recomputeProductCounts from '../lib/product-counts'
+        // so this resolves: it maintains integration_count, review_count, and the
+        // rating averages from source rows in the same transaction.
+        await recomputeProductCounts(tx, affectedProducts);
         */
 
         const result: PromoteResponse = {
