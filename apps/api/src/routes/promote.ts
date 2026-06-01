@@ -61,7 +61,6 @@ import { ApiError } from '../errors';
 import { json } from '../http';
 import type { PrismaFactory } from '../lib/handler-utils';
 import { getPrisma } from '../prisma';
-import { getPrisma, type AcceleratedPrisma } from '../prisma';
 import { cacheTagsForPromote } from './promote-cache-tags';
 
 // ─── Loose structural Prisma surface ─────────────────────────────────────────
