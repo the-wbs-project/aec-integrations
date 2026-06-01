@@ -75,7 +75,7 @@ wrangler secret put DATABASE_URL --env production
 src/
   index.ts              Hono app, route registration only
   env.ts                Env type binding
-  prisma.ts             getPrisma(env) + withPrisma(env, handler)
+  prisma.ts             getPrisma(env) per-request client factory (injected via prismaFor)
   http.ts               json / badRequest / notFound (BigInt-safe)
   routes/
     health.ts           createHealthHandler factory (injectable for tests)

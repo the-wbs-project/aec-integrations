@@ -42,24 +42,29 @@ import { withAccelerate } from "@prisma/extension-accelerate";
 
 Importing `PrismaClient` from `@prisma/client` (without `/edge`) silently produces a client that does not work on Workers — flag it in review.
 
-**Per-request instantiation.** Do not cache the client in Worker module scope. Construct it per request and pass it to handlers via a helper. Modeled on `apps/prisma-test/src/index.ts:21-35`:
+**Per-request instantiation.** Do not cache the client in Worker module scope. Construct it per request via the `getPrisma(env)` factory, and inject that factory into handlers. Modeled on `apps/api/src/prisma.ts` (the factory) + `apps/api/src/routes/health.ts` (the injection site):
 
 ```ts
-function getPrisma(env: Env) {
+// apps/api/src/prisma.ts — per-request client factory
+export function getPrisma(env: Env) {
   return new PrismaClient({ datasourceUrl: env.DATABASE_URL })
     .$extends(withAccelerate());
 }
 
-async function withPrisma<T>(
-  env: Env,
-  handler: (prisma: ReturnType<typeof getPrisma>) => Promise<T>,
-) {
-  const prisma = getPrisma(env);
-  return handler(prisma);
+export type AcceleratedPrisma = ReturnType<typeof getPrisma>;
+
+// apps/api/src/routes/health.ts — handlers are factories that inject the client
+type PrismaFactory = (env: Env) => AcceleratedPrisma;
+
+export function createHealthHandler(prismaFor: PrismaFactory = getPrisma) {
+  return async (c: Context<{ Bindings: Env }>) => {
+    const prisma = prismaFor(c.env);
+    // ... use prisma
+  };
 }
 ```
 
-Handlers must accept the client as an argument rather than importing a singleton — this is what makes them testable (`TESTING_STRATEGY.md` §6.3).
+Handlers never import a module-level client. Each handler is a factory that takes `prismaFor: PrismaFactory = getPrisma` and calls it per request: the default wires up the real client in production, while tests pass a stub factory (`createHealthHandler(() => mockPrisma)`). This default-param injection is what makes handlers testable without a live database (`TESTING_STRATEGY.md` §6.3).
 
 **Two URLs:**
 

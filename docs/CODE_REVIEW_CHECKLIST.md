@@ -184,7 +184,7 @@ Be especially vigilant about these in AI-authored PRs. They are easy to miss bec
 - **Comments that confidently describe wrong behavior.** "// This handles the bot-score check" on code that doesn't check bot score.
 - **Stub or placeholder code committed.** `// TODO: implement actual logic` left in alongside passing tests — the tests are testing the stub, not real behavior.
 - **Prisma client constructed incorrectly for Workers.** Missing `withAccelerate()` extension, or imported from `@prisma/client` instead of `@prisma/client/edge`. Both are silently wrong on Workers and may even pass type-check. See `DATABASE_SCHEMA.md` §1a.
-- **Module-level Prisma client.** Constructed once at import time and reused across requests. Should be per-request via the `withPrisma(env, handler)` helper. Breaks request isolation and testability.
+- **Module-level Prisma client.** Constructed once at import time and reused across requests. Should be per-request via a `prismaFor: PrismaFactory = getPrisma` factory injected into the handler. Breaks request isolation and testability.
 - **Angular-decorator carryover.** `@HostBinding` / `@HostListener` / `@Input` / `@Output` / `ngClass` / `ngStyle` / `*ngIf` / `*ngFor` / `*ngSwitch` / `[(ngModel)]` in a form context — all banned. Use the `host: { ... }` metadata object, `input()` / `output()` / `model()`, `[class.X]` / `[style.X]` bindings, `@if` / `@for` / `@switch`, and reactive forms. `pnpm lint` catches most of these; if one slips past lint, flag it as a BLOCKER. See `ANGULAR_STYLE_GUIDE.md` for the full enforcement matrix.
 
 ---
