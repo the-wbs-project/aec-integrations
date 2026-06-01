@@ -1,3 +1,4 @@
+import type { PromoteResponse } from '@aeci/shared';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -6,6 +7,7 @@ import { errorHandler } from '../errors';
 import { requireReviewAppAuth } from '../lib/review-auth';
 import type { AcceleratedPrisma } from '../prisma';
 import { createPromoteHandler } from './promote';
+import { cacheTagsForPromote } from './promote-cache-tags';
 
 // ─── In-memory Prisma fake ────────────────────────────────────────────────────
 // Models share one instance set so writes inside `$transaction` are visible to
@@ -368,6 +370,242 @@ describe('createPromoteHandler', () => {
     expect(res.status).toBe(400);
     const b = (await res.json()) as { error: { code: string } };
     expect(b.error.code).toBe('MALFORMED_REQUEST');
+  });
+});
+
+describe('cache purge after promote (AECI-105)', () => {
+  const PURGE_URL = 'https://internal/admin/purge?source=promote';
+
+  /** Env with the `WEB` binding + token present, so the purge path runs. */
+  function purgeEnv(fetchMock: ReturnType<typeof vi.fn>): Env {
+    return {
+      ...baseEnv,
+      ADMIN_PURGE_TOKEN: 'purge-secret',
+      WEB: { fetch: fetchMock } as unknown as Fetcher,
+    };
+  }
+
+  /** Run a promote with a controllable WEB.fetch + a capturable execution ctx. */
+  async function promoteWithPurge(fake: Fake, body: unknown, fetchMock: ReturnType<typeof vi.fn>) {
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp(fake).request(
+      '/api/promote',
+      post(body),
+      purgeEnv(fetchMock),
+      execCtx,
+    );
+    // The purge is scheduled via `waitUntil`; await the scheduled promise so the
+    // fetch settles before assertions (the fake ctx's waitUntil doesn't itself).
+    const waitUntil = vi.mocked(execCtx.waitUntil);
+    if (waitUntil.mock.calls.length > 0) {
+      await waitUntil.mock.calls[0]![0];
+    }
+    return { res, execCtx };
+  }
+
+  it('purges the expected tag set for a representative create', async () => {
+    const fake = makeFake();
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+
+    const { res, execCtx } = await promoteWithPurge(
+      fake,
+      {
+        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+        product: {
+          ref: 'p1',
+          name: 'Revit',
+          categories: ['BIM'],
+          disciplines: ['Architecture'],
+        },
+      },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+    expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(PURGE_URL);
+    expect(init.method).toBe('POST');
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer purge-secret');
+
+    const sent = JSON.parse(init.body as string) as { tags: string[] };
+    expect(new Set(sent.tags)).toEqual(
+      new Set([
+        'product:revit',
+        'index:products',
+        'vendor:autodesk',
+        'index:vendors',
+        'category:bim',
+        'discipline:architecture',
+        'taxonomy',
+        'sitemap',
+      ]),
+    );
+    // Routine writes never carry the coarse route-class tags (CACHE_STRATEGY §3.3).
+    expect(sent.tags.some((t) => t.startsWith('route:'))).toBe(false);
+  });
+
+  it('does not purge when the WEB binding is absent (graceful no-op)', async () => {
+    const fake = makeFake();
+    const execCtx = fakeExecutionContext();
+    // `baseEnv` has no WEB / ADMIN_PURGE_TOKEN.
+    const res = await buildApp(fake).request(
+      '/api/promote',
+      post({ product: { ref: 'p1', name: 'Revit' } }),
+      baseEnv,
+      execCtx,
+    );
+    expect(res.status).toBe(200);
+    expect(execCtx.waitUntil).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 when the purge call fails (never fails the promote)', async () => {
+    const fake = makeFake();
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"error":"x"}', { status: 502 }));
+
+    const { res } = await promoteWithPurge(
+      fake,
+      { product: { ref: 'p1', name: 'Revit' } },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still returns 200 when the purge fetch throws', async () => {
+    const fake = makeFake();
+    const fetchMock = vi.fn().mockRejectedValue(new Error('binding unreachable'));
+
+    const { res } = await promoteWithPurge(
+      fake,
+      { product: { ref: 'p1', name: 'Revit' } },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('cacheTagsForPromote (AECI-105)', () => {
+  const entity = (slug: string, operation: 'created' | 'updated') => ({
+    ref: `ref-${slug}`,
+    id: `id-${slug}`,
+    slug,
+    operation,
+  });
+  const tax = (slug: string, operation: 'created' | 'reused') => ({
+    id: `id-${slug}`,
+    slug,
+    operation,
+  });
+  const emptyTaxonomy = { categories: [], disciplines: [], phases: [] };
+
+  it('created product + vendor + mixed taxonomy → entity, index, taxonomy, sitemap tags', () => {
+    const response: PromoteResponse = {
+      vendors: [entity('autodesk', 'created')],
+      product: entity('revit', 'created'),
+      integrations: [],
+      taxonomy: {
+        categories: [tax('bim', 'reused')],
+        disciplines: [tax('architecture', 'created')],
+        phases: [],
+      },
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set([
+        'product:revit',
+        'index:products',
+        'vendor:autodesk',
+        'index:vendors',
+        'category:bim',
+        'discipline:architecture',
+        'taxonomy', // a discipline was newly created
+        'sitemap', // product + vendor were created
+      ]),
+    );
+  });
+
+  it('updated entities + all-reused taxonomy → no sitemap, no taxonomy tag', () => {
+    const response: PromoteResponse = {
+      vendors: [entity('autodesk', 'updated')],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: { categories: [tax('bim', 'reused')], disciplines: [], phases: [] },
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set([
+        'product:revit',
+        'index:products',
+        'vendor:autodesk',
+        'index:vendors',
+        'category:bim',
+      ]),
+    );
+  });
+
+  it('vendor-only update → vendor + index:vendors only (no product/taxonomy/sitemap)', () => {
+    const response: PromoteResponse = {
+      vendors: [entity('autodesk', 'updated')],
+      product: null,
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(cacheTagsForPromote(response).sort()).toEqual(['index:vendors', 'vendor:autodesk']);
+  });
+
+  it('created vendor (no product) → sitemap included', () => {
+    const response: PromoteResponse = {
+      vendors: [entity('autodesk', 'created')],
+      product: null,
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set(['vendor:autodesk', 'index:vendors', 'sitemap']),
+    );
+  });
+
+  it('a newly created phase → phase tag + taxonomy', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: entity('revit', 'updated'),
+      integrations: [],
+      taxonomy: { categories: [], disciplines: [], phases: [tax('design', 'created')] },
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set(['product:revit', 'index:products', 'phase:design', 'taxonomy']),
+    );
+  });
+
+  it('nothing cacheable changed → empty tag set', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(cacheTagsForPromote(response)).toEqual([]);
+  });
+
+  it('never emits coarse route-class tags', () => {
+    const response: PromoteResponse = {
+      vendors: [entity('autodesk', 'created')],
+      product: entity('revit', 'created'),
+      integrations: [],
+      taxonomy: { categories: [tax('bim', 'created')], disciplines: [], phases: [] },
+      skipped: [],
+    };
+    expect(cacheTagsForPromote(response).some((t) => t.startsWith('route:'))).toBe(false);
   });
 });
 

@@ -280,6 +280,39 @@ idempotent.
 
 ---
 
+## 6a. Edge-cache freshness after a promote (AECI-105)
+
+You don't need to do anything for this — it's documented so you know what to
+expect. After a successful promote commits, the AECi API invalidates the public
+pages your push affected by purging their edge-cache tags (the product / vendor
+detail pages, the `/products` and `/vendors` indexes, the relevant
+category/discipline/phase browse pages, and — when a new taxonomy term or a new
+product/vendor was created — the taxonomy nav and `sitemap.xml`). So a re-pushed
+**edit** (e.g. a corrected description) becomes visible publicly within one edge
+round-trip rather than waiting out the cache TTL.
+
+**Failure semantics (deliberate):** the purge is **best-effort and runs after the
+write commits**. It is fired asynchronously and **never affects your response** —
+a promote that succeeds returns `200` even if the subsequent purge call fails.
+On the AECi side, every purge is observable in Datadog as
+`aeci.cache.purge{source:promote,outcome:ok|cf_failed}`, plus a `warn` log if the
+internal call can't be reached. If a purge does fail, the only consequence is that
+the affected pages fall back to their normal edge TTL (≤15 min on detail pages) —
+the same staleness window that existed before this behavior was added, so there is
+no correctness regression. No retry or action is required from the review app.
+
+**Known bounded gaps (tracked, out of scope here):**
+
+- **Embedded entities** (a product page showing its vendor) aren't reverse-tagged
+  yet (Phase 4). Until then, editing *only* a vendor refreshes the vendor's own
+  page promptly but not the product pages that display it — those repaint on the
+  next TTL expiry.
+- **Integrations** are not yet purged because integration seeding is temporarily
+  disabled (AECI-86). When it is re-enabled, the integration detail pages and the
+  two linked product pages will be added to the purge set.
+
+---
+
 ## 7. Worked example
 
 A product (**Revit**) with one vendor (**Autodesk**), two categories, and one

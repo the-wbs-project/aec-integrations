@@ -66,7 +66,7 @@ export function logToDatadog(
   const apiKey = env.DD_API_KEY;
   if (!apiKey) return;
 
-  const ddEnv = env.ENV ?? 'preview';
+  const ddEnv = env.ENV ?? 'development';
   const { message, level, ...rest } = event;
   const payload = {
     ...rest,
@@ -132,7 +132,7 @@ export function logToDatadog(
 const DD_METRIC_TYPE_COUNT = 1;
 
 function metricBaseTags(env: WebEnv): string[] {
-  const ddEnv = env.ENV ?? 'preview';
+  const ddEnv = env.ENV ?? 'development';
   return [
     `env:${ddEnv}`,
     `app:${APP}`,
