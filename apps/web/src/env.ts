@@ -42,7 +42,13 @@ export type DatadogPublicConfig = {
 export type WebEnv = {
   ASSETS: Fetcher;
   API: Fetcher;
-  ENV?: 'preview' | 'production';
+  /**
+   * Deployment environment label. Each wrangler env block sets this explicitly
+   * (`preview`/`staging`/`production`); when unset (bare `wrangler dev`, tests)
+   * Datadog logs/metrics and the RUM bootstrap report `development` — matching
+   * the API Worker's `/api/version` convention (AECI-119).
+   */
+  ENV?: 'development' | 'preview' | 'staging' | 'production';
   DD_APPLICATION_ID?: string;
   DD_CLIENT_TOKEN?: string;
   DD_API_KEY?: string;

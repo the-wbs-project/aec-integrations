@@ -110,12 +110,12 @@ describe('logToDatadog (web SSR Worker)', () => {
     expect(body.hostname).toBe('aeci.com');
   });
 
-  it('defaults env to preview in ddtags when env.ENV is unset', async () => {
+  it('defaults env to development in ddtags when env.ENV is unset', async () => {
     const { ctx, promises } = makeCtx();
     logToDatadog(ctx as never, makeEnv({ ENV: undefined }), makeRequest(), { message: 'x' });
     await Promise.all(promises);
     const body = JSON.parse(fetchSpy.mock.calls[0]![1]!.body as string);
-    expect(body.ddtags).toBe('env:preview,app:aeci,worker:aeci-web,locale:en-US');
+    expect(body.ddtags).toBe('env:development,app:aeci,worker:aeci-web,locale:en-US');
   });
 
   it('uses DD_SITE when provided (multi-region support)', async () => {
