@@ -21,15 +21,19 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Topic | Source of truth |
 |---|---|
 | What we're building and why | `docs/STAGE_1_SPEC.md` |
+| Phase 2 scope and spec (supersedes §16 Phase 2 of the Stage 1 spec) | `docs/STAGE_1_PHASE_2_SPEC.md` |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
 | Review-app → Supabase promotion push (`POST /api/promote` payload/response, idempotency, integration rule) | `docs/REVIEW_APP_PROMOTE_API.md` |
 | Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
 | Migration workflow (writing / applying SQL via Supabase CLI) | `docs/migrations.md` |
+| Prisma-as-query-builder contract (Accelerate, `generate`/`db pull` only) | `docs/prisma.md` |
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
+| Environment topology, promotion model, operator runbook (tiers, PR-preview lifecycle, bootstrap) | `docs/environments.md` |
 | Cloudflare Access for non-prod environments (allowlist, service token rotation, lockout) | `docs/access.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
+| Code-review exemptions (accepted/deferred findings, expiry rules) | `docs/CODE_REVIEW_EXEMPTIONS.md` |
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
 | Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
@@ -38,6 +42,12 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
 | Angular / TypeScript conventions (zoneless, signals, control flow, OnPush, SSR safety, file naming, lint rules) | `ANGULAR_STYLE_GUIDE.md` (repo root) |
 | Brand book (palette, contrast, visual principles, DOCX export) | `docs/BRAND_GUIDELINES.md` |
+| Logo construction spec (coordinates, geometry, type specs — companion to the brand book) | `branding/logo-construction.md` (repo root) |
+| v0.dev → Angular design workflow (the loop: spec → prompt → iterate → port → review → ship) | `docs/design/workflow.md` |
+| v0.dev → Angular porting rules + token map (the contract a port is reviewed against) | `docs/design/v0-porting-rules.md` |
+| v0.dev account-level aesthetic directives / system prompt | `docs/design/v0-system-prompt.md` |
+| Foundation stack validation (Phase 1 reference: Angular SSR + Workers + Spartan UI) | `docs/STACK_VALIDATION_TEST.md` |
+| Architecture Decision Records — why key choices were made | `docs/adr/README.md` (index) |
 
 If your work touches a topic governed by one of these documents, that document is the source of truth — not your prior knowledge or assumptions.
 

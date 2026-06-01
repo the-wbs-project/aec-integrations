@@ -1,5 +1,7 @@
 # Deployment & CI Issues — Stage 1 Bootstrap
 
+> **Historical — superseded.** Bootstrap/CI issues from AECI-57/58; the disabled workflows were re-enabled 2026-05-28 once the Accelerate schema-cache lag was measured. Kept for reference; **not a source of truth.** Archived per AECI-106.
+
 **Status:** Originally documented disabled workflows are now **re-enabled** as
 of 2026-05-28 after the Accelerate schema-cache lag was measured empirically
 (see [Resolution: 2026-05-28](#resolution-2026-05-28) below). The original

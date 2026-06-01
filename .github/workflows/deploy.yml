@@ -139,7 +139,7 @@ jobs:
     # lag with `scripts/measure-accelerate-lag.mjs`. Observed lag from
     # `supabase db push` returning to a typed Prisma query succeeding: 1.1s
     # (single cycle; SIN edge). Documented "minutes to hours" worst-case in
-    # docs/deployment-issues.md #6 was not reproduced. `sleep 30` step below
+    # docs/archive/deployment-issues.md #6 was not reproduced. `sleep 30` step below
     # provides margin; bump if CI flakes after schema-changing PRs.
     runs-on: ubuntu-latest
     needs: [lint-and-types, unit-tests]

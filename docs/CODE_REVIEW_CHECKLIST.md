@@ -29,8 +29,9 @@ The most distinctive concern for this codebase. Code that diverges from the spec
 
 - Does the diff implement what the linked spec section describes?
 - If the diff modifies behavior covered by a spec section, does the spec get updated in the same PR?
+- If the PR adds or renames a `docs/*.md` (or root doc) that governs work, is it added to the `CLAUDE.md` source-of-truth table in the same PR? (No orphaned governing docs — see AECI-106.)
 - Does the code use the entity types, error codes, and field names defined in `API_CONTRACTS.md` and `DATABASE_SCHEMA.md`?
-- Does the code respect the constraints in `CLAUDE.md` (Prisma uses `@prisma/extension-accelerate` and `@prisma/client/edge`; no `@prisma/adapter-pg-worker`; no Cache-Tag; zoneless; both themes always; no pay-for-placement; i18n strings wrapped)?
+- Does the code respect the constraints in `CLAUDE.md` (Prisma uses `@prisma/extension-accelerate` and `@prisma/client/edge`; no `@prisma/adapter-pg-worker`; cacheable SSR responses set `Cache-Tag` via the AECI-56 helper; zoneless; both themes always; no pay-for-placement; i18n strings wrapped)?
 
 If the spec is wrong, that's also a defect — flag it. Do not silently work around it.
 
@@ -93,8 +94,8 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 
 - Write path that should call `appendAuditLog()` but doesn't
 - Write path that mutates an entity and writes `audit_log` outside a `prisma.$transaction(...)` — both must commit together (see `DATABASE_SCHEMA.md` §18)
-- `invalidateForEntity()` called inside a `prisma.$transaction(...)` instead of after it commits, or not wrapped in `ctx.waitUntil()` on the response path
-- Write path that should call `invalidateForEntity()` but doesn't
+- Cache purge (`POST /admin/purge`) fired inside a `prisma.$transaction(...)` instead of after it commits, or not wrapped in `ctx.waitUntil()` on the response path
+- Write path that affects cached pages but doesn't purge the relevant cache tags (see `CACHE_STRATEGY.md` §5)
 - Migration that's not forward-only safe (drops a column the old code still reads)
 - Schema change without corresponding migration file
 - Schema change without `DATABASE_SCHEMA.md` updated in the same PR
@@ -115,11 +116,11 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 
 - Cacheable response without `Cache-Control` headers
 - Non-cacheable response (user-specific, write) without `Cache-Control: private, no-store`
-- Write path that invalidates the wrong set of URLs (consult the URL invalidation map in `STAGE_1_SPEC.md` §9.3)
+- Write path that purges the wrong set of cache tags, or fails to call `POST /admin/purge` after a write that affects cached pages (consult the tag vocabulary in `CACHE_STRATEGY.md` §2; the `STAGE_1_SPEC.md` §9.3 URL-invalidation map is superseded)
 - Cache key that includes user-specific data, fragmenting the cache
 - **BLOCKER** — Cached SSR route reads a request cookie and bakes the value into rendered HTML (cookie/cache pollution). Visitor-state cookies must be stripped before forwarding to SSR for cacheable routes, or the route must not be cached. See `STAGE_1_SPEC.md` §9.1a.
 - **BLOCKER** — 404 / not-found returns HTTP 200 with a long TTL (the "pinned 404" trap). 404 must return status 404 with TTL ≤60s. See `STAGE_1_SPEC.md` §9.1b.
-- **MAJOR** — Response emits a `Vary` header (`Vary: Cookie`, `Vary: Accept-Language`, etc.) that fragments the edge cache and undermines purge-by-URL on Pro. Reject unless there's an explicit, documented reason. Use URL-prefix segmentation (e.g., locale prefix) instead.
+- **MAJOR** — Response emits a forbidden `Vary` header (`Vary: Cookie`, `Vary: User-Agent`, etc.) that fragments the edge cache without a corresponding `Cache-Tag` advantage. `Vary: Accept-Language` is permitted (URL-prefix locale dispatch already handles the variance); any other `Vary` value is rejected unless there's an explicit, documented reason. Use URL-prefix segmentation instead.
 - **MAJOR** — `CLOUDFLARE_API_TOKEN` scope broadened beyond `Zone.Cache Purge` on `aecintegrations.com`.
 
 ### Accessibility

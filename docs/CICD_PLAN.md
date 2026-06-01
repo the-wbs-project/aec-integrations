@@ -310,9 +310,9 @@ If a migration broke something, you write a new migration that fixes it (could b
 
 ### 6.3 Cache invalidation on rollback
 
-After any rollback, purge the cache for affected URLs. Use the `invalidateForEntity()` helper from `STAGE_1_SPEC.md` §9.3, but at a global level — purge `/`, all listing pages, and any pages that the rolled-back code rendered.
+After any rollback, purge the affected cache **tags** via `POST /admin/purge` with a tag list (see `CACHE_STRATEGY.md` §5 for the endpoint shape, tag vocabulary, and auth). Purge the tags for any pages the rolled-back code rendered; for a drastic rollback, use the coarse route-class tags (`route:detail` / `route:index` / `route:browse`) to repaint whole page classes at once.
 
-In practice, after a rollback, purge by URL pattern (`*` if drastic) using `wrangler tail` to monitor cache miss rates climbing back to normal.
+Use `wrangler tail` to monitor cache miss rates climbing back to normal after the purge. (The `invalidateForEntity()` / URL-invalidation-map approach in `STAGE_1_SPEC.md` §9.3 is superseded — see `CACHE_STRATEGY.md`.)
 
 ---
 
@@ -328,7 +328,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 |---|---|---|
 | `CLOUDFLARE_API_TOKEN` | Wrangler auth + cache purge. Scope: **`Zone.Cache Purge` on `aecintegrations.com` only** (narrowest possible). Do not promote to a broader scope under deadline pressure — issue a new token with the same minimal scope and rotate. | All |
 | `CLOUDFLARE_ACCOUNT_ID` | Account identifier | All |
-| `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; passed to `invalidateForEntity()` purge calls | staging, production |
+| `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; used by wrangler and the zone-scoped cache-purge token backing `POST /admin/purge` (see `CACHE_STRATEGY.md` §5) | staging, production |
 | `SUPABASE_ACCESS_TOKEN` | Migrations via Supabase CLI | All |
 | `SUPABASE_DB_URL` | Supabase pooler URL; doubles as `DIRECT_URL` for `supabase db push --linked` | All |
 | `DATABASE_URL` | Prisma Accelerate runtime URL (`prisma://...`); one per environment. Pushed to Worker via `wrangler secret put DATABASE_URL` | All |
