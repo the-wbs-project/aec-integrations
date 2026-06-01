@@ -86,6 +86,12 @@ specific. Reference the spec section or the planned follow-up work.
 
 ## Active exemptions
 
+_None currently active._
+
+---
+
+## Retired exemptions
+
 ### EX-001 — Phase 1.6 scaffolding skips API auth/CORS/CSRF/rate-limit on /api/health
 
 ```yaml
@@ -104,17 +110,15 @@ scope:
     - "rate limit"
 severity: MAJOR
 expiry: AECI-29
-status: active
+status: retired
 added: 2026-05-17
 added_by: claude
+retired: 2026-06-01
+retired_reason: AECI-29 (baseline RLS + Supabase Auth integration) is Done, so the AECI-29 expiry condition fired. API auth / CORS / CSRF / rate-limit findings are back in scope. The 2026-06-01 codebase audit flagged this entry as expired-but-still-active.
 ```
 
 **Justification.** The API Worker is private and only reachable via the SSR Worker's service binding during Phase 1 (per `STAGE_1_SPEC.md` and the wrangler config comments at `apps/api/wrangler.jsonc:7-14`). No public route is exposed yet, so CORS / CSRF / per-IP rate limits are not applicable. Auth wiring lands with AECI-29 (RLS + Supabase Auth integration). When AECI-29 closes this exemption expires and these checks come back into scope for the first endpoint that takes user-controlled input.
 
 ---
-
-## Retired exemptions
-
-(none yet)
 
 When an exemption is no longer needed — either the underlying issue shipped, the trade-off was reversed, or the code was deleted — move the entry here, set `status: retired`, and add a `retired:` field with the date and a one-line reason. Keeping retired entries in the file is a low-cost historical record of what the team consciously accepted and when.

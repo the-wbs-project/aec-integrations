@@ -4,7 +4,7 @@
   "packageManager": "pnpm@10.33.0",
   "scripts": {
     "postinstall": "pnpm --filter @aeci/api --filter @aeci/web --filter @aeci/stack-test run cf-typegen",
-    "dev": "pnpm --filter @aeci/landing dev",
+    "dev": "pnpm dev:bound",
     "dev:landing": "pnpm --filter @aeci/landing dev",
     "dev:web": "pnpm --filter @aeci/web dev",
     "dev:api": "pnpm --filter @aeci/api dev",
