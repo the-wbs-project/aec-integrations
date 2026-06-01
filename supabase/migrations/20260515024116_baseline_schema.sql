@@ -781,12 +781,18 @@ CREATE TRIGGER translations_updated_at
 --
 -- products.integration_count, products.review_count, products.rating_overall_avg,
 -- and products.rating_onboarding_avg are denormalized columns kept in sync at
--- the application layer in Stage 1, NOT by database triggers. The API Worker
--- calls invalidateForEntity(env, "product", productId) after writes to
--- integrations/reviews to recompute and update these columns
--- (STAGE_1_SPEC.md §9.3, DATABASE_SCHEMA.md §11.2).
+-- the application layer in Stage 1, NOT by database triggers. On every write to
+-- integrations/reviews, the API Worker recomputes these columns inside the same
+-- transaction via the shared helper recomputeProductCounts()
+-- (apps/api/src/lib/product-counts.ts). review_count and the rating averages
+-- count only reviews with status='approved' (STAGE_1_SPEC.md §4.7, §12); the
+-- averages are NULL when there are no approved reviews. Cache-Tag purging of
+-- affected pages is a separate concern (see CLAUDE.md "Cache invalidation"), not
+-- part of count maintenance.
 --
--- Triggers are reserved for Phase 2 if write performance becomes an issue.
--- The columns ship with safe defaults (0 for counts, NULL for averages) so a
--- product row is valid the moment it's inserted, even before any aggregation
--- has run.
+-- A reconciliation script/test (apps/api/scripts/reconcile-product-counts.ts,
+-- findProductCountDrift) recomputes the expected values from the source rows and
+-- flags drift. Triggers are reserved for Phase 2 if write performance becomes an
+-- issue (DATABASE_SCHEMA.md §11.2). The columns ship with safe defaults (0 for
+-- counts, NULL for averages) so a product row is valid the moment it's inserted,
+-- even before any aggregation has run.

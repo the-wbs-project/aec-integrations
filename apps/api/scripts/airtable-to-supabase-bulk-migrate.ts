@@ -46,6 +46,7 @@ import { randomUUID } from 'node:crypto';
 import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 
+import { recomputeProductCounts } from '../src/lib/product-counts';
 import { createAirtableGateway, type AirtableGateway, type AirtableRecord } from './lib/airtable';
 
 // ─── Airtable table IDs (base appy81IdGJY6Fngf9) ─────────────────────────────
@@ -89,6 +90,14 @@ type AnyPrisma = {
   taxonomyCategory: ModelDelegate;
   taxonomyDiscipline: ModelDelegate;
   taxonomyPhase: ModelDelegate;
+  // `review` is read-only here (count + _avg) — used by recomputeProductCounts
+  // to maintain the denormalized product aggregates (AECI-104).
+  review: ModelDelegate & {
+    aggregate(args: {
+      where?: Record<string, unknown>;
+      _avg: Record<string, true>;
+    }): Promise<{ _avg: Record<string, number | string | null> }>;
+  };
   auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
 };
 
@@ -621,14 +630,13 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
   }
 
   // ── Step 8: recompute denormalized product counts ───────────────────────────
+  // Shared helper recomputes integration_count, review_count, and the rating
+  // averages from source rows (AECI-104). review aggregates resolve to 0/NULL
+  // here since the migration writes no reviews, but the single code path keeps
+  // this in lock-step with every other write path.
   if (!dryRun) {
-    log.log('Recomputing product integration_count…');
-    for (const id of productUuid.values()) {
-      const count = await prisma.integration.count({
-        where: { OR: [{ sourceProductId: id }, { targetProductId: id }] },
-      });
-      await prisma.product.update({ where: { id }, data: { integrationCount: count } });
-    }
+    log.log('Recomputing denormalized product counts…');
+    await recomputeProductCounts(prisma, productUuid.values());
   }
 
   // ── Step 9: write supabase_uuid back to Airtable ────────────────────────────

@@ -232,7 +232,7 @@ create table products (
   -- Brandfetch / logo
   logo_url text, -- typically a Brandfetch CDN URL
 
-  -- Aggregates (denormalized, kept in sync via triggers or app code)
+  -- Aggregates (denormalized, kept in sync by app code via recomputeProductCounts(); triggers deferred to Phase 2 — see §11.2)
   integration_count integer not null default 0,
   review_count integer not null default 0,
   rating_overall_avg numeric(3,2),
@@ -787,12 +787,11 @@ create trigger products_updated_at before update on products
 
 ### 11.2 Denormalized counts
 
-`products.integration_count`, `products.review_count`, `products.rating_overall_avg`, etc. are denormalized for read performance. They're maintained by either:
+`products.integration_count`, `products.review_count`, `products.rating_overall_avg`, and `products.rating_onboarding_avg` are denormalized for read performance. In Stage 1 they are maintained by **application code in the API Worker**: every write path that mutates `integrations` or `reviews` calls the shared `recomputeProductCounts()` helper (`apps/api/src/lib/product-counts.ts`) inside the same transaction. `review_count` and the rating averages count only reviews with `status = 'approved'` (the only publicly visible state — see §4.7, §12); the averages are NULL when a product has no approved reviews.
 
-- Database triggers on the source tables (`integrations`, `reviews`)
-- Application code in the API Worker on the write path
+**Drift protection.** `findProductCountDrift()` and `scripts/reconcile-product-counts.ts` recompute the expected values from the source rows and flag any product whose stored columns disagree (run via `pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via Datadog. A unit test (`src/lib/product-counts.spec.ts`) and a `TEST_DATABASE_URL`-gated integration test (`src/integration/product-counts.spec.ts`) cover both the recompute and the drift check.
 
-For Stage 1, **application-managed counts via the `invalidateForEntity()` helper** is the pattern. Triggers are reserved for future optimization if write performance becomes an issue.
+Database triggers on the source tables are **reserved for Phase 2** if write performance becomes an issue; Stage 1 deliberately keeps this at the application layer. (The `invalidateForEntity()` helper referenced by earlier drafts was never built and is superseded — cache invalidation now goes through the Cache-Tag strategy, a separate concern from count maintenance; see CLAUDE.md "Cache invalidation".)
 
 ### 11.3 Slug generation
 

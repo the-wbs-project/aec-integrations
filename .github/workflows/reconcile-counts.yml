@@ -1,0 +1,107 @@
+# AEC Integrations — denormalized product-count reconciliation (AECI-104).
+#
+# Scheduled drift guard for the app-maintained product aggregates
+# (`products.integration_count`, `review_count`, `rating_overall_avg`,
+# `rating_onboarding_avg`). Runs `scripts/reconcile-product-counts.ts`
+# REPORT-ONLY against staging (and prod) via `DIRECT_URL`: it recomputes the
+# expected values from the `integrations` / `reviews` source rows and exits
+# non-zero if any product's stored columns have drifted — which fails the job
+# and notifies. The script also emits a Datadog gauge `aeci.product_counts.drift`
+# (and an error log on drift) when `DD_API_KEY` is set, so a monitor can alert
+# independently of the GitHub run.
+#
+# This is the DATA-drift counterpart to `drift-check.yml` (which only checks
+# SCHEMA drift on a fresh empty DB at PR time). Reconciliation only has meaning
+# against real data, hence a scheduled run against the linked remotes rather than
+# a PR check.
+#
+# NEVER runs `--fix` here — repair is a deliberate, reviewed action a human runs
+# locally (`pnpm --filter @aeci/api db:reconcile-counts -- --fix`).
+#
+# Required secrets:
+#   DIRECT_URL_STAGING       Supabase pooler `postgresql://...` for the dev/staging project
+#   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod
+#   DATADOG_API_KEY          Datadog API key (mapped to the script's DD_API_KEY)
+
+name: reconcile-counts
+
+on:
+  schedule:
+    # Daily at 08:00 UTC. Cheap read-only query; once a day is ample for a
+    # slow-drift guard.
+    - cron: '0 8 * * *'
+  workflow_dispatch: {}
+
+concurrency:
+  group: reconcile-counts
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  # Opt JS-based actions onto Node 24 ahead of the 2026-06-02 default flip;
+  # mirrors the other workflows.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  reconcile:
+    name: Reconcile ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    strategy:
+      # Independent targets — don't cancel prod just because staging drifted.
+      fail-fast: false
+      matrix:
+        include:
+          - target: staging
+            secret_name: DIRECT_URL_STAGING
+          - target: production
+            secret_name: DIRECT_URL_PRODUCTION
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+
+      - run: pnpm install --frozen-lockfile
+
+      # The reconcile script imports the generated Prisma client transitively
+      # through src/lib/product-counts.ts → @prisma/client. Same step as
+      # drift-check.yml / refresh-staging.yml.
+      - name: Generate Prisma client
+        run: pnpm --filter @aeci/api exec prisma generate
+
+      - name: Reconcile product counts (report-only)
+        env:
+          # `secrets[matrix.secret_name]` selects the staging/prod URL per target.
+          DIRECT_URL: ${{ secrets[matrix.secret_name] }}
+          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DD_ENV: ${{ matrix.target }}
+          SECRET_NAME: ${{ matrix.secret_name }}
+        run: |
+          if [ -z "$DIRECT_URL" ]; then
+            echo "::error::${SECRET_NAME} secret is empty. Configure it under repo Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          pnpm --filter @aeci/api exec tsx scripts/reconcile-product-counts.ts
+
+      - name: Explain drift on failure
+        if: failure()
+        env:
+          TARGET: ${{ matrix.target }}
+          SECRET_NAME: ${{ matrix.secret_name }}
+        run: |
+          {
+            echo "::error::Product-count drift detected on ${TARGET} (or the job failed to run)."
+            echo "::error::A write path likely mutated integrations/reviews without calling recomputeProductCounts()."
+            echo "::error::To inspect + repair against the affected env:"
+            echo "::error::  DIRECT_URL=<${SECRET_NAME}> pnpm --filter @aeci/api db:reconcile-counts -- --fix"
+            echo "::error::See docs/DATABASE_SCHEMA.md §11.2 and apps/api/src/lib/product-counts.ts."
+          }

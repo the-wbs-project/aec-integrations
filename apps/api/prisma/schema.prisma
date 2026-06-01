@@ -108,9 +108,11 @@ model Product {
   productRole String  @default("application") @map("product_role")
   logoUrl     String? @map("logo_url")
 
-  // Denormalized aggregates (§11.2). Stage 1: maintained by app code via
-  // invalidateForEntity() on writes to integrations/reviews. Recompute logic
-  // and (later) DB triggers are deferred to Phase 2.
+  // Denormalized aggregates (§11.2). Stage 1: recomputed at the app layer by
+  // recomputeProductCounts() (src/lib/product-counts.ts) inside the write tx on
+  // changes to integrations/reviews; review_count + rating_*_avg count only
+  // status='approved' reviews. Reconciliation: findProductCountDrift /
+  // scripts/reconcile-product-counts.ts. DB triggers deferred to Phase 2.
   integrationCount    Int      @default(0) @map("integration_count")
   reviewCount         Int      @default(0) @map("review_count")
   ratingOverallAvg    Decimal? @map("rating_overall_avg") @db.Decimal(3, 2)
