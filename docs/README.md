@@ -19,16 +19,36 @@ This directory holds the planning, architecture, and operational documentation f
 | Document | Status | Description |
 |---|---|---|
 | [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) | Active | Master specification for the Stage 1 launch. References every other document. |
+| [`STAGE_1_PHASE_2_SPEC.md`](./STAGE_1_PHASE_2_SPEC.md) | Active | Phase 2 scope and specification. Supersedes §16 Phase 2 of the Stage 1 spec. |
 | [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | Active | Complete Supabase schema: all tables, columns, indexes, RLS hooks, and Airtable migration plan. |
+| [`migrations.md`](./migrations.md) | Active | Migration workflow — writing/applying SQL via the Supabase CLI (it owns migrations, not Prisma). |
+| [`prisma.md`](./prisma.md) | Active | Prisma-as-query-builder contract: Accelerate, `generate`/`db pull` only, no `prisma migrate`. |
 | [`API_CONTRACTS.md`](./API_CONTRACTS.md) | Active | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules. |
+| [`REVIEW_APP_PROMOTE_API.md`](./REVIEW_APP_PROMOTE_API.md) | Active | Review-app → Supabase promotion push: `POST /api/promote` payload/response, idempotency, integration rule. |
 | [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Placeholder | Authorization model and Row-Level Security policies. Full definition pending. |
 | [`CICD_PLAN.md`](./CICD_PLAN.md) | Active | GitHub Actions pipeline, environments, deployments, rollback, secrets management. |
+| [`environments.md`](./environments.md) | Active | Environment topology, promotion model, PR-preview lifecycle, secrets, and bootstrap checklist across all tiers. |
 | [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |
+| [`CACHE_STRATEGY.md`](./CACHE_STRATEGY.md) | Active | Edge caching: tag vocabulary, TTLs, `POST /admin/purge` invalidation, SEO header set. |
+| [`OBSERVABILITY.md`](./OBSERVABILITY.md) | Active | Datadog custom-metric catalog, dashboard, and monitors. |
+| [`RUNBOOKS.md`](./RUNBOOKS.md) | Active | Incident runbooks for Datadog alerts. (Realizes the formerly-planned `OPERATIONAL_RUNBOOKS.md`.) |
 | [`TESTING_STRATEGY.md`](./TESTING_STRATEGY.md) | Active | Testing tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy. |
 | [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
 | [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |
-| [`SEARCH_RANKING.md`](./SEARCH_RANKING.md) | Pending | Algolia ranking customization, tuning rules, feedback loops. |
-| [`OPERATIONAL_RUNBOOKS.md`](./OPERATIONAL_RUNBOOKS.md) | Pending | Incident response, vendor dispute handling, recovery procedures. |
+| [`CODE_REVIEW_EXEMPTIONS.md`](./CODE_REVIEW_EXEMPTIONS.md) | Active | Accepted/deferred review findings and their expiry rules. Loaded alongside the checklist on every review. |
+| [`SEARCH_RANKING.md`](./SEARCH_RANKING.md) | Planned | Algolia ranking customization, tuning rules, feedback loops. Not yet written. |
+
+### Design and brand
+
+| Document | Status | Description |
+|---|---|---|
+| [`BRAND_GUIDELINES.md`](./BRAND_GUIDELINES.md) | Active | Brand palette, contrast, visual principles, DOCX export. |
+| [`design/workflow.md`](./design/workflow.md) | Active | v0.dev → Angular design workflow: the loop from idea to shipped UI. |
+| [`design/v0-porting-rules.md`](./design/v0-porting-rules.md) | Active | v0.dev → Angular porting rules + token map. The contract a port is reviewed against. |
+| [`design/v0-system-prompt.md`](./design/v0-system-prompt.md) | Active | v0.dev account-level aesthetic directives / custom instructions. |
+| [`design/LESSONS.md`](./design/LESSONS.md) | Log | Append-only log of design-workflow lessons from ported screens. |
+
+> Visual-system tokens live in the repo-root `DESIGN.md`; product/brand strategy in `PRODUCT.md`; Angular/TypeScript conventions in `ANGULAR_STYLE_GUIDE.md`; logo construction in `branding/logo-construction.md`. The root `CLAUDE.md` source-of-truth table is the complete index, including these root-level docs.
 
 ### Validation and reference
 
@@ -38,15 +58,13 @@ This directory holds the planning, architecture, and operational documentation f
 
 ### Architecture Decision Records (`adr/`)
 
-Short, dated records explaining *why* specific decisions were made. Use the [ADR format](https://adr.github.io/) — Context, Decision, Consequences. Add a new ADR when a decision could surprise someone six months from now.
+Short, dated records explaining *why* specific decisions were made. Use the [ADR format](https://adr.github.io/) — Context, Decision, Consequences. Add a new ADR when a decision could surprise someone six months from now. See [`adr/README.md`](./adr/README.md) for the live index.
 
-Examples planned:
-- `0001-cloudflare-workers-over-vercel.md`
-- `0002-no-prisma-accelerate.md`
-- `0003-linear-over-huly.md` (and back from huly to linear)
-- `0004-pro-plan-purge-by-url.md`
-- `0005-spartan-over-syncfusion.md`
-- `0006-algolia-over-cloudflare-ai-search.md`
+ADRs 0001–0006 are written (Cloudflare Workers, Prisma Accelerate, Linear, Pro-plan Cache-Tag purge, Spartan, Algolia). 0007 documents the retired `prisma migrate` approach (superseded by AECI-72).
+
+### Archive (`archive/`)
+
+Historical, superseded documents kept for reference — see [`archive/README.md`](./archive/README.md). **Not a source of truth.**
 
 ## Document conventions
 

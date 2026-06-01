@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // One-off diagnostic harness — measures Prisma Accelerate's introspected
 // schema-cache lag after `supabase db push` adds a column on the dev/staging
-// DB. See docs/deployment-issues.md item #6 for the symptom being measured.
+// DB. See docs/archive/deployment-issues.md item #6 for the symptom being measured.
 //
 // NOT production code. Refuses to run against the prod hostname or prod
 // Supabase project. Reverted after measurement per the cleanup checklist in
@@ -544,7 +544,7 @@ function recommendation(stats) {
     return 'No successful cycles. Nothing to recommend; investigate the per-cycle errors above.';
   }
   if (stats.anyHitCap) {
-    return `One or more cycles exceeded ${MAX_POLL_MS / 1000}s. Recommend NOT using sleep — implement Prisma Platform schema-refresh API or drop Accelerate (see docs/deployment-issues.md §"What needs to happen" options 2 and 3).`;
+    return `One or more cycles exceeded ${MAX_POLL_MS / 1000}s. Recommend NOT using sleep — implement Prisma Platform schema-refresh API or drop Accelerate (see docs/archive/deployment-issues.md §"What needs to happen" options 2 and 3).`;
   }
   let caveat = '';
   if (stats.anyErrored) {
