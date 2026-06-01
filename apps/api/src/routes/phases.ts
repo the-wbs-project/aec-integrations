@@ -10,6 +10,7 @@ import type { Context } from 'hono';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
   productListSelect,
   taxonomyDetailScalarSelect,
@@ -18,13 +19,7 @@ import {
   type RawProductListRow,
   type RawTaxonomyDetailRow,
 } from '../lib/prisma-helpers';
-import { getPrisma, type AcceleratedPrisma } from '../prisma';
-
-type PrismaFactory = (env: Env) => AcceleratedPrisma;
-
-function validateResponseInDev(env: Env, validate: () => void): void {
-  if (env.ENV !== 'production') validate();
-}
+import { getPrisma } from '../prisma';
 
 export function createPhaseDetailHandler(
   prismaFor: PrismaFactory = getPrisma,

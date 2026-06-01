@@ -26,6 +26,7 @@ import type { Context } from 'hono';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
   productDetailSelect,
   productListSelect,
@@ -35,18 +36,7 @@ import {
   type RawProductListRow,
 } from '../lib/prisma-helpers';
 import { resolveProductSort } from '../lib/sort';
-import { getPrisma, type AcceleratedPrisma } from '../prisma';
-
-type PrismaFactory = (env: Env) => AcceleratedPrisma;
-
-/**
- * Inline response-shape validation. Phase 2.8 acceptance criterion requires
- * the response to be Zod-validated in dev/preview/staging so mapper drift
- * fails loudly, but stripped in production to avoid the per-request cost.
- */
-function validateResponseInDev(env: Env, validate: () => void): void {
-  if (env.ENV !== 'production') validate();
-}
+import { getPrisma } from '../prisma';
 
 export function createProductsListHandler(
   prismaFor: PrismaFactory = getPrisma,
