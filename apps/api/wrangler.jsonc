@@ -23,13 +23,17 @@
   //                 (AECI-105). MUST equal the web Worker's `ADMIN_PURGE_TOKEN`.
   //                 Absent → promote skips cache purge (graceful no-op).
   //
-  // The `WEB` service binding (per-env blocks below) points back at the SSR
-  // Worker so `POST /api/promote` can purge edge cache tags after a commit
-  // (AECI-105). This is the inverse of the web Worker's `API` binding — a
-  // deliberate web↔api cycle (no runtime recursion: /admin/purge doesn't call
-  // back into the API). It's only bound per-env; unscoped `wrangler dev` /
-  // `pnpm dev:bound` leaves `WEB` unresolved, so local promotes no-op the purge
-  // — expected, not a bug.
+  // The `WEB` service binding points back at the SSR Worker so `POST /api/promote`
+  // can purge edge cache tags after a commit (AECI-105). This is the inverse of
+  // the web Worker's `API` binding — a deliberate web↔api cycle (no runtime
+  // recursion: /admin/purge doesn't call back into the API). It is bound ONLY on
+  // `staging` + `production`, where the web Worker is long-lived (`aeci-web-staging`
+  // / `aeci-web-production`) and the API deploys before it on a target that already
+  // exists. It is deliberately NOT bound on `preview`: per-PR previews deploy an
+  // ephemeral `aeci-web-pr-<N>` AFTER the API (pr-preview.yml), so there is no
+  // stable `aeci-web` to bind and the web↔api cycle has no first-deploy ordering.
+  // Unscoped `wrangler dev` / `pnpm dev:bound` and PR previews therefore leave
+  // `WEB` unresolved, so those promotes no-op the purge — expected, not a bug.
   "workers_dev": false,
   // Smart Placement is intentionally NOT enabled. Prisma Accelerate is a
   // globally distributed HTTPS pool: this Worker always reaches the nearest
@@ -70,9 +74,12 @@
     "preview": {
       "name": "aeci-api-preview",
       "workers_dev": false,
-      // AECI-105: purge edge cache after promote by calling the web Worker's
-      // POST /admin/purge over this binding. Preview web Worker is `aeci-web`.
-      "services": [{ "binding": "WEB", "service": "aeci-web" }],
+      // AECI-105: no `WEB` service binding here on purpose. PR previews deploy an
+      // ephemeral `aeci-web-pr-<N>` after this Worker (pr-preview.yml), so there
+      // is no stable `aeci-web` target and binding it would fail the deploy
+      // (Cloudflare error 10143) or require an impossible first-deploy ordering
+      // for the web↔api cycle. Promote's cache purge therefore no-ops in
+      // preview / local dev — the documented graceful-degradation path.
       "vars": {
         "ENV": "preview",
         "DD_SITE": "us5.datadoghq.com",
@@ -97,7 +104,8 @@
     "staging": {
       "name": "aeci-api-staging",
       "workers_dev": false,
-      // AECI-105: purge edge cache after promote (see preview note).
+      // AECI-105: purge edge cache after promote by calling the web Worker's
+      // POST /admin/purge over this binding (see the WEB note in the top comment).
       "services": [{ "binding": "WEB", "service": "aeci-web-staging" }],
       "vars": {
         "ENV": "staging",
@@ -122,7 +130,7 @@
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
-      // AECI-105: purge edge cache after promote (see preview note).
+      // AECI-105: purge edge cache after promote (see the WEB note in the top comment).
       "services": [{ "binding": "WEB", "service": "aeci-web-production" }],
       "vars": {
         "ENV": "production",
