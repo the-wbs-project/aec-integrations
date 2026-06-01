@@ -80,6 +80,17 @@ AIRTABLE_BASE_ID=appy81IdGJY6Fngf9
 # /api/promote request is rejected 401 (fail-closed).
 REVIEW_APP_TOKEN=
 
+# ─── Cache-tag purge after promote (AECI-105) ──────────────────────────────
+# Bearer the promote handler presents to the web Worker's POST /admin/purge so
+# a successful promote invalidates the affected edge cache tags. MUST equal the
+# web Worker's ADMIN_PURGE_TOKEN (apps/web/.dev.vars). Only the staging +
+# production API Workers have the `WEB` service binding, so set it there:
+#   wrangler secret put ADMIN_PURGE_TOKEN --env staging|production
+# Absent (or no WEB service binding — as in local `pnpm dev:bound` and PR
+# previews, which don't bind WEB) → promote skips the purge as a graceful
+# no-op; pages fall back to the TTL (≤15 min).
+ADMIN_PURGE_TOKEN=
+
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
 # HTTP intake). When empty, the helper is a no-op so dev boots cleanly.

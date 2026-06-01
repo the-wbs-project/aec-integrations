@@ -35,4 +35,21 @@ export type Env = {
    * the staleness bound until admin/purge lands (Phase 2.10).
    */
   TAXONOMY_KV?: KVNamespace;
+  /**
+   * Service binding to the SSR/web Worker, used by `POST /api/promote` to call
+   * `POST /admin/purge` after a promote commits (AECI-105). This is the inverse
+   * of the web Worker's `API` binding — a deliberate web↔api cycle. Optional:
+   * absent → cache purge is a no-op (e.g. local `pnpm dev:bound`, which only
+   * registers the web→api edge, leaves this unresolved). The Cloudflare purge
+   * token stays on the web Worker; we never mint it here.
+   */
+  WEB?: Fetcher;
+  /**
+   * Bearer token the promote handler presents to the web Worker's
+   * `POST /admin/purge` (AECI-105). Must equal the web Worker's
+   * `ADMIN_PURGE_TOKEN` secret. Optional: absent → cache purge is a no-op
+   * (same graceful-degradation contract as `WEB` above). Set as a Wrangler
+   * secret per environment.
+   */
+  ADMIN_PURGE_TOKEN?: string;
 };
