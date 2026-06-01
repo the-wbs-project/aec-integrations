@@ -1,7 +1,13 @@
 export type Env = {
   /** Prisma Accelerate URL (`prisma://...`) used by the Worker at runtime. */
   DATABASE_URL: string;
-  ENV?: 'preview' | 'staging' | 'production';
+  /**
+   * Deployment environment label. Each wrangler env block sets this explicitly
+   * (`preview`/`staging`/`production`); when unset (bare `wrangler dev`, tests)
+   * both `/api/version` and Datadog tags report `development` — one convention
+   * for the unset state (AECI-119).
+   */
+  ENV?: 'development' | 'preview' | 'staging' | 'production';
   /**
    * Commit SHA the Worker was deployed at (AECI-74). Injected via
    * `wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD)` locally and

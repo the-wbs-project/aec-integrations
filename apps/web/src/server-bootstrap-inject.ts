@@ -35,7 +35,7 @@ export function buildDatadogPublicConfig(env: WebEnv): DatadogPublicConfig | nul
     applicationId,
     clientToken,
     site: env.DD_SITE || 'datadoghq.com',
-    env: env.ENV ?? 'preview',
+    env: env.ENV ?? 'development',
   };
 }
 
