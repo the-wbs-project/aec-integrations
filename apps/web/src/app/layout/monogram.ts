@@ -33,7 +33,7 @@ import { RouterLink } from '@angular/router';
       routerLink="/"
       class="inline-flex items-center gap-2 rounded-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n-aria-label="@@app.brand.aria"
-      aria-label="AEC Integrations — home"
+      aria-label="AEC Integrations home"
     >
       <img
         ngSrc="/branding/monogram-light.svg"

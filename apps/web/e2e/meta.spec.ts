@@ -18,7 +18,7 @@ test.describe('MetaService SSR output (/preview/vendor-detail)', () => {
 
     // Title carries the entity name + localized suffix.
     expect(html, '<title> must include the fixture company name').toMatch(
-      /<title[^>]*>[^<]*Procore[^<]*— AEC Integrations[^<]*<\/title>/i,
+      /<title[^>]*>[^<]*Procore[^<]*· AEC Integrations[^<]*<\/title>/i,
     );
 
     // Canonical link is present and query-stripped.

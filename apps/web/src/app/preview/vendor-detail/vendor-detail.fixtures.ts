@@ -55,7 +55,7 @@ export const VENDOR_FIXTURE: Vendor = {
   domain: 'procore.com',
   website: 'https://www.procore.com',
   tagline:
-    'Construction management software that connects the office, field, and crew on a single platform — preconstruction, project management, financials, quality, and safety in one record of work.',
+    'Construction management software that connects the office, field, and crew on a single platform: preconstruction, project management, financials, quality, and safety in one record of work.',
   hq: 'Carpinteria, CA, US',
   founded: 2002,
   ownership: 'Public (NYSE: PCOR)',
@@ -141,7 +141,7 @@ export const PRODUCTS_FIXTURE: ReadonlyArray<Product> = [
     ],
     lastReviewed: '2026-05-02',
     rankings: [
-      { category: 'EHS — Construction', rank: 2, outOf: 18 },
+      { category: 'EHS, Construction', rank: 2, outOf: 18 },
       { category: 'Inspection Management', rank: 4, outOf: 22 },
     ],
   },

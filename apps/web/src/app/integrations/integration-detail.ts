@@ -163,7 +163,7 @@ import { NotFound } from '../not-found/not-found';
                       i18n="@@integrations.detail.mechanism.none"
                       i18n-aria-label="@@integrations.detail.mechanism.none.aria"
                       aria-label="Mechanism not listed"
-                      >—</span
+                      >–</span
                     >
                   }
                 </dd>

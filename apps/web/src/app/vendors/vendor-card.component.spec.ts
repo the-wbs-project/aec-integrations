@@ -58,12 +58,12 @@ describe('VendorCard', () => {
     expect(cells[1]?.textContent).toContain('Carpinteria, CA');
   });
 
-  it('renders an em-dash placeholder when headquarters is null', () => {
+  it('renders an en-dash placeholder when headquarters is null', () => {
     const fixture = setupFixture({ ...baseVendor, headquarters: null });
     const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
       'span[aria-label="Headquarters not listed"]',
     );
-    expect(placeholder?.textContent?.trim()).toBe('—');
+    expect(placeholder?.textContent?.trim()).toBe('–');
   });
 
   it('renders founded_year in the third cell', () => {
@@ -72,12 +72,12 @@ describe('VendorCard', () => {
     expect(cells[2]?.textContent?.trim()).toBe('2002');
   });
 
-  it('renders an em-dash placeholder when founded_year is null', () => {
+  it('renders an en-dash placeholder when founded_year is null', () => {
     const fixture = setupFixture({ ...baseVendor, founded_year: null });
     const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
       'span[aria-label="Founded year not listed"]',
     );
-    expect(placeholder?.textContent?.trim()).toBe('—');
+    expect(placeholder?.textContent?.trim()).toBe('–');
   });
 
   it('renders product_count in the last cell', () => {

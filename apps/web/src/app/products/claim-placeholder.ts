@@ -32,7 +32,7 @@ import { map } from 'rxjs';
         class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
         i18n="@@products.claim.title"
       >
-        Coming soon — Phase 6.
+        Coming soon (Phase 6).
       </h1>
       <p
         class="mt-4 max-w-2xl text-base leading-relaxed text-(--text-secondary)"
@@ -77,7 +77,7 @@ export class ClaimPlaceholder {
     // Stub URLs stay out of the index until Phase 6 ships the real form.
     // Title is informative rather than reusing the "Not found" copy.
     this.titleSvc.setTitle(
-      $localize`:@@products.claim.metaTitle:Claim this listing — AEC Integrations`,
+      $localize`:@@products.claim.metaTitle:Claim this listing · AEC Integrations`,
     );
     this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
   }

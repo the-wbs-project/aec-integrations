@@ -45,9 +45,9 @@ for (const { kind, segment, listKey } of KINDS) {
       expect(res.status()).toBe(200);
       const html = await res.text();
 
-      // Browse-kind meta suffix is " tools — AEC Integrations".
+      // Browse-kind meta suffix is " tools · AEC Integrations".
       expect(html, '<title> must use the browse suffix').toMatch(
-        /<title[^>]*>[^<]*tools[^<]*— AEC Integrations[^<]*<\/title>/i,
+        /<title[^>]*>[^<]*tools[^<]*· AEC Integrations[^<]*<\/title>/i,
       );
       expect(html, 'term name must render in the <h1>').toContain(term!.name);
       expect(html, 'canonical <link> must point at the slug URL').toMatch(

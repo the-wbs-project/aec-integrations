@@ -30,7 +30,7 @@ import { RouterLink } from '@angular/router';
         class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
         i18n="@@notFound.eyebrow"
       >
-        404 — Not found
+        404: Not found
       </p>
       <h1
         id="not-found-title"

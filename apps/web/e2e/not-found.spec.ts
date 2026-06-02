@@ -25,7 +25,7 @@ test.describe('global 404 — wildcard path', () => {
     const res = await page.goto('/never-a-real-route');
     expect(res?.status()).toBe(404);
 
-    await expect(page.getByText('404 — Not found', { exact: true })).toBeVisible();
+    await expect(page.getByText('404: Not found', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: "We couldn't find that page." })).toBeVisible();
 
     // Recovery links live in the 404 shell's `Browse the directory` nav —
@@ -56,9 +56,9 @@ test.describe('global 404 — wildcard path', () => {
     expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
   });
 
-  test('title is set to "Not found — AEC Integrations"', async ({ page }) => {
+  test('title is set to "Not found · AEC Integrations"', async ({ page }) => {
     await page.goto('/never-a-real-route');
-    await expect(page).toHaveTitle('Not found — AEC Integrations');
+    await expect(page).toHaveTitle('Not found · AEC Integrations');
   });
 
   test('has zero axe violations at WCAG AA', async ({ page }) => {
