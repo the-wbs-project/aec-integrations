@@ -125,11 +125,14 @@ export const angularBase = [
   {
     // Em-dash brand guard — shipped UI source only. Test files are exempt:
     // their describe()/it() titles and assertion messages are developer-facing,
-    // not rendered copy. Flat config replaces a rule's options per file rather
-    // than merging, so this block restates the inject() guard alongside the
-    // em-dash selectors (otherwise the guard above is dropped for these files).
+    // not rendered copy. This covers both *.spec.ts and the shared *.harness.ts
+    // test helpers (describe()/it() titles live there too once specs are
+    // de-duplicated onto a harness). Flat config replaces a rule's options per
+    // file rather than merging, so this block restates the inject() guard
+    // alongside the em-dash selectors (otherwise the guard above is dropped for
+    // these files).
     files: ['**/*.ts'],
-    ignores: ['**/*.spec.ts', '**/e2e/**'],
+    ignores: ['**/*.spec.ts', '**/*.harness.ts', '**/e2e/**'],
     rules: {
       'no-restricted-syntax': ['error', NO_INJECT_IN_CONSTRUCTOR, ...NO_EM_DASH_IN_COPY],
     },
