@@ -928,7 +928,7 @@ Migrations are authored as raw SQL and applied via the Supabase CLI. The full wo
 2. Write the SQL by hand. Idempotent where cheap (see `docs/migrations.md` §3.4).
 3. Update `apps/api/prisma/schema.prisma` so the model matches the new shape (Prisma still generates the typed client; the schema file is no longer the migration source but it MUST agree with the migrations).
 4. Update this document with the new schema (table inventory, column intent, indexes).
-5. Local test: `pnpm db:reset` (applies all migrations + seed against the local stack), then `pnpm --filter @aeci/api db:apply-rls` and `pnpm --filter @aeci/api test:integration`.
+5. Local test: `pnpm db:reset` (applies all migrations + seed against the local stack — including the GRANT/RLS migration), then `pnpm --filter @aeci/api test:integration`.
 6. Verify zero drift against the linked dev project with `pnpm db:diff`.
 7. Commit the migration file, `schema.prisma` change, and this document update together in the same PR.
 8. PR review verifies all three agree.

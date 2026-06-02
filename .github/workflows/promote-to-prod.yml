@@ -318,6 +318,19 @@ jobs:
           DIRECT_URL_PRODUCTION: ${{ secrets.DIRECT_URL_PRODUCTION }}
         run: ./scripts/prisma-drift-check.sh "$DIRECT_URL_PRODUCTION"
 
+      # -----------------------------------------------------------------------
+      # Verify RLS GRANT matrix (AECI-87, HARD STOP).
+      #   Proves 20260602051513_rls_grants_and_policies.sql is in effect on prod
+      #   after the db push above — the PostgREST GRANT/RLS deny matrix + the
+      #   feedback/mailing_list carve-out. SET ROLE probe (no PostgREST/JWT). As
+      #   with the drift check, a non-zero exit here keeps deploy-prod-workers
+      #   from running (set -e, no `if: always()` downstream).
+      # -----------------------------------------------------------------------
+      - name: Verify RLS GRANT matrix
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/verify-rls.sql
+
   # ===========================================================================
   # Job 3: Deploy production Workers
   # ===========================================================================

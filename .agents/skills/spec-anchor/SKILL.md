@@ -75,7 +75,7 @@ Within the loaded section, look for explicit pointers and load whichever apply. 
 |---|---|
 | Endpoint shape, request/response, Zod, error codes | `docs/API_CONTRACTS.md` |
 | Table, column, index, RLS, migration | `docs/DATABASE_SCHEMA.md` |
-| Role, permission, RLS policy | `docs/AUTH_AND_RLS.md` (and `docs/rls_policies.sql` if policy SQL is involved) |
+| Role, permission, RLS policy | `docs/AUTH_AND_RLS.md` (GRANTs/RLS/helpers ship as numbered migrations in `supabase/migrations/`) |
 | Workflow, environment, deployment, secret | `docs/CICD_PLAN.md` |
 | Test tool, coverage target, axe, Lighthouse, Playwright | `docs/TESTING_STRATEGY.md` |
 | Writing a unit test, fixture, mock | `docs/UNIT_TESTING_GUIDE.md` |

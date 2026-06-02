@@ -32,8 +32,7 @@ This spec is the master document. Detailed content for the following areas lives
 |---|---|---|
 | `DATABASE_SCHEMA.md` | All Supabase tables, columns, indexes, relationships, Airtable migration plan | Complete |
 | `API_CONTRACTS.md` | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules | Complete |
-| `AUTH_AND_RLS.md` | Authorization model, role definitions, RLS policies per table | Complete |
-| `rls_policies.sql` | Executable baseline RLS policy script applied to the Supabase project | Complete |
+| `AUTH_AND_RLS.md` | Authorization model, role definitions, RLS policies per table (GRANTs/RLS/helpers ship as numbered migrations — AECI-87) | Complete |
 | `CICD_PLAN.md` | GitHub Actions pipeline, environments, deployments, rollback, secrets | Complete |
 | `TESTING_STRATEGY.md` | Test tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy | Complete |
 | `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
@@ -974,7 +973,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
 - [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
 - [ ] Supabase connection via Prisma in `apps/api/` using the per-request Accelerate pattern validated in `apps/api/src/prisma.ts` (`PrismaClient` from `@prisma/client/edge` + `withAccelerate()`; `DATABASE_URL` is the `prisma://` URL; `DIRECT_URL` is CLI-only). See `DATABASE_SCHEMA.md` §1a.
-- [ ] Apply baseline RLS policies from `docs/rls_policies.sql` to the Supabase project (PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1)
+- [ ] PostgREST GRANTs + RLS policies + `public.is_admin()`/`is_active_user()` helpers ship as numbered migrations in `supabase/migrations/` (applied to every env by `supabase db push`; PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1, AECI-87)
 - [ ] Service binding between SSR Worker and API Worker
 - [ ] Datadog Browser RUM and Worker SDK installed and reporting
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped, both themes verified)
