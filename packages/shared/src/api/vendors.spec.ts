@@ -7,6 +7,7 @@ import {
   VendorsListQuerySchema,
   VendorsListResponseSchema,
 } from './vendors';
+import { registerSchemaStructuralCases } from './schema-suite.harness';
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
@@ -45,6 +46,17 @@ const validProductListItem = {
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-02T00:00:00.000Z',
 };
+
+// Structural cases (sort defaults/unknown-key, pagination defaults + perPage cap,
+// response page-wrap) are shared via the harness (AECI-113).
+registerSchemaStructuralCases({
+  entity: 'vendors',
+  sortSchema: VendorSortSchema,
+  sortDefault: 'created',
+  listQuerySchema: VendorsListQuerySchema,
+  listResponseSchema: VendorsListResponseSchema,
+  validListItem: validVendorListItem,
+});
 
 describe('VendorListItemSchema', () => {
   it('parses a valid list item', () => {
@@ -114,43 +126,9 @@ describe('VendorDetailSchema', () => {
   });
 });
 
-describe('VendorSortSchema', () => {
-  it('defaults to created', () => {
-    expect(VendorSortSchema.parse(undefined)).toBe('created');
-  });
-
-  it('rejects unknown keys', () => {
-    expect(VendorSortSchema.safeParse('rating').success).toBe(false);
-  });
-});
-
 describe('VendorsListQuerySchema', () => {
-  it('applies defaults', () => {
-    const parsed = VendorsListQuerySchema.parse({});
-    expect(parsed.page).toBe(1);
-    expect(parsed.perPage).toBe(24);
-    expect(parsed.sort).toBe('created');
-  });
-
   it('coerces verified=true from a string', () => {
     const parsed = VendorsListQuerySchema.parse({ verified: 'true' });
     expect(parsed.verified).toBe(true);
-  });
-
-  it('rejects perPage > 100', () => {
-    const result = VendorsListQuerySchema.safeParse({ perPage: 101 });
-    expect(result.success).toBe(false);
-  });
-});
-
-describe('VendorsListResponseSchema', () => {
-  it('wraps a page of list items', () => {
-    const parsed = VendorsListResponseSchema.parse({
-      data: [validVendorListItem],
-      page: 1,
-      perPage: 24,
-      total: 1,
-    });
-    expect(parsed.data).toHaveLength(1);
   });
 });
