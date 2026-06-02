@@ -35,6 +35,10 @@
       "types": "./src/audit-log.ts",
       "default": "./src/audit-log.ts"
     },
+    "./datadog": {
+      "types": "./src/datadog.ts",
+      "default": "./src/datadog.ts"
+    },
     "./timing-safe-equal": {
       "types": "./src/timing-safe-equal.ts",
       "default": "./src/timing-safe-equal.ts"
