@@ -1,4 +1,4 @@
-import { NgOptimizedImage } from '@angular/common';
+import { NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -38,7 +38,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
  */
 @Component({
   selector: 'aec-product-detail',
-  imports: [DetailLayout, NgOptimizedImage, NotFound, RouterLink, TaxonomyBadge],
+  imports: [DetailLayout, NgOptimizedImage, NgTemplateOutlet, NotFound, RouterLink, TaxonomyBadge],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let p = product();
@@ -89,7 +89,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               <span
                 class="flex h-16 w-16 shrink-0 items-center justify-center
                   rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-raised) font-serif text-2xl font-semibold text-(--text-primary)"
+                  bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)"
                 aria-hidden="true"
               >
                 {{ initial() }}
@@ -103,7 +103,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 Product
               </p>
               <h1
-                class="font-serif text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
               >
                 {{ p.name }}
               </h1>
@@ -283,7 +283,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             <section aria-labelledby="description-title" class="space-y-4">
               <h2
                 id="description-title"
-                class="font-serif text-2xl font-semibold text-(--text-primary)"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
                 i18n="@@products.detail.body.description"
               >
                 About
@@ -298,7 +298,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             <div class="flex items-baseline justify-between gap-4">
               <h2
                 id="integrations-title"
-                class="font-serif text-2xl font-semibold text-(--text-primary)"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
                 i18n="@@products.detail.body.integrations"
               >
                 Integrations
@@ -320,34 +320,41 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 >.
               </p>
             } @else {
+              <ng-template #integrationRow let-item>
+                <li>
+                  <a
+                    [routerLink]="['/integrations', item.integration.id]"
+                    class="flex items-center gap-3 rounded-(--radius-lg)
+                      border border-(--border-default) bg-(--surface-raised) p-4
+                      text-(--text-primary) no-underline transition-colors
+                      hover:border-(--border-strong)"
+                  >
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-sm font-bold">{{ item.integration.name }}</span>
+                      <span class="block text-sm text-(--text-secondary)">
+                        <ng-container i18n="@@products.detail.body.integrations.with"
+                          >with</ng-container
+                        >
+                        <a
+                          [routerLink]="['/products', item.other.slug]"
+                          class="ml-1 text-(--accent-primary) underline underline-offset-2"
+                          (click)="$event.stopPropagation()"
+                        >
+                          {{ item.other.name }}
+                        </a>
+                      </span>
+                    </span>
+                    <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
+                  </a>
+                </li>
+              </ng-template>
+
               <ul class="grid gap-3">
                 @for (item of integrationsAbove(); track item.integration.id) {
-                  <li>
-                    <a
-                      [routerLink]="['/integrations', item.integration.id]"
-                      class="flex items-center gap-3 rounded-(--radius-lg)
-                        border border-(--border-default) bg-(--surface-raised) p-4
-                        text-(--text-primary) no-underline transition-colors
-                        hover:border-(--border-strong)"
-                    >
-                      <span class="min-w-0 flex-1">
-                        <span class="block text-sm font-bold">{{ item.integration.name }}</span>
-                        <span class="block text-sm text-(--text-secondary)">
-                          <ng-container i18n="@@products.detail.body.integrations.with"
-                            >with</ng-container
-                          >
-                          <a
-                            [routerLink]="['/products', item.other.slug]"
-                            class="ml-1 text-(--accent-primary) underline underline-offset-2"
-                            (click)="$event.stopPropagation()"
-                          >
-                            {{ item.other.name }}
-                          </a>
-                        </span>
-                      </span>
-                      <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
-                    </a>
-                  </li>
+                  <ng-container
+                    [ngTemplateOutlet]="integrationRow"
+                    [ngTemplateOutletContext]="{ $implicit: item }"
+                  ></ng-container>
                 }
               </ul>
 
@@ -355,32 +362,10 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 @defer (on viewport) {
                   <ul class="mt-3 grid gap-3">
                     @for (item of integrationsDeferred(); track item.integration.id) {
-                      <li>
-                        <a
-                          [routerLink]="['/integrations', item.integration.id]"
-                          class="flex items-center gap-3 rounded-(--radius-lg)
-                            border border-(--border-default) bg-(--surface-raised) p-4
-                            text-(--text-primary) no-underline transition-colors
-                            hover:border-(--border-strong)"
-                        >
-                          <span class="min-w-0 flex-1">
-                            <span class="block text-sm font-bold">{{ item.integration.name }}</span>
-                            <span class="block text-sm text-(--text-secondary)">
-                              <ng-container i18n="@@products.detail.body.integrations.with2"
-                                >with</ng-container
-                              >
-                              <a
-                                [routerLink]="['/products', item.other.slug]"
-                                class="ml-1 text-(--accent-primary) underline underline-offset-2"
-                                (click)="$event.stopPropagation()"
-                              >
-                                {{ item.other.name }}
-                              </a>
-                            </span>
-                          </span>
-                          <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
-                        </a>
-                      </li>
+                      <ng-container
+                        [ngTemplateOutlet]="integrationRow"
+                        [ngTemplateOutletContext]="{ $implicit: item }"
+                      ></ng-container>
                     }
                   </ul>
                 } @placeholder (minimum 100ms) {

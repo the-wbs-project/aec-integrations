@@ -1,7 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WebEnv } from './env';
-import { logToDatadog, submitCount, submitDistribution } from './server-datadog';
+import {
+  logToDatadog,
+  shouldEmitRenderLog,
+  submitCount,
+  submitDistribution,
+} from './server-datadog';
 
 function makeEnv(overrides: Partial<WebEnv> = {}): WebEnv {
   return {
@@ -285,5 +290,32 @@ describe('submitCount (web SSR Worker, AECI-66)', () => {
     expect(series.tags).toEqual(
       expect.arrayContaining(['source:manual', 'outcome:ok', 'service:aeci-web']),
     );
+  });
+});
+
+describe('shouldEmitRenderLog (AECI-103 ssr.render log gate)', () => {
+  // Errors are kept at full fidelity in every env — including production —
+  // because the non-cacheable branch's 404/5xx visibility leans on this log.
+  it.each([404, 500, 503])('logs error status %i even in production', (status) => {
+    expect(shouldEmitRenderLog(makeEnv({ ENV: 'production' }), status)).toBe(true);
+  });
+
+  // Non-prod keeps every render (dev volume is tiny; the full stream verifies
+  // the pipe end-to-end).
+  it.each<WebEnv['ENV']>(['development', 'preview', 'staging'])(
+    'logs 2xx renders in non-prod env %s',
+    (env) => {
+      expect(shouldEmitRenderLog(makeEnv({ ENV: env }), 200)).toBe(true);
+    },
+  );
+
+  it('logs 2xx renders when ENV is unset (development default)', () => {
+    expect(shouldEmitRenderLog(makeEnv({ ENV: undefined }), 200)).toBe(true);
+  });
+
+  // Production 2xx is the unbounded firehose we drop — the aeci.ssr.render
+  // count metric carries that signal instead.
+  it.each([200, 204, 301, 304])('drops non-error status %i in production', (status) => {
+    expect(shouldEmitRenderLog(makeEnv({ ENV: 'production' }), status)).toBe(false);
   });
 });

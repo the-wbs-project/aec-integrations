@@ -101,6 +101,30 @@ export function logToDatadog(
 }
 
 /**
+ * Gate for the per-render `ssr.render` smoke-signal log (AECI-103).
+ *
+ * AECI-31 logged `ssr.render` on every SSR render to prove the
+ * API↔Worker↔Datadog logs pipe end-to-end. At production traffic that's one
+ * log line per page render — unbounded ingest volume/cost. The per-render
+ * *volume* signal now lives in the bounded `aeci.ssr.render` count metric
+ * (`server-runtime.ts`), so the log is demoted to a pipe-health/error smoke
+ * signal:
+ *
+ *   - errors (`status >= 400`) are logged in every env — full fidelity; the
+ *     non-cacheable branch's 404/5xx visibility leans on this,
+ *   - all renders are logged in non-prod (dev volume is tiny and the full
+ *     stream is useful for verifying the pipe),
+ *   - prod 2xx renders are NOT logged — the count metric carries that signal.
+ *
+ * Deterministic by design (no sampling): the count metric, not a log sample,
+ * is the bounded prod heartbeat. See docs/OBSERVABILITY.md.
+ */
+export function shouldEmitRenderLog(env: WebEnv, status: number): boolean {
+  if (status >= 400) return true;
+  return (env.ENV ?? 'development') !== 'production';
+}
+
+/**
  * SSR Worker → Datadog custom metrics (AECI-66 / Phase 2.20).
  *
  * AECI-31 only stood up the *logs* pipe (`logToDatadog` above → the logs

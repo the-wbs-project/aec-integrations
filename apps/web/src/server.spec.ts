@@ -693,6 +693,117 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
   });
 });
 
+describe('createApp ssr.render count metric (AECI-103)', () => {
+  // The bounded per-render count fires on EVERY branch — including the
+  // edge-cache HIT and the non-cacheable branch, which the render-duration
+  // distribution (and the old ssr.render log) never covered.
+  let originalCaches: unknown;
+  let cacheStub: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+  let fetchSpy: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    originalCaches = (globalThis as { caches?: unknown }).caches;
+    cacheStub = {
+      match: vi.fn().mockResolvedValue(undefined),
+      put: vi.fn().mockResolvedValue(undefined),
+    };
+    (globalThis as { caches: unknown }).caches = { default: cacheStub };
+    fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
+    vi.stubGlobal('fetch', fetchSpy);
+  });
+
+  afterEach(() => {
+    if (originalCaches === undefined) {
+      delete (globalThis as { caches?: unknown }).caches;
+    } else {
+      (globalThis as { caches: unknown }).caches = originalCaches;
+    }
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  function envWithDatadog(): Bindings {
+    const { binding } = recordingApiBinding();
+    return {
+      ...binding,
+      DD_API_KEY: 'secret-key',
+      DD_SITE: 'us5.datadoghq.com',
+      ENV: 'preview',
+    } as unknown as Bindings;
+  }
+
+  // The count metric POSTs to /api/v2/series; the render distribution POSTs to
+  // /api/v1/distribution_points, so the two are unambiguous on the same fetch spy.
+  function ssrRenderCountSeries(): { metric: string; type: number; tags: string[] } | undefined {
+    const call = fetchSpy.mock.calls.find((c) => String(c[0]).includes('/api/v2/series'));
+    const series = call ? JSON.parse(call[1]!.body as string).series[0] : undefined;
+    return series?.metric === 'aeci.ssr.render' ? series : undefined;
+  }
+
+  function distributionCalled(): boolean {
+    return fetchSpy.mock.calls.some((c) => String(c[0]).includes('/api/v1/distribution_points'));
+  }
+
+  it('emits aeci.ssr.render with cache_status:miss on a cacheable miss', async () => {
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>p</html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+      ),
+    });
+    await app.fetch(
+      new Request('https://aecintegrations.com/products/procore'),
+      envWithDatadog(),
+      fakeExecutionContext(),
+    );
+    const series = ssrRenderCountSeries();
+    expect(series?.metric).toBe('aeci.ssr.render');
+    expect(series?.type).toBe(1); // count
+    expect(series!.tags).toEqual(expect.arrayContaining(['cache_status:miss', 'status_class:2xx']));
+  });
+
+  it('emits cache_status:hit on a cache hit without invoking SSR', async () => {
+    cacheStub.match.mockResolvedValueOnce(
+      new Response('<html>cached</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+    const renderer = vi.fn();
+    const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
+    await app.fetch(
+      new Request('https://aecintegrations.com/'),
+      envWithDatadog(),
+      fakeExecutionContext(),
+    );
+    expect(renderer).not.toHaveBeenCalled();
+    expect(ssrRenderCountSeries()!.tags).toEqual(
+      expect.arrayContaining(['cache_status:hit', 'status_class:2xx']),
+    );
+  });
+
+  it('emits cache_status:non_cacheable on a non-cacheable route (where the distribution is silent)', async () => {
+    const app = createApp({
+      ssrRenderer: fixedRenderer(
+        new Response('<html>acct</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+      ),
+    });
+    await app.fetch(
+      new Request('https://aecintegrations.com/account/settings'),
+      envWithDatadog(),
+      fakeExecutionContext(),
+    );
+    expect(ssrRenderCountSeries()!.tags).toEqual(
+      expect.arrayContaining(['cache_status:non_cacheable', 'status_class:2xx']),
+    );
+    // Pins the coverage contract: the render-duration histogram excludes this
+    // branch, so the count metric is its only signal.
+    expect(distributionCalled()).toBe(false);
+  });
+});
+
 describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', () => {
   it('invokes the hook with the rendered response and env on cacheable routes', async () => {
     const { binding } = recordingApiBinding();

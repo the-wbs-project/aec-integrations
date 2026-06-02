@@ -67,7 +67,7 @@ import type { CategoriesListResponse, TaxonomyTermWithCount } from '@aeci/shared
                     hover:border-(--border-strong) focus-visible:outline-2 focus-visible:outline-offset-2
                     focus-visible:outline-(--accent-primary)"
                 >
-                  <span class="font-serif text-lg font-semibold tracking-tight">{{
+                  <span class="font-display text-lg font-semibold tracking-tight">{{
                     category.name
                   }}</span>
                   @if (category.description) {

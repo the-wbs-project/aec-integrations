@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { badRequest, json, noContent, notFound } from './http';
+import { json, noContent } from './http';
 
 describe('json', () => {
   it('serializes BigInt values as decimal strings', async () => {
@@ -16,10 +16,10 @@ describe('json', () => {
   });
 
   it('preserves caller-supplied status code', () => {
-    // Guards: json() must not override status; badRequest/notFound depend on this passthrough.
+    // Guards: json() must not override status — error/operational responses
+    // (e.g. the canonical 4xx/5xx envelope) depend on this passthrough.
     expect(json({}, { status: 201 }).status).toBe(201);
-    expect(badRequest('bad').status).toBe(400);
-    expect(notFound().status).toBe(404);
+    expect(json({ error: {} }, { status: 400 }).status).toBe(400);
   });
 
   it("defaults Cache-Control to 'private, no-store'", () => {
@@ -35,26 +35,6 @@ describe('json', () => {
     // their own Cache-Control without json() clobbering it back to no-store.
     const response = json({ items: [] }, { headers: { 'Cache-Control': 'public, max-age=60' } });
     expect(response.headers.get('Cache-Control')).toBe('public, max-age=60');
-  });
-});
-
-describe('badRequest / notFound default caching', () => {
-  it("badRequest carries Cache-Control: 'private, no-store'", () => {
-    // Guards: error responses must never be cached — they can pin a stale
-    // failure for every subsequent visitor on the same URL.
-    expect(badRequest('bad').headers.get('Cache-Control')).toBe('private, no-store');
-  });
-
-  it("notFound carries Cache-Control: 'private, no-store'", () => {
-    expect(notFound().headers.get('Cache-Control')).toBe('private, no-store');
-  });
-});
-
-describe('notFound', () => {
-  it("uses 'Route not found' when called with no argument", async () => {
-    // Guards: default message is the documented unmatched-route response.
-    const response = notFound();
-    expect(await response.json()).toEqual({ error: 'Route not found' });
   });
 });
 

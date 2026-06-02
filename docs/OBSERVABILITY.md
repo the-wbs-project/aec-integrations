@@ -19,14 +19,27 @@ AECI-31 stood up two Datadog pipes; AECI-66 added a third:
 All three are fire-and-forget (`ctx.waitUntil`), never block the response, and no-op
 when their credential is absent (clean local dev).
 
+The Worker-logs pipe's per-render `ssr.render` line is **gated** (AECI-103) so prod 2xx
+traffic doesn't flood the logs intake — see "The `ssr.render` log is a gated smoke signal"
+below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
+
 ## Custom metric catalog (Phase 2 §14)
 
 | Metric | Type | Emitted from | Tags |
 |---|---|---|---|
 | `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, HIT + MISS branches) | `route_class` (detail/index/browse), `cache_status` (HIT/MISS), `status_code`, `status_class` (2xx/4xx/5xx) |
+| `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, **all** branches) | `cache_status` (hit/miss/non_cacheable), `status_class` (2xx/4xx/5xx) |
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
+
+`aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
+of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
+which the `aeci.page.render.duration_ms` distribution skips. It is the bounded pipe-health /
+render-volume signal that replaced the per-render `ssr.render` *log* firehose. Tags are kept
+deliberately low-cardinality (`cache_status` + `status_class`, no path/slug) so cost can't
+balloon. `cache_status:non_cacheable` is the slice for the `**` 404 wildcard and non-GET
+requests.
 
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
@@ -49,12 +62,31 @@ gap-free DB emits nothing.
 
 ### Known coverage limitation
 
-The render metric is emitted only for **cacheable** routes (which is exactly where
-`route_class` ∈ {detail, index, browse} is defined). The non-cacheable branch — the
-`**` 404 wildcard and non-GET requests — has no `route_class` and is intentionally
-excluded from the render histogram. Those requests remain covered by the `ssr.render`
-structured log. API-side requests (including 404s) are fully covered by
-`aeci.api.query.duration_ms`, so the error-rate widget/monitor still see API errors.
+The `aeci.page.render.duration_ms` **distribution** is emitted only for **cacheable** routes
+(which is exactly where `route_class` ∈ {detail, index, browse} is defined). The non-cacheable
+branch — the `**` 404 wildcard and non-GET requests — has no `route_class` and is intentionally
+excluded from that histogram. Those requests are covered by the `aeci.ssr.render` **count**
+metric (`cache_status:non_cacheable`), which fires on every branch. API-side requests (including
+404s) are fully covered by `aeci.api.query.duration_ms`, so the error-rate widget/monitor still
+see API errors.
+
+### The `ssr.render` log is a gated smoke signal (AECI-103)
+
+AECI-31 emitted an `ssr.render` structured **log** on every render to prove the
+API↔Worker↔Datadog logs pipe end-to-end. At production traffic that is one log line per page
+render — unbounded ingest volume and cost. The per-render volume signal now lives in the
+bounded `aeci.ssr.render` count metric above, so the log is demoted to a smoke signal, gated by
+`shouldEmitRenderLog` (`apps/web/src/server-datadog.ts`):
+
+- errors (`status >= 400`) are logged in **every** env — full fidelity,
+- **all** renders are logged in non-prod (`ENV` ≠ `production`) — dev volume is tiny and useful
+  for verifying the pipe,
+- prod `2xx` renders are **not** logged — the count metric carries that signal.
+
+The gate is deterministic (no log sampling): a count metric, not a log sample, is the bounded
+prod heartbeat. No committed dashboard widget or monitor queries the `ssr.render` log, so this
+change skews nothing — the only log-shaped monitor query targets `status:error` logs, which the
+gate keeps at full fidelity.
 
 ## Dashboard
 

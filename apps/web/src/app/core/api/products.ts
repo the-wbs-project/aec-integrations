@@ -10,7 +10,8 @@
  */
 import type { ProductDetail } from '@aeci/shared';
 
-import { isServerApiError, type ServerApiClient } from '../../../server-api-client';
+import type { ServerApiClient } from '../../../server-api-client';
+import { fetchOrNull } from './fetch-or-null';
 
 /**
  * Fetch a product by slug. Returns `null` on the canonical `NOT_FOUND`
@@ -26,13 +27,5 @@ export async function fetchProductBySlug(
   client: ServerApiClient,
   slug: string,
 ): Promise<ProductDetail | null> {
-  try {
-    return await client.request<ProductDetail>(`/api/products/${encodeURIComponent(slug)}`);
-  } catch (err) {
-    // Structural check, not `instanceof` — see `isServerApiError` for why.
-    if (isServerApiError(err) && err.status === 404 && err.code === 'NOT_FOUND') {
-      return null;
-    }
-    throw err;
-  }
+  return fetchOrNull<ProductDetail>(client, `/api/products/${encodeURIComponent(slug)}`);
 }

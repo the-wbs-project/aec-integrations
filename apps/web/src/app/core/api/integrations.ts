@@ -13,7 +13,8 @@
  */
 import type { IntegrationDetail } from '@aeci/shared';
 
-import { isServerApiError, type ServerApiClient } from '../../../server-api-client';
+import type { ServerApiClient } from '../../../server-api-client';
+import { fetchOrNull } from './fetch-or-null';
 
 /**
  * Fetch an integration by ID. Returns `null` on the canonical `NOT_FOUND`
@@ -29,13 +30,5 @@ export async function fetchIntegrationById(
   client: ServerApiClient,
   id: string,
 ): Promise<IntegrationDetail | null> {
-  try {
-    return await client.request<IntegrationDetail>(`/api/integrations/${encodeURIComponent(id)}`);
-  } catch (err) {
-    // Structural check, not `instanceof` — see `isServerApiError` for why.
-    if (isServerApiError(err) && err.status === 404 && err.code === 'NOT_FOUND') {
-      return null;
-    }
-    throw err;
-  }
+  return fetchOrNull<IntegrationDetail>(client, `/api/integrations/${encodeURIComponent(id)}`);
 }
