@@ -95,8 +95,24 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 **Job: `unit-tests`** (~3 min)
 1. Checkout, install
 2. `pnpm run test:unit` (Vitest)
-3. Upload coverage to Codecov (or similar)
-4. Fail if coverage drops below threshold
+3. `pnpm -r run test:coverage` as an **advisory, non-blocking** step
+   (`continue-on-error`); uploads the lcov/HTML `coverage` artifact
+4. Coverage is **reported, not gated** — a drop does not fail the job
+   (`TESTING_STRATEGY.md` §3.3). There is no Codecov integration today.
+
+**Job: `integration-db-tests`** (~5 min, AECI-90) — *non-blocking*
+1. Checkout, install, `prisma generate`
+2. Boot a full local Supabase stack on the runner (`supabase start`)
+3. Map `supabase status -o env` → the spec env vars; mint a non-admin
+   `SUPABASE_TEST_USER_JWT`
+4. Run the `apps/api` `src/integration/**` suites (PostgREST RLS deny matrix,
+   auth-user-delete GDPR trigger, idempotent Airtable→Supabase bulk migrate,
+   landing-form RLS, product-count drift, slug backfill) via
+   `test:integration:ci`
+5. Fail on a **0-collected or silently-skipped** result (the suites
+   `describe.skipIf` on env, so a misconfigured job would skip-and-pass). Not in
+   `deploy-staging`'s `needs` yet — promote to a required check once stable. See
+   `TESTING_STRATEGY.md` §6.5.
 
 **Job: `build`** (~3 min)
 1. Checkout, install
@@ -401,7 +417,7 @@ For the API keys with dev/prod separation (Algolia, Datadog), rotate independent
 Every PR must pass these gates before merge:
 
 - ✓ Lint and type check
-- ✓ Unit test coverage above threshold (target: 70% line coverage)
+- ✓ Unit tests pass
 - ✓ Build succeeds
 - ✓ Bundle size under budget
 - ✓ Preview deploys successfully
@@ -409,6 +425,8 @@ Every PR must pass these gates before merge:
 - ✓ No new accessibility violations (axe-core)
 - ✓ Lighthouse scores meet budget (Performance > 80, Accessibility > 95)
 - ✓ At least one human reviewer approval
+
+Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3), and the `integration-db-tests` suites report red/green without gating the staging deploy until they're promoted to a required check (`TESTING_STRATEGY.md` §6.5).
 
 The "human reviewer" requirement is enforced by GitHub branch protection on `main`.
 

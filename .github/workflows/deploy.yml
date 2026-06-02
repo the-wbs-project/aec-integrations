@@ -28,6 +28,26 @@
 #   - integration-runner-preview — extras script against preview URL (PARKED — see header note re: pr-preview.yml)
 #   - lighthouse                — Lighthouse CI, warn-only (PARKED, Phase 7)
 #
+# AECI-90 added:
+#   - integration-db-tests      — runs the apps/api `src/integration/**` suites
+#                                 (PostgREST RLS deny matrix, the auth-user-delete
+#                                 GDPR trigger, idempotent Airtable→Supabase bulk
+#                                 migrate, landing-form RLS, product-count drift,
+#                                 slug backfill) against a FULL local Supabase
+#                                 stack booted on the runner. Mirrors
+#                                 drift-check.yml's local-Supabase pattern and
+#                                 needs NO repo secrets. Every spec is
+#                                 `describe.skipIf(<env unset>)`, so the job mints
+#                                 a test-user JWT and fails on any 0-collected OR
+#                                 silently-skipped result (guards the green check).
+#                                 NON-BLOCKING for now: intentionally NOT in
+#                                 deploy-staging.needs. Promote to a required
+#                                 check once stable.
+#   - unit-tests also runs `pnpm -r run test:coverage` as an ADVISORY,
+#                                 non-blocking step (continue-on-error) per
+#                                 docs/TESTING_STRATEGY.md §3.3 — coverage is
+#                                 generated and uploaded, never a merge gate.
+#
 # Required repo secrets:
 #   CLOUDFLARE_API_TOKEN     — scoped narrowly per CICD_PLAN §7.1
 #   CLOUDFLARE_ACCOUNT_ID    — e62ec9d8012c3e0c225f8e4dbab76b79
@@ -113,6 +133,25 @@ jobs:
       # src/routes/health.ts → src/prisma.ts. Generate the client first.
       - run: pnpm --filter @aeci/api exec prisma generate
       - run: pnpm run test:unit
+      # AECI-90: coverage is ADVISORY (docs/TESTING_STRATEGY.md §3.3) — generate
+      # and surface the v8 lcov + text table for visibility, but never gate the
+      # merge on it. `continue-on-error` keeps a sub-threshold result (the
+      # vitest `thresholds` blocks exit non-zero on a miss) from failing the
+      # job. The thresholds stay in the configs as the documented target.
+      - name: Coverage (advisory, non-blocking)
+        continue-on-error: true
+        run: pnpm -r --if-present run test:coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: |
+            apps/api/coverage
+            apps/web/coverage
+            packages/shared/coverage
+          retention-days: 7
+          if-no-files-found: ignore
 
   # Keep the dev/staging DB schema at HEAD on every PR push and main push.
   #
@@ -318,6 +357,148 @@ jobs:
       - run: HOST=http://localhost:8788 ./apps/web/scripts/run-extra-tests.sh
       - if: failure()
         run: tail -200 dev-bound.log || true
+
+  # AECI-90 — run the apps/api integration suites against a full local Supabase
+  # stack. These are the security-/correctness-critical suites that previously
+  # ran nowhere automated:
+  #   src/integration/vendor_requests.rls.spec.ts          (PostgREST deny matrix)
+  #   src/integration/landing_forms.rls.spec.ts            (PostgREST deny matrix)
+  #   src/integration/auth_user_delete_trigger.spec.ts     (GDPR delete trigger)
+  #   src/integration/airtable-to-supabase-bulk-migrate.spec.ts (idempotent migrate)
+  #   src/integration/product-counts.spec.ts               (denormalized-count drift)
+  #   src/integration/backfill-slugs.spec.ts               (slug backfill)
+  #
+  # Why local Supabase (not the shared dev DB): the auth-delete suite
+  # creates+deletes auth.users and the bulk-migrate suite inserts+deletes
+  # products/vendors/taxonomy. Running those against DATABASE_URL_STAGING (the
+  # dev DB staging serves, Option 1 in docs/environments.md) would be
+  # destructive and flaky. A local stack isolates the writes and supplies every
+  # key the specs need with no repo secrets. Pattern mirrors drift-check.yml,
+  # but boots the FULL stack (PostgREST + GoTrue), not Postgres-only.
+  #
+  # NON-BLOCKING: intentionally not in deploy-staging.needs. Reports red/green on
+  # PRs without gating the staging deploy while it proves out. Promote to a
+  # required check (branch protection / add to deploy-staging.needs) once stable.
+  integration-db-tests:
+    name: Integration suites (local Supabase)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      # The integration specs import @prisma/client directly (e.g.
+      # auth_user_delete_trigger.spec.ts asserts via Prisma raw SQL). Generate
+      # the client before running. `prisma generate` does not hit the DB.
+      - run: pnpm --filter @aeci/api exec prisma generate
+      - name: Install Supabase CLI
+        run: npm install -g supabase@latest
+      # `supabase start` boots the FULL stack (Postgres + GoTrue + PostgREST +
+      # …) and replays every supabase/migrations/** file on a fresh DB. The RLS
+      # suites hit PostgREST `/rest/v1/*` and the auth-delete suite hits GoTrue
+      # `/auth/v1/admin/*`, so the Postgres-only `supabase db start` that
+      # drift-check.yml uses would not be enough.
+      - name: Boot local Supabase (full stack)
+        run: supabase start
+      # Remap the local stack's connection details into the env-var names the
+      # specs read (see apps/api/.dev.vars.example). `supabase status -o env`
+      # prints KEY="value" lines including API_URL, DB_URL, ANON_KEY,
+      # SERVICE_ROLE_KEY — all well-known local values, not secrets.
+      - name: Export Supabase connection env
+        run: |
+          set -euo pipefail
+          supabase status -o env > /tmp/supabase-status.env
+          # Log only the KEY names (not the local demo values) so a CLI-version
+          # change in the output schema is diagnosable.
+          echo "supabase status keys: $(cut -d= -f1 /tmp/supabase-status.env | tr '\n' ' ')"
+          set -a
+          # shellcheck disable=SC1091
+          . /tmp/supabase-status.env
+          set +a
+          missing=
+          for v in API_URL DB_URL ANON_KEY SERVICE_ROLE_KEY; do
+            if [ -z "${!v:-}" ]; then missing="${missing} ${v}"; fi
+          done
+          if [ -n "${missing}" ]; then
+            echo "::error::supabase status -o env did not provide:${missing} — output keys were: $(cut -d= -f1 /tmp/supabase-status.env | tr '\n' ' ')"
+            exit 1
+          fi
+          {
+            echo "SUPABASE_URL=${API_URL}"
+            echo "TEST_DATABASE_URL=${DB_URL}"
+            echo "SUPABASE_ANON_KEY=${ANON_KEY}"
+            echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
+          } >> "$GITHUB_ENV"
+      # Mint a non-admin authenticated-user JWT for the PostgREST RLS suites
+      # (vendor_requests.rls / landing_forms.rls). Without it those suites
+      # describe.skipIf themselves and the guard step below fails the job. The
+      # service-role key creates a confirmed user (mirrors
+      # auth_user_delete_trigger.spec.ts adminCreateUser); the password grant
+      # returns that user's access_token.
+      - name: Mint SUPABASE_TEST_USER_JWT
+        run: |
+          set -euo pipefail
+          email="aeci90-ci-$(date +%s)@example.com"
+          password="ci-$(openssl rand -hex 16)"
+          curl -fsS -X POST "${SUPABASE_URL}/auth/v1/admin/users" \
+            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${email}\",\"password\":\"${password}\",\"email_confirm\":true}" \
+            > /dev/null
+          token=$(curl -fsS -X POST "${SUPABASE_URL}/auth/v1/token?grant_type=password" \
+            -H "apikey: ${SUPABASE_ANON_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"email\":\"${email}\",\"password\":\"${password}\"}" \
+            | jq -r '.access_token // empty')
+          if [ -z "${token}" ]; then
+            echo "::error::Failed to mint SUPABASE_TEST_USER_JWT — GoTrue admin create or password grant failed."
+            exit 1
+          fi
+          echo "::add-mask::${token}"
+          echo "SUPABASE_TEST_USER_JWT=${token}" >> "$GITHUB_ENV"
+      # Runs `vitest run --config vitest.integration.config.ts` with the JSON
+      # reporter (no dotenv wrapper — env comes from the steps above via
+      # $GITHUB_ENV). Writes apps/api/integration-results.json for the guard.
+      - name: Run apps/api integration suites
+        run: pnpm --filter @aeci/api run test:integration:ci
+      # Guard against silent exclusion (AECI-90 AC #1). Every spec is wrapped in
+      # describe.skipIf(<env unset>); if the DB/keys above were not wired the
+      # suites would be COLLECTED but SKIPPED and vitest would still exit 0
+      # (numTotalTests>0 yet numPendingTests==33). So fail on 0-collected AND on
+      # any pending/skipped test — a green check must mean these security tests
+      # actually ran.
+      - name: Guard — fail on 0-collected or silently-skipped tests
+        run: |
+          set -euo pipefail
+          results="apps/api/integration-results.json"
+          if [ ! -f "${results}" ]; then
+            echo "::error::${results} not found — the vitest JSON reporter did not run."
+            exit 1
+          fi
+          total=$(jq '.numTotalTests' "${results}")
+          passed=$(jq '.numPassedTests' "${results}")
+          pending=$(jq '.numPendingTests' "${results}")
+          failed=$(jq '.numFailedTests' "${results}")
+          echo "integration totals: total=${total} passed=${passed} pending=${pending} failed=${failed}"
+          if [ "${total}" -eq 0 ]; then
+            echo "::error::0 integration tests collected — suites were excluded or no specs matched."
+            exit 1
+          fi
+          if [ "${pending}" -gt 0 ]; then
+            echo "::error::${pending} integration test(s) were skipped — the DB/Supabase env was not fully wired (describe.skipIf fired). Refusing a green check for un-run security tests."
+            exit 1
+          fi
+      - name: Stop local Supabase
+        if: always()
+        run: supabase stop || true
 
   e2e-tests-preview:
     name: E2E + axe (preview URL)
