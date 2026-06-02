@@ -19,6 +19,7 @@
     "test": "vitest",
     "test:unit": "vitest run",
     "test:integration": "dotenv -e .dev.vars -- vitest run --config vitest.integration.config.ts",
+    "test:integration:ci": "vitest run --config vitest.integration.config.ts --reporter=default --reporter=json --outputFile=integration-results.json",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"

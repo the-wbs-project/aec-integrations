@@ -142,6 +142,19 @@ export async function backfillSlugs(
     const existingMinusSelf = new Set(vendorSlugs);
     existingMinusSelf.delete(v.slug);
     const final = disambiguateSlug(canonical.slug, [...existingMinusSelf]);
+
+    // Idempotency: a row already at its RESOLVED slug needs no write. The
+    // `v.slug === canonical.slug` check above only catches rows at the naive
+    // canonical; a previously-disambiguated row (whose canonical collides) is
+    // already at `final` here, so re-writing it would be a redundant update and
+    // break the "second run is a no-op" contract.
+    if (final === v.slug) {
+      log.log(`[vendor] ${v.id} ${v.companyName} → SKIPPED (already ${v.slug})`);
+      result.vendors.skipped += 1;
+      vendorSlugById.set(v.id, v.slug);
+      continue;
+    }
+
     if (final !== canonical.slug) {
       result.vendors.collisions += 1;
     }
@@ -193,6 +206,17 @@ export async function backfillSlugs(
     const existingMinusSelf = new Set(productSlugs);
     existingMinusSelf.delete(p.slug);
     const final = disambiguateSlug(canonical.slug, [...existingMinusSelf], vendorSlug);
+
+    // Idempotency (see the vendor pass): a previously-disambiguated product —
+    // canonical collides, so it carries a vendor suffix — lands here on every
+    // subsequent run because its slug never equals the naive canonical. Without
+    // this guard it would be re-written and counted as `updated` forever.
+    if (final === p.slug) {
+      log.log(`[product] ${p.id} ${p.name} → SKIPPED (already ${p.slug})`);
+      result.products.skipped += 1;
+      continue;
+    }
+
     if (final !== canonical.slug) {
       result.products.collisions += 1;
     }
