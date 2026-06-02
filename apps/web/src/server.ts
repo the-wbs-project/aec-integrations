@@ -16,7 +16,7 @@ import { AngularAppEngine } from '@angular/ssr';
 import type { ApiError } from '@aeci/shared';
 
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
-import { logToDatadog } from './server-datadog';
+import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
 import { createApp, type SsrRenderer } from './server-runtime';
 
 // Re-exported until SSR data loaders begin parsing API responses against the
@@ -57,17 +57,20 @@ const app = createApp({
   ssrRenderer: angularRenderer,
   transformResponse: async (res, env, request, ctx) => {
     const injected = await injectDatadogBootstrap(res, env);
-    // Smoke signal: every SSR render emits a Datadog log so we can verify
-    // the API↔Worker↔Datadog pipe end-to-end without instrumenting feature
-    // code. Dev volume is tiny; tighten or sample in Phase 2 if needed.
-    const { pathname, search } = new URL(request.url);
-    logToDatadog(ctx, env, request, {
-      message: 'ssr.render',
-      path: pathname,
-      query: search || undefined,
-      method: request.method,
-      status: injected.status,
-    });
+    // Pipe-health/error smoke signal. The per-render *volume* signal lives in
+    // the bounded `aeci.ssr.render` count metric (server-runtime.ts); this log
+    // is gated by `shouldEmitRenderLog` to errors (every env) + all non-prod
+    // renders, so prod 2xx traffic doesn't flood the logs intake (AECI-103).
+    if (shouldEmitRenderLog(env, injected.status)) {
+      const { pathname, search } = new URL(request.url);
+      logToDatadog(ctx, env, request, {
+        message: 'ssr.render',
+        path: pathname,
+        query: search || undefined,
+        method: request.method,
+        status: injected.status,
+      });
+    }
     return injected;
   },
 });
