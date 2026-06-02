@@ -54,7 +54,7 @@
 import { Hono } from 'hono';
 
 import type { WebEnv } from './env';
-import { submitDistribution } from './server-datadog';
+import { submitCount, submitDistribution } from './server-datadog';
 import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
@@ -415,6 +415,24 @@ async function handleSsr(
   const ttl = request.method === 'GET' ? cacheControlForRoute(url) : null;
   const reqCtx = createRequestContext(createServerApiClient(env));
 
+  // AECI-103 — bounded per-render *count* covering EVERY branch: cache HIT
+  // (which `transformResponse` / the `ssr.render` log never see, since the HIT
+  // path returns before transform) and the non-cacheable branch (which
+  // `aeci.page.render.duration_ms` excludes — see the comment below). This is
+  // the cost-bounded pipe-health signal that replaces the per-render log
+  // firehose. Tags are deliberately low-cardinality (`cache_status` +
+  // `status_class`) — no path/slug tags — so metric cost can't blow up.
+  // Documented in docs/OBSERVABILITY.md.
+  const emitRenderCount = (
+    cacheStatus: 'hit' | 'miss' | 'non_cacheable',
+    statusCode: number,
+  ): void => {
+    submitCount(execCtx, env, request, 'aeci.ssr.render', 1, [
+      `cache_status:${cacheStatus}`,
+      `status_class:${Math.floor(statusCode / 100)}xx`,
+    ]);
+  };
+
   if (ttl === null) {
     // Non-cacheable branch: pass cookies through, never cache.
     const rendered = await renderer(request, reqCtx);
@@ -432,6 +450,7 @@ async function handleSsr(
     if (reqCtx.pageView && finalResponse.status >= 200 && finalResponse.status < 300) {
       firePageView(execCtx, env, reqCtx.pageView);
     }
+    emitRenderCount('non_cacheable', finalResponse.status);
     return finalResponse;
   }
 
@@ -441,8 +460,9 @@ async function handleSsr(
   // routes, tagged by `route_class` (detail/index/browse) + `cache_status`
   // (HIT/MISS), plus `status_code` so the dashboard's 4xx/5xx widget can split
   // on it. Non-cacheable paths (the 404 wildcard, non-GET) have no route_class
-  // and are intentionally excluded from this histogram — they remain covered by
-  // the `ssr.render` log. Documented in docs/OBSERVABILITY.md.
+  // and are intentionally excluded from this histogram — they are covered
+  // instead by the `aeci.ssr.render` count metric (AECI-103, emitted on every
+  // branch above). Documented in docs/OBSERVABILITY.md.
   const routeClass = cacheTagInputsForPath(localePath)?.route;
   const emitRenderMetric = (cacheStatus: 'HIT' | 'MISS', statusCode: number): void => {
     if (!routeClass) return;
@@ -468,6 +488,7 @@ async function handleSsr(
     const hit = await cache.match(cacheKey);
     if (hit) {
       emitRenderMetric('HIT', hit.status);
+      emitRenderCount('hit', hit.status);
       firePageView(execCtx, env, { route: localePath });
       return hit;
     }
@@ -483,6 +504,7 @@ async function handleSsr(
   const tagInputs = mergeEmbeddedTags(cacheTagInputsForPath(localePath), reqCtx.embedded);
   const response = withCacheHeaders(transformed, ttl, tagInputs);
   emitRenderMetric('MISS', response.status);
+  emitRenderCount('miss', response.status);
 
   // Per §9.1: only 2xx is stored. 404s are *returned* with NOT_FOUND_TTL via
   // the response's Cache-Control header (so Cloudflare honors it edge-side),
