@@ -187,11 +187,11 @@ Triggered when a release tag is pushed.
 Wrangler is the only deployment tool. Single source of truth for Worker configuration.
 
 **Configuration files:**
-- `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.preview`, `env.staging`, `env.production`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/stack-test/wrangler.jsonc` and `apps/prisma-test/wrangler.jsonc`.
+- `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.preview`, `env.staging`, `env.production`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`.
 - Compatibility date locked per environment to prevent surprise Worker runtime changes
 - SSR Worker requires `"compatibility_flags": ["nodejs_compat"]` — needed for `@angular/ssr` runtime Node polyfills. This is unrelated to database access; Prisma still uses Accelerate (HTTPS), see `DATABASE_SCHEMA.md` §1a.
 - API Worker does not need `nodejs_compat` (it talks to Supabase via Accelerate HTTPS).
-- Custom domain routing uses `routes` with `"custom_domain": true` per the `apps/stack-test/wrangler.jsonc:44-49` pattern, not zone-level `route` strings.
+- Custom domain routing uses `routes` with `"custom_domain": true` per the `apps/web/wrangler.jsonc:78-85` pattern, not zone-level `route` strings.
 
 **Pattern (SSR Worker — `apps/web/wrangler.jsonc`):**
 ```jsonc
@@ -365,7 +365,7 @@ Local secrets live in `.dev.vars` at the root of each Worker package. **Never co
 - `DATABASE_URL` — Prisma Accelerate URL (`prisma://...`). Used at runtime.
 - `DIRECT_URL` — Supabase pooler URL (`postgresql://...`). Used by the Prisma CLI (`migrate dev`, `generate`).
 
-See the canonical comment block at `apps/prisma-test/wrangler.jsonc:7-11` for the deploy-side counterpart.
+See the canonical comment block at `apps/api/wrangler.jsonc:12-13` for the deploy-side counterpart.
 
 ### 7.4 Rotation
 

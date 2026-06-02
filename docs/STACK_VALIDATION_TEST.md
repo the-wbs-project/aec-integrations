@@ -304,7 +304,7 @@ aeci-stack-test/
 
 ## 9. Results log
 
-Probe ran 2026-05-12 (foundation scenarios) and 2026-05-13 (i18n scenarios) against `apps/stack-test` deployed at `stack-test.aecintegrations.com`. Implementation lives at `apps/stack-test/`; integration harness at `apps/stack-test/scripts/run-extra-tests.sh` (T1–T12).
+Probe ran 2026-05-12 (foundation scenarios) and 2026-05-13 (i18n scenarios) against the `stack-test` probe deployed at `stack-test.aecintegrations.com`. Implementation is now archived (frozen) at `spikes/stack-test/`; the integration harness was ported to `apps/web/scripts/run-extra-tests.sh` (T1–T12).
 
 | Section | Scenario | Result | Notes |
 |---|---|---|---|
@@ -332,13 +332,13 @@ Validated as **go** for Phase 2. Highlights and gaps:
 - Locale URL-prefix segments edge cache naturally — no `Vary` header needed (T9).
 
 **Gaps that informed doc updates** ⚠️
-- **T1b — theme-cookie pollution.** A naive SSR theme implementation reads the `theme` cookie and bakes it into rendered HTML; with URL-only cache keying, the first visitor primes the cache for everyone. Fixed in stack-test by stripping visitor-state cookies before forwarding to SSR (`src/server.ts:212-229`). Documented as a non-negotiable rule in `STAGE_1_SPEC.md §9.1a` and `CLAUDE.md`.
+- **T1b — theme-cookie pollution.** A naive SSR theme implementation reads the `theme` cookie and bakes it into rendered HTML; with URL-only cache keying, the first visitor primes the cache for everyone. Fixed in the probe by stripping visitor-state cookies before forwarding to SSR (`spikes/stack-test/src/server.ts:212-229`); now in production at `apps/web/src/server-runtime.ts:131-153`. Documented as a non-negotiable rule in `STAGE_1_SPEC.md §9.1a` and `CLAUDE.md`.
 - **T3a/b — "pinned 404".** Caching 200 "not found" with a 5-minute TTL pins stale state across entity creation. Stack-test ships with this gap; `apps/web/` must return HTTP 404 with ≤60s TTL from the start. See `STAGE_1_SPEC.md §9.1b`.
 - **T6 — no ETag.** Worker doesn't emit `ETag`; clients can't `If-None-Match` for bandwidth savings. Soft gap, deferred to Phase 2 decision.
 
 ### 9b. Reusing the harness
 
-The bash integration test pattern at `apps/stack-test/scripts/run-extra-tests.sh` (T1–T12) covers behaviors that span multiple requests with edge-cache state (cookie/cache interaction, MISS→HIT, purge propagation, per-locale isolation). Vitest+Miniflare is fine for handler-logic tests but does not exercise the actual Cloudflare CDN cache. Port the T1–T12 pattern into `apps/web/` integration tests in Phase 1 — see `TESTING_STRATEGY.md §6`.
+The bash integration test pattern originated in the frozen probe `spikes/stack-test/scripts/run-extra-tests.sh` (T1–T12) and covers behaviors that span multiple requests with edge-cache state (cookie/cache interaction, MISS→HIT, purge propagation, per-locale isolation). Vitest+Miniflare is fine for handler-logic tests but does not exercise the actual Cloudflare CDN cache. The T1–T12 pattern was ported to `apps/web/scripts/run-extra-tests.sh` — see `TESTING_STRATEGY.md §6`.
 
 ---
 

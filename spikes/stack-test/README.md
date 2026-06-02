@@ -1,5 +1,28 @@
 # AECi Review — stack-test
 
+> **⚠️ FROZEN REFERENCE — not part of the build (AECI-118).**
+> This is an archived Phase-1 stack-validation probe; its go/no-go completed
+> 2026-05-12/13. It lives under `spikes/`, **outside** the
+> `pnpm-workspace.yaml` `apps/*` glob, so it is **not installed, built, linted,
+> typechecked, or deployed** by any workspace script or CI job. It is **not
+> runnable as-is** — to exercise it again, temporarily add `spikes/stack-test`
+> to `pnpm-workspace.yaml` and run `pnpm install`.
+>
+> It is retained only because the docs cite its source as historical
+> "validated pattern" line anchors. **Do not edit the files here** — those
+> anchors assume the line numbers are frozen. The patterns it pioneered now
+> ship in live code:
+>
+> - SSR runtime, visitor-state cookie stripping, locale dispatch, and cache
+>   TTLs → `apps/web/src/server-runtime.ts`
+> - Zoneless change detection + client hydration → `apps/web/src/app/app.config.ts`
+> - `nodejs_compat` SSR Worker config → `apps/web/wrangler.jsonc`
+> - Multi-request edge-cache integration harness → `apps/web/scripts/run-extra-tests.sh`
+>
+> The one pattern with **no** live equivalent (so still anchored here) is the
+> multi-locale `translations:entity:<id>:<locale>` KV-overlay merge — i18n is
+> en-US-only at launch, so that demo survives as the reference.
+
 Throwaway validation probe for the Phase 1 foundation stack. See
 [`/.context/attachments/pasted_text_2026-05-12_09-00-59.txt`](../../.context/attachments/pasted_text_2026-05-12_09-00-59.txt)
 for the full spec.

@@ -260,7 +260,7 @@ describe('SSR Worker', () => {
 
 ### 6.3 Prisma in integration tests
 
-API Worker handlers must accept the Prisma client as an argument — the `withPrisma(env, handler)` shape in `DATABASE_SCHEMA.md` §1a (modeled on `apps/prisma-test/src/index.ts:29-35`). Do **not** import a module-level Prisma singleton; doing so makes handlers untestable without a live database.
+API Worker handlers must accept the Prisma client as an argument — the `withPrisma(env, handler)` shape in `DATABASE_SCHEMA.md` §1a (modeled on `apps/api/src/prisma.ts:14-20`). Do **not** import a module-level Prisma singleton; doing so makes handlers untestable without a live database.
 
 **Unit/handler tests** — inject a Prisma double. Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (e.g. `findMany`, `create`, `update`, `delete`). Assert on the call shape, not the return.
 
@@ -274,7 +274,7 @@ API Worker handlers must accept the Prisma client as an argument — the `withPr
 
 Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise the actual Cloudflare CDN cache, real cookie/cache interactions, or real purge propagation. Some behaviors only manifest against `wrangler dev` (or a deployed preview) where multiple requests share edge-cache state.
 
-Keep a small bash- or Playwright-driven suite for these multi-request, edge-stateful scenarios — modeled on `apps/stack-test/scripts/run-extra-tests.sh` (T1–T12). The scenarios that earned their keep there:
+Keep a small bash- or Playwright-driven suite for these multi-request, edge-stateful scenarios — modeled on `apps/web/scripts/run-extra-tests.sh` (T1–T12). The scenarios that earned their keep there:
 
 - **Cookie × cache pollution** — verify visitor-state cookies (theme, etc.) are stripped before SSR for cacheable routes; otherwise the first visitor's render poisons everyone else's response.
 - **`Vary` audit** — confirm no cached SSR response emits `Vary`; one variant per URL.
@@ -448,7 +448,7 @@ Separate from Lighthouse but enforced in the same pipeline.
 | Total page weight (gzipped, home page) | < 500 KB | hard fail |
 | Worker bundle (uncompressed) | < 5 MB warn, < 10 MB hard fail | Cloudflare's hard ceiling is **10 MB**; warn at 5 MB to give headroom for locale additions |
 
-Use `size-limit` or `bundlewatch` to enforce the JS/CSS budgets in CI. For the Worker bundle, mirror the snapshot pattern in `apps/stack-test/scripts/run-extra-tests.sh` (T7): print `dist/server/` size on every build, warn over 5 MB, fail over 10 MB. The 10 MB ceiling is enforced by Cloudflare at deploy time anyway, but failing in CI catches it earlier with a clearer error.
+Use `size-limit` or `bundlewatch` to enforce the JS/CSS budgets in CI. For the Worker bundle, mirror the snapshot pattern in `apps/web/scripts/run-extra-tests.sh` (T7): print `dist/server/` size on every build, warn over 5 MB, fail over 10 MB. The 10 MB ceiling is enforced by Cloudflare at deploy time anyway, but failing in CI catches it earlier with a clearer error.
 
 ### 10.3 Pages tested
 
