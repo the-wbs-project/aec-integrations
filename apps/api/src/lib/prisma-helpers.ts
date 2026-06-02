@@ -535,7 +535,7 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
   };
 }
 
-type TaxonomyCountKey = 'productCategories' | 'productDisciplines' | 'productPhases';
+export type TaxonomyCountKey = 'productCategories' | 'productDisciplines' | 'productPhases';
 
 export function toTaxonomyTermWithCount(
   raw: RawTaxonomyTermRow,
