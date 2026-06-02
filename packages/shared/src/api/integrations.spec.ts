@@ -44,6 +44,14 @@ describe('IntegrationListItemSchema', () => {
     expect(parsed.direction).toBeNull();
   });
 
+  it('accepts a null mechanism_kind (column unset — AECI-115)', () => {
+    const parsed = IntegrationListItemSchema.parse({
+      ...validListItem,
+      mechanism_kind: null,
+    });
+    expect(parsed.mechanism_kind).toBeNull();
+  });
+
   it('rejects an unknown mechanism_kind', () => {
     const result = IntegrationListItemSchema.safeParse({
       ...validListItem,

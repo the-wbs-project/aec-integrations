@@ -71,4 +71,12 @@ describe('IntegrationCard', () => {
     );
     expect(placeholder?.textContent?.trim()).toBe('—');
   });
+
+  it('renders an em-dash placeholder when mechanism_kind is null (AECI-115 — no native fallback)', () => {
+    const fixture = setupFixture({ ...baseIntegration, mechanism_kind: null });
+    const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
+      'span[aria-label="Mechanism not listed"]',
+    );
+    expect(placeholder?.textContent?.trim()).toBe('—');
+  });
 });

@@ -90,6 +90,16 @@ describe('ProductCard', () => {
     ).toBeNull();
   });
 
+  it('renders an em-dash placeholder when vendor is null (AECI-115 — no /vendors/unknown link)', () => {
+    const fixture = setupFixture({ ...baseProduct, vendor: null });
+    const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
+      'span[aria-label="No vendor listed"]',
+    );
+    expect(placeholder?.textContent?.trim()).toBe('—');
+    // No vendor link should be rendered.
+    expect((fixture.nativeElement as HTMLElement).querySelector('a[href^="/vendors/"]')).toBeNull();
+  });
+
   it('renders integration_count in the last cell', () => {
     const fixture = setupFixture();
     const cells = (fixture.nativeElement as HTMLElement).querySelectorAll('td');

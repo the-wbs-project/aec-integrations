@@ -26,7 +26,11 @@ import type { Context } from 'hono';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
+import {
+  reportMissingVendors,
+  validateResponseInDev,
+  type PrismaFactory,
+} from '../lib/handler-utils';
 import {
   productDetailSelect,
   productListSelect,
@@ -68,6 +72,8 @@ export function createProductsListHandler(
       perPage: query.perPage,
       total,
     };
+
+    reportMissingVendors(c, body.data);
 
     validateResponseInDev(c.env, () => {
       ProductsListResponseSchema.parse(body);
@@ -113,6 +119,8 @@ export function createProductDetailHandler(
         })) as unknown as RawProductListRow[];
 
     const body: ProductDetail = toProductDetail(row, relatedProducts);
+
+    reportMissingVendors(c, [body, ...body.related_products]);
 
     validateResponseInDev(c.env, () => {
       ProductDetailSchema.parse(body);

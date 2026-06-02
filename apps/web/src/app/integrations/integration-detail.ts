@@ -96,14 +96,16 @@ import { NotFound } from '../not-found/not-found';
           </h1>
 
           <div class="flex flex-wrap items-center gap-3">
-            <span
-              class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-                bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em]
-                text-(--text-secondary)"
-              [attr.aria-label]="mechanismAria()"
-            >
-              {{ mechanismKindLabel() }}
-            </span>
+            @if (mechanismKindLabel(); as label) {
+              <span
+                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
+                  bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em]
+                  text-(--text-secondary)"
+                [attr.aria-label]="mechanismAria()"
+              >
+                {{ label }}
+              </span>
+            }
             @if (i.direction) {
               <span
                 class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default)
@@ -153,7 +155,17 @@ import { NotFound } from '../not-found/not-found';
                   Mechanism
                 </dt>
                 <dd class="text-right font-medium text-(--text-primary)">
-                  {{ i.mechanism_name || mechanismKindLabel() }}
+                  @if (i.mechanism_name || mechanismKindLabel(); as mechanism) {
+                    {{ mechanism }}
+                  } @else {
+                    <span
+                      class="text-(--text-tertiary)"
+                      i18n="@@integrations.detail.mechanism.none"
+                      i18n-aria-label="@@integrations.detail.mechanism.none.aria"
+                      aria-label="Mechanism not listed"
+                      >—</span
+                    >
+                  }
                 </dd>
               </div>
               @if (i.direction) {

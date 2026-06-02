@@ -180,6 +180,25 @@ describe('productDetailResolver — server path', () => {
     expect(stateKeys['aeci.product-detail:procore']).toEqual(product);
   });
 
+  it('omits the vendor cache tag when the product has no vendor (AECI-115)', async () => {
+    const product = buildProduct({ vendor: null });
+    const ctx = createRequestContext(buildClient(async () => product));
+
+    const { run } = setup({
+      platform: 'server',
+      ctx,
+      responseInit: { status: 200 },
+      request: new Request('https://aecintegrations.com/products/procore'),
+      meta: { setEntityMeta: vi.fn(), setProductJsonLd: vi.fn() } as Partial<MetaService>,
+    });
+
+    await run();
+
+    // No vendor link → no `vendor:*` tag (and no fabricated `vendor:unknown`).
+    // This product has no embedded integrations either, so the list is empty.
+    expect(ctx.embedded).toEqual([]);
+  });
+
   it('returns null on NOT_FOUND, sets RESPONSE_INIT.status=404, sets noindex meta, no pageView', async () => {
     const setNotFoundMeta = vi.fn();
     const setEntityMeta = vi.fn();
