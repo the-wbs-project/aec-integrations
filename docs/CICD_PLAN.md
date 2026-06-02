@@ -453,17 +453,19 @@ Every deployment to staging or production sends a marker to Datadog. Markers app
 
 ### 9.2 Smoke tests
 
-After every staging and production deploy, a Playwright smoke test suite runs against the deployed URL:
+After every staging and production deploy, the workflow polls the deployed site until **both** Workers report the SHA being shipped, via `scripts/verify-version.sh`:
 
-- Home page renders with stats
-- Product page renders
-- Vendor page renders
-- Search returns results
-- Auth login page loads
+- `GET /api/version` — proxied raw to the API Worker; reports the **API** Worker's `COMMIT_SHA`.
+- `GET /_version` — served by the SSR Worker itself; reports the **SSR** Worker's `COMMIT_SHA`.
 
-If any smoke test fails, the deployment is marked failed and:
-- Staging: Slack notification, no auto-rollback (devs investigate)
-- Production: auto-rollback to previous deployment, Slack alert
+Checking both (AECI-92) proves the whole site — not just the API behind the proxy — is at the deployed commit. The workflow owns the timing budget: it retries up to 10 times at 6s intervals (~60s) and marks the deploy failed if either Worker has not reported the expected SHA by then.
+
+If the smoke check fails, the deployment is marked failed and:
+
+- **Staging:** the red CI run is the signal. No Slack notification and no auto-rollback — a developer investigates and re-runs.
+- **Production:** the `deploy-prod-workers` job auto-rolls-back **both** Workers to the previous deployment (`wrangler rollback --env production` for `apps/web` then `apps/api`, the reverse of deploy order, so API stays ahead of SSR on the way down), emits an alert-grade **Datadog event** (`alert_type: error`, `event:auto_rollback`), and writes an operator runbook to the run summary. The runbook carries the manual `wrangler rollback` commands, both R2 pre-promote snapshot keys (public + `supabase_migrations`, and auth), and the exact `pg_restore` block. The **database is not auto-restored** — migrations are forward-only (§6.2), and the snapshot predates any post-migration writes, so restoring is an operator decision made with the surfaced commands in hand.
+
+> Slack alerting was intentionally dropped from Phase 1; Datadog events are the prod alert channel. A Playwright smoke suite (home / product / vendor / search / auth-login page renders) is **deferred to a later phase** — until then the dual-Worker version verification above is the smoke gate.
 
 ---
 
