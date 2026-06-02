@@ -106,7 +106,8 @@ export const productDetailResolver: ResolveFn<ProductDetail | null> = async (rou
   // as links in the integrations section, so their product:{slug} tags are
   // required for purge correctness when those products are updated.
   // `buildCacheTags` deduplicates; pushing the same slug twice is harmless.
-  ctx.embedded.push({ type: 'vendor', slug: product.vendor.slug });
+  // `vendor` is nullable (AECI-115) — only tag it when the product has one.
+  if (product.vendor) ctx.embedded.push({ type: 'vendor', slug: product.vendor.slug });
   for (const i of product.integrations_as_source) {
     ctx.embedded.push({ type: 'integration', id: i.id });
     ctx.embedded.push({ type: 'product', slug: i.target.slug });

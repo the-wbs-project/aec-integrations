@@ -87,7 +87,7 @@ describe('SSR Worker → API Worker service binding round-trip', () => {
     const body = await response.json();
     const parsed = ProductDetailSchema.parse(body);
     expect(parsed.slug).toBe('procore');
-    expect(parsed.vendor.slug).toBe('procore');
+    expect(parsed.vendor?.slug).toBe('procore');
     expect(parsed.related_products.map((p) => p.slug)).toEqual(['revizto']);
   });
 

@@ -234,7 +234,7 @@ describe('GET /api/products/:slug', () => {
     const parsed = ProductDetailSchema.parse(body);
 
     expect(parsed.slug).toBe('procore');
-    expect(parsed.vendor.slug).toBe('procore');
+    expect(parsed.vendor?.slug).toBe('procore');
     expect(parsed.categories.map((c) => c.slug)).toContain('project-management');
     expect(parsed.disciplines.map((d) => d.slug)).toContain('construction');
     expect(parsed.phases.map((p) => p.slug)).toContain('construction-phase');

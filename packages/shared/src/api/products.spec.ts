@@ -42,8 +42,16 @@ const validListItem = {
 describe('ProductListItemSchema', () => {
   it('parses a fully hydrated list item', () => {
     const parsed = ProductListItemSchema.parse(validListItem);
-    expect(parsed.vendor.slug).toBe('procore');
+    expect(parsed.vendor?.slug).toBe('procore');
     expect(parsed.rating_overall_avg).toBe(4.2);
+  });
+
+  it('accepts null vendor (product with no vendor links — AECI-115)', () => {
+    const parsed = ProductListItemSchema.parse({
+      ...validListItem,
+      vendor: null,
+    });
+    expect(parsed.vendor).toBeNull();
   });
 
   it('accepts null ratings (no reviews yet)', () => {

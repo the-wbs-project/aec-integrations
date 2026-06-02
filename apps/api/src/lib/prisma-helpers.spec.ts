@@ -36,9 +36,14 @@ describe('toIntegrationListItem', () => {
     expect(out.name).toBe('Procore → Revizto');
   });
 
-  it('coalesces `mechanismKind: null` to `native`', () => {
+  it('passes through `mechanismKind: null` as null (AECI-115 — no longer coerced to native)', () => {
     const out = toIntegrationListItem(nullNameIntegrationRow);
-    expect(out.mechanism_kind).toBe('native');
+    expect(out.mechanism_kind).toBeNull();
+  });
+
+  it('throws on an out-of-enum mechanism_kind (data-integrity violation)', () => {
+    const corrupt = { ...procoreReviztoIntegrationRow, mechanismKind: 'telepathy' };
+    expect(() => toIntegrationListItem(corrupt)).toThrow(/unknown mechanism_kind/);
   });
 
   it('passes through `direction: null` (schema permits null)', () => {
@@ -78,6 +83,16 @@ describe('toProductListItem', () => {
       slug: 'procore',
       name: 'Procore Technologies',
     });
+  });
+
+  it('returns `vendor: null` when the product has no vendor links (AECI-115 — no sentinel)', () => {
+    const out = toProductListItem({ ...reviztoProductRow, productVendors: [] });
+    expect(out.vendor).toBeNull();
+  });
+
+  it('throws on an out-of-enum product_role (data-integrity violation)', () => {
+    const corrupt = { ...reviztoProductRow, productRole: 'middleware' };
+    expect(() => toProductListItem(corrupt)).toThrow(/unknown product_role/);
   });
 
   it('converts Decimal rating fields to plain numbers', () => {

@@ -262,7 +262,7 @@ export const ProductListItemSchema = z.object({
   name: z.string().min(1),
   logo_url: z.string().url().nullable(),
   product_role: z.enum(['application', 'connector', 'hybrid']),
-  vendor: VendorLinkSchema,
+  vendor: VendorLinkSchema.nullable(), // null when the product has no ProductVendor link (AECI-115)
   integration_count: z.number().int().min(0),
   review_count: z.number().int().min(0),
   rating_overall_avg: z.number().nullable(),
@@ -319,7 +319,9 @@ The public sort key `name` on `/api/vendors` maps to the `company_name` column s
 export const IntegrationListItemSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
-  mechanism_kind: z.enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner']),
+  mechanism_kind: z
+    .enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner'])
+    .nullable(), // null when the column is unset (AECI-115); an out-of-enum non-null value is rejected (500) server-side
   mechanism_name: z.string().nullable(),
   direction: z.enum(['one-way', 'bidirectional']).nullable(),
   source: ProductLinkSchema,

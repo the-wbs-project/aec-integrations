@@ -10,7 +10,11 @@ import type { Context } from 'hono';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
+import {
+  reportMissingVendors,
+  validateResponseInDev,
+  type PrismaFactory,
+} from '../lib/handler-utils';
 import {
   productListSelect,
   taxonomyDetailScalarSelect,
@@ -48,6 +52,8 @@ export function createPhaseDetailHandler(
       ...toTaxonomyTermWithCount(row, 'productPhases'),
       products: products.map(toProductListItem),
     };
+
+    reportMissingVendors(c, body.products);
 
     validateResponseInDev(c.env, () => {
       PhaseDetailSchema.parse(body);

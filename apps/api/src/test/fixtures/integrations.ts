@@ -2,7 +2,8 @@
  * Hand-curated integration fixtures covering:
  *   - Fully populated row (name, mechanism_kind, direction all set).
  *   - Null-name row (exercises the synthesised "Source → Target" rule).
- *   - Null-mechanism row (exercises the 'native' fallback).
+ *   - Null-mechanism row (exercises the AECI-115 null passthrough — the mapper
+ *     surfaces `mechanism_kind: null`, no longer coercing to 'native').
  */
 
 import type { RawIntegrationDetailRow, RawIntegrationListRow } from '../../lib/prisma-helpers';
@@ -39,7 +40,8 @@ export const procoreReviztoIntegrationRow: RawIntegrationListRow = {
 
 /**
  * Null name + null mechanismKind row. The mapper must synthesise the name as
- * `${source.name} → ${target.name}` and default mechanism_kind to 'native'.
+ * `${source.name} → ${target.name}` and surface `mechanism_kind: null`
+ * (AECI-115 passthrough — no longer defaulted to 'native').
  */
 export const nullNameIntegrationRow: RawIntegrationListRow = {
   id: NULL_NAME_INTEGRATION_ID,

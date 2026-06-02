@@ -13,7 +13,11 @@ import type { Context } from 'hono';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
+import {
+  reportMissingVendors,
+  validateResponseInDev,
+  type PrismaFactory,
+} from '../lib/handler-utils';
 import {
   productListSelect,
   taxonomyDetailScalarSelect,
@@ -51,6 +55,8 @@ export function createDisciplineDetailHandler(
       ...toTaxonomyTermWithCount(row, 'productDisciplines'),
       products: products.map(toProductListItem),
     };
+
+    reportMissingVendors(c, body.products);
 
     validateResponseInDev(c.env, () => {
       DisciplineDetailSchema.parse(body);

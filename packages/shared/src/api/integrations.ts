@@ -44,7 +44,11 @@ export type IntegrationSort = z.infer<typeof IntegrationSortSchema>;
 export const IntegrationListItemSchema = z.object({
   id: z.string().uuid(),
   name: z.string().min(1),
-  mechanism_kind: IntegrationMechanismKindSchema,
+  // Nullable: the `mechanism_kind` column is nullable (AECI-115), mirroring
+  // sibling `direction`. An absent value surfaces as `null` and the UI renders
+  // an empty state, rather than silently coercing to `'native'`. An out-of-enum
+  // *non-null* value is a data-integrity violation the mapper throws on.
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(),
   mechanism_name: z.string().nullable(),
   direction: IntegrationDirectionSchema.nullable(),
   source: ProductLinkSchema,

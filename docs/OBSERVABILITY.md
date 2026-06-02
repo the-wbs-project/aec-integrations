@@ -26,9 +26,16 @@ when their credential is absent (clean local dev).
 | `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, HIT + MISS branches) | `route_class` (detail/index/browse), `cache_status` (HIT/MISS), `status_code`, `status_class` (2xx/4xx/5xx) |
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
+| `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
 
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
+
+`aeci.api.data_gap` (AECI-115) surfaces curated-data gaps that used to be hidden by
+silent fabrication. A product with no `ProductVendor` row now renders an empty state
+instead of a fake `/vendors/unknown` link; the metric (plus a paired `warn` log naming
+the product slug, `data_gap:missing_vendor`) makes the gap visible to operators. A
+gap-free DB emits nothing.
 
 ### Two gotchas when querying
 

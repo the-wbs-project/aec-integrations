@@ -35,11 +35,21 @@ import type { IntegrationListItem } from '@aeci/shared';
       </a>
     </td>
     <td class="px-4 py-3 text-(--text-secondary)">
-      <span
-        class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
-      >
-        {{ mechanismKindLabel() }}
-      </span>
+      @if (mechanismKindLabel(); as label) {
+        <span
+          class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2.5 py-0.5 text-xs font-bold tracking-[0.01em]"
+        >
+          {{ label }}
+        </span>
+      } @else {
+        <span
+          class="text-(--text-tertiary)"
+          i18n="@@integrations.card.mechanism.none"
+          i18n-aria-label="@@integrations.card.mechanism.none.aria"
+          aria-label="Mechanism not listed"
+          >—</span
+        >
+      }
     </td>
     <td class="px-4 py-3 text-(--text-secondary)">
       @if (directionLabel()) {

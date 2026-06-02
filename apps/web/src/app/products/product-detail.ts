@@ -107,15 +107,17 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               >
                 {{ p.name }}
               </h1>
-              <p class="text-sm text-(--text-secondary)">
-                <ng-container i18n="@@products.detail.by">by</ng-container>
-                <a
-                  [routerLink]="['/vendors', p.vendor.slug]"
-                  class="ml-1 text-(--accent-primary) underline underline-offset-2"
-                >
-                  {{ p.vendor.name }}
-                </a>
-              </p>
+              @if (p.vendor; as v) {
+                <p class="text-sm text-(--text-secondary)">
+                  <ng-container i18n="@@products.detail.by">by</ng-container>
+                  <a
+                    [routerLink]="['/vendors', v.slug]"
+                    class="ml-1 text-(--accent-primary) underline underline-offset-2"
+                  >
+                    {{ v.name }}
+                  </a>
+                </p>
+              }
             </div>
           </div>
 
@@ -157,23 +159,33 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             >
               Vendor
             </h2>
-            <a
-              [routerLink]="['/vendors', p.vendor.slug]"
-              class="flex items-center gap-3 rounded-(--radius-lg) border border-(--border-default)
-                bg-(--surface-raised) p-4 no-underline transition-colors
-                hover:border-(--border-strong)"
-            >
-              @if (p.vendor.logo_url) {
-                <img
-                  [ngSrc]="p.vendor.logo_url"
-                  alt=""
-                  width="32"
-                  height="32"
-                  class="h-8 w-8 shrink-0 rounded-(--radius-sm) object-contain"
-                />
-              }
-              <span class="font-bold text-(--text-primary)">{{ p.vendor.name }}</span>
-            </a>
+            @if (p.vendor; as v) {
+              <a
+                [routerLink]="['/vendors', v.slug]"
+                class="flex items-center gap-3 rounded-(--radius-lg) border border-(--border-default)
+                  bg-(--surface-raised) p-4 no-underline transition-colors
+                  hover:border-(--border-strong)"
+              >
+                @if (v.logo_url) {
+                  <img
+                    [ngSrc]="v.logo_url"
+                    alt=""
+                    width="32"
+                    height="32"
+                    class="h-8 w-8 shrink-0 rounded-(--radius-sm) object-contain"
+                  />
+                }
+                <span class="font-bold text-(--text-primary)">{{ v.name }}</span>
+              </a>
+            } @else {
+              <p
+                class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)
+                  p-4 text-(--text-tertiary)"
+                i18n="@@products.detail.vendor.none"
+              >
+                No vendor listed
+              </p>
+            }
           </section>
 
           @if (p.categories.length > 0) {
