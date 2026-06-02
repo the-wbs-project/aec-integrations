@@ -34,7 +34,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
       </p>
       <h1
         id="taxonomy-not-found-title"
-        class="mt-3 font-serif text-3xl font-semibold tracking-tight md:text-4xl"
+        class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
       >
         {{ title() }}
       </h1>

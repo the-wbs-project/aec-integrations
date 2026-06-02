@@ -90,7 +90,7 @@ import { VendorNotFound } from './vendor-not-found';
               <span
                 class="flex h-16 w-16 shrink-0 items-center justify-center
                   rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-raised) font-serif text-2xl font-semibold text-(--text-primary)"
+                  bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)"
                 aria-hidden="true"
               >
                 {{ initial() }}
@@ -104,7 +104,7 @@ import { VendorNotFound } from './vendor-not-found';
                 Vendor
               </p>
               <h1
-                class="font-serif text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
               >
                 {{ v.company_name }}
               </h1>
@@ -180,7 +180,7 @@ import { VendorNotFound } from './vendor-not-found';
                 >
                   Products
                 </dt>
-                <dd class="mt-1 font-serif text-xl font-semibold text-(--text-primary)">
+                <dd class="mt-1 font-display text-xl font-semibold text-(--text-primary)">
                   {{ v.product_count }}
                 </dd>
               </div>
@@ -191,7 +191,7 @@ import { VendorNotFound } from './vendor-not-found';
                 >
                   Integrations
                 </dt>
-                <dd class="mt-1 font-serif text-xl font-semibold text-(--text-primary)">
+                <dd class="mt-1 font-display text-xl font-semibold text-(--text-primary)">
                   {{ v.integration_count }}
                 </dd>
               </div>
@@ -242,7 +242,7 @@ import { VendorNotFound } from './vendor-not-found';
             <section aria-labelledby="vendor-description-title" class="space-y-4">
               <h2
                 id="vendor-description-title"
-                class="font-serif text-2xl font-semibold text-(--text-primary)"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
                 i18n="@@vendors.detail.body.description"
               >
                 About
@@ -257,7 +257,7 @@ import { VendorNotFound } from './vendor-not-found';
             <div class="flex items-baseline justify-between gap-4">
               <h2
                 id="vendor-products-title"
-                class="font-serif text-2xl font-semibold text-(--text-primary)"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
                 i18n="@@vendors.detail.body.products"
               >
                 Products

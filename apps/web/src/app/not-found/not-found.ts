@@ -34,7 +34,7 @@ import { RouterLink } from '@angular/router';
       </p>
       <h1
         id="not-found-title"
-        class="mt-3 font-serif text-3xl font-semibold tracking-tight md:text-4xl"
+        class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
         i18n="@@notFound.title"
       >
         We couldn't find that page.

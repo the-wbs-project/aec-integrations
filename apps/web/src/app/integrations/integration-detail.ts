@@ -80,7 +80,7 @@ import { NotFound } from '../not-found/not-found';
             Integration
           </p>
           <h1
-            class="font-serif text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+            class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
           >
             <a
               [routerLink]="['/products', i.source.slug]"
@@ -295,7 +295,7 @@ import { NotFound } from '../not-found/not-found';
             <section aria-labelledby="integration-description-title" class="space-y-4">
               <h2
                 id="integration-description-title"
-                class="font-serif text-2xl font-semibold text-(--text-primary)"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
                 i18n="@@integrations.detail.body.description"
               >
                 About this integration
@@ -309,7 +309,7 @@ import { NotFound } from '../not-found/not-found';
           <section aria-labelledby="integration-connects-title" class="space-y-4">
             <h2
               id="integration-connects-title"
-              class="font-serif text-2xl font-semibold text-(--text-primary)"
+              class="font-display text-2xl font-semibold text-(--text-primary)"
               i18n="@@integrations.detail.body.connects"
             >
               Connects
