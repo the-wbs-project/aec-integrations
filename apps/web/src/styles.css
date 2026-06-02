@@ -2,6 +2,20 @@
 @import '@spartan-ng/brain/hlm-tailwind-preset.css';
 
 /*
+ * Bind Tailwind's `dark:` variant to the app's `.theme-dark` class (toggled on
+ * <html> by index.html's inline script + theme.service.ts) so every `dark:`
+ * utility follows the user's explicit theme choice.
+ *
+ * This declaration MUST stay after the `@spartan-ng/brain` import above. That
+ * preset ships its own `@custom-variant dark (&:is(.dark *))`, keyed off a
+ * `.dark` class this app never sets — so without this override `dark:` utilities
+ * silently never match in dark mode (and Tailwind's bare default would instead
+ * key off the OS `prefers-color-scheme` media query, ignoring the in-app theme).
+ * Re-declaring it here, last, wins. See AECI-94.
+ */
+@custom-variant dark (&:where(.theme-dark, .theme-dark *));
+
+/*
  * Global styles for apps/web.
  *
  * Wires Tailwind v4 to the §2a.2 theme tokens (see docs/STAGE_1_SPEC.md) and to
