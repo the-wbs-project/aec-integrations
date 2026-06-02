@@ -10,7 +10,7 @@
  *
  *   1. `ADMIN_PURGE_TOKEN` — long-lived Wrangler secret presented by the
  *      *caller* in the `Authorization: Bearer ...` header. We compare with
- *      `safeStringEquals` (constant-time) so timing doesn't leak.
+ *      the shared `timingSafeEqual` (constant-time) so timing doesn't leak.
  *
  *   2. `CF_PURGE_API_TOKEN` + `CF_ZONE_ID` — credentials *we* use to call
  *      Cloudflare. The CF token must be scoped to `Zone.Cache Purge` on
@@ -34,6 +34,7 @@
  *   502 → Cloudflare upstream failed (incl. 429), with `failed[]` populated
  */
 
+import { timingSafeEqual } from '@aeci/shared';
 import type { Context } from 'hono';
 import { z } from 'zod';
 
@@ -140,22 +141,7 @@ function isAuthorized(request: Request, expectedToken: string | undefined): bool
   if (!header) return false;
   const match = /^Bearer\s+(.+)$/.exec(header);
   if (!match) return false;
-  return safeStringEquals(match[1]!, expectedToken);
-}
-
-/**
- * Constant-time string compare. Avoids `===` short-circuit so a timing
- * sidechannel can't distinguish near-correct tokens from wildly wrong ones.
- * Length difference is folded into `diff` rather than used as an early-exit
- * condition, so the response time doesn't reveal the expected token's length.
- */
-function safeStringEquals(a: string, b: string): boolean {
-  let diff = a.length ^ b.length;
-  const minLen = Math.min(a.length, b.length);
-  for (let i = 0; i < minLen; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
+  return timingSafeEqual(match[1]!, expectedToken);
 }
 
 type CfOutcome = { ok: true; status: number } | { ok: false; status: number; message: string };

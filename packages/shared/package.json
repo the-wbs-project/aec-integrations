@@ -34,6 +34,10 @@
     "./audit-log": {
       "types": "./src/audit-log.ts",
       "default": "./src/audit-log.ts"
+    },
+    "./timing-safe-equal": {
+      "types": "./src/timing-safe-equal.ts",
+      "default": "./src/timing-safe-equal.ts"
     }
   },
   "scripts": {

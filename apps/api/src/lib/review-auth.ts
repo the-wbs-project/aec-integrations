@@ -12,22 +12,11 @@
  * only the token's length, which is not sensitive for a high-entropy secret.
  */
 
-import { ApiErrorCode } from '@aeci/shared';
+import { ApiErrorCode, timingSafeEqual } from '@aeci/shared';
 import type { MiddlewareHandler } from 'hono';
 
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-
-/** Constant-time string equality over UTF-8 bytes. */
-export function timingSafeEqual(a: string, b: string): boolean {
-  const encoder = new TextEncoder();
-  const ab = encoder.encode(a);
-  const bb = encoder.encode(b);
-  if (ab.length !== bb.length) return false;
-  let mismatch = 0;
-  for (let i = 0; i < ab.length; i += 1) mismatch |= ab[i] ^ bb[i];
-  return mismatch === 0;
-}
 
 function extractBearer(header: string | undefined): string | null {
   if (!header) return null;
