@@ -110,8 +110,10 @@ function parseSort(raw: string | null): SortKey {
           </h1>
           @if (data(); as response) {
             <p class="text-(--text-secondary)" i18n="@@integrations.index.lede">
-              Every integration between AEC software products indexed on AEC Integrations
-              ({{ response.total }} in total).
+              Every integration between AEC software products indexed on AEC Integrations ({{
+                response.total
+              }}
+              in total).
             </p>
           } @else {
             <p class="text-(--text-secondary)" i18n="@@integrations.index.lede.loading">
