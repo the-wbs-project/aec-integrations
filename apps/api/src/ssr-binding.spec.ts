@@ -116,4 +116,35 @@ describe('SSR Worker → API Worker service binding round-trip', () => {
     // Silence unused var.
     void env;
   });
+
+  it('returns the canonical ApiError envelope on a page-views 400 (AECI-101)', async () => {
+    // The legacy `/api/page-views` route is mounted on the root app, which now
+    // registers `onError(errorHandler())`. A bad body must come back as the
+    // canonical envelope so an SSR caller's `ApiErrorSchema.safeParse` succeeds.
+    const request = new Request('https://api/api/page-views', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}), // missing required `route`
+    });
+    const response = await fetcherForApp().fetch(request);
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get('Cache-Control')).toBe('private, no-store');
+    const parsed = ApiErrorSchema.parse(await response.json());
+    expect(parsed.error.code).toBe('VALIDATION_FAILED');
+    expect(parsed.error.field).toBe('route');
+    expect(parsed.trace_id).toMatch(/^[0-9a-f-]{36}$/i);
+  });
+
+  it('returns the canonical ApiError envelope on an unmatched /api route 404 (AECI-101)', async () => {
+    // The root `*` catch-all now throws `ApiError(404, NOT_FOUND)` so an unknown
+    // `/api/*` path also parses with `ApiErrorSchema`.
+    const request = new Request('https://api/api/does-not-exist');
+    const response = await fetcherForApp().fetch(request);
+
+    expect(response.status).toBe(404);
+    const parsed = ApiErrorSchema.parse(await response.json());
+    expect(parsed.error.code).toBe('NOT_FOUND');
+    expect(parsed.trace_id).toMatch(/^[0-9a-f-]{36}$/i);
+  });
 });

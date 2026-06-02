@@ -9,11 +9,12 @@
  * 4xx/5xx is the contract that lets `ServerApiError` carry structured info
  * back to SSR callers.
  *
- * Scope: this module is applied only to the new Phase 2.8 sub-router via
- * `errorMiddleware()`. The legacy `health` / `version` / `page-views` routes
- * continue to use the simpler `apps/api/src/http.ts` helpers — migrating those
- * is a follow-up cleanup ticket. Keeping the boundary explicit means tests for
- * existing routes don't need to change in this PR.
+ * Scope: `errorHandler()` is registered on both the root app (covering the
+ * legacy `health` / `version` / `page-views` routes and the `*` catch-alls) and
+ * the Phase 2.8 sub-router, so every 4xx/5xx across the API Worker emits the
+ * canonical envelope (AECI-101). `page-views` and the catch-alls throw
+ * `ApiError` / `ZodError`; `health` / `version` return responses directly and
+ * don't throw today, so on them the root handler is future-proofing.
  */
 
 import { ApiErrorCode } from '@aeci/shared';

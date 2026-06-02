@@ -1,17 +1,24 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
+import { ApiErrorSchema } from '@aeci/shared';
 import { Hono } from 'hono';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../env';
+import { errorHandler } from '../errors';
 import { createPageViewsHandler } from './page-views';
 
 function buildApp() {
   const app = new Hono<{ Bindings: Env }>();
+  // Mirror the production wiring (AECI-101): the handler throws and the root
+  // `onError` renders the canonical envelope.
+  app.onError(errorHandler());
   app.post('/api/page-views', createPageViewsHandler());
   return app;
 }
+
+const TRACE_ID_RE = /^[0-9a-f-]{36}$/i;
 
 function fakeExecutionContext(): ExecutionContext {
   return {
@@ -64,8 +71,10 @@ describe('createPageViewsHandler', () => {
     expect(await res.text()).toBe('');
   });
 
-  it('returns 400 when route is missing', async () => {
-    // Guards: Zod schema requires route — missing field surfaces as 400.
+  it('returns a canonical VALIDATION_FAILED envelope when route is missing', async () => {
+    // Guards: AECI-101 — a Zod failure on a required field surfaces as the
+    // canonical `{ error: { code, message, field?, details? }, trace_id }`
+    // envelope (parseable by `ApiErrorSchema`), not the old `{ error: string }`.
     const res = await buildApp().request(
       '/api/page-views',
       jsonRequest({}),
@@ -74,13 +83,17 @@ describe('createPageViewsHandler', () => {
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/route/);
+    const parsed = ApiErrorSchema.safeParse(await res.json());
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.error.code).toBe('VALIDATION_FAILED');
+    expect(parsed.data.error.field).toBe('route');
+    expect(parsed.data.trace_id).toMatch(TRACE_ID_RE);
   });
 
-  it('returns 400 when route is an empty string', async () => {
+  it('returns a canonical VALIDATION_FAILED envelope when route is an empty string', async () => {
     // Guards: PageViewPayloadSchema's .min(1) on route — empty strings are
-    // not a valid route and must be rejected, not silently accepted.
+    // rejected, and the rejection conforms to the canonical envelope (AECI-101).
     const res = await buildApp().request(
       '/api/page-views',
       jsonRequest({ route: '' }),
@@ -89,13 +102,17 @@ describe('createPageViewsHandler', () => {
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/route/);
+    const parsed = ApiErrorSchema.safeParse(await res.json());
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.error.code).toBe('VALIDATION_FAILED');
+    expect(parsed.data.error.field).toBe('route');
   });
 
-  it('returns 400 when the body is malformed JSON', async () => {
+  it('returns a canonical MALFORMED_REQUEST envelope when the body is malformed JSON', async () => {
     // Guards: c.req.json() throws on syntactically invalid JSON; the handler
-    // must convert that to a typed 400 rather than letting Hono surface a 500.
+    // throws `ApiError(MALFORMED_REQUEST)` which the root onError renders as the
+    // canonical envelope rather than letting Hono surface a bare 500 (AECI-101).
     const res = await buildApp().request(
       '/api/page-views',
       {
@@ -108,8 +125,11 @@ describe('createPageViewsHandler', () => {
     );
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: string };
-    expect(body.error).toMatch(/JSON/i);
+    const parsed = ApiErrorSchema.safeParse(await res.json());
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(parsed.data.error.code).toBe('MALFORMED_REQUEST');
+    expect(parsed.data.trace_id).toMatch(TRACE_ID_RE);
   });
 
   it("sets Cache-Control: 'private, no-store' on the 204 success response (AECI-43)", async () => {
@@ -126,7 +146,7 @@ describe('createPageViewsHandler', () => {
 
   it("sets Cache-Control: 'private, no-store' on the 400 error response (AECI-43)", async () => {
     // Guards: validation failures inherit the same no-cache default via the
-    // shared badRequest() helper.
+    // canonical json() helper used by the error renderer.
     const res = await buildApp().request(
       '/api/page-views',
       jsonRequest({}),
