@@ -15,11 +15,7 @@ import type { Context } from 'hono';
 import type { Env } from '../env';
 import { json } from '../http';
 import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import {
-  taxonomyDetailScalarSelect,
-  toTaxonomyTermWithCount,
-  type RawTaxonomyTermRow,
-} from '../lib/prisma-helpers';
+import { categoryTermSelect, toTaxonomyTermWithCount } from '../lib/prisma-helpers';
 import { getPrisma } from '../prisma';
 
 export function createCategoriesListHandler(
@@ -27,13 +23,10 @@ export function createCategoriesListHandler(
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const prisma = prismaFor(c.env);
-    const rows = (await prisma.taxonomyCategory.findMany({
-      select: {
-        ...taxonomyDetailScalarSelect,
-        _count: { select: { productCategories: true } },
-      },
-      orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-    })) as unknown as RawTaxonomyTermRow[];
+    const rows = await prisma.taxonomyCategory.findMany({
+      select: categoryTermSelect,
+      orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
+    });
 
     const body: CategoriesListResponse = {
       data: rows.map((row) => toTaxonomyTermWithCount(row, 'productCategories')),

@@ -32,8 +32,6 @@ import {
   integrationListSelect,
   toIntegrationDetail,
   toIntegrationListItem,
-  type RawIntegrationDetailRow,
-  type RawIntegrationListRow,
 } from '../lib/prisma-helpers';
 import { resolveIntegrationSort } from '../lib/sort';
 import { getPrisma } from '../prisma';
@@ -83,7 +81,7 @@ export function createIntegrationsListHandler(
         skip: (query.page - 1) * query.perPage,
         take: query.perPage,
         select: integrationListSelect,
-      }) as unknown as Promise<RawIntegrationListRow[]>,
+      }),
       prisma.integration.count({ where }),
     ]);
 
@@ -118,10 +116,10 @@ export function createIntegrationDetailHandler(
     }
 
     const prisma = prismaFor(c.env);
-    const row = (await prisma.integration.findUnique({
+    const row = await prisma.integration.findUnique({
       where: { id },
       select: integrationDetailSelect,
-    })) as unknown as RawIntegrationDetailRow | null;
+    });
 
     if (!row) throw notFoundError('integration', { id });
 

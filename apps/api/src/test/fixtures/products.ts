@@ -4,6 +4,8 @@
  * filtering, and `related_products`.
  */
 
+import { Prisma } from '@prisma/client/edge';
+
 import type { RawProductDetailRow, RawProductListRow } from '../../lib/prisma-helpers';
 import { PROCORE_VENDOR_ID } from './vendors';
 
@@ -43,8 +45,8 @@ export const procoreProductRow: RawProductListRow = {
   productRole: 'application',
   integrationCount: 12,
   reviewCount: 3,
-  ratingOverallAvg: { toNumber: () => 4.5 },
-  ratingOnboardingAvg: { toNumber: () => 4.2 },
+  ratingOverallAvg: new Prisma.Decimal(4.5),
+  ratingOnboardingAvg: new Prisma.Decimal(4.2),
   createdAt: new Date('2024-03-01T00:00:00Z'),
   updatedAt: new Date('2024-06-15T00:00:00Z'),
   productVendors: [{ isPrimary: true, vendor: procoreVendorLink }],

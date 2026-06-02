@@ -36,8 +36,6 @@ import {
   productListSelect,
   toProductDetail,
   toProductListItem,
-  type RawProductDetailRow,
-  type RawProductListRow,
 } from '../lib/prisma-helpers';
 import { resolveProductSort } from '../lib/sort';
 import { getPrisma } from '../prisma';
@@ -62,7 +60,7 @@ export function createProductsListHandler(
         skip,
         take: query.perPage,
         select: productListSelect,
-      }) as unknown as Promise<RawProductListRow[]>,
+      }),
       prisma.product.count({ where }),
     ]);
 
@@ -93,10 +91,10 @@ export function createProductDetailHandler(
     }
 
     const prisma = prismaFor(c.env);
-    const row = (await prisma.product.findUnique({
+    const row = await prisma.product.findUnique({
       where: { slug },
       select: productDetailSelect,
-    })) as unknown as RawProductDetailRow | null;
+    });
 
     if (!row) throw notFoundError('product', { slug });
 
@@ -106,17 +104,18 @@ export function createProductDetailHandler(
     // out of scope for AECI-54 — kept simple so the hydration contract is
     // satisfied without an external ML hop.
     const categoryIds = row.productCategories.map((r) => r.category.id);
-    const relatedProducts = (categoryIds.length === 0
-      ? []
-      : await prisma.product.findMany({
-          where: {
-            id: { not: row.id },
-            productCategories: { some: { categoryId: { in: categoryIds } } },
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 6,
-          select: productListSelect,
-        })) as unknown as RawProductListRow[];
+    const relatedProducts =
+      categoryIds.length === 0
+        ? []
+        : await prisma.product.findMany({
+            where: {
+              id: { not: row.id },
+              productCategories: { some: { categoryId: { in: categoryIds } } },
+            },
+            orderBy: { createdAt: 'desc' as const },
+            take: 6,
+            select: productListSelect,
+          });
 
     const body: ProductDetail = toProductDetail(row, relatedProducts);
 
