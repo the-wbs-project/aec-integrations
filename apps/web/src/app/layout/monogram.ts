@@ -10,10 +10,15 @@ import { RouterLink } from '@angular/router';
  * `.theme-dark` class on `<html>` by the `@custom-variant dark` declaration in
  * `styles.css` (which overrides the Spartan preset's `.dark`-based default), so
  * the monogram follows the user's explicit theme choice — not the OS
- * `prefers-color-scheme` media query and not the never-set `.dark` class. Keeping
- * both variants in the markup keeps the SSR output visitor-state-neutral so the
- * edge cache is never poisoned by a per-visitor `sec-ch-prefers-color-scheme`
- * header.
+ * `prefers-color-scheme` media query and not the never-set `.dark` class.
+ *
+ * Cache neutrality has two halves. Keeping both variants in the markup means the
+ * monogram element itself is visitor-state-neutral. And `ThemeService` never
+ * reads the per-visitor `sec-ch-prefers-color-scheme` request header during SSR
+ * (`readInitialSystemDark()` returns `false` server-side), so `.theme-dark` is
+ * never baked onto `<html>` from per-visitor state either. Together that keeps the
+ * SSR output — and therefore the URL-keyed edge cache — free of per-visitor theme
+ * state (§9.1a, CLAUDE.md non-negotiable #6; AECI-88).
  *
  * The two files in `apps/web/public/branding/` are named for their theme:
  * `monogram-light.svg` = dark-on-light (light theme), `monogram-dark.svg` =

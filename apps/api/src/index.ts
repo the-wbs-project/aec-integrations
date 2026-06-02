@@ -1,21 +1,21 @@
+import { CategoryDetailSchema, DisciplineDetailSchema, PhaseDetailSchema } from '@aeci/shared';
 import { Hono } from 'hono';
 
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { metricsMiddleware } from './metrics-middleware';
-import { createCategoriesListHandler, createCategoryDetailHandler } from './routes/categories';
-import { createDisciplineDetailHandler } from './routes/disciplines';
+import { createCategoriesListHandler } from './routes/categories';
 import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
 } from './routes/integrations';
 import { createPageViewsHandler } from './routes/page-views';
-import { createPhaseDetailHandler } from './routes/phases';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
 import { createTaxonomyHandler } from './routes/taxonomy';
+import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 
@@ -57,10 +57,33 @@ phase28.get('/api/integrations', createIntegrationsListHandler());
 phase28.get('/api/integrations/:id', createIntegrationDetailHandler());
 
 phase28.get('/api/categories', createCategoriesListHandler());
-phase28.get('/api/categories/:slug', createCategoryDetailHandler());
-
-phase28.get('/api/disciplines/:slug', createDisciplineDetailHandler());
-phase28.get('/api/phases/:slug', createPhaseDetailHandler());
+phase28.get(
+  '/api/categories/:slug',
+  createTaxonomyDetailHandler({
+    delegate: (p) => p.taxonomyCategory,
+    relationKey: 'productCategories',
+    resource: 'category',
+    schema: CategoryDetailSchema,
+  }),
+);
+phase28.get(
+  '/api/disciplines/:slug',
+  createTaxonomyDetailHandler({
+    delegate: (p) => p.taxonomyDiscipline,
+    relationKey: 'productDisciplines',
+    resource: 'discipline',
+    schema: DisciplineDetailSchema,
+  }),
+);
+phase28.get(
+  '/api/phases/:slug',
+  createTaxonomyDetailHandler({
+    delegate: (p) => p.taxonomyPhase,
+    relationKey: 'productPhases',
+    resource: 'phase',
+    schema: PhaseDetailSchema,
+  }),
+);
 
 phase28.get('/api/taxonomy', createTaxonomyHandler());
 

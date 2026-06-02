@@ -19,10 +19,10 @@ import type { ProductListItem } from '@aeci/shared';
  * until then per CLAUDE.md "Three similar lines is better than a
  * premature abstraction."
  *
- * Renders four cells: product name (linked), vendor (linked when
- * `vendor.slug` is present), primary category (linked to the future
- * `/categories/:slug` browse page when available, otherwise plain text),
- * integration count.
+ * Renders four cells: product name (linked), vendor (linked when present,
+ * otherwise an em-dash empty state — `vendor` is nullable per AECI-115),
+ * primary category (linked to the future `/categories/:slug` browse page when
+ * available, otherwise plain text), integration count.
  */
 @Component({
   // Attribute selector is required so the rendered DOM is a literal `<tr>` —
@@ -47,11 +47,20 @@ import type { ProductListItem } from '@aeci/shared';
       >
     </td>
     <td class="px-4 py-3 text-(--text-secondary)">
-      <a
-        [routerLink]="['/vendors', vendorSlug()]"
-        class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        >{{ vendorName() }}</a
-      >
+      @if (vendor(); as v) {
+        <a
+          [routerLink]="['/vendors', v.slug]"
+          class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >{{ v.name }}</a
+        >
+      } @else {
+        <span
+          class="text-(--text-tertiary)"
+          i18n="@@products.card.vendor.none"
+          aria-label="No vendor listed"
+          >—</span
+        >
+      }
     </td>
     <td class="px-4 py-3 text-(--text-secondary)">
       @if (primaryCategory(); as cat) {
@@ -77,7 +86,6 @@ import type { ProductListItem } from '@aeci/shared';
 export class ProductCard {
   readonly product = input.required<ProductListItem>();
 
-  protected readonly vendorSlug = computed(() => this.product().vendor.slug);
-  protected readonly vendorName = computed(() => this.product().vendor.name);
+  protected readonly vendor = computed(() => this.product().vendor);
   protected readonly primaryCategory = computed(() => this.product().primary_category);
 }

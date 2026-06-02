@@ -10,8 +10,9 @@
  */
 import type { CategoriesListResponse, CategoryDetail } from '@aeci/shared';
 
-import { isServerApiError, type ServerApiClient } from '../../../server-api-client';
+import type { ServerApiClient } from '../../../server-api-client';
 import type { TaxonomyKind } from '../../shared/taxonomy-badge/taxonomy-badge';
+import { fetchOrNull } from './fetch-or-null';
 
 /**
  * Detail shape shared by the three browse endpoints. `CategoryDetail`,
@@ -49,15 +50,7 @@ export async function fetchTaxonomyTermBySlug(
   slug: string,
 ): Promise<TaxonomyTermDetail | null> {
   const segment = KIND_PATH_SEGMENT[kind];
-  try {
-    return await client.request<TaxonomyTermDetail>(`/api/${segment}/${encodeURIComponent(slug)}`);
-  } catch (err) {
-    // Structural check, not `instanceof` — see `isServerApiError` for why.
-    if (isServerApiError(err) && err.status === 404 && err.code === 'NOT_FOUND') {
-      return null;
-    }
-    throw err;
-  }
+  return fetchOrNull<TaxonomyTermDetail>(client, `/api/${segment}/${encodeURIComponent(slug)}`);
 }
 
 /**

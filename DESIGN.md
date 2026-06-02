@@ -195,6 +195,7 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 - **Surface base** (`#FFFFFF` / `oklch(100% 0 0)`): default page background, light theme.
 - **Surface raised** (`#FAFAFA` / `oklch(98.43% 0 0)`): cards, panels.
 - **Surface sunken** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): inset wells, code blocks, secondary states.
+- **Surface muted** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): interactive row hover / `focus-within` highlight on index tables. Shares the surface-sunken value by design — the two never co-occur inside a row, and a hover wants the same one-step lift sunken gives on white.
 - **Border default** (`#E4E4E7` / `oklch(91.97% 0.0036 286.32)`): standard separators (0.5px default, 1px emphasis).
 - **Border strong** (`#D4D4D8` / `oklch(87.20% 0.0055 286.32)`): emphasized borders (focus, featured states).
 - **Text primary** (`#0A0A0A` / `oklch(14.48% 0 0)`): body and headings. Near-black, not pure black — gentler against bright surfaces, lower halation.
@@ -208,6 +209,7 @@ Token parity with the light palette. Names mirror the light tokens with a `dark-
 - **Dark surface base** (`#0A0A0A` / `oklch(14.48% 0 0)`): page background. Near-black, intentionally — matches Material 3, Linear, Vercel, Tailwind `zinc-950`; reduces OLED smearing and halation.
 - **Dark surface raised** (`#18181B` / `oklch(21.78% 0.006 285.88)`).
 - **Dark surface sunken** (`#09090B` / `oklch(13.71% 0.0036 286.10)`).
+- **Dark surface muted** (`#27272A` / `oklch(27.41% 0.0055 286.04)`): interactive row hover / `focus-within` highlight. Lifts clearly off the near-black base and stays distinct from dark surface raised (`#18181B`) so raised in-row chips (e.g. integration mechanism badges) remain legible on a hovered row. Shares the dark border-default value by design (a fill and a hairline border don't confuse).
 - **Dark border default** (`#27272A`); **Dark border strong** (`#3F3F46`).
 - **Dark text primary** (`#FAFAFA`); **Dark text secondary** (`#A1A1AA`); **Dark text tertiary** (`#71717A`).
 - **Dark Forest** (`#4A8870` / `oklch(56.51% 0.0805 152.41)`): primary accent in dark theme. **Dark Forest hover** (`#5DA088`).

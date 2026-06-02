@@ -58,9 +58,9 @@ describe('GET /api/integrations', () => {
     const body = await res.json();
     const parsed = IntegrationsListResponseSchema.parse(body);
     expect(parsed.data[0].name).toBe('Procore → Revizto');
-    // Null mechanism_kind in the row should be coalesced to 'native' so the
-    // schema's non-null enum is satisfied.
-    expect(parsed.data[0].mechanism_kind).toBe('native');
+    // Null mechanism_kind passes through as null (AECI-115) — no longer
+    // coerced to 'native'; the schema's enum is nullable.
+    expect(parsed.data[0].mechanism_kind).toBeNull();
   });
 
   it('expands `search` into an OR across name, sourceProduct.name, targetProduct.name', async () => {

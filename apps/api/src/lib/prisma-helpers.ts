@@ -10,19 +10,29 @@
  *      `docs/API_CONTRACTS.md` §3.4 table (no chain-fetching).
  *
  *   2. **Mappers** — `toProductListItem`, `toProductDetail`, etc. Convert the
- *      Prisma row (with `Decimal`, `Date`, nullable columns the public schema
- *      requires to be non-null) into the public `*ListItem` / `*Detail` shape
- *      from `@aeci/shared`. Server-side coalescing rules for the three known
- *      DB↔Zod nullability gaps land here:
+ *      Prisma row (with `Decimal`, `Date`, nullable columns) into the public
+ *      `*ListItem` / `*Detail` shape from `@aeci/shared`. Server-side coalescing
+ *      rules for the known DB↔Zod gaps land here:
  *
  *        - `Integration.name` null → `"${source.name} → ${target.name}"`
- *        - `Integration.mechanismKind` null → `'native'`
  *        - `Taxonomy*.displayOrder` null → `0`
  *
+ * AECI-115 — fail-loud, not fail-silent. We no longer fabricate data to satisfy
+ * a non-null contract. Legitimately-absent values surface as `null` (the public
+ * schema now permits it) and the SSR layer renders an empty state:
+ *
+ *        - missing primary vendor → `vendor: null` (no `/vendors/unknown` sentinel)
+ *        - `Integration.mechanismKind` null → `mechanism_kind: null` (passthrough)
+ *
+ * Genuinely-corrupt values — an out-of-enum `product_role` (the column is
+ * `NOT NULL` + CHECK, so a hit means schema drift) or an out-of-enum *non-null*
+ * `mechanism_kind` — `throw` a plain `Error`. The API error middleware forwards
+ * non-`ApiError` throwables to Datadog (`errors.ts:125-140`), so the data gap is
+ * surfaced loudly as a logged 500 instead of a silently-coerced value.
+ *
  * The `vendor` field on a `ProductListItem` resolves to the row's *primary*
- * vendor (`ProductVendor.isPrimary = true`). If no row is flagged primary, we
- * fall back to the first vendor link — the alternative (returning a sentinel
- * or filtering the row) would violate the schema and break the SSR client.
+ * vendor (`ProductVendor.isPrimary = true`), falling back to the first vendor
+ * link when none is flagged primary, or `null` when there are no links at all.
  */
 
 import type { Prisma } from '@prisma/client/edge';
@@ -200,16 +210,24 @@ export const vendorDetailSelect = {
 } as const satisfies Prisma.VendorSelect;
 
 /**
- * Per-model taxonomy selects. The scalar shape is shared across category /
- * discipline / phase, but the `_count` relation (and, on the detail variants,
- * the joined products) differs per model — so each model gets its own
- * `as const` select. The scalar fields are written out inline on each, rather
- * than spread from a shared const: spreading a shared scalar object into a
- * scalar-plus-`_count` select defeats Prisma's `select` narrowing (the query
- * widens back to the full model), so the small repetition is deliberate.
- * Deriving the row types from these (below) keeps the route queries, the row
- * types, and the mapper in lockstep: drop a field here and the build breaks,
- * not just the dev-only Zod check.
+ * Per-model taxonomy *term* selects, used by the list endpoints
+ * (`/api/categories`, `/api/taxonomy`). The scalar shape is shared across
+ * category / discipline / phase, but the `_count` relation differs per model —
+ * so each model bakes its own `_count` into its own `as const` select. The
+ * scalar fields are written out inline on each, rather than spread from a
+ * shared const: spreading a shared scalar object into a scalar-plus-`_count`
+ * select defeats Prisma's `select` narrowing (the query widens back to the full
+ * model), so the small repetition is deliberate. Deriving the row types from
+ * these via `*GetPayload` (below) keeps the list-route queries, the row types,
+ * and the mapper in lockstep — drop a field here and the build breaks, not just
+ * the dev-only Zod check — and lets the list handlers run cast-free.
+ *
+ * The *detail* endpoints go through the shared `createTaxonomyDetailHandler`
+ * factory (`routes/taxonomy-detail.ts`, AECI-120), which builds its `select`
+ * dynamically from a computed relation key — a shape that can't be expressed as
+ * a per-model `as const` select. It spreads `taxonomyDetailScalarSelect` (below)
+ * and decodes the row with a single `as RawTaxonomyDetailRow` cast: the same
+ * loose-delegate exception AECI-114 left in place for `promote.ts`.
  */
 export const categoryTermSelect = {
   id: true,
@@ -238,20 +256,19 @@ export const phaseTermSelect = {
   _count: { select: { productPhases: true } },
 } as const satisfies Prisma.TaxonomyPhaseSelect;
 
-export const categoryDetailSelect = {
-  ...categoryTermSelect,
-  productCategories: { select: { product: { select: productListSelect } } },
-} as const satisfies Prisma.TaxonomyCategorySelect;
-
-export const disciplineDetailSelect = {
-  ...disciplineTermSelect,
-  productDisciplines: { select: { product: { select: productListSelect } } },
-} as const satisfies Prisma.TaxonomyDisciplineSelect;
-
-export const phaseDetailSelect = {
-  ...phaseTermSelect,
-  productPhases: { select: { product: { select: productListSelect } } },
-} as const satisfies Prisma.TaxonomyPhaseSelect;
+/**
+ * Scalar-only taxonomy term select. Spread by the shared taxonomy *detail*
+ * handler factory (`routes/taxonomy-detail.ts`, AECI-120), which appends a
+ * dynamic `_count` + relation keyed off the resource. See the per-model term
+ * select doc above for why the detail path can't use an `as const` select.
+ */
+export const taxonomyDetailScalarSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  description: true,
+  displayOrder: true,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Row shape types (what Prisma actually returns for the selects above)
@@ -282,22 +299,25 @@ export type RawIntegrationDetailRow = Prisma.IntegrationGetPayload<{
 export type RawVendorListRow = Prisma.VendorGetPayload<{ select: typeof vendorListSelect }>;
 export type RawVendorDetailRow = Prisma.VendorGetPayload<{ select: typeof vendorDetailSelect }>;
 
-export type RawCategoryTermRow = Prisma.TaxonomyCategoryGetPayload<{
-  select: typeof categoryTermSelect;
-}>;
-export type RawDisciplineTermRow = Prisma.TaxonomyDisciplineGetPayload<{
-  select: typeof disciplineTermSelect;
-}>;
-export type RawPhaseTermRow = Prisma.TaxonomyPhaseGetPayload<{ select: typeof phaseTermSelect }>;
-export type RawCategoryDetailRow = Prisma.TaxonomyCategoryGetPayload<{
-  select: typeof categoryDetailSelect;
-}>;
-export type RawDisciplineDetailRow = Prisma.TaxonomyDisciplineGetPayload<{
-  select: typeof disciplineDetailSelect;
-}>;
-export type RawPhaseDetailRow = Prisma.TaxonomyPhaseGetPayload<{
-  select: typeof phaseDetailSelect;
-}>;
+// Per-model term rows are inferred at the list-handler call sites straight from
+// the `*TermSelect` consts above (cast-free). The detail factory's dynamic
+// select can't be expressed per-model, so its row keeps the hand-written union
+// shape below: `_count` keys are optional because the factory selects exactly
+// one per call, and `toTaxonomyTermWithCount` accepts the union for all three.
+export type RawTaxonomyTermRow = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  displayOrder: number | null;
+  _count: { productCategories?: number; productDisciplines?: number; productPhases?: number };
+};
+
+export type RawTaxonomyDetailRow = RawTaxonomyTermRow & {
+  productCategories?: Array<{ product: RawProductListRow }>;
+  productDisciplines?: Array<{ product: RawProductListRow }>;
+  productPhases?: Array<{ product: RawProductListRow }>;
+};
 
 // ---------------------------------------------------------------------------
 // Coalescing / conversion helpers
@@ -313,7 +333,6 @@ function toNumberOrNull(value: DecimalLike): number | null {
   return value.toNumber();
 }
 
-const MECHANISM_KIND_FALLBACK: IntegrationMechanismKind = 'native';
 const VALID_MECHANISM_KINDS = new Set<IntegrationMechanismKind>([
   'native',
   'iPaaS',
@@ -323,11 +342,25 @@ const VALID_MECHANISM_KINDS = new Set<IntegrationMechanismKind>([
   'partner',
 ]);
 
-function coerceMechanismKind(raw: string | null): IntegrationMechanismKind {
-  if (raw && (VALID_MECHANISM_KINDS as Set<string>).has(raw)) {
+/**
+ * `mechanism_kind` is a nullable column (AECI-115). `null` passes through as
+ * `null` (the public schema permits it; the UI renders an empty state). A
+ * *non-null* value outside the enum is a data-integrity violation — the DB CHECK
+ * should make it unreachable — so we throw rather than silently coercing to
+ * `'native'`. The throw is a plain `Error`, which the API error middleware
+ * forwards to Datadog as a logged 500.
+ */
+function toMechanismKind(
+  raw: string | null,
+  integrationId: string,
+): IntegrationMechanismKind | null {
+  if (raw === null) return null;
+  if ((VALID_MECHANISM_KINDS as Set<string>).has(raw)) {
     return raw as IntegrationMechanismKind;
   }
-  return MECHANISM_KIND_FALLBACK;
+  throw new Error(
+    `Data integrity: integration ${integrationId} has unknown mechanism_kind "${raw}"`,
+  );
 }
 
 function coerceDirection(raw: string | null): 'one-way' | 'bidirectional' | null {
@@ -335,11 +368,15 @@ function coerceDirection(raw: string | null): 'one-way' | 'bidirectional' | null
   return null;
 }
 
-function coerceProductRole(raw: string): ProductRole {
+/**
+ * `product_role` is `NOT NULL DEFAULT 'application'` + CHECK, so an out-of-enum
+ * value can only mean schema drift / corruption (AECI-115). Fail loud — throw a
+ * plain `Error` (surfaced to Datadog as a logged 500) instead of silently
+ * coercing to `'application'`.
+ */
+function toProductRole(raw: string, productId: string): ProductRole {
   if (raw === 'application' || raw === 'connector' || raw === 'hybrid') return raw;
-  // Defensive: unknown DB value falls back to 'application' — schema mandates
-  // a non-nullable enum here.
-  return 'application';
+  throw new Error(`Data integrity: product ${productId} has unknown product_role "${raw}"`);
 }
 
 function toProductLink(raw: RawProductLink): ProductLink {
@@ -367,7 +404,7 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
   return {
     id: raw.id,
     name: synthesizeIntegrationName(raw.name, raw.sourceProduct, raw.targetProduct),
-    mechanism_kind: coerceMechanismKind(raw.mechanismKind),
+    mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
     mechanism_name: raw.mechanismName,
     direction: coerceDirection(raw.direction),
     source: toProductLink(raw.sourceProduct),
@@ -419,6 +456,13 @@ function pickPrimaryCategory(
   return { id: best.id, name: best.name, slug: best.slug };
 }
 
+/**
+ * Resolves a product's primary vendor, or `null` when the product carries no
+ * `ProductVendor` rows. AECI-115: a missing vendor surfaces as `null` (the
+ * public schema permits it and the SSR layer renders an empty state) rather
+ * than fabricating a `/vendors/unknown` sentinel. `product_vendors` has no DB
+ * constraint forcing ≥1 link, so this is a legitimate absence, not corruption.
+ */
 function pickPrimaryVendor(rows: RawProductVendor[]): VendorLink | null {
   if (rows.length === 0) return null;
   // `orderBy: { isPrimary: 'desc' }` puts the primary row first; fall back to
@@ -427,28 +471,14 @@ function pickPrimaryVendor(rows: RawProductVendor[]): VendorLink | null {
   return toVendorLink(primary.vendor);
 }
 
-/**
- * Sentinel VendorLink used when a product has zero vendor links. The schema
- * requires a non-null `vendor` object; this preserves the contract while
- * making the data gap obvious in dashboards (the literal slug/id makes the
- * row searchable). In practice every Phase 2 seed product carries at least
- * one ProductVendor row, so this branch is defensive.
- */
-const VENDOR_FALLBACK: VendorLink = {
-  id: '00000000-0000-0000-0000-000000000000',
-  name: 'Unknown vendor',
-  slug: 'unknown',
-  logo_url: null,
-};
-
 export function toProductListItem(raw: RawProductListRow): ProductListItem {
   return {
     id: raw.id,
     slug: raw.slug,
     name: raw.name,
     logo_url: raw.logoUrl,
-    product_role: coerceProductRole(raw.productRole),
-    vendor: pickPrimaryVendor(raw.productVendors) ?? VENDOR_FALLBACK,
+    product_role: toProductRole(raw.productRole, raw.id),
+    vendor: pickPrimaryVendor(raw.productVendors),
     primary_category: pickPrimaryCategory(raw.productCategories),
     integration_count: raw.integrationCount,
     review_count: raw.reviewCount,
@@ -509,20 +539,11 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
   };
 }
 
-type TaxonomyCountKey = 'productCategories' | 'productDisciplines' | 'productPhases';
+export type TaxonomyCountKey = 'productCategories' | 'productDisciplines' | 'productPhases';
 
-/** Scalar fields shared by every taxonomy term row, regardless of model. */
-type TaxonomyTermBase = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  displayOrder: number | null;
-};
-
-export function toTaxonomyTermWithCount<K extends TaxonomyCountKey>(
-  raw: TaxonomyTermBase & { _count: Record<K, number> },
-  countKey: K,
+export function toTaxonomyTermWithCount(
+  raw: RawTaxonomyTermRow,
+  countKey: TaxonomyCountKey,
 ): TaxonomyTermWithCount {
   return {
     id: raw.id,

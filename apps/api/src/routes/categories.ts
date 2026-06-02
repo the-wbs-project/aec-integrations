@@ -1,31 +1,21 @@
 /**
- * Phase 2.8 (AECI-54) categories endpoints.
+ * Phase 2.8 (AECI-54) categories list endpoint.
  *
- *   GET /api/categories         — flat list with per-term product counts.
- *                                 Not paginated; the taxonomy is small by design
- *                                 (Phase 2 Spec §3.1).
- *   GET /api/categories/:slug   — single category detail with embedded products.
+ *   GET /api/categories   — flat list with per-term product counts. Not
+ *                           paginated; the taxonomy is small by design
+ *                           (Phase 2 Spec §3.1).
+ *
+ * The detail endpoint (`GET /api/categories/:slug`) is served by the shared
+ * `createTaxonomyDetailHandler` factory (`routes/taxonomy-detail.ts`, AECI-120).
  */
 
-import {
-  CategoriesListResponseSchema,
-  CategoryDetailSchema,
-  type CategoriesListResponse,
-  type CategoryDetail,
-} from '@aeci/shared';
+import { CategoriesListResponseSchema, type CategoriesListResponse } from '@aeci/shared';
 import type { Context } from 'hono';
 
 import type { Env } from '../env';
-import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import {
-  categoryDetailSelect,
-  categoryTermSelect,
-  toProductListItem,
-  toTaxonomyTermWithCount,
-  type RawProductListRow,
-} from '../lib/prisma-helpers';
+import { categoryTermSelect, toTaxonomyTermWithCount } from '../lib/prisma-helpers';
 import { getPrisma } from '../prisma';
 
 export function createCategoriesListHandler(
@@ -44,38 +34,6 @@ export function createCategoriesListHandler(
 
     validateResponseInDev(c.env, () => {
       CategoriesListResponseSchema.parse(body);
-    });
-
-    return json(body);
-  };
-}
-
-export function createCategoryDetailHandler(
-  prismaFor: PrismaFactory = getPrisma,
-): (c: Context<{ Bindings: Env }>) => Promise<Response> {
-  return async (c) => {
-    const slug = c.req.param('slug');
-    if (!slug) {
-      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing category slug', { field: 'slug' });
-    }
-
-    const prisma = prismaFor(c.env);
-    const row = await prisma.taxonomyCategory.findUnique({
-      where: { slug },
-      select: categoryDetailSelect,
-    });
-
-    if (!row) throw notFoundError('category', { slug });
-
-    const products: RawProductListRow[] = row.productCategories.map((r) => r.product);
-
-    const body: CategoryDetail = {
-      ...toTaxonomyTermWithCount(row, 'productCategories'),
-      products: products.map(toProductListItem),
-    };
-
-    validateResponseInDev(c.env, () => {
-      CategoryDetailSchema.parse(body);
     });
 
     return json(body);

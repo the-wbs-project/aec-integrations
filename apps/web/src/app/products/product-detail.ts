@@ -1,4 +1,4 @@
-import { NgOptimizedImage } from '@angular/common';
+import { NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -38,7 +38,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
  */
 @Component({
   selector: 'aec-product-detail',
-  imports: [DetailLayout, NgOptimizedImage, NotFound, RouterLink, TaxonomyBadge],
+  imports: [DetailLayout, NgOptimizedImage, NgTemplateOutlet, NotFound, RouterLink, TaxonomyBadge],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let p = product();
@@ -107,15 +107,17 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               >
                 {{ p.name }}
               </h1>
-              <p class="text-sm text-(--text-secondary)">
-                <ng-container i18n="@@products.detail.by">by</ng-container>
-                <a
-                  [routerLink]="['/vendors', p.vendor.slug]"
-                  class="ml-1 text-(--accent-primary) underline underline-offset-2"
-                >
-                  {{ p.vendor.name }}
-                </a>
-              </p>
+              @if (p.vendor; as v) {
+                <p class="text-sm text-(--text-secondary)">
+                  <ng-container i18n="@@products.detail.by">by</ng-container>
+                  <a
+                    [routerLink]="['/vendors', v.slug]"
+                    class="ml-1 text-(--accent-primary) underline underline-offset-2"
+                  >
+                    {{ v.name }}
+                  </a>
+                </p>
+              }
             </div>
           </div>
 
@@ -157,23 +159,33 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             >
               Vendor
             </h2>
-            <a
-              [routerLink]="['/vendors', p.vendor.slug]"
-              class="flex items-center gap-3 rounded-(--radius-lg) border border-(--border-default)
-                bg-(--surface-raised) p-4 no-underline transition-colors
-                hover:border-(--border-strong)"
-            >
-              @if (p.vendor.logo_url) {
-                <img
-                  [ngSrc]="p.vendor.logo_url"
-                  alt=""
-                  width="32"
-                  height="32"
-                  class="h-8 w-8 shrink-0 rounded-(--radius-sm) object-contain"
-                />
-              }
-              <span class="font-bold text-(--text-primary)">{{ p.vendor.name }}</span>
-            </a>
+            @if (p.vendor; as v) {
+              <a
+                [routerLink]="['/vendors', v.slug]"
+                class="flex items-center gap-3 rounded-(--radius-lg) border border-(--border-default)
+                  bg-(--surface-raised) p-4 no-underline transition-colors
+                  hover:border-(--border-strong)"
+              >
+                @if (v.logo_url) {
+                  <img
+                    [ngSrc]="v.logo_url"
+                    alt=""
+                    width="32"
+                    height="32"
+                    class="h-8 w-8 shrink-0 rounded-(--radius-sm) object-contain"
+                  />
+                }
+                <span class="font-bold text-(--text-primary)">{{ v.name }}</span>
+              </a>
+            } @else {
+              <p
+                class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)
+                  p-4 text-(--text-tertiary)"
+                i18n="@@products.detail.vendor.none"
+              >
+                No vendor listed
+              </p>
+            }
           </section>
 
           @if (p.categories.length > 0) {
@@ -308,34 +320,41 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 >.
               </p>
             } @else {
+              <ng-template #integrationRow let-item>
+                <li>
+                  <a
+                    [routerLink]="['/integrations', item.integration.id]"
+                    class="flex items-center gap-3 rounded-(--radius-lg)
+                      border border-(--border-default) bg-(--surface-raised) p-4
+                      text-(--text-primary) no-underline transition-colors
+                      hover:border-(--border-strong)"
+                  >
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-sm font-bold">{{ item.integration.name }}</span>
+                      <span class="block text-sm text-(--text-secondary)">
+                        <ng-container i18n="@@products.detail.body.integrations.with"
+                          >with</ng-container
+                        >
+                        <a
+                          [routerLink]="['/products', item.other.slug]"
+                          class="ml-1 text-(--accent-primary) underline underline-offset-2"
+                          (click)="$event.stopPropagation()"
+                        >
+                          {{ item.other.name }}
+                        </a>
+                      </span>
+                    </span>
+                    <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
+                  </a>
+                </li>
+              </ng-template>
+
               <ul class="grid gap-3">
                 @for (item of integrationsAbove(); track item.integration.id) {
-                  <li>
-                    <a
-                      [routerLink]="['/integrations', item.integration.id]"
-                      class="flex items-center gap-3 rounded-(--radius-lg)
-                        border border-(--border-default) bg-(--surface-raised) p-4
-                        text-(--text-primary) no-underline transition-colors
-                        hover:border-(--border-strong)"
-                    >
-                      <span class="min-w-0 flex-1">
-                        <span class="block text-sm font-bold">{{ item.integration.name }}</span>
-                        <span class="block text-sm text-(--text-secondary)">
-                          <ng-container i18n="@@products.detail.body.integrations.with"
-                            >with</ng-container
-                          >
-                          <a
-                            [routerLink]="['/products', item.other.slug]"
-                            class="ml-1 text-(--accent-primary) underline underline-offset-2"
-                            (click)="$event.stopPropagation()"
-                          >
-                            {{ item.other.name }}
-                          </a>
-                        </span>
-                      </span>
-                      <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
-                    </a>
-                  </li>
+                  <ng-container
+                    [ngTemplateOutlet]="integrationRow"
+                    [ngTemplateOutletContext]="{ $implicit: item }"
+                  ></ng-container>
                 }
               </ul>
 
@@ -343,32 +362,10 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 @defer (on viewport) {
                   <ul class="mt-3 grid gap-3">
                     @for (item of integrationsDeferred(); track item.integration.id) {
-                      <li>
-                        <a
-                          [routerLink]="['/integrations', item.integration.id]"
-                          class="flex items-center gap-3 rounded-(--radius-lg)
-                            border border-(--border-default) bg-(--surface-raised) p-4
-                            text-(--text-primary) no-underline transition-colors
-                            hover:border-(--border-strong)"
-                        >
-                          <span class="min-w-0 flex-1">
-                            <span class="block text-sm font-bold">{{ item.integration.name }}</span>
-                            <span class="block text-sm text-(--text-secondary)">
-                              <ng-container i18n="@@products.detail.body.integrations.with2"
-                                >with</ng-container
-                              >
-                              <a
-                                [routerLink]="['/products', item.other.slug]"
-                                class="ml-1 text-(--accent-primary) underline underline-offset-2"
-                                (click)="$event.stopPropagation()"
-                              >
-                                {{ item.other.name }}
-                              </a>
-                            </span>
-                          </span>
-                          <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
-                        </a>
-                      </li>
+                      <ng-container
+                        [ngTemplateOutlet]="integrationRow"
+                        [ngTemplateOutletContext]="{ $implicit: item }"
+                      ></ng-container>
                     }
                   </ul>
                 } @placeholder (minimum 100ms) {

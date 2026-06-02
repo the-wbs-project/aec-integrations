@@ -78,8 +78,13 @@ export class ThemeService {
   }
 
   private readInitialSystemDark(): boolean {
-    const hint = this.request?.headers.get('sec-ch-prefers-color-scheme');
-    if (hint) return hint.toLowerCase() === 'dark';
+    // SSR must render visitor-state-neutral HTML for cacheable routes (§9.1a;
+    // CLAUDE.md non-negotiable #6). `sec-ch-prefers-color-scheme` is per-visitor
+    // state — honoring it server-side bakes a theme into the URL-keyed edge cache
+    // and serves the first visitor's preference to everyone. So the server stays
+    // neutral (`false`); the browser reconciles the real system preference
+    // pre-paint (index.html inline script) and post-hydration (`afterNextRender`
+    // + `matchMedia` below). The request header is deliberately never read here.
     return false;
   }
 

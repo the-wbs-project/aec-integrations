@@ -91,6 +91,7 @@ All colors expressed as CSS custom properties bound to theme classes. Tailwind c
 | `--surface-base` | `#FFFFFF` | Page background |
 | `--surface-raised` | `#FAFAFA` | Cards, panels |
 | `--surface-sunken` | `#F4F4F5` | Inset areas, code blocks |
+| `--surface-muted` | `#F4F4F5` | Interactive row hover / `focus-within` (index tables); shares the sunken value in light by design |
 | `--border-default` | `#E4E4E7` | Standard borders |
 | `--border-strong` | `#D4D4D8` | Emphasized borders |
 | `--text-primary` | `#0A0A0A` | Body text |
@@ -108,6 +109,7 @@ All colors expressed as CSS custom properties bound to theme classes. Tailwind c
 | `--surface-base` | `#0A0A0A` | Page background |
 | `--surface-raised` | `#18181B` | Cards, panels |
 | `--surface-sunken` | `#09090B` | Inset areas |
+| `--surface-muted` | `#27272A` | Interactive row hover / `focus-within` (index tables); distinct from raised so in-row chips stay legible; shares the border-default value in dark by design |
 | `--border-default` | `#27272A` | Standard borders |
 | `--border-strong` | `#3F3F46` | Emphasized borders |
 | `--text-primary` | `#FAFAFA` | Body text |
