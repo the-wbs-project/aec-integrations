@@ -45,15 +45,15 @@ describe('GET /api/vendors', () => {
       integration_count: 2,
     });
     const call = prisma.vendor.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual({ createdAt: 'desc' });
+    expect(call.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }]);
   });
 
-  it('maps `sort=name` to `{ companyName: "asc" }` (no `name` column on vendors)', async () => {
+  it('maps `sort=name` to `[{ companyName: "asc" }, { id: "asc" }]` (no `name` column on vendors)', async () => {
     const prisma = makeMockAcceleratedPrisma({ vendor: { findMany: [], count: 0 } });
     await listApp(prisma).request('/api/vendors?sort=name', {}, TEST_ENV, fakeExecutionContext());
 
     const call = prisma.vendor.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual({ companyName: 'asc' });
+    expect(call.orderBy).toEqual([{ companyName: 'asc' }, { id: 'asc' }]);
   });
 
   it('applies the `verified=true` filter as a where clause', async () => {
