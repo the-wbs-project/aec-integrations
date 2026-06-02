@@ -7,8 +7,7 @@ import { map } from 'rxjs';
 import type { ProductListItem, VendorDetail } from '@aeci/shared';
 
 import { DetailLayout } from '../layouts/detail-layout';
-
-import { VendorNotFound } from './vendor-not-found';
+import { NotFound } from '../not-found/not-found';
 
 /**
  * AECI-59 — Vendor detail page at `/vendors/:slug`.
@@ -17,8 +16,8 @@ import { VendorNotFound } from './vendor-not-found';
  * Spec §4.2.1). All data is supplied by `vendorDetailResolver` via
  * `route.data['vendor']`:
  *
- *   - `vendor === null` → render the inline NotFound panel; the resolver
- *     already set `RESPONSE_INIT.status = 404` and
+ *   - `vendor === null` → render the global `aec-not-found` shell; the
+ *     resolver already set `RESPONSE_INIT.status = 404` and
  *     `MetaService.setNotFoundMeta`.
  *   - `vendor` set → render hero / metadata sidebar / description /
  *     products grid sections inside the shared `DetailLayout`.
@@ -39,12 +38,12 @@ import { VendorNotFound } from './vendor-not-found';
  */
 @Component({
   selector: 'aec-vendor-detail',
-  imports: [DetailLayout, NgOptimizedImage, RouterLink, VendorNotFound],
+  imports: [DetailLayout, NgOptimizedImage, NotFound, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let v = vendor();
     @if (v === null) {
-      <aec-vendor-not-found [slug]="slug()" />
+      <aec-not-found />
     } @else {
       <aec-detail-layout>
         <ol
@@ -352,10 +351,6 @@ export class VendorDetailPage {
   protected readonly vendor = toSignal<VendorDetail | null, VendorDetail | null>(
     this.route.data.pipe(map((d) => (d['vendor'] ?? null) as VendorDetail | null)),
     { initialValue: (this.route.snapshot.data['vendor'] ?? null) as VendorDetail | null },
-  );
-
-  protected readonly slug = computed(
-    () => this.route.snapshot.paramMap.get('slug') ?? this.vendor()?.slug ?? '',
   );
 
   protected readonly initial = computed(() => {
