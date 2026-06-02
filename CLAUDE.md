@@ -148,9 +148,9 @@ pnpm dev:bound
 
 ### Version reporting (AECI-74)
 
-`apps/api` exposes `GET /api/version` returning `{ sha, deployedAt, environment }`. The SSR Worker proxies the same path via the existing `/api/*` service binding, so `GET /api/version` on `apps/web` reports identical values. AECI-71's `promote-to-prod` workflow uses this to verify staging is at the commit being promoted.
+`apps/api` exposes `GET /api/version` returning `{ sha, deployedAt, environment }`. The SSR Worker proxies the same path via the existing `/api/*` service binding, so `GET /api/version` on `apps/web` reports the **API Worker's** values. The SSR Worker *also* serves its **own** `GET /_version` (`apps/web/src/server/routes/version.ts`, AECI-92) — same response shape, but **not proxied**, so it reports the **SSR Worker's** `COMMIT_SHA`. The two endpoints exist precisely because `/api/version` alone can't catch a stale SSR deploy (the SSR Worker forwards `/api/*` untouched to the API Worker). The deploy gates (`deploy.yml`, `promote-to-prod.yml`, `pr-preview.yml`, `refresh-staging.yml`) assert **both** equal the target commit via `scripts/verify-version.sh`.
 
-`COMMIT_SHA` and `DEPLOYED_AT` are injected via `wrangler --var` and override the `"unknown"` / epoch placeholders declared in `apps/api/wrangler.jsonc`. The existing `apps/api` `dev` and `dev:preview` scripts derive them from `git rev-parse HEAD` and `date -u +%Y-%m-%dT%H:%M:%S.000Z`. **Any new `wrangler dev` / `wrangler deploy` invocation that targets the API Worker must pass these flags** or the endpoint will report `sha: "unknown"`:
+`COMMIT_SHA` and `DEPLOYED_AT` are injected via `wrangler --var` and override the `"unknown"` / epoch placeholders declared in **each** Worker's `wrangler.jsonc` (`apps/api/wrangler.jsonc` and, per-env, `apps/web/wrangler.jsonc`). Both Workers' `dev` and `dev:preview` scripts derive them from `git rev-parse HEAD` and `date -u +%Y-%m-%dT%H:%M:%S.000Z`. **Any new `wrangler dev` / `wrangler deploy` invocation that targets *either* Worker must pass these flags** or that Worker's version endpoint will report `sha: "unknown"`:
 
 ```bash
 wrangler deploy --env staging \
@@ -158,7 +158,7 @@ wrangler deploy --env staging \
   --var DEPLOYED_AT:"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
 ```
 
-CI wiring (resolving `$GITHUB_SHA` and the workflow timestamp) lands in AECI-71.
+CI wiring (resolving `$GITHUB_SHA` and the workflow timestamp) landed in AECI-71; the dual SSR+API SHA gate landed in AECI-92.
 
 ## Skills
 

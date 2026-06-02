@@ -1,3 +1,4 @@
+import { VersionResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -283,6 +284,61 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
     expect(res.status).toBe(201);
     expect(calls[0]!.headers.get('cookie')).toBe('sb-access-token=session');
     expect(calls[0]!.method).toBe('POST');
+  });
+});
+
+describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)', () => {
+  it('returns the SSR Worker’s build metadata from env without calling the API binding', async () => {
+    // Guards AECI-92: /_version must be served by the SSR Worker itself so CI
+    // can verify the SSR bundle is current independently of the proxied
+    // /api/version (which only ever reports the API Worker's SHA). If a future
+    // refactor accidentally proxies this path, `calls` would be non-empty and
+    // the gate would go back to validating only the API Worker.
+    const { binding, calls } = recordingApiBinding();
+    const env = {
+      ...binding,
+      ENV: 'preview',
+      COMMIT_SHA: 'ssr123abc456',
+      DEPLOYED_AT: '2026-06-02T03:30:00.000Z',
+    };
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
+
+    const req = new Request('https://aecintegrations.com/_version');
+    const res = await app.fetch(req, env as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    // private, no-store so a stale value never lies about what's deployed and
+    // the response is never pinned at the edge.
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+
+    const body = await res.json();
+    expect(VersionResponseSchema.safeParse(body).success).toBe(true);
+    expect(body).toEqual({
+      sha: 'ssr123abc456',
+      deployedAt: '2026-06-02T03:30:00.000Z',
+      environment: 'preview',
+    });
+
+    // Served by SSR, NOT proxied to the API Worker.
+    expect(calls).toHaveLength(0);
+  });
+
+  it('falls back to sentinels when COMMIT_SHA/DEPLOYED_AT/ENV are unset', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
+
+    const req = new Request('https://aecintegrations.com/_version');
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      sha: 'unknown',
+      deployedAt: '1970-01-01T00:00:00.000Z',
+      environment: 'development',
+    });
+    expect(calls).toHaveLength(0);
   });
 });
 

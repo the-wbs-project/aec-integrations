@@ -60,6 +60,7 @@ import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './se
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
+import { createVersionHandler } from './server/routes/version';
 import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
 
 export type Bindings = WebEnv;
@@ -592,6 +593,13 @@ export function createApp(options: {
       },
     });
   });
+
+  // GET /_version — the SSR Worker's OWN build metadata (AECI-92). Served here,
+  // NOT proxied: `/api/version` forwards raw to the API Worker and so only ever
+  // reports the API Worker's SHA. This route reports the SSR Worker's
+  // `COMMIT_SHA` so CI can verify the SSR bundle is current independently of the
+  // API deploy. `private, no-store` (set in the handler), no `Cache-Tag`.
+  app.get('/_version', createVersionHandler());
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {

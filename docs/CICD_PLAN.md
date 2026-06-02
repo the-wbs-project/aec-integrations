@@ -104,7 +104,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 3. Bundle size check against budget (defined in `TESTING_STRATEGY.md`)
 4. Upload build artifact for downstream jobs
 
-**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies `/api/version` reports the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. No Supabase migrations are applied per-PR under the current Option 1 strategy.
+**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies both `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. No Supabase migrations are applied per-PR under the current Option 1 strategy.
 
 **Job: `e2e-tests`** (depends on `deploy-preview`, ~5 min)
 1. Wait for preview deployment health check
@@ -152,7 +152,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 **Job: `pre-promotion-checks`**
 1. Validate `confirm == PROMOTE`
 2. Checkout at `inputs.commit_sha`
-3. Assert `staging.aecintegrations.com/api/version` reports the same SHA, else fail with `staging is at <actual>, refusing to promote <input>`
+3. Assert staging reports the same SHA on **both** `staging.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `staging is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
 4. Print `supabase migration list --linked` against prod into the step summary
 
 **Job: `apply-prod-migrations`** (gated by GH Environment `production`)
@@ -164,7 +164,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 1. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 2. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 3. Post Datadog deployment marker (§9.1)
-4. Poll `aecintegrations.com/api/version` until it returns the promoted SHA (60s budget)
+4. Poll both `aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA (60s budget) via `scripts/verify-version.sh`
 5. Write summary (commit, R2 snapshot path, snapshot size, DEPLOYED_AT, actor)
 
 Algolia index updates, release-tag automation, and Slack notifications are out of scope until later epics.

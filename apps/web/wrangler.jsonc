@@ -56,12 +56,24 @@
       "name": "aeci-web",
       "workers_dev": true,
       "observability": { "enabled": true },
-      "vars": { "ENV": "preview", "DD_SITE": "us5.datadoghq.com" },
+      // COMMIT_SHA / DEPLOYED_AT are sentinels overridden by `wrangler deploy
+      // --var` in CI (AECI-92 /_version, AECI-74 parity with apps/api).
+      "vars": {
+        "ENV": "preview",
+        "DD_SITE": "us5.datadoghq.com",
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+      },
       "services": [{ "binding": "API", "service": "aeci-api-preview" }],
     },
     "staging": {
       "name": "aeci-web-staging",
-      "vars": { "ENV": "staging", "DD_SITE": "us5.datadoghq.com" },
+      "vars": {
+        "ENV": "staging",
+        "DD_SITE": "us5.datadoghq.com",
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+      },
       "observability": { "enabled": true },
       "routes": [
         {
@@ -73,7 +85,12 @@
     },
     "production": {
       "name": "aeci-web-production",
-      "vars": { "ENV": "production", "DD_SITE": "us5.datadoghq.com" },
+      "vars": {
+        "ENV": "production",
+        "DD_SITE": "us5.datadoghq.com",
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+      },
       "observability": { "enabled": true },
       "routes": [
         {
