@@ -143,7 +143,14 @@ In addition to `Cache-Control` and `Cache-Tag`, every cacheable response carries
 
 - `Vary: Accept-Language` — URL-prefix locale dispatch handles the actual variance (Phase 1 only emits `en-US`, but the routing layer is locale-aware), so this header just advertises the dimension to well-behaved proxies. Cloudflare's edge cache key isn't affected on Pro.
 - `Link: </sitemap.xml>; rel=sitemap`
-- `Content-Security-Policy` — unchanged from Phase 1; no Phase 2 changes.
+- `Content-Security-Policy` — **defined and first emitted in AECI-89.** (Earlier drafts of this section and `STAGE_1_PHASE_2_SPEC.md` §8.6 called the CSP "unchanged / existing from Phase 1," but no Phase 1 CSP was ever implemented — AECI-89 closes that gap.) The policy is a static, cache-safe string assembled in `apps/web/src/server/seo-headers.ts` and applied via `withCacheHeaders`. Nonces/hashes are deliberately **not** used: the HTML is edge-cached and served byte-identically to every visitor, so a cached nonce would be reused by all (defeating it), and Angular's `withEventReplay()` injects a version-generated inline script a hash allowlist would have to chase across upgrades. The directives:
+  - `default-src 'self'`
+  - `script-src 'self' 'unsafe-inline'` — the `index.html` theme bootstrap, the injected Datadog RUM bootstrap, and Angular's event-replay inline script
+  - `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` — Angular SSR inlines component `<style>` blocks; Google Fonts stylesheet
+  - `font-src 'self' https://fonts.gstatic.com`
+  - `img-src 'self' data: https:` — vendor/Airtable `logo_url`s come from arbitrary https origins
+  - `connect-src 'self' https://browser-intake-datadoghq.com` — the `/api/*` proxy + the Datadog RUM intake host. The v7 browser SDK beacons to `browser-intake-datadoghq.com`, a distinct registrable domain (a `*.datadoghq.com` wildcard does **not** match it). This assumes the default `DD_SITE=datadoghq.com` (US1); other sites use a different `browser-intake-*` host (e.g. `browser-intake-datadoghq.eu`). Add `https://*.algolia.net https://*.algolianet.com` in Phase 3 when search lands.
+  - `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'` — hardening
 
 **Note on the `Vary` policy.** This updates the previous `STAGE_1_SPEC.md` §9.3 stance ("no `Vary` headers on cached SSR responses"). The reasoning behind the original ban — `Vary: Cookie` and `Vary: User-Agent` fragment the edge cache without a corresponding invalidation handle — still holds for *those* values. `Vary: Accept-Language` is safe because locale variance is already segmented at the URL-prefix layer, so there's no additional cache fragmentation beyond what the URL key already provides. Any *other* `Vary` value (`Cookie`, `User-Agent`, etc.) remains forbidden.
 

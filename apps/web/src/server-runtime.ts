@@ -9,10 +9,14 @@
  * §9.1b, §7a.3, §7a.3a) govern this module. Get either wrong and the
  * production edge cache breaks in ways that are hard to detect from staging:
  *
- *   1. The edge cache is keyed by URL only (Cloudflare Pro — no `Vary`, no
- *      cache-tag). If SSR reads a per-visitor cookie (e.g. `theme=dark`) and
- *      bakes the result into HTML, the first visitor's render is served to
- *      everyone. So: on the cacheable branch, strip visitor-state cookies
+ *   1. The edge cache is keyed by URL only — Cloudflare Pro does not fold the
+ *      `Vary` or `Cache-Tag` headers into the cache key. We emit both (a
+ *      `Vary: Accept-Language` advertisement and per-route tags), but the key
+ *      stays URL-only, so the locale Vary can't fragment it (see §7 and
+ *      `server/seo-headers.ts`). If SSR reads a per-visitor cookie (e.g.
+ *      `theme=dark`) and bakes the result into HTML, the first visitor's
+ *      render is served to everyone. So: on the cacheable branch, strip
+ *      visitor-state cookies
  *      *before* invoking SSR; the client reconciles theme post-hydration from
  *      `localStorage` + `matchMedia`.
  *
@@ -59,6 +63,7 @@ import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
+import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
 import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
 
@@ -316,10 +321,12 @@ function withCacheHeaders(
   if (is404) {
     headers.set('Cache-Tag', CACHE_TAG_NOT_FOUND);
   }
-  // Belt-and-braces: never let an upstream Vary slip through on a cacheable
-  // response — it fragments the edge cache and breaks purge-by-URL (§7a.3,
-  // §9.3). Locale is segmented by URL prefix, visitor state is client-only.
-  headers.delete('Vary');
+  // SEO/security header set (AECI-89 / §7, §8.6): `Vary: Accept-Language`,
+  // `Link: </sitemap.xml>; rel=sitemap`, and the Content-Security-Policy. The
+  // Vary handling is delete-then-set — any upstream `Cookie`/`User-Agent` Vary
+  // is stripped (those fragment the edge cache with no purge handle) while the
+  // URL-segmented locale dimension is advertised.
+  applySeoHeaders(headers);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,

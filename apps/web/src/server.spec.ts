@@ -317,7 +317,7 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
     expect(withBody).not.toContain('theme=dark');
   });
 
-  it('sets a route-specific Cache-Control header and no Vary on the cacheable branch', async () => {
+  it('sets Cache-Control + the SEO/security header set on the cacheable branch (AECI-89)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({
       ssrRenderer: fixedRenderer(
@@ -325,7 +325,7 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
           status: 200,
           headers: {
             'content-type': 'text/html',
-            vary: 'Cookie', // upstream tries to set Vary — middleware must strip it
+            vary: 'Cookie', // upstream tries to set a forbidden Vary — middleware must strip it
           },
         }),
       ),
@@ -339,7 +339,18 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=900');
-    expect(res.headers.get('vary')).toBeNull();
+
+    // AC #1: the three headers are present on a representative cacheable route.
+    const vary = res.headers.get('vary') ?? '';
+    expect(vary).toBe('Accept-Language');
+    expect(res.headers.get('link')).toContain('</sitemap.xml>; rel=sitemap');
+    expect(res.headers.get('content-security-policy')).toContain(
+      "script-src 'self' 'unsafe-inline'",
+    );
+
+    // AC #2: the forbidden Vary values are never emitted (delete-then-set).
+    expect(vary).not.toMatch(/cookie/i);
+    expect(vary).not.toMatch(/user-agent/i);
   });
 });
 
