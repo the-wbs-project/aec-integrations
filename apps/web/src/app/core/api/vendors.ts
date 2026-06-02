@@ -10,7 +10,8 @@
  */
 import type { VendorDetail } from '@aeci/shared';
 
-import { isServerApiError, type ServerApiClient } from '../../../server-api-client';
+import type { ServerApiClient } from '../../../server-api-client';
+import { fetchOrNull } from './fetch-or-null';
 
 /**
  * Fetch a vendor by slug. Returns `null` on the canonical `NOT_FOUND`
@@ -26,13 +27,5 @@ export async function fetchVendorBySlug(
   client: ServerApiClient,
   slug: string,
 ): Promise<VendorDetail | null> {
-  try {
-    return await client.request<VendorDetail>(`/api/vendors/${encodeURIComponent(slug)}`);
-  } catch (err) {
-    // Structural check, not `instanceof` — see `isServerApiError` for why.
-    if (isServerApiError(err) && err.status === 404 && err.code === 'NOT_FOUND') {
-      return null;
-    }
-    throw err;
-  }
+  return fetchOrNull<VendorDetail>(client, `/api/vendors/${encodeURIComponent(slug)}`);
 }

@@ -6,6 +6,7 @@ import type { ProductDetail, VendorDetail } from '@aeci/shared';
 
 import {
   DEFAULT_OG_IMAGE,
+  type EntityKind,
   buildEntityTitle,
   buildOgTags,
   buildProductJsonLd,
@@ -17,7 +18,8 @@ import {
 } from './meta.helpers';
 
 /**
- * Entity kinds the service knows how to title.
+ * Entity kinds the service knows how to title. Defined once in `meta.helpers.ts`
+ * and re-exported here so the service's public surface is unchanged.
  *
  * - Detail kinds (`product`, `vendor`, `integration`) get the bare
  *   `"{name} — AEC Integrations"` title and `og:type=article`.
@@ -28,14 +30,7 @@ import {
  *   `"{name} — AEC Integrations"` title (no "tools" infix) and
  *   `og:type=website` — an index is not an article.
  */
-export type EntityKind =
-  | 'product'
-  | 'vendor'
-  | 'integration'
-  | 'category'
-  | 'discipline'
-  | 'phase'
-  | 'index';
+export type { EntityKind };
 
 export interface SetEntityMetaInput {
   entity: EntityKind;

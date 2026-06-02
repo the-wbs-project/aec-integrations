@@ -1,4 +1,4 @@
-import { NgOptimizedImage } from '@angular/common';
+import { NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -38,7 +38,7 @@ import { NotFound } from '../not-found/not-found';
  */
 @Component({
   selector: 'aec-vendor-detail',
-  imports: [DetailLayout, NgOptimizedImage, NotFound, RouterLink],
+  imports: [DetailLayout, NgOptimizedImage, NgTemplateOutlet, NotFound, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let v = vendor();
@@ -278,25 +278,32 @@ import { NotFound } from '../not-found/not-found';
                 >.
               </p>
             } @else {
+              <ng-template #productRow let-product>
+                <li>
+                  <a
+                    [routerLink]="['/products', product.slug]"
+                    class="flex items-center gap-3 rounded-(--radius-lg)
+                      border border-(--border-default) bg-(--surface-raised) p-4
+                      text-(--text-primary) no-underline transition-colors
+                      hover:border-(--border-strong)"
+                  >
+                    <span class="min-w-0 flex-1">
+                      <span class="block text-sm font-bold">{{ product.name }}</span>
+                      @if (product.primary_category; as cat) {
+                        <span class="block text-sm text-(--text-secondary)">{{ cat.name }}</span>
+                      }
+                    </span>
+                    <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
+                  </a>
+                </li>
+              </ng-template>
+
               <ul class="grid gap-3">
                 @for (product of productsAbove(); track product.id) {
-                  <li>
-                    <a
-                      [routerLink]="['/products', product.slug]"
-                      class="flex items-center gap-3 rounded-(--radius-lg)
-                        border border-(--border-default) bg-(--surface-raised) p-4
-                        text-(--text-primary) no-underline transition-colors
-                        hover:border-(--border-strong)"
-                    >
-                      <span class="min-w-0 flex-1">
-                        <span class="block text-sm font-bold">{{ product.name }}</span>
-                        @if (product.primary_category; as cat) {
-                          <span class="block text-sm text-(--text-secondary)">{{ cat.name }}</span>
-                        }
-                      </span>
-                      <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
-                    </a>
-                  </li>
+                  <ng-container
+                    [ngTemplateOutlet]="productRow"
+                    [ngTemplateOutletContext]="{ $implicit: product }"
+                  ></ng-container>
                 }
               </ul>
 
@@ -304,25 +311,10 @@ import { NotFound } from '../not-found/not-found';
                 @defer (on viewport) {
                   <ul class="mt-3 grid gap-3">
                     @for (product of productsDeferred(); track product.id) {
-                      <li>
-                        <a
-                          [routerLink]="['/products', product.slug]"
-                          class="flex items-center gap-3 rounded-(--radius-lg)
-                            border border-(--border-default) bg-(--surface-raised) p-4
-                            text-(--text-primary) no-underline transition-colors
-                            hover:border-(--border-strong)"
-                        >
-                          <span class="min-w-0 flex-1">
-                            <span class="block text-sm font-bold">{{ product.name }}</span>
-                            @if (product.primary_category; as cat) {
-                              <span class="block text-sm text-(--text-secondary)">{{
-                                cat.name
-                              }}</span>
-                            }
-                          </span>
-                          <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
-                        </a>
-                      </li>
+                      <ng-container
+                        [ngTemplateOutlet]="productRow"
+                        [ngTemplateOutletContext]="{ $implicit: product }"
+                      ></ng-container>
                     }
                   </ul>
                 } @placeholder (minimum 100ms) {
