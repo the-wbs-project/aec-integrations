@@ -211,6 +211,20 @@ jobs:
           supabase db push --linked --include-all
 
       # ---------------------------------------------------------------------
+      # Step 6b: Verify RLS GRANT matrix (AECI-87)
+      #   20260602051513_rls_grants_and_policies.sql (applied in step 6) installs
+      #   the PostgREST GRANT/RLS deny matrix + the feedback/mailing_list
+      #   carve-out. Re-prove it AFTER the wipe+restore+migrate so a refresh can
+      #   never silently drop the policy/GRANT surface (the bug AECI-87 fixes).
+      #   SET ROLE probe — no PostgREST/JWT needed. Hard stop: a failure here
+      #   aborts the run before the Worker deploys (set -e, no `if: always()`).
+      # ---------------------------------------------------------------------
+      - name: Verify RLS GRANT matrix
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/verify-rls.sql
+
+      # ---------------------------------------------------------------------
       # Step 7: Scrub auth credentials
       # ---------------------------------------------------------------------
       - name: Scrub auth credentials

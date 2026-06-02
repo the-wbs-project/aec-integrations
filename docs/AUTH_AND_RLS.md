@@ -58,7 +58,7 @@ Three roles exist in `profiles.role`. All are set server-side — no client can 
 | `admin` | Chris and Bill | Manual SQL update in Supabase dashboard |
 | `vendor_admin` | Stage 2+ vendor contacts | Reserved — schema ready, not yet used |
 
-Banned users retain their role but have `profiles.banned_at` set. The `auth.is_active_user()` helper checks both identity and ban status.
+Banned users retain their role but have `profiles.banned_at` set. The `public.is_active_user()` helper checks both identity and ban status.
 
 ---
 
@@ -204,10 +204,10 @@ The migration runs `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authent
 ### 6.1 Helper functions
 
 ```sql
-create or replace function auth.is_admin()
+create or replace function public.is_admin()
   returns boolean
   language sql security definer stable
-  set search_path = public, auth
+  set search_path = public, pg_temp
 as $$
   select exists (
     select 1 from public.profiles
@@ -215,10 +215,10 @@ as $$
   );
 $$;
 
-create or replace function auth.is_active_user()
+create or replace function public.is_active_user()
   returns boolean
   language sql security definer stable
-  set search_path = public, auth
+  set search_path = public, pg_temp
 as $$
   select exists (
     select 1 from public.profiles
@@ -227,7 +227,9 @@ as $$
 $$;
 ```
 
-Both are `security definer` with an explicit `search_path` to prevent search-path attacks. EXECUTE is granted to `anon` and `authenticated` only — not `public`.
+Both are `security definer` with a pinned `search_path` (the AECI-44 hardening rule) to prevent search-path attacks; every reference inside is schema-qualified (`public.profiles`, `auth.uid()`), so `auth` is not needed on the path. EXECUTE is granted to `anon` and `authenticated` only — not `public`.
+
+**Why `public`, not `auth` (AECI-87).** These helpers used to live in the `auth` schema. Migrations apply as the `postgres` role, which has no CREATE on `auth` (owned by `supabase_admin`), so `create function auth.is_admin()` fails `42501 permission denied for schema auth` under `supabase db push` — which is why the policies were once applied out of band as `supabase_admin` and never reached staging/prod. Moving the helpers to `public` lets the standard migration path install the whole surface everywhere; RLS policies reference them as `public.is_admin()` / `public.is_active_user()`.
 
 ### 6.2 Permission matrix
 
@@ -291,7 +293,7 @@ Enforced at both Layer 1 and Layer 3.
 
 **Worker (primary):** `requireRole()` checks `bannedAt` before any protected action. Banned users get `403 account_banned` with their `banReason` if set. Banned users cannot submit reviews, claim vendors, file corrections, or modify their account. They can still read public data — the read endpoints don't call `requireRole()`.
 
-**RLS (defense in depth):** `auth.is_active_user()` returns false for banned users. The `reviews: owner read own` policy uses it, so a banned user cannot read their own pending reviews via PostgREST. Approved reviews remain readable through the `reviews: public read approved` policy — banning does not retroactively hide past content.
+**RLS (defense in depth):** `public.is_active_user()` returns false for banned users. The `reviews: owner read own` policy uses it, so a banned user cannot read their own pending reviews via PostgREST. Approved reviews remain readable through the `reviews: public read approved` policy — banning does not retroactively hide past content.
 
 Bans are applied manually by an admin via SQL in the dashboard until a Stage 2 admin UI exists.
 
@@ -472,34 +474,37 @@ When a test fails, the error code tells you which layer rejected the request:
 
 ## 11. Applying the migration
 
-Schema migrations live in `supabase/migrations/`; RLS policy + GRANT
-definitions live in `docs/rls_policies.sql`. Apply schema first, then
-policies on top:
+The entire authorization surface — the `public.is_admin()` /
+`public.is_active_user()` helpers, the PostgREST GRANTs, and the RLS policies —
+is a numbered migration
+(`supabase/migrations/20260602051513_rls_grants_and_policies.sql`), so it applies
+to every environment through the normal migration path. There is no separate
+apply step and no `supabase_admin`-only out-of-band script — that was AECI-87's
+fix (the helpers moved out of the `auth` schema precisely so the `postgres`
+migration role can create them; see §6.1).
 
 ```bash
 # Local development
 pnpm db:start            # boot Postgres + auth + PostgREST + Storage + Studio
 pnpm db:reset            # apply every migration in supabase/migrations/ + seed.sql
-pnpm --filter @aeci/api db:apply-rls   # apply GRANTs + RLS policies
+                         #   (installs the GRANT/RLS surface as part of the set)
 pnpm --filter @aeci/api test:integration
 ```
 
-`db:apply-rls` execs into the local Supabase Postgres container as
-`supabase_admin` (the only superuser locally — `postgres` lacks
-permission on the `auth` schema). For staging/production, the apply
-sequence runs through `supabase db push --linked` (schema) followed by
-the RLS application step from CI (wiring deferred to AECI-71; see
-`CICD_PLAN.md` §5). The equivalent manual recipe is
-`psql "$DIRECT_URL" -f docs/rls_policies.sql` with `$DIRECT_URL`
-pointing at a connection with rights on the `auth` schema.
+Staging and production get it via `supabase db push --linked` in
+`refresh-staging.yml` and `promote-to-prod.yml`; both workflows then run
+`psql "$DIRECT_URL" -f scripts/verify-rls.sql` as a hard-stop gate proving the
+GRANT/RLS matrix is in effect (and that the `feedback`/`mailing_list` landing
+carve-out survived the blanket REVOKE). The PR-time `drift-check.yml` runs the
+same probe against a fresh, migrations-only local DB.
 
-Defence-in-depth: every public-schema `CREATE TABLE` triggers the
-`ensure_rls` event trigger (added by
-`supabase/migrations/20260525064254_capture_rls_auto_enable.sql`),
-which auto-enables row level security on the new table. The policy
-bodies in `rls_policies.sql` then attach the actual rules. Both must
-agree — RLS-enabled with no matching policy means the table is read-
-locked to PostgREST clients.
+Defence-in-depth: every public-schema `CREATE TABLE` triggers the `ensure_rls`
+event trigger (added by
+`supabase/migrations/20260525064254_capture_rls_auto_enable.sql`), which
+auto-enables row level security on the new table. The
+`20260602051513_rls_grants_and_policies.sql` migration then attaches the actual
+GRANTs + policy bodies. Both must agree — RLS-enabled with no matching policy or
+grant means the table is locked to PostgREST clients.
 
 ### 11.1 Verification queries
 

@@ -23,8 +23,7 @@ cp .dev.vars.example .dev.vars
 
 pnpm install
 pnpm db:start                                 # local Supabase stack
-pnpm db:reset                                 # apply supabase/migrations + seed
-pnpm --filter @aeci/api db:apply-rls          # apply RLS policies on top
+pnpm db:reset                                 # apply supabase/migrations + seed (incl. GRANTs/RLS)
 pnpm --filter @aeci/api prisma:generate       # produce typed client
 
 pnpm --filter @aeci/api dev

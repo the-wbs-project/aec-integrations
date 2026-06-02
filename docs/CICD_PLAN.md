@@ -270,22 +270,37 @@ Migrations are forward-only. No automated rollback. If a migration is bad:
 
 ### 5.4 RLS and GRANT policies
 
-Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) live in `docs/rls_policies.sql`, outside `supabase/migrations/`. They define what PostgREST exposes to the `anon`/`authenticated` roles; the Worker's privileged Postgres role bypasses both. See `docs/AUTH_AND_RLS.md` §1 for the three-layer model.
+Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) — plus the
+`public.is_admin()` / `public.is_active_user()` helpers — ship as a numbered
+migration (`supabase/migrations/20260602051513_rls_grants_and_policies.sql`) as
+of AECI-87. They define what PostgREST exposes to the `anon`/`authenticated`
+roles; the Worker's privileged Postgres role bypasses both. See
+`docs/AUTH_AND_RLS.md` §1 for the three-layer model.
 
-**Apply order (per environment):**
+**Apply order (per environment):** there is no separate apply step — the GRANT/RLS
+surface is part of the migration set, so `supabase db push --linked` (or
+`supabase db reset` locally) installs it alongside the schema, in timestamp
+order. Helpers must live in `public`, not `auth`: the migration role (`postgres`)
+cannot CREATE in the `auth` schema — see `docs/AUTH_AND_RLS.md` §6.1.
 
-1. `pnpm db:push` — apply all pending schema migrations first via `supabase db push --linked`, so every in-scope table exists.
-2. `psql "$DIRECT_URL" -f docs/rls_policies.sql` — (re)apply the RLS + GRANT policies on top.
+**Re-runnability.** The migration is idempotent: every `create policy` is
+preceded by `drop policy if exists`, and the `REVOKE`/`GRANT`/`alter table ...
+enable row level security`/`create or replace function` statements are inherently
+idempotent. (Once recorded in `supabase_migrations`, `supabase db push` skips it;
+a correction is a new forward migration — never edit a merged migration.)
 
-Locally, `pnpm --filter @aeci/api db:apply-rls` runs step 2 with `DIRECT_URL` already loaded from `.dev.vars` via `dotenv-cli`. `psql` must be on `$PATH`.
+**Verification.** Each of `drift-check.yml` (fresh local DB), `refresh-staging.yml`
+(after the migrate step), and `promote-to-prod.yml` (after the prod migrate) runs
+`psql "$URL" -v ON_ERROR_STOP=1 -f scripts/verify-rls.sql` as a hard-stop gate.
+The probe impersonates the PostgREST roles at the SQL layer (`SET ROLE anon`) and
+asserts:
 
-**Re-runnability.** The script is safe to re-run: every `create policy` is preceded by `drop policy if exists`, and the `REVOKE`/`GRANT`/`alter table ... enable row level security`/`create or replace function` statements are inherently idempotent. Re-run after every migration that adds a new public-schema table — `ALTER DEFAULT PRIVILEGES` already locks new tables to anon/auth, but the explicit `enable row level security` and policy definitions in this script only cover the tables it names.
+- the `public.is_admin()` / `public.is_active_user()` helpers exist and are anon-executable;
+- anon CAN `INSERT` into `feedback` / `mailing_list` (the landing carve-out survived the blanket REVOKE);
+- anon `SELECT` on `audit_log`, `profiles`, `vendor_requests`, `workflow_instances`, `workflow_transitions`, `page_views`, `feedback`, `mailing_list` returns `42501 insufficient_privilege`.
 
-**Verification queries** (run after each apply):
-
-- `SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public';` — every in-scope table shows `rowsecurity = true`.
-- The two `role_table_grants` queries documented at the foot of `docs/rls_policies.sql` (see "VERIFICATION QUERIES" comment block) — confirm the expected anon / authenticated grant matrix.
-- PostgREST probes: anon `SELECT` on `audit_log`, `profiles`, `vendor_requests`, `workflow_instances`, `workflow_transitions`, `page_views` must return `42501 insufficient_privilege`. Anon `SELECT` on `taxonomy_categories`, `stats_cache` must return rows.
+Row-filter RLS that depends on a JWT (promoted-only, own-row) is covered by the
+PostgREST integration specs (`apps/api/src/integration/*.rls.spec.ts`).
 
 ---
 

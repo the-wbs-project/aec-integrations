@@ -100,6 +100,15 @@ jobs:
       - name: Apply all migrations
         run: supabase db reset --local --no-seed
 
+      # AECI-87: verify the PostgREST GRANT/RLS deny matrix + landing carve-out
+      # installed by 20260602051513_rls_grants_and_policies.sql is actually in
+      # effect on the fresh, migrations-only DB. The probe impersonates the anon
+      # role at the SQL layer (`SET ROLE anon`), so it needs no running PostgREST
+      # or minted JWT — exactly right for this Postgres-only stack. `psql` is
+      # preinstalled on ubuntu-latest. Same local URL the drift step uses.
+      - name: Verify RLS GRANT matrix
+        run: psql 'postgresql://postgres:postgres@127.0.0.1:54322/postgres' -v ON_ERROR_STOP=1 -f scripts/verify-rls.sql
+
       # The drift check itself. Local DB is on the standard Supabase port
       # 54322 with the default `postgres:postgres` credentials per
       # `supabase/config.toml`.
