@@ -134,7 +134,7 @@ What happens, in order (each numbered step matches a job step in the workflow):
 8. `psql -f scripts/seed-staging-users.sql` — idempotent seed of four test accounts (chrisw, billh, reviewer, admin) with known passwords. See the SQL file for the credentials.
 9. **Drift check (HARD STOP).** `scripts/prisma-drift-check.sh $DIRECT_URL_STAGING`. If staging's actual schema doesn't match `apps/api/prisma/schema.prisma`, the workflow exits before deploying Workers. This is the spec's "do not let an inconsistent staging hide from operators" rule.
 10. Deploy `aeci-api-staging` then `aeci-web-staging` via `wrangler-action`, passing `--var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
-11. Smoke test `https://staging.aecintegrations.com/api/health` with Cloudflare Access headers; poll `/api/version` until it reports the workflow's commit SHA (60-second budget).
+11. Smoke test `https://staging.aecintegrations.com/api/health` with Cloudflare Access headers; then via `scripts/verify-version.sh` poll until **both** `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the workflow's commit SHA (60-second budget). `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy.
 12. Job summary table: migrations applied, auth.users count, seeded-account count, commit SHA, actor, status.
 
 **What to expect:** total runtime ~5-10 minutes. The drift check (step 9) is the most likely failure point — see "Common failure modes" below.
@@ -211,11 +211,11 @@ The [`promote-to-prod.yml`](../.github/workflows/promote-to-prod.yml) workflow (
 
 What happens, in order:
 
-- **Pre-promotion checks (unattended, ~2 min)** — `pre-promotion-checks` job. Validates `confirm`, hits `staging.aecintegrations.com/api/version` with Cloudflare Access headers, and refuses to continue unless the staging SHA matches `inputs.commit_sha`. Then prints `supabase migration list --linked` against prod into the run log **and** the job summary so you can read the pending SQL inline before approving the next job.
+- **Pre-promotion checks (unattended, ~2 min)** — `pre-promotion-checks` job. Validates `confirm`, then via `scripts/verify-version.sh` asserts the staging SHA matches `inputs.commit_sha` on **both** `staging.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) with Cloudflare Access headers, refusing to continue unless both match. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Then prints `supabase migration list --linked` against prod into the run log **and** the job summary so you can read the pending SQL inline before approving the next job.
 - **Approval pause** — the `apply-prod-migrations` job enters the `production` GH Environment and blocks. The GitHub Actions UI shows "Waiting for review". Read the migration list in the previous job's summary before clicking Approve.
 - **After approval (~5–10 min)** — `pg_dump` of prod → R2 (`aeci-prod-snapshots/prod-pre-<short-sha>.dump` plus a companion `-auth.dump` for auth-schema data), `supabase db push --linked`, drift check via `scripts/prisma-drift-check.sh` against `DIRECT_URL_PRODUCTION`. **HARD STOP on drift** — Workers don't deploy if drift is detected.
 - **Worker deploys** — API first (`aeci-api-production`), SSR second (`aeci-web-production`). Each `wrangler deploy` line passes `--var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
-- **Deploy marker + smoke** — Datadog `/api/v1/events` marker (docs/CICD_PLAN.md §9.1) tagged `env:production`, `service:aeci-ssr`, `commit:<sha>`. Then polls `https://aecintegrations.com/api/version` (public — no Access headers) until it returns `{ "sha": "<input>", "environment": "production" }`. Fails after a 60-second budget.
+- **Deploy marker + smoke** — Datadog `/api/v1/events` marker (docs/CICD_PLAN.md §9.1) tagged `env:production`, `service:aeci-ssr`, `commit:<sha>`. Then via `scripts/verify-version.sh` polls until **both** `https://aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` — public, so no Access headers. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Fails after a 60-second budget.
 
 **Recovering from a bad promote.** The R2 snapshot is the rollback insurance. For DB:
 
@@ -230,9 +230,9 @@ For Worker code: `wrangler rollback --env production` against `apps/api` and `ap
 
 | Failure | Where | What it means / what to do |
 | --- | --- | --- |
-| `staging is at <x>, refusing to promote <y>` | `pre-promotion-checks` | Staging's `/api/version` doesn't match `inputs.commit_sha`. Either re-deploy staging on the target SHA or change the input. |
+| `staging is not at <sha> on both Workers (API + SSR), refusing to promote` | `pre-promotion-checks` | Staging's `/api/version` (API Worker) and/or `/_version` (SSR Worker) don't match `inputs.commit_sha`; `scripts/verify-version.sh` logs the actual per-Worker SHAs. Either re-deploy staging on the target SHA or change the input. |
 | Drift check exits 1 | `apply-prod-migrations` | Prod schema diverges from `apps/api/prisma/schema.prisma`. Almost always means a migration was applied to prod without the corresponding `schema.prisma` update being merged. Hard-stop; Workers don't deploy. Fix by syncing `schema.prisma` via `pnpm db:pull` against a fresh DB built from migrations, opening a follow-up PR. |
-| Migrations applied but `/api/version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way. Inspect the `wrangler-action` step logs; if SSR is wedged, `wrangler rollback --env production` on `apps/web`. |
+| Migrations applied but `/api/version` or `/_version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way (a stale `/_version` with a current `/api/version` is exactly the AECI-92 case the dual check catches). Inspect the `wrangler-action` step logs; if SSR is wedged, `wrangler rollback --env production` on `apps/web`. |
 | R2 upload fails | `apply-prod-migrations` | The snapshot is step 4 — migrations have NOT run yet, so it's safe to re-run after fixing R2 access. Check `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT`. |
 | Snapshot needed but the bucket lifecycle already expired it | — | Snapshots live 30 days. Older incidents require a Supabase point-in-time restore. |
 
@@ -428,7 +428,7 @@ wrangler secret put ADMIN_PURGE_TOKEN --env staging
 - [ ] `gh variable set SUPABASE_DEV_PROJECT_REF --body "<dev-ref>"` (consumed by `refresh-staging.yml` — AECI-77).
 - [ ] `gh variable set STAGING_ENABLED --body "true"` (or set in the UI).
 
-The next push to `main` will trigger `deploy-staging`. The smoke test will assert `staging.aecintegrations.com/api/version` returns `{ sha: <merge commit>, environment: "staging" }`.
+The next push to `main` will trigger `deploy-staging`. The smoke test (`scripts/verify-version.sh`) will assert that **both** `staging.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: <merge commit>`.
 
 ### 8. Production bootstrap — Chris's checklist for `promote-to-prod.yml` (AECI-78)
 
@@ -453,7 +453,7 @@ These steps must land before the first successful `promote-to-prod.yml` run. Non
 - [ ] **Production project ref repo variable.** `gh variable set SUPABASE_PROD_PROJECT_REF --body "jgxebjufabtwkcgxjqvk"` (per §1).
 - [ ] **Verify GH Environment.** The `production` GH Environment (created in §4) must list `chrisw@thewbsproject.com` as a required reviewer. Without that, the workflow's `apply-prod-migrations` job will not pause for approval.
 
-Once all boxes are ticked, dry-run the workflow with a deliberately wrong `commit_sha` to verify the negative path: `pre-promotion-checks` must fail at step 4 with `staging is at <actual>, refusing to promote <input>` and the run must stop before any downstream job (acceptance criterion #2).
+Once all boxes are ticked, dry-run the workflow with a deliberately wrong `commit_sha` to verify the negative path: `pre-promotion-checks` must fail at step 4 with `staging is not at <input> on both Workers (API + SSR), refusing to promote` and the run must stop before any downstream job (acceptance criterion #2).
 
 ## What lives where
 
