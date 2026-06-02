@@ -60,6 +60,7 @@ import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
 import type { PrismaFactory } from '../lib/handler-utils';
+import { recomputeProductCounts } from '../lib/product-counts';
 import { getPrisma } from '../prisma';
 import { cacheTagsForPromote } from './promote-cache-tags';
 
@@ -98,6 +99,16 @@ type PromoteTx = {
   taxonomyCategory: ModelDelegate;
   taxonomyDiscipline: ModelDelegate;
   taxonomyPhase: ModelDelegate;
+  // `recomputeProductCounts` reads approved reviews to refresh `review_count` and
+  // the rating averages alongside `integration_count`, so it needs `review` with
+  // both `count` and `aggregate` (the latter is absent from `ModelDelegate`).
+  review: {
+    count(args?: { where?: Record<string, unknown> }): Promise<number>;
+    aggregate(args: {
+      where?: Record<string, unknown>;
+      _avg: Record<string, true>;
+    }): Promise<{ _avg: Record<string, number | string | { toString(): string } | null | undefined> }>;
+  };
   auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
 };
 
@@ -176,9 +187,7 @@ function productEditableData(p: PromoteProduct): Record<string, unknown> {
   });
 }
 
-// Used by the integration seeding block that is temporarily disabled under
-// AECI-86; kept here so re-enabling that block is a pure uncomment.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
+// Field projection for the integration upsert in the seeding block below.
 function integrationEditableData(intg: PromoteIntegration): Record<string, unknown> {
   return compact({
     name: intg.name,
@@ -421,9 +430,7 @@ export function createPromoteHandler(
           return null;
         };
 
-        // Used by the integration seeding block that is temporarily disabled
-        // under AECI-86; kept so re-enabling that block is a pure uncomment.
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        // Resolves an integration's `builtByVendor` reference to a vendor id.
         const resolveVendor = async (ref: EntityRef): Promise<string | null> => {
           if (ref.ref) return vendorIdByRef.get(ref.ref) ?? null;
           if (ref.supabaseId) {
@@ -535,18 +542,12 @@ export function createPromoteHandler(
         }
 
         // ── Integrations ──────────────────────────────────────────────────────
+        // Integrations whose source/target can't both be resolved (the other
+        // product isn't promoted yet) are reported in `skipped[]` rather than
+        // failing the request — the product-driven "both endpoints promoted" rule
+        // from AECI-83. `affectedProducts` accumulates every product whose
+        // `integration_count` may have changed, recomputed once after the loop.
         const integrationResults: PromoteIntegrationResult[] = [];
-        // TODO(AECI-86): Integration seeding temporarily disabled while we validate
-        // the vendor/product promote flow on staging. Re-enable (and uncomment the
-        // block below) once the site looks correct without integration data.
-        //
-        // PM DECISION: skipping integrations on this endpoint right now is a
-        // deliberate product call (per PM direction) — not an oversight or a bug.
-        // Integrations are intentionally NOT promoted via POST /api/promote for the
-        // moment; the AECI-83 bulk-migrate script remains the integration migration
-        // path in the interim. Re-enable under AECI-86 when product gives the go.
-        // https://linear.app/aec-integrations/issue/AECI-86
-        /*
         const affectedProducts = new Set<string>();
         if (productId) affectedProducts.add(productId);
         for (const intg of payload.integrations) {
@@ -583,6 +584,18 @@ export function createPromoteHandler(
           };
 
           if (intg.supabaseId) {
+            // An update may MOVE an endpoint. Capture the pre-update source/target
+            // so the OLD products are recomputed too — otherwise their stored
+            // `integration_count` lags (the AECI-86 drift bug). The new endpoints
+            // are added below; recompute is idempotent per id, so overlap is safe.
+            const existing = await tx.integration.findUnique({
+              where: { id: intg.supabaseId },
+              select: { sourceProductId: true, targetProductId: true },
+            });
+            if (existing) {
+              affectedProducts.add(existing.sourceProductId as string);
+              affectedProducts.add(existing.targetProductId as string);
+            }
             const row = await tx.integration.update({
               where: { id: intg.supabaseId },
               data: { ...integrationEditableData(intg), ...linkData },
@@ -611,12 +624,9 @@ export function createPromoteHandler(
         }
 
         // ── Recompute denormalized counts for touched products (AECI-104) ─────
-        // When AECI-86 re-enables this block, also add `review: ModelDelegate`
-        // to PromoteTx and import recomputeProductCounts from '../lib/product-counts'
-        // so this resolves: it maintains integration_count, review_count, and the
-        // rating averages from source rows in the same transaction.
+        // Maintains integration_count, review_count, and the rating averages from
+        // source rows in the same transaction so they never lag.
         await recomputeProductCounts(tx, affectedProducts);
-        */
 
         const result: PromoteResponse = {
           vendors: vendorResults,

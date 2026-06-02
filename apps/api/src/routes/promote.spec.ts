@@ -74,6 +74,19 @@ function makeFake() {
         for (const v of rows.values()) if (matchWhere(v, where)) count += 1;
         return count;
       },
+      // Mirrors the real `_avg` aggregate over the matched rows; returns null per
+      // field when nothing matches (the recompute path's zero-review behaviour).
+      async aggregate({ where, _avg }: { where?: Rec; _avg: Record<string, true> }) {
+        const matched = [...rows.values()].filter((r) => matchWhere(r, where));
+        const out: Record<string, number | null> = {};
+        for (const field of Object.keys(_avg)) {
+          out[field] =
+            matched.length === 0
+              ? null
+              : matched.reduce((a, r) => a + Number(r[field]), 0) / matched.length;
+        }
+        return { _avg: out };
+      },
     };
   };
 
@@ -81,6 +94,7 @@ function makeFake() {
     vendor: model('vendor'),
     product: model('product'),
     integration: model('integration'),
+    review: model('review'),
     productVendor: model('productVendor'),
     productCategory: model('productCategory'),
     productDiscipline: model('productDiscipline'),
@@ -203,16 +217,23 @@ describe('createPromoteHandler', () => {
     expect(fake.models.productVendor.rows.size).toBe(1);
     expect(fake.models.productCategory.rows.size).toBe(2);
 
-    // TODO(AECI-86): integration seeding is temporarily disabled in promote.ts
-    // while the vendor/product flow is validated on staging, so no integration
-    // row is created and `b.integrations` stays empty. Re-enable alongside the
-    // commented-out block in promote.ts.
-    expect(b.integrations).toHaveLength(0);
-    expect(fake.models.integration.rows.size).toBe(0);
+    // AECI-86: integration seeding is enabled. i1 links the new product (p1) to
+    // the already-promoted target, so one integration row is created and both
+    // endpoints' integration_count is recomputed.
+    expect(b.integrations).toHaveLength(1);
+    expect(b.integrations[0]).toMatchObject({ ref: 'i1', operation: 'created' });
+    expect(fake.models.integration.rows.size).toBe(1);
+    expect(fake.models.product.rows.get(b.product.id)).toMatchObject({ integrationCount: 1 });
+    expect(fake.models.product.rows.get(existingProd)).toMatchObject({ integrationCount: 1 });
 
     // Audit: one row per create.
     expect(auditActions(fake)).toEqual(
-      expect.arrayContaining(['vendor.created', 'category.created', 'product.created']),
+      expect.arrayContaining([
+        'vendor.created',
+        'category.created',
+        'product.created',
+        'integration.created',
+      ]),
     );
     // Every audit row tagged with the source.
     expect(
@@ -305,11 +326,7 @@ describe('createPromoteHandler', () => {
     expect(auditActions(fake)).not.toContain('category.created');
   });
 
-  // TODO(AECI-86): integration seeding is temporarily disabled in promote.ts, so
-  // the skip/self-link resolution these two cases exercise does not run yet (every
-  // pushed integration is silently a no-op). Un-skip alongside re-enabling the
-  // commented-out integration block in promote.ts.
-  it.skip('skips an integration whose other endpoint is not promoted', async () => {
+  it('skips an integration whose other endpoint is not promoted', async () => {
     const fake = makeFake();
     const res = await promote(fake, {
       product: { ref: 'p1', name: 'Revit' },
@@ -327,7 +344,7 @@ describe('createPromoteHandler', () => {
     expect(fake.models.integration.rows.size).toBe(0);
   });
 
-  it.skip('skips a self-referential integration', async () => {
+  it('skips a self-referential integration', async () => {
     const fake = makeFake();
     const res = await promote(fake, {
       product: { ref: 'p1', name: 'Revit' },
@@ -337,6 +354,72 @@ describe('createPromoteHandler', () => {
     const b = (await res.json()) as { skipped: { ref: string; reason: string }[] };
     expect(b.skipped[0].ref).toBe('i1');
     expect(b.skipped[0].reason).toMatch(/self-link/i);
+  });
+
+  it('recomputes product.integrationCount after creating an integration', async () => {
+    const fake = makeFake();
+    const target = uuid(1);
+    fake.models.product.rows.set(target, { id: target, slug: 'navisworks', name: 'Navisworks' });
+
+    const res = await promote(fake, {
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: target } },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      product: { id: string };
+      integrations: { ref: string; operation: string }[];
+    };
+    expect(b.integrations[0]).toMatchObject({ ref: 'i1', operation: 'created' });
+    // Both endpoints recomputed to 1 from the single integration row.
+    expect(fake.models.product.rows.get(b.product.id)).toMatchObject({ integrationCount: 1 });
+    expect(fake.models.product.rows.get(target)).toMatchObject({ integrationCount: 1 });
+  });
+
+  it('recomputes the OLD endpoint count when an integration update moves an endpoint', async () => {
+    const fake = makeFake();
+    const prodA = uuid(1);
+    const prodB = uuid(2);
+    const prodC = uuid(3);
+    const intgId = uuid(4);
+    fake.models.product.rows.set(prodA, { id: prodA, slug: 'a', name: 'A', integrationCount: 1 });
+    fake.models.product.rows.set(prodB, { id: prodB, slug: 'b', name: 'B', integrationCount: 1 });
+    fake.models.product.rows.set(prodC, { id: prodC, slug: 'c', name: 'C', integrationCount: 0 });
+    // Existing integration A → B.
+    fake.models.integration.rows.set(intgId, {
+      id: intgId,
+      sourceProductId: prodA,
+      targetProductId: prodB,
+    });
+
+    // Integration-only update push moving the target B → C.
+    const res = await promote(fake, {
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgId,
+          sourceProduct: { supabaseId: prodA },
+          targetProduct: { supabaseId: prodC },
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { integrations: { ref: string; operation: string }[] };
+    expect(b.integrations[0]).toMatchObject({ ref: 'i1', operation: 'updated' });
+    // The row's endpoint moved B → C.
+    expect(fake.models.integration.rows.get(intgId)).toMatchObject({
+      sourceProductId: prodA,
+      targetProductId: prodC,
+    });
+    // New endpoints stay at 1; the OLD endpoint (B) recomputes to 0 — without the
+    // drift fix B would keep its stale count of 1.
+    expect(fake.models.product.rows.get(prodA)).toMatchObject({ integrationCount: 1 });
+    expect(fake.models.product.rows.get(prodC)).toMatchObject({ integrationCount: 1 });
+    expect(fake.models.product.rows.get(prodB)).toMatchObject({ integrationCount: 0 });
   });
 
   it('returns 400 for a payload missing the product', async () => {
