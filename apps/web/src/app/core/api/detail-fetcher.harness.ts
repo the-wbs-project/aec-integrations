@@ -78,7 +78,7 @@ export function registerDetailFetcherSuite(scenario: DetailFetcherScenario): voi
       await expect(fetch(client, param)).rejects.toBe(err);
     });
 
-    it('rethrows a 404 whose code is NOT NOT_FOUND (defensive — envelope contract)', async () => {
+    it('rethrows a 404 whose code is NOT NOT_FOUND (defensive: envelope contract)', async () => {
       // If the API ever returns a 404 with a different code (e.g. METHOD_NOT_ALLOWED
       // mis-applied), surface the error rather than silently swallowing it as a
       // missing entity. The shape contract from `apps/api` is that NOT_FOUND is
