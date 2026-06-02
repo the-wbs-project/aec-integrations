@@ -22,12 +22,12 @@ import {
  * and re-exported here so the service's public surface is unchanged.
  *
  * - Detail kinds (`product`, `vendor`, `integration`) get the bare
- *   `"{name} — AEC Integrations"` title and `og:type=article`.
+ *   `"{name} · AEC Integrations"` title and `og:type=article`.
  * - Browse kinds (`category`, `discipline`, `phase`) get the
- *   `"{name} tools — AEC Integrations"` variant and `og:type=website`
+ *   `"{name} tools · AEC Integrations"` variant and `og:type=website`
  *   (per Phase 2 Spec §9.1).
  * - `index` (used by `/products`, `/vendors`, `/integrations`) gets the bare
- *   `"{name} — AEC Integrations"` title (no "tools" infix) and
+ *   `"{name} · AEC Integrations"` title (no "tools" infix) and
  *   `og:type=website` — an index is not an article.
  */
 export type { EntityKind };
@@ -57,8 +57,8 @@ export class MetaService {
 
   setEntityMeta(input: SetEntityMetaInput): void {
     const suffix = isBrowseKind(input.entity)
-      ? $localize`:@@meta.browseTitleSuffix: tools — AEC Integrations`
-      : $localize`:@@meta.titleSuffix: — AEC Integrations`;
+      ? $localize`:@@meta.browseTitleSuffix: tools · AEC Integrations`
+      : $localize`:@@meta.titleSuffix: · AEC Integrations`;
 
     const title = buildEntityTitle(input.name, suffix);
     this.title.setTitle(title);
@@ -95,7 +95,7 @@ export class MetaService {
    * `NOT_FOUND_TTL`.
    */
   setNotFoundMeta(input: { kind: EntityKind; slug: string; canonical: string }): void {
-    const title = $localize`:@@meta.notFoundTitle:Not found — AEC Integrations`;
+    const title = $localize`:@@meta.notFoundTitle:Not found · AEC Integrations`;
     const description = $localize`:@@meta.notFoundDescription:The page you were looking for could not be found.`;
 
     this.title.setTitle(title);

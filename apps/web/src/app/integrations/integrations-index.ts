@@ -110,8 +110,8 @@ function parseSort(raw: string | null): SortKey {
           </h1>
           @if (data(); as response) {
             <p class="text-(--text-secondary)" i18n="@@integrations.index.lede">
-              Every integration between AEC software products indexed on AEC Integrations —
-              {{ response.total }} in total.
+              Every integration between AEC software products indexed on AEC Integrations
+              ({{ response.total }} in total).
             </p>
           } @else {
             <p class="text-(--text-secondary)" i18n="@@integrations.index.lede.loading">
@@ -315,7 +315,7 @@ export class IntegrationsIndex implements OnInit {
     this.meta.setEntityMeta({
       entity: 'index',
       name: $localize`:@@integrations.index.metaName:Integrations`,
-      description: $localize`:@@integrations.index.metaDescription:The directory of every integration between AEC software products on AEC Integrations — filterable by source and target product.`,
+      description: $localize`:@@integrations.index.metaDescription:The directory of every integration between AEC software products on AEC Integrations. Filterable by source and target product.`,
       canonical: 'https://aecintegrations.com/integrations',
     });
 

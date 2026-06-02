@@ -88,12 +88,12 @@ describe('stripQueryParams', () => {
 
 describe('buildEntityTitle', () => {
   it('composes detail titles', () => {
-    expect(buildEntityTitle('Revit', ' — AEC Integrations')).toBe('Revit — AEC Integrations');
+    expect(buildEntityTitle('Revit', ' · AEC Integrations')).toBe('Revit · AEC Integrations');
   });
 
   it('composes browse titles', () => {
-    expect(buildEntityTitle('Scheduling', ' tools — AEC Integrations')).toBe(
-      'Scheduling tools — AEC Integrations',
+    expect(buildEntityTitle('Scheduling', ' tools · AEC Integrations')).toBe(
+      'Scheduling tools · AEC Integrations',
     );
   });
 
@@ -104,7 +104,7 @@ describe('buildEntityTitle', () => {
 
 describe('buildOgTags', () => {
   const input = {
-    title: 'Revit — AEC Integrations',
+    title: 'Revit · AEC Integrations',
     description: 'A BIM authoring tool used across the AEC industry.',
     url: 'https://aecintegrations.com/products/revit',
     type: 'article',

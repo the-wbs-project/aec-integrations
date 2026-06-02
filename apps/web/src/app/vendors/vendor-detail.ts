@@ -270,7 +270,7 @@ import { NotFound } from '../not-found/not-found';
                   bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
                 i18n="@@vendors.detail.body.products.empty"
               >
-                No products listed yet. Vendor data is curated — if you know of one,
+                No products listed yet. Vendor data is curated; if you know of one,
                 <a
                   [routerLink]="['/vendors', v.slug, 'correction']"
                   class="text-(--accent-primary) underline underline-offset-2"

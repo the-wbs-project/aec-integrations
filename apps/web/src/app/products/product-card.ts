@@ -58,7 +58,7 @@ import type { ProductListItem } from '@aeci/shared';
           class="text-(--text-tertiary)"
           i18n="@@products.card.vendor.none"
           aria-label="No vendor listed"
-          >—</span
+          >–</span
         >
       }
     </td>
@@ -74,7 +74,7 @@ import type { ProductListItem } from '@aeci/shared';
           class="text-(--text-tertiary)"
           i18n="@@products.card.category.none"
           aria-label="No primary category"
-          >—</span
+          >–</span
         >
       }
     </td>

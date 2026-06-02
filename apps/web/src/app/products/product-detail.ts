@@ -312,7 +312,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                   bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
                 i18n="@@products.detail.body.integrations.empty"
               >
-                No integrations recorded yet. Vendor data is curated — if you know of one,
+                No integrations recorded yet. Vendor data is curated; if you know of one,
                 <a
                   [routerLink]="['/products', p.slug, 'correction']"
                   class="text-(--accent-primary) underline underline-offset-2"
