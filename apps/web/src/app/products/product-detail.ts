@@ -89,7 +89,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               <span
                 class="flex h-16 w-16 shrink-0 items-center justify-center
                   rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-raised) font-serif text-2xl font-semibold text-(--text-primary)"
+                  bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)"
                 aria-hidden="true"
               >
                 {{ initial() }}
@@ -103,7 +103,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 Product
               </p>
               <h1
-                class="font-serif text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
               >
                 {{ p.name }}
               </h1>
@@ -271,7 +271,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             <section aria-labelledby="description-title" class="space-y-4">
               <h2
                 id="description-title"
-                class="font-serif text-2xl font-semibold text-(--text-primary)"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
                 i18n="@@products.detail.body.description"
               >
                 About
@@ -286,7 +286,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             <div class="flex items-baseline justify-between gap-4">
               <h2
                 id="integrations-title"
-                class="font-serif text-2xl font-semibold text-(--text-primary)"
+                class="font-display text-2xl font-semibold text-(--text-primary)"
                 i18n="@@products.detail.body.integrations"
               >
                 Integrations

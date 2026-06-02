@@ -91,6 +91,10 @@
   --color-accent-warm: var(--accent-warm);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
+  /* Safety alias (AECI-95): the Tailwind `font-serif` utility otherwise resolves
+     to the OS ui-serif stack. Bind it to the brand display face so any stray
+     `font-serif` renders in Source Serif 4 instead of regressing to OS serif. */
+  --font-serif: var(--font-display);
 }
 
 html {

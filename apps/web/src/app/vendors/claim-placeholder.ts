@@ -30,7 +30,7 @@ import { map } from 'rxjs';
       </p>
       <h1
         id="vendor-claim-placeholder-title"
-        class="mt-3 font-serif text-3xl font-semibold tracking-tight md:text-4xl"
+        class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
         i18n="@@vendors.claim.title"
       >
         Coming soon — Phase 6.
