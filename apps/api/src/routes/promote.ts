@@ -104,10 +104,9 @@ type PromoteTx = {
   // both `count` and `aggregate` (the latter is absent from `ModelDelegate`).
   review: {
     count(args?: { where?: Record<string, unknown> }): Promise<number>;
-    aggregate(args: {
-      where?: Record<string, unknown>;
-      _avg: Record<string, true>;
-    }): Promise<{ _avg: Record<string, number | string | { toString(): string } | null | undefined> }>;
+    aggregate(args: { where?: Record<string, unknown>; _avg: Record<string, true> }): Promise<{
+      _avg: Record<string, number | string | { toString(): string } | null | undefined>;
+    }>;
   };
   auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
 };
