@@ -388,6 +388,8 @@ Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from
 ### 9.2 JSON-LD
 
 - **Product detail**: `schema.org/SoftwareApplication` with `name`, `description`, `url`, `applicationCategory`, `applicationSubCategory`, `offers` (link to vendor site), `operatingSystem` if known
+  - **`offers` is deferred to AECI-68.** Not emitted in the current implementation — it needs a vendor-site URL that `VendorLink` does not yet carry. `buildProductJsonLd` (`apps/web/src/app/core/meta.helpers.ts`) omits it until `VendorLink.website` lands (AECI-68), which will populate `offers.url`.
+  - **`operatingSystem` is out of scope for Phase 2.** No product field carries OS data, so the `if known` condition is never satisfied and the field is not emitted. No tracking issue.
 - **Vendor detail**: `schema.org/Organization` with `name`, `url`, `logo`, `foundingDate`, `address` (if HQ known)
 - **Integration detail**: **No JSON-LD in Phase 2.** No clean schema.org type exists; revisit in Stage 2 once MCP exposure direction is clearer.
 
