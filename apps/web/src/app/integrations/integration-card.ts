@@ -47,7 +47,7 @@ import type { IntegrationListItem } from '@aeci/shared';
           i18n="@@integrations.card.mechanism.none"
           i18n-aria-label="@@integrations.card.mechanism.none.aria"
           aria-label="Mechanism not listed"
-          >—</span
+          >–</span
         >
       }
     </td>
@@ -60,7 +60,7 @@ import type { IntegrationListItem } from '@aeci/shared';
           i18n="@@integrations.card.direction.none"
           i18n-aria-label="@@integrations.card.direction.none.aria"
           aria-label="Direction not listed"
-          >—</span
+          >–</span
         >
       }
     </td>

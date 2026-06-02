@@ -3,7 +3,7 @@
  *
  * Anchor: Stripe (stripe.com) — selected during the AECI-32 layout-options
  * review. Composition cues: generous header padding, monogram + wordmark left,
- * centered primary nav, theme toggle + pill-shaped Sign-in CTA right, and a
+ * centered primary nav, theme toggle + Sign-in CTA right, and a
  * warm Bone "shelf" beneath the header that reads as editorial structure
  * rather than chrome. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule".
  *
@@ -69,13 +69,13 @@ import { ThemeToggle } from './theme-toggle';
               type="search"
               i18n-placeholder="@@app.header.search.placeholder"
               placeholder="Search integrations"
-              class="h-9 w-52 rounded-full border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-tertiary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="h-9 w-52 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-tertiary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             />
           </label>
           <aec-theme-toggle />
           <a
             routerLink="/auth/login"
-            class="inline-flex items-center rounded-full bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            class="inline-flex items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             i18n="@@app.header.signIn"
           >
             Sign in

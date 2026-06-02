@@ -43,7 +43,7 @@ describe('MetaService.setNotFoundMeta', () => {
       canonical: 'https://aecintegrations.com/products/missing',
     });
 
-    expect(doc.title).toBe('Not found — AEC Integrations');
+    expect(doc.title).toBe('Not found · AEC Integrations');
 
     const desc = doc.head.querySelector('meta[name="description"]') as HTMLMetaElement | null;
     expect(desc?.getAttribute('content')).toBe('The page you were looking for could not be found.');

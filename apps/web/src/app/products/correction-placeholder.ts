@@ -29,7 +29,7 @@ import { map } from 'rxjs';
         class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
         i18n="@@products.correction.title"
       >
-        Coming soon — Phase 6.
+        Coming soon (Phase 6).
       </h1>
       <p
         class="mt-4 max-w-2xl text-base leading-relaxed text-(--text-secondary)"
@@ -72,7 +72,7 @@ export class CorrectionPlaceholder {
 
   constructor() {
     this.titleSvc.setTitle(
-      $localize`:@@products.correction.metaTitle:Suggest a correction — AEC Integrations`,
+      $localize`:@@products.correction.metaTitle:Suggest a correction · AEC Integrations`,
     );
     this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
   }

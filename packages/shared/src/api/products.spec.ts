@@ -7,6 +7,7 @@ import {
   ProductsListQuerySchema,
   ProductsListResponseSchema,
 } from './products';
+import { registerSchemaStructuralCases } from './schema-suite.harness';
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
@@ -38,6 +39,17 @@ const validListItem = {
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-02T00:00:00.000Z',
 };
+
+// SortSchema defaults/unknown-key, ListQuery pagination defaults + perPage cap,
+// and ListResponse page-wrap are structural — shared via the harness (AECI-113).
+registerSchemaStructuralCases({
+  entity: 'products',
+  sortSchema: ProductSortSchema,
+  sortDefault: 'created',
+  listQuerySchema: ProductsListQuerySchema,
+  listResponseSchema: ProductsListResponseSchema,
+  validListItem,
+});
 
 describe('ProductListItemSchema', () => {
   it('parses a fully hydrated list item', () => {
@@ -153,29 +165,14 @@ describe('ProductDetailSchema', () => {
 });
 
 describe('ProductSortSchema', () => {
-  it('defaults to created', () => {
-    expect(ProductSortSchema.parse(undefined)).toBe('created');
-  });
-
   it('accepts each documented key', () => {
     expect(ProductSortSchema.parse('created')).toBe('created');
     expect(ProductSortSchema.parse('name')).toBe('name');
     expect(ProductSortSchema.parse('updated')).toBe('updated');
   });
-
-  it('rejects unknown keys', () => {
-    expect(ProductSortSchema.safeParse('rating').success).toBe(false);
-  });
 });
 
 describe('ProductsListQuerySchema', () => {
-  it('applies pagination + sort defaults when called with empty params', () => {
-    const parsed = ProductsListQuerySchema.parse({});
-    expect(parsed.page).toBe(1);
-    expect(parsed.perPage).toBe(24);
-    expect(parsed.sort).toBe('created');
-  });
-
   it('accepts every filter and coerces has_api_docs', () => {
     const parsed = ProductsListQuerySchema.parse({
       page: '2',
@@ -198,24 +195,9 @@ describe('ProductsListQuerySchema', () => {
     const result = ProductsListQuerySchema.safeParse({ vendor_id: 'not-a-uuid' });
     expect(result.success).toBe(false);
   });
-
-  it('rejects perPage > 100', () => {
-    const result = ProductsListQuerySchema.safeParse({ perPage: 200 });
-    expect(result.success).toBe(false);
-  });
 });
 
 describe('ProductsListResponseSchema', () => {
-  it('wraps a page of list items', () => {
-    const parsed = ProductsListResponseSchema.parse({
-      data: [validListItem],
-      page: 1,
-      perPage: 24,
-      total: 1,
-    });
-    expect(parsed.data).toHaveLength(1);
-  });
-
   it('rejects when an item fails the inner schema', () => {
     const result = ProductsListResponseSchema.safeParse({
       data: [{ ...validListItem, product_role: 'unknown' }],

@@ -231,53 +231,43 @@ jobs:
         run: pnpm exec wrangler deploy --env preview --name ${{ env.PREVIEW_WORKER_NAME }} --var COMMIT_SHA:${{ github.event.pull_request.head.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # ---------------------------------------------------------------------
-      # Step 9: Verify /api/version reports the PR head SHA
-      #   Mirrors refresh-staging.yml :283-305. Cloudflare Access fronts the
-      #   wildcard *.aec-integrations.workers.dev (docs/access.md :42) so the
-      #   service-token headers are required even for the smoke test.
-      #
-      #   The endpoint proxies SSR → API via the (PR-scoped) service binding,
-      #   so a matching SHA implicitly proves both Workers are up and bound.
+      # Step 9: Verify the preview reports the PR head SHA on BOTH Workers
+      #   /api/version (proxied raw to the API Worker) AND /_version (the SSR
+      #   Worker's own signal, AECI-92). /api/version alone can't catch a stale
+      #   SSR deploy because the SSR Worker forwards it untouched to the API
+      #   Worker. Cloudflare Access fronts the wildcard
+      #   *.aec-integrations.workers.dev (docs/access.md :42), so
+      #   verify-version.sh sends the service-token headers (CF_ACCESS_* below).
       # ---------------------------------------------------------------------
-      - name: Verify /api/version reports the PR head SHA
+      - name: Verify preview (API + SSR at PR head SHA)
         env:
           EXPECTED_SHA: ${{ github.event.pull_request.head.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        # `set -e` would kill the loop on jq parse errors (non-JSON body
-        # during early propagation), so suppress jq failures explicitly with
-        # `|| true`. 15 attempts × 6s = 90s budget; fresh workers.dev
-        # subdomains can take 30-60s to propagate via DNS the first time.
+        # 15 attempts × 6s = 90s budget; fresh workers.dev subdomains can take
+        # 30-60s to propagate via DNS the first time. verify-version.sh handles
+        # its own curl/jq failures, so the loop just polls on its exit code.
         run: |
           set -uo pipefail
-          last_headers_file=$(mktemp)
           for attempt in $(seq 1 15); do
-            body_file=$(mktemp)
-            headers_file=$(mktemp)
-            status=$(curl -sS -o "$body_file" -D "$headers_file" -w '%{http_code}' \
-              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-              "${PREVIEW_URL}/api/version" || echo "curl-fail")
-            actual_sha=$(jq -r '.sha // empty' < "$body_file" 2>/dev/null || true)
-            if [ "$status" = "200" ] && [ "$actual_sha" = "$EXPECTED_SHA" ]; then
-              echo "Preview deploy verified at SHA $actual_sha (attempt $attempt, status $status)"
-              echo "Response: $(cat "$body_file")"
-              rm -f "$body_file" "$headers_file" "$last_headers_file"
+            if HOST="$PREVIEW_URL" bash scripts/verify-version.sh; then
               exit 0
             fi
-            body_excerpt=$(head -c 200 "$body_file" | tr -d '\n')
-            echo "Attempt $attempt: status=$status, sha='$actual_sha', expected '$EXPECTED_SHA', body[:200]='$body_excerpt'. Retrying in 6s..."
-            cp "$headers_file" "$last_headers_file"
-            rm -f "$body_file" "$headers_file"
+            echo "Attempt $attempt: preview not yet at $EXPECTED_SHA on both Workers. Retrying in 6s..."
             sleep 6
           done
-          echo "::error::${PREVIEW_URL}/api/version did not report $EXPECTED_SHA within 90s"
-          # On final failure, dump headers from the last attempt + decode the
-          # CF Access JWT `meta` param if present. `service_token_status:true`
-          # in the decoded payload means the policy accepted the token (and
-          # the 302 is for an unrelated reason); `false` means the token was
-          # rejected — likely a policy / GH-secrets mismatch (see
-          # docs/access.md §5).
+          echo "::error::${PREVIEW_URL} did not report $EXPECTED_SHA on BOTH the API and SSR Workers within 90s"
+          # On final failure, capture headers from one more /api/version request
+          # and decode the CF Access JWT `meta` param if present.
+          # `service_token_status:true` in the decoded payload means the policy
+          # accepted the token (and the 302 is for an unrelated reason); `false`
+          # means the token was rejected — likely a policy / GH-secrets mismatch
+          # (see docs/access.md §5).
+          last_headers_file=$(mktemp)
+          curl -sS -o /dev/null -D "$last_headers_file" \
+            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
+            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
+            "${PREVIEW_URL}/api/version" || true
           echo "=== Response headers from final attempt ==="
           cat "$last_headers_file" || true
           location=$(grep -i '^location:' "$last_headers_file" | head -1 | tr -d '\r')

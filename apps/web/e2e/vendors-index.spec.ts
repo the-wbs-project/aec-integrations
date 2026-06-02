@@ -18,9 +18,9 @@ test.describe('/vendors — vendor index (AECI-59)', () => {
     expect(res.status(), 'GET /vendors must return 200').toBe(200);
     const html = await res.text();
 
-    // Title carries the i18n "Vendors — AEC Integrations" form.
-    expect(html, '<title> must include "Vendors — AEC Integrations"').toMatch(
-      /<title[^>]*>[^<]*Vendors[^<]*— AEC Integrations[^<]*<\/title>/i,
+    // Title carries the i18n "Vendors · AEC Integrations" form.
+    expect(html, '<title> must include "Vendors · AEC Integrations"').toMatch(
+      /<title[^>]*>[^<]*Vendors[^<]*· AEC Integrations[^<]*<\/title>/i,
     );
 
     // Canonical link is set to the bare /vendors URL (no query params).

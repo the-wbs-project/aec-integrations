@@ -16,8 +16,8 @@ test.describe('/integrations — integration index (AECI-60)', () => {
     expect(res.status(), 'GET /integrations must return 200').toBe(200);
     const html = await res.text();
 
-    expect(html, '<title> must include "Integrations — AEC Integrations"').toMatch(
-      /<title[^>]*>[^<]*Integrations[^<]*— AEC Integrations[^<]*<\/title>/i,
+    expect(html, '<title> must include "Integrations · AEC Integrations"').toMatch(
+      /<title[^>]*>[^<]*Integrations[^<]*· AEC Integrations[^<]*<\/title>/i,
     );
     expect(html, 'canonical <link> must point at /integrations').toMatch(
       /<link[^>]+rel="canonical"[^>]+href="https:\/\/aecintegrations\.com\/integrations"/,

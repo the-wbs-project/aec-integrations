@@ -612,28 +612,25 @@ jobs:
         working-directory: apps/web
         run: pnpm exec wrangler deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # Cloudflare Worker deploys propagate quickly but not instantly; poll
-      # /api/version until it reports the new SHA (or fail after the budget).
-      - name: Smoke test staging /api/version
+      # Cloudflare Worker deploys propagate quickly but not instantly; poll both
+      # the API signal (/api/version) and the SSR Worker's own (/_version) until
+      # BOTH report the new SHA (AECI-92), or fail after the budget.
+      # /api/version is proxied raw to the API Worker, so on its own it can't
+      # catch a stale SSR deploy — verify-version.sh asserts both.
+      - name: Smoke test staging (API + SSR at SHA)
         env:
+          HOST: https://staging.aecintegrations.com
           EXPECTED_SHA: ${{ github.sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            response=$(curl -fsS \
-              -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-              -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-              https://staging.aecintegrations.com/api/version || true)
-            actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
-            if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
-              echo "Staging deploy verified at SHA $actual_sha (attempt $attempt)"
-              echo "Response: $response"
+            if bash scripts/verify-version.sh; then
               exit 0
             fi
-            echo "Attempt $attempt: expected $EXPECTED_SHA, got '$actual_sha'. Retrying in 6s…"
+            echo "Attempt $attempt: staging not yet at $EXPECTED_SHA on both Workers. Retrying in 6s…"
             sleep 6
           done
-          echo "::error::Staging /api/version did not report $EXPECTED_SHA within 60s"
+          echo "::error::Staging did not report $EXPECTED_SHA on BOTH the API and SSR Workers within 60s"
           exit 1

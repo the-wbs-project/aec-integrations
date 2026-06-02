@@ -1,13 +1,11 @@
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
-import { TestBed } from '@angular/core/testing';
-import { provideHttpClient } from '@angular/common/http';
-import { Router, provideRouter } from '@angular/router';
-import { beforeEach, describe, expect, it } from 'vitest';
-
 import type { VendorsListResponse } from '@aeci/shared';
+
+import { registerIndexPageSuite } from '../core/testing/index-page.harness';
 
 import { VendorsIndex } from './vendors-index';
 
+// The seven cases shared with the products index live in `index-page.harness.ts`
+// (AECI-113); only the vendors fixture + config live here.
 const fixtureResponse: VendorsListResponse = {
   data: [
     {
@@ -30,151 +28,15 @@ const fixtureResponse: VendorsListResponse = {
   total: 1,
 };
 
-function setup() {
-  TestBed.configureTestingModule({
-    providers: [
-      provideHttpClient(),
-      provideHttpClientTesting(),
-      provideRouter([{ path: 'vendors', component: VendorsIndex }]),
-    ],
-  });
-  const httpMock = TestBed.inject(HttpTestingController);
-  const router = TestBed.inject(Router);
-  return { httpMock, router };
-}
-
-describe('VendorsIndex', () => {
-  beforeEach(() => {
-    TestBed.resetTestingModule();
-  });
-
-  it('fetches /api/vendors with default page=1 / perPage=24 / sort=created on init', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/vendors');
-    const fixture = TestBed.createComponent(VendorsIndex);
-    fixture.detectChanges();
-
-    const req = httpMock.expectOne(
-      (request) =>
-        request.url === '/api/vendors' &&
-        request.params.get('page') === '1' &&
-        request.params.get('perPage') === '24' &&
-        request.params.get('sort') === 'created',
-    );
-    expect(req.request.method).toBe('GET');
-    req.flush(fixtureResponse);
-
-    fixture.detectChanges();
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('h1')?.textContent).toContain('Vendors');
-    expect(root.querySelector('a[href="/vendors/procore"]')).not.toBeNull();
-    httpMock.verify();
-  });
-
-  it('reads ?sort=name from the URL and reflects it in the column header active state', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/vendors?sort=name');
-    const fixture = TestBed.createComponent(VendorsIndex);
-    fixture.detectChanges();
-
-    const req = httpMock.expectOne((r) => r.params.get('sort') === 'name');
-    req.flush(fixtureResponse);
-    fixture.detectChanges();
-
-    const th = (fixture.nativeElement as HTMLElement).querySelector('th[aria-sort]');
-    expect(th?.getAttribute('aria-sort')).toBe('ascending');
-    httpMock.verify();
-  });
-
-  it('falls back to sort=created when the URL carries an unknown sort key', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/vendors?sort=banana');
-    const fixture = TestBed.createComponent(VendorsIndex);
-    fixture.detectChanges();
-
-    httpMock.expectOne((r) => r.params.get('sort') === 'created').flush(fixtureResponse);
-    httpMock.verify();
-  });
-
-  it('navigates with ?sort=name&page=1 when a sortable header is activated', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/vendors?page=3');
-    const fixture = TestBed.createComponent(VendorsIndex);
-    fixture.detectChanges();
-
-    httpMock.expectOne((r) => r.params.get('page') === '3').flush(fixtureResponse);
-    fixture.detectChanges();
-
-    const nameHeaderButton = (fixture.nativeElement as HTMLElement).querySelector(
-      'aec-sortable-column-header button',
-    ) as HTMLButtonElement;
-    nameHeaderButton.click();
-    await fixture.whenStable();
-
-    expect(router.url).toBe('/vendors?page=1&sort=name');
-    httpMock.expectOne((r) => r.url === '/api/vendors').flush(fixtureResponse);
-    httpMock.verify();
-  });
-
-  it('shows the error row when a subsequent request fails after an initial success', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/vendors');
-    const fixture = TestBed.createComponent(VendorsIndex);
-    fixture.detectChanges();
-
-    httpMock.expectOne((r) => r.url === '/api/vendors').flush(fixtureResponse);
-    fixture.detectChanges();
-
-    await router.navigateByUrl('/vendors?page=2');
-    fixture.detectChanges();
-
-    httpMock
-      .expectOne((r) => r.url === '/api/vendors')
-      .flush(
-        { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
-        { status: 500, statusText: 'Server Error' },
-      );
-    fixture.detectChanges();
-
-    const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
-    expect(errorRow?.textContent).toContain("Couldn't load vendors");
-    httpMock.verify();
-  });
-
-  it('renders the error row when the request fails', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/vendors');
-    const fixture = TestBed.createComponent(VendorsIndex);
-    fixture.detectChanges();
-
-    const req = httpMock.expectOne((r) => r.url === '/api/vendors');
-    req.flush(
-      { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
-      {
-        status: 500,
-        statusText: 'Server Error',
-      },
-    );
-    fixture.detectChanges();
-
-    const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
-    expect(errorRow?.textContent).toContain("Couldn't load vendors");
-    httpMock.verify();
-  });
-
-  it('shows the empty state when the API returns zero vendors', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/vendors');
-    const fixture = TestBed.createComponent(VendorsIndex);
-    fixture.detectChanges();
-
-    httpMock
-      .expectOne((r) => r.url === '/api/vendors')
-      .flush({ data: [], page: 1, perPage: 24, total: 0 });
-    fixture.detectChanges();
-
-    const emptyRow = (fixture.nativeElement as HTMLElement).querySelector('tbody td');
-    expect(emptyRow?.textContent).toContain('No vendors yet');
-    httpMock.verify();
-  });
+registerIndexPageSuite({
+  describeName: 'VendorsIndex',
+  component: VendorsIndex,
+  routePath: 'vendors',
+  apiUrl: '/api/vendors',
+  defaultSort: 'created',
+  h1Text: 'Vendors',
+  detailHref: '/vendors/procore',
+  emptyText: 'No vendors yet',
+  errorText: "Couldn't load vendors",
+  fixtureResponse,
 });

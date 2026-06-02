@@ -12,6 +12,8 @@ export default defineConfig({
         'src/index.ts',
         '**/index.ts',
         '**/*.spec.ts',
+        // Test-only helpers imported by specs — not product code.
+        '**/*.harness.ts',
         // Pure constants module — no branches to test.
         'src/errors/codes.ts',
       ],

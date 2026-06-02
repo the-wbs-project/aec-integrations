@@ -7,6 +7,7 @@ import {
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
 } from './integrations';
+import { registerSchemaStructuralCases } from './schema-suite.harness';
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
@@ -28,6 +29,17 @@ const validListItem = {
   created_at: '2026-01-01T00:00:00.000Z',
   updated_at: '2026-01-02T00:00:00.000Z',
 };
+
+// Structural cases (sort defaults/unknown-key, pagination defaults + perPage cap,
+// response page-wrap) are shared via the harness (AECI-113).
+registerSchemaStructuralCases({
+  entity: 'integrations',
+  sortSchema: IntegrationSortSchema,
+  sortDefault: 'name',
+  listQuerySchema: IntegrationsListQuerySchema,
+  listResponseSchema: IntegrationsListResponseSchema,
+  validListItem,
+});
 
 describe('IntegrationListItemSchema', () => {
   it('parses a valid list item', () => {
@@ -94,24 +106,7 @@ describe('IntegrationDetailSchema', () => {
   });
 });
 
-describe('IntegrationSortSchema', () => {
-  it('defaults to name', () => {
-    expect(IntegrationSortSchema.parse(undefined)).toBe('name');
-  });
-
-  it('rejects unknown keys', () => {
-    expect(IntegrationSortSchema.safeParse('rating').success).toBe(false);
-  });
-});
-
 describe('IntegrationsListQuerySchema', () => {
-  it('applies defaults', () => {
-    const parsed = IntegrationsListQuerySchema.parse({});
-    expect(parsed.page).toBe(1);
-    expect(parsed.perPage).toBe(24);
-    expect(parsed.sort).toBe('name');
-  });
-
   it('validates sourceProductId and targetProductId as UUIDs', () => {
     const parsed = IntegrationsListQuerySchema.parse({
       sourceProductId: uuid(1),
@@ -129,17 +124,5 @@ describe('IntegrationsListQuerySchema', () => {
   it('rejects an unknown mechanism_kind', () => {
     const result = IntegrationsListQuerySchema.safeParse({ mechanism_kind: 'rpa' });
     expect(result.success).toBe(false);
-  });
-});
-
-describe('IntegrationsListResponseSchema', () => {
-  it('wraps a page of list items', () => {
-    const parsed = IntegrationsListResponseSchema.parse({
-      data: [validListItem],
-      page: 1,
-      perPage: 24,
-      total: 1,
-    });
-    expect(parsed.data).toHaveLength(1);
   });
 });
