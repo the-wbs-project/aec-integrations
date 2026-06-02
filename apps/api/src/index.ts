@@ -1,8 +1,7 @@
 import { Hono } from 'hono';
 
 import type { Env } from './env';
-import { errorHandler } from './errors';
-import { notFound } from './http';
+import { ApiError, errorHandler } from './errors';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { metricsMiddleware } from './metrics-middleware';
 import { createCategoriesListHandler, createCategoryDetailHandler } from './routes/categories';
@@ -27,9 +26,16 @@ const app = new Hono<{ Bindings: Env }>();
 // it wraps the legacy routes, the Phase 2.8 sub-router, and the `*` fallthrough.
 app.use('*', metricsMiddleware());
 
-// Legacy routes (predating Phase 2.8). Keep their existing error shape via the
-// `apps/api/src/http.ts` helpers — migrating them to the canonical §3.3
-// envelope is a follow-up cleanup ticket, intentionally out of scope for AECI-54.
+// AECI-101 — the root app gets the same `errorHandler()` as the Phase 2.8
+// sub-router, so the legacy routes below and the `*` fall-throughs emit the
+// canonical `docs/API_CONTRACTS.md` §3.3 envelope on the error path. Sub-app
+// errors don't bubble to a parent `onError`, so `phase28` keeps its own (below).
+app.onError(errorHandler());
+
+// Legacy routes (predating Phase 2.8). `page-views` now throws `ApiError` /
+// `ZodError` (rendered by the root `onError` above into the §3.3 envelope).
+// `health` / `version` return responses directly and don't throw today, so the
+// root `onError` is uniformity/future-proofing for them — not a behavior change.
 app.get('/api/health', createHealthHandler());
 app.get('/api/version', createVersionHandler());
 app.post('/api/page-views', createPageViewsHandler());
@@ -66,7 +72,13 @@ phase28.post('/api/promote', requireReviewAppAuth(), createPromoteHandler());
 
 app.route('/', phase28);
 
-app.all('/api/*', () => notFound('API route not found'));
-app.all('*', () => notFound());
+// Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
+// (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.
+app.all('/api/*', () => {
+  throw new ApiError(404, 'NOT_FOUND', 'API route not found');
+});
+app.all('*', () => {
+  throw new ApiError(404, 'NOT_FOUND', 'Route not found');
+});
 
 export default app;
