@@ -39,19 +39,33 @@ test.describe('vendor detail — 404 path', () => {
     expect(res.headers()['cache-tag']).toBe('route:404');
   });
 
-  test('404 body renders the inline NotFound panel (i18n copy)', async ({ page }) => {
+  test('404 body renders the global NotFound shell (i18n copy)', async ({ page }) => {
     const res = await page.goto('/vendors/no-such-slug-aeci-59');
     expect(res?.status()).toBe(404);
 
-    // Eyebrow + headline from `vendor-not-found.ts`.
+    // Eyebrow + headline from `not-found.ts` (AECI-62).
     await expect(page.getByText('404 — Not found', { exact: true })).toBeVisible();
-    await expect(
-      page.getByRole('heading', { name: "We couldn't find a vendor with that slug." }),
-    ).toBeVisible();
+    await expect(page.getByRole('heading', { name: "We couldn't find that page." })).toBeVisible();
 
-    await expect(page.getByRole('link', { name: 'Browse all vendors' })).toHaveAttribute(
+    // The four AC-pinned recovery links live inside the 404 shell's directory
+    // nav landmark — scope to it so the site-header's primary nav doesn't
+    // double-match.
+    const directory = page.getByRole('navigation', { name: 'Browse the directory' });
+    await expect(directory.getByRole('link', { name: /Products/ })).toHaveAttribute(
+      'href',
+      /\/products$/,
+    );
+    await expect(directory.getByRole('link', { name: /Vendors/ })).toHaveAttribute(
       'href',
       /\/vendors$/,
+    );
+    await expect(directory.getByRole('link', { name: /Integrations/ })).toHaveAttribute(
+      'href',
+      /\/integrations$/,
+    );
+    await expect(directory.getByRole('link', { name: /Categories/ })).toHaveAttribute(
+      'href',
+      /\/categories$/,
     );
     await expect(page.getByRole('link', { name: 'Go home' })).toHaveAttribute('href', '/');
   });

@@ -18,7 +18,7 @@ Migrations are managed by the **Supabase CLI**. Migration files in `supabase/mig
 
 ## 1a. Prisma client setup (Worker runtime)
 
-Workers talk to Supabase through Prisma Accelerate (HTTPS), not a TCP pooler. The validated reference implementation is `apps/prisma-test/` — cite specific lines below until the production API Worker replaces it.
+Workers talk to Supabase through Prisma Accelerate (HTTPS), not a TCP pooler. The validated reference implementation is the production API Worker `apps/api/src/prisma.ts`; the original `prisma-test` probe that proved the pattern is archived (frozen) at `spikes/prisma-test/` and cited below only where a pattern has no live equivalent yet.
 
 **Required dependencies (runtime):**
 
@@ -73,11 +73,11 @@ Handlers never import a module-level client. Each handler is a factory that take
 | `DATABASE_URL` | `prisma://accelerate.prisma-data.net/?api_key=...` | Worker runtime | Worker secret (`wrangler secret put DATABASE_URL`) + local `.dev.vars` |
 | `DIRECT_URL` | `postgresql://...supabase.com:6543/postgres?pgbouncer=true` (Supabase pooler) | Supabase CLI (`supabase db push / pull / diff`); also `prisma db pull` if schema introspection is needed | CI env + local `.dev.vars` |
 
-The two-URL split is declared in the Prisma schema (`apps/prisma-test/prisma/schema.prisma:5-9`). Workers never see `DIRECT_URL`.
+The two-URL split is declared in the Prisma schema (`apps/api/prisma/schema.prisma:22-25`). Workers never see `DIRECT_URL`.
 
-**`wrangler.jsonc` rationale.** No `nodejs_compat` flag is needed for the database — Accelerate is HTTPS. Add `nodejs_compat` only for unrelated Node-API needs. See the canonical comment at `apps/prisma-test/wrangler.jsonc:7-11`.
+**`wrangler.jsonc` rationale.** No `nodejs_compat` flag is needed for the database — Accelerate is HTTPS. Add `nodejs_compat` only for unrelated Node-API needs. See the canonical comment at `apps/api/wrangler.jsonc:12-13`.
 
-**BigInt JSON serialization.** Prisma returns `BigInt` for `BigInt` columns; `JSON.stringify` throws on them. Use the replacer pattern at `apps/prisma-test/src/index.ts:42-44`:
+**BigInt JSON serialization.** Prisma returns `BigInt` for `BigInt` columns; `JSON.stringify` throws on them. Use the replacer pattern at `apps/api/src/http.ts:21`:
 
 ```ts
 JSON.stringify(data, (_key, value) =>
@@ -87,7 +87,7 @@ JSON.stringify(data, (_key, value) =>
 
 Centralize this in a shared `json()` helper in the API Worker.
 
-**Prisma error → HTTP status mapping.** Validated mapping at `apps/prisma-test/src/index.ts:136-157`:
+**Prisma error → HTTP status mapping.** Validated mapping in the frozen probe `spikes/prisma-test/src/index.ts:136-157` (no live equivalent yet — see the note below):
 
 | Prisma error substring | HTTP status |
 |---|---|
@@ -98,7 +98,7 @@ Centralize this in a shared `json()` helper in the API Worker.
 
 String matching is fragile; the production API Worker should switch to Prisma's typed error classes (`PrismaClientKnownRequestError` + `code`) once the centralized error middleware lands (`API_CONTRACTS.md` §8).
 
-**Build ordering.** `prisma generate` must run before any Worker build/deploy so the client matches the current schema. Mirror the PoC's script wiring at `apps/prisma-test/package.json:5-8`.
+**Build ordering.** `prisma generate` must run before any Worker build/deploy so the client matches the current schema. Mirror the script wiring at `apps/api/package.json:5-11`.
 
 **Prisma as query-builder only.** `schema.prisma` is downstream of `supabase/migrations/`; refresh it via `pnpm db:pull` after every applied migration. The full contract (workflow, why `db:pull` targets the local container, what to never run) lives in `docs/prisma.md`.
 

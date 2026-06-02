@@ -54,7 +54,7 @@ When a section of this spec references one of these documents, the companion doc
 | Frontend | Angular 21+ with SSR, **zoneless** (`provideZonelessChangeDetection()` — no `zone.js`) |
 | Styling | Tailwind CSS **v4** (`@tailwindcss/postcss`) with `@spartan-ng/brain/hlm-tailwind-preset.css` |
 | Components | Spartan UI **brain primitives only** (signal-based) + Angular CDK. `helm` codegen is avoided (alpha-CLI instability; decision validated in stack-test) |
-| Hydration | `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — see `apps/stack-test/src/app/app.config.ts:18-25` |
+| Hydration | `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — see `apps/web/src/app/app.config.ts:17-29` |
 | i18n | `@angular/localize` |
 | Hosting | Cloudflare Workers (SSR Worker with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills) |
 | Database | Supabase (PostgreSQL) |
@@ -605,7 +605,7 @@ The site launches in `en-US` only, but every layer is built to support additiona
 - Empty at launch; schema is in place
 - Read pattern: fetch entity by ID, then `SELECT field, value FROM translations WHERE entity_type=? AND entity_id=? AND locale=?` with **per-field fallback** to the canonical `en-US` value on the entity row — a missing row in `translations` for a given field falls back to canonical, *not* to a blank
 - All entities that store user-facing strings have implicit `en-US` content in their primary columns
-- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in `apps/stack-test/src/server.ts:119-136` and `apps/stack-test/src/app/data.service.server.ts:33-50`; stack-test uses Cloudflare KV as the overlay store as a probe, **Stage 1 production reads from the `translations` table via Prisma — KV is not the production substrate for translations**
+- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in the frozen probe `spikes/stack-test/src/server.ts:119-136` and `spikes/stack-test/src/app/data.service.server.ts:33-50` (no live equivalent yet — translations are en-US-only at launch); the probe uses Cloudflare KV as the overlay store, **Stage 1 production reads from the `translations` table via Prisma — KV is not the production substrate for translations**
 
 ### 7a.3 URL strategy
 
@@ -615,11 +615,11 @@ The site launches in `en-US` only, but every layer is built to support additiona
 - `hreflang` tags auto-generated in `<head>` once multiple locales exist
 - Sitemap includes localized URLs per page
 
-**URL prefix is the cache key for locale.** The edge cache segments naturally by URL prefix (`/products/...` for `en-US`, `/es/products/...` for `es-ES`). `Vary: Accept-Language` is permitted on cached responses (it advertises the dimension to well-behaved proxies; Cloudflare's edge cache key isn't affected since the URL prefix already segments the cache). Any other `Vary` value (`Cookie`, `User-Agent`, etc.) is still forbidden — those fragment the edge cache without a corresponding tag advantage. See `docs/CACHE_STRATEGY.md` §7 for the full SEO header set. Validated in `apps/stack-test` scenarios T8–T9.
+**URL prefix is the cache key for locale.** The edge cache segments naturally by URL prefix (`/products/...` for `en-US`, `/es/products/...` for `es-ES`). `Vary: Accept-Language` is permitted on cached responses (it advertises the dimension to well-behaved proxies; Cloudflare's edge cache key isn't affected since the URL prefix already segments the cache). Any other `Vary` value (`Cookie`, `User-Agent`, etc.) is still forbidden — those fragment the edge cache without a corresponding tag advantage. See `docs/CACHE_STRATEGY.md` §7 for the full SEO header set. Validated in the frozen probe `spikes/stack-test` scenarios T8–T9.
 
 ### 7a.3a Build artifact for multi-locale
 
-Angular's per-locale build emits a single `server.mjs` Worker entry that dispatches by URL prefix at request time. The `i18n.locales` block in `angular.json` plus `"localize": true` on the build option is the entire configuration — no per-locale deploy, no separate Worker. The SSR Worker's `LOCALES` constant (see `apps/stack-test/src/server.ts:69-74`) must stay in sync with `angular.json` `i18n.locales`; adding a locale requires updating both.
+Angular's per-locale build emits a single `server.mjs` Worker entry that dispatches by URL prefix at request time. The `i18n.locales` block in `angular.json` plus `"localize": true` on the build option is the entire configuration — no per-locale deploy, no separate Worker. The SSR Worker's `LOCALES` constant (see `apps/web/src/server-runtime.ts:77-98` — `LOCALES` + `stripLocalePrefix`) must stay in sync with `angular.json` `i18n.locales`; adding a locale requires updating both.
 
 ### 7a.4 Formatting
 
@@ -700,7 +700,7 @@ async function handleRequest(request: Request, env: Env, ctx: ExecutionContext) 
 }
 ```
 
-Reference implementation: `apps/stack-test/src/server.ts:212-229, 247-256, 435-456`.
+Reference implementation: `apps/web/src/server-runtime.ts` — `stripVisitorStateCookies` (131-153), route classification (`cacheControlForRoute` + `ROUTE_CACHE_PATTERNS`, 187-245), and the cache-write pipeline (`withCacheHeaders` 300-328, `handleSsr` 406-504).
 
 ### 9.1a Cached SSR routes must render visitor-state-neutral HTML
 
@@ -716,7 +716,7 @@ If a Worker returns HTTP 200 with a "not found" body and a normal TTL for a miss
 
 **Rule:** 404 / not-found responses must return **HTTP 404** with a short TTL (≤60s), not 200. The TTL is short enough that newly-created entities become visible quickly without a purge call; the status code allows downstream tooling (sitemaps, monitoring) to distinguish real misses.
 
-Stack-test currently returns 200 for KV-miss with a 5-minute TTL — documented as a Phase 2 gap in `apps/stack-test/README.md:192-194`. `apps/web/` must implement the correct behavior from the start.
+The stack-test probe returned 200 for KV-miss with a 5-minute TTL — a gap it documented at `spikes/stack-test/README.md:215-217`. `apps/web/` closes it: 404s carry HTTP 404 and a ≤60s edge TTL via `NOT_FOUND_TTL` (`apps/web/src/server-runtime.ts:169`, §9.1b).
 
 ### 9.2 TTLs
 
@@ -730,7 +730,7 @@ For tag vocabulary, TTLs, composition rules, the purge endpoint shape, and the S
 
 **Cloudflare API token scoping:**
 
-The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Cache Purge` on `aecintegrations.com` only** — the narrowest possible scope. `CLOUDFLARE_ZONE_ID` identifies the target zone. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope. Validated pattern: `apps/stack-test/wrangler.jsonc:36-43` plus env secrets.
+The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Cache Purge` on `aecintegrations.com` only** — the narrowest possible scope. `CLOUDFLARE_ZONE_ID` identifies the target zone. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope. Validated pattern: the live purge handler `apps/web/src/server/routes/admin-purge.ts:15-18` (`CF_PURGE_API_TOKEN` scoped to `Zone.Cache Purge`; `CF_ZONE_ID` identifies the zone).
 
 ### 9.4 API response caching
 
@@ -966,20 +966,20 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Figma Design System file created with theme tokens from Section 2a.2
 - [ ] Brand guidelines DOCX updated with dark-mode accent variants
 - [ ] Angular 21+ SSR project scaffolded in `apps/web/`, **zoneless** (`provideZonelessChangeDetection()`, no `zone.js`)
-- [ ] Hydration providers wired: `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — mirror `apps/stack-test/src/app/app.config.ts`
+- [ ] Hydration providers wired: `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — mirror `apps/web/src/app/app.config.ts`
 - [ ] `@angular/localize` configured with `en-US` as default locale; `angular.json` `i18n.locales` block ready for `es-ES` and others (URL-prefix dispatch, no `Vary` headers — §7a.3)
 - [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to CSS custom property tokens for both themes; `@spartan-ng/brain/hlm-tailwind-preset.css` imported
-- [ ] Theme switcher (system / light / dark) implemented in root layout — SSR reads theme from cookie + `Sec-CH-Prefers-Color-Scheme`; client reconciles from `localStorage` + `matchMedia` (mirror `apps/stack-test/src/app/theme.service.ts`)
+- [ ] Theme switcher (system / light / dark) implemented in root layout — SSR reads theme from cookie + `Sec-CH-Prefers-Color-Scheme`; client reconciles from `localStorage` + `matchMedia` (mirror `apps/web/src/app/theme.service.ts`)
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
-- [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/stack-test/src/server.ts`
-- [ ] Supabase connection via Prisma in `apps/api/` using the per-request Accelerate pattern validated in `apps/prisma-test/src/index.ts` (`PrismaClient` from `@prisma/client/edge` + `withAccelerate()`; `DATABASE_URL` is the `prisma://` URL; `DIRECT_URL` is CLI-only). See `DATABASE_SCHEMA.md` §1a.
+- [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
+- [ ] Supabase connection via Prisma in `apps/api/` using the per-request Accelerate pattern validated in `apps/api/src/prisma.ts` (`PrismaClient` from `@prisma/client/edge` + `withAccelerate()`; `DATABASE_URL` is the `prisma://` URL; `DIRECT_URL` is CLI-only). See `DATABASE_SCHEMA.md` §1a.
 - [ ] Apply baseline RLS policies from `docs/rls_policies.sql` to the Supabase project (PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1)
 - [ ] Service binding between SSR Worker and API Worker
 - [ ] Datadog Browser RUM and Worker SDK installed and reporting
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped, both themes verified)
-- [ ] Validate SSR + cache plumbing with a "Hello World" page (mirror `apps/stack-test`)
-- [ ] Test infrastructure scaffolded per `TESTING_STRATEGY.md`: Vitest unit harness, Playwright e2e against `wrangler dev`, axe-core hook, Lighthouse CI, and a bash integration runner modeled on `apps/stack-test/scripts/run-extra-tests.sh` for cache/cookie/`Vary` regressions
+- [ ] Validate SSR + cache plumbing with a "Hello World" page (mirror the frozen probe `spikes/stack-test`)
+- [ ] Test infrastructure scaffolded per `TESTING_STRATEGY.md`: Vitest unit harness, Playwright e2e against `wrangler dev`, axe-core hook, Lighthouse CI, and a bash integration runner modeled on `apps/web/scripts/run-extra-tests.sh` for cache/cookie/`Vary` regressions
 - [ ] Run first Claude Code task end-to-end against a Linear issue to calibrate the workflow
 
 ### Phase 2: Core data display (Week 3–4)

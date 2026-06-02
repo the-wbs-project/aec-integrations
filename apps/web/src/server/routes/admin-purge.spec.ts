@@ -112,9 +112,9 @@ describe('POST /admin/purge — auth', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('does not short-circuit on token length difference (constant-time compare)', async () => {
-    // A regression test ensuring `safeStringEquals` was used: a much shorter
-    // wrong token still returns 401 and never reaches the CF API.
+  it('rejects a wrong token whose length differs from the secret (never calls upstream)', async () => {
+    // A regression test ensuring the shared `timingSafeEqual` is used: a much
+    // shorter wrong token still returns 401 and never reaches the CF API.
     const fetchMock = vi.fn();
     const app = makeApp(fetchMock as unknown as typeof fetch);
 

@@ -41,7 +41,16 @@ export default defineConfig({
         // `cwd: '../..'` is the monorepo root from this config's location.
         command: 'pnpm dev:bound',
         cwd: '../..',
-        url: 'http://localhost:8788/',
+        // Probe `/api/health`, NOT the SSR root `/`. The SSR Worker answers `/`
+        // with 200 the instant it boots — before the API Worker has registered
+        // its service binding — so gating on `/` lets the first API-dependent
+        // test fire into a `Worker "aeci-api-preview" not found` failure that
+        // the SSR layer renders as a 404 (the cold-start flake this guards
+        // against). `/api/health` proxies through `env.API` and only returns 200
+        // once the binding is connected AND `SELECT 1` succeeds; binding-down /
+        // DB-down return 5xx, which Playwright (ready iff status in [200,404))
+        // keeps polling past. So tests don't start until the API is serving.
+        url: 'http://localhost:8788/api/health',
         reuseExistingServer: !IS_CI,
         timeout: 180_000,
         stdout: 'pipe',

@@ -7,9 +7,8 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import type { TaxonomyTermDetail } from '../core/api/taxonomy';
 import { BrowseLayout } from '../layouts/browse-layout';
+import { NotFound } from '../not-found/not-found';
 import { ProductCard } from '../products/product-card';
-
-import { TaxonomyNotFound } from './taxonomy-not-found';
 
 /**
  * AECI-61 — shared browse page for `/categories/:slug`, `/disciplines/:slug`,
@@ -17,8 +16,8 @@ import { TaxonomyNotFound } from './taxonomy-not-found';
  * `kind` arrives via static `route.data` and the resolved term via
  * `route.data['term']` (populated by the matching `*BrowseResolver`).
  *
- *   - `term === null` → inline `TaxonomyNotFound` (the resolver already set
- *     `RESPONSE_INIT.status = 404` + noindex meta).
+ *   - `term === null` → the global `aec-not-found` shell (the resolver already
+ *     set `RESPONSE_INIT.status = 404` + noindex meta).
  *   - `term` set → `BrowseLayout` with a header strip (breadcrumb + name +
  *     description + count), a Phase 3 filter-sidebar placeholder, and the
  *     matching products rendered as the same `tr[aec-product-card]` table the
@@ -30,12 +29,12 @@ import { TaxonomyNotFound } from './taxonomy-not-found';
  */
 @Component({
   selector: 'aec-taxonomy-browse',
-  imports: [BrowseLayout, ProductCard, RouterLink, TaxonomyNotFound],
+  imports: [BrowseLayout, NotFound, ProductCard, RouterLink],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let t = term();
     @if (t === null) {
-      <aec-taxonomy-not-found [kind]="kind()" [slug]="slug()" />
+      <aec-not-found />
     } @else {
       <aec-browse-layout>
         <div slot="header" class="space-y-4">
@@ -156,10 +155,6 @@ export class TaxonomyBrowsePage {
   protected readonly term = toSignal<TaxonomyTermDetail | null, TaxonomyTermDetail | null>(
     this.route.data.pipe(map((d) => (d['term'] ?? null) as TaxonomyTermDetail | null)),
     { initialValue: (this.route.snapshot.data['term'] ?? null) as TaxonomyTermDetail | null },
-  );
-
-  protected readonly slug = computed(
-    () => this.route.snapshot.paramMap.get('slug') ?? this.term()?.slug ?? '',
   );
 
   /** Breadcrumb ancestor label per kind (e.g. "Categories"). */
