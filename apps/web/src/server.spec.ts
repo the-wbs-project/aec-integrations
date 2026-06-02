@@ -1,3 +1,4 @@
+import { VersionResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -7,6 +8,7 @@ import {
   VISITOR_STATE_COOKIES,
   buildCacheControl,
   cacheControlForRoute,
+  cacheKeyUrl,
   createApp,
   isCacheableRoute,
   isPreviewPath,
@@ -199,6 +201,70 @@ describe('isCacheableRoute', () => {
   });
 });
 
+describe('cacheKeyUrl (AECI-100 — edge cache key normalization)', () => {
+  const key = (path: string): string => cacheKeyUrl(new URL(`https://x${path}`));
+
+  describe('detail / query-independent routes strip the whole query string', () => {
+    it('collapses utm_*/fbclid variants of a detail route to one key', () => {
+      // AC #1 — these three must resolve to the same cache entry.
+      const canonical = 'https://x/products/foo';
+      expect(key('/products/foo')).toBe(canonical);
+      expect(key('/products/foo?utm_source=x')).toBe(canonical);
+      expect(key('/products/foo?fbclid=y')).toBe(canonical);
+      expect(key('/products/foo?utm_source=x&utm_medium=email&fbclid=y&gclid=z')).toBe(canonical);
+    });
+
+    it('strips the query string on home, browse, and static routes (no content params)', () => {
+      expect(key('/?utm_campaign=launch')).toBe('https://x/');
+      expect(key('/categories/structural?fbclid=y')).toBe('https://x/categories/structural');
+      expect(key('/disciplines/architecture?utm_source=x')).toBe(
+        'https://x/disciplines/architecture',
+      );
+      expect(key('/categories?ref=newsletter')).toBe('https://x/categories');
+      expect(key('/about?utm_source=x')).toBe('https://x/about');
+    });
+  });
+
+  describe('index / browse routes keep only content-affecting params', () => {
+    it('keeps page/sort/perPage and drops tracking params on /products', () => {
+      // AC #2 — distinct content keyed; tracking noise dropped.
+      expect(key('/products?page=2&utm_source=x&fbclid=y')).toBe('https://x/products?page=2');
+      expect(key('/products?perPage=50')).toBe('https://x/products?perPage=50');
+    });
+
+    it('produces the same key regardless of param ordering (canonical sort)', () => {
+      expect(key('/products?sort=name&page=2')).toBe(key('/products?page=2&sort=name'));
+      expect(key('/products?page=2&sort=name')).toBe('https://x/products?page=2&sort=name');
+    });
+
+    it('keys distinct pages of an index as distinct entries', () => {
+      expect(key('/products?page=1')).not.toBe(key('/products?page=2'));
+    });
+
+    it('keeps the integrations-only filter params (sourceProductId/targetProductId)', () => {
+      expect(key('/integrations?sourceProductId=abc&utm_source=x')).toBe(
+        'https://x/integrations?sourceProductId=abc',
+      );
+      expect(key('/integrations?targetProductId=def&page=2&fbclid=y')).toBe(
+        'https://x/integrations?page=2&targetProductId=def',
+      );
+    });
+
+    it('does not retain integrations-only params on /products or /vendors', () => {
+      // The split entry means a stray sourceProductId on /products is treated
+      // as noise — it isn't a content param there.
+      expect(key('/products?sourceProductId=abc')).toBe('https://x/products');
+      expect(key('/vendors?targetProductId=def')).toBe('https://x/vendors');
+    });
+  });
+
+  it('preserves origin (host + port) so the key never crosses environments', () => {
+    expect(cacheKeyUrl(new URL('http://localhost:8788/products/foo?utm_source=x'))).toBe(
+      'http://localhost:8788/products/foo',
+    );
+  });
+});
+
 describe('buildCacheControl', () => {
   it('formats edge and browser TTLs as a Cache-Control header value', () => {
     expect(buildCacheControl({ edge: 3600, browser: 300 })).toBe(
@@ -286,6 +352,61 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
   });
 });
 
+describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)', () => {
+  it('returns the SSR Worker’s build metadata from env without calling the API binding', async () => {
+    // Guards AECI-92: /_version must be served by the SSR Worker itself so CI
+    // can verify the SSR bundle is current independently of the proxied
+    // /api/version (which only ever reports the API Worker's SHA). If a future
+    // refactor accidentally proxies this path, `calls` would be non-empty and
+    // the gate would go back to validating only the API Worker.
+    const { binding, calls } = recordingApiBinding();
+    const env = {
+      ...binding,
+      ENV: 'preview',
+      COMMIT_SHA: 'ssr123abc456',
+      DEPLOYED_AT: '2026-06-02T03:30:00.000Z',
+    };
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
+
+    const req = new Request('https://aecintegrations.com/_version');
+    const res = await app.fetch(req, env as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/json; charset=utf-8');
+    // private, no-store so a stale value never lies about what's deployed and
+    // the response is never pinned at the edge.
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+
+    const body = await res.json();
+    expect(VersionResponseSchema.safeParse(body).success).toBe(true);
+    expect(body).toEqual({
+      sha: 'ssr123abc456',
+      deployedAt: '2026-06-02T03:30:00.000Z',
+      environment: 'preview',
+    });
+
+    // Served by SSR, NOT proxied to the API Worker.
+    expect(calls).toHaveLength(0);
+  });
+
+  it('falls back to sentinels when COMMIT_SHA/DEPLOYED_AT/ENV are unset', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
+
+    const req = new Request('https://aecintegrations.com/_version');
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      sha: 'unknown',
+      deployedAt: '1970-01-01T00:00:00.000Z',
+      environment: 'development',
+    });
+    expect(calls).toHaveLength(0);
+  });
+});
+
 describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
   it('strips the theme cookie before invoking SSR on /', async () => {
     const { binding } = recordingApiBinding();
@@ -317,7 +438,7 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
     expect(withBody).not.toContain('theme=dark');
   });
 
-  it('sets a route-specific Cache-Control header and no Vary on the cacheable branch', async () => {
+  it('sets Cache-Control + the SEO/security header set on the cacheable branch (AECI-89)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({
       ssrRenderer: fixedRenderer(
@@ -325,7 +446,7 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
           status: 200,
           headers: {
             'content-type': 'text/html',
-            vary: 'Cookie', // upstream tries to set Vary — middleware must strip it
+            vary: 'Cookie', // upstream tries to set a forbidden Vary — middleware must strip it
           },
         }),
       ),
@@ -339,7 +460,18 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=900');
-    expect(res.headers.get('vary')).toBeNull();
+
+    // AC #1: the three headers are present on a representative cacheable route.
+    const vary = res.headers.get('vary') ?? '';
+    expect(vary).toBe('Accept-Language');
+    expect(res.headers.get('link')).toContain('</sitemap.xml>; rel=sitemap');
+    expect(res.headers.get('content-security-policy')).toContain(
+      "script-src 'self' 'unsafe-inline'",
+    );
+
+    // AC #2: the forbidden Vary values are never emitted (delete-then-set).
+    expect(vary).not.toMatch(/cookie/i);
+    expect(vary).not.toMatch(/user-agent/i);
   });
 });
 
@@ -588,6 +720,84 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
 
     expect(await res.text()).toBe(cachedBody);
     expect(renderer).not.toHaveBeenCalled();
+  });
+});
+
+describe('createApp edge-cache key normalization end-to-end (AECI-100)', () => {
+  let originalCaches: unknown;
+  // In-memory cache keyed by the Request URL the runtime computes — this is how
+  // Cloudflare's caches.default keys entries, so it faithfully proves that two
+  // URLs which normalize to the same key collide (HIT) and distinct ones don't.
+  let store: Map<string, Response>;
+
+  beforeEach(() => {
+    originalCaches = (globalThis as { caches?: unknown }).caches;
+    store = new Map<string, Response>();
+    const cache = {
+      match: vi.fn(async (req: Request) => store.get(req.url)?.clone()),
+      put: vi.fn(async (req: Request, res: Response) => {
+        store.set(req.url, res.clone());
+      }),
+    };
+    (globalThis as { caches: unknown }).caches = { default: cache };
+  });
+
+  afterEach(() => {
+    if (originalCaches === undefined) {
+      delete (globalThis as { caches?: unknown }).caches;
+    } else {
+      (globalThis as { caches: unknown }).caches = originalCaches;
+    }
+  });
+
+  async function fetchPath(app: ReturnType<typeof createApp>, url: string): Promise<Response> {
+    const { binding } = recordingApiBinding();
+    return app.fetch(new Request(url), binding as unknown as Bindings, fakeExecutionContext());
+  }
+
+  it('serves a HIT for ?fbclid after ?utm_source primed the cache (AC #1: one detail entry)', async () => {
+    const renderer = vi.fn<SsrRenderer>(
+      async () =>
+        new Response('<html>detail</html>', {
+          status: 200,
+          headers: { 'content-type': 'text/html' },
+        }),
+    );
+    const app = createApp({ ssrRenderer: renderer });
+
+    // First request primes the cache: MISS → render → store one entry.
+    const first = await fetchPath(app, 'https://aecintegrations.com/products/foo?utm_source=x');
+    expect(first.status).toBe(200);
+    expect(renderer).toHaveBeenCalledTimes(1);
+    expect(store.size).toBe(1);
+
+    // A different tracking param on the same page must HIT — no second render.
+    const second = await fetchPath(app, 'https://aecintegrations.com/products/foo?fbclid=y');
+    expect(await second.text()).toBe('<html>detail</html>');
+    expect(renderer).toHaveBeenCalledTimes(1);
+    expect(store.size).toBe(1);
+  });
+
+  it('keeps distinct index pages as separate entries but collapses tracking noise (AC #2)', async () => {
+    const renderer = vi.fn<SsrRenderer>(async (req) => {
+      const search = new URL(req.url).search;
+      return new Response(`<html>${search}</html>`, {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    });
+    const app = createApp({ ssrRenderer: renderer });
+
+    await fetchPath(app, 'https://aecintegrations.com/products?page=1');
+    await fetchPath(app, 'https://aecintegrations.com/products?page=2');
+    // page=1 and page=2 are distinct content → two renders, two entries.
+    expect(renderer).toHaveBeenCalledTimes(2);
+    expect(store.size).toBe(2);
+
+    // A tracking-only variant of page=1 normalizes to the page=1 key → HIT.
+    await fetchPath(app, 'https://aecintegrations.com/products?page=1&utm_source=x');
+    expect(renderer).toHaveBeenCalledTimes(2);
+    expect(store.size).toBe(2);
   });
 });
 

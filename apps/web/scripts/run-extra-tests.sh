@@ -3,9 +3,11 @@
 # apps/web — HTTP-level edge-cache integration runner (AECI-33 / Phase 1.19).
 #
 # Modeled on the frozen probe `spikes/stack-test/scripts/run-extra-tests.sh`. Asserts the SSR
-# Worker's contract at the wire: cookie stripping on cacheable routes, no
-# Vary header on cached responses (purge-by-URL contract), short TTL on 404s,
-# byte-stable repeat fetches (idempotent HIT), and locale URL prefix behavior.
+# Worker's contract at the wire: cookie stripping on cacheable routes, the
+# SEO/security header set (§7: `Vary: Accept-Language` only — never `Cookie` /
+# `User-Agent` / `Accept-Encoding` — plus `Link: rel=sitemap` and a CSP), short
+# TTL on 404s, byte-stable repeat fetches (idempotent HIT), and locale URL
+# prefix behavior.
 #
 # Usage:
 #   HOST=http://localhost:8788 ./scripts/run-extra-tests.sh           # local wrangler dev
@@ -112,25 +114,40 @@ else
 fi
 
 # -------------------------------------------------------------------------
-section "T2  No Vary header on cached responses (§7a.3, §9.3)"
+section "T2  SEO/security header set on cached responses (§7, AECI-89)"
 # -------------------------------------------------------------------------
-# Cloudflare Pro purges by URL only — a `Vary: Cookie` or
-# `Vary: Accept-Encoding` would fragment the edge cache and leave stale
-# variants after a purge. `withCacheHeaders()` deletes Vary on cacheable
-# responses; assert that here.
-VARY=$(get_headers "$HOST/" | awk -F': ' 'tolower($1)=="vary"{print $2}' | tr -d '\r' || true)
-if [ -z "$VARY" ]; then
-	pass "T2 no Vary header on /"
+# §7 mandates three headers on every cacheable response. `Vary` is
+# delete-then-set: locale is URL-segmented (so Cloudflare's URL-only key is
+# unaffected) and advertised as `Accept-Language`, while `Cookie` /
+# `User-Agent` / `Accept-Encoding` — which fragment the edge cache with no
+# purge handle — are stripped. The sitemap `Link` and the `Content-Security-
+# Policy` are emitted by `server/seo-headers.ts`.
+ROOT_HEADERS=$(get_headers "$HOST/")
+VARY=$(echo "$ROOT_HEADERS" | awk -F': ' 'tolower($1)=="vary"{print $2}' | tr -d '\r' || true)
+case "$VARY" in
+	*[Cc]ookie*|*[Uu]ser-[Aa]gent*|*[Aa]ccept-[Ee]ncoding*)
+		fail "T2a Vary includes a forbidden value" \
+			"Vary: $VARY — purge-by-URL may not invalidate every variant"
+		;;
+	*[Aa]ccept-[Ll]anguage*)
+		pass "T2a Vary: $VARY"
+		;;
+	*)
+		fail "T2a Vary missing Accept-Language" "Vary: ${VARY:-<absent>}"
+		;;
+esac
+
+LINK=$(echo "$ROOT_HEADERS" | awk -F': ' 'tolower($1)=="link"{print $2}' | tr -d '\r' || true)
+case "$LINK" in
+	*"</sitemap.xml>"*) pass "T2b Link advertises the sitemap: $LINK" ;;
+	*) fail "T2b Link missing sitemap rel" "Link: ${LINK:-<absent>}" ;;
+esac
+
+CSP=$(echo "$ROOT_HEADERS" | awk -F': ' 'tolower($1)=="content-security-policy"{print $2}' | tr -d '\r' || true)
+if [ -n "$CSP" ]; then
+	pass "T2c Content-Security-Policy present"
 else
-	case "$VARY" in
-		*[Cc]ookie*|*Accept-Encoding*|*accept-encoding*)
-			fail "T2 Vary header includes risky headers" \
-				"Vary: $VARY — purge-by-URL may not invalidate every variant"
-			;;
-		*)
-			pass "T2 Vary header present but benign: $VARY"
-			;;
-	esac
+	fail "T2c Content-Security-Policy absent" "a public SSR app must ship a CSP"
 fi
 
 # -------------------------------------------------------------------------

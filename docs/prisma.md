@@ -47,14 +47,12 @@ $EDITOR supabase/migrations/<ts>_add_vendor_logo_column.sql
 
 # 2. Apply it to the local Supabase DB
 pnpm db:reset                              # rebuilds local DB from all migrations + seed.sql
+                                           #   (GRANTs/RLS are themselves migrations — no extra step)
 
-# 3. (Only if the migration adds a public-schema table) reapply RLS
-pnpm --filter @aeci/api db:apply-rls
-
-# 4. Refresh schema.prisma + Prisma client from the just-applied local DB
+# 3. Refresh schema.prisma + Prisma client from the just-applied local DB
 pnpm db:pull                               # runs `prisma db pull` then `prisma generate`
 
-# 5. Commit BOTH the .sql migration AND the updated schema.prisma in one PR
+# 4. Commit BOTH the .sql migration AND the updated schema.prisma in one PR
 git add supabase/migrations/<ts>_add_vendor_logo_column.sql apps/api/prisma/schema.prisma
 git commit
 ```
@@ -92,8 +90,6 @@ rather than reading `DIRECT_URL`. Rationale:
   is local. `DIRECT_URL` conventionally points at the linked remote.
 - Pulling against the linked remote bakes whatever shape staging happens to
   have into `schema.prisma`, masking drift instead of catching it.
-- Matches the precedent of `db:apply-rls`, which also targets the local
-  container explicitly.
 
 For the rare "what does staging actually look like?" task, run
 `prisma db pull --url="$DIRECT_URL"` by hand; no committed script.

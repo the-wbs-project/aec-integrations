@@ -17,8 +17,8 @@ test.describe('/categories — category index (AECI-61)', () => {
     expect(res.status(), 'GET /categories must return 200').toBe(200);
     const html = await res.text();
 
-    expect(html, '<title> must include "Categories — AEC Integrations"').toMatch(
-      /<title[^>]*>[^<]*Categories[^<]*— AEC Integrations[^<]*<\/title>/i,
+    expect(html, '<title> must include "Categories · AEC Integrations"').toMatch(
+      /<title[^>]*>[^<]*Categories[^<]*· AEC Integrations[^<]*<\/title>/i,
     );
     expect(html, 'canonical <link> must point at /categories').toMatch(
       /<link[^>]+rel="canonical"[^>]+href="https:\/\/aecintegrations\.com\/categories"/,

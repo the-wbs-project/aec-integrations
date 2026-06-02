@@ -367,7 +367,7 @@ In addition to caching headers, every cacheable response carries:
 
 - `Vary: Accept-Language` (URL-prefix locale dispatch handles the actual variance, but the header tells well-behaved proxies)
 - `Link: </sitemap.xml>; rel=sitemap`
-- `Content-Security-Policy` (existing from Phase 1; no Phase 2 changes)
+- `Content-Security-Policy` — defined and first emitted in AECI-89 (the "existing from Phase 1" framing predated the actual implementation). The policy and its rationale live in `CACHE_STRATEGY.md` §7 and `apps/web/src/server/seo-headers.ts`.
 
 ---
 

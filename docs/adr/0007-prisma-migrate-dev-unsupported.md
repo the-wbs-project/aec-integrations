@@ -260,11 +260,14 @@ Prisma and Supabase are both aware of this friction. There are open issues on bo
    ```
    Expected: clean success against the live local DB.
 
-3. **Confirm `db:apply-rls` works without psql install:**
+3. **Confirm the GRANT/RLS surface applies (now via migrations, AECI-87):**
    ```bash
-   pnpm db:apply-rls
+   pnpm db:reset    # applies all migrations incl. 20260602051513_rls_grants_and_policies.sql
    ```
-   Expected: long stream of `DROP POLICY / CREATE POLICY / GRANT` lines, all successful.
+   Expected: clean apply; `scripts/verify-rls.sql` then passes. (Historically
+   this step ran the retired `pnpm db:apply-rls` script, which applied
+   `docs/rls_policies.sql` out of band as `supabase_admin` — AECI-87 folded that
+   surface into a numbered migration, so a plain `db:reset` now installs it.)
 
 4. **Confirm the AECI-48 integration test works (proves the deploy path produces a correct DB):**
    ```bash

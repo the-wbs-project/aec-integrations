@@ -67,7 +67,7 @@ Priorities in order:
 - Branch coverage: 60%
 - Critical paths (auth, payments in Stage 4, audit logging) require 90%+ coverage explicitly
 
-Coverage is measured via c8 and reported to Codecov on every PR. Coverage drops are flagged but not blocking — quality of tests matters more than the number.
+Coverage is measured with Vitest's built-in **v8** provider (each package's `vitest.config.ts` records these numbers in its `thresholds` block). CI generates the report on every PR — `pnpm -r run test:coverage` runs as an **advisory, non-blocking** step in the `unit-tests` job (`continue-on-error`) and uploads the lcov/HTML as the `coverage` artifact — but a coverage drop **does not fail the build**. The thresholds are a documented target, not a merge gate: quality of tests matters more than the number. There is no Codecov integration today; if one is added later it would be for visualization, not enforcement.
 
 ### 3.4 Configuration
 
@@ -286,6 +286,16 @@ Keep a small bash- or Playwright-driven suite for these multi-request, edge-stat
 - **`ng extract-i18n` discipline** — every chrome string in templates appears in the extracted XLIFF.
 
 Run this suite in CI against the preview deploy for the PR. It's slow relative to Miniflare (each test is a real HTTP round-trip) but covers gaps Miniflare cannot.
+
+### 6.5 DB-backed integration suites in CI (AECI-90)
+
+The `apps/api/src/integration/**` suites talk to a real Postgres + PostgREST + GoTrue rather than Miniflare: the PostgREST RLS deny matrix (`vendor_requests.rls`, `landing_forms.rls`), the auth-user-delete GDPR trigger (`auth_user_delete_trigger`), the idempotent Airtable→Supabase bulk migrate (`airtable-to-supabase-bulk-migrate`), and the `TEST_DATABASE_URL`-gated recompute/backfill checks (`product-counts`, `backfill-slugs`). Locally they run via `pnpm --filter @aeci/api test:integration` after `pnpm db:reset` (see `docs/migrations.md` §4).
+
+In CI the `integration-db-tests` job in `.github/workflows/deploy.yml` boots a **full local Supabase stack** on the runner (`supabase start`, the same image `drift-check.yml` uses), maps `supabase status -o env` into the env vars the specs read (`SUPABASE_URL`, `TEST_DATABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), mints a non-admin `SUPABASE_TEST_USER_JWT`, then runs the `test:integration:ci` script (the JSON-reporter variant of `test:integration`, without the `dotenv` wrapper). **No repo secrets are required** — a local stack is isolated from the shared dev DB, which matters because these suites create/delete `auth.users` and product/vendor rows that would otherwise corrupt the DB staging serves.
+
+**Silent-skip guard.** Every spec is wrapped in `describe.skipIf(<env unset>)` so the default unit lane stays green without live services. That same guard means a *misconfigured* CI job would *collect* the tests but *skip* them and still exit 0. The job therefore parses the JSON summary and fails on either `numTotalTests === 0` (nothing collected) **or** `numPendingTests > 0` (a `skipIf` fired → env not wired). A green check must mean these security tests actually executed — not that they were quietly excluded.
+
+The job is **non-blocking** today (intentionally not in `deploy-staging`'s `needs`); promote it to a required check once it has proven stable.
 
 ---
 

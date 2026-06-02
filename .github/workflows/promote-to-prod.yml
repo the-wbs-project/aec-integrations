@@ -134,29 +134,26 @@ jobs:
         run: npm install -g supabase@latest
 
       # -----------------------------------------------------------------------
-      # Step 4: Assert staging.aecintegrations.com/api/version reports the
-      #         same SHA we are about to promote. Staging sits behind
-      #         Cloudflare Access (docs/access.md §1), so we attach the
-      #         service-token headers.
+      # Step 4: Assert staging is at the SHA we are about to promote — on BOTH
+      #         the API Worker (/api/version) and the SSR Worker (/_version,
+      #         AECI-92). /api/version is proxied raw to the API Worker, so on
+      #         its own it can't catch a stale SSR deploy. Staging sits behind
+      #         Cloudflare Access (docs/access.md §1); verify-version.sh attaches
+      #         the service-token headers when CF_ACCESS_* are set.
       # -----------------------------------------------------------------------
-      - name: Verify staging is at inputs.commit_sha
+      - name: Verify staging is at inputs.commit_sha (API + SSR)
         env:
+          HOST: https://staging.aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
-          response=$(curl -fsS \
-            -H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID" \
-            -H "CF-Access-Client-Secret: $CF_ACCESS_CLIENT_SECRET" \
-            https://staging.aecintegrations.com/api/version)
-          actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
-          if [ "$actual_sha" != "$EXPECTED_SHA" ]; then
-            echo "::error::staging is at $actual_sha, refusing to promote $EXPECTED_SHA"
+          if ! bash scripts/verify-version.sh; then
+            echo "::error::staging is not at $EXPECTED_SHA on both Workers (API + SSR), refusing to promote"
             exit 1
           fi
-          echo "Staging /api/version matches input SHA: $actual_sha"
-          echo "Response: $response"
+          echo "Staging API + SSR both match input SHA: $EXPECTED_SHA"
 
       # -----------------------------------------------------------------------
       # Step 5: Print the pending-migration list against prod into the run
@@ -318,6 +315,19 @@ jobs:
           DIRECT_URL_PRODUCTION: ${{ secrets.DIRECT_URL_PRODUCTION }}
         run: ./scripts/prisma-drift-check.sh "$DIRECT_URL_PRODUCTION"
 
+      # -----------------------------------------------------------------------
+      # Verify RLS GRANT matrix (AECI-87, HARD STOP).
+      #   Proves 20260602051513_rls_grants_and_policies.sql is in effect on prod
+      #   after the db push above — the PostgREST GRANT/RLS deny matrix + the
+      #   feedback/mailing_list carve-out. SET ROLE probe (no PostgREST/JWT). As
+      #   with the drift check, a non-zero exit here keeps deploy-prod-workers
+      #   from running (set -e, no `if: always()` downstream).
+      # -----------------------------------------------------------------------
+      - name: Verify RLS GRANT matrix
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/verify-rls.sql
+
   # ===========================================================================
   # Job 3: Deploy production Workers
   # ===========================================================================
@@ -399,28 +409,26 @@ jobs:
                   }')"
 
       # -----------------------------------------------------------------------
-      # Smoke test: poll aecintegrations.com/api/version until it reports the
-      # promoted SHA, or fail after the 60s budget. Production is public so
-      # no Cloudflare Access headers are needed; the API Worker is private and
-      # is exercised transitively via the SSR service binding.
+      # Smoke test: poll production until BOTH the API (/api/version) and the
+      # SSR Worker's own (/_version, AECI-92) report the promoted SHA, or fail
+      # after the 60s budget. /api/version is proxied raw to the API Worker, so
+      # on its own it can't catch a stale SSR deploy. Production is public so no
+      # Cloudflare Access headers are set; verify-version.sh omits them.
       # -----------------------------------------------------------------------
-      - name: Smoke test production /api/version
+      - name: Smoke test production (API + SSR at SHA)
         env:
+          HOST: https://aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            response=$(curl -fsS https://aecintegrations.com/api/version || true)
-            actual_sha=$(printf '%s' "$response" | jq -r '.sha // empty')
-            if [ "$actual_sha" = "$EXPECTED_SHA" ]; then
-              echo "Production deploy verified at SHA $actual_sha (attempt $attempt)"
-              echo "Response: $response"
+            if bash scripts/verify-version.sh; then
               exit 0
             fi
-            echo "Attempt $attempt: expected $EXPECTED_SHA, got '$actual_sha'. Retrying in 6s..."
+            echo "Attempt $attempt: production not yet at $EXPECTED_SHA on both Workers. Retrying in 6s..."
             sleep 6
           done
-          echo "::error::Production /api/version did not report $EXPECTED_SHA within 60s"
+          echo "::error::Production did not report $EXPECTED_SHA on BOTH the API and SSR Workers within 60s"
           exit 1
 
       # -----------------------------------------------------------------------

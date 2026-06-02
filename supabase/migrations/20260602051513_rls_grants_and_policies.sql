@@ -1,44 +1,52 @@
 -- =============================================================================
--- AEC Integrations — Row-Level Security + GRANT Policies
--- Stage 1
--- Generated: 2026-05
--- Apply against: Supabase (PostgreSQL 16)
--- =============================================================================
+-- AECI-87: PostgREST authorization surface — Layer 2 GRANTs + Layer 3 RLS
+-- policies + the is_admin()/is_active_user() helpers, as a tracked migration.
 --
--- ARCHITECTURE NOTE
+-- Previously this lived in docs/rls_policies.sql and was applied ONLY to the
+-- local Docker container (as supabase_admin, via `pnpm db:apply-rls`). It never
+-- reached staging/prod and the staging refresh wiped it. Converting it to a
+-- numbered migration means `supabase db push` / `db reset` apply it everywhere,
+-- it survives the staging refresh, and a fresh DB has the helper functions the
+-- policies reference. See docs/AUTH_AND_RLS.md and docs/CICD_PLAN.md §5.4.
 --
--- The AEC Integrations Worker connects to the database via Prisma Accelerate
--- using a privileged Postgres role. That role BYPASSES both RLS and the
--- table-level GRANT system below. The Worker is the authoritative
--- authorization layer — see "Worker authorization" in AUTH_AND_RLS.md for
--- the patterns it enforces.
+-- WHY THE HELPERS LIVE IN `public`, NOT `auth`:
+--   Migrations apply as the `postgres` role, which has no CREATE on the `auth`
+--   schema (owned by supabase_admin) — `create function auth.is_admin()` fails
+--   42501 under `supabase db push`/`reset`. That privilege gap is exactly why
+--   the old apply ran as supabase_admin. The helpers move to `public.is_admin()`
+--   / `public.is_active_user()`; their bodies already schema-qualify both
+--   `auth.uid()` and `public.profiles`, so nothing else changes semantically.
+--   anon/authenticated get EXECUTE explicitly (STEP 2) so RLS evaluation works.
 --
--- These RLS policies AND GRANTs together lock down a second surface:
--- Supabase's PostgREST API at /rest/v1/*.
---
--- THREE-LAYER MODEL
---
+-- THREE-LAYER MODEL (docs/AUTH_AND_RLS.md §1):
 --   1. Worker JWT verify + role check    (primary, blocks 99.9% of traffic)
 --   2. PostgREST GRANTs                  (binary table-level access)
 --   3. RLS row-filter policies           (row-level filtering)
+-- The Worker's Prisma Accelerate connection uses a privileged role that
+-- BYPASSES both GRANTs and RLS. This file locks down the /rest/v1/* surface.
 --
--- Per the Supabase email of May 2026: from Oct 30, 2026 all existing
--- projects require explicit GRANTs for new tables. We're applying the
--- new model preemptively to existing tables so the behavior is uniform
--- and matches what new tables will require by default.
+-- Re-run safety: every `create policy` is preceded by `drop policy if exists`;
+-- REVOKE/GRANT/ALTER DEFAULT PRIVILEGES/ENABLE RLS/CREATE OR REPLACE FUNCTION
+-- are all idempotent. (Once recorded in supabase_migrations a fix needs a NEW
+-- forward migration — never edit this file after merge; see docs/migrations.md.)
 -- =============================================================================
 
+begin;
 
 -- =============================================================================
--- STEP 1: HELPERS
+-- STEP 1: HELPERS (in public — see header for why not auth)
+--
+-- security definer + pinned search_path follows the AECI-44 hardening rule for
+-- every SECURITY DEFINER function in the project. `auth.uid()` and
+-- `public.profiles` are fully qualified, so `auth` is NOT required on the path.
 -- =============================================================================
 
-create or replace function auth.is_admin()
+create or replace function public.is_admin()
   returns boolean
   language sql
   security definer
   stable
-  set search_path = public, auth
+  set search_path = public, pg_temp
 as $$
   select exists (
     select 1
@@ -48,12 +56,12 @@ as $$
   );
 $$;
 
-create or replace function auth.is_active_user()
+create or replace function public.is_active_user()
   returns boolean
   language sql
   security definer
   stable
-  set search_path = public, auth
+  set search_path = public, pg_temp
 as $$
   select exists (
     select 1
@@ -63,43 +71,40 @@ as $$
   );
 $$;
 
-revoke execute on function auth.is_admin() from public;
-revoke execute on function auth.is_active_user() from public;
-grant execute on function auth.is_admin() to anon, authenticated;
-grant execute on function auth.is_active_user() to anon, authenticated;
-
 
 -- =============================================================================
 -- STEP 2: REVOKE EVERYTHING FROM anon AND authenticated
 --
--- This wipes the default grants Supabase applied when each table was
--- created. From this point forward, anon and authenticated have access
--- to a table ONLY when we explicitly grant it below.
+-- Wipes the default grants Supabase applied when each table was created. From
+-- here on, anon/authenticated reach a table ONLY where we explicitly grant it.
+-- service_role grants are NOT touched — that preserves Studio's table editor.
 --
--- service_role grants are NOT touched — keeping defaults there preserves
--- service-key access for Supabase Studio's table editor and similar.
+-- ORDERING IS LOAD-BEARING: the blanket `revoke ... on all functions` also
+-- strips EXECUTE on the two helpers created above, so we re-grant them
+-- immediately after. anon/authenticated also inherit EXECUTE via the implicit
+-- PUBLIC grant, so we must `revoke ... from public` before re-granting to the
+-- two named roles — otherwise the helpers stay world-executable.
 -- =============================================================================
 
 revoke all on all tables    in schema public from anon, authenticated;
 revoke all on all sequences in schema public from anon, authenticated;
 revoke all on all functions in schema public from anon, authenticated;
 
+revoke execute on function public.is_admin()       from public;
+revoke execute on function public.is_active_user() from public;
+grant  execute on function public.is_admin()       to anon, authenticated;
+grant  execute on function public.is_active_user() to anon, authenticated;
+
 
 -- =============================================================================
 -- STEP 3: DEFAULT PRIVILEGES FOR FUTURE OBJECTS
 --
--- Anything we (or Prisma) create in the public schema from now on must
--- get its anon/authenticated grants explicitly. This is the "lock down
--- by default" stance Supabase is moving toward; we're getting there first.
---
--- service_role default privileges remain Supabase-managed.
+-- Anything we (or Prisma) create in `public` from now on must get its
+-- anon/authenticated grants explicitly. Matches the post-Oct-30 Supabase
+-- default. Migrations create tables as `postgres`, so we lock down both the
+-- unqualified target and the FOR ROLE postgres target.
 -- =============================================================================
 
--- The ALTER DEFAULT PRIVILEGES target depends on the role that creates
--- the table. Prisma migrations execute as the role configured in
--- DIRECT_URL, typically `postgres`. The dashboard SQL editor also runs
--- as `postgres`. We lock down defaults for both common creators.
-
 alter default privileges in schema public
   revoke all on tables    from anon, authenticated;
 alter default privileges in schema public
@@ -107,28 +112,41 @@ alter default privileges in schema public
 alter default privileges in schema public
   revoke all on functions from anon, authenticated;
 
--- Belt-and-braces: also lock down anything created by the postgres role
--- specifically (in case ALTER DEFAULT PRIVILEGES without FOR ROLE doesn't
--- apply to objects created by postgres in some Supabase configurations).
 alter default privileges for role postgres in schema public
   revoke all on tables    from anon, authenticated;
 alter default privileges for role postgres in schema public
   revoke all on sequences from anon, authenticated;
 alter default privileges for role postgres in schema public
   revoke all on functions from anon, authenticated;
+
+
+-- =============================================================================
+-- STEP 3b: LANDING-FORM CARVE-OUT (AECI-87)
+--
+-- The blanket REVOKE in STEP 2 strips the anon/authenticated grants the landing
+-- baseline (20260101000000_landing_baseline.sql:113-117) issued on feedback /
+-- mailing_list — which would break the pre-launch lead-capture forms. Restore
+-- exactly what those write-only forms need: INSERT on the table + USAGE on the
+-- identity-backing sequence (GENERATED ALWAYS AS IDENTITY calls nextval() as the
+-- inserting role). This is narrower than the baseline's GRANT ALL — anon never
+-- had a working SELECT/UPDATE/DELETE (no RLS policy for those), so dropping them
+-- tightens the deny-by-default posture with no behavioural change for the forms.
+-- service_role keeps its baseline GRANT ALL (untouched by STEP 2's REVOKE).
+-- The "Allow anonymous inserts" INSERT policy from the baseline is still in force.
+-- =============================================================================
+
+grant insert on table    public.feedback             to anon, authenticated;
+grant insert on table    public.mailing_list         to anon, authenticated;
+grant usage  on sequence public.feedback_id_seq      to anon, authenticated;
+grant usage  on sequence public.mailing_list_id_seq  to anon, authenticated;
 
 
 -- =============================================================================
 -- STEP 4: ENABLE RLS ON EVERY TABLE
 --
--- RLS is enabled on every table for two reasons:
---   1. Defense in depth — if a future grant is added by mistake, RLS
---      still filters.
---   2. Supabase dashboard hygiene — every table shows "RLS enabled"
---      and there are no "Public table without RLS" warnings.
---
--- For tables with no GRANT to anon/authenticated, RLS is academic.
--- That's fine — it's free.
+-- Idempotent reinforcement — 20260525064254_capture_rls_auto_enable.sql already
+-- enables RLS on these (and an event trigger enables it on future tables). Kept
+-- here so this file is self-describing about the surface it governs.
 -- =============================================================================
 
 alter table vendors                enable row level security;
@@ -156,18 +174,10 @@ alter table translations           enable row level security;
 -- =============================================================================
 -- STEP 5: SELECTIVE GRANTS + RLS POLICIES
 --
--- For each table, we either:
---   (A) Grant SELECT to anon/authenticated and add an RLS policy to filter
---       which rows are visible (public-read tables), or
---   (B) Grant nothing (admin-only and write-only tables) — PostgREST
---       returns 42501 to any anon/auth request regardless of RLS.
---
--- No INSERT/UPDATE/DELETE grants anywhere. All writes are Worker-only.
---
--- Re-run safety: each `create policy` is preceded by `drop policy if exists`
--- so the script can be re-applied (e.g. after schema changes) without
--- failing on "policy already exists". Postgres has no `create policy if not
--- exists` / `or replace`, so drop-then-create is the canonical pattern.
+-- For each table we either (A) grant SELECT to anon/authenticated and add an
+-- RLS policy filtering visible rows, or (B) grant nothing (PostgREST returns
+-- 42501 regardless of RLS). No INSERT/UPDATE/DELETE grants anywhere — all writes
+-- are Worker-only. (feedback/mailing_list in STEP 3b are the landing exception.)
 -- =============================================================================
 
 
@@ -294,7 +304,7 @@ drop policy if exists "profiles: admin read all" on profiles;
 create policy "profiles: admin read all"
   on profiles
   for select to authenticated
-  using (auth.is_admin());
+  using (public.is_admin());
 
 
 -- ---- Reviews (mixed: anon sees approved, authenticated sees own + approved) -
@@ -313,14 +323,14 @@ create policy "reviews: owner read own"
   for select to authenticated
   using (
     auth.uid() = reviewer_id
-    and auth.is_active_user()
+    and public.is_active_user()
   );
 
 drop policy if exists "reviews: admin read all" on reviews;
 create policy "reviews: admin read all"
   on reviews
   for select to authenticated
-  using (auth.is_admin());
+  using (public.is_admin());
 
 
 -- ---- Stats cache (public-read aggregate) ------------------------------------
@@ -348,87 +358,45 @@ create policy "translations: public read"
 -- =============================================================================
 -- STEP 6: TABLES WITH NO GRANTS (admin-only via Worker)
 --
--- The following tables have NO grants to anon or authenticated. PostgREST
--- requests against them return 42501 insufficient_privilege. RLS policies
--- on these tables exist as belt-and-braces — if a grant gets added by
--- mistake later, the policies still restrict access to admins.
+-- These tables have NO grant to anon or authenticated, so PostgREST returns
+-- 42501 before RLS is consulted. The admin-read policies below are
+-- belt-and-braces: if a grant is ever added by mistake, the policies still
+-- restrict access to admins.
 -- =============================================================================
 
 -- vendor_requests -------------------------------------------------------------
--- No GRANT. RLS policy below is a no-op for PostgREST until grants are added.
 drop policy if exists "vendor_requests: admin read" on vendor_requests;
 create policy "vendor_requests: admin read"
   on vendor_requests
   for select to authenticated
-  using (auth.is_admin());
+  using (public.is_admin());
 
 -- workflow_instances ----------------------------------------------------------
 drop policy if exists "workflow_instances: admin read" on workflow_instances;
 create policy "workflow_instances: admin read"
   on workflow_instances
   for select to authenticated
-  using (auth.is_admin());
+  using (public.is_admin());
 
 -- workflow_transitions --------------------------------------------------------
 drop policy if exists "workflow_transitions: admin read" on workflow_transitions;
 create policy "workflow_transitions: admin read"
   on workflow_transitions
   for select to authenticated
-  using (auth.is_admin());
+  using (public.is_admin());
 
 -- audit_log -------------------------------------------------------------------
 drop policy if exists "audit_log: admin read" on audit_log;
 create policy "audit_log: admin read"
   on audit_log
   for select to authenticated
-  using (auth.is_admin());
+  using (public.is_admin());
 
 -- page_views ------------------------------------------------------------------
 drop policy if exists "page_views: admin read" on page_views;
 create policy "page_views: admin read"
   on page_views
   for select to authenticated
-  using (auth.is_admin());
+  using (public.is_admin());
 
-
--- =============================================================================
--- VERIFICATION QUERIES (run manually after applying)
--- =============================================================================
---
--- Check which tables anon can SELECT from:
---   select table_name, privilege_type
---   from information_schema.role_table_grants
---   where grantee = 'anon' and table_schema = 'public'
---   order by table_name;
---
--- Expected anon SELECT grants:
---   integrations, product_categories, product_disciplines, product_extensions,
---   product_phases, product_vendors, products, reviews, stats_cache,
---   taxonomy_categories, taxonomy_disciplines, taxonomy_phases,
---   translations, vendors
---
--- Expected: NO grants for anon on:
---   audit_log, page_views, profiles, vendor_requests, workflow_instances,
---   workflow_transitions
---
--- Same query for authenticated, expected to include all of anon's grants
--- PLUS profiles. No write grants anywhere.
---
--- =============================================================================
--- INTENTIONAL OMISSIONS
--- =============================================================================
---
--- 1. No INSERT/UPDATE/DELETE grants or policies anywhere.
---    All writes go through the Worker.
---
--- 2. service_role grants are not touched.
---    Service role retains its Supabase defaults so Studio's table editor
---    keeps working.
---
--- 3. handle_new_user() trigger handles profile INSERT.
---    No GRANT or policy needed for that path — it runs as security definer
---    inside Postgres.
---
--- 4. Cascading FKs handle deletion. Account deletion is a single Worker
---    call to Supabase Auth's delete-user API; the DB cascades the rest.
--- =============================================================================
+commit;

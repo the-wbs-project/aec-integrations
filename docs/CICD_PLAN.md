@@ -95,8 +95,24 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 **Job: `unit-tests`** (~3 min)
 1. Checkout, install
 2. `pnpm run test:unit` (Vitest)
-3. Upload coverage to Codecov (or similar)
-4. Fail if coverage drops below threshold
+3. `pnpm -r run test:coverage` as an **advisory, non-blocking** step
+   (`continue-on-error`); uploads the lcov/HTML `coverage` artifact
+4. Coverage is **reported, not gated** — a drop does not fail the job
+   (`TESTING_STRATEGY.md` §3.3). There is no Codecov integration today.
+
+**Job: `integration-db-tests`** (~5 min, AECI-90) — *non-blocking*
+1. Checkout, install, `prisma generate`
+2. Boot a full local Supabase stack on the runner (`supabase start`)
+3. Map `supabase status -o env` → the spec env vars; mint a non-admin
+   `SUPABASE_TEST_USER_JWT`
+4. Run the `apps/api` `src/integration/**` suites (PostgREST RLS deny matrix,
+   auth-user-delete GDPR trigger, idempotent Airtable→Supabase bulk migrate,
+   landing-form RLS, product-count drift, slug backfill) via
+   `test:integration:ci`
+5. Fail on a **0-collected or silently-skipped** result (the suites
+   `describe.skipIf` on env, so a misconfigured job would skip-and-pass). Not in
+   `deploy-staging`'s `needs` yet — promote to a required check once stable. See
+   `TESTING_STRATEGY.md` §6.5.
 
 **Job: `build`** (~3 min)
 1. Checkout, install
@@ -104,7 +120,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 3. Bundle size check against budget (defined in `TESTING_STRATEGY.md`)
 4. Upload build artifact for downstream jobs
 
-**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies `/api/version` reports the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. No Supabase migrations are applied per-PR under the current Option 1 strategy.
+**Per-PR preview deploy** — lives in the separate [`pr-preview.yml`](../.github/workflows/pr-preview.yml) workflow (AECI-79), not as a job in `deploy.yml`. Triggered by `pull_request` (`opened` / `synchronize` / `reopened`); the deploy job builds the SSR Worker, runs `wrangler deploy --env preview --name aeci-web-pr-<N>` with `COMMIT_SHA` + `DEPLOYED_AT` vars, verifies both `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the PR head SHA, and posts a sticky PR comment with the preview URL. The matching `closed` event teardown runs `wrangler delete`. No Supabase migrations are applied per-PR under the current Option 1 strategy.
 
 **Job: `e2e-tests`** (depends on `deploy-preview`, ~5 min)
 1. Wait for preview deployment health check
@@ -152,7 +168,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 **Job: `pre-promotion-checks`**
 1. Validate `confirm == PROMOTE`
 2. Checkout at `inputs.commit_sha`
-3. Assert `staging.aecintegrations.com/api/version` reports the same SHA, else fail with `staging is at <actual>, refusing to promote <input>`
+3. Assert staging reports the same SHA on **both** `staging.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `staging is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
 4. Print `supabase migration list --linked` against prod into the step summary
 
 **Job: `apply-prod-migrations`** (gated by GH Environment `production`)
@@ -164,7 +180,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 1. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 2. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 3. Post Datadog deployment marker (§9.1)
-4. Poll `aecintegrations.com/api/version` until it returns the promoted SHA (60s budget)
+4. Poll both `aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA (60s budget) via `scripts/verify-version.sh`
 5. Write summary (commit, R2 snapshot path, snapshot size, DEPLOYED_AT, actor)
 
 Algolia index updates, release-tag automation, and Slack notifications are out of scope until later epics.
@@ -270,22 +286,37 @@ Migrations are forward-only. No automated rollback. If a migration is bad:
 
 ### 5.4 RLS and GRANT policies
 
-Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) live in `docs/rls_policies.sql`, outside `supabase/migrations/`. They define what PostgREST exposes to the `anon`/`authenticated` roles; the Worker's privileged Postgres role bypasses both. See `docs/AUTH_AND_RLS.md` §1 for the three-layer model.
+Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) — plus the
+`public.is_admin()` / `public.is_active_user()` helpers — ship as a numbered
+migration (`supabase/migrations/20260602051513_rls_grants_and_policies.sql`) as
+of AECI-87. They define what PostgREST exposes to the `anon`/`authenticated`
+roles; the Worker's privileged Postgres role bypasses both. See
+`docs/AUTH_AND_RLS.md` §1 for the three-layer model.
 
-**Apply order (per environment):**
+**Apply order (per environment):** there is no separate apply step — the GRANT/RLS
+surface is part of the migration set, so `supabase db push --linked` (or
+`supabase db reset` locally) installs it alongside the schema, in timestamp
+order. Helpers must live in `public`, not `auth`: the migration role (`postgres`)
+cannot CREATE in the `auth` schema — see `docs/AUTH_AND_RLS.md` §6.1.
 
-1. `pnpm db:push` — apply all pending schema migrations first via `supabase db push --linked`, so every in-scope table exists.
-2. `psql "$DIRECT_URL" -f docs/rls_policies.sql` — (re)apply the RLS + GRANT policies on top.
+**Re-runnability.** The migration is idempotent: every `create policy` is
+preceded by `drop policy if exists`, and the `REVOKE`/`GRANT`/`alter table ...
+enable row level security`/`create or replace function` statements are inherently
+idempotent. (Once recorded in `supabase_migrations`, `supabase db push` skips it;
+a correction is a new forward migration — never edit a merged migration.)
 
-Locally, `pnpm --filter @aeci/api db:apply-rls` runs step 2 with `DIRECT_URL` already loaded from `.dev.vars` via `dotenv-cli`. `psql` must be on `$PATH`.
+**Verification.** Each of `drift-check.yml` (fresh local DB), `refresh-staging.yml`
+(after the migrate step), and `promote-to-prod.yml` (after the prod migrate) runs
+`psql "$URL" -v ON_ERROR_STOP=1 -f scripts/verify-rls.sql` as a hard-stop gate.
+The probe impersonates the PostgREST roles at the SQL layer (`SET ROLE anon`) and
+asserts:
 
-**Re-runnability.** The script is safe to re-run: every `create policy` is preceded by `drop policy if exists`, and the `REVOKE`/`GRANT`/`alter table ... enable row level security`/`create or replace function` statements are inherently idempotent. Re-run after every migration that adds a new public-schema table — `ALTER DEFAULT PRIVILEGES` already locks new tables to anon/auth, but the explicit `enable row level security` and policy definitions in this script only cover the tables it names.
+- the `public.is_admin()` / `public.is_active_user()` helpers exist and are anon-executable;
+- anon CAN `INSERT` into `feedback` / `mailing_list` (the landing carve-out survived the blanket REVOKE);
+- anon `SELECT` on `audit_log`, `profiles`, `vendor_requests`, `workflow_instances`, `workflow_transitions`, `page_views`, `feedback`, `mailing_list` returns `42501 insufficient_privilege`.
 
-**Verification queries** (run after each apply):
-
-- `SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public';` — every in-scope table shows `rowsecurity = true`.
-- The two `role_table_grants` queries documented at the foot of `docs/rls_policies.sql` (see "VERIFICATION QUERIES" comment block) — confirm the expected anon / authenticated grant matrix.
-- PostgREST probes: anon `SELECT` on `audit_log`, `profiles`, `vendor_requests`, `workflow_instances`, `workflow_transitions`, `page_views` must return `42501 insufficient_privilege`. Anon `SELECT` on `taxonomy_categories`, `stats_cache` must return rows.
+Row-filter RLS that depends on a JWT (promoted-only, own-row) is covered by the
+PostgREST integration specs (`apps/api/src/integration/*.rls.spec.ts`).
 
 ---
 
@@ -386,7 +417,7 @@ For the API keys with dev/prod separation (Algolia, Datadog), rotate independent
 Every PR must pass these gates before merge:
 
 - ✓ Lint and type check
-- ✓ Unit test coverage above threshold (target: 70% line coverage)
+- ✓ Unit tests pass
 - ✓ Build succeeds
 - ✓ Bundle size under budget
 - ✓ Preview deploys successfully
@@ -394,6 +425,8 @@ Every PR must pass these gates before merge:
 - ✓ No new accessibility violations (axe-core)
 - ✓ Lighthouse scores meet budget (Performance > 80, Accessibility > 95)
 - ✓ At least one human reviewer approval
+
+Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3), and the `integration-db-tests` suites report red/green without gating the staging deploy until they're promoted to a required check (`TESTING_STRATEGY.md` §6.5).
 
 The "human reviewer" requirement is enforced by GitHub branch protection on `main`.
 

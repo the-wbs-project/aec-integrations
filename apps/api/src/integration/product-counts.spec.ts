@@ -86,6 +86,16 @@ describe.skipIf(!testDbUrl)('product-count reconciliation — integration (AECI-
         },
       ],
     });
+
+    // Establish a correct denormalized baseline. The raw integration/review
+    // inserts above bypass the app-layer recompute (no DB trigger maintains
+    // these columns in Stage 1 — see lib/product-counts.ts), so without this
+    // both A and B would start at the column defaults (0/0/NULL/NULL). B in
+    // particular would then show integration_count drift (stored 0 vs its 2
+    // integrations) and pollute the `before` assertion below. Recompute so the
+    // only drift the test observes is the corruption it deliberately injects
+    // into A.
+    await recomputeProductCounts(prisma as unknown as RecomputeClient, [productAId, productBId]);
   });
 
   afterAll(async () => {

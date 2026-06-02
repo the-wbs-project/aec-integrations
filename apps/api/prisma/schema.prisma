@@ -1,5 +1,6 @@
 // Stage 1 baseline schema. Source of truth: docs/DATABASE_SCHEMA.md §3–§11.
-// Table inventory (for AECI-29 RLS): docs/rls_policies.sql.
+// Table inventory (for AECI-29 RLS): docs/AUTH_AND_RLS.md + the GRANT/RLS
+// migration supabase/migrations/20260602051513_rls_grants_and_policies.sql.
 //
 // Conventions:
 // - snake_case at the DB layer via @map / @@map; PascalCase / camelCase in Prisma.

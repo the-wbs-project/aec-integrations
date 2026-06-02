@@ -78,24 +78,24 @@ describe('ProductCard', () => {
     expect(link?.textContent).toContain('Project Management');
   });
 
-  it('renders an em-dash placeholder when primary_category is null', () => {
+  it('renders an en-dash placeholder when primary_category is null', () => {
     const fixture = setupFixture({ ...baseProduct, primary_category: null });
     const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
       'span[aria-label="No primary category"]',
     );
-    expect(placeholder?.textContent?.trim()).toBe('—');
+    expect(placeholder?.textContent?.trim()).toBe('–');
     // No category link should be rendered.
     expect(
       (fixture.nativeElement as HTMLElement).querySelector('a[href^="/categories/"]'),
     ).toBeNull();
   });
 
-  it('renders an em-dash placeholder when vendor is null (AECI-115 — no /vendors/unknown link)', () => {
+  it('renders an en-dash placeholder when vendor is null (AECI-115, no /vendors/unknown link)', () => {
     const fixture = setupFixture({ ...baseProduct, vendor: null });
     const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
       'span[aria-label="No vendor listed"]',
     );
-    expect(placeholder?.textContent?.trim()).toBe('—');
+    expect(placeholder?.textContent?.trim()).toBe('–');
     // No vendor link should be rendered.
     expect((fixture.nativeElement as HTMLElement).querySelector('a[href^="/vendors/"]')).toBeNull();
   });

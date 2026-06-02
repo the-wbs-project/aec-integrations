@@ -35,14 +35,14 @@ function detailApp(prisma: MockAcceleratedPrisma) {
 }
 
 describe('GET /api/integrations', () => {
-  it('default sort is `name ASC` per §7.4', async () => {
+  it('default sort is `name ASC` per §7.4, with the AECI-99 `id` tiebreaker', async () => {
     const prisma = makeMockAcceleratedPrisma({
       integration: { findMany: allIntegrationRows, count: allIntegrationRows.length },
     });
     await listApp(prisma).request('/api/integrations', {}, TEST_ENV, fakeExecutionContext());
 
     const call = prisma.integration.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual({ name: 'asc' });
+    expect(call.orderBy).toEqual([{ name: 'asc' }, { id: 'asc' }]);
   });
 
   it('synthesizes `Source → Target` for rows with null `name`', async () => {

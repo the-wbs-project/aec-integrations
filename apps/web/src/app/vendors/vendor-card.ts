@@ -41,7 +41,7 @@ import type { VendorListItem } from '@aeci/shared';
           i18n="@@vendors.card.hq.none"
           i18n-aria-label="@@vendors.card.hq.none.aria"
           aria-label="Headquarters not listed"
-          >—</span
+          >–</span
         >
       }
     </td>
@@ -54,7 +54,7 @@ import type { VendorListItem } from '@aeci/shared';
           i18n="@@vendors.card.founded.none"
           i18n-aria-label="@@vendors.card.founded.none.aria"
           aria-label="Founded year not listed"
-          >—</span
+          >–</span
         >
       }
     </td>

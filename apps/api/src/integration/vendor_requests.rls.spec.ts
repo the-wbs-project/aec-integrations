@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 // AECI-48 acceptance criterion: anon and authenticated PostgREST roles must
 // not be able to SELECT, INSERT, UPDATE, or DELETE on vendor_requests.
 //
-// The table is in the "no GRANT" bucket (docs/rls_policies.sql §STEP 6), so
+// The table is in the "no GRANT" bucket (STEP 6 of the migration
+// supabase/migrations/20260602051513_rls_grants_and_policies.sql), so
 // PostgREST rejects every verb before RLS is even consulted. We assert any
 // of 401 / 403 / 404 — PostgREST may return 404 when the table is fully
 // hidden from a role; all three satisfy "no access".

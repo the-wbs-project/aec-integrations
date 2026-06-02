@@ -1,10 +1,9 @@
-import { provideHttpClient } from '@angular/common/http';
-import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
-import { Router, provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { IntegrationsListResponse } from '@aeci/shared';
+
+import { createIndexSetup, registerIndexCommonCases } from '../core/testing/index-page.harness';
 
 import { IntegrationsIndex } from './integrations-index';
 
@@ -29,51 +28,29 @@ const fixtureResponse: IntegrationsListResponse = {
   total: 1,
 };
 
-function setup() {
-  TestBed.configureTestingModule({
-    providers: [
-      provideHttpClient(),
-      provideHttpClientTesting(),
-      provideRouter([{ path: 'integrations', component: IntegrationsIndex }]),
-    ],
-  });
-  const httpMock = TestBed.inject(HttpTestingController);
-  const router = TestBed.inject(Router);
-  return { httpMock, router };
-}
+// The four cases common to all three index pages live in `index-page.harness.ts`
+// (AECI-113). Integration defaults to sort=name and has source/target filtering
+// that products/vendors lack, so its sort/header + filter cases stay here.
+registerIndexCommonCases({
+  describeName: 'IntegrationsIndex',
+  component: IntegrationsIndex,
+  routePath: 'integrations',
+  apiUrl: '/api/integrations',
+  defaultSort: 'name',
+  h1Text: 'Integrations',
+  detailHref: '/integrations/00000000-0000-4000-8000-000000030001',
+  emptyText: 'No integrations match',
+  errorText: "Couldn't load integrations",
+  fixtureResponse,
+});
 
-describe('IntegrationsIndex', () => {
+describe('IntegrationsIndex — sort header + source/target filters', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
   });
 
-  it('fetches /api/integrations with default page=1 / perPage=24 / sort=name on init', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/integrations');
-    const fixture = TestBed.createComponent(IntegrationsIndex);
-    fixture.detectChanges();
-
-    const req = httpMock.expectOne(
-      (request) =>
-        request.url === '/api/integrations' &&
-        request.params.get('page') === '1' &&
-        request.params.get('perPage') === '24' &&
-        request.params.get('sort') === 'name',
-    );
-    expect(req.request.method).toBe('GET');
-    req.flush(fixtureResponse);
-
-    fixture.detectChanges();
-    const root = fixture.nativeElement as HTMLElement;
-    expect(root.querySelector('h1')?.textContent).toContain('Integrations');
-    expect(
-      root.querySelector('a[href="/integrations/00000000-0000-4000-8000-000000030001"]'),
-    ).not.toBeNull();
-    httpMock.verify();
-  });
-
   it('defaults the Name column header to ascending and active', async () => {
-    const { httpMock, router } = setup();
+    const { httpMock, router } = createIndexSetup(IntegrationsIndex, 'integrations');
     await router.navigateByUrl('/integrations');
     const fixture = TestBed.createComponent(IntegrationsIndex);
     fixture.detectChanges();
@@ -86,18 +63,8 @@ describe('IntegrationsIndex', () => {
     httpMock.verify();
   });
 
-  it('falls back to sort=name when the URL carries an unknown sort key', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/integrations?sort=banana');
-    const fixture = TestBed.createComponent(IntegrationsIndex);
-    fixture.detectChanges();
-
-    httpMock.expectOne((r) => r.params.get('sort') === 'name').flush(fixtureResponse);
-    httpMock.verify();
-  });
-
   it('passes ?sourceProductId / ?targetProductId from the URL through to the API request', async () => {
-    const { httpMock, router } = setup();
+    const { httpMock, router } = createIndexSetup(IntegrationsIndex, 'integrations');
     await router.navigateByUrl(
       `/integrations?sourceProductId=${PRODUCT_UUID}&targetProductId=${PRODUCT_UUID}`,
     );
@@ -115,7 +82,7 @@ describe('IntegrationsIndex', () => {
   });
 
   it('applying a raw UUID in the source filter updates ?sourceProductId without a slug lookup', async () => {
-    const { httpMock, router } = setup();
+    const { httpMock, router } = createIndexSetup(IntegrationsIndex, 'integrations');
     await router.navigateByUrl('/integrations');
     const fixture = TestBed.createComponent(IntegrationsIndex);
     fixture.detectChanges();
@@ -136,7 +103,7 @@ describe('IntegrationsIndex', () => {
   });
 
   it('applying a slug in the source filter resolves it via /api/products/:slug then filters by the id', async () => {
-    const { httpMock, router } = setup();
+    const { httpMock, router } = createIndexSetup(IntegrationsIndex, 'integrations');
     await router.navigateByUrl('/integrations');
     const fixture = TestBed.createComponent(IntegrationsIndex);
     fixture.detectChanges();
@@ -163,7 +130,7 @@ describe('IntegrationsIndex', () => {
   });
 
   it('shows a no-match message and drops the filter when a slug does not resolve', async () => {
-    const { httpMock, router } = setup();
+    const { httpMock, router } = createIndexSetup(IntegrationsIndex, 'integrations');
     await router.navigateByUrl('/integrations');
     const fixture = TestBed.createComponent(IntegrationsIndex);
     fixture.detectChanges();
@@ -194,7 +161,7 @@ describe('IntegrationsIndex', () => {
   });
 
   it('shows the error row (not a no-match message) when the slug lookup returns a 500', async () => {
-    const { httpMock, router } = setup();
+    const { httpMock, router } = createIndexSetup(IntegrationsIndex, 'integrations');
     await router.navigateByUrl('/integrations');
     const fixture = TestBed.createComponent(IntegrationsIndex);
     fixture.detectChanges();
@@ -224,41 +191,6 @@ describe('IntegrationsIndex', () => {
     expect(errorRow?.textContent).toContain("Couldn't load integrations");
     // URL must not have gained a filter param.
     expect(router.url).not.toContain('sourceProductId');
-    httpMock.verify();
-  });
-
-  it('shows the empty state when the API returns zero integrations', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/integrations');
-    const fixture = TestBed.createComponent(IntegrationsIndex);
-    fixture.detectChanges();
-
-    httpMock
-      .expectOne((r) => r.url === '/api/integrations')
-      .flush({ data: [], page: 1, perPage: 24, total: 0 });
-    fixture.detectChanges();
-
-    const emptyRow = (fixture.nativeElement as HTMLElement).querySelector('tbody td');
-    expect(emptyRow?.textContent).toContain('No integrations match');
-    httpMock.verify();
-  });
-
-  it('renders the error row when the request fails', async () => {
-    const { httpMock, router } = setup();
-    await router.navigateByUrl('/integrations');
-    const fixture = TestBed.createComponent(IntegrationsIndex);
-    fixture.detectChanges();
-
-    httpMock
-      .expectOne((r) => r.url === '/api/integrations')
-      .flush(
-        { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
-        { status: 500, statusText: 'Server Error' },
-      );
-    fixture.detectChanges();
-
-    const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
-    expect(errorRow?.textContent).toContain("Couldn't load integrations");
     httpMock.verify();
   });
 });

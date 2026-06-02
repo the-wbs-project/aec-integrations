@@ -30,8 +30,6 @@ import {
   toVendorListItem,
   vendorDetailSelect,
   vendorListSelect,
-  type RawVendorDetailRow,
-  type RawVendorListRow,
 } from '../lib/prisma-helpers';
 import { resolveVendorSort } from '../lib/sort';
 import { getPrisma } from '../prisma';
@@ -55,7 +53,7 @@ export function createVendorsListHandler(
         skip: (query.page - 1) * query.perPage,
         take: query.perPage,
         select: vendorListSelect,
-      }) as unknown as Promise<RawVendorListRow[]>,
+      }),
       prisma.vendor.count({ where }),
     ]);
 
@@ -84,10 +82,10 @@ export function createVendorDetailHandler(
     }
 
     const prisma = prismaFor(c.env);
-    const row = (await prisma.vendor.findUnique({
+    const row = await prisma.vendor.findUnique({
       where: { slug },
       select: vendorDetailSelect,
-    })) as unknown as RawVendorDetailRow | null;
+    });
 
     if (!row) throw notFoundError('vendor', { slug });
 

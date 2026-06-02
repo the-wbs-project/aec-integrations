@@ -44,7 +44,7 @@ test.describe('vendor detail — 404 path', () => {
     expect(res?.status()).toBe(404);
 
     // Eyebrow + headline from `not-found.ts` (AECI-62).
-    await expect(page.getByText('404 — Not found', { exact: true })).toBeVisible();
+    await expect(page.getByText('404: Not found', { exact: true })).toBeVisible();
     await expect(page.getByRole('heading', { name: "We couldn't find that page." })).toBeVisible();
 
     // The four AC-pinned recovery links live inside the 404 shell's directory
@@ -93,7 +93,7 @@ test.describe('vendor detail — placeholder CTA routes (Phase 6 stubs)', () => 
   test('GET /vendors/<slug>/claim renders the Coming-Soon panel', async ({ page }) => {
     await page.goto('/vendors/anything/claim');
     await expect(page.getByText('Claim this listing', { exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Coming soon — Phase 6.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Coming soon (Phase 6).' })).toBeVisible();
     await expect(page.getByRole('link', { name: '← Back to vendor' })).toHaveAttribute(
       'href',
       /\/vendors\/anything$/,
@@ -108,7 +108,7 @@ test.describe('vendor detail — placeholder CTA routes (Phase 6 stubs)', () => 
   test('GET /vendors/<slug>/correction renders the Coming-Soon panel', async ({ page }) => {
     await page.goto('/vendors/anything/correction');
     await expect(page.getByText('Suggest a correction', { exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Coming soon — Phase 6.' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Coming soon (Phase 6).' })).toBeVisible();
   });
 
   test('GET /vendors/<slug>/correction ships noindex robots meta', async ({ request }) => {

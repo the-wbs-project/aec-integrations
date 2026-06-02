@@ -14,7 +14,7 @@ Write a migration when any of these change in Postgres:
 
 - A table, column, index, constraint, trigger, or sequence.
 - A function, view, or extension.
-- An RLS policy that lives **inside** a migration (note: most policies in this repo live in `docs/rls_policies.sql`, applied separately via `pnpm --filter @aeci/api db:apply-rls`; see [§5](#5-rls-and-the-public-schema)).
+- An RLS policy, PostgREST GRANT, or `is_admin()`/`is_active_user()`-style helper. As of AECI-87 the whole authorization surface lives in numbered migrations (see [§5](#5-rls-and-the-public-schema)); there is no separate apply step.
 - A row in a config-shaped table that staging and production must both have (rare — generally use Airtable curator sync per `docs/DATABASE_SCHEMA.md` §13).
 
 **Don't** write a migration for:
@@ -93,10 +93,8 @@ pnpm db:new add_vendor_logo_column
 # Open the new file under supabase/migrations/, write the SQL.
 
 # Reset local DB to a clean state, apply ALL migrations + seed.sql
+# (the GRANT/RLS surface is itself a migration — see §5 — so this is all it takes)
 pnpm db:reset
-
-# Apply RLS policies on top (these live outside migrations — see §5)
-pnpm --filter @aeci/api db:apply-rls
 
 # Smoke-test against the now-baselined local DB
 pnpm --filter @aeci/api test:integration
@@ -111,12 +109,20 @@ A migration is "ready" when `pnpm db:reset` applies it without errors *from scra
 
 ## 5. RLS and the `public` schema
 
-RLS in this repo is split across two locations:
+As of AECI-87, the **entire** PostgREST authorization surface lives in
+`supabase/migrations/`, so `supabase db push` / `db reset` apply it to every
+environment — there is no separate apply step:
 
-- **`supabase/migrations/`** owns the `ensure_rls` event trigger and `public.rls_auto_enable()` function — they make every newly-created public table RLS-enabled by default (see `20260525064254_capture_rls_auto_enable.sql`).
-- **`docs/rls_policies.sql`** owns the actual policy bodies and PostgREST GRANTs. Apply with `pnpm --filter @aeci/api db:apply-rls` after every migration that adds a new public-schema table. The script is idempotent (`DROP POLICY IF EXISTS` + `CREATE POLICY`).
+- **`20260525064254_capture_rls_auto_enable.sql`** owns the `ensure_rls` event trigger and `public.rls_auto_enable()` function — they make every newly-created public table RLS-enabled by default.
+- **`20260602051513_rls_grants_and_policies.sql`** owns the policy bodies, the PostgREST GRANTs, and the `public.is_admin()` / `public.is_active_user()` helpers. It is idempotent (`DROP POLICY IF EXISTS` + `CREATE POLICY`, `CREATE OR REPLACE FUNCTION`, idempotent REVOKE/GRANT).
 
-The three-layer model is in `docs/AUTH_AND_RLS.md` §1. Don't put policy bodies in migration files unless they are tightly scoped to a single feature being added in the same PR — even then, prefer the central `rls_policies.sql` and update it alongside the migration.
+The three-layer model is in `docs/AUTH_AND_RLS.md` §1. When a migration adds a
+new public-schema table that PostgREST should expose, add its GRANT + policy to
+a new migration (or alongside the table's migration) and add a deny/allow
+assertion to `scripts/verify-rls.sql` (run by `drift-check.yml` and the
+refresh/promote workflows). Helpers must live in `public`, not `auth` — the
+migration role (`postgres`) cannot CREATE in the `auth` schema; see
+`docs/AUTH_AND_RLS.md` §6.1.
 
 ---
 
@@ -126,7 +132,7 @@ Single PR contains:
 
 - The migration file(s) under `supabase/migrations/`.
 - Any corresponding update to `docs/DATABASE_SCHEMA.md` (the source of truth for table inventory and column intent).
-- Any `docs/rls_policies.sql` change if the migration adds a public-schema table.
+- A GRANT + RLS policy migration (and a `scripts/verify-rls.sql` assertion) if the change adds a public-schema table PostgREST should expose.
 - Any `schema.prisma` model change so the generated client mirrors the migration.
 
 PR review verifies these are all aligned. CI applies the migration to staging at merge-to-main; production application requires a separate approval (see `docs/CICD_PLAN.md` §5 — wiring deferred to AECI-71).
@@ -155,7 +161,7 @@ When AECI-71 lands, this section will reference `docs/CICD_PLAN.md` §5 for the 
 The two-URL split in `docs/DATABASE_SCHEMA.md` §1a still holds:
 
 - **`DATABASE_URL`** — Prisma Accelerate `prisma://` URL, read by the Worker runtime (and by `prisma generate`). Never used by the Supabase CLI.
-- **`DIRECT_URL`** — Supabase pooler `postgresql://` URL. Used by `supabase db push`, `supabase db pull`, `supabase db diff`. Not bound to the Worker. The local-dev fallback for `db:apply-rls` connects through Docker to the local container directly and doesn't read either.
+- **`DIRECT_URL`** — Supabase pooler `postgresql://` URL. Used by `supabase db push`, `supabase db pull`, `supabase db diff`. Not bound to the Worker.
 
 The CLI's link state (project ref, pooler URL, db password if cached) lives under `supabase/.temp/` and is gitignored.
 
@@ -165,6 +171,6 @@ The CLI's link state (project ref, pooler URL, db password if cached) lives unde
 
 - **Editing a migration after merge.** Never. Write a new forward migration.
 - **Forgetting to update `schema.prisma`.** Causes type drift between the typed client and the actual DB shape. Run `pnpm db:pull` after every `pnpm db:reset` — it introspects local and regenerates the client. See `docs/prisma.md` §3. PR reviewer should also catch this.
-- **Putting RLS policy bodies in a migration.** Spreads policy definitions across multiple files. Keep them in `docs/rls_policies.sql`.
+- **Creating authz helpers in the `auth` schema.** `auth.is_admin()` etc. fail to apply under `supabase db push` (the `postgres` migration role has no CREATE on `auth`). Put helpers in `public` — see `docs/AUTH_AND_RLS.md` §6.1.
 - **Running `supabase db push --linked` from a feature branch against staging or prod.** That's an out-of-band write; only the AECI-71 CI flow should do that (when wired).
 - **Running `supabase migration repair`.** Only useful when reconciling a brand-new project's empty history with a repo that already has migrations. Don't repair against shared staging or prod without coordination.

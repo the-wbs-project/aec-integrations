@@ -9,10 +9,14 @@
  * §9.1b, §7a.3, §7a.3a) govern this module. Get either wrong and the
  * production edge cache breaks in ways that are hard to detect from staging:
  *
- *   1. The edge cache is keyed by URL only (Cloudflare Pro — no `Vary`, no
- *      cache-tag). If SSR reads a per-visitor cookie (e.g. `theme=dark`) and
- *      bakes the result into HTML, the first visitor's render is served to
- *      everyone. So: on the cacheable branch, strip visitor-state cookies
+ *   1. The edge cache is keyed by URL only — Cloudflare Pro does not fold the
+ *      `Vary` or `Cache-Tag` headers into the cache key. We emit both (a
+ *      `Vary: Accept-Language` advertisement and per-route tags), but the key
+ *      stays URL-only, so the locale Vary can't fragment it (see §7 and
+ *      `server/seo-headers.ts`). If SSR reads a per-visitor cookie (e.g.
+ *      `theme=dark`) and bakes the result into HTML, the first visitor's
+ *      render is served to everyone. So: on the cacheable branch, strip
+ *      visitor-state cookies
  *      *before* invoking SSR; the client reconciles theme post-hydration from
  *      `localStorage` + `matchMedia`.
  *
@@ -59,7 +63,9 @@ import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
+import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
+import { createVersionHandler } from './server/routes/version';
 import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
 
 export type Bindings = WebEnv;
@@ -182,6 +188,14 @@ export const CACHE_TAG_NOT_FOUND = 'route:404';
 type RoutePattern = {
   match: (path: string) => boolean;
   ttl: CacheTtl;
+  // AECI-100 — query params that genuinely affect this route's rendered HTML.
+  // The edge cache key keeps only these (canonically ordered) and drops
+  // everything else (utm_*, fbclid, …). Omitted ⇒ the route is
+  // query-independent and the cache key strips the query string entirely.
+  // This list MUST be a superset of every param the page component reads from
+  // the URL — under-including collapses distinct renders onto one key and
+  // serves wrong HTML. See docs/CACHE_STRATEGY.md §"Cache key normalization".
+  cacheKeyParams?: readonly string[];
 };
 
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
@@ -201,9 +215,23 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // TTL is fine because the routes also carry `index:<entity>` tags that the
   // /admin/purge endpoint can invalidate on writes; the browser is told to
   // refetch on every navigation so users always see fresh server HTML.
+  //
+  // AECI-100 — products/vendors read `page` + `sort` from the URL; integrations
+  // additionally read `sourceProductId` + `targetProductId`. The combined entry
+  // was split so integrations can declare its extra filter params without
+  // over-permitting products/vendors (same TTL, so behavior is unchanged).
+  // `perPage` is the canonical pagination param (packages/shared PageQuerySchema)
+  // — listed for forward-safety even though components currently hardcode the
+  // default. Keep these lists in sync with the index components' queryParam reads.
   {
-    match: (p) => p === '/products' || p === '/vendors' || p === '/integrations',
+    match: (p) => p === '/products' || p === '/vendors',
     ttl: { edge: 300, browser: 0 },
+    cacheKeyParams: ['page', 'perPage', 'sort'],
+  },
+  {
+    match: (p) => p === '/integrations',
+    ttl: { edge: 300, browser: 0 },
+    cacheKeyParams: ['page', 'perPage', 'sort', 'sourceProductId', 'targetProductId'],
   },
   // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index
   // are `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav),
@@ -242,6 +270,29 @@ export function cacheControlForRoute(url: URL): CacheTtl | null {
  */
 export function isCacheableRoute(url: URL): boolean {
   return cacheControlForRoute(url) !== null;
+}
+
+/**
+ * Canonical edge-cache key for a request (AECI-100). Drops marketing/tracking
+ * query params (`utm_*`, `fbclid`, …) so query-independent pages share one
+ * cache entry, and keeps only the content-affecting params declared per route
+ * in `ROUTE_CACHE_PATTERNS`, in a canonical order so param ordering doesn't
+ * fork the key. Origin and pathname (including any locale prefix) are preserved
+ * verbatim — locale variance is already segmented by URL prefix, so the key
+ * must keep it. A path with no matching pattern (or no `cacheKeyParams`) yields
+ * the bare `origin + pathname`, the safe "strip everything" default.
+ */
+export function cacheKeyUrl(url: URL): string {
+  const { path } = stripLocalePrefix(url.pathname);
+  const allowed = ROUTE_CACHE_PATTERNS.find((pattern) => pattern.match(path))?.cacheKeyParams ?? [];
+  const key = new URL(url.origin + url.pathname);
+  for (const name of allowed) {
+    for (const value of url.searchParams.getAll(name)) {
+      key.searchParams.append(name, value);
+    }
+  }
+  key.searchParams.sort(); // ?sort=name&page=2 and ?page=2&sort=name → one key
+  return key.toString();
 }
 
 export function buildCacheControl(ttl: CacheTtl): string {
@@ -316,10 +367,12 @@ function withCacheHeaders(
   if (is404) {
     headers.set('Cache-Tag', CACHE_TAG_NOT_FOUND);
   }
-  // Belt-and-braces: never let an upstream Vary slip through on a cacheable
-  // response — it fragments the edge cache and breaks purge-by-URL (§7a.3,
-  // §9.3). Locale is segmented by URL prefix, visitor state is client-only.
-  headers.delete('Vary');
+  // SEO/security header set (AECI-89 / §7, §8.6): `Vary: Accept-Language`,
+  // `Link: </sitemap.xml>; rel=sitemap`, and the Content-Security-Policy. The
+  // Vary handling is delete-then-set — any upstream `Cookie`/`User-Agent` Vary
+  // is stripped (those fragment the edge cache with no purge handle) while the
+  // URL-segmented locale dimension is advertised.
+  applySeoHeaders(headers);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
@@ -483,7 +536,9 @@ async function handleSsr(
   // resolver never runs, so we synthesize a minimal `{ route }` payload; on
   // MISS a resolver may attach a richer payload via `reqCtx.pageView`.
   const cache = getEdgeCache();
-  const cacheKey = new Request(url.toString(), { method: 'GET' });
+  // AECI-100 — normalize the key so `?utm_*`/`?fbclid` don't fragment the cache
+  // for query-independent pages. Built once and reused for match + put below.
+  const cacheKey = new Request(cacheKeyUrl(url), { method: 'GET' });
   if (cache) {
     const hit = await cache.match(cacheKey);
     if (hit) {
@@ -592,6 +647,13 @@ export function createApp(options: {
       },
     });
   });
+
+  // GET /_version — the SSR Worker's OWN build metadata (AECI-92). Served here,
+  // NOT proxied: `/api/version` forwards raw to the API Worker and so only ever
+  // reports the API Worker's SHA. This route reports the SSR Worker's
+  // `COMMIT_SHA` so CI can verify the SSR bundle is current independently of the
+  // API deploy. `private, no-store` (set in the handler), no `Cache-Tag`.
+  app.get('/_version', createVersionHandler());
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {

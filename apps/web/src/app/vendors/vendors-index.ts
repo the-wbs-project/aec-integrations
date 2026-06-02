@@ -95,7 +95,7 @@ function parseSort(raw: string | null): SortKey {
         </h1>
         @if (data(); as response) {
           <p class="text-(--text-secondary)" i18n="@@vendors.index.lede">
-            Every AEC software vendor indexed on AEC Integrations — {{ response.total }} in total.
+            Every AEC software vendor indexed on AEC Integrations ({{ response.total }} in total).
           </p>
         } @else {
           <p class="text-(--text-secondary)" i18n="@@vendors.index.lede.loading">
@@ -209,7 +209,7 @@ export class VendorsIndex implements OnInit {
     this.meta.setEntityMeta({
       entity: 'index',
       name: $localize`:@@vendors.index.metaName:Vendors`,
-      description: $localize`:@@vendors.index.metaDescription:The directory of every AEC software vendor on AEC Integrations — sortable by name, recency, and last update.`,
+      description: $localize`:@@vendors.index.metaDescription:The directory of every AEC software vendor on AEC Integrations. Sortable by name, recency, and last update.`,
       canonical: 'https://aecintegrations.com/vendors',
     });
 

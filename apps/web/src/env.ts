@@ -49,6 +49,15 @@ export type WebEnv = {
    * the API Worker's `/api/version` convention (AECI-119).
    */
   ENV?: 'development' | 'preview' | 'staging' | 'production';
+  /**
+   * Build metadata for `GET /_version` (AECI-92), injected via `wrangler --var`
+   * at deploy/dev time. Optional so the handler returns sentinels (`unknown` /
+   * epoch) rather than throwing when no `--var` flag is passed (bare
+   * `wrangler dev`, tests). Mirrors the API Worker's `COMMIT_SHA`/`DEPLOYED_AT`
+   * (`apps/api/src/env.ts`) so both Workers report the same shape.
+   */
+  COMMIT_SHA?: string;
+  DEPLOYED_AT?: string;
   DD_APPLICATION_ID?: string;
   DD_CLIENT_TOKEN?: string;
   DD_API_KEY?: string;

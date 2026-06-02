@@ -64,19 +64,19 @@ describe('IntegrationCard', () => {
     expect(cells[2]?.textContent).toContain('Bidirectional');
   });
 
-  it('renders an em-dash placeholder when direction is null', () => {
+  it('renders an en-dash placeholder when direction is null', () => {
     const fixture = setupFixture({ ...baseIntegration, direction: null });
     const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
       'span[aria-label="Direction not listed"]',
     );
-    expect(placeholder?.textContent?.trim()).toBe('—');
+    expect(placeholder?.textContent?.trim()).toBe('–');
   });
 
-  it('renders an em-dash placeholder when mechanism_kind is null (AECI-115 — no native fallback)', () => {
+  it('renders an en-dash placeholder when mechanism_kind is null (AECI-115, no native fallback)', () => {
     const fixture = setupFixture({ ...baseIntegration, mechanism_kind: null });
     const placeholder = (fixture.nativeElement as HTMLElement).querySelector(
       'span[aria-label="Mechanism not listed"]',
     );
-    expect(placeholder?.textContent?.trim()).toBe('—');
+    expect(placeholder?.textContent?.trim()).toBe('–');
   });
 });
