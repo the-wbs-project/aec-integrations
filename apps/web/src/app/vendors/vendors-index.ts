@@ -1,62 +1,31 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
-import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  OnInit,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { combineLatest, of } from 'rxjs';
-import { catchError, switchMap, tap } from 'rxjs/operators';
+import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { RouterLink } from '@angular/router';
 
 import type { VendorsListResponse } from '@aeci/shared';
 
-import { MetaService } from '../core/meta.service';
 import { IndexLayout } from '../layouts/index-layout';
 import { Paginator } from '../products/paginator';
 import { SortableColumnHeader } from '../products/sortable-column-header';
+import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
 
 import { VendorCard } from './vendor-card';
 
-type SortKey = 'created' | 'name' | 'updated';
-
-const DEFAULT_PER_PAGE = 24;
-const DEFAULT_SORT: SortKey = 'created';
-const VALID_SORTS: ReadonlySet<SortKey> = new Set(['created', 'name', 'updated']);
-
-function parsePage(raw: string | null): number {
-  const parsed = raw === null ? 1 : Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
-}
-
-function parseSort(raw: string | null): SortKey {
-  if (raw && (VALID_SORTS as Set<string>).has(raw)) return raw as SortKey;
-  return DEFAULT_SORT;
-}
-
 /**
- * Phase 2.13 (AECI-59) — paginated vendor index. Renders the directory as a
- * sortable table inside `IndexLayout`, fetches data from the private API
- * via the service-binding-proxied `/api/vendors` path, and updates the URL
- * (`?page=`, `?sort=`) on every interaction so deep links and the browser
- * back/forward buttons work without extra state.
+ * Phase 2.13 (AECI-59) paginated vendor index. Renders the directory as a
+ * sortable table inside `IndexLayout`. The fetch/sort/pagination/error pipeline
+ * lives in the shared `createPaginatedIndex` controller (AECI-107); this
+ * component supplies only the API path, response type, sort config, SEO meta,
+ * and the per-entity template (column headers, row card, and `@@vendors.*`
+ * i18n ids).
  *
- * Default sort: `created DESC` per Phase 2 Spec §7.4. The server resolves
- * the direction from the key; this page only sends a key. `perPage` is
- * fixed at 24 (Spec §7.1 example) and is hard-clamped at 100 server-side.
+ * Default sort: `created DESC` per Phase 2 Spec section 7.4. `perPage` is fixed
+ * at 24 (Spec section 7.1) and hard-clamped at 100 server-side.
  *
  * SSR: cached for 5 minutes at the edge with `Cache-Tag: route:index,
  * index:vendors` (set by the SSR Worker via `cacheTagInputsForPath`). The
  * `withHttpTransferCacheOptions` in `app.config.ts` serializes the
  * `/api/vendors` response into the rendered HTML so the client doesn't
  * re-fetch on hydration.
- *
- * MetaService: `entity: 'index'` produces the title `Vendors — AEC
- * Integrations` and `og:type=website`.
  */
 @Component({
   selector: 'app-vendors-index',
@@ -93,7 +62,7 @@ function parseSort(raw: string | null): SortKey {
         >
           Vendors
         </h1>
-        @if (data(); as response) {
+        @if (idx.data(); as response) {
           <p class="text-(--text-secondary)" i18n="@@vendors.index.lede">
             Every AEC software vendor indexed on AEC Integrations ({{ response.total }} in total).
           </p>
@@ -109,10 +78,10 @@ function parseSort(raw: string | null): SortKey {
           <aec-sortable-column-header
             key="name"
             direction="ascending"
-            [currentSort]="sort()"
+            [currentSort]="idx.sort()"
             label="Name"
             i18n-label="@@vendors.index.col.name"
-            (sortChange)="onSortChange($event)"
+            (sortChange)="idx.onSortChange($event)"
           />
           <th
             scope="col"
@@ -139,7 +108,7 @@ function parseSort(raw: string | null): SortKey {
       </ng-container>
 
       <ng-container slot="table-body">
-        @if (data(); as response) {
+        @if (idx.data(); as response) {
           @for (vendor of response.data; track vendor.id) {
             <tr aec-vendor-card [vendor]="vendor"></tr>
           } @empty {
@@ -153,7 +122,7 @@ function parseSort(raw: string | null): SortKey {
               </td>
             </tr>
           }
-        } @else if (error()) {
+        } @else if (idx.error()) {
           <tr>
             <td
               colspan="4"
@@ -177,86 +146,28 @@ function parseSort(raw: string | null): SortKey {
       </ng-container>
 
       <ng-container slot="pagination">
-        @if (data(); as response) {
+        @if (idx.data(); as response) {
           <aec-paginator
             [page]="response.page"
             [perPage]="response.perPage"
             [total]="response.total"
-            (pageChange)="onPageChange($event)"
+            (pageChange)="idx.onPageChange($event)"
           />
         }
       </ng-container>
     </aec-index-layout>
   `,
 })
-export class VendorsIndex implements OnInit {
-  private readonly http = inject(HttpClient);
-  private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
-  private readonly meta = inject(MetaService);
-  private readonly destroyRef = inject(DestroyRef);
-
-  protected readonly data = signal<VendorsListResponse | null>(null);
-  protected readonly error = signal<unknown>(null);
-
-  private readonly pageSig = signal(1);
-  private readonly sortSig = signal<SortKey>(DEFAULT_SORT);
-
-  /** Current sort key (for the column header active state). */
-  protected readonly sort = computed(() => this.sortSig());
-
-  ngOnInit(): void {
-    this.meta.setEntityMeta({
+export class VendorsIndex {
+  protected readonly idx = createPaginatedIndex<VendorsListResponse>({
+    apiPath: '/api/vendors',
+    validSorts: new Set(['created', 'name', 'updated']),
+    defaultSort: 'created',
+    meta: {
       entity: 'index',
       name: $localize`:@@vendors.index.metaName:Vendors`,
       description: $localize`:@@vendors.index.metaDescription:The directory of every AEC software vendor on AEC Integrations. Sortable by name, recency, and last update.`,
       canonical: 'https://aecintegrations.com/vendors',
-    });
-
-    // Drive the fetch from the URL: any time `?page=` or `?sort=` changes,
-    // re-fetch. Hydration: the SSR transfer cache (configured in
-    // `app.config.ts`) serves the initial response without a second hop.
-    combineLatest([this.route.queryParamMap])
-      .pipe(
-        tap(([params]) => {
-          this.pageSig.set(parsePage(params.get('page')));
-          this.sortSig.set(parseSort(params.get('sort')));
-          this.error.set(null);
-          this.data.set(null);
-        }),
-        switchMap(([params]) => {
-          const httpParams = new HttpParams()
-            .set('page', String(parsePage(params.get('page'))))
-            .set('perPage', String(DEFAULT_PER_PAGE))
-            .set('sort', parseSort(params.get('sort')));
-          return this.http.get<VendorsListResponse>('/api/vendors', { params: httpParams }).pipe(
-            catchError((err: unknown) => {
-              this.error.set(err);
-              return of(null);
-            }),
-          );
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((response) => {
-        if (response) this.data.set(response);
-      });
-  }
-
-  protected onSortChange(key: string): void {
-    if (!(VALID_SORTS as Set<string>).has(key)) return;
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { sort: key, page: 1 },
-      queryParamsHandling: 'merge',
-    });
-  }
-
-  protected onPageChange(page: number): void {
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { page },
-      queryParamsHandling: 'merge',
-    });
-  }
+    },
+  });
 }

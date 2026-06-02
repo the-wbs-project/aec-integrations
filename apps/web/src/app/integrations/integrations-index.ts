@@ -1,76 +1,47 @@
-import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
-import {
-  ChangeDetectionStrategy,
-  Component,
-  DestroyRef,
-  OnInit,
-  computed,
-  inject,
-  signal,
-} from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { combineLatest, firstValueFrom, of } from 'rxjs';
-import { catchError, switchMap, tap } from 'rxjs/operators';
+import { HttpClient, HttpErrorResponse } from '@angular/common/http';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
+import { firstValueFrom } from 'rxjs';
 
 import type { IntegrationsListResponse } from '@aeci/shared';
 
-import { MetaService } from '../core/meta.service';
 import { IndexLayout } from '../layouts/index-layout';
 import { Paginator } from '../products/paginator';
 import { SortableColumnHeader } from '../products/sortable-column-header';
+import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
 
 import { IntegrationCard } from './integration-card';
-
-type SortKey = 'name' | 'created';
-
-const DEFAULT_PER_PAGE = 24;
-// Phase 2 Spec §7.4: integrations default to `name ASC` (names render as
-// "Source → Target", so alphabetical groups by source product). This differs
-// from products/vendors, which default to `created DESC`.
-const DEFAULT_SORT: SortKey = 'name';
-const VALID_SORTS: ReadonlySet<SortKey> = new Set(['name', 'created']);
 
 /** RFC-4122 UUID shape. Used to decide whether a filter value is already an ID. */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parsePage(raw: string | null): number {
-  const parsed = raw === null ? 1 : Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
-}
-
-function parseSort(raw: string | null): SortKey {
-  if (raw && (VALID_SORTS as Set<string>).has(raw)) return raw as SortKey;
-  return DEFAULT_SORT;
-}
-
 /**
- * Phase 2.14 (AECI-60) — paginated integration index. Renders the directory as
- * a sortable table inside `IndexLayout`, fetches from the private API via the
- * service-binding-proxied `/api/integrations` path, and updates the URL
- * (`?page=`, `?sort=`, `?sourceProductId=`, `?targetProductId=`) on every
- * interaction so deep links and browser back/forward work without extra state.
+ * Phase 2.14 (AECI-60) paginated integration index. Renders the directory as a
+ * sortable table inside `IndexLayout`. The fetch/sort/pagination/error pipeline
+ * lives in the shared `createPaginatedIndex` controller (AECI-107), configured
+ * with the two filter params as `passthroughParams` so they flow from the URL
+ * through to the API request. This component keeps only the per-entity template
+ * (`@@integrations.*` i18n ids) and the source/target filter form.
  *
- * Default sort: `name ASC` per Phase 2 Spec §7.4 (the server resolves direction
- * from the key; this page only sends a key). `perPage` is fixed at 24 and is
- * hard-clamped at 100 server-side.
+ * Default sort: `name ASC` per Phase 2 Spec section 7.4 (names render as
+ * "Source to Target", so alphabetical groups by source product). This differs
+ * from products/vendors, which default to `created DESC`. `perPage` is fixed at
+ * 24 and hard-clamped at 100 server-side.
  *
  * Filter (Phase 2): two text inputs for source / target product. Each accepts
  * either a raw product UUID or a product slug (hybrid). On submit, a slug is
  * resolved to its product ID via `GET /api/products/:slug`; a value already
- * shaped like a UUID is used directly. The resolved **ID** is what lands in the
- * URL (`?sourceProductId=`/`?targetProductId=`) and what the integrations API
+ * shaped like a UUID is used directly. The resolved ID is what lands in the URL
+ * (`?sourceProductId=`/`?targetProductId=`) and what the integrations API
  * consumes. A slug that doesn't resolve shows an inline "no match" message and
- * that filter is dropped. Richer autocomplete is deferred to Phase 3.
+ * that filter is dropped; a non-404 lookup failure surfaces the table error row
+ * (via `idx.setError`). Richer autocomplete is deferred to Phase 3.
  *
  * SSR: cached for 5 minutes at the edge with `Cache-Tag: route:index,
  * index:integrations` (set by the SSR Worker via `cacheTagInputsForPath`). The
  * `withHttpTransferCacheOptions` in `app.config.ts` serializes the
  * `/api/integrations` response into the rendered HTML so the client doesn't
  * re-fetch on hydration.
- *
- * MetaService: `entity: 'index'` produces the title `Integrations — AEC
- * Integrations` and `og:type=website`.
  */
 @Component({
   selector: 'app-integrations-index',
@@ -108,7 +79,7 @@ function parseSort(raw: string | null): SortKey {
           >
             Integrations
           </h1>
-          @if (data(); as response) {
+          @if (idx.data(); as response) {
             <p class="text-(--text-secondary)" i18n="@@integrations.index.lede">
               Every integration between AEC software products indexed on AEC Integrations ({{
                 response.total
@@ -211,10 +182,10 @@ function parseSort(raw: string | null): SortKey {
           <aec-sortable-column-header
             key="name"
             direction="ascending"
-            [currentSort]="sort()"
+            [currentSort]="idx.sort()"
             label="Integration"
             i18n-label="@@integrations.index.col.name"
-            (sortChange)="onSortChange($event)"
+            (sortChange)="idx.onSortChange($event)"
           />
           <th
             scope="col"
@@ -234,7 +205,7 @@ function parseSort(raw: string | null): SortKey {
       </ng-container>
 
       <ng-container slot="table-body">
-        @if (data(); as response) {
+        @if (idx.data(); as response) {
           @for (integration of response.data; track integration.id) {
             <tr aec-integration-card [integration]="integration"></tr>
           } @empty {
@@ -248,7 +219,7 @@ function parseSort(raw: string | null): SortKey {
               </td>
             </tr>
           }
-        } @else if (error()) {
+        } @else if (idx.error()) {
           <tr>
             <td
               colspan="3"
@@ -272,114 +243,56 @@ function parseSort(raw: string | null): SortKey {
       </ng-container>
 
       <ng-container slot="pagination">
-        @if (data(); as response) {
+        @if (idx.data(); as response) {
           <aec-paginator
             [page]="response.page"
             [perPage]="response.perPage"
             [total]="response.total"
-            (pageChange)="onPageChange($event)"
+            (pageChange)="idx.onPageChange($event)"
           />
         }
       </ng-container>
     </aec-index-layout>
   `,
 })
-export class IntegrationsIndex implements OnInit {
+export class IntegrationsIndex {
   private readonly http = inject(HttpClient);
   private readonly route = inject(ActivatedRoute);
-  private readonly router = inject(Router);
-  private readonly meta = inject(MetaService);
-  private readonly destroyRef = inject(DestroyRef);
 
-  protected readonly data = signal<IntegrationsListResponse | null>(null);
-  protected readonly error = signal<unknown>(null);
-
-  private readonly sortSig = signal<SortKey>(DEFAULT_SORT);
-  /** Current sort key (for the column header active state). */
-  protected readonly sort = computed(() => this.sortSig());
+  protected readonly idx = createPaginatedIndex<IntegrationsListResponse>({
+    apiPath: '/api/integrations',
+    validSorts: new Set(['name', 'created']),
+    defaultSort: 'name',
+    passthroughParams: ['sourceProductId', 'targetProductId'],
+    meta: {
+      entity: 'index',
+      name: $localize`:@@integrations.index.metaName:Integrations`,
+      description: $localize`:@@integrations.index.metaDescription:The directory of every integration between AEC software products on AEC Integrations. Filterable by source and target product.`,
+      canonical: 'https://aecintegrations.com/integrations',
+    },
+  });
 
   /** Bad slug values keyed by field, for inline "no match" messages. */
   protected readonly filterErrors = signal<{ source?: string; target?: string }>({});
 
   /** Whether any product filter is currently applied (drives the Clear button). */
-  protected readonly hasActiveFilter = signal(false);
+  protected readonly hasActiveFilter = computed(() => {
+    const params = this.idx.params();
+    return !!(params['sourceProductId'] || params['targetProductId']);
+  });
 
   /**
    * Initial filter-input values, read once from the active query params so the
    * current filter state is visible and round-trips (the inputs accept the raw
-   * UUID just as happily as a slug). One-way `[value]` bindings — later
+   * UUID just as happily as a slug). One-way `[value]` bindings, so later
    * navigations don't clobber in-progress typing.
    */
-  protected readonly initialSource = signal('');
-  protected readonly initialTarget = signal('');
-
-  ngOnInit(): void {
-    this.meta.setEntityMeta({
-      entity: 'index',
-      name: $localize`:@@integrations.index.metaName:Integrations`,
-      description: $localize`:@@integrations.index.metaDescription:The directory of every integration between AEC software products on AEC Integrations. Filterable by source and target product.`,
-      canonical: 'https://aecintegrations.com/integrations',
-    });
-
-    // Prefill the filter inputs from the active query params once (snapshot).
-    const snap = this.route.snapshot.queryParamMap;
-    this.initialSource.set(snap.get('sourceProductId') ?? '');
-    this.initialTarget.set(snap.get('targetProductId') ?? '');
-
-    // Drive the fetch from the URL: any time a query param changes, re-fetch.
-    // Hydration: the SSR transfer cache (app.config.ts) serves the initial
-    // response without a second hop.
-    combineLatest([this.route.queryParamMap])
-      .pipe(
-        tap(([params]) => {
-          this.sortSig.set(parseSort(params.get('sort')));
-          this.hasActiveFilter.set(
-            !!(params.get('sourceProductId') || params.get('targetProductId')),
-          );
-          this.error.set(null);
-          this.data.set(null);
-        }),
-        switchMap(([params]) => {
-          let httpParams = new HttpParams()
-            .set('page', String(parsePage(params.get('page'))))
-            .set('perPage', String(DEFAULT_PER_PAGE))
-            .set('sort', parseSort(params.get('sort')));
-          const sourceProductId = params.get('sourceProductId');
-          const targetProductId = params.get('targetProductId');
-          if (sourceProductId) httpParams = httpParams.set('sourceProductId', sourceProductId);
-          if (targetProductId) httpParams = httpParams.set('targetProductId', targetProductId);
-          return this.http
-            .get<IntegrationsListResponse>('/api/integrations', { params: httpParams })
-            .pipe(
-              catchError((err: unknown) => {
-                this.error.set(err);
-                return of(null);
-              }),
-            );
-        }),
-        takeUntilDestroyed(this.destroyRef),
-      )
-      .subscribe((response) => {
-        if (response) this.data.set(response);
-      });
-  }
-
-  protected onSortChange(key: string): void {
-    if (!(VALID_SORTS as Set<string>).has(key)) return;
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { sort: key, page: 1 },
-      queryParamsHandling: 'merge',
-    });
-  }
-
-  protected onPageChange(page: number): void {
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { page },
-      queryParamsHandling: 'merge',
-    });
-  }
+  protected readonly initialSource = signal(
+    this.route.snapshot.queryParamMap.get('sourceProductId') ?? '',
+  );
+  protected readonly initialTarget = signal(
+    this.route.snapshot.queryParamMap.get('targetProductId') ?? '',
+  );
 
   /**
    * Resolve a filter field to a product ID. A value already shaped like a UUID
@@ -426,8 +339,7 @@ export class IntegrationsIndex implements OnInit {
         else errors.target = r.error;
       }
     } catch (err: unknown) {
-      this.data.set(null);
-      this.error.set(err);
+      this.idx.setError(err);
       return;
     }
 
@@ -436,21 +348,13 @@ export class IntegrationsIndex implements OnInit {
     // Setting a param to null removes it from the URL. Resolvable fields apply;
     // unresolvable ones are dropped (with the inline error shown). Reset to
     // page 1 since the result set changes.
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { sourceProductId, targetProductId, page: 1 },
-      queryParamsHandling: 'merge',
-    });
+    this.idx.navigateWithParams({ sourceProductId, targetProductId, page: 1 });
   }
 
   protected clearFilters(sourceEl: HTMLInputElement, targetEl: HTMLInputElement): void {
     sourceEl.value = '';
     targetEl.value = '';
     this.filterErrors.set({});
-    void this.router.navigate([], {
-      relativeTo: this.route,
-      queryParams: { sourceProductId: null, targetProductId: null, page: 1 },
-      queryParamsHandling: 'merge',
-    });
+    this.idx.navigateWithParams({ sourceProductId: null, targetProductId: null, page: 1 });
   }
 }
