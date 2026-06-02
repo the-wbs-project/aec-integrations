@@ -138,7 +138,7 @@ function withJsonLd(
 export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<T>): void {
   const setup = createSetup<T>(scenario.resolver, scenario.paramKey, scenario.paramValue);
 
-  describe(`${scenario.name} — server path`, () => {
+  describe(`${scenario.name}: server path`, () => {
     beforeEach(() => TestBed.resetTestingModule());
 
     it('fetches the entity, sets meta, populates ctx, and stores in TransferState on success', async () => {
@@ -226,7 +226,7 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
       await expect(run()).rejects.toBe(err);
     });
 
-    it('falls back gracefully when REQUEST_CONTEXT is null (defensive — non-Server render mode)', async () => {
+    it('falls back gracefully when REQUEST_CONTEXT is null (defensive: non-Server render mode)', async () => {
       const { run, transferState } = setup({
         platform: 'server',
         ctx: null,
@@ -244,7 +244,7 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
     });
   });
 
-  describe(`${scenario.name} — client (hydration) path`, () => {
+  describe(`${scenario.name}: client (hydration) path`, () => {
     beforeEach(() => TestBed.resetTestingModule());
 
     it('reads from TransferState and does not call the API or mutate meta/ctx', async () => {

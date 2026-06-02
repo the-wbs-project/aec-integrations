@@ -159,12 +159,20 @@ hr {
   border-color: var(--border-default);
 }
 
-a {
-  color: var(--accent-primary);
-}
+/* Base anchor colors live in `@layer base` so Tailwind's `text-*` utilities
+   (which sit in the later `utilities` layer) win as intended. Unlayered, these
+   rules beat every layered utility regardless of specificity — which silently
+   forced ALL anchors to `--accent-primary` (e.g. the dark-mode Sign-in button
+   rendered accent-on-accent, and nav links ignored `text-(--text-primary)`).
+   Bare `<a>` (no text utility — body/prose links) still defaults to accent. */
+@layer base {
+  a {
+    color: var(--accent-primary);
+  }
 
-a:hover {
-  color: var(--accent-primary-hover);
+  a:hover {
+    color: var(--accent-primary-hover);
+  }
 }
 
 ::selection {

@@ -13,16 +13,17 @@
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
+import { MobileNavMenu } from './mobile-nav-menu';
 import { Monogram } from './monogram';
 import { ThemeToggle } from './theme-toggle';
 
 @Component({
   selector: 'aec-site-header',
-  imports: [RouterLink, RouterLinkActive, Monogram, ThemeToggle],
+  imports: [RouterLink, RouterLinkActive, Monogram, ThemeToggle, MobileNavMenu],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="bg-(--surface-base)">
-      <div class="mx-auto flex max-w-7xl items-center gap-8 px-8 py-5">
+      <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
         <aec-monogram />
         <nav
           class="hidden flex-1 items-center justify-center gap-7 text-sm font-medium md:flex"
@@ -72,6 +73,7 @@ import { ThemeToggle } from './theme-toggle';
               class="h-9 w-52 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-tertiary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             />
           </label>
+          <aec-mobile-nav-menu />
           <aec-theme-toggle />
           <a
             routerLink="/auth/login"
