@@ -168,6 +168,23 @@ async function promote(fake: Fake, body: unknown) {
 
 const auditActions = (fake: Fake) => fake.audit.map((e) => e.action as string);
 
+/**
+ * Duck-typed Prisma `PrismaClientKnownRequestError` for a `P2002` unique-
+ * constraint violation. The handler detects these structurally (by `code` +
+ * `meta.target`), so the test doesn't need the real edge-client error class.
+ * `target` is an array of columns (`['slug']`) — the shape Prisma emits for a
+ * `@unique` field.
+ */
+function uniqueConstraintError(target: string[]) {
+  const e = new Error(
+    `Unique constraint failed on the fields: (${target.map((t) => `\`${t}\``).join(',')})`,
+  ) as Error & { code: string; meta?: { target: string[] } };
+  e.name = 'PrismaClientKnownRequestError';
+  e.code = 'P2002';
+  e.meta = { target };
+  return e;
+}
+
 describe('createPromoteHandler', () => {
   it('creates a product with vendor and taxonomy', async () => {
     const fake = makeFake();
@@ -453,6 +470,40 @@ describe('createPromoteHandler', () => {
     expect(res.status).toBe(400);
     const b = (await res.json()) as { error: { code: string } };
     expect(b.error.code).toBe('MALFORMED_REQUEST');
+  });
+
+  // AECI-98: slugs are preloaded before the transaction, so two concurrent
+  // first-time promotes can generate the same slug and the second `tx.create`
+  // trips a `*_slug_key` unique constraint. A single-threaded test can't race a
+  // real DB, so we inject the `P2002` the DB would raise and assert the handler
+  // translates it to the documented 409 SLUG_CONFLICT rather than a generic 500.
+  it('returns 409 SLUG_CONFLICT when a create trips a slug unique constraint', async () => {
+    const fake = makeFake();
+    fake.models.product.create = () => Promise.reject(uniqueConstraintError(['slug']));
+
+    const res = await promote(fake, { product: { ref: 'p1', name: 'Revit' } });
+
+    expect(res.status).toBe(409);
+    const b = (await res.json()) as {
+      error: { code: string; details?: { target?: unknown } };
+      trace_id: string;
+    };
+    expect(b.error.code).toBe('SLUG_CONFLICT');
+    expect(b.error.details?.target).toEqual(['slug']);
+    expect(b.trace_id).toBeTruthy();
+  });
+
+  it('still returns 500 for a non-slug unique violation (no mislabeling)', async () => {
+    const fake = makeFake();
+    // A P2002 on an unrelated constraint must NOT be reported as SLUG_CONFLICT.
+    fake.models.product.create = () =>
+      Promise.reject(uniqueConstraintError(['product_id', 'vendor_id']));
+
+    const res = await promote(fake, { product: { ref: 'p1', name: 'Revit' } });
+
+    expect(res.status).toBe(500);
+    const b = (await res.json()) as { error: { code: string } };
+    expect(b.error.code).toBe('INTERNAL_ERROR');
   });
 });
 

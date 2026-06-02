@@ -145,6 +145,30 @@ function generateSlug(name: string, existing: Set<string>, vendorSlug?: string):
   return slug;
 }
 
+/**
+ * True when `err` is a Prisma `P2002` (unique-constraint violation) on a `slug`
+ * column/index. Slugs are preloaded *before* the transaction (`loadSlugs`), so
+ * two concurrent first-time promotes can both generate the same slug and the
+ * second `tx.create` then trips `vendors_slug_key` / `products_slug_key`. That
+ * is a caller-resolvable conflict, not a server fault — the handler translates
+ * it to a documented `409 SLUG_CONFLICT` (AECI-98) instead of a generic 500.
+ *
+ * Duck-typed (rather than `instanceof Prisma.PrismaClientKnownRequestError`) so
+ * it stays trivially testable and doesn't pull the edge client's error class
+ * into the runtime path. `meta.target` is matched in both shapes Prisma emits:
+ * an array of columns (`['slug']`) and a constraint-name string
+ * (`'vendors_slug_key'`). Non-slug `P2002`s return false and fall through to the
+ * generic 500 so unrelated unique violations are never mislabeled.
+ */
+function isSlugUniqueViolation(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: unknown; meta?: { target?: unknown } };
+  if (e.code !== 'P2002') return false;
+  const target = e.meta?.target;
+  const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '');
+  return asStr.toLowerCase().includes('slug');
+}
+
 function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
   return compact({
     description: v.description,
@@ -305,7 +329,7 @@ export function createPromoteHandler(
     const vendorSlugs = await loadSlugs(prisma.vendor);
     const productSlugs = await loadSlugs(prisma.product);
 
-    const response = await prisma.$transaction(
+    const promoted = prisma.$transaction(
       async (tx) => {
         const audit = (entry: AuditLogEntry) =>
           appendAuditLog(tx, { ...entry, metadata: AUDIT_META }, forward);
@@ -642,6 +666,24 @@ export function createPromoteHandler(
       },
       { maxWait: 10_000, timeout: 20_000 },
     );
+
+    // AECI-98: a concurrent first-time promote can generate a duplicate slug; the
+    // racing `tx.create` then trips a `*_slug_key` unique constraint (Prisma
+    // P2002). Translate that to the documented 409 SLUG_CONFLICT (canonical
+    // envelope, no Datadog alert) rather than a generic 500 — the caller can
+    // safely retry, since `loadSlugs` re-reads per request and disambiguates.
+    // Any other failure rethrows and still surfaces as 500.
+    const response = await promoted.catch((err: unknown): never => {
+      if (isSlugUniqueViolation(err)) {
+        throw new ApiError(
+          409,
+          'SLUG_CONFLICT',
+          'A concurrent promote generated a duplicate slug; retry the request.',
+          { details: { target: (err as { meta?: { target?: unknown } }).meta?.target } },
+        );
+      }
+      throw err;
+    });
 
     // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort
     // and post-commit — fired via `waitUntil` so it never blocks or fails the

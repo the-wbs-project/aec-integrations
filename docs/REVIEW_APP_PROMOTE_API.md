@@ -272,11 +272,14 @@ Non-2xx responses use the standard AECi envelope:
 | 400 | `MALFORMED_REQUEST` | Body isn't valid JSON | Fix the request serialization. |
 | 400 | `VALIDATION_FAILED` | Schema violation — missing required field, bad enum value, duplicate `ref`, `extensionOf` using `ref`, integration endpoint `ref` that isn't the product, `builtByVendor` `ref` not in `vendors[]` | Read `error.field` / `error.details.issues`; fix and resend. |
 | 401 | `UNAUTHENTICATED` | Missing or wrong bearer token | Check `REVIEW_APP_TOKEN`. |
+| 409 | `SLUG_CONFLICT` | A concurrent first-time promote generated the same slug, so the create hit a `*_slug_key` unique constraint | Safe to retry; the retry re-reads existing slugs and disambiguates (`-2`, `-3`, …), so it won't re-collide. |
 | 500 | `INTERNAL_ERROR` | Unexpected server fault | Safe to retry; the whole push is transactional (all-or-nothing), so a failed call wrote nothing. Report `trace_id` to the AECi team if it persists. |
 
 Retries are safe: the push runs in a single database transaction, so a failure
 leaves no partial state, and a successful retry with the same `supabaseId`s is
-idempotent.
+idempotent. A `409 SLUG_CONFLICT` is the conflict-specific, caller-resolvable
+case — distinct from a `500` server fault — and resolves on retry because slug
+generation re-reads the current set and disambiguates.
 
 ---
 
