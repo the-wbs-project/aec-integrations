@@ -62,7 +62,7 @@ buildCacheTags(opts: {
 
 `entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `discipline`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes that render the taxonomy nav (home today; more in Phase 4+). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
-The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change. Callers never construct `Cache-Tag` strings by hand.
+The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 
 ---
 
@@ -87,6 +87,36 @@ Per [AECI-43](https://linear.app/aec-integrations/issue/AECI-43), API responses 
 Non-cacheable routes (`/api/*`, `/auth/*`, `/account*`, `/search`) are excluded from the cacheable branch in the SSR Worker entry — they emit `Cache-Control: private, no-store` and never reach the tag/TTL machinery. See `STAGE_1_SPEC.md` §9.1 and [AECI-35](https://linear.app/aec-integrations/issue/AECI-35) for the route classifier.
 
 **Exception — 404 responses on non-cacheable paths (AECI-62):** if the Angular SSR renderer returns HTTP 404 on a non-cacheable path (e.g. an unknown URL caught by the `**` wildcard route), the Worker applies `NOT_FOUND_TTL` (`max-age=0, s-maxage=60`) and `Cache-Tag: route:404` instead of `private, no-store`. The 404 content is session-neutral (no user-specific data), so edge caching is safe and prevents a flood of unknown URLs from melting the SSR Worker. The `route:404` tag provides the same bulk-purge handle as on cacheable routes. All other non-cacheable responses (2xx, 3xx, 5xx) continue to emit `private, no-store`.
+
+---
+
+## 4a. Cache key normalization (AECI-100)
+
+The edge cache is keyed by URL. The SSR Worker's `caches.default` lookup/write key is built by `cacheKeyUrl(url)` in `server-runtime.ts`, **not** from the raw request URL — otherwise marketing/tracking params (`utm_*`, `fbclid`, `gclid`, `ref`, …) on shared links would fragment the cache for pages that render identically, turning every variant into a MISS → SSR render → store.
+
+The normalized key is:
+
+```
+{origin}{pathname}  +  only the route's content-affecting query params, canonically ordered
+```
+
+- **Origin + pathname are preserved verbatim**, including any locale prefix — locale variance is already segmented at the URL-prefix layer (§7), so the key must keep it.
+- **All other query params are dropped.** Detail, home, browse, and static routes are query-independent → the entire query string is stripped.
+- **Index routes keep only their declared content params**, sorted (so `?sort=name&page=2` and `?page=2&sort=name` are one entry).
+
+The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyParams` (co-located with the TTL and the `match` predicate so the three stay in sync):
+
+| Route | `cacheKeyParams` (kept in the key) |
+|---|---|
+| `/products`, `/vendors` (index) | `page`, `perPage`, `sort` |
+| `/integrations` (index) | `page`, `perPage`, `sort`, `sourceProductId`, `targetProductId` |
+| Detail (`/products/:slug`, `/vendors/:slug`, `/integrations/:id`) | none — strip all |
+| Browse (`/categories\|disciplines\|phases/:slug`), taxonomy index (`/categories`) | none — strip all |
+| Home (`/`), `/about`, `/legal/*` | none — strip all |
+
+**Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.
+
+**Scope.** This normalizes the Worker-managed `caches.default` key only. Cloudflare's zone-level CDN cache (Cache Rules / "ignore query string") is a separate layer configured outside this code; the Worker key is the normalization point for the AECi SSR cache.
 
 ---
 
