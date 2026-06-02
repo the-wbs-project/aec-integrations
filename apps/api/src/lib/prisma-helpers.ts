@@ -25,6 +25,8 @@
  * or filtering the row) would violate the schema and break the SSR client.
  */
 
+import type { Prisma } from '@prisma/client/edge';
+
 import type {
   IntegrationDetail,
   IntegrationListItem,
@@ -49,7 +51,7 @@ const vendorLinkSelect = {
   companyName: true,
   slug: true,
   logoUrl: true,
-} as const;
+} as const satisfies Prisma.VendorSelect;
 
 /** Lean product display fields (`ProductLink`). */
 const productLinkSelect = {
@@ -57,14 +59,14 @@ const productLinkSelect = {
   name: true,
   slug: true,
   logoUrl: true,
-} as const;
+} as const satisfies Prisma.ProductSelect;
 
 /** Lean taxonomy term display fields (`LinkRef`). */
 const taxonomyLinkSelect = {
   id: true,
   name: true,
   slug: true,
-} as const;
+} as const satisfies Prisma.TaxonomyCategorySelect;
 
 /**
  * Variant of `taxonomyLinkSelect` for places that need to resolve a "primary"
@@ -75,7 +77,7 @@ const taxonomyLinkSelect = {
 const taxonomyLinkWithOrderSelect = {
   ...taxonomyLinkSelect,
   displayOrder: true,
-} as const;
+} as const satisfies Prisma.TaxonomyCategorySelect;
 
 /** Fields needed for `IntegrationListItem`. Source + target hydrate as `ProductLink`. */
 export const integrationListSelect = {
@@ -88,7 +90,7 @@ export const integrationListSelect = {
   targetProduct: { select: productLinkSelect },
   createdAt: true,
   updatedAt: true,
-} as const;
+} as const satisfies Prisma.IntegrationSelect;
 
 /** Detail variant adds the heavier hydration per `API_CONTRACTS.md` §3.4. */
 export const integrationDetailSelect = {
@@ -101,7 +103,7 @@ export const integrationDetailSelect = {
   maturity: true,
   builtByVendor: { select: vendorLinkSelect },
   poweredByProduct: { select: productLinkSelect },
-} as const;
+} as const satisfies Prisma.IntegrationSelect;
 
 /**
  * Fields needed for `ProductListItem`. The `vendor` field is hydrated by
@@ -135,7 +137,7 @@ export const productListSelect = {
       category: { select: taxonomyLinkWithOrderSelect },
     },
   },
-} as const;
+} as const satisfies Prisma.ProductSelect;
 
 /**
  * Detail variant. Adds taxonomy join rows (mapped to `LinkRef[]`), both sides
@@ -157,7 +159,7 @@ export const productDetailSelect = {
   productPhases: { select: { phase: { select: taxonomyLinkSelect } } },
   sourceIntegrations: { select: integrationListSelect },
   targetIntegrations: { select: integrationListSelect },
-} as const;
+} as const satisfies Prisma.ProductSelect;
 
 /** Fields needed for `VendorListItem`. Counts come from join tables/aggregations
  *  (denormalized columns on `vendors` are not present in this PR's schema).
@@ -180,7 +182,7 @@ export const vendorListSelect = {
       builtIntegrations: true,
     },
   },
-} as const;
+} as const satisfies Prisma.VendorSelect;
 
 /** Detail variant — adds the descriptive editorial fields and the vendor's
  *  products as `ProductListItem[]`. `headquarters` / `foundedYear` inherit
@@ -195,17 +197,61 @@ export const vendorDetailSelect = {
     },
     orderBy: { isPrimary: 'desc' as const },
   },
-} as const;
+} as const satisfies Prisma.VendorSelect;
 
-/** Detail selection for a taxonomy term (category/discipline/phase). The
- *  `_count` arg differs per model and is supplied by the caller. */
-export const taxonomyDetailScalarSelect = {
+/**
+ * Per-model taxonomy selects. The scalar shape is shared across category /
+ * discipline / phase, but the `_count` relation (and, on the detail variants,
+ * the joined products) differs per model — so each model gets its own
+ * `as const` select. The scalar fields are written out inline on each, rather
+ * than spread from a shared const: spreading a shared scalar object into a
+ * scalar-plus-`_count` select defeats Prisma's `select` narrowing (the query
+ * widens back to the full model), so the small repetition is deliberate.
+ * Deriving the row types from these (below) keeps the route queries, the row
+ * types, and the mapper in lockstep: drop a field here and the build breaks,
+ * not just the dev-only Zod check.
+ */
+export const categoryTermSelect = {
   id: true,
   slug: true,
   name: true,
   description: true,
   displayOrder: true,
-} as const;
+  _count: { select: { productCategories: true } },
+} as const satisfies Prisma.TaxonomyCategorySelect;
+
+export const disciplineTermSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  description: true,
+  displayOrder: true,
+  _count: { select: { productDisciplines: true } },
+} as const satisfies Prisma.TaxonomyDisciplineSelect;
+
+export const phaseTermSelect = {
+  id: true,
+  slug: true,
+  name: true,
+  description: true,
+  displayOrder: true,
+  _count: { select: { productPhases: true } },
+} as const satisfies Prisma.TaxonomyPhaseSelect;
+
+export const categoryDetailSelect = {
+  ...categoryTermSelect,
+  productCategories: { select: { product: { select: productListSelect } } },
+} as const satisfies Prisma.TaxonomyCategorySelect;
+
+export const disciplineDetailSelect = {
+  ...disciplineTermSelect,
+  productDisciplines: { select: { product: { select: productListSelect } } },
+} as const satisfies Prisma.TaxonomyDisciplineSelect;
+
+export const phaseDetailSelect = {
+  ...phaseTermSelect,
+  productPhases: { select: { product: { select: productListSelect } } },
+} as const satisfies Prisma.TaxonomyPhaseSelect;
 
 // ---------------------------------------------------------------------------
 // Row shape types (what Prisma actually returns for the selects above)
@@ -213,117 +259,45 @@ export const taxonomyDetailScalarSelect = {
 
 type DecimalLike = { toNumber(): number } | number | null | undefined;
 
-type RawProductVendor = {
-  isPrimary: boolean;
-  vendor: {
-    id: string;
-    companyName: string;
-    slug: string;
-    logoUrl: string | null;
-  };
-};
+export type RawProductListRow = Prisma.ProductGetPayload<{ select: typeof productListSelect }>;
+export type RawProductDetailRow = Prisma.ProductGetPayload<{ select: typeof productDetailSelect }>;
 
-export type RawProductListRow = {
-  id: string;
-  slug: string;
-  name: string;
-  logoUrl: string | null;
-  productRole: string;
-  integrationCount: number;
-  reviewCount: number;
-  ratingOverallAvg: DecimalLike;
-  ratingOnboardingAvg: DecimalLike;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-  productVendors: RawProductVendor[];
-  productCategories: Array<{ category: RawTaxonomyLinkWithOrder }>;
-};
+// Nested helper-param types, derived by indexing into the parent payload so a
+// nested-select change can never desync a separately-declared leaf type.
+type RawProductVendor = RawProductListRow['productVendors'][number];
+type RawTaxonomyLinkWithOrder = RawProductListRow['productCategories'][number]['category'];
 
-export type RawProductDetailRow = RawProductListRow & {
-  description: string | null;
-  website: string | null;
-  toolIntegrationsUrl: string | null;
-  apiDocsUrl: string | null;
-  hasApiDocs: boolean;
-  productDisciplines: Array<{ discipline: RawTaxonomyLink }>;
-  productPhases: Array<{ phase: RawTaxonomyLink }>;
-  sourceIntegrations: RawIntegrationListRow[];
-  targetIntegrations: RawIntegrationListRow[];
-};
+// Leaf link types reused across several parents — derive from the leaf select
+// const directly. Kept non-null; the parent payload supplies any `| null`.
+type RawProductLink = Prisma.ProductGetPayload<{ select: typeof productLinkSelect }>;
+type RawVendorLink = Prisma.VendorGetPayload<{ select: typeof vendorLinkSelect }>;
 
-type RawTaxonomyLink = { id: string; name: string; slug: string };
-type RawTaxonomyLinkWithOrder = RawTaxonomyLink & { displayOrder: number | null };
+export type RawIntegrationListRow = Prisma.IntegrationGetPayload<{
+  select: typeof integrationListSelect;
+}>;
+export type RawIntegrationDetailRow = Prisma.IntegrationGetPayload<{
+  select: typeof integrationDetailSelect;
+}>;
 
-type RawProductLink = {
-  id: string;
-  name: string;
-  slug: string;
-  logoUrl: string | null;
-};
+export type RawVendorListRow = Prisma.VendorGetPayload<{ select: typeof vendorListSelect }>;
+export type RawVendorDetailRow = Prisma.VendorGetPayload<{ select: typeof vendorDetailSelect }>;
 
-type RawVendorLink = {
-  id: string;
-  companyName: string;
-  slug: string;
-  logoUrl: string | null;
-};
-
-export type RawIntegrationListRow = {
-  id: string;
-  name: string | null;
-  mechanismKind: string | null;
-  mechanismName: string | null;
-  direction: string | null;
-  sourceProduct: RawProductLink;
-  targetProduct: RawProductLink;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-};
-
-export type RawIntegrationDetailRow = RawIntegrationListRow & {
-  description: string | null;
-  listingUrl: string | null;
-  docsUrl: string | null;
-  mechanismUrl: string | null;
-  pricingModel: string | null;
-  maturity: string | null;
-  builtByVendor: RawVendorLink | null;
-  poweredByProduct: RawProductLink | null;
-};
-
-export type RawVendorListRow = {
-  id: string;
-  slug: string;
-  companyName: string;
-  logoUrl: string | null;
-  verified: boolean;
-  headquarters: string | null;
-  foundedYear: number | null;
-  createdAt: Date | string;
-  updatedAt: Date | string;
-  _count: { productVendors: number; builtIntegrations: number };
-};
-
-export type RawVendorDetailRow = RawVendorListRow & {
-  description: string | null;
-  website: string | null;
-  productVendors: Array<{ product: RawProductListRow }>;
-};
-
-export type RawTaxonomyTermRow = {
-  id: string;
-  slug: string;
-  name: string;
-  description: string | null;
-  displayOrder: number | null;
-  _count: { productCategories?: number; productDisciplines?: number; productPhases?: number };
-};
-
-export type RawTaxonomyDetailRow = RawTaxonomyTermRow & {
-  productCategories?: Array<{ product: RawProductListRow }>;
-  productDisciplines?: Array<{ product: RawProductListRow }>;
-  productPhases?: Array<{ product: RawProductListRow }>;
-};
+export type RawCategoryTermRow = Prisma.TaxonomyCategoryGetPayload<{
+  select: typeof categoryTermSelect;
+}>;
+export type RawDisciplineTermRow = Prisma.TaxonomyDisciplineGetPayload<{
+  select: typeof disciplineTermSelect;
+}>;
+export type RawPhaseTermRow = Prisma.TaxonomyPhaseGetPayload<{ select: typeof phaseTermSelect }>;
+export type RawCategoryDetailRow = Prisma.TaxonomyCategoryGetPayload<{
+  select: typeof categoryDetailSelect;
+}>;
+export type RawDisciplineDetailRow = Prisma.TaxonomyDisciplineGetPayload<{
+  select: typeof disciplineDetailSelect;
+}>;
+export type RawPhaseDetailRow = Prisma.TaxonomyPhaseGetPayload<{
+  select: typeof phaseDetailSelect;
+}>;
 
 // ---------------------------------------------------------------------------
 // Coalescing / conversion helpers
@@ -537,9 +511,18 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
 
 type TaxonomyCountKey = 'productCategories' | 'productDisciplines' | 'productPhases';
 
-export function toTaxonomyTermWithCount(
-  raw: RawTaxonomyTermRow,
-  countKey: TaxonomyCountKey,
+/** Scalar fields shared by every taxonomy term row, regardless of model. */
+type TaxonomyTermBase = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  displayOrder: number | null;
+};
+
+export function toTaxonomyTermWithCount<K extends TaxonomyCountKey>(
+  raw: TaxonomyTermBase & { _count: Record<K, number> },
+  countKey: K,
 ): TaxonomyTermWithCount {
   return {
     id: raw.id,

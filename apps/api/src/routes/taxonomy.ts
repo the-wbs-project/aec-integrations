@@ -26,9 +26,10 @@ import type { Env } from '../env';
 import { json } from '../http';
 import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
-  taxonomyDetailScalarSelect,
+  categoryTermSelect,
+  disciplineTermSelect,
+  phaseTermSelect,
   toTaxonomyTermWithCount,
-  type RawTaxonomyTermRow,
 } from '../lib/prisma-helpers';
 import { getPrisma } from '../prisma';
 
@@ -56,26 +57,17 @@ export function createTaxonomyHandler(
     const prisma = prismaFor(c.env);
     const [categories, disciplines, phases] = await Promise.all([
       prisma.taxonomyCategory.findMany({
-        select: {
-          ...taxonomyDetailScalarSelect,
-          _count: { select: { productCategories: true } },
-        },
-        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      }) as unknown as Promise<RawTaxonomyTermRow[]>,
+        select: categoryTermSelect,
+        orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
+      }),
       prisma.taxonomyDiscipline.findMany({
-        select: {
-          ...taxonomyDetailScalarSelect,
-          _count: { select: { productDisciplines: true } },
-        },
-        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      }) as unknown as Promise<RawTaxonomyTermRow[]>,
+        select: disciplineTermSelect,
+        orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
+      }),
       prisma.taxonomyPhase.findMany({
-        select: {
-          ...taxonomyDetailScalarSelect,
-          _count: { select: { productPhases: true } },
-        },
-        orderBy: [{ displayOrder: 'asc' }, { name: 'asc' }],
-      }) as unknown as Promise<RawTaxonomyTermRow[]>,
+        select: phaseTermSelect,
+        orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
+      }),
     ]);
 
     const body: TaxonomyResponse = {

@@ -3,7 +3,14 @@
  * set, one with `null` so the mapper's coalesce-to-0 rule is exercised.
  */
 
-import type { RawTaxonomyDetailRow, RawTaxonomyTermRow } from '../../lib/prisma-helpers';
+import type {
+  RawCategoryDetailRow,
+  RawCategoryTermRow,
+  RawDisciplineDetailRow,
+  RawDisciplineTermRow,
+  RawPhaseDetailRow,
+  RawPhaseTermRow,
+} from '../../lib/prisma-helpers';
 import { procoreProductRow } from './products';
 
 export const PROJECT_MGMT_CATEGORY_ID = '00000000-0000-4000-8000-000000030001';
@@ -11,7 +18,7 @@ export const FIELD_MGMT_CATEGORY_ID = '00000000-0000-4000-8000-000000030002';
 export const CONSTRUCTION_DISCIPLINE_ID = '00000000-0000-4000-8000-000000040001';
 export const CONSTRUCTION_PHASE_ID = '00000000-0000-4000-8000-000000050001';
 
-export const projectManagementCategoryRow: RawTaxonomyTermRow = {
+export const projectManagementCategoryRow: RawCategoryTermRow = {
   id: PROJECT_MGMT_CATEGORY_ID,
   slug: 'project-management',
   name: 'Project Management',
@@ -24,7 +31,7 @@ export const projectManagementCategoryRow: RawTaxonomyTermRow = {
  * `displayOrder: null` row. Mapper coalesces to 0 — schema requires non-null
  * `display_order`.
  */
-export const fieldManagementCategoryRow: RawTaxonomyTermRow = {
+export const fieldManagementCategoryRow: RawCategoryTermRow = {
   id: FIELD_MGMT_CATEGORY_ID,
   slug: 'field-management',
   name: 'Field Management',
@@ -33,7 +40,7 @@ export const fieldManagementCategoryRow: RawTaxonomyTermRow = {
   _count: { productCategories: 0 },
 };
 
-export const constructionDisciplineRow: RawTaxonomyTermRow = {
+export const constructionDisciplineRow: RawDisciplineTermRow = {
   id: CONSTRUCTION_DISCIPLINE_ID,
   slug: 'construction',
   name: 'Construction',
@@ -42,7 +49,7 @@ export const constructionDisciplineRow: RawTaxonomyTermRow = {
   _count: { productDisciplines: 7 },
 };
 
-export const constructionPhaseRow: RawTaxonomyTermRow = {
+export const constructionPhaseRow: RawPhaseTermRow = {
   id: CONSTRUCTION_PHASE_ID,
   slug: 'construction-phase',
   name: 'Construction',
@@ -51,26 +58,26 @@ export const constructionPhaseRow: RawTaxonomyTermRow = {
   _count: { productPhases: 4 },
 };
 
-export const projectManagementCategoryDetailRow: RawTaxonomyDetailRow = {
+export const projectManagementCategoryDetailRow: RawCategoryDetailRow = {
   ...projectManagementCategoryRow,
   productCategories: [{ product: procoreProductRow }],
 };
 
-export const constructionDisciplineDetailRow: RawTaxonomyDetailRow = {
+export const constructionDisciplineDetailRow: RawDisciplineDetailRow = {
   ...constructionDisciplineRow,
   productDisciplines: [{ product: procoreProductRow }],
 };
 
-export const constructionPhaseDetailRow: RawTaxonomyDetailRow = {
+export const constructionPhaseDetailRow: RawPhaseDetailRow = {
   ...constructionPhaseRow,
   productPhases: [{ product: procoreProductRow }],
 };
 
-export const allCategoryRows: RawTaxonomyTermRow[] = [
+export const allCategoryRows: RawCategoryTermRow[] = [
   projectManagementCategoryRow,
   fieldManagementCategoryRow,
 ];
 
-export const allDisciplineRows: RawTaxonomyTermRow[] = [constructionDisciplineRow];
+export const allDisciplineRows: RawDisciplineTermRow[] = [constructionDisciplineRow];
 
-export const allPhaseRows: RawTaxonomyTermRow[] = [constructionPhaseRow];
+export const allPhaseRows: RawPhaseTermRow[] = [constructionPhaseRow];

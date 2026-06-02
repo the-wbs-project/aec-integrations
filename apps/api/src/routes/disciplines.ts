@@ -15,12 +15,10 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
-  productListSelect,
-  taxonomyDetailScalarSelect,
+  disciplineDetailSelect,
   toProductListItem,
   toTaxonomyTermWithCount,
   type RawProductListRow,
-  type RawTaxonomyDetailRow,
 } from '../lib/prisma-helpers';
 import { getPrisma } from '../prisma';
 
@@ -34,18 +32,14 @@ export function createDisciplineDetailHandler(
     }
 
     const prisma = prismaFor(c.env);
-    const row = (await prisma.taxonomyDiscipline.findUnique({
+    const row = await prisma.taxonomyDiscipline.findUnique({
       where: { slug },
-      select: {
-        ...taxonomyDetailScalarSelect,
-        _count: { select: { productDisciplines: true } },
-        productDisciplines: { select: { product: { select: productListSelect } } },
-      },
-    })) as unknown as RawTaxonomyDetailRow | null;
+      select: disciplineDetailSelect,
+    });
 
     if (!row) throw notFoundError('discipline', { slug });
 
-    const products: RawProductListRow[] = (row.productDisciplines ?? []).map((r) => r.product);
+    const products: RawProductListRow[] = row.productDisciplines.map((r) => r.product);
 
     const body: DisciplineDetail = {
       ...toTaxonomyTermWithCount(row, 'productDisciplines'),

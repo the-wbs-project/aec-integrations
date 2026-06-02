@@ -12,12 +12,10 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
-  productListSelect,
-  taxonomyDetailScalarSelect,
+  phaseDetailSelect,
   toProductListItem,
   toTaxonomyTermWithCount,
   type RawProductListRow,
-  type RawTaxonomyDetailRow,
 } from '../lib/prisma-helpers';
 import { getPrisma } from '../prisma';
 
@@ -31,18 +29,14 @@ export function createPhaseDetailHandler(
     }
 
     const prisma = prismaFor(c.env);
-    const row = (await prisma.taxonomyPhase.findUnique({
+    const row = await prisma.taxonomyPhase.findUnique({
       where: { slug },
-      select: {
-        ...taxonomyDetailScalarSelect,
-        _count: { select: { productPhases: true } },
-        productPhases: { select: { product: { select: productListSelect } } },
-      },
-    })) as unknown as RawTaxonomyDetailRow | null;
+      select: phaseDetailSelect,
+    });
 
     if (!row) throw notFoundError('phase', { slug });
 
-    const products: RawProductListRow[] = (row.productPhases ?? []).map((r) => r.product);
+    const products: RawProductListRow[] = row.productPhases.map((r) => r.product);
 
     const body: PhaseDetail = {
       ...toTaxonomyTermWithCount(row, 'productPhases'),
