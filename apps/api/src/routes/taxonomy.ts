@@ -24,21 +24,16 @@ import type { Context } from 'hono';
 
 import type { Env } from '../env';
 import { json } from '../http';
+import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
   taxonomyDetailScalarSelect,
   toTaxonomyTermWithCount,
   type RawTaxonomyTermRow,
 } from '../lib/prisma-helpers';
-import { getPrisma, type AcceleratedPrisma } from '../prisma';
-
-type PrismaFactory = (env: Env) => AcceleratedPrisma;
+import { getPrisma } from '../prisma';
 
 const CACHE_KEY = 'taxonomy:v1';
 const CACHE_TTL_SECONDS = 300; // 5 minutes — staleness bound until admin/purge lands (Phase 2.10).
-
-function validateResponseInDev(env: Env, validate: () => void): void {
-  if (env.ENV !== 'production') validate();
-}
 
 export function createTaxonomyHandler(
   prismaFor: PrismaFactory = getPrisma,

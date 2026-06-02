@@ -3,13 +3,12 @@ import type { Context } from 'hono';
 import { logToDatadog } from '../datadog';
 import type { Env } from '../env';
 import { json } from '../http';
-import { getPrisma, type AcceleratedPrisma } from '../prisma';
+import type { PrismaFactory } from '../lib/handler-utils';
+import { getPrisma } from '../prisma';
 
 export type HealthResponse =
   | { ok: true; db: 'ok'; latencyMs: number }
   | { ok: false; db: 'error'; latencyMs: number; error: string };
-
-type PrismaFactory = (env: Env) => Pick<AcceleratedPrisma, '$queryRaw'>;
 
 export function createHealthHandler(
   prismaFor: PrismaFactory = getPrisma,

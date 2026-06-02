@@ -10,11 +10,3 @@ export function getPrisma(env: Env) {
     datasourceUrl: env.DATABASE_URL,
   }).$extends(withAccelerate());
 }
-
-export async function withPrisma<T>(
-  env: Env,
-  handler: (prisma: AcceleratedPrisma) => Promise<T>,
-): Promise<T> {
-  const prisma = getPrisma(env);
-  return handler(prisma);
-}

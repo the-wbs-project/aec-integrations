@@ -260,9 +260,9 @@ describe('SSR Worker', () => {
 
 ### 6.3 Prisma in integration tests
 
-API Worker handlers must accept the Prisma client as an argument — the `withPrisma(env, handler)` shape in `DATABASE_SCHEMA.md` §1a (modeled on `apps/api/src/prisma.ts:14-20`). Do **not** import a module-level Prisma singleton; doing so makes handlers untestable without a live database.
+API Worker handlers are factories that take the Prisma client through a `prismaFor: PrismaFactory = getPrisma` parameter and call it per request — the factory-DI shape in `DATABASE_SCHEMA.md` §1a (modeled on `apps/api/src/routes/health.ts`). Do **not** import a module-level Prisma singleton; doing so makes handlers untestable without a live database.
 
-**Unit/handler tests** — inject a Prisma double. Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (e.g. `findMany`, `create`, `update`, `delete`). Assert on the call shape, not the return.
+**Unit/handler tests** — inject a Prisma double through the `prismaFor` factory param (e.g. `createHealthHandler(() => mock)`). Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (e.g. `findMany`, `create`, `update`, `delete`). Assert on the call shape, not the return.
 
 **Higher-fidelity integration tests** — point `DATABASE_URL` at a dedicated preview Supabase Accelerate URL. Each test run must clean up after itself by truncating tables in `afterEach`/`afterAll`. Run serially or per-test-suite isolated to avoid cross-test interference.
 

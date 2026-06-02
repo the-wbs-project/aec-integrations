@@ -37,8 +37,8 @@ describe('buildDatadogPublicConfig', () => {
     });
   });
 
-  it('defaults env to "preview" when ENV is absent', () => {
-    expect(buildDatadogPublicConfig(makeEnv({ ENV: undefined })).env).toBe('preview');
+  it('defaults env to "development" when ENV is absent', () => {
+    expect(buildDatadogPublicConfig(makeEnv({ ENV: undefined })).env).toBe('development');
   });
 });
 

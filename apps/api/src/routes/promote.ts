@@ -59,10 +59,9 @@ import { logToDatadog } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import { getPrisma, type AcceleratedPrisma } from '../prisma';
+import type { PrismaFactory } from '../lib/handler-utils';
+import { getPrisma } from '../prisma';
 import { cacheTagsForPromote } from './promote-cache-tags';
-
-type PrismaFactory = (env: Env) => AcceleratedPrisma;
 
 // ─── Loose structural Prisma surface ─────────────────────────────────────────
 // Mirrors the decoupling approach in the bulk-migrate script: we touch a small,
