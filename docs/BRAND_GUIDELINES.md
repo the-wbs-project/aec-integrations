@@ -15,10 +15,12 @@ For implementation-level tokens (CSS custom properties, Tailwind config, theme s
 
 The site uses neutral surfaces in both themes. Brand colors are accents that layer on top — they are never the page background.
 
-| Theme | Page background | Raised (cards/panels) | Sunken (insets) |
-|---|---|---|---|
-| Light | `#FFFFFF` | `#FAFAFA` | `#F4F4F5` |
-| Dark | `#0A0A0A` | `#18181B` | `#09090B` |
+| Theme | Page background | Raised (cards/panels) | Sunken (insets) | Muted (row hover) |
+|---|---|---|---|---|
+| Light | `#FFFFFF` | `#FAFAFA` | `#F4F4F5` | `#F4F4F5` |
+| Dark | `#0A0A0A` | `#18181B` | `#09090B` | `#27272A` |
+
+*Muted* is the interactive row hover / `focus-within` surface on index tables. Its value intentionally coincides with sunken in light and border-default in dark — see `DESIGN.md` §2 for the rationale.
 
 Near-black `#0A0A0A` (rather than pure `#000000`) is intentional in dark mode: matches Material 3, Apple HIG, Linear, Vercel, and Tailwind's `zinc-950`; reduces OLED smearing during scroll; lowers halation against bright text. No accessibility standard requires pure black.
 
