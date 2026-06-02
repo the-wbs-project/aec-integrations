@@ -13,6 +13,10 @@ pnpm-lock.yaml
 *.md
 public
 
+# Frozen Phase-1 validation probes — archived outside the workspace (AECI-118).
+# Not linted/formatted; kept only as line-anchor references for the docs.
+spikes/
+
 # Supabase CLI runtime state — gitignored, not for prettier
 supabase/.temp/
 supabase/.branches/

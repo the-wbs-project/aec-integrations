@@ -2,7 +2,7 @@
 
 How we write Angular and TypeScript in this codebase. Source of truth for "how it should look" — distinct from `DESIGN.md` (visual system), `PRODUCT.md` (strategy), and `docs/design/v0-porting-rules.md` (v0 → Angular translation).
 
-**Audience:** humans and AI agents (Claude Code, Conductor) authoring or reviewing code in `apps/web/`, `apps/stack-test/`, and any future Angular app in this monorepo.
+**Audience:** humans and AI agents (Claude Code, Conductor) authoring or reviewing code in `apps/web/` and any future Angular app in this monorepo.
 
 **Lint enforcement:** rules tagged `Lint: ✅` are enforced by `pnpm lint` and gated in CI (`.github/workflows/deploy.yml` — the `lint-and-types` job fails the build). Rules tagged `Lint: 🟡 review-only` are the reviewer's job — see `docs/CODE_REVIEW_CHECKLIST.md`. The full mapping is in §24.
 
@@ -10,7 +10,7 @@ How we write Angular and TypeScript in this codebase. Source of truth for "how i
 
 ## 1. Purpose & scope
 
-This guide governs every `.ts` and `.html` file under `apps/web/` and `apps/stack-test/`. It defers to:
+This guide governs every `.ts` and `.html` file under `apps/web/`. It defers to:
 
 - **`DESIGN.md`** (repo root) for color tokens, typography scales, component visual specs.
 - **`PRODUCT.md`** (repo root) for voice, tone, anti-references.
@@ -34,7 +34,7 @@ If a rule here contradicts one of those, the more-specific document wins.
 
 ## 3. Angular 21 + zoneless
 
-- `provideZonelessChangeDetection()` is the first provider in every `ApplicationConfig`. No `zone.js` in `polyfills` or anywhere else. Reference: `apps/web/src/app/app.config.ts:19`, `apps/stack-test/src/app/app.config.ts`.
+- `provideZonelessChangeDetection()` is the first provider in every `ApplicationConfig`. No `zone.js` in `polyfills` or anywhere else. Reference: `apps/web/src/app/app.config.ts:19`.
 - Pair zoneless with `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))`. Reference: `apps/web/src/app/app.config.ts:23-26`.
 - Don't reintroduce `zone.js` to make a flaky test pass — fix the test instead.
 
@@ -68,7 +68,7 @@ Lint: ✅ `@angular-eslint/prefer-on-push-component-change-detection`.
 - Class names match without the `Component` / `Directive` / `Pipe` suffix — `class VendorDetail`, not `class VendorDetailComponent`.
 - Templates and styles colocated as `*.html` / `*.css` next to the `.ts` file. Use `templateUrl: './vendor-detail.html'` (relative path).
 - Inline templates are fine — and encouraged — for small components (< ~40 template lines). Reference inline example: `apps/web/src/app/app.ts:9-13`, `apps/web/src/app/demo/spartan-demo.ts`.
-- Selectors: components are kebab-case elements with the `app-` or `aec-` prefix; directives are camelCase attributes with the `app` prefix. Enforced per-app in `apps/web/eslint.config.mjs` and `apps/stack-test/eslint.config.mjs`.
+- Selectors: components are kebab-case elements with the `app-` or `aec-` prefix; directives are camelCase attributes with the `app` prefix. Enforced per-app in `apps/web/eslint.config.mjs`.
 
 Lint: ✅ `@angular-eslint/component-class-suffix: 'off'` and `@angular-eslint/directive-class-suffix: 'off'` (the rules default to *requiring* the suffix; we override).
 
@@ -248,7 +248,7 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 - Spartan brain primitives give you a11y for free — don't break their built-in semantics.
 - Run axe-core against any new surface before pushing.
-- The template a11y lint config (`angular.configs.templateAccessibility`) is on in `apps/web` and `apps/stack-test`. Lint: ✅ `alt-text`, `click-events-have-key-events`, `interactive-supports-focus`, `label-has-associated-control`, `mouse-events-have-key-events`, `role-has-required-aria`, `table-scope`, `valid-aria`.
+- The template a11y lint config (`angular.configs.templateAccessibility`) is on in `apps/web`. Lint: ✅ `alt-text`, `click-events-have-key-events`, `interactive-supports-focus`, `label-has-associated-control`, `mouse-events-have-key-events`, `role-has-required-aria`, `table-scope`, `valid-aria`.
 - Detailed checklist: `docs/CODE_REVIEW_CHECKLIST.md` "Accessibility" section.
 
 ---
@@ -275,7 +275,7 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 ## 24. Appendix: ESLint enforcement matrix
 
-Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs` and `apps/stack-test/eslint.config.mjs`, both consuming the shared `angularBase` export from `eslint.config.base.mjs`):
+Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the shared `angularBase` export from `eslint.config.base.mjs`):
 
 ### TypeScript files (`**/*.ts`)
 

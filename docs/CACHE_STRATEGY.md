@@ -133,7 +133,7 @@ If a Worker returns HTTP 200 with a "not found" body and a normal TTL for a miss
 
 **Rule:** 404 / not-found responses must return **HTTP 404** with a short TTL (≤ 60s — see §4). Status code 404 lets downstream tooling (sitemaps, monitoring) distinguish real misses, and the short TTL means newly-created entities become visible quickly without a purge call.
 
-Cross-reference: `STAGE_1_SPEC.md` §9.1b. `apps/stack-test/` documents the trap as a deliberate Phase 1 gap in `apps/stack-test/README.md:192-194`; production `apps/web/` implements the correct behavior from the start.
+Cross-reference: `STAGE_1_SPEC.md` §9.1b. The frozen stack-test probe documented the trap as a deliberate gap at `spikes/stack-test/README.md:215-217`; production `apps/web/` implements the correct behavior via `NOT_FOUND_TTL` (`apps/web/src/server-runtime.ts:169`).
 
 ---
 

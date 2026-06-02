@@ -8,7 +8,7 @@
  *
  * Thresholds mirror `docs/TESTING_STRATEGY.md` §10. Bundle-size budgets
  * are tracked separately by `apps/web/scripts/run-extra-tests.sh` (T7
- * pattern from stack-test); not duplicated here.
+ * pattern, from the now-archived stack-test probe); not duplicated here.
  *
  * Target URL: when LHCI_URL is set (CI preview job), uses that; otherwise
  * defaults to the local SSR Worker on :8788.

@@ -53,7 +53,7 @@ export const prettierCompat = prettier;
 
 /**
  * Shared Angular + TypeScript rule set for Angular apps in this monorepo
- * (apps/web, apps/stack-test). Spread into each app's config alongside
+ * (apps/web). Spread into each app's config alongside
  * `tsBase`; per-app configs add their own selector prefixes and globals.
  *
  * Enforces the contract documented in `ANGULAR_STYLE_GUIDE.md`. See §24

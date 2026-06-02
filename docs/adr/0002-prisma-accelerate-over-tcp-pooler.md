@@ -16,7 +16,7 @@ The API Worker must reach Supabase Postgres. Cloudflare Workers run as short-liv
 
 Use **Prisma Accelerate** for all Worker → DB access:
 
-- Instantiate `PrismaClient` from `@prisma/client/edge` and apply `.$extends(withAccelerate())` **per request**. Validated pattern: `apps/api/src/prisma.ts`, `apps/prisma-test/src/index.ts`.
+- Instantiate `PrismaClient` from `@prisma/client/edge` and apply `.$extends(withAccelerate())` **per request**. Validated pattern: `apps/api/src/prisma.ts:8-11`.
 - `DATABASE_URL` is the `prisma://` Accelerate URL (Worker runtime).
 - `DIRECT_URL` (Supabase pooler) is used **only** by the Supabase CLI for migrations — never by Worker runtime code.
 - Do **not** install `@prisma/adapter-pg-worker`; do **not** route Prisma through a TCP pooler from a Worker.

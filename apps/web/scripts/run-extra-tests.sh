@@ -2,7 +2,7 @@
 #
 # apps/web — HTTP-level edge-cache integration runner (AECI-33 / Phase 1.19).
 #
-# Modeled on `apps/stack-test/scripts/run-extra-tests.sh`. Asserts the SSR
+# Modeled on the frozen probe `spikes/stack-test/scripts/run-extra-tests.sh`. Asserts the SSR
 # Worker's contract at the wire: cookie stripping on cacheable routes, no
 # Vary header on cached responses (purge-by-URL contract), short TTL on 404s,
 # byte-stable repeat fetches (idempotent HIT), and locale URL prefix behavior.
