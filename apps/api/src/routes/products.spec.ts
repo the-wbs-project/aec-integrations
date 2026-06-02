@@ -53,10 +53,11 @@ describe('GET /api/products', () => {
     expect(parsed.total).toBe(2);
     expect(parsed.data.map((p) => p.slug)).toEqual(['procore', 'revizto']);
 
-    // Default sort `created DESC` per §7.4 → resolveProductSort should emit
-    // `{ createdAt: 'desc' }`. Inspect the orderBy arg the handler passed.
+    // Default sort `created DESC` per §7.4, with the AECI-99 `id` tiebreaker →
+    // resolveProductSort emits `[{ createdAt: 'desc' }, { id: 'asc' }]`. Inspect
+    // the orderBy arg the handler passed.
     const call = prisma.product.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual({ createdAt: 'desc' });
+    expect(call.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }]);
   });
 
   it('hydrates `vendor` on each list row from the primary ProductVendor link', async () => {
@@ -95,14 +96,14 @@ describe('GET /api/products', () => {
     });
   });
 
-  it('maps `sort=name` to { name: "asc" }', async () => {
+  it('maps `sort=name` to [{ name: "asc" }, { id: "asc" }]', async () => {
     const prisma = makeMockAcceleratedPrisma({
       product: { findMany: [], count: 0 },
     });
     await listApp(prisma).request('/api/products?sort=name', {}, TEST_ENV, fakeExecutionContext());
 
     const call = prisma.product.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual({ name: 'asc' });
+    expect(call.orderBy).toEqual([{ name: 'asc' }, { id: 'asc' }]);
   });
 
   it('builds the where clause from category_id + vendor_id filters', async () => {
