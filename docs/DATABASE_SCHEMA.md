@@ -75,6 +75,8 @@ Handlers never import a module-level client. Each handler is a factory that take
 
 The two-URL split is declared in the Prisma schema (`apps/api/prisma/schema.prisma:22-25`). Workers never see `DIRECT_URL`.
 
+For running the Worker **locally**, `DATABASE_URL` must still be a `prisma://` Accelerate URL (a direct `postgresql://` value throws `P6001`). How to obtain and set it for local `.dev.vars` is in `docs/environments.md` → "Local dev: running the API Worker (Prisma Accelerate)" (Option 1: the shared dev-DB value, same as the `DATABASE_URL_STAGING` secret).
+
 **`wrangler.jsonc` rationale.** No `nodejs_compat` flag is needed for the database — Accelerate is HTTPS. Add `nodejs_compat` only for unrelated Node-API needs. See the canonical comment at `apps/api/wrangler.jsonc:12-13`.
 
 **BigInt JSON serialization.** Prisma returns `BigInt` for `BigInt` columns; `JSON.stringify` throws on them. Use the replacer pattern at `apps/api/src/http.ts:21`:
