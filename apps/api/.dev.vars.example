@@ -3,7 +3,14 @@
 #   wrangler secret put DATABASE_URL --env preview|staging|production
 #
 # DATABASE_URL is read by the Worker at runtime (and by `prisma generate`).
-# It is a Prisma Accelerate URL (HTTPS), not a direct Postgres connection.
+# It is a Prisma Accelerate URL (HTTPS, prisma://), NOT a direct Postgres
+# connection — the Worker uses @prisma/client/edge + withAccelerate() in EVERY
+# tier, including local `wrangler dev`. A postgresql:// value here makes every
+# query throw P6001 ("the URL must start with the protocol `prisma://`").
+# Locally (Option 1, shared dev DB) use the SAME value as the GH Actions secret
+# DATABASE_URL_STAGING — the `aeci-development` project's Accelerate URL, grabbed
+# from the Prisma Console. See docs/environments.md → "Local dev: running the
+# API Worker (Prisma Accelerate)".
 DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=REPLACE_ME"
 
 # DIRECT_URL is used ONLY by the Supabase CLI (`supabase db push / pull /

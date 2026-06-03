@@ -236,6 +236,34 @@ For Worker code: `wrangler rollback --env production` against `apps/api` and `ap
 | R2 upload fails | `apply-prod-migrations` | The snapshot is step 4 — migrations have NOT run yet, so it's safe to re-run after fixing R2 access. Check `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT`. |
 | Snapshot needed but the bucket lifecycle already expired it | — | Snapshots live 30 days. Older incidents require a Supabase point-in-time restore. |
 
+## Local dev: running the API Worker (Prisma Accelerate)
+
+The API Worker reaches Postgres **only** through Prisma Accelerate over HTTPS — `@prisma/client/edge` + `withAccelerate()` in [`apps/api/src/prisma.ts`](../apps/api/src/prisma.ts) — in **every** tier, including local `wrangler dev` / `pnpm dev:bound`. There is no local-only, non-Accelerate code path: per `CLAUDE.md` the runtime is Accelerate-only, and `@prisma/adapter-pg-worker` / a TCP pooler from a Worker are forbidden. So locally, `DATABASE_URL` **must** be a `prisma://` Accelerate URL. A `postgresql://` value makes every query throw `P6001` ("the URL must start with the protocol `prisma://`") and every list/detail endpoint return 500.
+
+### Point local `DATABASE_URL` at the shared dev DB (Option 1)
+
+Set `DATABASE_URL` in `apps/api/.dev.vars` to the **same value as the `DATABASE_URL_STAGING` GitHub Actions secret** — the Prisma Accelerate URL for the `aeci-development` project's `main` branch. That is the same DB staging serves, and the same value `pr-preview.yml` and the `e2e-tests-local` job in `deploy.yml` push to their Workers (Option 1, shared dev DB — see "PR previews" above).
+
+```
+DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=<aeci-development key>"
+```
+
+**Where to get it:** the [Prisma Console](https://console.prisma.io) (Prisma Data Platform) → the `aeci-development` Accelerate project → its connection string. (The raw `DATABASE_URL_STAGING` GitHub secret can't be read back — GH secrets are write-only — so the Console is the self-service source.)
+
+Edit **only** the `DATABASE_URL` line in your existing `.dev.vars`; leave `DIRECT_URL`, `SUPABASE_*`, and `DD_*` as they are. Do **not** copy the CI shortcut: the `e2e-tests-local` job writes `.dev.vars` with `printf … > apps/api/.dev.vars`, which truncates the file to a single line — fine for that job's Worker, but locally it would wipe your other vars.
+
+### What this means day to day
+
+Running the app locally is for **UI work**: the Worker reads the shared dev DB and renders real data. You won't normally write. Because the runtime DB is remote (Accelerate over HTTPS), **you do not need `supabase start` / the local Postgres container just to run the app** — that container is only for authoring migrations (`pnpm db:new` / `db:reset` / `db:pull`, which target `127.0.0.1:54322` by hard-coded URL and ignore `DATABASE_URL`; see [`prisma.md`](./prisma.md) §5). `prisma generate` (run by `pnpm dev` / `dev:preview`) reads `DATABASE_URL` but never connects, so a `prisma://` value is safe for it.
+
+> **Heads-up — shared writes.** Under Option 1 the locally-running Worker reads **and writes** the shared `aeci-development` database. The rare local action that hits a write path (`POST /api/promote`, review/moderation flows, page-view inserts) mutates the same data staging and other developers see. It is never prod — `aeci-production` is a separate project — but treat local write testing as touching shared state.
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+| --- | --- | --- |
+| `/api/health` returns 500 `{ ok:false, db:"error" }`; logs show `P6001` / "the URL must start with the protocol `prisma://`" | Local `DATABASE_URL` is a `postgresql://` URL, but the edge client requires an Accelerate URL | Set `DATABASE_URL` in `apps/api/.dev.vars` to the `prisma://` value (same as `DATABASE_URL_STAGING`). See above. |
+
 ## Local dev: seeding from staging
 
 [`scripts/seed-from-staging.sh`](../scripts/seed-from-staging.sh) (AECI-80) pulls staging's data shape into your local Postgres. Wrapped by `pnpm db:seed-from-staging`. This is the only sanctioned way to get realistic data on a laptop — **prod credentials never leave Cloudflare and GitHub Actions**.
@@ -301,7 +329,7 @@ Secrets are stored in three places:
 
 | Secret | Staging Worker | Prod Worker | GH Actions | Notes |
 | --- | --- | --- | --- | --- |
-| `DATABASE_URL` (staging Prisma Accelerate `prisma://…`) | ✅ on `aeci-{api}-staging` | ❌ | ✅ as `DATABASE_URL_STAGING` (CI tooling that needs raw access uses `DIRECT_URL_STAGING` instead) | Worker runtime path only. Never the pooler URL. |
+| `DATABASE_URL` (staging Prisma Accelerate `prisma://…`) | ✅ on `aeci-{api}-staging` | ❌ | ✅ as `DATABASE_URL_STAGING` (CI tooling that needs raw access uses `DIRECT_URL_STAGING` instead) | Worker runtime path only. Never the pooler URL. Also the value to put in local `apps/api/.dev.vars` to run the API Worker locally — see "Local dev: running the API Worker". |
 | `DATABASE_URL` (prod Prisma Accelerate `prisma://…`) | ❌ | ✅ on `aeci-{api}-production` | ✅ as `DATABASE_URL_PRODUCTION` | Worker runtime path only. |
 | `DIRECT_URL_STAGING` (Supabase pooler `postgresql://…`) | ❌ | ❌ | ✅ | Used by `supabase db push`, `pg_dump`, `pg_restore`. Workers never see this. |
 | `DIRECT_URL_PRODUCTION` | ❌ | ❌ | ✅ | Same. |
