@@ -29,15 +29,19 @@ export const routes: Routes = [
   // AECI-57 — Phase 2.11 product detail page + Phase 6 placeholder stubs.
   // The detail route resolves data SSR-side via the service binding (see
   // `productDetailResolver`); the placeholders are noindex inline panels
-  // standing in for the full Phase 6 forms.
+  // standing in for the full Phase 6 forms. AECI-108 collapsed the four
+  // claim/correction stubs into one `PlaceholderPage`, keyed by route `data`.
   {
     path: 'products/:slug/claim',
-    loadComponent: () => import('./products/claim-placeholder').then((m) => m.ClaimPlaceholder),
+    loadComponent: () =>
+      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    data: { entity: 'product', kind: 'claim' },
   },
   {
     path: 'products/:slug/correction',
     loadComponent: () =>
-      import('./products/correction-placeholder').then((m) => m.CorrectionPlaceholder),
+      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    data: { entity: 'product', kind: 'correction' },
   },
   {
     path: 'products/:slug',
@@ -55,12 +59,14 @@ export const routes: Routes = [
   {
     path: 'vendors/:slug/claim',
     loadComponent: () =>
-      import('./vendors/claim-placeholder').then((m) => m.VendorClaimPlaceholder),
+      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    data: { entity: 'vendor', kind: 'claim' },
   },
   {
     path: 'vendors/:slug/correction',
     loadComponent: () =>
-      import('./vendors/correction-placeholder').then((m) => m.VendorCorrectionPlaceholder),
+      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    data: { entity: 'vendor', kind: 'correction' },
   },
   {
     path: 'vendors/:slug',
