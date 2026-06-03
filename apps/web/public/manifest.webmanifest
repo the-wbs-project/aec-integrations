@@ -1,0 +1,21 @@
+{
+  "name": "AEC Integrations",
+  "short_name": "AEC Integrations",
+  "description": "Software integration directory for the AEC industry.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#F5F2EA",
+  "theme_color": "#1E3A2F",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any"
+    },
+    {
+      "src": "/apple-touch-icon.png",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ]
+}
