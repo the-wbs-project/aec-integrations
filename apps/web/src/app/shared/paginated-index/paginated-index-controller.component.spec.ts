@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { PaginatedResponse } from '@aeci/shared';
 
-import { createIndexSetup } from '../../core/testing/index-page.harness';
+import { createIndexSetup, settle } from '../../core/testing/index-page.harness';
 
 import { type PaginatedIndex, createPaginatedIndex } from './paginated-index-controller';
 
@@ -22,6 +22,12 @@ const SERVER_ERROR = { status: 500, statusText: 'Server Error' };
  * mirroring how the real index pages configure the controller. It reuses the
  * AECI-113 `createIndexSetup` TestBed helper so the wiring matches the
  * entity-component specs.
+ *
+ * Async note (AECI-126): the controller fetches via `httpResource()`, which
+ * dispatches from a reactive effect and applies the response on a microtask, so
+ * a `settle()` boundary stands between flushing a request and asserting on the
+ * resulting `data()` / `error()` / DOM. See the harness for why this is a
+ * macrotask rather than `fixture.whenStable()`.
  */
 @Component({
   template: `
@@ -69,6 +75,7 @@ describe('createPaginatedIndex', () => {
     );
     expect(req.request.method).toBe('GET');
     req.flush(FIXTURE);
+    await settle();
     fixture.detectChanges();
 
     expect((fixture.nativeElement as HTMLElement).querySelector('.total')?.textContent).toBe('1');
@@ -82,6 +89,7 @@ describe('createPaginatedIndex', () => {
     fixture.detectChanges();
 
     httpMock.expectOne((r) => r.params.get('sort') === 'name').flush(FIXTURE);
+    await settle();
     expect(fixture.componentInstance.idx.sort()).toBe('name');
     httpMock.verify();
   });
@@ -93,6 +101,7 @@ describe('createPaginatedIndex', () => {
     fixture.detectChanges();
 
     httpMock.expectOne((r) => r.params.get('sort') === 'created').flush(FIXTURE);
+    await settle();
     expect(fixture.componentInstance.idx.sort()).toBe('created');
     httpMock.verify();
   });
@@ -104,6 +113,7 @@ describe('createPaginatedIndex', () => {
     fixture.detectChanges();
 
     httpMock.expectOne((r) => r.params.get('sourceProductId') === 'abc').flush(FIXTURE);
+    await settle();
     expect(fixture.componentInstance.idx.params()['sourceProductId']).toBe('abc');
     httpMock.verify();
   });
@@ -117,6 +127,7 @@ describe('createPaginatedIndex', () => {
     const req = httpMock.expectOne((r) => r.url === '/api/test');
     expect(req.request.params.has('sourceProductId')).toBe(false);
     req.flush(FIXTURE);
+    await settle();
     httpMock.verify();
   });
 
@@ -127,6 +138,7 @@ describe('createPaginatedIndex', () => {
     fixture.detectChanges();
 
     httpMock.expectOne((r) => r.url === '/api/test').flush(ERROR_BODY, SERVER_ERROR);
+    await settle();
     fixture.detectChanges();
 
     expect(fixture.componentInstance.idx.error()).toBeTruthy();
@@ -142,15 +154,18 @@ describe('createPaginatedIndex', () => {
     fixture.detectChanges();
 
     httpMock.expectOne((r) => r.url === '/api/test').flush(FIXTURE);
+    await settle();
     fixture.detectChanges();
     expect(fixture.componentInstance.idx.data()).not.toBeNull();
 
     // Navigate again. The new request is in flight, so data must reset to null.
     await router.navigateByUrl('/test?page=2');
+    await settle();
     fixture.detectChanges();
     expect(fixture.componentInstance.idx.data()).toBeNull();
 
     httpMock.expectOne((r) => r.params.get('page') === '2').flush(FIXTURE);
+    await settle();
     httpMock.verify();
   });
 
@@ -160,18 +175,22 @@ describe('createPaginatedIndex', () => {
     const fixture = TestBed.createComponent(TestPaginatedIndexHost);
     fixture.detectChanges();
     httpMock.expectOne((r) => r.params.get('page') === '3').flush(FIXTURE);
+    await settle();
 
     // Invalid key is a no-op: URL unchanged.
     fixture.componentInstance.idx.onSortChange('banana');
-    await fixture.whenStable();
+    await settle();
     expect(router.url).toBe('/test?page=3');
 
     // Valid key resets to page 1.
     fixture.componentInstance.idx.onSortChange('name');
-    await fixture.whenStable();
+    await settle();
     expect(router.url).toBe('/test?page=1&sort=name');
 
+    // The param change re-dispatches the resource on the next change detection.
+    fixture.detectChanges();
     httpMock.expectOne((r) => r.url === '/api/test').flush(FIXTURE);
+    await settle();
     httpMock.verify();
   });
 
@@ -181,13 +200,17 @@ describe('createPaginatedIndex', () => {
     const fixture = TestBed.createComponent(TestPaginatedIndexHost);
     fixture.detectChanges();
     httpMock.expectOne((r) => r.params.get('sort') === 'name').flush(FIXTURE);
+    await settle();
 
     fixture.componentInstance.idx.onPageChange(4);
-    await fixture.whenStable();
+    await settle();
     // page merges in; existing sort is preserved.
     expect(router.url).toBe('/test?sort=name&page=4');
 
+    // The param change re-dispatches the resource on the next change detection.
+    fixture.detectChanges();
     httpMock.expectOne((r) => r.params.get('page') === '4').flush(FIXTURE);
+    await settle();
     httpMock.verify();
   });
 
@@ -197,6 +220,7 @@ describe('createPaginatedIndex', () => {
     const fixture = TestBed.createComponent(TestPaginatedIndexHost);
     fixture.detectChanges();
     httpMock.expectOne((r) => r.url === '/api/test').flush(FIXTURE);
+    await settle();
     fixture.detectChanges();
     expect(fixture.componentInstance.idx.data()).not.toBeNull();
 
