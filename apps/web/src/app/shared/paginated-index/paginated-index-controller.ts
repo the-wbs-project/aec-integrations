@@ -1,9 +1,7 @@
-import { HttpClient, HttpParams } from '@angular/common/http';
-import { DestroyRef, type Signal, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, Router } from '@angular/router';
-import { of } from 'rxjs';
-import { catchError, switchMap, tap } from 'rxjs/operators';
+import { httpResource } from '@angular/common/http';
+import { type Signal, computed, inject, linkedSignal } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, type ParamMap, Router } from '@angular/router';
 
 import type { PaginatedResponse } from '@aeci/shared';
 
@@ -12,27 +10,38 @@ import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
 /**
  * Shared mechanism behind the product / vendor / integration index pages
  * (AECI-107). Before this, the three index components each carried a byte-
- * identical copy of the URL-to-fetch-to-state pipeline; any change (a
- * `switchMap` race fix, an a11y tweak to the empty state) had to be hand-
- * applied three times and drifted. This factory owns that logic once. Each
- * entity page keeps only its template (so every `@@{entity}.*` i18n id stays in
- * the concrete template), its API path, response type, sort config, and SEO
- * meta.
+ * identical copy of the URL-to-fetch-to-state pipeline; any change (a race fix,
+ * an a11y tweak to the empty state) had to be hand-applied three times and
+ * drifted. This factory owns that logic once. Each entity page keeps only its
+ * template (so every `@@{entity}.*` i18n id stays in the concrete template), its
+ * API path, response type, sort config, and SEO meta.
  *
  * Why a factory and not an `@Injectable`: a root singleton can't carry the
  * per-entity response generic, and a component-provided injectable would add
  * lifecycle plumbing for no gain. `createPaginatedIndex` is called at field
  * initialization in the consuming component. Field initializers run in an
- * injection context, so `inject()` here is legal (and the no-constructor-body
- * `inject()` lint rule, ANGULAR_STYLE_GUIDE section 9, isn't tripped).
+ * injection context, so `inject()` (and `httpResource()` / `toSignal()`, which
+ * inject under the hood) is legal here.
  *
  * Pipeline (Phase 2 Spec sections 7.1/7.3/7.4): drive the fetch from the URL.
- * Any change to `?page=` / `?sort=` (and any registered `passthroughParams`)
- * re-fetches. `perPage` defaults to 24 and is hard-clamped at 100 server-side.
- * The request is a plain `http.get(apiPath, { params })`; keeping it byte-
- * identical to the pre-refactor call preserves the SSR transfer-cache key
- * (`withHttpTransferCacheOptions` in `app.config.ts`) so the client doesn't
- * re-fetch on hydration.
+ * The active query params are read into a signal (`toSignal(queryParamMap)`),
+ * and an `httpResource()` rebuilds its request from that signal — so any change
+ * to `?page=` / `?sort=` (and any registered `passthroughParams`) re-fetches.
+ * `perPage` defaults to 24 and is hard-clamped at 100 server-side.
+ *
+ * The resource cancels an in-flight request natively when the params change
+ * (replacing the old RxJS `switchMap` race fix), and on every param change it
+ * transitions to the loading state with no value — so `data()` resets to `null`
+ * under a fresh request without any manual reset.
+ *
+ * SSR transfer cache: `httpResource()` issues a plain GET via `HttpClient`, so
+ * the response is captured in the SSR→client HTTP transfer cache
+ * (`withHttpTransferCacheOptions` in `app.config.ts`), keyed by URL + params.
+ * Emitting the params in a stable order keeps that key byte-identical between
+ * server and client so the client doesn't re-fetch on hydration. (Note: the
+ * `id` SSR-cache option is a `resource()` / `rxResource()` feature, not a
+ * `httpResource()` one — `httpResource()` relies on the HTTP transfer cache
+ * above, which is the mechanism the index pages already used.)
  */
 export interface PaginatedIndexConfig {
   /** Service-binding-proxied list endpoint, e.g. `/api/products`. */
@@ -76,7 +85,8 @@ export interface PaginatedIndex<TResponse> {
    * stale data so the table shows its error row. Used by the integrations
    * filter when slug resolution (`GET /api/products/:slug`) fails with a
    * non-404: that's a server error, not a "no match", so it must read as the
-   * table error, not an inline filter message.
+   * table error, not an inline filter message. Cleared automatically on the
+   * next navigation (a new request supersedes it).
    */
   setError(err: unknown): void;
 }
@@ -91,67 +101,72 @@ function parsePage(raw: string | null): number {
 export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown>>(
   config: PaginatedIndexConfig,
 ): PaginatedIndex<TResponse> {
-  const http = inject(HttpClient);
   const route = inject(ActivatedRoute);
   const router = inject(Router);
-  const destroyRef = inject(DestroyRef);
   const meta = inject(MetaService);
 
   const perPage = config.perPage ?? DEFAULT_PER_PAGE;
   const passthroughParams = config.passthroughParams ?? [];
-
-  const data = signal<TResponse | null>(null);
-  const error = signal<unknown>(null);
-  const sort = signal<string>(config.defaultSort);
-  const params = signal<Record<string, string>>({});
 
   const parseSort = (raw: string | null): string =>
     raw && config.validSorts.has(raw) ? raw : config.defaultSort;
 
   meta.setEntityMeta(config.meta);
 
-  route.queryParamMap
-    .pipe(
-      tap((queryParams) => {
-        sort.set(parseSort(queryParams.get('sort')));
-        const next: Record<string, string> = {};
-        for (const key of passthroughParams) {
-          const value = queryParams.get(key);
-          if (value) next[key] = value;
-        }
-        params.set(next);
-        // Reset to the loading state on every navigation so stale data from a
-        // prior page never shows under a fresh request (or after an error).
-        error.set(null);
-        data.set(null);
-      }),
-      switchMap((queryParams) => {
-        let httpParams = new HttpParams()
-          .set('page', String(parsePage(queryParams.get('page'))))
-          .set('perPage', String(perPage))
-          .set('sort', parseSort(queryParams.get('sort')));
-        for (const key of passthroughParams) {
-          const value = queryParams.get(key);
-          if (value) httpParams = httpParams.set(key, value);
-        }
-        return http.get<TResponse>(config.apiPath, { params: httpParams }).pipe(
-          catchError((err: unknown) => {
-            error.set(err);
-            return of(null);
-          }),
-        );
-      }),
-      takeUntilDestroyed(destroyRef),
-    )
-    .subscribe((response) => {
-      if (response) data.set(response);
-    });
+  // Active query params as a signal. Emits synchronously on subscribe (the
+  // router seeds the current value), so `requireSync` holds.
+  const queryParamMap = toSignal(route.queryParamMap, { requireSync: true });
+
+  // URL-driven fetch. The request object is rebuilt whenever `queryParamMap`
+  // changes; the resource cancels any in-flight request and reloads. Params are
+  // emitted in a stable order (page, perPage, sort, then passthroughs) so the
+  // SSR transfer-cache key stays byte-identical across server and client.
+  const resource = httpResource<TResponse>(() => {
+    const qp = queryParamMap();
+    const params: Record<string, string | number> = {
+      page: parsePage(qp.get('page')),
+      perPage,
+      sort: parseSort(qp.get('sort')),
+    };
+    for (const key of passthroughParams) {
+      const value = qp.get(key);
+      if (value) params[key] = value;
+    }
+    return { url: config.apiPath, params };
+  });
+
+  // Out-of-band error pushed by `setError()`. A `linkedSignal` keyed on the
+  // query params resets to `null` on every navigation, so a forced error never
+  // outlives the request it was raised against (mirroring the old per-nav
+  // error/data reset).
+  const overrideError = linkedSignal<ParamMap, unknown>({
+    source: queryParamMap,
+    computation: () => null,
+  });
+
+  // `data`/`error` are mutually exclusive: an override masks the resource value;
+  // otherwise `data` is the resolved value (or `null` while loading / in error,
+  // since `hasValue()` is false then), and `error` is the resource's error.
+  const data = computed<TResponse | null>(() =>
+    overrideError() != null ? null : resource.hasValue() ? resource.value() : null,
+  );
+  const error = computed<unknown>(() => overrideError() ?? resource.error() ?? null);
+  const sort = computed<string>(() => parseSort(queryParamMap().get('sort')));
+  const params = computed<Record<string, string>>(() => {
+    const qp = queryParamMap();
+    const next: Record<string, string> = {};
+    for (const key of passthroughParams) {
+      const value = qp.get(key);
+      if (value) next[key] = value;
+    }
+    return next;
+  });
 
   return {
-    data: data.asReadonly(),
-    error: error.asReadonly(),
-    sort: sort.asReadonly(),
-    params: params.asReadonly(),
+    data,
+    error,
+    sort,
+    params,
     onSortChange(key: string): void {
       if (!config.validSorts.has(key)) return;
       void router.navigate([], {
@@ -175,8 +190,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
       });
     },
     setError(err: unknown): void {
-      data.set(null);
-      error.set(err);
+      overrideError.set(err);
     },
   };
 }

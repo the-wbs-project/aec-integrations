@@ -13,6 +13,14 @@
  * Test helper, not a spec — `*.harness.ts` so no runner collects it directly
  * and the app build excludes it (`tsconfig.app.json`). Entity-specific cases use
  * the exported `createIndexSetup`.
+ *
+ * Async note (AECI-126): the index controller now fetches via `httpResource()`,
+ * which dispatches its request from a reactive effect and applies the response
+ * on a microtask. `settle()` drains that microtask work between steps. We use a
+ * macrotask boundary rather than `fixture.whenStable()` on purpose: a loading
+ * resource registers a pending task, so `whenStable()` would block until the
+ * mock request is flushed — `settle()` lets navigation, request dispatch, and
+ * value application drain without waiting on resource stability.
  */
 import { provideHttpClient, withXhr } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -41,6 +49,15 @@ export interface IndexPageScenario {
   errorText: string;
   /** A one-item list response to flush on the happy path (a `*ListResponse`). */
   fixtureResponse: object;
+}
+
+/**
+ * Drain pending microtask work (navigation, `httpResource` request dispatch,
+ * resource value application) via a macrotask boundary. See the async note
+ * above for why this is not `fixture.whenStable()`.
+ */
+export function settle(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve));
 }
 
 /** Configures TestBed for an index component on its route; returns the mocks. */
@@ -78,6 +95,7 @@ function registerCommonCases(s: IndexPageScenario): void {
     expect(req.request.method).toBe('GET');
     req.flush(s.fixtureResponse);
 
+    await settle();
     fixture.detectChanges();
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('h1')?.textContent).toContain(s.h1Text);
@@ -92,6 +110,7 @@ function registerCommonCases(s: IndexPageScenario): void {
     fixture.detectChanges();
 
     httpMock.expectOne((r) => r.params.get('sort') === s.defaultSort).flush(s.fixtureResponse);
+    await settle();
     httpMock.verify();
   });
 
@@ -107,6 +126,7 @@ function registerCommonCases(s: IndexPageScenario): void {
         { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
         { status: 500, statusText: 'Server Error' },
       );
+    await settle();
     fixture.detectChanges();
 
     const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
@@ -123,6 +143,7 @@ function registerCommonCases(s: IndexPageScenario): void {
     httpMock
       .expectOne((r) => r.url === s.apiUrl)
       .flush({ data: [], page: 1, perPage: 24, total: 0 });
+    await settle();
     fixture.detectChanges();
 
     const emptyRow = (fixture.nativeElement as HTMLElement).querySelector('tbody td');
@@ -141,6 +162,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
 
     const req = httpMock.expectOne((r) => r.params.get('sort') === 'name');
     req.flush(s.fixtureResponse);
+    await settle();
     fixture.detectChanges();
 
     // name sorts ascending (A→Z), so aria-sort must be "ascending".
@@ -156,18 +178,22 @@ function registerSortNavCases(s: IndexPageScenario): void {
     fixture.detectChanges();
 
     httpMock.expectOne((r) => r.params.get('page') === '3').flush(s.fixtureResponse);
+    await settle();
     fixture.detectChanges();
 
     const nameHeaderButton = (fixture.nativeElement as HTMLElement).querySelector(
       'aec-sortable-column-header button',
     ) as HTMLButtonElement;
     nameHeaderButton.click();
-    await fixture.whenStable();
+    await settle();
 
     // Sort change resets to page 1.
     expect(router.url).toBe(`/${s.routePath}?page=1&sort=name`);
-    // Allow the resulting second request to drain so the controller verifies clean.
+    // The param change re-dispatches the resource on the next change detection;
+    // drain the resulting request so the controller verifies clean.
+    fixture.detectChanges();
     httpMock.expectOne((r) => r.url === s.apiUrl).flush(s.fixtureResponse);
+    await settle();
     httpMock.verify();
   });
 
@@ -179,10 +205,12 @@ function registerSortNavCases(s: IndexPageScenario): void {
 
     // First request succeeds — data is now non-null.
     httpMock.expectOne((r) => r.url === s.apiUrl).flush(s.fixtureResponse);
+    await settle();
     fixture.detectChanges();
 
     // Navigate to page 2.
     await router.navigateByUrl(`/${s.routePath}?page=2`);
+    await settle();
     fixture.detectChanges();
 
     // Second request fails.
@@ -192,6 +220,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
         { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
         { status: 500, statusText: 'Server Error' },
       );
+    await settle();
     fixture.detectChanges();
 
     // The error row must be visible; stale page-1 data must not be shown.

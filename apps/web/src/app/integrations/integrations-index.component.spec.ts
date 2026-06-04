@@ -3,7 +3,11 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { IntegrationsListResponse } from '@aeci/shared';
 
-import { createIndexSetup, registerIndexCommonCases } from '../core/testing/index-page.harness';
+import {
+  createIndexSetup,
+  registerIndexCommonCases,
+  settle,
+} from '../core/testing/index-page.harness';
 
 import { IntegrationsIndex } from './integrations-index';
 
@@ -94,11 +98,14 @@ describe('IntegrationsIndex — sort header + source/target filters', () => {
     sourceInput.value = PRODUCT_UUID;
     const form = root.querySelector('form') as HTMLFormElement;
     form.dispatchEvent(new Event('submit', { cancelable: true }));
-    await fixture.whenStable();
+    await settle();
 
     expect(router.url).toContain(`sourceProductId=${PRODUCT_UUID}`);
-    // A UUID is used directly — no /api/products/:slug resolution call.
+    // A UUID is used directly — no /api/products/:slug resolution call. The
+    // navigation re-dispatches the resource on the next change detection.
+    fixture.detectChanges();
     httpMock.expectOne((r) => r.url === '/api/integrations').flush(fixtureResponse);
+    await settle();
     httpMock.verify();
   });
 
@@ -118,14 +125,17 @@ describe('IntegrationsIndex — sort header + source/target filters', () => {
 
     // The slug is resolved to a product id first.
     httpMock.expectOne('/api/products/revit').flush({ id: PRODUCT_UUID });
-    await fixture.whenStable();
+    await settle();
 
     expect(router.url).toContain(`sourceProductId=${PRODUCT_UUID}`);
+    // The navigation re-dispatches the resource on the next change detection.
+    fixture.detectChanges();
     httpMock
       .expectOne(
         (r) => r.url === '/api/integrations' && r.params.get('sourceProductId') === PRODUCT_UUID,
       )
       .flush(fixtureResponse);
+    await settle();
     httpMock.verify();
   });
 
@@ -149,7 +159,7 @@ describe('IntegrationsIndex — sort header + source/target filters', () => {
         { error: { code: 'NOT_FOUND', message: 'missing' }, trace_id: 'x' },
         { status: 404, statusText: 'Not Found' },
       );
-    await fixture.whenStable();
+    await settle();
     fixture.detectChanges();
 
     expect(root.querySelector('#filter-source-error')?.textContent).toContain('does-not-exist');
@@ -180,7 +190,7 @@ describe('IntegrationsIndex — sort header + source/target filters', () => {
         { error: { code: 'INTERNAL_ERROR', message: 'db unreachable' }, trace_id: 'x' },
         { status: 500, statusText: 'Server Error' },
       );
-    await fixture.whenStable();
+    await settle();
     fixture.detectChanges();
 
     // A server error must NOT show "No product matches" — that would mislead
