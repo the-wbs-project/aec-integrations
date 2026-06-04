@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { BrnButton } from '@spartan-ng/brain/button';
 
 import { ThemeService } from '../theme.service';
@@ -13,7 +13,6 @@ import { ThemeService } from '../theme.service';
 @Component({
   selector: 'aec-theme-toggle',
   imports: [BrnButton],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <button
       brnButton

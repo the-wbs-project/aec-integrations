@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
@@ -13,7 +13,6 @@ import { BrowseLayout } from './browse-layout';
       <section slot="grid" data-testid="grid">Grid marker</section>
     </aec-browse-layout>
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class BrowseLayoutHost {}
 

@@ -1,5 +1,5 @@
 import { NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
@@ -39,7 +39,6 @@ import { NotFound } from '../not-found/not-found';
 @Component({
   selector: 'aec-vendor-detail',
   imports: [DetailLayout, NgOptimizedImage, NgTemplateOutlet, NotFound, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let v = vendor();
     @if (v === null) {

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 
 /**
  * Skip-to-main link. Must be the first focusable element in the document so
@@ -7,7 +7,6 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
  */
 @Component({
   selector: 'aec-skip-link',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <a
       href="#main"

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { ProductsListResponse } from '@aeci/shared';
@@ -30,7 +30,6 @@ import { SortableColumnHeader } from './sortable-column-header';
 @Component({
   selector: 'app-products-index',
   imports: [IndexLayout, ProductCard, SortableColumnHeader, Paginator, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aec-index-layout>
       <div slot="header" class="space-y-3">

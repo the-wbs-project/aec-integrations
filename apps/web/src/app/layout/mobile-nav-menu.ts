@@ -23,14 +23,13 @@
  *
  * Spec: DESIGN.md §5 (Navigation); §21 (a11y); AECI-96.
  */
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
 @Component({
   selector: 'aec-mobile-nav-menu',
   imports: [RouterLink, RouterLinkActive, BrnPopover, BrnPopoverContent, BrnPopoverTrigger],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   host: { class: 'md:hidden' },
   template: `
     <button

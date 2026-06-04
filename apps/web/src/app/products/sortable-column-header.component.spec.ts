@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
@@ -21,7 +21,6 @@ import { SortableColumnHeader } from './sortable-column-header';
       </thead>
     </table>
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class Host {
   key = 'name';

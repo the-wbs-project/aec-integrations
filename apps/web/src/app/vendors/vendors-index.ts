@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { VendorsListResponse } from '@aeci/shared';
@@ -30,7 +30,6 @@ import { VendorCard } from './vendor-card';
 @Component({
   selector: 'app-vendors-index',
   imports: [IndexLayout, VendorCard, SortableColumnHeader, Paginator, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aec-index-layout>
       <div slot="header" class="space-y-3">

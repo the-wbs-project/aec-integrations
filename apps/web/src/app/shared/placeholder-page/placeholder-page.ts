@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -21,7 +21,6 @@ type PlaceholderKey = 'product.claim' | 'vendor.claim' | 'product.correction' | 
 @Component({
   selector: 'aec-placeholder-page',
   imports: [RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   templateUrl: './placeholder-page.html',
 })
 export class PlaceholderPage {

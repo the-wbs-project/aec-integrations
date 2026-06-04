@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { describe, expect, it } from 'vitest';
@@ -8,7 +8,6 @@ import { TaxonomyBadge, type TaxonomyKind } from './taxonomy-badge';
 @Component({
   imports: [TaxonomyBadge],
   template: `<aec-taxonomy-badge [kind]="kind" [slug]="slug" [name]="name" />`,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class TaxonomyBadgeHost {
   kind: TaxonomyKind = 'category';

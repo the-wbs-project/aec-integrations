@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 
 /**
  * Sortable `<th>` cell for `IndexLayout`'s table-header slot. Wraps a real
@@ -21,7 +21,6 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
  */
 @Component({
   selector: 'aec-sortable-column-header',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <th scope="col" [attr.aria-sort]="ariaSort()" class="px-4 py-3">
       <button

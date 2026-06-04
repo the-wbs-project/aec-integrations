@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 
 import { DetailLayout } from '../../layouts/detail-layout';
 
@@ -12,7 +12,6 @@ import { DetailLayout } from '../../layouts/detail-layout';
 @Component({
   selector: 'app-detail-layout-preview',
   imports: [DetailLayout],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aec-detail-layout>
       <ol slot="breadcrumbs" class="flex gap-2 text-sm text-(--text-secondary)">

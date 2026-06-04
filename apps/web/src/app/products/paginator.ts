@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
+import { Component, computed, input, output } from '@angular/core';
 
 /**
  * Page-based paginator for `IndexLayout`'s pagination slot. Stateless: the
@@ -16,7 +16,6 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
  */
 @Component({
   selector: 'aec-paginator',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p class="text-sm text-(--text-secondary)" i18n="@@products.paginator.showing">
       Showing {{ rangeStart() }}–{{ rangeEnd() }} of {{ total() }}

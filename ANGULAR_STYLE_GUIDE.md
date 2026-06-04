@@ -54,11 +54,11 @@ Lint: ✅ `@angular-eslint/prefer-standalone`.
 
 ## 5. OnPush change detection
 
-Every `@Component` decorator declares `changeDetection: ChangeDetectionStrategy.OnPush`. Required even with zoneless — it documents intent and keeps DevTools fast when zoneless eventually composes with future features.
+OnPush is the **default** change detection strategy in Angular v22+ ([Angular docs](https://angular.dev/best-practices/skipping-subtrees#using-onpush)). **Do not** declare `changeDetection: ChangeDetectionStrategy.OnPush` in the `@Component` decorator — it's redundant dead code, exactly like an explicit `standalone: true` (§4).
 
-Reference: `apps/web/src/app/app.ts:14`, `apps/web/src/app/home/home.ts`, `apps/web/src/app/preview/vendor-detail/vendor-detail.ts:26`, `apps/web/src/app/demo/spartan-demo.ts`.
+Write components to stay OnPush-compatible: drive state with signals, treat inputs as immutable, and call `inject(ChangeDetectorRef).markForCheck()` only in the rare case of manually mutating an input acquired via `@ViewChild` / `@ContentChild`.
 
-Lint: ✅ `@angular-eslint/prefer-on-push-component-change-detection`.
+Lint: none — it's the framework default. The former `@angular-eslint/prefer-on-push-component-change-detection` rule was removed in AECI-125.
 
 ---
 
@@ -285,7 +285,6 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 | `@typescript-eslint/no-inferrable-types` | warn | §2 |
 | `@typescript-eslint/no-unused-vars` | error | §2 |
 | `@angular-eslint/prefer-standalone` | error | §4 |
-| `@angular-eslint/prefer-on-push-component-change-detection` | error | §5 |
 | `@angular-eslint/component-class-suffix` | **off** (override) | §6 |
 | `@angular-eslint/directive-class-suffix` | **off** (override) | §6 |
 | `@angular-eslint/prefer-inject` | error | §9 |
@@ -320,6 +319,7 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 | Rule | Section |
 |---|---|
 | Zoneless + hydration provider order | §3 |
+| Omit explicit `changeDetection` (OnPush is the v22 default) | §5 |
 | `ngStyle` ban (use `[style.X]`) | §8 |
 | Async pipe for observables | §8 |
 | No browser globals at template render (`new Date()`) | §8, §16 |

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 /**
@@ -32,7 +32,6 @@ export type TaxonomyKind = 'category' | 'discipline' | 'phase';
 @Component({
   selector: 'aec-taxonomy-badge',
   imports: [RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <a
       [routerLink]="routerLink()"

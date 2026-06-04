@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 
 import { BrowseLayout } from '../../layouts/browse-layout';
 
@@ -12,7 +12,6 @@ import { BrowseLayout } from '../../layouts/browse-layout';
 @Component({
   selector: 'app-browse-layout-preview',
   imports: [BrowseLayout],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aec-browse-layout>
       <div slot="header" class="space-y-3">

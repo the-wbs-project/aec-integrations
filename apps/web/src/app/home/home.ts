@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 
 @Component({
   selector: 'app-home',
@@ -19,6 +19,5 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
       </p>
     </section>
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class Home {}

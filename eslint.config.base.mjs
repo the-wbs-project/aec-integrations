@@ -101,7 +101,6 @@ export const angularBase = [
       '@typescript-eslint/no-inferrable-types': 'warn',
 
       '@angular-eslint/prefer-standalone': 'error',
-      '@angular-eslint/prefer-on-push-component-change-detection': 'error',
       '@angular-eslint/prefer-inject': 'error',
       // Constructor-body inject() guard (style guide §9). The em-dash brand
       // guard is a separate, test-exempt config block below (NO_EM_DASH_IN_COPY).

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { VendorListItem } from '@aeci/shared';
@@ -19,7 +19,6 @@ import type { VendorListItem } from '@aeci/shared';
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-vendor-card]',
   imports: [RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   host: {
     class:
       'text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',

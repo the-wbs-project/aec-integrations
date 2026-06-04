@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
@@ -14,7 +14,6 @@ import { Paginator } from './paginator';
       (pageChange)="emitted.set($event)"
     />
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class Host {
   page = signal(1);

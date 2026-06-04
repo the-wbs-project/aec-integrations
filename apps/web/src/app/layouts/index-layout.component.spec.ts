@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
@@ -22,7 +22,6 @@ import { IndexLayout } from './index-layout';
       <nav slot="pagination" data-testid="pagination">Pagination marker</nav>
     </aec-index-layout>
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class IndexLayoutHost {}
 

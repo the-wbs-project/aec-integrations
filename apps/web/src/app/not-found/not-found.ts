@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 /**
@@ -20,7 +20,6 @@ import { RouterLink } from '@angular/router';
 @Component({
   selector: 'aec-not-found',
   imports: [RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section
       class="mx-auto w-full max-w-3xl px-6 py-16 text-(--text-primary) md:py-24"

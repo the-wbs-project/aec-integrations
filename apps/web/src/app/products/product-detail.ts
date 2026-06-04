@@ -1,5 +1,5 @@
 import { NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
@@ -39,7 +39,6 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 @Component({
   selector: 'aec-product-detail',
   imports: [DetailLayout, NgOptimizedImage, NgTemplateOutlet, NotFound, RouterLink, TaxonomyBadge],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let p = product();
     @if (p === null) {

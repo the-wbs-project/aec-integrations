@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 
 /**
  * Browse layout shell — projected into by product, vendor, and integration
@@ -26,7 +26,6 @@ import { ChangeDetectionStrategy, Component } from '@angular/core';
  */
 @Component({
   selector: 'aec-browse-layout',
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">

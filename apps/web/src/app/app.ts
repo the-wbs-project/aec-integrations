@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, inject } from '@angular/core';
+import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
 import { SiteFooter } from './layout/site-footer';
@@ -20,7 +20,6 @@ import { ThemeService } from './theme.service';
     </div>
   `,
   styles: [':host { display: block; min-height: 100vh; }'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class App {
   // Ensures ThemeService instantiates at bootstrap so SSR resolves theme from
