@@ -2,6 +2,9 @@
   "name": "aec-integrations",
   "private": true,
   "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
+  },
   "scripts": {
     "postinstall": "pnpm --filter @aeci/api --filter @aeci/web run cf-typegen",
     "dev": "pnpm dev:bound",
@@ -48,5 +51,18 @@
     "prettier": "^3.8.3",
     "supabase": "^2.101.0",
     "typescript-eslint": "^8.59.3"
+  },
+  "pnpm": {
+    "peerDependencyRules": {
+      "allowedVersions": {
+        "@spartan-ng/brain>@angular/cdk": "22",
+        "@spartan-ng/brain>@angular/core": "22",
+        "@spartan-ng/brain>@angular/common": "22",
+        "@spartan-ng/brain>@angular/forms": "22",
+        "angular-eslint>@angular/cli": "22",
+        "@angular-eslint/schematics>@angular/cli": "22",
+        "@angular-eslint/builder>@angular/cli": "22"
+      }
+    }
   }
 }

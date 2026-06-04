@@ -10,5 +10,13 @@
   // `*.harness.ts` are test-only helpers (they import `vitest`); they are
   // consumed by spec files and type-checked transitively under the spec
   // tsconfigs, so they must stay out of the app build graph.
-  "exclude": ["src/**/*.spec.ts", "src/**/*.harness.ts"]
+  "exclude": ["src/**/*.spec.ts", "src/**/*.harness.ts"],
+  "angularCompilerOptions": {
+    "extendedDiagnostics": {
+      "checks": {
+        "nullishCoalescingNotNullable": "suppress",
+        "optionalChainNotNullable": "suppress"
+      }
+    }
+  }
 }
