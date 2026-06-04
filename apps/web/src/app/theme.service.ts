@@ -1,8 +1,8 @@
 import { DOCUMENT, isPlatformBrowser } from '@angular/common';
 import {
-  Injectable,
   PLATFORM_ID,
   REQUEST,
+  Service,
   Signal,
   afterNextRender,
   computed,
@@ -25,7 +25,7 @@ export type { Mode, Resolved } from './theme.helpers';
 const STORAGE_KEY = 'theme';
 const DARK_CLASS = 'theme-dark';
 
-@Injectable({ providedIn: 'root' })
+@Service()
 export class ThemeService {
   private readonly document = inject(DOCUMENT);
   private readonly platformId = inject(PLATFORM_ID);

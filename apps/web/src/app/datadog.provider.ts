@@ -12,6 +12,14 @@
  * inlined into the HTML head — see `../server-bootstrap-inject.ts`. When the
  * config is missing (dev without secrets provisioned, or any env where RUM is
  * intentionally off), the initializer no-ops so the page still hydrates.
+ *
+ * `injectAsync()` (v22) was evaluated here and deliberately NOT adopted
+ * (AECI-127): it lazily resolves an *auto-provided Angular service* on first
+ * use, but RUM has no on-demand injection site — it's a fire-and-forget
+ * bootstrap side-effect — and `datadogRum` is a plain SDK object, not an
+ * `@Injectable`/`@Service`. Wrapping it in a service just to satisfy
+ * `injectAsync` would add indirection without reading cleaner; the dynamic
+ * `import()` below already keeps the browser-only SDK out of the SSR bundle.
  */
 
 import { isPlatformBrowser } from '@angular/common';

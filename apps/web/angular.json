@@ -9,7 +9,13 @@
   "projects": {
     "web": {
       "projectType": "application",
-      "schematics": {},
+      "schematics": {
+        "@schematics/angular:service": {
+          // v22 already defaults to `@Service`; pin it so a CLI default change
+          // or a contributor can't silently regress to `@Injectable` (AECI-127).
+          "injectable": false
+        }
+      },
       "root": "",
       "sourceRoot": "src",
       "prefix": "app",

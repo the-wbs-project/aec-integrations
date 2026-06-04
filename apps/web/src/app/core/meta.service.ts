@@ -1,5 +1,5 @@
 import { DOCUMENT } from '@angular/common';
-import { Injectable, inject } from '@angular/core';
+import { Service, inject } from '@angular/core';
 import { Meta, Title } from '@angular/platform-browser';
 
 import type { ProductDetail, VendorDetail } from '@aeci/shared';
@@ -49,7 +49,7 @@ export interface SetEntityMetaInput {
  *
  * Spec anchor: docs/STAGE_1_PHASE_2_SPEC.md §9.
  */
-@Injectable({ providedIn: 'root' })
+@Service()
 export class MetaService {
   private readonly title = inject(Title);
   private readonly meta = inject(Meta);

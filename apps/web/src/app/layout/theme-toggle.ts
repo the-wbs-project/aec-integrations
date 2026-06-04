@@ -23,7 +23,8 @@ import { ThemeService } from '../theme.service';
       aria-label="Cycle theme"
     >
       <span aria-hidden="true" class="text-(--text-secondary)">
-        @switch (theme.mode()) {
+        @let mode = theme.mode();
+        @switch (mode) {
           @case ('system') {
             <ng-container i18n="@@app.theme.label.system">System</ng-container>
           }
@@ -33,6 +34,7 @@ import { ThemeService } from '../theme.service';
           @case ('dark') {
             <ng-container i18n="@@app.theme.label.dark">Dark</ng-container>
           }
+          @default never;
         }
       </span>
     </button>
