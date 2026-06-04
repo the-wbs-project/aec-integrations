@@ -164,10 +164,14 @@ CI wiring (resolving `$GITHUB_SHA` and the workflow timestamp) landed in AECI-71
 
 Shared Claude Code skills live in `.agents/skills/`, checked into the repo so every contributor (and CI agents) get them automatically.
 
-Two skills are checked in for the engineering build phase:
+Four skills are checked in for the engineering build phase:
 
 - **`spec-anchor`** — local skill that anchors AECI-* work to the relevant `docs/STAGE_1_SPEC.md` section (see "Where to start").
 - **`pbakaus/impeccable`** — design skill (single skill, 23 sub-commands: `craft`, `shape`, `teach`, `document`, `critique`, `audit`, `polish`, `bolder`, `quieter`, `distill`, `harden`, `onboard`, `animate`, `colorize`, `typeset`, `layout`, `delight`, `overdrive`, `clarify`, `adapt`, `optimize`, `extract`, `live`). Lives at `.agents/skills/impeccable/`. Refresh with `npx impeccable skills update` or reinstall via `npx -y impeccable skills install --force`. Reads `PRODUCT.md` and `DESIGN.md` at the repo root.
+- **`angular-developer`** — official Angular skill (`angular/skills`) that loads version-specific Angular best practices on demand (signals/reactivity, forms, DI, routing, SSR, ARIA, animations, styling, testing, CLI) from a bundled `references/` library. Auto-triggers when you create or modify Angular code in `apps/web/`. Pairs with the `angular-cli` MCP server (see "MCP usage rules"). Added in AECI-131.
+- **`angular-new-app`** — official Angular skill (`angular/skills`) for scaffolding a new Angular app with the CLI. Rarely needed in this established monorepo, but kept for parity with the upstream set.
+
+The two Angular skills are installed with `npx skills add https://github.com/angular/skills` — the same openskills CLI as `pnpm skills:update`. It writes the skill dirs under `.agents/skills/`, the `.claude/skills/` symlinks, and `skills-lock.json` entries (and must not re-hydrate the removed marketing bundle).
 
 The **`coreyhaines31/marketingskills`** bundle (marketing / SEO / CRO / copywriting / analytics — ~39 skills, ~36k lines) was removed from the tree to keep the engineering repo lean and out of codebase search. Restore it when doing marketing work with `pnpm skills:update`. It installs under `.agents/skills/` (one dir per skill) and must never clobber `impeccable/` — if it ships a same-named skill, that's a bug.
 
@@ -227,10 +231,11 @@ Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`
 
 ## MCP usage rules
 
-**Angular CLI MCP (`angular-cli`):**
+**Angular CLI MCP (`angular-cli`):** wired via the repo-root `.mcp.json` and pre-approved through `enabledMcpjsonServers` in `.claude/settings.json` (AECI-131), so it connects automatically. It runs the workspace's Angular v22 CLI **from `apps/web`** — `sh -c 'cd "$CLAUDE_PROJECT_DIR/apps/web" && exec npx -y @angular/cli mcp -E all'` — because `@angular/cli` is a dependency of `apps/web`, not the repo root, so `ng` only resolves there. It registers the stable read tools (`get_best_practices`, `search_documentation`, `list_projects`, `onpush_zoneless_migration`, `ai_tutor`) **plus** the experimental `run_target` (build / test / lint / e2e) and `devserver.start` / `devserver.stop` / `devserver.wait_for_build` tools. The experimental tools can build and serve `apps/web`, so invoke them deliberately.
 - Before writing, modifying, or analyzing any Angular code, call `get_best_practices` once per session.
 - For any Angular API question (signals, control flow, forms, router, SSR, zoneless), call `search_documentation` before answering from training data.
-- Use `list_projects` to orient before generating files in the workspace.
+- Use `list_projects` to orient before generating files in the workspace — it discovers `apps/web/angular.json`; pass that workspace `path` to `run_target` and the devserver tools.
+- The companion `angular-developer` skill (see "Skills") loads version-specific best-practice references on demand; prefer it over training-data recall for Angular patterns.
 
 **Mobbin MCP (`mobbin`):**
 - What it is: a visual reference library of real shipping apps — flows, screens, and component patterns sourced from production iOS, Android, and web products.
