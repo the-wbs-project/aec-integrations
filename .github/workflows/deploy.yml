@@ -227,6 +227,15 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase db push --linked --include-all
+      # Seed the code-owned taxonomy reference data (idempotent upserts) after
+      # migrations apply. `db push` is schema-only and never touches data; this
+      # reconciles the taxonomy vocabulary on every deploy. Mirrors the
+      # seed-staging-users.sql psql pattern in refresh-staging.yml.
+      # See docs/adr/0008-taxonomy-reference-data.md.
+      - name: Seed taxonomy reference data
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
       # Wait for Prisma Accelerate to pick up the schema change before any
       # downstream job (e2e-tests-local, integration-runner-local, per-PR
       # Workers) issues typed Prisma queries against the dev DB. See

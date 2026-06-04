@@ -15,13 +15,13 @@ Write a migration when any of these change in Postgres:
 - A table, column, index, constraint, trigger, or sequence.
 - A function, view, or extension.
 - An RLS policy, PostgREST GRANT, or `is_admin()`/`is_active_user()`-style helper. As of AECI-87 the whole authorization surface lives in numbered migrations (see [§5](#5-rls-and-the-public-schema)); there is no separate apply step.
-- A row in a config-shaped table that staging and production must both have (rare — generally use Airtable curator sync per `docs/DATABASE_SCHEMA.md` §13).
+- A row in a config-shaped table that staging and production must both have (rare). Taxonomy vocabulary → the code-managed reference file `supabase/reference-data/taxonomy.sql` (ADR 0008), not a migration; other curator content → Airtable sync (`docs/DATABASE_SCHEMA.md` §13).
 
 **Don't** write a migration for:
 
-- Local test fixtures or seed data — put those in `supabase/seed.sql` (local-dev only; `db push` does not apply seed).
+- Local test fixtures or seed data — put those in `supabase/seed.sql` (local-dev only; `db push` does not apply seed). Cross-environment reference data (e.g. the taxonomy vocabulary) goes in `supabase/reference-data/` instead, which *is* applied to every environment (ADR 0008).
 - One-off data backfills — use a script under `apps/api/scripts/` and run it explicitly per environment.
-- Anything Airtable owns (curator-managed content; vendors, products, integrations, taxonomy, reviews — see `docs/DATABASE_SCHEMA.md` §13).
+- Anything Airtable owns (curator-managed content; vendors, products, integrations, reviews — see `docs/DATABASE_SCHEMA.md` §13). *(Taxonomy is no longer in this set — it's code-managed reference data per ADR 0008.)*
 
 ---
 
@@ -142,7 +142,8 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 ## 7. What does not belong in a migration
 
 - **Seed data**: use `supabase/seed.sql` (local-dev only — `supabase db reset` runs it; `supabase db push` does not).
-- **Curator-managed data**: vendors, products, integrations, taxonomy, reviews come in from the Airtable sync (`docs/DATABASE_SCHEMA.md` §13).
+- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `supabase/reference-data/taxonomy.sql` (idempotent upserts), applied on `db reset` locally and via a `psql -f` step after `db push` in the deploy workflows. See ADR 0008.
+- **Curator-managed data**: vendors, products, integrations, reviews come in from the Airtable sync (`docs/DATABASE_SCHEMA.md` §13).
 - **One-off backfills**: write a script (`apps/api/scripts/<name>.ts`), run it explicitly per environment with the right `DIRECT_URL`. Keep migrations declarative.
 - **RLS policies**: see §5.
 

@@ -62,7 +62,10 @@ schema_paths = []
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-sql_paths = ["./seed.sql"]
+# `reference-data/taxonomy.sql` is the code-owned, version-controlled taxonomy
+# vocabulary (idempotent upserts) — applied locally here and to remote envs via
+# `pnpm db:seed-reference`. See docs/adr/0008-taxonomy-reference-data.md.
+sql_paths = ["./seed.sql", "./reference-data/taxonomy.sql"]
 
 [db.network_restrictions]
 # Enable management of network restrictions.
