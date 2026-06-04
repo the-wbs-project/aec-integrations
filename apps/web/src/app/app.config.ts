@@ -8,6 +8,7 @@ import {
   provideClientHydration,
   withEventReplay,
   withHttpTransferCacheOptions,
+  withNoIncrementalHydration,
 } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 
@@ -23,6 +24,10 @@ export const appConfig: ApplicationConfig = {
     provideClientHydration(
       withEventReplay(),
       withHttpTransferCacheOptions({ includePostRequests: false }),
+      // v22 makes incremental hydration the default; opt out to keep pre-v22
+      // eager hydration behavior for this PR. Adopting incremental hydration is
+      // tracked as a separate follow-up (see the Angular v22 upgrade plan).
+      withNoIncrementalHydration(),
     ),
     provideDatadogRum(),
   ],

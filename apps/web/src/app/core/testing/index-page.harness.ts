@@ -14,7 +14,7 @@
  * and the app build excludes it (`tsconfig.app.json`). Entity-specific cases use
  * the exported `createIndexSetup`.
  */
-import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClient, withXhr } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import type { Type } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -50,7 +50,7 @@ export function createIndexSetup(
 ): { httpMock: HttpTestingController; router: Router } {
   TestBed.configureTestingModule({
     providers: [
-      provideHttpClient(),
+      provideHttpClient(withXhr()),
       provideHttpClientTesting(),
       provideRouter([{ path: routePath, component }]),
     ],
