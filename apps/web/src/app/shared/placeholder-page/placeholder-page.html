@@ -11,7 +11,7 @@
     <ng-container i18n="@@products.correction.eyebrow">Suggest a correction</ng-container>
     } @case ('vendor.correction') {
     <ng-container i18n="@@vendors.correction.eyebrow">Suggest a correction</ng-container>
-    } }
+    } @default never; }
   </p>
   <h1
     id="placeholder-title"
@@ -25,7 +25,7 @@
     <ng-container i18n="@@products.correction.title">Coming soon (Phase 6).</ng-container>
     } @case ('vendor.correction') {
     <ng-container i18n="@@vendors.correction.title">Coming soon (Phase 6).</ng-container>
-    } }
+    } @default never; }
   </h1>
   <p class="mt-4 max-w-2xl text-base leading-relaxed text-(--text-secondary)">
     @switch (key) { @case ('product.claim') {
@@ -68,7 +68,7 @@
       >
       with the details and we'll fix it.</ng-container
     >
-    } }
+    } @default never; }
   </p>
 
   <div class="mt-8">
@@ -84,7 +84,7 @@
       <ng-container i18n="@@products.correction.back">← Back to product</ng-container>
       } @case ('vendor.correction') {
       <ng-container i18n="@@vendors.correction.back">← Back to vendor</ng-container>
-      } }
+      } @default never; }
     </a>
   </div>
 </section>
