@@ -3,7 +3,7 @@ import { RouterLink } from '@angular/router';
 
 /**
  * Phase 2 §11.2 — `TaxonomyBadge`. A chip-style link to a category /
- * discipline / phase browse page. Used by detail-page metadata sidebars
+ * audience / phase browse page. Used by detail-page metadata sidebars
  * (product, vendor, integration) and by `ProductCard` / `IntegrationCard`
  * once those land.
  *
@@ -27,7 +27,7 @@ import { RouterLink } from '@angular/router';
  * reference site selected for the product detail surface — see the
  * `Mobbin anchor:` line on the AECI-57 commit / Linear issue.
  */
-export type TaxonomyKind = 'category' | 'discipline' | 'phase';
+export type TaxonomyKind = 'category' | 'audience' | 'phase';
 
 @Component({
   selector: 'aec-taxonomy-badge',
@@ -62,8 +62,8 @@ export class TaxonomyBadge {
     switch (k) {
       case 'category':
         return ['/categories', s];
-      case 'discipline':
-        return ['/disciplines', s];
+      case 'audience':
+        return ['/audiences', s];
       case 'phase':
         return ['/phases', s];
     }

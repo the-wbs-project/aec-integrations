@@ -84,11 +84,11 @@ type AnyPrisma = {
   integration: ModelDelegate;
   productVendor: ModelDelegate;
   productCategory: ModelDelegate;
-  productDiscipline: ModelDelegate;
+  productAudience: ModelDelegate;
   productPhase: ModelDelegate;
   productExtension: ModelDelegate;
   taxonomyCategory: ModelDelegate;
-  taxonomyDiscipline: ModelDelegate;
+  taxonomyAudience: ModelDelegate;
   taxonomyPhase: ModelDelegate;
   // `review` is read-only here (count + _avg) — used by recomputeProductCounts
   // to maintain the denormalized product aggregates (AECI-104).
@@ -249,7 +249,10 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
   const vendorUuid = new Map<string, string>();
   const vendorSlugByRecId = new Map<string, string>();
   const categoryUuid = new Map<string, string>();
-  const disciplineUuid = new Map<string, string>();
+  // Airtable "disciplines" records map to Supabase `taxonomy_audiences` UUIDs
+  // (the facet was renamed in AECI-121; the Airtable source still calls it
+  // "disciplines").
+  const audienceUuid = new Map<string, string>();
   const phaseUuid = new Map<string, string>();
 
   // Track which records this run newly inserted, for Airtable write-back.
@@ -263,7 +266,7 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
   const vendorSlugs = await loadSlugs(prisma.vendor);
   const productSlugs = await loadSlugs(prisma.product);
   const categorySlugs = await loadSlugs(prisma.taxonomyCategory);
-  const disciplineSlugs = await loadSlugs(prisma.taxonomyDiscipline);
+  const audienceSlugs = await loadSlugs(prisma.taxonomyAudience);
   const phaseSlugs = await loadSlugs(prisma.taxonomyPhase);
 
   // Idempotency: has this Airtable record already been migrated (uuid present
@@ -288,7 +291,7 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
     model: ModelDelegate,
     slugSet: Set<string>,
     uuidMap: Map<string, string>,
-    entity: 'category' | 'discipline' | 'phase',
+    entity: 'category' | 'audience' | 'phase',
   ): Promise<void> {
     const bySlug = new Map<string, string>();
     // Seed from existing rows so re-runs reuse, not duplicate.
@@ -321,8 +324,8 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
           tx[
             entity === 'category'
               ? 'taxonomyCategory'
-              : entity === 'discipline'
-                ? 'taxonomyDiscipline'
+              : entity === 'audience'
+                ? 'taxonomyAudience'
                 : 'taxonomyPhase'
           ]
             .create({
@@ -345,10 +348,10 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
   );
   await migrateTaxonomy(
     airtableDisciplines,
-    prisma.taxonomyDiscipline,
-    disciplineSlugs,
-    disciplineUuid,
-    'discipline',
+    prisma.taxonomyAudience,
+    audienceSlugs,
+    audienceUuid,
+    'audience',
   );
   await migrateTaxonomy(airtablePhases, prisma.taxonomyPhase, phaseSlugs, phaseUuid, 'phase');
 
@@ -469,8 +472,8 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
     const categoryIds = links(p.fields, 'category')
       .map((r) => categoryUuid.get(r))
       .filter((x): x is string => !!x);
-    const disciplineIds = links(p.fields, 'supported_disciplines')
-      .map((r) => disciplineUuid.get(r))
+    const audienceIds = links(p.fields, 'supported_disciplines')
+      .map((r) => audienceUuid.get(r))
       .filter((x): x is string => !!x);
     const phaseIds = links(p.fields, 'supported_project_phases')
       .map((r) => phaseUuid.get(r))
@@ -517,9 +520,9 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
             skipDuplicates: true,
           });
         }
-        if (disciplineIds.length) {
-          await tx.productDiscipline.createMany({
-            data: disciplineIds.map((disciplineId) => ({ productId: id, disciplineId })),
+        if (audienceIds.length) {
+          await tx.productAudience.createMany({
+            data: audienceIds.map((audienceId) => ({ productId: id, audienceId })),
             skipDuplicates: true,
           });
         }

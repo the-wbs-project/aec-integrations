@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type APIRequestContext } from '@playwright/test';
 
 // AECI-61 / Phase 2.15 — taxonomy browse pages: /categories/:slug,
-// /disciplines/:slug, /phases/:slug. The three routes share one component +
+// /audiences/:slug, /phases/:slug. The three routes share one component +
 // resolver, so the spec parametrizes over the kinds. For each it verifies SSR
 // render (title "{name} tools — AEC Integrations", canonical, breadcrumb,
 // product table), the §4 browse cache headers/tags (route:browse + {type}:{slug}
@@ -13,11 +13,11 @@ import { expect, test, type APIRequestContext } from '@playwright/test';
 // SSR Worker service binding), so the spec stays seed-agnostic: render/nav
 // assertions skip when a kind has no seeded terms; the 404 path needs no data.
 
-type Kind = { kind: string; segment: string; listKey: 'categories' | 'disciplines' | 'phases' };
+type Kind = { kind: string; segment: string; listKey: 'categories' | 'audiences' | 'phases' };
 
 const KINDS: Kind[] = [
   { kind: 'category', segment: 'categories', listKey: 'categories' },
-  { kind: 'discipline', segment: 'disciplines', listKey: 'disciplines' },
+  { kind: 'audience', segment: 'audiences', listKey: 'audiences' },
   { kind: 'phase', segment: 'phases', listKey: 'phases' },
 ];
 

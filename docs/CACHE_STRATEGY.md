@@ -23,7 +23,7 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 | `vendor:{slug}` | The vendor detail page for that slug |
 | `integration:{id}` | The integration detail page |
 | `category:{slug}` | Category browse page |
-| `discipline:{slug}` | Discipline browse page |
+| `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
 | `taxonomy` | Any page that displays the full taxonomy (nav, footer, `/categories`) |
 | `index:products` / `index:vendors` / `index:integrations` / `index:categories` | The respective index pages |
@@ -60,7 +60,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `discipline`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes that render the taxonomy nav (home today; more in Phase 4+). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes that render the taxonomy nav (home today; more in Phase 4+). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -73,7 +73,7 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 | Route class | `max-age` (browser) | `s-maxage` (edge) |
 |---|---|---|
 | Detail pages | 0 | 900 (15 min) |
-| Browse pages (category / discipline / phase) | 0 | 300 (5 min) |
+| Browse pages (category / audience / phase) | 0 | 300 (5 min) |
 | Index pages | 0 | 300 (5 min) |
 | Taxonomy fetch (`/taxonomy`) | 0 | 3600 (1 hr) |
 | `sitemap.xml` | 0 | 3600 |
@@ -111,7 +111,7 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 | `/products`, `/vendors` (index) | `page`, `perPage`, `sort` |
 | `/integrations` (index) | `page`, `perPage`, `sort`, `sourceProductId`, `targetProductId` |
 | Detail (`/products/:slug`, `/vendors/:slug`, `/integrations/:id`) | none — strip all |
-| Browse (`/categories\|disciplines\|phases/:slug`), taxonomy index (`/categories`) | none — strip all |
+| Browse (`/categories\|audiences\|phases/:slug`), taxonomy index (`/categories`) | none — strip all |
 | Home (`/`), `/about`, `/legal/*` | none — strip all |
 
 **Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.

@@ -28,7 +28,7 @@ function renderHost(kind: TaxonomyKind, slug: string, name: string) {
 describe('TaxonomyBadge', () => {
   it.each([
     ['category', 'project-management', '/categories/project-management'],
-    ['discipline', 'structural', '/disciplines/structural'],
+    ['audience', 'structural', '/audiences/structural'],
     ['phase', 'preconstruction', '/phases/preconstruction'],
   ] as const)('renders a link to the %s browse page', (kind, slug, expectedHref) => {
     const root = renderHost(kind, slug, 'irrelevant');

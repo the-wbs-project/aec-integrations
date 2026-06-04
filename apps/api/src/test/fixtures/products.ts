@@ -79,9 +79,9 @@ export const procoreProductDetailRow: RawProductDetailRow = {
   toolIntegrationsUrl: 'https://www.procore.com/integrations',
   apiDocsUrl: 'https://developers.procore.com',
   hasApiDocs: true,
-  productDisciplines: [
+  productAudiences: [
     {
-      discipline: {
+      audience: {
         id: '00000000-0000-4000-8000-000000040001',
         name: 'Construction',
         slug: 'construction',

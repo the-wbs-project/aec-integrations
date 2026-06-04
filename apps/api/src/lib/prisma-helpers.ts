@@ -165,7 +165,7 @@ export const productDetailSelect = {
   toolIntegrationsUrl: true,
   apiDocsUrl: true,
   hasApiDocs: true,
-  productDisciplines: { select: { discipline: { select: taxonomyLinkSelect } } },
+  productAudiences: { select: { audience: { select: taxonomyLinkSelect } } },
   productPhases: { select: { phase: { select: taxonomyLinkSelect } } },
   sourceIntegrations: { select: integrationListSelect },
   targetIntegrations: { select: integrationListSelect },
@@ -212,7 +212,7 @@ export const vendorDetailSelect = {
 /**
  * Per-model taxonomy *term* selects, used by the list endpoints
  * (`/api/categories`, `/api/taxonomy`). The scalar shape is shared across
- * category / discipline / phase, but the `_count` relation differs per model —
+ * category / audience / phase, but the `_count` relation differs per model —
  * so each model bakes its own `_count` into its own `as const` select. The
  * scalar fields are written out inline on each, rather than spread from a
  * shared const: spreading a shared scalar object into a scalar-plus-`_count`
@@ -238,14 +238,14 @@ export const categoryTermSelect = {
   _count: { select: { productCategories: true } },
 } as const satisfies Prisma.TaxonomyCategorySelect;
 
-export const disciplineTermSelect = {
+export const audienceTermSelect = {
   id: true,
   slug: true,
   name: true,
   description: true,
   displayOrder: true,
-  _count: { select: { productDisciplines: true } },
-} as const satisfies Prisma.TaxonomyDisciplineSelect;
+  _count: { select: { productAudiences: true } },
+} as const satisfies Prisma.TaxonomyAudienceSelect;
 
 export const phaseTermSelect = {
   id: true,
@@ -310,12 +310,12 @@ export type RawTaxonomyTermRow = {
   name: string;
   description: string | null;
   displayOrder: number | null;
-  _count: { productCategories?: number; productDisciplines?: number; productPhases?: number };
+  _count: { productCategories?: number; productAudiences?: number; productPhases?: number };
 };
 
 export type RawTaxonomyDetailRow = RawTaxonomyTermRow & {
   productCategories?: Array<{ product: RawProductListRow }>;
-  productDisciplines?: Array<{ product: RawProductListRow }>;
+  productAudiences?: Array<{ product: RawProductListRow }>;
   productPhases?: Array<{ product: RawProductListRow }>;
 };
 
@@ -505,7 +505,7 @@ export function toProductDetail(
       name: r.category.name,
       slug: r.category.slug,
     })),
-    disciplines: raw.productDisciplines.map((r) => r.discipline),
+    audiences: raw.productAudiences.map((r) => r.audience),
     phases: raw.productPhases.map((r) => r.phase),
     integrations_as_source: raw.sourceIntegrations.map(toIntegrationListItem),
     integrations_as_target: raw.targetIntegrations.map(toIntegrationListItem),
@@ -539,7 +539,7 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
   };
 }
 
-export type TaxonomyCountKey = 'productCategories' | 'productDisciplines' | 'productPhases';
+export type TaxonomyCountKey = 'productCategories' | 'productAudiences' | 'productPhases';
 
 export function toTaxonomyTermWithCount(
   raw: RawTaxonomyTermRow,

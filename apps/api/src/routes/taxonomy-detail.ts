@@ -2,7 +2,7 @@
  * Phase 2.8 (AECI-54) taxonomy detail endpoint factory.
  *
  *   GET /api/categories/:slug   — single category detail with embedded products.
- *   GET /api/disciplines/:slug  — single discipline detail with embedded products.
+ *   GET /api/audiences/:slug    — single audience detail with embedded products.
  *   GET /api/phases/:slug       — single phase detail with embedded products.
  *
  * The three handlers were byte-for-byte identical apart from the Prisma model,
@@ -11,7 +11,7 @@
  * `index.ts`. The list endpoint (`GET /api/categories`) stays in
  * `routes/categories.ts` — only the *detail* shape is shared here.
  *
- * No list endpoint for disciplines/phases per Phase 2 Spec §7.1 — those are read
+ * No list endpoint for audiences/phases per Phase 2 Spec §7.1 — those are read
  * via `GET /api/taxonomy` when the SSR Worker needs the whole tree.
  */
 
@@ -36,7 +36,7 @@ import {
 import { getPrisma, type AcceleratedPrisma } from '../prisma';
 
 /** Taxonomy resources that expose a detail endpoint (subset of `ResourceKind`). */
-type TaxonomyResource = 'category' | 'discipline' | 'phase';
+type TaxonomyResource = 'category' | 'audience' | 'phase';
 
 /** Minimal slice of a Prisma model delegate this handler drives. The dynamic
  * `select` (computed relation key) doesn't fit Prisma's strict per-model select

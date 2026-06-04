@@ -2,7 +2,7 @@
  * `GET /robots.txt` body generation for the SSR Worker (AECI-63 / Phase 2.17).
  *
  * Allows the full public surface (`/products`, `/vendors`, `/integrations`,
- * `/categories`, `/disciplines`, `/phases` are all covered by `Allow: /`) and
+ * `/categories`, `/audiences`, `/phases` are all covered by `Allow: /`) and
  * disallows the non-cacheable / private routes (mirrors the non-cacheable list
  * in `server-runtime.ts` and `docs/CACHE_STRATEGY.md` §4). Points crawlers at
  * the sitemap.

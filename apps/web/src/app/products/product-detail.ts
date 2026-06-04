@@ -204,18 +204,18 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             </section>
           }
 
-          @if (p.disciplines.length > 0) {
-            <section aria-labelledby="disciplines-label" class="space-y-3">
+          @if (p.audiences.length > 0) {
+            <section aria-labelledby="audiences-label" class="space-y-3">
               <h2
-                id="disciplines-label"
+                id="audiences-label"
                 class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
-                i18n="@@products.detail.metadata.disciplines"
+                i18n="@@products.detail.metadata.audiences"
               >
-                Disciplines
+                Audiences
               </h2>
               <div class="flex flex-wrap gap-2">
-                @for (d of p.disciplines; track d.slug) {
-                  <aec-taxonomy-badge kind="discipline" [slug]="d.slug" [name]="d.name" />
+                @for (d of p.audiences; track d.slug) {
+                  <aec-taxonomy-badge kind="audience" [slug]="d.slug" [name]="d.name" />
                 }
               </div>
             </section>

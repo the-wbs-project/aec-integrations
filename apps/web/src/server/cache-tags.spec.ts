@@ -139,10 +139,10 @@ describe('cacheTagInputsForPath', () => {
       '/categories/structural',
       { route: 'browse', entity: { type: 'category', slug: 'structural' } },
     ],
-    ['/disciplines', { route: 'browse', entity: { type: 'discipline', slug: '*' } }],
+    ['/audiences', { route: 'browse', entity: { type: 'audience', slug: '*' } }],
     [
-      '/disciplines/architecture',
-      { route: 'browse', entity: { type: 'discipline', slug: 'architecture' } },
+      '/audiences/architecture',
+      { route: 'browse', entity: { type: 'audience', slug: 'architecture' } },
     ],
     ['/phases', { route: 'browse', entity: { type: 'phase', slug: '*' } }],
     [
@@ -178,8 +178,8 @@ describe('cacheTagInputsForPath', () => {
       '/integrations/abc',
       '/categories',
       '/categories/structural',
-      '/disciplines',
-      '/disciplines/architecture',
+      '/audiences',
+      '/audiences/architecture',
       '/phases',
       '/phases/preconstruction',
     ];

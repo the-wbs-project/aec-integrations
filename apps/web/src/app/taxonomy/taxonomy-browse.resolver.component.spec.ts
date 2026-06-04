@@ -22,7 +22,7 @@ import { createRequestContext, type AeciRequestContext } from '../../server/requ
 import type { TaxonomyTermDetail } from '../core/api/taxonomy';
 import { MetaService } from '../core/meta.service';
 
-import { categoryBrowseResolver, disciplineBrowseResolver } from './taxonomy-browse.resolver';
+import { categoryBrowseResolver, audienceBrowseResolver } from './taxonomy-browse.resolver';
 
 function buildProduct(slug: string, id: string): ProductListItem {
   return {
@@ -217,10 +217,10 @@ describe('categoryBrowseResolver — server path', () => {
   });
 });
 
-describe('disciplineBrowseResolver — kind wiring', () => {
+describe('audienceBrowseResolver — kind wiring', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('hits the disciplines endpoint and tags the pageView/meta with the discipline kind', async () => {
+  it('hits the audiences endpoint and tags the pageView/meta with the audience kind', async () => {
     const term = buildTerm({ slug: 'structural', name: 'Structural' });
     const setEntityMeta = vi.fn();
     const ctx = createRequestContext(buildClient(async () => term));
@@ -229,25 +229,25 @@ describe('disciplineBrowseResolver — kind wiring', () => {
       platform: 'server',
       ctx,
       responseInit: { status: 200 },
-      request: new Request('https://aecintegrations.com/disciplines/structural'),
+      request: new Request('https://aecintegrations.com/audiences/structural'),
       meta: { setEntityMeta } as Partial<MetaService>,
       slug: 'structural',
-      resolver: disciplineBrowseResolver,
+      resolver: audienceBrowseResolver,
     });
 
     await run();
 
-    expect(ctx.api.request).toHaveBeenCalledWith('/api/disciplines/structural');
+    expect(ctx.api.request).toHaveBeenCalledWith('/api/audiences/structural');
     expect(setEntityMeta).toHaveBeenCalledWith(
-      expect.objectContaining({ entity: 'discipline', name: 'Structural' }),
+      expect.objectContaining({ entity: 'audience', name: 'Structural' }),
     );
     expect(ctx.pageView).toEqual({
-      route: '/disciplines/:slug',
-      entity_type: 'discipline',
+      route: '/audiences/:slug',
+      entity_type: 'audience',
       entity_id: term.id,
     });
     const stateKeys = JSON.parse(transferState.toJson());
-    expect(stateKeys['aeci.taxonomy-browse:discipline:structural']).toEqual(term);
+    expect(stateKeys['aeci.taxonomy-browse:audience:structural']).toEqual(term);
   });
 });
 

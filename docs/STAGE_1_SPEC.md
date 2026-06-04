@@ -14,7 +14,7 @@ Stage 1 is a public, read-only directory of AEC software products, vendors, and 
 
 **Success criteria:**
 - Practitioner can search the directory and find relevant products
-- Practitioner can browse by category, discipline, and project phase
+- Practitioner can browse by category, audience, and project phase
 - Practitioner can see integration relationships between products
 - Practitioner can submit a review (auth-gated)
 - Vendor can submit a claim or correction request
@@ -200,7 +200,7 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/integrations` | All integrations paginated | 30 min edge |
 | `/integrations/:id` | Integration detail page | 1 hr edge |
 | `/categories/:slug` | Browse by category | 30 min edge |
-| `/disciplines/:slug` | Browse by discipline | 30 min edge |
+| `/audiences/:slug` | Browse by audience | 30 min edge |
 | `/phases/:slug` | Browse by project phase | 30 min edge |
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |
@@ -244,7 +244,7 @@ Admin auth is a simple role check on the `profiles` table. No separate admin UI 
 
 **Below the fold:**
 - "Browse by category" — grid of top categories with counts
-- "Browse by discipline" — same pattern
+- "Browse by audience" — same pattern
 - "Browse by project phase" — same pattern
 - "Recently added integrations" — last 10 integrations with source → target product names
 - "Trending products this week" — top 5 most-viewed products (from PostHog data, cached)
@@ -258,13 +258,13 @@ Admin auth is a simple role check on the `profiles` table. No separate admin UI 
 **Header:**
 - Product name + logo (Brandfetch hotlink)
 - Vendor name (linked to vendor page)
-- Categories, disciplines, phases as badges
+- Categories, audiences, phases as badges
 - Verified badge (placeholder — none verified in Stage 1)
 - "Is this your product?" CTA → claim form modal
 
 **Tabs:** Each tab is a separately addressable URL using route segments (see Section 4.2.1 for full URL strategy).
 
-1. **Overview** (`/products/:slug` or `/products/:slug/overview`) — description, website link, key features, supported phases/disciplines
+1. **Overview** (`/products/:slug` or `/products/:slug/overview`) — description, website link, key features, supported phases/audiences
 2. **Integrations** (`/products/:slug/integrations`) — table of integrations grouped by source/target with mechanism badges
 3. **Reviews** (`/products/:slug/reviews`) — individual reviews from review 1, aggregate score shown only at ≥5 reviews
 4. **Details** (`/products/:slug/details`) — vendor info, API docs link, marketplace link, founded year, headquarters
@@ -328,7 +328,7 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 - Built by (vendor) and Powered by (product) if applicable
 - "Report an error" link
 
-### 4.5 Category/Discipline/Phase pages
+### 4.5 Category/Audience/Phase pages
 
 Same layout pattern for all three:
 - Header: name + description
@@ -340,7 +340,7 @@ Same layout pattern for all three:
 
 - Algolia InstantSearch widgets:
   - Search box
-  - Faceted filters: category, discipline, phase, vendor, mechanism (for integrations)
+  - Faceted filters: category, audience, phase, vendor, mechanism (for integrations)
   - Results split into tabs: Products / Vendors / Integrations
   - Sort options per tab
 - Empty state: "No results — try a broader search or browse by category"
@@ -404,8 +404,8 @@ The schema is organized into seven domains, all defined in `DATABASE_SCHEMA.md`:
 | Domain | Tables |
 |---|---|
 | Core entities | `vendors`, `products`, `integrations` |
-| Taxonomy | `taxonomy_categories`, `taxonomy_disciplines`, `taxonomy_phases` |
-| Joins | `product_categories`, `product_disciplines`, `product_phases`, `product_vendors`, `product_extensions` |
+| Taxonomy | `taxonomy_categories`, `taxonomy_audiences`, `taxonomy_phases` |
+| Joins | `product_categories`, `product_audiences`, `product_phases`, `product_vendors`, `product_extensions` |
 | User and content | `profiles`, `reviews` |
 | Operations and workflow | `vendor_requests`, `workflow_instances`, `workflow_transitions`, `audit_log` |
 | Analytics and caching | `page_views`, `stats_cache` |
@@ -436,6 +436,27 @@ High-level intent:
 
 This satisfies right-to-erasure while preserving the directory's content integrity.
 
+### 5.5 Taxonomy facets (Categories, Audiences, Phases)
+
+The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `supabase/reference-data/taxonomy.sql`, applied to every environment via idempotent upserts (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
+
+| Facet | Question it answers | Table | Browse route | Examples |
+|---|---|---|---|---|
+| **Category** | *What does this software do?* | `taxonomy_categories` | `/categories/:slug` | BIM Authoring, Estimating & Takeoff |
+| **Audience** | *Who is this for?* | `taxonomy_audiences` | `/audiences/:slug` | Architecture, MEP Engineering, Project Manager, Estimator |
+| **Phase** | *Which project-lifecycle stage?* | `taxonomy_phases` | `/phases/:slug` | Design, Pre-Construction, Closeout & Operations |
+
+A product carries any number of terms from each facet (the `product_categories` / `product_audiences` / `product_phases` join tables). The aggregate vocabulary is exposed at `GET /api/taxonomy → { categories, audiences, phases }` and per-term browse pages at `GET /api/{categories|audiences|phases}/:slug`.
+
+**The Audience facet (AECI-121).** Audience answers "who is this for?" and deliberately holds **two kinds of term on one axis**:
+
+- **Domains** — the professional discipline/department a product serves (Architecture, Civil Engineering, MEP Engineering, Construction Management, …). These are the original 21 facet items.
+- **Personas** — cross-cutting job roles a domain axis cannot express (Project Manager, Project Engineer, Superintendent, Estimator, Scheduler, Foreman / Field Supervisor, Designer / Drafter, BIM Manager, BIM Coordinator).
+
+A separate "Roles" facet was evaluated and **rejected**: ~55% of the proposed roles duplicated existing domains and others duplicated Categories, so a separate facet would have been a half-populated filter that confuses users and curators. Folding personas into a single "who is this for?" axis keeps one vocabulary to curate and no overlap to police.
+
+**History & compatibility.** This facet was named **Discipline** through Phase 2 and was renamed to **Audience** in AECI-121 (tables `taxonomy_disciplines → taxonomy_audiences`, `product_disciplines → product_audiences`; the promote payload/response key `disciplines → audiences`). The 21 original slugs are unchanged, so existing URLs keep resolving via a permanent **301 redirect `/disciplines/:slug → /audiences/:slug`** (and `/disciplines → /audiences`); the `disciplines` slug namespace stays reserved. The review-app promote contract cuts over atomically — see `docs/REVIEW_APP_PROMOTE_API.md` and the cross-repo handoff in `docs/handoffs/AECI-121-review-app-audience-rename.md`.
+
 ---
 
 ## 6. API Endpoints
@@ -458,7 +479,7 @@ Cloudflare Worker at `apps/api/`, exposed via service binding to the SSR worker.
 - `GET /api/products/:slug/reviews` — approved reviews for product
 - `GET /api/vendors`, `GET /api/vendors/:slug`
 - `GET /api/integrations`, `GET /api/integrations/:id`
-- `GET /api/taxonomy/categories`, `/disciplines`, `/phases`
+- `GET /api/taxonomy/categories`, `/audiences`, `/phases`
 - `GET /api/stats/home`
 
 **Authenticated write:**
@@ -511,7 +532,7 @@ Three indexes, each denormalized for zero-join search:
   "vendor_name": "Procore Technologies",
   "vendor_slug": "procore-technologies",
   "categories": ["Project Management", "Document Control"],
-  "disciplines": ["Construction Management"],
+  "audiences": ["Construction Management"],
   "phases": ["Construction", "Closeout"],
   "integration_count": 342,
   "review_count": 0,
@@ -553,7 +574,7 @@ Three indexes, each denormalized for zero-join search:
 
 ### 7.2 Faceting
 
-- `products`: categories, disciplines, phases, vendor_name, has_api_docs, integration_count (range buckets: 0, 1–10, 11–50, 51+)
+- `products`: categories, audiences, phases, vendor_name, has_api_docs, integration_count (range buckets: 0, 1–10, 11–50, 51+)
 - `vendors`: headquarters, founded_year (range), product_count (range)
 - `integrations`: mechanism_kind, direction, source_product_name, target_product_name
 
@@ -752,7 +773,7 @@ Scheduled Cloudflare Worker, runs daily at 02:00 UTC.
 - `home.trending_products` — top 5 by page_views in last 7 days (joined with PostHog if available, else page_views table)
 - `home.recently_added_products` — last 10 products with `created_at` in last 30 days
 - `category_counts` — product count per category
-- `discipline_counts` — product count per discipline
+- `audience_counts` — product count per audience
 - `phase_counts` — product count per phase
 
 Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggregation on page load.
@@ -992,7 +1013,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Per-tab meta tags and Schema.org JSON-LD
 - [ ] Vendor detail page
 - [ ] Integration detail page
-- [ ] Category/discipline/phase browse pages
+- [ ] Category/audience/phase browse pages
 - [ ] Edge caching configured with per-route TTLs (see `docs/CACHE_STRATEGY.md` §4)
 - [ ] `Cache-Tag` write helper + `POST /admin/purge` endpoint implemented (see `docs/CACHE_STRATEGY.md` §3, §5; lands in AECI-56)
 - [ ] Single write-event pipeline scaffolded (Section 20.5)
@@ -1124,7 +1145,7 @@ Generated on request by a Cloudflare Worker, not built statically.
 - `/sitemap-products.xml` — all product URLs with `<lastmod>` reflecting `products.updated_at`
 - `/sitemap-vendors.xml` — all vendor URLs
 - `/sitemap-integrations.xml` — all integration URLs
-- `/sitemap-taxonomy.xml` — category, discipline, and phase pages
+- `/sitemap-taxonomy.xml` — category, audience, and phase pages
 - Edge-cached for 1 hour with tag-based invalidation on writes
 - Includes localized URLs via `<xhtml:link rel="alternate" hreflang="...">` once additional locales exist
 

@@ -237,7 +237,7 @@ describe('GET /api/products/:slug', () => {
     expect(parsed.slug).toBe('procore');
     expect(parsed.vendor?.slug).toBe('procore');
     expect(parsed.categories.map((c) => c.slug)).toContain('project-management');
-    expect(parsed.disciplines.map((d) => d.slug)).toContain('construction');
+    expect(parsed.audiences.map((d) => d.slug)).toContain('construction');
     expect(parsed.phases.map((p) => p.slug)).toContain('construction-phase');
     expect(parsed.related_products.map((p) => p.slug)).toEqual(['revizto']);
   });

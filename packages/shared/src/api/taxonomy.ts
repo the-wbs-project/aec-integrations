@@ -4,8 +4,8 @@ import { LinkRefSchema } from './common';
 import { ProductListItemSchema } from './products';
 
 /**
- * A taxonomy term (category / discipline / phase) with the count of products
- * tagged with it. Used by `GET /api/categories` (and the disciplines / phases
+ * A taxonomy term (category / audience / phase) with the count of products
+ * tagged with it. Used by `GET /api/categories` (and the audiences / phases
  * equivalents inside `TaxonomyResponse`).
  */
 export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
@@ -24,7 +24,7 @@ export type TaxonomyTermWithCount = z.infer<typeof TaxonomyTermWithCountSchema>;
  */
 export const TaxonomyResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
-  disciplines: z.array(TaxonomyTermWithCountSchema),
+  audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
 });
 
@@ -32,7 +32,7 @@ export type TaxonomyResponse = z.infer<typeof TaxonomyResponseSchema>;
 
 /**
  * Response for `GET /api/categories` (the flat list of all categories). Same
- * shape applies to `disciplines` and `phases` if list-style endpoints are
+ * shape applies to `audiences` and `phases` if list-style endpoints are
  * added later. Not paginated — the taxonomy is small (≈30 terms) by design.
  */
 export const CategoriesListResponseSchema = z.object({
@@ -42,10 +42,10 @@ export const CategoriesListResponseSchema = z.object({
 export type CategoriesListResponse = z.infer<typeof CategoriesListResponseSchema>;
 
 /**
- * Detail responses for `GET /api/categories/:slug`, `/disciplines/:slug`,
+ * Detail responses for `GET /api/categories/:slug`, `/audiences/:slug`,
  * `/phases/:slug`. Embed the products that carry the term as
  * `ProductListItem[]` per Phase 2 Spec §7.2. Three distinct schemas (not
- * aliases) so future divergence — e.g. discipline-specific fields — is cheap.
+ * aliases) so future divergence — e.g. audience-specific fields — is cheap.
  */
 const taxonomyDetailShape = TaxonomyTermWithCountSchema.extend({
   products: z.array(ProductListItemSchema),
@@ -54,8 +54,8 @@ const taxonomyDetailShape = TaxonomyTermWithCountSchema.extend({
 export const CategoryDetailSchema = taxonomyDetailShape;
 export type CategoryDetail = z.infer<typeof CategoryDetailSchema>;
 
-export const DisciplineDetailSchema = taxonomyDetailShape;
-export type DisciplineDetail = z.infer<typeof DisciplineDetailSchema>;
+export const AudienceDetailSchema = taxonomyDetailShape;
+export type AudienceDetail = z.infer<typeof AudienceDetailSchema>;
 
 export const PhaseDetailSchema = taxonomyDetailShape;
 export type PhaseDetail = z.infer<typeof PhaseDetailSchema>;

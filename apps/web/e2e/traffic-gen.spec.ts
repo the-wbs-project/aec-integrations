@@ -28,7 +28,7 @@ const FIXED_ROUTES = [
   '/vendors',
   '/integrations',
   '/categories',
-  '/disciplines',
+  '/audiences',
   '/phases',
 ];
 

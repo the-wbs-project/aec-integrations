@@ -14,7 +14,7 @@
  * The route wiring (headers, cache control) lives in `server-runtime.ts`.
  *
  * `<lastmod>` is emitted for products / vendors / integrations from their
- * `updated_at`. Taxonomy terms (categories / disciplines / phases) expose no
+ * `updated_at`. Taxonomy terms (categories / audiences / phases) expose no
  * `updated_at` anywhere in the API, so those entries carry no `<lastmod>` —
  * the field is optional in the sitemap protocol (AECI-63 decision).
  */
@@ -159,9 +159,9 @@ export async function resolveSitemapEntries(
       priority: 0.5,
     });
   }
-  for (const discipline of taxonomy.disciplines) {
+  for (const audience of taxonomy.audiences) {
     entries.push({
-      loc: `${base}/disciplines/${discipline.slug}`,
+      loc: `${base}/audiences/${audience.slug}`,
       changefreq: 'weekly',
       priority: 0.5,
     });

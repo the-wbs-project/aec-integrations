@@ -97,11 +97,11 @@ function makeFake() {
     review: model('review'),
     productVendor: model('productVendor'),
     productCategory: model('productCategory'),
-    productDiscipline: model('productDiscipline'),
+    productAudience: model('productAudience'),
     productPhase: model('productPhase'),
     productExtension: model('productExtension'),
     taxonomyCategory: model('taxonomyCategory'),
-    taxonomyDiscipline: model('taxonomyDiscipline'),
+    taxonomyAudience: model('taxonomyAudience'),
     taxonomyPhase: model('taxonomyPhase'),
     auditLog: {
       async create({ data }: { data: Rec }) {
@@ -202,7 +202,7 @@ describe('createPromoteHandler', () => {
         ref: 'p1',
         name: 'Revit',
         categories: ['BIM', 'Design'],
-        disciplines: ['Architecture'],
+        audiences: ['Architecture'],
       },
       integrations: [
         {
@@ -220,14 +220,14 @@ describe('createPromoteHandler', () => {
       vendors: { ref: string; id: string; slug: string; operation: string }[];
       product: { ref: string; id: string; slug: string; operation: string };
       integrations: { ref: string; operation: string }[];
-      taxonomy: { categories: unknown[]; disciplines: unknown[] };
+      taxonomy: { categories: unknown[]; audiences: unknown[] };
       skipped: unknown[];
     };
 
     expect(b.vendors[0]).toMatchObject({ ref: 'v1', slug: 'autodesk', operation: 'created' });
     expect(b.product).toMatchObject({ ref: 'p1', slug: 'revit', operation: 'created' });
     expect(b.taxonomy.categories).toHaveLength(2);
-    expect(b.taxonomy.disciplines).toHaveLength(1);
+    expect(b.taxonomy.audiences).toHaveLength(1);
     expect(b.skipped).toHaveLength(0);
 
     // Join rows reflect the bundle.
@@ -549,7 +549,7 @@ describe('cache purge after promote (AECI-105)', () => {
           ref: 'p1',
           name: 'Revit',
           categories: ['BIM'],
-          disciplines: ['Architecture'],
+          audiences: ['Architecture'],
         },
       },
       fetchMock,
@@ -572,7 +572,7 @@ describe('cache purge after promote (AECI-105)', () => {
         'vendor:autodesk',
         'index:vendors',
         'category:bim',
-        'discipline:architecture',
+        'audience:architecture',
         'taxonomy',
         'sitemap',
       ]),
@@ -636,7 +636,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
     slug,
     operation,
   });
-  const emptyTaxonomy = { categories: [], disciplines: [], phases: [] };
+  const emptyTaxonomy = { categories: [], audiences: [], phases: [] };
 
   it('created product + vendor + mixed taxonomy → entity, index, taxonomy, sitemap tags', () => {
     const response: PromoteResponse = {
@@ -645,7 +645,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       integrations: [],
       taxonomy: {
         categories: [tax('bim', 'reused')],
-        disciplines: [tax('architecture', 'created')],
+        audiences: [tax('architecture', 'created')],
         phases: [],
       },
       skipped: [],
@@ -657,8 +657,8 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         'vendor:autodesk',
         'index:vendors',
         'category:bim',
-        'discipline:architecture',
-        'taxonomy', // a discipline was newly created
+        'audience:architecture',
+        'taxonomy', // an audience was newly created
         'sitemap', // product + vendor were created
       ]),
     );
@@ -669,7 +669,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [entity('autodesk', 'updated')],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'reused')], disciplines: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'reused')], audiences: [], phases: [] },
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
@@ -712,7 +712,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [],
       product: entity('revit', 'updated'),
       integrations: [],
-      taxonomy: { categories: [], disciplines: [], phases: [tax('design', 'created')] },
+      taxonomy: { categories: [], audiences: [], phases: [tax('design', 'created')] },
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
@@ -736,7 +736,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [entity('autodesk', 'created')],
       product: entity('revit', 'created'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'created')], disciplines: [], phases: [] },
+      taxonomy: { categories: [tax('bim', 'created')], audiences: [], phases: [] },
       skipped: [],
     };
     expect(cacheTagsForPromote(response).some((t) => t.startsWith('route:'))).toBe(false);

@@ -20,6 +20,9 @@ export const DEFAULT_RESERVED_SLUGS: readonly string[] = Object.freeze([
   'vendors',
   'integrations',
   'categories',
+  'audiences',
+  // `disciplines` stays reserved: `/disciplines/:slug` permanently 301-redirects
+  // to `/audiences/:slug` (AECI-121), so the namespace is still occupied.
   'disciplines',
   'phases',
   'claim',

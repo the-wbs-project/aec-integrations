@@ -31,8 +31,9 @@
  *   /products, /vendors, /integrations      → 5min  edge / 0     browser  (§8.3)
  *   /products/:slug, /vendors/:slug,
  *     /integrations/:id                      → 15min edge / 0     browser  (§8.3)
- *   /categories/*, /disciplines/*,
+ *   /categories/*, /audiences/*,
  *     /phases/*                             → 30min edge / 5min browser
+ *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
  *   /about, /legal/*                        → 24hr edge / 1hr  browser
  *
  * NON-CACHEABLE (cookies pass through unchanged, no edge cache, no s-maxage):
@@ -56,6 +57,7 @@
  */
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 
 import type { WebEnv } from './env';
 import { submitCount, submitDistribution } from './server-datadog';
@@ -244,7 +246,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     ttl: { edge: 300, browser: 0 },
   },
   {
-    match: (p) => p === '/disciplines' || p.startsWith('/disciplines/'),
+    match: (p) => p === '/audiences' || p.startsWith('/audiences/'),
     ttl: { edge: 300, browser: 0 },
   },
   { match: (p) => p === '/phases' || p.startsWith('/phases/'), ttl: { edge: 300, browser: 0 } },
@@ -654,6 +656,33 @@ export function createApp(options: {
   // `COMMIT_SHA` so CI can verify the SSR bundle is current independently of the
   // API deploy. `private, no-store` (set in the handler), no `Cache-Tag`.
   app.get('/_version', createVersionHandler());
+
+  // AECI-121 — permanent redirects for the renamed taxonomy facet
+  // (Discipline → Audience). Registered BEFORE the SSR catch-all so they win;
+  // `/disciplines/*` no longer SSRs (the Angular route is `/audiences/:slug` and
+  // `ROUTE_CACHE_PATTERNS` lists `/audiences`). 301 (permanent) so search engines
+  // transfer link equity to the canonical `/audiences/*` URLs. The redirect is
+  // emitted as a standalone Response (NOT through `handleSsr`, which forces 3xx
+  // to `no-store`) so it stays edge-cacheable — the mapping never changes. Tagged
+  // `audience:<slug>` (the same vocabulary the browse route + promote purge use)
+  // so /admin/purge can evict it if a mapping is ever corrected. Query string is
+  // preserved. Locale-prefixed `/es/disciplines/...` (no locales ship yet) would
+  // fall through to the SSR 404, which is acceptable until a locale is added.
+  const audienceRedirect = (c: Context<{ Bindings: Bindings }>): Response => {
+    const url = new URL(c.req.url);
+    const targetPath = url.pathname.replace(/^\/disciplines/, '/audiences');
+    const slug = targetPath.slice('/audiences/'.length); // '' for the bare index
+    return new Response(null, {
+      status: 301,
+      headers: {
+        Location: `${url.origin}${targetPath}${url.search}`,
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+        'Cache-Tag': slug ? `audience:${slug}` : 'audience:*',
+      },
+    });
+  };
+  app.get('/disciplines', audienceRedirect);
+  app.get('/disciplines/:slug', audienceRedirect);
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {

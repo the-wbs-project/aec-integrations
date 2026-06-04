@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
-import { allCategoryRows, allDisciplineRows, allPhaseRows } from '../test/fixtures/taxonomy';
+import { allCategoryRows, allAudienceRows, allPhaseRows } from '../test/fixtures/taxonomy';
 import {
   fakeExecutionContext,
   makeMockAcceleratedPrisma,
@@ -26,7 +26,7 @@ function buildApp(prisma: MockAcceleratedPrisma) {
 function fixtureSeed(): MockAcceleratedPrisma {
   return makeMockAcceleratedPrisma({
     taxonomyCategory: { findMany: allCategoryRows },
-    taxonomyDiscipline: { findMany: allDisciplineRows },
+    taxonomyAudience: { findMany: allAudienceRows },
     taxonomyPhase: { findMany: allPhaseRows },
   });
 }
@@ -67,7 +67,7 @@ describe('GET /api/taxonomy', () => {
     const body = await res.json();
     const parsed = TaxonomyResponseSchema.parse(body);
     expect(parsed.categories.map((c) => c.slug)).toContain('project-management');
-    expect(parsed.disciplines.map((d) => d.slug)).toContain('construction');
+    expect(parsed.audiences.map((d) => d.slug)).toContain('construction');
     expect(parsed.phases.map((p) => p.slug)).toContain('construction-phase');
     expect(prisma.taxonomyCategory.findMany).toHaveBeenCalledOnce();
   });
@@ -106,7 +106,7 @@ describe('GET /api/taxonomy', () => {
           product_count: 99,
         },
       ],
-      disciplines: [],
+      audiences: [],
       phases: [],
     };
     const kv = makeKv({ 'taxonomy:v1': cachedBody });

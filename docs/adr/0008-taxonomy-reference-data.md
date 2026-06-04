@@ -10,7 +10,7 @@ Supersedes — for the taxonomy vocabulary only — the "Airtable owns taxonomy"
 
 ## Context
 
-The taxonomy facets — `taxonomy_categories`, `taxonomy_disciplines`, `taxonomy_phases` — were originally specced (DATABASE_SCHEMA §13) as curator-managed content living in Airtable (base `appy81IdGJY6Fngf9`), reaching Supabase via a one-way curator-sync job. Two facts made that the wrong model for taxonomy specifically:
+The taxonomy facets — `taxonomy_categories`, `taxonomy_audiences`, `taxonomy_phases` — were originally specced (DATABASE_SCHEMA §13) as curator-managed content living in Airtable (base `appy81IdGJY6Fngf9`), reaching Supabase via a one-way curator-sync job. Two facts made that the wrong model for taxonomy specifically:
 
 1. **The sync was never built**, and the Supabase taxonomy tables were empty. Nothing populated them, so the directory had no facets to render.
 2. **The live Airtable taxonomy had already drifted.** Pulling it (`AECi_Review.list_taxonomy`) returned 3 corrupt category rows whose `name` was a record ID — broken self-referential linked-record entries. An uncontrolled, hand-edited vocabulary degrades over time.
@@ -28,7 +28,7 @@ Airtable is the right tool for the high-volume, frequently-edited *content* (ven
 
 Manage the taxonomy vocabulary as **code-managed reference data**, not Airtable content.
 
-- The single source of truth is **`supabase/reference-data/taxonomy.sql`** — idempotent `INSERT … ON CONFLICT (slug) DO UPDATE` upserts for categories, disciplines, and phases.
+- The single source of truth is **`supabase/reference-data/taxonomy.sql`** — idempotent `INSERT … ON CONFLICT (slug) DO UPDATE` upserts for categories, audiences, and phases.
 - It is **upsert-only and never deletes** (a delete would cascade to `product_*` join rows). Removals go through an explicit, reviewed migration.
 - It writes only the `taxonomy_*` vocabulary tables, never the `product_*` join tables (those links come from the promote flow).
 - **Application** is uniform across environments:
@@ -55,6 +55,6 @@ The data file lives under `supabase/reference-data/`, not in `supabase/migration
 - `DIRECT_URL_STAGING` / `DIRECT_URL_PRODUCTION` must be available to the deploy workflows (they already are — used by the existing psql steps).
 
 **Follow-ups**
-- AECI-121 renames the `Discipline` facet to `Audience` and expands it with cross-cutting personas; the reference file's discipline block moves with it.
+- AECI-121 renamed the `Discipline` facet to `Audience` and expanded it with cross-cutting personas; the reference file's discipline block moved with it.
 - Descriptions are seeded `NULL` for now; SEO copy can be added to the file later.
 - DATABASE_SCHEMA §13 and `docs/migrations.md` are updated to carve taxonomy out of the Airtable-owned set and document the reference-data category.

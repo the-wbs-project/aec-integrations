@@ -10,7 +10,7 @@
  * purge is silent staleness.
  *
  * Composition rules (`docs/CACHE_STRATEGY.md` §3):
- *   - Entity tags (`product:{slug}`, `vendor:{slug}`, `category|discipline|phase:
+ *   - Entity tags (`product:{slug}`, `vendor:{slug}`, `category|audience|phase:
  *     {slug}`) invalidate that entity's detail / browse pages.
  *   - `index:products` / `index:vendors` invalidate the listing pages.
  *   - `taxonomy` invalidates every page that renders the global taxonomy nav
@@ -61,10 +61,10 @@ export function cacheTagsForPromote(response: PromoteResponse): string[] {
   // Taxonomy browse pages: one tag per touched term (created *and* reused — the
   // product's facet membership changed either way, so its browse pages repaint).
   const taxonomy: ReadonlyArray<
-    ['category' | 'discipline' | 'phase', typeof response.taxonomy.categories]
+    ['category' | 'audience' | 'phase', typeof response.taxonomy.categories]
   > = [
     ['category', response.taxonomy.categories],
-    ['discipline', response.taxonomy.disciplines],
+    ['audience', response.taxonomy.audiences],
     ['phase', response.taxonomy.phases],
   ];
   let taxonomyCreated = false;

@@ -92,7 +92,7 @@ function mockClient(): { client: ServerApiClient; paths: string[] } {
     if (p === '/api/taxonomy') {
       return {
         categories: [{ slug: 'cost' }],
-        disciplines: [{ slug: 'structural' }],
+        audiences: [{ slug: 'structural' }],
         phases: [{ slug: 'design' }],
       };
     }
@@ -129,7 +129,7 @@ describe('resolveSitemapEntries', () => {
         expect(locs).toContain('https://aecintegrations.com/vendors/autodesk');
         expect(locs).toContain('https://aecintegrations.com/integrations/int-uuid-1');
         expect(locs).toContain('https://aecintegrations.com/categories/cost');
-        expect(locs).toContain('https://aecintegrations.com/disciplines/structural');
+        expect(locs).toContain('https://aecintegrations.com/audiences/structural');
         expect(locs).toContain('https://aecintegrations.com/phases/design');
       },
     );
@@ -144,7 +144,7 @@ describe('resolveSitemapEntries', () => {
     expect(byLoc('https://aecintegrations.com/integrations/int-uuid-1')?.lastmod).toBe(ISO);
     // Taxonomy entries carry no lastmod.
     expect(byLoc('https://aecintegrations.com/categories/cost')?.lastmod).toBeUndefined();
-    expect(byLoc('https://aecintegrations.com/disciplines/structural')?.lastmod).toBeUndefined();
+    expect(byLoc('https://aecintegrations.com/audiences/structural')?.lastmod).toBeUndefined();
   });
 
   it('strips a trailing slash from the base URL', async () => {
@@ -186,7 +186,7 @@ function sitemapApiBinding(): { API: Fetcher; ASSETS: Fetcher } {
         case '/api/integrations':
           return json({ data: [], page: 1, perPage: 100, total: 0 });
         case '/api/taxonomy':
-          return json({ categories: [{ slug: 'cost' }], disciplines: [], phases: [] });
+          return json({ categories: [{ slug: 'cost' }], audiences: [], phases: [] });
         default:
           return new Response('not found', { status: 404 });
       }

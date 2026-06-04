@@ -149,7 +149,7 @@ describe.skipIf(!testDbUrl)('bulkMigrate — integration (AECI-83)', () => {
       where: { slug: `cat-${TAG}`.toLowerCase() },
       select: { id: true },
     });
-    const discs = await prisma.taxonomyDiscipline.findMany({
+    const discs = await prisma.taxonomyAudience.findMany({
       where: { slug: `disc-${TAG}`.toLowerCase() },
       select: { id: true },
     });
@@ -174,7 +174,7 @@ describe.skipIf(!testDbUrl)('bulkMigrate — integration (AECI-83)', () => {
     if (productIds.length) {
       await prisma.productVendor.deleteMany({ where: { productId: { in: productIds } } });
       await prisma.productCategory.deleteMany({ where: { productId: { in: productIds } } });
-      await prisma.productDiscipline.deleteMany({ where: { productId: { in: productIds } } });
+      await prisma.productAudience.deleteMany({ where: { productId: { in: productIds } } });
       await prisma.productPhase.deleteMany({ where: { productId: { in: productIds } } });
       await prisma.productExtension.deleteMany({ where: { productId: { in: productIds } } });
     }
@@ -182,7 +182,7 @@ describe.skipIf(!testDbUrl)('bulkMigrate — integration (AECI-83)', () => {
     if (productIds.length) await prisma.product.deleteMany({ where: { id: { in: productIds } } });
     await prisma.vendor.deleteMany({ where: { id: { in: vendors.map((v) => v.id) } } });
     await prisma.taxonomyCategory.deleteMany({ where: { id: { in: cats.map((c) => c.id) } } });
-    await prisma.taxonomyDiscipline.deleteMany({ where: { id: { in: discs.map((d) => d.id) } } });
+    await prisma.taxonomyAudience.deleteMany({ where: { id: { in: discs.map((d) => d.id) } } });
     await prisma.taxonomyPhase.deleteMany({ where: { id: { in: phases.map((p) => p.id) } } });
     if (allEntityIds.length) {
       await prisma.auditLog.deleteMany({ where: { entityId: { in: allEntityIds } } });
@@ -215,7 +215,7 @@ describe.skipIf(!testDbUrl)('bulkMigrate — integration (AECI-83)', () => {
     expect(pvs).toHaveLength(1);
     expect(pvs[0].isPrimary).toBe(true);
     expect(await prisma.productCategory.count({ where: { productId: p1.id } })).toBe(1);
-    expect(await prisma.productDiscipline.count({ where: { productId: p1.id } })).toBe(1);
+    expect(await prisma.productAudience.count({ where: { productId: p1.id } })).toBe(1);
     expect(await prisma.productPhase.count({ where: { productId: p1.id } })).toBe(1);
 
     // integration_count recomputed: I1 links P1↔P2, so both = 1.
