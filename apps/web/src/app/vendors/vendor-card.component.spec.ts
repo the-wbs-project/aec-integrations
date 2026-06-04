@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { describe, expect, it } from 'vitest';
@@ -31,7 +31,6 @@ const baseVendor: VendorListItem = {
       </tbody>
     </table>
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class Host {
   vendor = signal<VendorListItem>(baseVendor);

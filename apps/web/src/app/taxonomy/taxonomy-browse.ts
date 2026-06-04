@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
@@ -30,7 +30,6 @@ import { ProductCard } from '../products/product-card';
 @Component({
   selector: 'aec-taxonomy-browse',
   imports: [BrowseLayout, NotFound, ProductCard, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let t = term();
     @if (t === null) {

@@ -1,5 +1,5 @@
 import { NgOptimizedImage } from '@angular/common';
-import { ChangeDetectionStrategy, Component, input } from '@angular/core';
+import { Component, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 /**
@@ -27,7 +27,6 @@ import { RouterLink } from '@angular/router';
 @Component({
   selector: 'aec-monogram',
   imports: [NgOptimizedImage, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <a
       routerLink="/"

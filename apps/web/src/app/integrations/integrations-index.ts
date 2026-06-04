@@ -1,5 +1,5 @@
 import { HttpClient, HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { firstValueFrom } from 'rxjs';
 
@@ -46,7 +46,6 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 @Component({
   selector: 'app-integrations-index',
   imports: [IndexLayout, IntegrationCard, SortableColumnHeader, Paginator, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aec-index-layout>
       <div slot="header" class="space-y-5">

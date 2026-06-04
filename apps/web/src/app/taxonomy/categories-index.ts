@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
@@ -18,7 +18,6 @@ import type { CategoriesListResponse, TaxonomyTermWithCount } from '@aeci/shared
 @Component({
   selector: 'aec-categories-index',
   imports: [RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">

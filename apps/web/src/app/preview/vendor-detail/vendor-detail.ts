@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { Component, OnInit, inject, signal } from '@angular/core';
 import { BrnButton } from '@spartan-ng/brain/button';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 import { BrnTabs, BrnTabsList, BrnTabsTrigger } from '@spartan-ng/brain/tabs';
@@ -51,7 +51,6 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
     BrnTabsTrigger,
   ],
   templateUrl: './vendor-detail.html',
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class VendorDetail implements OnInit {
   private readonly meta = inject(MetaService);

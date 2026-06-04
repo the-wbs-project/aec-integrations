@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 
 import { IndexLayout } from '../../layouts/index-layout';
 
@@ -12,7 +12,6 @@ import { IndexLayout } from '../../layouts/index-layout';
 @Component({
   selector: 'app-index-layout-preview',
   imports: [IndexLayout],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <aec-index-layout>
       <div slot="header" class="space-y-3">

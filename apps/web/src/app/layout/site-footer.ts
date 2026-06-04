@@ -8,7 +8,7 @@
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).
  */
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import { Monogram } from './monogram';
@@ -16,7 +16,6 @@ import { Monogram } from './monogram';
 @Component({
   selector: 'aec-site-footer',
   imports: [RouterLink, Monogram],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <footer class="border-t border-(--border-default) bg-(--surface-raised)">
       <div class="mx-auto grid max-w-7xl gap-10 px-8 py-12 sm:grid-cols-2 lg:grid-cols-3">

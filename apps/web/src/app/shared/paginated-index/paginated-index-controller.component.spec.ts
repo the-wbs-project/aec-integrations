@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -24,7 +24,6 @@ const SERVER_ERROR = { status: 500, statusText: 'Server Error' };
  * entity-component specs.
  */
 @Component({
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (idx.data(); as response) {
       <span class="total">{{ response.total }}</span>

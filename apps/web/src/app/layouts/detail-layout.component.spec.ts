@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { describe, expect, it } from 'vitest';
 
@@ -14,7 +14,6 @@ import { DetailLayout } from './detail-layout';
       <section slot="body" data-testid="body">Body marker</section>
     </aec-detail-layout>
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 class DetailLayoutHost {}
 

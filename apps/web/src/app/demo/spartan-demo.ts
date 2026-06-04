@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { BrnButton } from '@spartan-ng/brain/button';
 import {
   BrnDialog,
@@ -81,6 +81,5 @@ import {
       </brn-dialog>
     </section>
   `,
-  changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class SpartanDemo {}

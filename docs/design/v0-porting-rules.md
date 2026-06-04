@@ -97,7 +97,7 @@ Working reference: `apps/web/src/app/demo/spartan-demo.ts` shows BrnButton + Brn
 
 - **Standalone components only.** Angular 21 default. No `NgModule`.
 - **Zoneless-compatible.** No `Zone.current`, no `setTimeout` to coerce change detection, no `ChangeDetectorRef.detectChanges()` calls. Use signals for any reactive state.
-- **`changeDetection: ChangeDetectionStrategy.OnPush`** on every component (see demo component for the canonical setup).
+- **Omit explicit `changeDetection`.** OnPush is the Angular v22+ default; declaring `changeDetection: ChangeDetectionStrategy.OnPush` is redundant dead code (see `ANGULAR_STYLE_GUIDE.md` §5).
 - **i18n from day one.** Every user-facing string carries an `i18n` attribute (in templates) or wraps in `$localize` (in TS strings). Use stable IDs: `i18n="@@preview.vendor-detail.heading"`. No bare English strings. Reference: the spartan demo component's `i18n="@@demo.spartan.heading"` pattern.
 - **File layout.** Preview components live at `apps/web/src/app/preview/<screen-name>/<screen-name>.component.ts`. One file per component until size demands splitting templates/styles.
 - **Theme.** Both light and dark must render correctly. The `.theme-dark` class is toggled on `<html>` by `apps/web/src/app/theme.service.ts`. Token-driven CSS gets this for free — don't write theme-specific classes.

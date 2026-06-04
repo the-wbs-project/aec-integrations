@@ -10,7 +10,7 @@
  * Spec: §16 Phase 1 ("Basic layout shell"); §3.1 (route inventory drives nav
  * placeholders); §2a (theming); §21 (a11y).
  */
-import { ChangeDetectionStrategy, Component } from '@angular/core';
+import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
 import { MobileNavMenu } from './mobile-nav-menu';
@@ -20,7 +20,6 @@ import { ThemeToggle } from './theme-toggle';
 @Component({
   selector: 'aec-site-header',
   imports: [RouterLink, RouterLinkActive, Monogram, ThemeToggle, MobileNavMenu],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <header class="bg-(--surface-base)">
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">

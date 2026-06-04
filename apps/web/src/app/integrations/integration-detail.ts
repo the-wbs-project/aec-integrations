@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
@@ -38,7 +38,6 @@ import { NotFound } from '../not-found/not-found';
 @Component({
   selector: 'aec-integration-detail',
   imports: [DetailLayout, NotFound, RouterLink],
-  changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @let i = integration();
     @if (i === null) {
