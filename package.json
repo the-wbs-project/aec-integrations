@@ -23,6 +23,7 @@
     "db:list": "supabase migration list",
     "db:pull": "pnpm --filter @aeci/api prisma:pull && pnpm --filter @aeci/api prisma:generate",
     "db:seed-from-staging": "bash scripts/seed-from-staging.sh",
+    "db:seed-reference": "bash scripts/seed-reference-data.sh",
     "build": "pnpm -r --if-present run build",
     "build:web": "pnpm --filter @aeci/web build",
     "lint": "pnpm -r run lint && pnpm run format:check",

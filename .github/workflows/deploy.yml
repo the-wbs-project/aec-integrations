@@ -59,6 +59,13 @@
 #                              actually serve `/api/*` (otherwise Prisma throws
 #                              `PrismaClientInitializationError`). Same secret
 #                              pr-preview.yml uses for Option 1 (shared dev DB).
+#
+# Optional repo secrets:
+#   DIRECT_URL_STAGING       — Direct Postgres URL (pooler) for the shared
+#                              dev/staging project. Used ONLY by the db-migrate-dev
+#                              "Seed taxonomy reference data" step (psql). If
+#                              unset, that step skips with a warning — the job
+#                              still passes. Same secret refresh-staging.yml uses.
 #   SUPABASE_ACCESS_TOKEN    — Personal access token from
 #                              https://supabase.com/dashboard/account/tokens.
 #                              Authenticates `supabase link` / `supabase db push`
@@ -227,6 +234,26 @@ jobs:
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase db push --linked --include-all
+      # Seed the code-owned taxonomy reference data (idempotent upserts) after
+      # migrations apply. `db push` is schema-only and never touches data; this
+      # reconciles the taxonomy vocabulary on the shared dev/staging DB. Mirrors
+      # the seed-staging-users.sql psql pattern in refresh-staging.yml.
+      # Unlike `db push` (which authenticates via SUPABASE_ACCESS_TOKEN), the
+      # psql seed needs a direct Postgres URL. DIRECT_URL_STAGING is OPTIONAL for
+      # this PR-gating job: when it isn't configured, skip the seed with a
+      # warning rather than failing the run — the job's required purpose (dev
+      # schema at HEAD) already succeeded above, and the taxonomy tables are not
+      # asserted by the downstream e2e/edge jobs. Add the secret to enable the
+      # dev seed. See docs/adr/0008-taxonomy-reference-data.md.
+      - name: Seed taxonomy reference data
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: |
+          if [ -z "$PGURL" ]; then
+            echo "::warning::DIRECT_URL_STAGING is not set; skipping the dev taxonomy seed. Add the secret (direct Postgres URL for the shared dev/staging project) to enable it."
+            exit 0
+          fi
+          psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
       # Wait for Prisma Accelerate to pick up the schema change before any
       # downstream job (e2e-tests-local, integration-runner-local, per-PR
       # Workers) issues typed Prisma queries against the dev DB. See

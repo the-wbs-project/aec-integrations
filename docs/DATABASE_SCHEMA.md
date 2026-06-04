@@ -327,7 +327,7 @@ create index integrations_powered_by_idx on integrations(powered_by_product_id) 
 
 ## 5. Taxonomy tables
 
-Closed vocabularies. Curator-managed via admin tools; no public write paths.
+Closed vocabularies. **Code-managed reference data** — the vocabulary lives in version-controlled `supabase/reference-data/taxonomy.sql` (idempotent upserts), applied to every environment. Not Airtable-owned and not seeded by the §13 promotion flow. No public write paths. See `docs/adr/0008-taxonomy-reference-data.md`.
 
 ### 5.1 `taxonomy_categories`
 
@@ -822,6 +822,8 @@ High-level intent:
 
 The data currently lives in Airtable (base `appy81IdGJY6Fngf9`). Migration to Supabase happens once during Phase 2.
 
+> **Taxonomy is excluded from this flow.** As of `docs/adr/0008-taxonomy-reference-data.md`, the taxonomy vocabulary (categories/disciplines/phases) is code-managed reference data in `supabase/reference-data/taxonomy.sql`, not Airtable content. This section governs **vendors, products, and integrations** only.
+
 ### 13.1 Promotion model
 
 Airtable remains the **staging/research layer** for curators. Supabase is the **production read store**. Curators flip `promotion_status` to `'promoted'` in Airtable, triggering a one-way sync to Supabase.
@@ -845,7 +847,7 @@ Phases:
 1. Read all Airtable records with `promotion_status='promoted'` (or whatever the curator-designated "ready to launch" filter is at the time)
 2. Generate UUIDs for each record (Airtable record IDs are not used as Supabase IDs)
 3. Build a mapping table: Airtable rec ID → Supabase UUID
-4. Insert taxonomy first (categories, disciplines, phases)
+4. Taxonomy (categories, disciplines, phases) is already present — seeded as code-managed reference data (ADR 0008), not migrated from Airtable. Resolve product links against the existing rows by slug.
 5. Insert vendors
 6. Insert products with vendor links via `product_vendors`
 7. Insert join table rows for categories, disciplines, phases

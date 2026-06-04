@@ -54,6 +54,10 @@
 #                            docs/access.md §1) — used for the staging
 #                            `/api/version` probe in pre-promotion-checks.
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
+#   ADMIN_PURGE_TOKEN        Bearer token for the SSR Worker's POST /admin/purge
+#                            (same value as the Worker's `ADMIN_PURGE_TOKEN`
+#                            Wrangler secret; docs/CACHE_STRATEGY.md §5). Used to
+#                            purge the taxonomy cache tags after the seed step.
 #   R2_ACCESS_KEY_ID         R2 access key for bucket `aeci-prod-snapshots`.
 #   R2_SECRET_ACCESS_KEY     Matching secret.
 #   R2_ENDPOINT              S3-compatible R2 endpoint URL
@@ -333,6 +337,39 @@ jobs:
         env:
           PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
         run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/verify-rls.sql
+
+      # -----------------------------------------------------------------------
+      # Seed taxonomy reference data (idempotent upserts).
+      #   Code-owned taxonomy vocabulary, reconciled to prod. Runs only after
+      #   the drift + RLS gates above pass (both hard stops), so we only write
+      #   to a validated schema. `db push` is schema-only; this carries the data.
+      #   See docs/adr/0008-taxonomy-reference-data.md.
+      # -----------------------------------------------------------------------
+      - name: Seed taxonomy reference data
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
+
+      # -----------------------------------------------------------------------
+      # Purge the taxonomy cache tags (idempotent).
+      #   The seed above writes taxonomy_* directly in Postgres, bypassing the
+      #   app's POST /admin/purge path — so the edge would keep serving the old
+      #   vocabulary until TTL (≤5 min browse, ≤1 hr nav). Purge `taxonomy`
+      #   (home + /categories index) and the coarse `route:browse` tag (every
+      #   category/discipline/phase browse page) — a deliberate bulk
+      #   invalidation, the documented use of route-class tags (CACHE_STRATEGY
+      #   §3). Non-fatal: continue-on-error so a purge hiccup never blocks the
+      #   release; the TTL is the fallback. See docs/adr/0008-taxonomy-reference-data.md.
+      # -----------------------------------------------------------------------
+      - name: Purge taxonomy cache tags
+        continue-on-error: true
+        env:
+          HOST: https://aecintegrations.com
+          PURGE_TAGS: 'taxonomy route:browse'
+          ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: ./scripts/purge-cache.sh
 
   # ===========================================================================
   # Job 3: Deploy production Workers
