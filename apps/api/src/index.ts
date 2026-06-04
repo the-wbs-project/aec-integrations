@@ -1,4 +1,4 @@
-import { CategoryDetailSchema, DisciplineDetailSchema, PhaseDetailSchema } from '@aeci/shared';
+import { CategoryDetailSchema, AudienceDetailSchema, PhaseDetailSchema } from '@aeci/shared';
 import { Hono } from 'hono';
 
 import type { Env } from './env';
@@ -67,12 +67,12 @@ phase28.get(
   }),
 );
 phase28.get(
-  '/api/disciplines/:slug',
+  '/api/audiences/:slug',
   createTaxonomyDetailHandler({
-    delegate: (p) => p.taxonomyDiscipline,
-    relationKey: 'productDisciplines',
-    resource: 'discipline',
-    schema: DisciplineDetailSchema,
+    delegate: (p) => p.taxonomyAudience,
+    relationKey: 'productAudiences',
+    resource: 'audience',
+    schema: AudienceDetailSchema,
   }),
 );
 phase28.get(

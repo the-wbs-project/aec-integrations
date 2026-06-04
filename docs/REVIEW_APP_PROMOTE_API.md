@@ -137,7 +137,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `name` | string | ✅ | |
 | `productRole` | `"application"` \| `"connector"` \| `"hybrid"` | — | Defaults to `"application"`. |
 | `categories` | string[] | — | Category **names or slugs**. Find-or-created by slug. |
-| `disciplines` | string[] | — | Discipline names or slugs. |
+| `audiences` | string[] | — | Audience names or slugs. |
 | `phases` | string[] | — | Project-phase names or slugs. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
@@ -219,7 +219,7 @@ integration-only push (send only `integrations[]`) — but note that without a
   ],
   "taxonomy": {
     "categories":  [ { "slug": "bim", "id": "d01…", "operation": "reused" } ],
-    "disciplines": [ { "slug": "architecture", "id": "e02…", "operation": "created" } ],
+    "audiences": [ { "slug": "architecture", "id": "e02…", "operation": "created" } ],
     "phases":      []
   },
   "skipped": [
@@ -249,7 +249,7 @@ integration-only push (send only `integrations[]`) — but note that without a
   the same.
 - Updates are a **merge by provided field**: a field you send overwrites the
   stored value; a field you omit is left unchanged; send an explicit `null` to
-  clear a field. The product's **join sets** (vendors, categories, disciplines,
+  clear a field. The product's **join sets** (vendors, categories, audiences,
   phases, extensions) are **replaced** to exactly match what you send — so to
   remove a category, just push the product without it.
 - **Re-pushing is safe** (same `supabaseId` → same row). The one hazard is a
@@ -289,7 +289,7 @@ You don't need to do anything for this — it's documented so you know what to
 expect. After a successful promote commits, the AECi API invalidates the public
 pages your push affected by purging their edge-cache tags (the product / vendor
 detail pages, the `/products` and `/vendors` indexes, the relevant
-category/discipline/phase browse pages, and — when a new taxonomy term or a new
+category/audience/phase browse pages, and — when a new taxonomy term or a new
 product/vendor was created — the taxonomy nav and `sitemap.xml`). So a re-pushed
 **edit** (e.g. a corrected description) becomes visible publicly within one edge
 round-trip rather than waiting out the cache TTL.
@@ -342,7 +342,7 @@ Content-Type: application/json
     "description": "BIM authoring tool for architecture, structure, and MEP.",
     "website": "https://www.autodesk.com/products/revit",
     "categories": ["BIM", "Design Authoring"],
-    "disciplines": ["Architecture"]
+    "audiences": ["Architecture"]
   },
   "integrations": [
     {
@@ -379,7 +379,7 @@ Content-Type: application/json
       { "slug": "bim", "id": "9b2…", "operation": "reused" },
       { "slug": "design-authoring", "id": "a3c…", "operation": "created" }
     ],
-    "disciplines": [
+    "audiences": [
       { "slug": "architecture", "id": "b4d…", "operation": "reused" }
     ],
     "phases": []
@@ -407,7 +407,7 @@ The curator fixes the description. Send the same bundle, now with the stored IDs
     "name": "Revit",
     "description": "Updated description.",
     "categories": ["BIM", "Design Authoring"],
-    "disciplines": ["Architecture"]
+    "audiences": ["Architecture"]
   },
   "integrations": [
     {

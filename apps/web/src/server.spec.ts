@@ -163,14 +163,14 @@ describe('cacheControlForRoute', () => {
     ['/vendors/autodesk', { edge: 900, browser: 0 }],
     ['/integrations/abc-123', { edge: 900, browser: 0 }],
     // CACHE_STRATEGY.md §4 — index pages AND taxonomy browse pages (category /
-    // discipline / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
+    // audience / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
     // taxonomy rows from a stale 30 min edge.)
     ['/products', { edge: 300, browser: 0 }],
     ['/vendors', { edge: 300, browser: 0 }],
     ['/integrations', { edge: 300, browser: 0 }],
     ['/categories', { edge: 300, browser: 0 }],
     ['/categories/design', { edge: 300, browser: 0 }],
-    ['/disciplines/structural', { edge: 300, browser: 0 }],
+    ['/audiences/structural', { edge: 300, browser: 0 }],
     ['/phases/preconstruction', { edge: 300, browser: 0 }],
   ])('returns the §9.2 TTL for %s', (path, expected) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toEqual(expected);
@@ -184,6 +184,9 @@ describe('cacheControlForRoute', () => {
     '/search',
     '/does-not-exist',
     '/products/procore/extra',
+    // AECI-121 — `/disciplines/*` is no longer in the SSR cache matrix; it 301-
+    // redirects to `/audiences/*` and the redirect handler sets its own headers.
+    '/disciplines/structural',
   ])('returns null (non-cacheable) for %s', (path) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toBeNull();
   });
@@ -217,9 +220,7 @@ describe('cacheKeyUrl (AECI-100 — edge cache key normalization)', () => {
     it('strips the query string on home, browse, and static routes (no content params)', () => {
       expect(key('/?utm_campaign=launch')).toBe('https://x/');
       expect(key('/categories/structural?fbclid=y')).toBe('https://x/categories/structural');
-      expect(key('/disciplines/architecture?utm_source=x')).toBe(
-        'https://x/disciplines/architecture',
-      );
+      expect(key('/audiences/architecture?utm_source=x')).toBe('https://x/audiences/architecture');
       expect(key('/categories?ref=newsletter')).toBe('https://x/categories');
       expect(key('/about?utm_source=x')).toBe('https://x/about');
     });
@@ -495,7 +496,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     ['/integrations/abc-123', 'route:detail,integration:abc-123'],
     ['/categories', 'route:index,index:categories,taxonomy'],
     ['/categories/structural', 'route:browse,category:structural'],
-    ['/disciplines/architecture', 'route:browse,discipline:architecture'],
+    ['/audiences/architecture', 'route:browse,audience:architecture'],
     ['/phases/preconstruction', 'route:browse,phase:preconstruction'],
   ])('cacheable path %s emits Cache-Tag=%s', async (path, expected) => {
     const { binding } = recordingApiBinding();
@@ -554,6 +555,61 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     // Single sentinel tag — 404s have no entity identity, just the absence
     // class. Bulk-purge target after admin fixes a config typo, etc.
     expect(res.headers.get('cache-tag')).toBe('route:404');
+  });
+});
+
+describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () => {
+  function appWithSpyRenderer(): { app: ReturnType<typeof createApp>; ssrRenderer: SsrRenderer } {
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    return { app: createApp({ ssrRenderer }), ssrRenderer };
+  }
+
+  it('redirects /disciplines/:slug → /audiences/:slug (301, edge-cacheable, audience tag) without invoking SSR', async () => {
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/disciplines/architecture'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://aecintegrations.com/audiences/architecture');
+    // Permanent mapping → long edge TTL (NOT no-store), tagged with the canonical
+    // `audience:<slug>` so /admin/purge can evict it. Same vocabulary the browse
+    // route + promote purge emit (lockstep).
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(res.headers.get('cache-tag')).toBe('audience:architecture');
+    // The redirect is emitted standalone — it never reaches the SSR pipeline.
+    expect(ssrRenderer).not.toHaveBeenCalled();
+  });
+
+  it('redirects the bare /disciplines index → /audiences with the wildcard tag', async () => {
+    const { binding } = recordingApiBinding();
+    const { app } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/disciplines'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://aecintegrations.com/audiences');
+    expect(res.headers.get('cache-tag')).toBe('audience:*');
+  });
+
+  it('preserves the query string across the redirect', async () => {
+    const { binding } = recordingApiBinding();
+    const { app } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/disciplines/structural?utm_source=x'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(
+      'https://aecintegrations.com/audiences/structural?utm_source=x',
+    );
   });
 });
 

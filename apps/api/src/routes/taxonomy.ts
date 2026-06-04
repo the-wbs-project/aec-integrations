@@ -1,7 +1,7 @@
 /**
  * Phase 2.8 (AECI-54) taxonomy aggregate endpoint.
  *
- *   GET /api/taxonomy → { categories, disciplines, phases }
+ *   GET /api/taxonomy → { categories, audiences, phases }
  *
  * Each list ships `TaxonomyTermWithCount[]`. Used by the SSR Worker to render
  * nav, footer, and the flat `/categories` page. The taxonomy is small (≈30
@@ -27,7 +27,7 @@ import { json } from '../http';
 import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
   categoryTermSelect,
-  disciplineTermSelect,
+  audienceTermSelect,
   phaseTermSelect,
   toTaxonomyTermWithCount,
 } from '../lib/prisma-helpers';
@@ -55,13 +55,13 @@ export function createTaxonomyHandler(
     }
 
     const prisma = prismaFor(c.env);
-    const [categories, disciplines, phases] = await Promise.all([
+    const [categories, audiences, phases] = await Promise.all([
       prisma.taxonomyCategory.findMany({
         select: categoryTermSelect,
         orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
       }),
-      prisma.taxonomyDiscipline.findMany({
-        select: disciplineTermSelect,
+      prisma.taxonomyAudience.findMany({
+        select: audienceTermSelect,
         orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
       }),
       prisma.taxonomyPhase.findMany({
@@ -74,8 +74,8 @@ export function createTaxonomyHandler(
       categories: categories.map(
         (row): TaxonomyTermWithCount => toTaxonomyTermWithCount(row, 'productCategories'),
       ),
-      disciplines: disciplines.map(
-        (row): TaxonomyTermWithCount => toTaxonomyTermWithCount(row, 'productDisciplines'),
+      audiences: audiences.map(
+        (row): TaxonomyTermWithCount => toTaxonomyTermWithCount(row, 'productAudiences'),
       ),
       phases: phases.map(
         (row): TaxonomyTermWithCount => toTaxonomyTermWithCount(row, 'productPhases'),

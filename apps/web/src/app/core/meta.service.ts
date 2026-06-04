@@ -23,7 +23,7 @@ import {
  *
  * - Detail kinds (`product`, `vendor`, `integration`) get the bare
  *   `"{name} · AEC Integrations"` title and `og:type=article`.
- * - Browse kinds (`category`, `discipline`, `phase`) get the
+ * - Browse kinds (`category`, `audience`, `phase`) get the
  *   `"{name} tools · AEC Integrations"` variant and `og:type=website`
  *   (per Phase 2 Spec §9.1).
  * - `index` (used by `/products`, `/vendors`, `/integrations`) gets the bare

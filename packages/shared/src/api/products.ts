@@ -28,7 +28,7 @@ export type ProductSort = z.infer<typeof ProductSortSchema>;
 /**
  * Lean product shape returned by every list endpoint that surfaces products:
  * `GET /api/products`, related products on a product detail, products under a
- * category / discipline / phase, and products on a vendor detail. The vendor
+ * category / audience / phase, and products on a vendor detail. The vendor
  * field is hydrated as `VendorLink` (id + display fields + logo) per Phase 2
  * Spec §7.2 so cards can render without a second fetch.
  *
@@ -73,7 +73,7 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   api_docs_url: z.string().url().nullable(),
   has_api_docs: z.boolean(),
   categories: z.array(LinkRefSchema),
-  disciplines: z.array(LinkRefSchema),
+  audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
   integrations_as_source: z.array(IntegrationListItemSchema),
   integrations_as_target: z.array(IntegrationListItemSchema),
@@ -83,7 +83,7 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 /**
- * Query for `GET /api/products`. `category_id` / `discipline_id` / `phase_id`
+ * Query for `GET /api/products`. `category_id` / `audience_id` / `phase_id`
  * / `vendor_id` accept the taxonomy / vendor UUIDs; the values come from the
  * taxonomy hydration on detail pages, so the page can link to itself filtered
  * by chip.
@@ -92,7 +92,7 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   sort: ProductSortSchema,
   search: z.string().optional(),
   category_id: z.string().uuid().optional(),
-  discipline_id: z.string().uuid().optional(),
+  audience_id: z.string().uuid().optional(),
   phase_id: z.string().uuid().optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),

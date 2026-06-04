@@ -99,11 +99,11 @@ export type EntityKind =
   | 'vendor'
   | 'integration'
   | 'category'
-  | 'discipline'
+  | 'audience'
   | 'phase'
   | 'index';
 
-const BROWSE_META_KINDS: ReadonlySet<EntityKind> = new Set(['category', 'discipline', 'phase']);
+const BROWSE_META_KINDS: ReadonlySet<EntityKind> = new Set(['category', 'audience', 'phase']);
 
 const WEBSITE_META_KINDS: ReadonlySet<EntityKind> = new Set([...BROWSE_META_KINDS, 'index']);
 
@@ -135,9 +135,9 @@ export function buildOgTags(input: OgTagInput): MetaTag[] {
  * detail page (§9.2). Null / empty source fields are omitted so output is
  * stable.
  *
- * `applicationSubCategory` maps to the first discipline because §9.2 names
+ * `applicationSubCategory` maps to the first audience because §9.2 names
  * the schema.org field without specifying which AECi taxonomy fills it;
- * disciplines are the next-most-specific axis under category.
+ * audiences are the next-most-specific axis under category.
  *
  * `offers` is intentionally omitted until `VendorLink` carries `website` —
  * tracked in AECI-68.
@@ -152,7 +152,7 @@ export function buildProductJsonLd(product: ProductDetail): SoftwareApplicationL
   if (product.website) ld.url = product.website;
   const cat = product.categories[0]?.name;
   if (cat) ld.applicationCategory = cat;
-  const sub = product.disciplines[0]?.name;
+  const sub = product.audiences[0]?.name;
   if (sub) ld.applicationSubCategory = sub;
   return ld;
 }

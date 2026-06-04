@@ -181,7 +181,7 @@ describe('buildProductJsonLd', () => {
         { id: 'c1', name: 'BIM Authoring', slug: 'bim-authoring' },
         { id: 'c2', name: 'Design', slug: 'design' },
       ],
-      disciplines: [{ id: 'd1', name: 'Architecture', slug: 'architecture' }],
+      audiences: [{ id: 'd1', name: 'Architecture', slug: 'architecture' }],
       phases: [],
       integrations_as_source: [],
       integrations_as_target: [],
@@ -214,7 +214,7 @@ describe('buildProductJsonLd', () => {
         description: null,
         website: null,
         categories: [],
-        disciplines: [],
+        audiences: [],
       }),
     );
     expect(ld).toEqual({
@@ -292,9 +292,9 @@ describe('buildVendorJsonLd', () => {
 });
 
 describe('isBrowseKind', () => {
-  it('returns true for category / discipline / phase', () => {
+  it('returns true for category / audience / phase', () => {
     expect(isBrowseKind('category')).toBe(true);
-    expect(isBrowseKind('discipline')).toBe(true);
+    expect(isBrowseKind('audience')).toBe(true);
     expect(isBrowseKind('phase')).toBe(true);
   });
 
@@ -318,7 +318,7 @@ describe('ogTypeForKind', () => {
 
   it('returns "website" for browse kinds', () => {
     expect(ogTypeForKind('category')).toBe('website');
-    expect(ogTypeForKind('discipline')).toBe('website');
+    expect(ogTypeForKind('audience')).toBe('website');
     expect(ogTypeForKind('phase')).toBe('website');
   });
 

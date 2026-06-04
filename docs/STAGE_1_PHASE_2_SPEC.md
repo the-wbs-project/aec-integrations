@@ -9,7 +9,7 @@
 
 ## 1. Goal
 
-By the end of Phase 2 a visitor can land on a URL like `aecintegrations.com/products/procore` (or any product, vendor, integration, category, discipline, or project phase) and see a real page rendered from real Supabase data, cached at the edge, with every entity reachable from every other through internal navigation. No search yet (Phase 3), no auth (Phase 5), no reviews (Phase 5), no stats (Phase 4).
+By the end of Phase 2 a visitor can land on a URL like `aecintegrations.com/products/procore` (or any product, vendor, integration, category, audience, or project phase) and see a real page rendered from real Supabase data, cached at the edge, with every entity reachable from every other through internal navigation. No search yet (Phase 3), no auth (Phase 5), no reviews (Phase 5), no stats (Phase 4).
 
 This is the "lights on" milestone for the public directory.
 
@@ -57,7 +57,7 @@ The non-negotiables baked into every Phase 1 task continue: zoneless, i18n-wrap 
 - `GET /api/integrations/:id` — full integration detail with both product LinkRefs
 - `GET /api/integrations` — paginated index, filterable by source/target
 - `GET /api/categories/:slug` — category browse, products listed
-- `GET /api/disciplines/:slug` — discipline browse
+- `GET /api/audiences/:slug` — audience browse
 - `GET /api/phases/:slug` — phase browse
 - `GET /api/taxonomy` — full taxonomy lists for nav/footer
 - `POST /api/page-views` — fire-and-forget view-capture endpoint (returns 204; no-op write in Phase 2, Phase 4 wires the write)
@@ -73,7 +73,7 @@ The non-negotiables baked into every Phase 1 task continue: zoneless, i18n-wrap 
 | `/integrations/:id` | Integration detail |
 | `/integrations` | Integration index (paginated, sort by `name` default, filter by source/target product) |
 | `/categories/:slug` | Category browse — products in this category |
-| `/disciplines/:slug` | Discipline browse |
+| `/audiences/:slug` | Audience browse |
 | `/phases/:slug` | Project phase browse |
 | `/categories` | Flat list of all categories |
 
@@ -209,7 +209,7 @@ In `packages/shared/src/slug.ts`:
 - Lowercase, ASCII-fold (`Procoré` → `procore`)
 - Replace non-alphanumeric runs with `-`
 - Trim leading / trailing `-`
-- Reject a fixed list of reserved words: `api`, `admin`, `products`, `vendors`, `integrations`, `categories`, `disciplines`, `phases`, `claim`, `correction`, `404`, `sitemap.xml`, `robots.txt`
+- Reject a fixed list of reserved words: `api`, `admin`, `products`, `vendors`, `integrations`, `categories`, `audiences`, `disciplines`, `phases`, `claim`, `correction`, `404`, `sitemap.xml`, `robots.txt`
 - On collision, append vendor-slug suffix; on further collision, append `-2`, `-3`
 
 ### 6.4 Backfill / normalization
@@ -268,9 +268,9 @@ GET /api/categories
   → { data: TaxonomyTermWithCount[] }   // count of products in each
 
 GET /api/categories/:slug → CategoryDetail
-GET /api/disciplines/:slug → DisciplineDetail
+GET /api/audiences/:slug → AudienceDetail
 GET /api/phases/:slug → PhaseDetail
-GET /api/taxonomy → { categories, disciplines, phases }
+GET /api/taxonomy → { categories, audiences, phases }
 
 POST /api/page-views
   body: { route: string, entity_type?: string, entity_id?: string }
@@ -312,7 +312,7 @@ Cache-Tag values are comma-separated strings, ≤ 16 KB per response, no spaces.
 | `vendor:{slug}` | The vendor detail page for that slug |
 | `integration:{id}` | The integration detail page |
 | `category:{slug}` | Category browse page |
-| `discipline:{slug}` | Discipline browse page |
+| `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
 | `taxonomy` | Any page that displays the full taxonomy (nav, footer, /categories) |
 | `index:products` / `index:vendors` / `index:integrations` / `index:categories` | The respective index pages |
@@ -330,7 +330,7 @@ Every cacheable response carries **at minimum**:
 | Route class | `max-age` (browser) | `s-maxage` (edge) |
 |---|---|---|
 | Detail pages | 0 | 900 (15 min) |
-| Browse pages (category / discipline / phase) | 0 | 300 (5 min) |
+| Browse pages (category / audience / phase) | 0 | 300 (5 min) |
 | Index pages | 0 | 300 (5 min) |
 | Taxonomy fetch (`/taxonomy`) | 0 | 3600 (1 hr) |
 | sitemap.xml | 0 | 3600 |
@@ -401,14 +401,14 @@ Contents:
 - Every product slug
 - Every vendor slug
 - Every integration ID
-- Every category, discipline, phase slug
+- Every category, audience, phase slug
 - Index pages
 
 `<lastmod>` from the entity's `updated_at`. Priority defaults are fine.
 
 ### 9.4 robots.txt
 
-Already exists from Phase 1. Phase 2 confirms it allows `/products`, `/vendors`, `/integrations`, `/categories`, `/disciplines`, `/phases` and points to `/sitemap.xml`.
+Already exists from Phase 1. Phase 2 confirms it allows `/products`, `/vendors`, `/integrations`, `/categories`, `/audiences`, `/phases` and points to `/sitemap.xml`.
 
 ---
 
@@ -418,11 +418,11 @@ Every detail page links to its related entities. No detail page is a dead end.
 
 | From | To |
 |---|---|
-| Product detail | Its vendor(s); each category, discipline, phase; each integration as source or target (with the *other* product also linked); placeholder CTAs to Claim / Suggest Correction |
+| Product detail | Its vendor(s); each category, audience, phase; each integration as source or target (with the *other* product also linked); placeholder CTAs to Claim / Suggest Correction |
 | Vendor detail | Each of its products; HQ (text); funding-stage badge if available |
 | Integration detail | Source product, target product, built-by vendor (if set), powered-by product (if iPaaS), both products' vendors |
 | Category browse | Each product in the category; back to `/categories` |
-| Discipline / phase browse | Same shape as category |
+| Audience / phase browse | Same shape as category |
 | Index pages | Each entity (paginated); pagination controls |
 
 Visitor reachability: from any page, every other page is reachable in ≤ 3 hops. Validated as a Phase 2 acceptance check via a Playwright crawler.
@@ -446,7 +446,7 @@ Each detail page (product, vendor, integration) is a different *body content* pr
 ### 11.2 New primitives
 
 - `ProductCard`, `VendorCard`, `IntegrationCard` — used by index and browse pages
-- `TaxonomyBadge` — pill component for category / discipline / phase chips, color-coded per token (forest variants per DESIGN.md)
+- `TaxonomyBadge` — pill component for category / audience / phase chips, color-coded per token (forest variants per DESIGN.md)
 - `EntityTable` — generic sortable / paginated table for index pages
 
 Each new component goes through `/impeccable craft` and is added to DESIGN.md's component definitions before merging.
@@ -556,7 +556,7 @@ Issue breakdown follows in a sibling document. Rough wave structure:
 **Wave 2 — Backend complete**
 
 - Slug backfill script + run
-- API endpoints (products, vendors, integrations, taxonomy, categories/disciplines/phases) with tests
+- API endpoints (products, vendors, integrations, taxonomy, categories/audiences/phases) with tests
 - `POST /api/page-views` endpoint (no-op write)
 - `POST /admin/purge` endpoint + cache-tag write helper for SSR Worker
 
@@ -565,7 +565,7 @@ Issue breakdown follows in a sibling document. Rough wave structure:
 - Product detail + product index
 - Vendor detail + vendor index
 - Integration detail + integration index
-- Category / discipline / phase browse + `/categories` flat list
+- Category / audience / phase browse + `/categories` flat list
 - 404 page
 - sitemap.xml endpoint
 

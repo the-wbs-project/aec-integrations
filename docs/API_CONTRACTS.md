@@ -42,7 +42,7 @@ packages/shared/
 │   │   ├── products.ts        # ProductListItem / ProductDetail / ProductsListQuery / ProductsListResponse
 │   │   ├── vendors.ts         # VendorListItem / VendorDetail / VendorsListQuery / VendorsListResponse
 │   │   ├── integrations.ts    # IntegrationListItem / IntegrationDetail / IntegrationsListQuery / IntegrationsListResponse
-│   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Discipline/Phase Detail, TaxonomyResponse
+│   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Audience/Phase Detail, TaxonomyResponse
 │   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
 │   │   ├── reviews.ts         # (Phase 5)
 │   │   ├── requests.ts        # (Phase 6 — claim and correction)
@@ -169,14 +169,14 @@ Per-detail hydration rules:
 | Detail response | Field | Embedded shape |
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
-| `ProductDetail` | `categories` / `disciplines` / `phases` | `LinkRef[]` |
+| `ProductDetail` | `categories` / `audiences` / `phases` | `LinkRef[]` |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `IntegrationListItem[]` |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `VendorDetail` | `products` | `ProductListItem[]` |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
 | `IntegrationDetail` | `built_by_vendor` | `VendorLink \| null` |
 | `IntegrationDetail` | `powered_by_product` | `ProductLink \| null` |
-| `CategoryDetail` / `DisciplineDetail` / `PhaseDetail` | `products` | `ProductListItem[]` |
+| `CategoryDetail` / `AudienceDetail` / `PhaseDetail` | `products` | `ProductListItem[]` |
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
 
@@ -278,7 +278,7 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   api_docs_url: z.string().url().nullable(),
   has_api_docs: z.boolean(),
   categories: z.array(LinkRefSchema),
-  disciplines: z.array(LinkRefSchema),
+  audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
   integrations_as_source: z.array(IntegrationListItemSchema),
   integrations_as_target: z.array(IntegrationListItemSchema),
@@ -382,7 +382,7 @@ export const ProductsListQuerySchema = PageQuerySchema.extend({
   sort: ProductSortSchema,                         // default 'created'
   search: z.string().optional(),
   category_id: z.string().uuid().optional(),
-  discipline_id: z.string().uuid().optional(),
+  audience_id: z.string().uuid().optional(),
   phase_id: z.string().uuid().optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: z.enum(['application', 'connector', 'hybrid']).optional(),
@@ -487,7 +487,7 @@ export const CategoriesListResponseSchema = z.object({
 
 Not paginated — the taxonomy is small by design (Phase 2 Spec §3.1).
 
-#### `GET /api/categories/:slug`, `/api/disciplines/:slug`, `/api/phases/:slug`
+#### `GET /api/categories/:slug`, `/api/audiences/:slug`, `/api/phases/:slug`
 
 ```typescript
 export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
@@ -501,7 +501,7 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
 export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
   products: z.array(ProductListItemSchema),
 });
-// `DisciplineDetailSchema` / `PhaseDetailSchema` follow the same shape.
+// `AudienceDetailSchema` / `PhaseDetailSchema` follow the same shape.
 ```
 
 #### `GET /api/taxonomy`
@@ -509,7 +509,7 @@ export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
 ```typescript
 export const TaxonomyResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
-  disciplines: z.array(TaxonomyTermWithCountSchema),
+  audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
 });
 ```
@@ -757,7 +757,7 @@ least one of `vendors`, `product`, or `integrations`.
 // Request (abridged — see promote.ts for all optional fields)
 export const PromotePayloadSchema = z.object({
   vendors: z.array(PromoteVendorSchema).default([]),      // { ref, supabaseId?, companyName, isPrimary?, ... }
-  product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], disciplines[], phases[], extensionOf[], ... }
+  product: PromoteProductSchema.optional(),               // { ref, supabaseId?, name, productRole, categories[], audiences[], phases[], extensionOf[], ... }
   integrations: z.array(PromoteIntegrationSchema).default([]),
   //  integrations[i].sourceProduct / targetProduct: { ref: <product.ref> } | { supabaseId }
   //  (a { ref } endpoint requires `product`; without it, reference products by supabaseId)
@@ -770,7 +770,7 @@ export interface PromoteResponse {
   integrations: { ref: string; id: string; operation: 'created' | 'updated' }[];
   taxonomy: {
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
-    disciplines: { slug: string; id: string; operation: 'created' | 'reused' }[];
+    audiences: { slug: string; id: string; operation: 'created' | 'reused' }[];
     phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
   };
   skipped: { ref: string; kind: 'integration' | 'extension'; reason: string }[];

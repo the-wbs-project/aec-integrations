@@ -62,7 +62,7 @@ vi.mock('./prisma', () => {
         findUnique: vi.fn(async () => null),
         count: vi.fn(async () => 0),
       },
-      taxonomyDiscipline: {
+      taxonomyAudience: {
         findMany: vi.fn(async () => []),
         findUnique: vi.fn(async () => null),
         count: vi.fn(async () => 0),

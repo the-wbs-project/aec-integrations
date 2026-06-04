@@ -6,7 +6,7 @@ import { productDetailResolver } from './products/product-detail.resolver';
 import { categoriesIndexResolver } from './taxonomy/categories-index.resolver';
 import {
   categoryBrowseResolver,
-  disciplineBrowseResolver,
+  audienceBrowseResolver,
   phaseBrowseResolver,
 } from './taxonomy/taxonomy-browse.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
@@ -76,7 +76,7 @@ export const routes: Routes = [
   // AECI-61 — Phase 2.15 taxonomy browse pages + `/categories` flat list. The
   // three browse routes share one component + one resolver factory, keyed by
   // the static `data.kind`; `/categories` is the only flat-list page in Stage 1
-  // (discipline / phase indexes are deferred). Resolvers run SSR-side; hydration
+  // (audience / phase indexes are deferred). Resolvers run SSR-side; hydration
   // reads from TransferState.
   {
     path: 'categories',
@@ -91,10 +91,10 @@ export const routes: Routes = [
     resolve: { term: categoryBrowseResolver },
   },
   {
-    path: 'disciplines/:slug',
+    path: 'audiences/:slug',
     loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
-    data: { kind: 'discipline' },
-    resolve: { term: disciplineBrowseResolver },
+    data: { kind: 'audience' },
+    resolve: { term: audienceBrowseResolver },
   },
   {
     path: 'phases/:slug',

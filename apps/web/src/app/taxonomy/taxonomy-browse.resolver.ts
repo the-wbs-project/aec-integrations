@@ -1,13 +1,13 @@
 /**
  * Resolver factory for the three taxonomy browse routes — `/categories/:slug`,
- * `/disciplines/:slug`, `/phases/:slug`. Phase 2 Spec §3.1 / §7 / §9 / §10.
+ * `/audiences/:slug`, `/phases/:slug`. Phase 2 Spec §3.1 / §7 / §9 / §10.
  *
  * The three routes are mechanically identical apart from the taxonomy kind, so
  * one factory produces all three resolvers (AECI-61 ships them together to keep
  * a single resolver/test/i18n pattern from drifting into three copies).
  *
  * Server flow (RenderMode.Server):
- *   1. Fetch `GET /api/{categories|disciplines|phases}/:slug` via the service
+ *   1. Fetch `GET /api/{categories|audiences|phases}/:slug` via the service
  *      binding (no public surface) using `AeciRequestContext.api`.
  *   2. On `NOT_FOUND` → set `RESPONSE_INIT.status = 404` (SSR runtime emits a
  *      real HTTP 404 + `NOT_FOUND_TTL`), set noindex meta, return `null` so the
@@ -45,7 +45,7 @@ const STATE_PREFIX = 'aeci.taxonomy-browse:';
 
 /**
  * Per-kind+slug TransferState key. Kind is included alongside the slug so a
- * category and a discipline that happen to share a slug can't collide.
+ * category and an audience that happen to share a slug can't collide.
  */
 function termStateKey(kind: TaxonomyKind, slug: string) {
   return makeStateKey<TaxonomyTermDetail | null>(`${STATE_PREFIX}${kind}:${slug}`);
@@ -119,5 +119,5 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
 }
 
 export const categoryBrowseResolver = createTaxonomyBrowseResolver('category');
-export const disciplineBrowseResolver = createTaxonomyBrowseResolver('discipline');
+export const audienceBrowseResolver = createTaxonomyBrowseResolver('audience');
 export const phaseBrowseResolver = createTaxonomyBrowseResolver('phase');

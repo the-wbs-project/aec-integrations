@@ -11,7 +11,7 @@ import { NotFound } from '../not-found/not-found';
 import { ProductCard } from '../products/product-card';
 
 /**
- * AECI-61 — shared browse page for `/categories/:slug`, `/disciplines/:slug`,
+ * AECI-61 — shared browse page for `/categories/:slug`, `/audiences/:slug`,
  * and `/phases/:slug`. One component drives all three routes; the taxonomy
  * `kind` arrives via static `route.data` and the resolved term via
  * `route.data['term']` (populated by the matching `*BrowseResolver`).
@@ -162,8 +162,8 @@ export class TaxonomyBrowsePage {
     switch (this.kind()) {
       case 'category':
         return $localize`:@@taxonomy.browse.breadcrumbs.categories:Categories`;
-      case 'discipline':
-        return $localize`:@@taxonomy.browse.breadcrumbs.disciplines:Disciplines`;
+      case 'audience':
+        return $localize`:@@taxonomy.browse.breadcrumbs.audiences:Audiences`;
       case 'phase':
         return $localize`:@@taxonomy.browse.breadcrumbs.phases:Phases`;
     }
@@ -171,7 +171,7 @@ export class TaxonomyBrowsePage {
 
   /**
    * Breadcrumb ancestor link. Only categories have an index page (`/categories`)
-   * in Stage 1; discipline / phase ancestors render as plain text.
+   * in Stage 1; audience / phase ancestors render as plain text.
    */
   protected readonly parentLink = computed(() =>
     this.kind() === 'category' ? '/categories' : null,

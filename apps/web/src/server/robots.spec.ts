@@ -34,14 +34,14 @@ describe('buildRobotsTxt', () => {
 
   it('does not Disallow any public surface path', () => {
     // The AC requires /products, /vendors, /integrations, /categories,
-    // /disciplines, /phases to remain crawlable — none may appear in a
+    // /audiences, /phases to remain crawlable — none may appear in a
     // Disallow line.
     for (const path of [
       '/products',
       '/vendors',
       '/integrations',
       '/categories',
-      '/disciplines',
+      '/audiences',
       '/phases',
     ]) {
       expect(robots).not.toContain(`Disallow: ${path}`);

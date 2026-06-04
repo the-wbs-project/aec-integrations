@@ -110,7 +110,7 @@ export const PromoteProductSchema = z.object({
   redditMentions24mo: z.number().int().nullish(),
   adminNotes: z.string().nullish(),
   categories: z.array(z.string().min(1)).default([]),
-  disciplines: z.array(z.string().min(1)).default([]),
+  audiences: z.array(z.string().min(1)).default([]),
   phases: z.array(z.string().min(1)).default([]),
   extensionOf: z.array(EntityRefSchema).default([]),
 });
@@ -280,7 +280,7 @@ export interface PromoteResponse {
   integrations: PromoteIntegrationResult[];
   taxonomy: {
     categories: PromoteTaxonomyResult[];
-    disciplines: PromoteTaxonomyResult[];
+    audiences: PromoteTaxonomyResult[];
     phases: PromoteTaxonomyResult[];
   };
   skipped: PromoteSkipped[];

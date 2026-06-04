@@ -11,7 +11,7 @@ function stubClient(impl: ServerApiClient['request']): ServerApiClient {
 describe('fetchTaxonomyTermBySlug', () => {
   it.each([
     ['category', '/api/categories/project-management'],
-    ['discipline', '/api/disciplines/structural'],
+    ['audience', '/api/audiences/structural'],
     ['phase', '/api/phases/design-development'],
   ] as const)('hits the %s endpoint and returns the parsed detail', async (kind, expectedPath) => {
     const slug = expectedPath.split('/').pop()!;
@@ -49,7 +49,7 @@ describe('fetchTaxonomyTermBySlug', () => {
       throw err;
     });
 
-    await expect(fetchTaxonomyTermBySlug(client, 'discipline', 'structural')).rejects.toBe(err);
+    await expect(fetchTaxonomyTermBySlug(client, 'audience', 'structural')).rejects.toBe(err);
   });
 
   it('rethrows a 404 whose code is NOT NOT_FOUND (defensive — envelope contract)', async () => {

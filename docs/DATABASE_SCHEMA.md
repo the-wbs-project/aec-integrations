@@ -134,12 +134,12 @@ Tables grouped by domain:
 - `products` — software products sold by vendors
 - `integrations` — directional connections between two products
 - `taxonomy_categories` — closed vocabulary: product categories (e.g. "BIM Authoring")
-- `taxonomy_disciplines` — closed vocabulary: AEC disciplines (e.g. "Architecture")
+- `taxonomy_audiences` — closed vocabulary: AEC audiences (e.g. "Architecture")
 - `taxonomy_phases` — closed vocabulary: project phases (e.g. "Design Development")
 
 **Join tables**:
 - `product_categories` — product ↔ category many-to-many
-- `product_disciplines` — product ↔ discipline many-to-many
+- `product_audiences` — product ↔ audience many-to-many
 - `product_phases` — product ↔ phase many-to-many
 - `product_vendors` — product ↔ vendor many-to-many (typically 1:1, but supports white-label cases)
 - `product_extensions` — product ↔ host product (for plugins/add-ons)
@@ -345,10 +345,10 @@ create table taxonomy_categories (
 create index taxonomy_categories_slug_idx on taxonomy_categories(slug);
 ```
 
-### 5.2 `taxonomy_disciplines`
+### 5.2 `taxonomy_audiences`
 
 ```sql
-create table taxonomy_disciplines (
+create table taxonomy_audiences (
   id uuid primary key default gen_random_uuid(),
   slug text unique not null,
   name text not null,
@@ -358,7 +358,7 @@ create table taxonomy_disciplines (
   updated_at timestamptz not null default now()
 );
 
-create index taxonomy_disciplines_slug_idx on taxonomy_disciplines(slug);
+create index taxonomy_audiences_slug_idx on taxonomy_audiences(slug);
 ```
 
 ### 5.3 `taxonomy_phases`
@@ -394,17 +394,17 @@ create table product_categories (
 create index product_categories_category_idx on product_categories(category_id);
 ```
 
-### 6.2 `product_disciplines`
+### 6.2 `product_audiences`
 
 ```sql
-create table product_disciplines (
+create table product_audiences (
   product_id uuid not null references products(id) on delete cascade,
-  discipline_id uuid not null references taxonomy_disciplines(id) on delete cascade,
+  audience_id uuid not null references taxonomy_audiences(id) on delete cascade,
   created_at timestamptz not null default now(),
-  primary key (product_id, discipline_id)
+  primary key (product_id, audience_id)
 );
 
-create index product_disciplines_discipline_idx on product_disciplines(discipline_id);
+create index product_audiences_audience_idx on product_audiences(audience_id);
 ```
 
 ### 6.3 `product_phases`
@@ -741,7 +741,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.trending_products`
 - `home.recently_added_products`
 - `category_counts`
-- `discipline_counts`
+- `audience_counts`
 - `phase_counts`
 
 ---
@@ -755,7 +755,7 @@ Multi-language content storage. Empty at launch; schema ready for additional loc
 ```sql
 create table translations (
   id uuid primary key default gen_random_uuid(),
-  entity_type text not null check (entity_type in ('product', 'vendor', 'category', 'discipline', 'phase', 'integration')),
+  entity_type text not null check (entity_type in ('product', 'vendor', 'category', 'audience', 'phase', 'integration')),
   entity_id uuid not null,
   locale text not null, -- BCP 47 e.g. 'es-ES', 'fr-FR'
   field text not null, -- 'description', 'name', etc.
@@ -822,7 +822,7 @@ High-level intent:
 
 The data currently lives in Airtable (base `appy81IdGJY6Fngf9`). Migration to Supabase happens once during Phase 2.
 
-> **Taxonomy is excluded from this flow.** As of `docs/adr/0008-taxonomy-reference-data.md`, the taxonomy vocabulary (categories/disciplines/phases) is code-managed reference data in `supabase/reference-data/taxonomy.sql`, not Airtable content. This section governs **vendors, products, and integrations** only.
+> **Taxonomy is excluded from this flow.** As of `docs/adr/0008-taxonomy-reference-data.md`, the taxonomy vocabulary (categories/audiences/phases) is code-managed reference data in `supabase/reference-data/taxonomy.sql`, not Airtable content. This section governs **vendors, products, and integrations** only.
 
 ### 13.1 Promotion model
 
@@ -847,10 +847,10 @@ Phases:
 1. Read all Airtable records with `promotion_status='promoted'` (or whatever the curator-designated "ready to launch" filter is at the time)
 2. Generate UUIDs for each record (Airtable record IDs are not used as Supabase IDs)
 3. Build a mapping table: Airtable rec ID → Supabase UUID
-4. Taxonomy (categories, disciplines, phases) is already present — seeded as code-managed reference data (ADR 0008), not migrated from Airtable. Resolve product links against the existing rows by slug.
+4. Taxonomy (categories, audiences, phases) is already present — seeded as code-managed reference data (ADR 0008), not migrated from Airtable. Resolve product links against the existing rows by slug.
 5. Insert vendors
 6. Insert products with vendor links via `product_vendors`
-7. Insert join table rows for categories, disciplines, phases
+7. Insert join table rows for categories, audiences, phases
 8. Insert integrations using the rec-ID-to-UUID mapping
 9. Compute and persist denormalized counts on products
 10. Verify counts match Airtable
@@ -886,7 +886,7 @@ The sync process flags discrepancies in `admin_notes` rather than overwriting cu
 - 20 vendors covering the major AEC software companies (Autodesk, Procore, Bentley, Trimble, etc.)
 - 50 products linked to those vendors
 - 100 integrations across the products
-- 20 categories, 10 disciplines, 8 phases
+- 20 categories, 10 audiences, 8 phases
 - Test users with various roles (reviewer, admin)
 - 30 approved reviews across 10 products
 

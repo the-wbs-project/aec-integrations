@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Taxonomy reference data — the canonical, version-controlled vocabulary for
--- the AECi taxonomy facets (categories, disciplines, phases).
+-- the AECi taxonomy facets (categories, audiences, phases).
 --
 -- WHY THIS FILE EXISTS
 --   Taxonomy here is *structural*, not curator content: slugs become permanent
@@ -79,11 +79,14 @@ ON CONFLICT ("slug") DO UPDATE
       "updated_at"    = now();
 
 -- -----------------------------------------------------------------------------
--- Disciplines — the professional domain / department a product serves.
--- NOTE: AECI-121 will rename this facet to "Audience" and add cross-cutting
--- personas. Until that lands, it is seeded as `taxonomy_disciplines`.
+-- Audiences — "who is this for?". Holds both professional DOMAINS (the original
+-- 21 discipline rows, slugs unchanged) and cross-cutting job PERSONAS that a
+-- domain axis can't express (Project Manager, Estimator, BIM Manager…). Renamed
+-- from "Disciplines" in AECI-121; the table is `taxonomy_audiences`.
+-- display_order: domains 10–210, personas 220–300.
 -- -----------------------------------------------------------------------------
-INSERT INTO "taxonomy_disciplines" ("slug", "name", "display_order") VALUES
+INSERT INTO "taxonomy_audiences" ("slug", "name", "display_order") VALUES
+  -- Domains (the original discipline rows — slugs are permanent public URLs).
   ('accounting-finance',           'Accounting & Finance',            10),
   ('architecture',                 'Architecture',                    20),
   ('business-development',         'Business Development',             30),
@@ -104,7 +107,17 @@ INSERT INTO "taxonomy_disciplines" ("slug", "name", "display_order") VALUES
   ('safety-management',            'Safety Management',              180),
   ('specialty-contracting',        'Specialty Contracting',          190),
   ('structural-engineering',       'Structural Engineering',         200),
-  ('surveying-geomatics',          'Surveying/Geomatics',            210)
+  ('surveying-geomatics',          'Surveying/Geomatics',            210),
+  -- Personas (cross-cutting roles — AECI-121).
+  ('project-manager',              'Project Manager',                220),
+  ('project-engineer',             'Project Engineer',               230),
+  ('superintendent',               'Superintendent',                 240),
+  ('estimator',                    'Estimator',                      250),
+  ('scheduler',                    'Scheduler',                      260),
+  ('foreman-field-supervisor',     'Foreman / Field Supervisor',     270),
+  ('designer-drafter',             'Designer / Drafter',             280),
+  ('bim-manager',                  'BIM Manager',                    290),
+  ('bim-coordinator',              'BIM Coordinator',                300)
 ON CONFLICT ("slug") DO UPDATE
   SET "name"          = EXCLUDED."name",
       "description"   = EXCLUDED."description",

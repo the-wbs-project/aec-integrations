@@ -100,7 +100,7 @@ export function createProductDetailHandler(
 
     // Baseline `related_products`: latest 6 products that share at least one
     // category with this product, excluding the product itself. Refining the
-    // algorithm (cosine on categories+disciplines, popularity weighting) is
+    // algorithm (cosine on categories+audiences, popularity weighting) is
     // out of scope for AECI-54 — kept simple so the hydration contract is
     // satisfied without an external ML hop.
     const categoryIds = row.productCategories.map((r) => r.category.id);
@@ -134,7 +134,7 @@ type ProductsWhere = {
   hasApiDocs?: boolean;
   name?: { contains: string; mode: 'insensitive' };
   productCategories?: { some: { categoryId: string } };
-  productDisciplines?: { some: { disciplineId: string } };
+  productAudiences?: { some: { audienceId: string } };
   productPhases?: { some: { phaseId: string } };
   productVendors?: { some: { vendorId: string } };
 };
@@ -142,7 +142,7 @@ type ProductsWhere = {
 function buildProductsWhere(query: {
   search?: string;
   category_id?: string;
-  discipline_id?: string;
+  audience_id?: string;
   phase_id?: string;
   vendor_id?: string;
   product_role?: string;
@@ -151,8 +151,8 @@ function buildProductsWhere(query: {
   const where: ProductsWhere = {};
   if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
   if (query.category_id) where.productCategories = { some: { categoryId: query.category_id } };
-  if (query.discipline_id) {
-    where.productDisciplines = { some: { disciplineId: query.discipline_id } };
+  if (query.audience_id) {
+    where.productAudiences = { some: { audienceId: query.audience_id } };
   }
   if (query.phase_id) where.productPhases = { some: { phaseId: query.phase_id } };
   if (query.vendor_id) where.productVendors = { some: { vendorId: query.vendor_id } };

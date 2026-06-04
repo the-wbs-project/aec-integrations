@@ -131,10 +131,9 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   if ((m = /^\/categories\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'category', slug: m[1]! } };
 
-  if (path === '/disciplines')
-    return { route: 'browse', entity: { type: 'discipline', slug: '*' } };
-  if ((m = /^\/disciplines\/(.+)$/.exec(path)))
-    return { route: 'browse', entity: { type: 'discipline', slug: m[1]! } };
+  if (path === '/audiences') return { route: 'browse', entity: { type: 'audience', slug: '*' } };
+  if ((m = /^\/audiences\/(.+)$/.exec(path)))
+    return { route: 'browse', entity: { type: 'audience', slug: m[1]! } };
 
   if (path === '/phases') return { route: 'browse', entity: { type: 'phase', slug: '*' } };
   if ((m = /^\/phases\/(.+)$/.exec(path)))

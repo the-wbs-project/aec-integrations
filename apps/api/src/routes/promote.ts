@@ -93,11 +93,11 @@ type PromoteTx = {
   integration: ModelDelegate;
   productVendor: ModelDelegate;
   productCategory: ModelDelegate;
-  productDiscipline: ModelDelegate;
+  productAudience: ModelDelegate;
   productPhase: ModelDelegate;
   productExtension: ModelDelegate;
   taxonomyCategory: ModelDelegate;
-  taxonomyDiscipline: ModelDelegate;
+  taxonomyAudience: ModelDelegate;
   taxonomyPhase: ModelDelegate;
   // `recomputeProductCounts` reads approved reviews to refresh `review_count` and
   // the rating averages alongside `integration_count`, so it needs `review` with
@@ -390,7 +390,7 @@ export function createPromoteHandler(
         const resolveTaxonomy = async (
           names: string[],
           model: ModelDelegate,
-          entity: 'category' | 'discipline' | 'phase',
+          entity: 'category' | 'audience' | 'phase',
         ): Promise<{ ids: string[]; results: PromoteTaxonomyResult[] }> => {
           const existing = await model.findMany({ select: { id: true, slug: true } });
           const bySlug = new Map(existing.map((r) => [r.slug as string, r.id]));
@@ -433,8 +433,8 @@ export function createPromoteHandler(
         const categories = p
           ? await resolveTaxonomy(p.categories, tx.taxonomyCategory, 'category')
           : emptyTax;
-        const disciplines = p
-          ? await resolveTaxonomy(p.disciplines, tx.taxonomyDiscipline, 'discipline')
+        const audiences = p
+          ? await resolveTaxonomy(p.audiences, tx.taxonomyAudience, 'audience')
           : emptyTax;
         const phases = p ? await resolveTaxonomy(p.phases, tx.taxonomyPhase, 'phase') : emptyTax;
 
@@ -503,7 +503,7 @@ export function createPromoteHandler(
           // Replace join rows to reflect the pushed state exactly.
           await tx.productVendor.deleteMany({ where: { productId } });
           await tx.productCategory.deleteMany({ where: { productId } });
-          await tx.productDiscipline.deleteMany({ where: { productId } });
+          await tx.productAudience.deleteMany({ where: { productId } });
           await tx.productPhase.deleteMany({ where: { productId } });
           await tx.productExtension.deleteMany({ where: { productId } });
 
@@ -523,9 +523,9 @@ export function createPromoteHandler(
               skipDuplicates: true,
             });
           }
-          if (disciplines.ids.length) {
-            await tx.productDiscipline.createMany({
-              data: disciplines.ids.map((disciplineId) => ({ productId, disciplineId })),
+          if (audiences.ids.length) {
+            await tx.productAudience.createMany({
+              data: audiences.ids.map((audienceId) => ({ productId, audienceId })),
               skipDuplicates: true,
             });
           }
@@ -657,7 +657,7 @@ export function createPromoteHandler(
           integrations: integrationResults,
           taxonomy: {
             categories: categories.results,
-            disciplines: disciplines.results,
+            audiences: audiences.results,
             phases: phases.results,
           },
           skipped,

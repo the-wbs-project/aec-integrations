@@ -1,8 +1,8 @@
-import { CategoryDetailSchema, DisciplineDetailSchema, PhaseDetailSchema } from '@aeci/shared';
+import { CategoryDetailSchema, AudienceDetailSchema, PhaseDetailSchema } from '@aeci/shared';
 import { describe, expect, it } from 'vitest';
 
 import {
-  constructionDisciplineDetailRow,
+  constructionAudienceDetailRow,
   constructionPhaseDetailRow,
   projectManagementCategoryDetailRow,
 } from '../test/fixtures/taxonomy';
@@ -23,8 +23,8 @@ import { createTaxonomyDetailHandler, type TaxonomyDetailConfig } from './taxono
  */
 interface Case {
   /** URL segment + 404 `details.resource`. */
-  resource: 'category' | 'discipline' | 'phase';
-  /** Path segment (`categories` / `disciplines` / `phases`). */
+  resource: 'category' | 'audience' | 'phase';
+  /** Path segment (`categories` / `audiences` / `phases`). */
   segment: string;
   config: TaxonomyDetailConfig;
   /** Mock keyed by the model the factory's `delegate` selects. */
@@ -50,16 +50,16 @@ const CASES: Case[] = [
     productCount: 5,
   },
   {
-    resource: 'discipline',
-    segment: 'disciplines',
+    resource: 'audience',
+    segment: 'audiences',
     config: {
-      delegate: (p) => p.taxonomyDiscipline,
-      relationKey: 'productDisciplines',
-      resource: 'discipline',
-      schema: DisciplineDetailSchema,
+      delegate: (p) => p.taxonomyAudience,
+      relationKey: 'productAudiences',
+      resource: 'audience',
+      schema: AudienceDetailSchema,
     },
-    mock: (findUnique) => makeMockAcceleratedPrisma({ taxonomyDiscipline: { findUnique } }),
-    detailRow: constructionDisciplineDetailRow,
+    mock: (findUnique) => makeMockAcceleratedPrisma({ taxonomyAudience: { findUnique } }),
+    detailRow: constructionAudienceDetailRow,
     slug: 'construction',
     productCount: 7,
   },

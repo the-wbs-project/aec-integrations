@@ -143,7 +143,7 @@ model Product {
   targetIntegrations    Integration[]       @relation("IntegrationTarget")
   poweredIntegrations   Integration[]       @relation("IntegrationPoweredByProduct")
   productCategories     ProductCategory[]
-  productDisciplines    ProductDiscipline[]
+  productAudiences      ProductAudience[]
   productPhases         ProductPhase[]
   productVendors        ProductVendor[]
   extensionsAsExtension ProductExtension[]  @relation("ProductExtensionAsExtension")
@@ -223,7 +223,7 @@ model TaxonomyCategory {
   @@schema("public")
 }
 
-model TaxonomyDiscipline {
+model TaxonomyAudience {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   slug         String   @unique
   name         String
@@ -232,10 +232,10 @@ model TaxonomyDiscipline {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
-  productDisciplines ProductDiscipline[]
+  productAudiences ProductAudience[]
 
-  @@index([slug], map: "taxonomy_disciplines_slug_idx")
-  @@map("taxonomy_disciplines")
+  @@index([slug], map: "taxonomy_audiences_slug_idx")
+  @@map("taxonomy_audiences")
   @@schema("public")
 }
 
@@ -273,17 +273,17 @@ model ProductCategory {
   @@schema("public")
 }
 
-model ProductDiscipline {
-  productId    String   @map("product_id") @db.Uuid
-  disciplineId String   @map("discipline_id") @db.Uuid
-  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+model ProductAudience {
+  productId  String   @map("product_id") @db.Uuid
+  audienceId String   @map("audience_id") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  product    Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
-  discipline TaxonomyDiscipline @relation(fields: [disciplineId], references: [id], onDelete: Cascade)
+  product  Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  audience TaxonomyAudience @relation(fields: [audienceId], references: [id], onDelete: Cascade)
 
-  @@id([productId, disciplineId])
-  @@index([disciplineId], map: "product_disciplines_discipline_idx")
-  @@map("product_disciplines")
+  @@id([productId, audienceId])
+  @@index([audienceId], map: "product_audiences_audience_idx")
+  @@map("product_audiences")
   @@schema("public")
 }
 

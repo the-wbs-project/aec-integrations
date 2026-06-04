@@ -49,7 +49,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     api_docs_url: null,
     has_api_docs: false,
     categories: [],
-    disciplines: [],
+    audiences: [],
     phases: [],
     integrations_as_source: [],
     integrations_as_target: [],

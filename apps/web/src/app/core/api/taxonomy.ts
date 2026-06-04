@@ -1,6 +1,6 @@
 /**
  * Typed accessors for the taxonomy API surface (apps/api `GET /api/categories`,
- * `GET /api/categories/:slug`, `GET /api/disciplines/:slug`,
+ * `GET /api/categories/:slug`, `GET /api/audiences/:slug`,
  * `GET /api/phases/:slug`). Wraps `ServerApiClient.request<T>` so each SSR call
  * site stays free of stringly-typed paths and `NOT_FOUND` envelope decoding.
  *
@@ -16,7 +16,7 @@ import { fetchOrNull } from './fetch-or-null';
 
 /**
  * Detail shape shared by the three browse endpoints. `CategoryDetail`,
- * `DisciplineDetail`, and `PhaseDetail` are structurally identical
+ * `AudienceDetail`, and `PhaseDetail` are structurally identical
  * (`taxonomyDetailShape` in `@aeci/shared`); one alias keeps the browse
  * resolver/page generic across kinds without three near-identical signatures.
  */
@@ -29,12 +29,12 @@ export type TaxonomyTermDetail = CategoryDetail;
  */
 export const KIND_PATH_SEGMENT: Record<TaxonomyKind, string> = {
   category: 'categories',
-  discipline: 'disciplines',
+  audience: 'audiences',
   phase: 'phases',
 };
 
 /**
- * Fetch a taxonomy term (category / discipline / phase) by slug, with its
+ * Fetch a taxonomy term (category / audience / phase) by slug, with its
  * tagged products embedded. Returns `null` on the canonical `NOT_FOUND`
  * envelope (HTTP 404 with `error.code === 'NOT_FOUND'`) so the resolver can
  * render the inline NotFound panel without try/catch noise. Any other API

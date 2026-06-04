@@ -25,7 +25,7 @@ import { logToDatadog } from './datadog';
 import type { Env } from './env';
 import { json } from './http';
 
-type ResourceKind = 'product' | 'vendor' | 'integration' | 'category' | 'discipline' | 'phase';
+type ResourceKind = 'product' | 'vendor' | 'integration' | 'category' | 'audience' | 'phase';
 
 export type ApiErrorOptions = {
   /** Set for `VALIDATION_FAILED` so the SSR client can target the field. */

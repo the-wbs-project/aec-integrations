@@ -65,7 +65,7 @@ export type MockAcceleratedPrisma = {
   vendor: ModelMock;
   integration: ModelMock;
   taxonomyCategory: ModelMock;
-  taxonomyDiscipline: ModelMock;
+  taxonomyAudience: ModelMock;
   taxonomyPhase: ModelMock;
   $queryRaw: Mock<QueryRawFn>;
 };
@@ -75,7 +75,7 @@ export type MockAcceleratedPrismaOverrides = Partial<{
   vendor: ModelOverrides;
   integration: ModelOverrides;
   taxonomyCategory: ModelOverrides;
-  taxonomyDiscipline: ModelOverrides;
+  taxonomyAudience: ModelOverrides;
   taxonomyPhase: ModelOverrides;
   queryRaw: QueryRawFn;
 }>;
@@ -90,7 +90,7 @@ export function makeMockAcceleratedPrisma(
     vendor: buildModelMock(overrides.vendor, listDefaults),
     integration: buildModelMock(overrides.integration, listDefaults),
     taxonomyCategory: buildModelMock(overrides.taxonomyCategory, listDefaults),
-    taxonomyDiscipline: buildModelMock(overrides.taxonomyDiscipline, listDefaults),
+    taxonomyAudience: buildModelMock(overrides.taxonomyAudience, listDefaults),
     taxonomyPhase: buildModelMock(overrides.taxonomyPhase, listDefaults),
     $queryRaw: vi.fn(overrides.queryRaw ?? (async () => [{ '?column?': 1 }])),
   };

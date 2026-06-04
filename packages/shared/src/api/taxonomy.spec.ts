@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   CategoriesListResponseSchema,
   CategoryDetailSchema,
-  DisciplineDetailSchema,
+  AudienceDetailSchema,
   PhaseDetailSchema,
   TaxonomyResponseSchema,
   TaxonomyTermWithCountSchema,
@@ -64,11 +64,11 @@ describe('TaxonomyTermWithCountSchema', () => {
   });
 });
 
-describe('CategoryDetailSchema / DisciplineDetailSchema / PhaseDetailSchema', () => {
+describe('CategoryDetailSchema / AudienceDetailSchema / PhaseDetailSchema', () => {
   it('parse with an empty products array', () => {
     const detail = { ...validTerm, products: [] };
     expect(CategoryDetailSchema.parse(detail).products).toEqual([]);
-    expect(DisciplineDetailSchema.parse(detail).products).toEqual([]);
+    expect(AudienceDetailSchema.parse(detail).products).toEqual([]);
     expect(PhaseDetailSchema.parse(detail).products).toEqual([]);
   });
 
@@ -84,21 +84,21 @@ describe('CategoryDetailSchema / DisciplineDetailSchema / PhaseDetailSchema', ()
 });
 
 describe('TaxonomyResponseSchema', () => {
-  it('parses categories, disciplines, and phases together', () => {
+  it('parses categories, audiences, and phases together', () => {
     const parsed = TaxonomyResponseSchema.parse({
       categories: [validTerm],
-      disciplines: [validTerm],
+      audiences: [validTerm],
       phases: [validTerm],
     });
     expect(parsed.categories).toHaveLength(1);
-    expect(parsed.disciplines).toHaveLength(1);
+    expect(parsed.audiences).toHaveLength(1);
     expect(parsed.phases).toHaveLength(1);
   });
 
   it('rejects when a list is missing', () => {
     const result = TaxonomyResponseSchema.safeParse({
       categories: [],
-      disciplines: [],
+      audiences: [],
     });
     expect(result.success).toBe(false);
   });
