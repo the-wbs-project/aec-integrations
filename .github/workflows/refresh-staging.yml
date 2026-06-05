@@ -102,6 +102,15 @@ jobs:
       # API Worker bundle that wrangler will deploy (step 10).
       - run: pnpm --filter @aeci/api exec prisma generate
 
+      # Build the SSR Worker bundle up front. Its `main` is a PRE-BUILT artifact
+      # (apps/web/dist/server/server.mjs from `ng build`) that `wrangler deploy`
+      # (step 10) does NOT generate; without this the SSR deploy fails with
+      # "dist/server/server.mjs was not found". Built here, before the
+      # destructive prod-dump / staging-wipe below, so a build failure stops the
+      # run before staging data is touched. The API Worker needs no build (its
+      # `main` is src/index.ts, bundled on the fly).
+      - run: pnpm --filter @aeci/web build
+
       - name: Install PostgreSQL 17 client
         run: |
           set -euo pipefail
