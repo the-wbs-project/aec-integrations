@@ -13,7 +13,9 @@ AECi runs three tiers of environment plus local. Worker and Supabase project nam
 | **Local** | `wrangler dev` / `pnpm dev:bound` | Local Postgres (`supabase start`, port 54322) | `http://localhost:8788` | None (loopback) |
 | **PR preview** | `aeci-{api,web}-pr-<N>` (`*.aec-integrations.workers.dev`) | Dev project, ephemeral branch DB per PR (AECI-79) | `*.workers.dev` (PR-specific) | Cloudflare Access — service token for CI, OTP-to-email for humans |
 | **Staging** | `aeci-{api,web}-staging` | Dev project, `main` branch | `https://staging.aecintegrations.com` | Cloudflare Access — same allowlist as previews |
-| **Production** | `aeci-{api,web}-production` | Prod project | `https://aecintegrations.com` + `https://www.aecintegrations.com` | Public |
+| **Production** | `aeci-{api,web}-production` | Prod project | `https://demo.aecintegrations.com` | Public |
+
+> Pre-launch, the web app serves `demo.aecintegrations.com` only. The apex (`aecintegrations.com`) and `www.aecintegrations.com` remain served by the **landing** Worker (`apps/landing`) — we are not promoting the app to `www` yet.
 
 Worker `name` (deployed) values in `apps/{web,api}/wrangler.jsonc`:
 
@@ -215,7 +217,7 @@ What happens, in order:
 - **Approval pause** — the `apply-prod-migrations` job enters the `production` GH Environment and blocks. The GitHub Actions UI shows "Waiting for review". Read the migration list in the previous job's summary before clicking Approve.
 - **After approval (~5–10 min)** — `pg_dump` of prod → R2 (`aeci-prod-snapshots/prod-pre-<short-sha>.dump` plus a companion `-auth.dump` for auth-schema data), `supabase db push --linked`, drift check via `scripts/prisma-drift-check.sh` against `DIRECT_URL_PRODUCTION`. **HARD STOP on drift** — Workers don't deploy if drift is detected.
 - **Worker deploys** — API first (`aeci-api-production`), SSR second (`aeci-web-production`). Each `wrangler deploy` line passes `--var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
-- **Deploy marker + smoke** — Datadog `/api/v1/events` marker (docs/CICD_PLAN.md §9.1) tagged `env:production`, `service:aeci-ssr`, `commit:<sha>`. Then via `scripts/verify-version.sh` polls until **both** `https://aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` — public, so no Access headers. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Fails after a 60-second budget.
+- **Deploy marker + smoke** — Datadog `/api/v1/events` marker (docs/CICD_PLAN.md §9.1) tagged `env:production`, `service:aeci-ssr`, `commit:<sha>`. Then via `scripts/verify-version.sh` polls until **both** `https://demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` — public, so no Access headers. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Fails after a 60-second budget.
 
 **Recovering from a bad promote.** The R2 snapshot is the rollback insurance. For DB:
 
@@ -398,7 +400,7 @@ provisioning a fresh empty project for development:
 
 - [ ] Confirm `aecintegrations.com` is on Cloudflare with the AEC account and a Pro plan.
 - [ ] Add a custom hostname for `staging.aecintegrations.com` pointing at the Workers zone (Cloudflare Dashboard → Workers & Pages → `aeci-web-staging` → Settings → Triggers → Custom Domains → Add). Wrangler will reconcile the route on first deploy.
-- [ ] Add `www.aecintegrations.com` as a second custom domain on `aeci-web-production` if not already present.
+- [ ] Add `demo.aecintegrations.com` as the custom domain on `aeci-web-production` (Wrangler reconciles it on first prod promote; `custom_domain: true` provisions the DNS record + cert on the zone). The apex + `www` stay on the landing Worker.
 
 ### 3. Cloudflare Access
 

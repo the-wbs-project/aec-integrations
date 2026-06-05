@@ -33,7 +33,7 @@
 #      - Both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
 #        per CLAUDE.md non-negotiable.
 #      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
-#      - Polls `aecintegrations.com/api/version` (public, no Access headers)
+#      - Polls `demo.aecintegrations.com/api/version` (public, no Access headers)
 #        until it reports `inputs.commit_sha`. Fails after 60s.
 #
 # Historical gotcha (carried over from AECI-77): `prisma-drift-check.sh`
@@ -201,7 +201,7 @@ jobs:
     # he clicks Approve in the GitHub Actions UI.
     environment:
       name: production
-      url: https://aecintegrations.com
+      url: https://demo.aecintegrations.com
     permissions:
       contents: read
     outputs:
@@ -372,7 +372,7 @@ jobs:
       - name: Purge taxonomy cache tags
         continue-on-error: true
         env:
-          HOST: https://aecintegrations.com
+          HOST: https://demo.aecintegrations.com
           PURGE_TAGS: 'taxonomy route:browse'
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -481,7 +481,7 @@ jobs:
       - name: Smoke test production (API + SSR at SHA)
         id: smoke
         env:
-          HOST: https://aecintegrations.com
+          HOST: https://demo.aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail

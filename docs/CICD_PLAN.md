@@ -40,7 +40,7 @@ Three environments, all on Cloudflare:
 |---|---|---|---|---|
 | **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | Shared dev DB via `aeci-api-preview` (Option 1, see environments.md) |
 | **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | Staging Supabase project |
-| **Production** | `aecintegrations.com` | Manual approval after staging | Manual | Production Supabase |
+| **Production** | `demo.aecintegrations.com` | Manual approval after staging | Manual | Production Supabase |
 
 ### 2.1 Preview environment
 
@@ -180,7 +180,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 1. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 2. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 3. Post Datadog deployment marker (§9.1)
-4. Poll both `aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA (60s budget) via `scripts/verify-version.sh`
+4. Poll both `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA (60s budget) via `scripts/verify-version.sh`
 5. Write summary (commit, R2 snapshot path, snapshot size, DEPLOYED_AT, actor)
 
 Algolia index updates, release-tag automation, and Slack notifications are out of scope until later epics.
@@ -226,7 +226,8 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
     },
     "production": {
       "vars": { "ENV": "production" },
-      "routes": [{ "pattern": "aecintegrations.com", "custom_domain": true }]
+      // demo.aecintegrations.com ONLY (pre-launch); apex + www stay on the landing Worker
+      "routes": [{ "pattern": "demo.aecintegrations.com", "custom_domain": true }]
     }
   }
 }
@@ -560,6 +561,6 @@ Before the first deploy:
 - [ ] Datadog account configured with appropriate API keys
 - [ ] Loops account configured with environment-specific senders
 - [ ] Linear workspace configured per `STAGE_1_SPEC.md` §24
-- [ ] DNS configured for `aecintegrations.com` and `staging.aecintegrations.com`
+- [ ] DNS configured for `demo.aecintegrations.com` (web prod), `staging.aecintegrations.com`, and the landing apex + `www.aecintegrations.com`
 - [ ] `.dev.vars.example` committed showing all required local secrets
 - [ ] First end-to-end deploy validated against a test PR
