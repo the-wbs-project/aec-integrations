@@ -149,3 +149,67 @@ not resolve the peer-override cleanup.**
 - **Peer overrides:** revisit the `@spartan-ng/brain>@angular/*` overrides once Popover/Dialog's future is
   decided (keep on Spartan vs. move to CDK Overlay), since that — not Aria adoption — is what can remove
   the last Spartan peer dependency.
+
+## Pilot results (AECI-132)
+
+Status stays **Proposed** — this records the pilot evidence the "Ratify" follow-up needs; the
+Proposed → Accepted flip is a separate sign-off.
+
+The demo/preview Tabs in `apps/web/src/app/preview/vendor-detail/` were ported from Spartan
+`BrnTabs`/`BrnTabsList`/`BrnTabsTrigger` to Angular Aria `@angular/aria@22.0.0`
+(`ngTabs`/`ngTabList`/`ngTab`/`ngTabPanel`/`ngTabContent`). Production Spartan usage (Button, Popover) is
+untouched, including the `brn-popover`s living *inside* the ported Products panel.
+
+**Token-binding ergonomics — Aria is a clear win over Spartan for this pattern:**
+
+- **Selected-state styling is now declarative.** Spartan exposed no `aria-selected` to target, so the
+  active tab was styled by a `tabTriggerClass(key)` TS method that read the component's `activeTab()`
+  signal and concatenated active/inactive class strings — styling logic split across `.ts` and `.html`.
+  Aria toggles `aria-selected` on each tab, so the same look is one static class string using the
+  built-in Tailwind `aria-selected:` variant bound to tokens
+  (`aria-selected:border-(--accent-primary) aria-selected:text-(--text-primary)`). No TS method, no
+  state mirror — identical model to how brain primitives are *meant* to be styled, finally available for
+  the selected state too.
+- **Less component state.** The `onTabChange()` writeback and `tabTriggerClass()` method were both
+  deleted; selection is a single `[(selectedTab)]` two-way binding to one signal. (Note: the model is
+  typed `string | undefined`, so the backing signal widened from the `'overview' | 'products'` union.)
+- **A11y wiring is free.** `role="tab"/"tablist"/"tabpanel"`, `aria-controls`/`aria-labelledby`, roving
+  `tabindex`, and `inert` on hidden panels are all applied by the directives — the manual
+  `role="tablist"`/`role="tabpanel"` attributes the Spartan version carried were removed. Keyboard nav
+  (arrows, Home/End, automatic `selectionMode="follow"` activation) works without app code.
+- **Panel show/hide requires `ngTabContent`.** `ngTabPanel` only marks the inactive panel `inert`/hidden
+  and notes "proper styling is required for visual hiding"; wrapping panel bodies in
+  `<ng-template ngTabContent>` (its `DeferredContent` host directive) renders the inactive panel empty,
+  which both hides it and lazy-loads content. This is the one structural rule worth flagging for the
+  first real adopter — it is not optional.
+- **Dependency posture improved.** Tabs now run on a first-party stable package instead of
+  `@spartan-ng/brain` `0.0.1-alpha.689`. No new pnpm peer overrides were needed (Aria's peers are the
+  already-present v22 `@angular/{core,common,cdk}`).
+
+**Validation:** borders-not-shadows preserved (2px `--accent-primary` underline on the selected tab,
+transparent otherwise); renders correctly in light and dark; covered by
+`apps/web/e2e/preview-vendor-detail-tabs.spec.ts` — the tab controls are axe-clean in both themes, and
+keyboard nav (arrows, Home/End, Enter/Space, pointer) is asserted to drive `aria-selected` + panel
+visibility.
+
+**Two findings to flag for the first adopter:**
+
+1. **`ngTabContent` defers content past SSR.** Its `DeferredContent` host directive renders the panel
+   body on the client after hydration, so even the default-selected panel is **empty in the server HTML**
+   (verified: the tab bar SSRs with full roles/`aria-controls`/`aria-labelledby`, but panel content does
+   not). Fine for this preview demo, but a content surface that needs the default tab's body in the SSR
+   payload (SEO / no-JS) should render that panel eagerly rather than via `ngTabContent`. The trade-off:
+   `ngTabPanel` only marks the hidden panel `inert` (it notes "proper styling is required for visual
+   hiding"), so eager panels need their own hide rule — `ngTabContent` gives hide-for-free at the cost of
+   SSR content.
+2. **Adding axe coverage surfaced pre-existing contrast debt.** The demo page had never been axe-tested;
+   the new spec flagged WCAG-AA `color-contrast` failures from the `--text-tertiary` token on small
+   labels (header eyebrow, card titles, `dt` labels) — pre-existing, not caused by the port. The ported
+   **tab controls** were brought to AA (inactive label/badge use `--text-secondary`, ~7:1 in both
+   themes); the page-wide `--text-tertiary` token debt is out of scope here and should be tracked
+   separately. The pilot's axe assertion is therefore scoped to `[role="tablist"]`.
+
+**Net:** for selection/disclosure patterns, Aria's `aria-*`-attribute surface makes token-bound,
+both-theme styling *more* ergonomic than Spartan brain, not merely equivalent. Nothing surfaced in the
+pilot argues against the proposed posture; the `ngTabContent`-vs-SSR trade-off is the one structural rule
+to document for adopters.

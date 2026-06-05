@@ -1,7 +1,7 @@
 import { Component, OnInit, inject, signal } from '@angular/core';
+import { Tab, TabContent, TabList, TabPanel, Tabs } from '@angular/aria/tabs';
 import { BrnButton } from '@spartan-ng/brain/button';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
-import { BrnTabs, BrnTabsList, BrnTabsTrigger } from '@spartan-ng/brain/tabs';
 
 import type { VendorDetail as VendorDetailContract } from '@aeci/shared';
 
@@ -46,16 +46,22 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
     BrnPopover,
     BrnPopoverContent,
     BrnPopoverTrigger,
-    BrnTabs,
-    BrnTabsList,
-    BrnTabsTrigger,
+    Tabs,
+    TabList,
+    Tab,
+    TabPanel,
+    TabContent,
   ],
   templateUrl: './vendor-detail.html',
 })
 export class VendorDetail implements OnInit {
   private readonly meta = inject(MetaService);
 
-  protected readonly activeTab = signal<'overview' | 'products'>('overview');
+  // Two-way-bound to `ngTabList`'s `selectedTab` model (typed `string | undefined`),
+  // seeded so the Overview panel renders on load. Spartan's `BrnTabs` needed a
+  // separate `onTabChange()` writeback + a `tabTriggerClass()` method mirroring this
+  // state for styling; Angular Aria drives both off the model + `[aria-selected]`.
+  protected readonly selectedTab = signal<string | undefined>('overview');
   protected readonly stars = [1, 2, 3, 4, 5] as const;
 
   protected readonly vendor = VENDOR_FIXTURE;
@@ -82,20 +88,6 @@ export class VendorDetail implements OnInit {
 
   protected sortedDistribution(product: Product): ReadonlyArray<StarBucket> {
     return [...product.distribution].sort((a, b) => b.stars - a.stars);
-  }
-
-  protected onTabChange(key: string | undefined): void {
-    if (key === 'overview' || key === 'products') {
-      this.activeTab.set(key);
-    }
-  }
-
-  protected tabTriggerClass(key: 'overview' | 'products'): string {
-    const base =
-      '-mb-px cursor-pointer border-b-2 px-1 pb-3 text-sm font-medium tracking-wide transition-colors focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary)';
-    const active = 'border-(--accent-primary) text-(--text-primary)';
-    const inactive = 'border-transparent text-(--text-tertiary) hover:text-(--text-secondary)';
-    return `${base} ${this.activeTab() === key ? active : inactive}`;
   }
 
   protected roundedScore(score: number): number {
