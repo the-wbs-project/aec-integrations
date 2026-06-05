@@ -112,9 +112,17 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
           sudo apt-get update -qq
           sudo apt-get install -y --no-install-recommends postgresql-client-17
-          pg_dump --version
-          pg_restore --version
-          psql --version
+          # GH runners ship a PostgreSQL 16 cluster, so Debian's pg_wrapper
+          # routes bare `pg_dump`/`pg_restore`/`psql` to v16 even with
+          # postgresql-client-17 installed — and pg_dump refuses to dump a
+          # newer (17.x) server (prod is 17.6). Put the real v17 binaries first
+          # on PATH for every subsequent step, and assert v17 here by full path
+          # (`$GITHUB_PATH` only affects later steps, not this one).
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version | grep -E ' 17\.' \
+            || { echo "::error::pg_dump is not v17"; exit 1; }
+          /usr/lib/postgresql/17/bin/pg_restore --version
+          /usr/lib/postgresql/17/bin/psql --version
 
       - name: Install Supabase CLI
         run: npm install -g supabase@latest
