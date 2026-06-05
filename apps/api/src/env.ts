@@ -42,20 +42,21 @@ export type Env = {
    */
   TAXONOMY_KV?: KVNamespace;
   /**
-   * Service binding to the SSR/web Worker, used by `POST /api/promote` to call
-   * `POST /admin/purge` after a promote commits (AECI-105). This is the inverse
-   * of the web Worker's `API` binding — a deliberate web↔api cycle. Optional:
-   * absent → cache purge is a no-op (e.g. local `pnpm dev:bound`, which only
-   * registers the web→api edge, leaves this unresolved). The Cloudflare purge
-   * token stays on the web Worker; we never mint it here.
+   * Cloudflare API token used by `POST /api/promote` to purge the edge-cache
+   * tags a promote invalidated (AECI-105). The promote handler calls
+   * Cloudflare's purge-by-tag API **directly** over HTTPS — there is no longer a
+   * `WEB` service binding back to the SSR Worker (that web↔api cycle was removed
+   * in Option B; see `docs/adr/0010-promote-purges-cloudflare-directly.md`).
+   * Must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only
+   * (`docs/CACHE_STRATEGY.md` §5) — the same scope the web Worker's token uses.
+   * Set as a Wrangler secret per environment. Optional: absent (with `CF_ZONE_ID`)
+   * → cache purge is a graceful no-op (e.g. local `pnpm dev:bound`, PR previews).
    */
-  WEB?: Fetcher;
+  CF_PURGE_API_TOKEN?: string;
   /**
-   * Bearer token the promote handler presents to the web Worker's
-   * `POST /admin/purge` (AECI-105). Must equal the web Worker's
-   * `ADMIN_PURGE_TOKEN` secret. Optional: absent → cache purge is a no-op
-   * (same graceful-degradation contract as `WEB` above). Set as a Wrangler
-   * secret per environment.
+   * Cloudflare zone ID the promote purge targets (AECI-105). Public value, set
+   * per environment alongside `CF_PURGE_API_TOKEN`. Optional: absent → cache
+   * purge is a graceful no-op.
    */
-  ADMIN_PURGE_TOKEN?: string;
+  CF_ZONE_ID?: string;
 };

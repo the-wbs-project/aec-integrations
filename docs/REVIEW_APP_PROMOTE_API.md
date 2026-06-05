@@ -299,7 +299,7 @@ write commits**. It is fired asynchronously and **never affects your response** 
 a promote that succeeds returns `200` even if the subsequent purge call fails.
 On the AECi side, every purge is observable in Datadog as
 `aeci.cache.purge{source:promote,outcome:ok|cf_failed}`, plus a `warn` log if the
-internal call can't be reached. If a purge does fail, the only consequence is that
+Cloudflare purge-by-tag call fails. If a purge does fail, the only consequence is that
 the affected pages fall back to their normal edge TTL (≤15 min on detail pages) —
 the same staleness window that existed before this behavior was added, so there is
 no correctness regression. No retry or action is required from the review app.

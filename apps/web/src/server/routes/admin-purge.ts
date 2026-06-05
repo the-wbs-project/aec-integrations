@@ -34,7 +34,7 @@
  *   502 → Cloudflare upstream failed (incl. 429), with `failed[]` populated
  */
 
-import { timingSafeEqual } from '@aeci/shared';
+import { callCloudflarePurge, CF_PURGE_MAX_TAGS, timingSafeEqual } from '@aeci/shared';
 import type { Context } from 'hono';
 import { z } from 'zod';
 
@@ -42,10 +42,10 @@ import type { WebEnv } from '../../env';
 import { logToDatadog, submitCount } from '../../server-datadog';
 
 /** Body schema for `POST /admin/purge`. Cloudflare's purge-by-tag accepts up
- * to 30 tags per request (Pro plan); we mirror that limit so a single call
- * always fits in one CF API call. */
+ * to `CF_PURGE_MAX_TAGS` (30) tags per request (Pro plan); we mirror that limit
+ * so a single call always fits in one CF API call. */
 export const PurgeRequestSchema = z.object({
-  tags: z.array(z.string().min(1)).min(1).max(30),
+  tags: z.array(z.string().min(1)).min(1).max(CF_PURGE_MAX_TAGS),
 });
 
 export type PurgeRequest = z.infer<typeof PurgeRequestSchema>;
@@ -99,8 +99,13 @@ export function createAdminPurgeHandler(
 
     const source = new URL(request.url).searchParams.get('source') || 'manual';
 
-    // 3. Call Cloudflare purge-by-tag API.
-    const cfOutcome = await callCloudflarePurge(fetchImpl, env, tags);
+    // 3. Call Cloudflare purge-by-tag API (shared transport — same call the API
+    //    Worker uses post-promote; see `@aeci/shared` `callCloudflarePurge`).
+    const cfOutcome = await callCloudflarePurge(
+      fetchImpl,
+      { apiToken: env.CF_PURGE_API_TOKEN, zoneId: env.CF_ZONE_ID },
+      tags,
+    );
 
     // 4. Log to Datadog (fire-and-forget).
     logToDatadog(ctx, env, request, {
@@ -142,50 +147,6 @@ function isAuthorized(request: Request, expectedToken: string | undefined): bool
   const match = /^Bearer\s+(.+)$/.exec(header);
   if (!match) return false;
   return timingSafeEqual(match[1]!, expectedToken);
-}
-
-type CfOutcome = { ok: true; status: number } | { ok: false; status: number; message: string };
-
-async function callCloudflarePurge(
-  fetchImpl: typeof fetch,
-  env: WebEnv,
-  tags: string[],
-): Promise<CfOutcome> {
-  if (!env.CF_PURGE_API_TOKEN || !env.CF_ZONE_ID) {
-    return { ok: false, status: 0, message: 'cf_credentials_missing' };
-  }
-  const url = `https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/purge_cache`;
-  try {
-    const res = await fetchImpl(url, {
-      method: 'POST',
-      headers: {
-        authorization: `Bearer ${env.CF_PURGE_API_TOKEN}`,
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({ tags }),
-    });
-    if (res.ok) return { ok: true, status: res.status };
-    let message = res.statusText || 'cf_failed';
-    try {
-      const body = (await res.json()) as { errors?: Array<{ message?: string }> };
-      if (body?.errors?.length) {
-        message =
-          body.errors
-            .map((e) => e.message)
-            .filter(Boolean)
-            .join('; ') || message;
-      }
-    } catch {
-      // Body wasn't JSON; the statusText is good enough.
-    }
-    return { ok: false, status: res.status, message };
-  } catch (error) {
-    return {
-      ok: false,
-      status: 0,
-      message: error instanceof Error ? error.message : 'cf_network_error',
-    };
-  }
 }
 
 function jsonResponse(status: number, body: unknown): Response {

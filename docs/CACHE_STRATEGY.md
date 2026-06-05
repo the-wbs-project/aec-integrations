@@ -122,26 +122,31 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 
 ## 5. Invalidation mechanism
 
-A `POST /admin/purge` endpoint on the SSR Worker:
+The one outbound call that actually invalidates the edge cache is a stateless `POST https://api.cloudflare.com/.../zones/{zone}/purge_cache` with a `{ tags }` body (≤ `CF_PURGE_MAX_TAGS` = 30 tags/call, Pro plan). That transport lives **once** in `@aeci/shared` (`callCloudflarePurge`, `packages/shared/src/cache-purge.ts`) and has **two call sites**:
 
-- Authenticates via a long-lived admin token (Wrangler secret named `ADMIN_PURGE_TOKEN`)
+**(a) `POST /admin/purge` on the SSR Worker** — the manual / incident-response + CI surface:
+
+- Authenticates the *caller* via a long-lived admin token (Wrangler secret named `ADMIN_PURGE_TOKEN`)
 - Body: `{ tags: string[] }`
-- Calls Cloudflare's purge-by-tag API for the zone
-- Batches and respects Pro plan rate limits (token bucket per account)
-- Logs to Datadog
+- Delegates to the shared transport (CF purge-by-tag for the zone)
+- Respects Pro plan rate limits (token bucket per account); CF 429s surface in `failed[]`
+- Logs to Datadog and emits `aeci.cache.purge{source,outcome}`
 
 Auth: Wrangler secret in Phase 2. **Migrate to Cloudflare Access in Phase 6** when admin tooling expands and there are multiple admin endpoints behind the same auth boundary.
 
-Callers in Phase 2:
+Callers of `/admin/purge`:
 
 - Manual incident response (curl)
+- CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed)
 - Future admin tooling (Phase 6) — direct call from admin Workers, not n8n
 
-Phase 2 ships the endpoint plus a working manual purge. Automated callers (e.g. Supabase webhook on row update) are Phase 4+.
+**(b) `POST /api/promote` on the API Worker** — purges **directly** (no `/admin/purge` hop) after a promote commits, using the same shared transport and its **own** `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`. This replaced the original api→web `WEB` service binding; see **ADR 0010** (`docs/adr/0010-promote-purges-cloudflare-directly.md`). The purge is best-effort, post-commit (`ctx.waitUntil`), and a graceful no-op when the API Worker's CF credentials are unset (local dev, PR previews).
 
-Implementation lives in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10) — endpoint shape, rate-limit handling, and Datadog wiring belong there, not in this doc.
+Automated callers beyond promote (e.g. a Supabase webhook on row update) are Phase 4+. A Cloudflare Queue fronting the shared transport is the documented evolution once several cross-Worker producers or bulk-purge volume justify it (ADR 0010, Option C).
 
-**Cloudflare API token scoping:** the token used by the purge endpoint must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only — the narrowest possible scope. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope.
+Implementation of the endpoint shape, rate-limit handling, and Datadog wiring landed in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10); the promote→purge wiring in [AECI-105](https://linear.app/aec-integrations/issue/AECI-105).
+
+**Cloudflare API token scoping:** every `CF_PURGE_API_TOKEN` (the SSR Worker's **and** the API Worker's) must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only — the narrowest possible scope. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope (rotate both Workers together).
 
 ---
 

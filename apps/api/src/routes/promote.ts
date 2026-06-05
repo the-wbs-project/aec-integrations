@@ -25,14 +25,18 @@
  *
  * Cache purge (AECI-105): promotion mutates cacheable product / vendor /
  * taxonomy pages, so after the transaction commits the handler purges the
- * affected `Cache-Tag`s via the web Worker's `POST /admin/purge` (over the
- * `WEB` service binding, `?source=promote`). Tags are derived in
+ * affected `Cache-Tag`s by calling Cloudflare's purge-by-tag API **directly**
+ * (`@aeci/shared` `callCloudflarePurge`). It used to call the SSR Worker's
+ * `POST /admin/purge` over a `WEB` service binding; that web↔api cycle was
+ * removed in Option B (`docs/adr/0010-promote-purges-cloudflare-directly.md`) —
+ * the API now holds its own `Zone.Cache Purge`-scoped token. Tags are derived in
  * `cacheTagsForPromote` to match what SSR emits (`docs/CACHE_STRATEGY.md` §2).
  * The purge is **best-effort and post-commit**: it runs via `ctx.waitUntil`
  * (never blocks or fails the already-committed promote) and a failure is logged
  * to Datadog — worst-case staleness reverts to the edge TTL (≤15 min), i.e. no
- * regression vs. before this change. When `WEB` / `ADMIN_PURGE_TOKEN` are unset
- * (e.g. local `pnpm dev:bound`) the purge is a graceful no-op.
+ * regression vs. before this change. When `CF_PURGE_API_TOKEN` / `CF_ZONE_ID`
+ * are unset (e.g. local `pnpm dev:bound`, PR previews) the purge is a graceful
+ * no-op.
  *
  * Two known, bounded staleness gaps remain out of scope (documented in
  * `docs/REVIEW_APP_PROMOTE_API.md`): embedded reverse-tagging is Phase 4, and
@@ -40,6 +44,8 @@
  */
 
 import {
+  callCloudflarePurge,
+  CF_PURGE_MAX_TAGS,
   PromotePayloadSchema,
   type EntityRef,
   type PromoteEntityResult,
@@ -55,7 +61,7 @@ import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aec
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 import type { Context } from 'hono';
 
-import { logToDatadog } from '../datadog';
+import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
@@ -245,51 +251,42 @@ function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undef
 const AUDIT_META = { source: 'review-app-promote' } as const;
 
 // ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
-// `POST /admin/purge` (web Worker) accepts ≤30 tags per call (mirrors
-// `PurgeRequestSchema.max(30)`); a promote rarely touches that many, so chunking
-// is defensive. The host in the URL is irrelevant for a service-binding fetch —
-// the web Worker routes on the path — so we use an internal sentinel host.
-const PURGE_TAG_BATCH = 30;
-const PURGE_URL = 'https://internal/admin/purge?source=promote';
+// Cloudflare's purge-by-tag API accepts ≤CF_PURGE_MAX_TAGS (30) tags per call;
+// a promote rarely touches that many, so chunking is defensive.
 
 /**
- * Best-effort, post-commit edge-cache purge for a promote. No-ops when the `WEB`
- * binding or `ADMIN_PURGE_TOKEN` is absent, or when nothing cacheable changed.
- * Batches are fired concurrently; a failed batch is logged (Datadog `warn`) and
- * swallowed so it never affects the already-committed promote. The web Worker
- * records each call's outcome as `aeci.cache.purge{source:promote,outcome:*}` —
- * the API-side log here covers only the case where the call never reaches it.
+ * Best-effort, post-commit edge-cache purge for a promote. No-ops when
+ * `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` is absent, or when nothing cacheable
+ * changed. Batches are fired concurrently; each batch's outcome is recorded as
+ * `aeci.cache.purge{source:promote,outcome:ok|cf_failed}` (preserving the
+ * dashboard series the web Worker used to emit) and a failed batch is logged
+ * (Datadog `warn`) and swallowed so it never affects the already-committed
+ * promote.
  */
 async function purgeAfterPromote(
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
 ): Promise<void> {
-  const web = c.env.WEB;
-  const token = c.env.ADMIN_PURGE_TOKEN;
-  if (!web || !token) return;
+  const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
+  if (!creds.apiToken || !creds.zoneId) return;
 
   const tags = cacheTagsForPromote(response);
   if (tags.length === 0) return;
 
   const batches: string[][] = [];
-  for (let i = 0; i < tags.length; i += PURGE_TAG_BATCH) {
-    batches.push(tags.slice(i, i + PURGE_TAG_BATCH));
+  for (let i = 0; i < tags.length; i += CF_PURGE_MAX_TAGS) {
+    batches.push(tags.slice(i, i + CF_PURGE_MAX_TAGS));
   }
 
   await Promise.allSettled(
     batches.map(async (batch) => {
-      try {
-        const res = await web.fetch(PURGE_URL, {
-          method: 'POST',
-          headers: {
-            authorization: `Bearer ${token}`,
-            'content-type': 'application/json',
-          },
-          body: JSON.stringify({ tags: batch }),
-        });
-        if (!res.ok) logPurgeFailure(c, batch, `admin/purge responded ${res.status}`);
-      } catch (err) {
-        logPurgeFailure(c, batch, err instanceof Error ? err.message : String(err));
+      const outcome = await callCloudflarePurge(fetch, creds, batch);
+      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
+        'source:promote',
+        `outcome:${outcome.ok ? 'ok' : 'cf_failed'}`,
+      ]);
+      if (!outcome.ok) {
+        logPurgeFailure(c, batch, `cf_${outcome.status}: ${outcome.message}`);
       }
     }),
   );
@@ -687,8 +684,8 @@ export function createPromoteHandler(
 
     // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort
     // and post-commit — fired via `waitUntil` so it never blocks or fails the
-    // response. No-ops when `WEB` / `ADMIN_PURGE_TOKEN` are unset.
-    if (c.env.WEB && c.env.ADMIN_PURGE_TOKEN) {
+    // response. No-ops when `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` are unset.
+    if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
       c.executionCtx.waitUntil(purgeAfterPromote(c, response));
     }
 
