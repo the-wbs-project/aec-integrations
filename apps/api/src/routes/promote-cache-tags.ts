@@ -2,8 +2,9 @@
  * Derive the edge-cache `Cache-Tag`s a promote should invalidate (AECI-105).
  *
  * `POST /api/promote` mutates cacheable product / vendor / taxonomy pages; after
- * the transaction commits, the handler purges these tags via the web Worker's
- * `POST /admin/purge`. The strings here MUST match the vocabulary the SSR Worker
+ * the transaction commits, the handler purges these tags by calling Cloudflare's
+ * purge-by-tag API directly (Option B — no web↔api binding). The strings here
+ * MUST match the vocabulary the SSR Worker
  * emits in `apps/web/src/server/cache-tags.ts` (`buildCacheTags`) — the single
  * source of truth is `docs/CACHE_STRATEGY.md` §2. Keep the two in lockstep: a tag
  * we purge that SSR never emits is a silent no-op; a tag SSR emits that we never

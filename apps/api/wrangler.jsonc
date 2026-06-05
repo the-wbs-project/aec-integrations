@@ -19,21 +19,23 @@
   //                 Worker code.
   //   DD_API_KEY  — Datadog Logs HTTP intake key (AECI-31). `logToDatadog()`
   //                 no-ops when this is unset, so non-DD envs are unaffected.
-  //   ADMIN_PURGE_TOKEN — bearer presented to the web Worker's POST /admin/purge
-  //                 (AECI-105). MUST equal the web Worker's `ADMIN_PURGE_TOKEN`.
-  //                 Absent → promote skips cache purge (graceful no-op).
+  //   CF_PURGE_API_TOKEN — Cloudflare API token `POST /api/promote` presents to
+  //                 Cloudflare's purge-by-tag API after a commit (AECI-105). MUST
+  //                 be scoped to `Zone.Cache Purge` on `aecintegrations.com` only
+  //                 (docs/CACHE_STRATEGY.md §5) — the same minimal scope the web
+  //                 Worker's token uses. Absent (with CF_ZONE_ID) → promote skips
+  //                 the cache purge (graceful no-op).
+  //   CF_ZONE_ID  — Cloudflare zone the purge targets. Public value; provision per
+  //                 env alongside CF_PURGE_API_TOKEN.
   //
-  // The `WEB` service binding points back at the SSR Worker so `POST /api/promote`
-  // can purge edge cache tags after a commit (AECI-105). This is the inverse of
-  // the web Worker's `API` binding — a deliberate web↔api cycle (no runtime
-  // recursion: /admin/purge doesn't call back into the API). It is bound ONLY on
-  // `staging` + `production`, where the web Worker is long-lived (`aeci-web-staging`
-  // / `aeci-web-production`) and the API deploys before it on a target that already
-  // exists. It is deliberately NOT bound on `preview`: per-PR previews deploy an
-  // ephemeral `aeci-web-pr-<N>` AFTER the API (pr-preview.yml), so there is no
-  // stable `aeci-web` to bind and the web↔api cycle has no first-deploy ordering.
-  // Unscoped `wrangler dev` / `pnpm dev:bound` and PR previews therefore leave
-  // `WEB` unresolved, so those promotes no-op the purge — expected, not a bug.
+  // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
+  // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the
+  // SSR Worker. The earlier web↔api cycle (api → web `POST /admin/purge`) was
+  // removed because the purge is just a stateless Cloudflare REST call; the API now
+  // holds its own scoped token. The SSR Worker's `POST /admin/purge` remains as the
+  // manual/incident + CI surface. See docs/adr/0010-promote-purges-cloudflare-directly.md.
+  // When CF_PURGE_API_TOKEN / CF_ZONE_ID are unset (local `pnpm dev:bound`, PR
+  // previews) promote no-ops the purge — expected, not a bug.
   "workers_dev": false,
   // Smart Placement is intentionally NOT enabled. Prisma Accelerate is a
   // globally distributed HTTPS pool: this Worker always reaches the nearest
@@ -74,12 +76,9 @@
     "preview": {
       "name": "aeci-api-preview",
       "workers_dev": false,
-      // AECI-105: no `WEB` service binding here on purpose. PR previews deploy an
-      // ephemeral `aeci-web-pr-<N>` after this Worker (pr-preview.yml), so there
-      // is no stable `aeci-web` target and binding it would fail the deploy
-      // (Cloudflare error 10143) or require an impossible first-deploy ordering
-      // for the web↔api cycle. Promote's cache purge therefore no-ops in
-      // preview / local dev — the documented graceful-degradation path.
+      // AECI-105: no CF purge credentials provisioned for preview. Promote's
+      // cache purge therefore no-ops in preview / local dev — the documented
+      // graceful-degradation path (Option B; see the top comment).
       "vars": {
         "ENV": "preview",
         "DD_SITE": "us5.datadoghq.com",
@@ -104,9 +103,8 @@
     "staging": {
       "name": "aeci-api-staging",
       "workers_dev": false,
-      // AECI-105: purge edge cache after promote by calling the web Worker's
-      // POST /admin/purge over this binding (see the WEB note in the top comment).
-      "services": [{ "binding": "WEB", "service": "aeci-web-staging" }],
+      // AECI-105 / Option B: promote purges the edge cache by calling Cloudflare
+      // directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
       "vars": {
         "ENV": "staging",
         "DD_SITE": "us5.datadoghq.com",
@@ -130,8 +128,8 @@
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
-      // AECI-105: purge edge cache after promote (see the WEB note in the top comment).
-      "services": [{ "binding": "WEB", "service": "aeci-web-production" }],
+      // AECI-105 / Option B: promote purges the edge cache by calling Cloudflare
+      // directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
       "vars": {
         "ENV": "production",
         "DD_SITE": "us5.datadoghq.com",

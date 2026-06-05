@@ -227,7 +227,7 @@ Every state-changing write must call `appendAuditLog()` which also forwards to D
 
 ## Cache invalidation
 
-Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`apps/web/src/server/cache-tags.ts`). Writes that affect cached pages call `POST /admin/purge` with the relevant tag list. Tag vocabulary, TTLs, composition rules, and the helper signature live in `docs/CACHE_STRATEGY.md`. The `invalidateForEntity()` / URL-invalidation-map approach in `docs/STAGE_1_SPEC.md` §9.3 is superseded.
+Every cacheable SSR response sets a `Cache-Tag` header via the AECI-56 helper (`apps/web/src/server/cache-tags.ts`). Writes that affect cached pages purge by Cache-Tag through the shared `@aeci/shared` transport (`callCloudflarePurge`): the API Worker's `POST /api/promote` calls Cloudflare's purge-by-tag API **directly** (ADR 0010 — no web↔api binding), while the SSR Worker's `POST /admin/purge` remains the manual/incident + CI surface. Tag vocabulary, TTLs, composition rules, and the helper signature live in `docs/CACHE_STRATEGY.md`. The `invalidateForEntity()` / URL-invalidation-map approach in `docs/STAGE_1_SPEC.md` §9.3 is superseded.
 
 ## MCP usage rules
 

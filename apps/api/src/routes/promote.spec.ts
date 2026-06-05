@@ -1,6 +1,6 @@
 import type { PromoteResponse } from '@aeci/shared';
 import { Hono } from 'hono';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
@@ -508,26 +508,27 @@ describe('createPromoteHandler', () => {
 });
 
 describe('cache purge after promote (AECI-105)', () => {
-  const PURGE_URL = 'https://internal/admin/purge?source=promote';
+  // Option B: promote purges the edge cache by calling Cloudflare's purge-by-tag
+  // API directly (no web↔api binding). The handler uses the global `fetch`, so
+  // tests stub it.
+  const CF_PURGE_URL = 'https://api.cloudflare.com/client/v4/zones/zone-1/purge_cache';
 
-  /** Env with the `WEB` binding + token present, so the purge path runs. */
-  function purgeEnv(fetchMock: ReturnType<typeof vi.fn>): Env {
-    return {
-      ...baseEnv,
-      ADMIN_PURGE_TOKEN: 'purge-secret',
-      WEB: { fetch: fetchMock } as unknown as Fetcher,
-    };
-  }
+  /** Env with CF purge credentials present, so the purge path runs. */
+  const purgeEnv: Env = {
+    ...baseEnv,
+    CF_PURGE_API_TOKEN: 'cf-token',
+    CF_ZONE_ID: 'zone-1',
+  };
 
-  /** Run a promote with a controllable WEB.fetch + a capturable execution ctx. */
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Run a promote with a stubbed global fetch (the CF purge) + capturable ctx. */
   async function promoteWithPurge(fake: Fake, body: unknown, fetchMock: ReturnType<typeof vi.fn>) {
+    vi.stubGlobal('fetch', fetchMock);
     const execCtx = fakeExecutionContext();
-    const res = await buildApp(fake).request(
-      '/api/promote',
-      post(body),
-      purgeEnv(fetchMock),
-      execCtx,
-    );
+    const res = await buildApp(fake).request('/api/promote', post(body), purgeEnv, execCtx);
     // The purge is scheduled via `waitUntil`; await the scheduled promise so the
     // fetch settles before assertions (the fake ctx's waitUntil doesn't itself).
     const waitUntil = vi.mocked(execCtx.waitUntil);
@@ -560,9 +561,9 @@ describe('cache purge after promote (AECI-105)', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(PURGE_URL);
+    expect(url).toBe(CF_PURGE_URL);
     expect(init.method).toBe('POST');
-    expect((init.headers as Record<string, string>).authorization).toBe('Bearer purge-secret');
+    expect((init.headers as Record<string, string>).authorization).toBe('Bearer cf-token');
 
     const sent = JSON.parse(init.body as string) as { tags: string[] };
     expect(new Set(sent.tags)).toEqual(
@@ -581,10 +582,12 @@ describe('cache purge after promote (AECI-105)', () => {
     expect(sent.tags.some((t) => t.startsWith('route:'))).toBe(false);
   });
 
-  it('does not purge when the WEB binding is absent (graceful no-op)', async () => {
+  it('does not purge when CF credentials are absent (graceful no-op)', async () => {
     const fake = makeFake();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
     const execCtx = fakeExecutionContext();
-    // `baseEnv` has no WEB / ADMIN_PURGE_TOKEN.
+    // `baseEnv` has no CF_PURGE_API_TOKEN / CF_ZONE_ID.
     const res = await buildApp(fake).request(
       '/api/promote',
       post({ product: { ref: 'p1', name: 'Revit' } }),
@@ -593,11 +596,14 @@ describe('cache purge after promote (AECI-105)', () => {
     );
     expect(res.status).toBe(200);
     expect(execCtx.waitUntil).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('still returns 200 when the purge call fails (never fails the promote)', async () => {
     const fake = makeFake();
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{"error":"x"}', { status: 502 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response('{"errors":[{"message":"x"}]}', { status: 502 }));
 
     const { res } = await promoteWithPurge(
       fake,
@@ -611,7 +617,7 @@ describe('cache purge after promote (AECI-105)', () => {
 
   it('still returns 200 when the purge fetch throws', async () => {
     const fake = makeFake();
-    const fetchMock = vi.fn().mockRejectedValue(new Error('binding unreachable'));
+    const fetchMock = vi.fn().mockRejectedValue(new Error('cf unreachable'));
 
     const { res } = await promoteWithPurge(
       fake,

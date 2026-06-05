@@ -35,6 +35,10 @@
       "types": "./src/audit-log.ts",
       "default": "./src/audit-log.ts"
     },
+    "./cache-purge": {
+      "types": "./src/cache-purge.ts",
+      "default": "./src/cache-purge.ts"
+    },
     "./datadog": {
       "types": "./src/datadog.ts",
       "default": "./src/datadog.ts"
