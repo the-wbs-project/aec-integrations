@@ -275,6 +275,7 @@ Lint: 🟡 review-only.
 - **No project-level wrapper components** around brain primitives. Compose with Tailwind in the consuming template. Reference: `apps/web/src/app/preview/vendor-detail/vendor-detail.ts:2-4`, `apps/web/src/app/demo/spartan-demo.ts`.
 - No `@spartan-ng/helm` codegen (per `docs/STAGE_1_SPEC.md` §16 Phase 1).
 - Angular CDK is fine where Spartan doesn't cover (overlays, drag-drop, virtual scroll).
+- **New interactive/form-control patterns → Angular Aria (proposed).** For _new_ selects, comboboxes, listboxes, radio groups, accordions, trees, grids, menus, toolbars, and tabs, Angular Aria (`@angular/aria`, stable in v22) is the proposed default — it's first-party and binds to Signal Forms (§13) via `[formField]` out of the box. Spartan stays for the overlay primitives Aria lacks (Popover, Dialog); CDK remains the shared overlay/positioning foundation under both. Style Aria like brain primitives (Tailwind utilities targeting `aria-*` attributes, bound to tokens, both themes). Pending sign-off — see `docs/adr/0010-angular-aria-alongside-spartan.md`.
 
 Lint: 🟡 review-only.
 
