@@ -94,11 +94,7 @@
       "observability": { "enabled": true },
       "routes": [
         {
-          "pattern": "aecintegrations.com",
-          "custom_domain": true,
-        },
-        {
-          "pattern": "www.aecintegrations.com",
+          "pattern": "demo.aecintegrations.com",
           "custom_domain": true,
         },
       ],
