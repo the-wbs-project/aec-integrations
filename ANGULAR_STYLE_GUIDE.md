@@ -96,7 +96,7 @@ Lint: ✅ `@angular-eslint/template/prefer-control-flow`, `@angular-eslint/templ
 - **No globals at template render.** `new Date()` and friends mean "server time on SSR, client time after hydration" — they cause hydration mismatches. Pass values in as inputs, freeze in a signal at component init, or compute server-side. Lint: 🟡 review-only.
 - **No `$any()` template escapes.** If a template needs `$any()`, the underlying type is wrong — fix the type. Lint: ✅ `@angular-eslint/template/no-any`.
 - **Keep heavy method calls out of templates** where you can — push to `computed()` or a pure pipe so change detection isn't re-running the function every cycle. Lint: 🟡 review-only (`@angular-eslint/template/no-call-expression` conflicts with the signal-invocation idiom `mySignal()` and would be perpetual noise; intent is enforced by review, not lint).
-- **No template-driven forms.** Reactive forms only (`FormGroup` / `FormControl` / `FormBuilder`). Lint: 🟡 review-only.
+- **No template-driven forms.** Use Signal Forms (`@angular/forms/signals`) — see §13. No `[(ngModel)]` in a form context. Lint: 🟡 review-only.
 
 ---
 
@@ -156,11 +156,62 @@ Lint: ✅ `@angular-eslint/prefer-signal-model`, `@angular-eslint/prefer-output-
 
 ---
 
-## 13. Forms
+## 13. Forms — Signal Forms
 
-- Reactive forms only (`@angular/forms` → `FormGroup`, `FormControl`, `FormBuilder`).
-- No template-driven (`[(ngModel)]` in a form context).
-- Validation: synchronous validators in the form definition; cross-field validation as a group-level validator; async validators only for genuinely async checks (uniqueness against the API).
+**Signal Forms (`@angular/forms/signals`) is the standard for all new forms** (ADR `docs/adr/0009-signal-forms.md`). No Reactive Forms (`FormGroup`/`FormControl`/`FormBuilder`), no template-driven (`[(ngModel)]`). It's signal-native and zoneless-friendly; the generic "prefer Reactive forms" guidance predates Signal Forms stabilizing and does not apply here.
+
+Worked example end-to-end: `apps/web/src/app/requests/request-form.ts` + `request-form.html` (AECI-128).
+
+**Shape.** A `signal()` model → `form(model, schema)` → bind controls with `[formField]` → submit with `submit()`:
+
+```ts
+private readonly model = signal({ email: '', body: '' });
+protected readonly form = form(this.model, (p) => {
+  /* validators go here */
+});
+// template: <input [formField]="form.email" />  …  <textarea [formField]="form.body">
+```
+
+Field state is signals: `form.email().value()`, `.valid()`, `.touched()`, `.dirty()`, `.pending()`, `.errors()`, `.getError(kind)`. The form root aggregates: `form().invalid()`, `form().pending()`, `form().submitting()`.
+
+**Validation is the shared Zod schema.** Reuse the `@aeci/shared` Zod schema that the API validates with, so client and server rules can't drift — Zod is the single source of validation truth.
+
+- **Default — `validateStandardSchema(p, MySchema)`** applies a whole schema in one call. This is what `request-form.ts` uses.
+- **v22.0.0 constraint:** `validateStandardSchema` **cannot be combined with `validateHttp()` on the same form** — both create async-validation resources and Angular throws **NG0992** ("cannot create a resource inside the params of another resource"). _Only_ when a form also needs a server check, drop `validateStandardSchema` and reuse the schema **field-by-field** with sync `validate()` instead:
+
+```ts
+validate(p.email, ({ value }) => {
+  const r = MySchema.shape.email.safeParse(value());
+  return r.success ? null : { kind: 'standardSchema', message: r.error.issues[0]?.message };
+});
+```
+
+  Equivalent for flat schemas; revisit `validateStandardSchema` if a later `@angular/forms` removes the collision. See ADR 0009.
+- Built-in validators are available too: `required`, `email`, `min`/`max`, `minLength`/`maxLength`, `pattern`, `minDate`/`maxDate`, plus `validate`/`validateTree` for custom and cross-field rules.
+
+**Async / server-side checks → `validateHttp()`.** For uniqueness/availability against the API, attach `validateHttp(p.field, { request, onSuccess, onError })`; it runs only after sync validation passes, exposes `.pending()`, and cancels stale requests. Mind the NG0992 constraint above — a form using `validateHttp` validates its other fields with field-by-field `validate()`, not `validateStandardSchema`. Surface a failed or un-resolvable check as a **non-blocking** notice, never a `ValidationError` — an error marks the field invalid and disables submit. (The AECI-128 form defers its duplicate check to the Phase 6 moderation pipeline, so it ships without a `validateHttp` example.)
+
+**Commit timing → `debounce()`.** `debounce(p.field, 'blur')` defers the model commit until the field blurs (touch/submit flushes it). Use a duration (`debounce(p.field, 300)`) to hold per-keystroke updates; use `validateHttp({ debounce })` to throttle only the async call.
+
+**Dates.** `minDate`/`maxDate` require a **`Date`-typed** field. A native `<input type="date">` binds a `YYYY-MM-DD` **string**, so it won't satisfy `minDate`/`maxDate` directly — type the model field as `Date` (or convert) when using them:
+
+```ts
+// model: { incidentDate: Date }
+minDate(p.incidentDate, new Date('2000-01-01'));
+maxDate(p.incidentDate, today);   // pass `today` in; don't call new Date() at render (§16)
+```
+
+**i18n — Zod = logic, `$localize` = copy.** The shared Zod schemas are framework-agnostic and can't hold `$localize` strings, so **never render `error.message`** from a schema error. Show localized copy in the template, keyed off field validity / error kind:
+
+```html
+@if (form.email().touched() && form.email().getError('standardSchema')) {
+  <p role="alert" i18n="@@requests.email.invalid">Enter a valid email address.</p>
+}
+```
+
+**Accessibility.** Associate `<label for>` with the control `id`; set `[attr.aria-invalid]` when touched+invalid; point `aria-describedby` at the error element; give error text `role="alert"`. Error text uses `text-(--text-primary)` (AA-contrast), not color alone. Reference: `request-form.html`.
+
+**SSR.** Forms render visitor-neutral and empty on the server; any `validateHttp` check skips its request for blank/invalid values so no HTTP fires during SSR. Submission (`HttpClient.post`) runs only on user action, post-hydration.
 
 Lint: 🟡 review-only.
 
@@ -323,7 +374,7 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 | `ngStyle` ban (use `[style.X]`) | §8 |
 | Async pipe for observables | §8 |
 | No browser globals at template render (`new Date()`) | §8, §16 |
-| Reactive forms only | §13 |
+| Signal Forms; no Reactive/template-driven forms | §13 |
 | SSR-safety patterns (`isPlatformBrowser`, `afterNextRender`, dynamic `import()`) | §16 |
 | Lazy-loaded feature routes | §18 |
 | Spartan brain composition without wrappers | §19 |

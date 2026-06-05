@@ -6,9 +6,9 @@
  *      Asserts the global 404 shell renders (AECI-62), the response is a real
  *      HTTP 404 (not the pinned-404 trap — see Stage 1 Spec §9.1b), the cache
  *      headers honour `NOT_FOUND_TTL`, and `Cache-Tag: route:404` is set.
- *   2. Placeholder CTAs (`/products/:slug/claim`, `/products/:slug/correction`)
- *      render the "Coming soon — Phase 6" panel with `<meta name="robots"
- *      content="noindex">`.
+ *   2. Claim/correction request forms (`/products/:slug/claim`,
+ *      `/products/:slug/correction`, AECI-128) render the `RequestForm` with
+ *      `<meta name="robots" content="noindex">`.
  *
  * The success-path coverage (hero / breadcrumbs / Cache-Tag with vendor +
  * integration tags / second-visit cache HIT) lives in the Phase 2.18 crawler
@@ -89,15 +89,12 @@ test.describe('product detail — 404 path', () => {
   });
 });
 
-test.describe('product detail — placeholder CTA routes (Phase 6 stubs)', () => {
-  test('GET /products/<slug>/claim renders the Coming-Soon panel', async ({ page }) => {
+test.describe('product detail — claim/correction request forms (AECI-128)', () => {
+  test('GET /products/<slug>/claim renders the claim form', async ({ page }) => {
     await page.goto('/products/anything/claim');
-    await expect(page.getByText('Claim this listing', { exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Coming soon (Phase 6).' })).toBeVisible();
-    await expect(page.getByRole('link', { name: '← Back to product' })).toHaveAttribute(
-      'href',
-      /\/products\/anything$/,
-    );
+    await expect(page.getByRole('heading', { name: 'Claim this listing' })).toBeVisible();
+    await expect(page.locator('#claim-email')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send claim' })).toBeVisible();
   });
 
   test('GET /products/<slug>/claim ships noindex robots meta', async ({ request }) => {
@@ -105,10 +102,11 @@ test.describe('product detail — placeholder CTA routes (Phase 6 stubs)', () =>
     expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
   });
 
-  test('GET /products/<slug>/correction renders the Coming-Soon panel', async ({ page }) => {
+  test('GET /products/<slug>/correction renders the correction form', async ({ page }) => {
     await page.goto('/products/anything/correction');
-    await expect(page.getByText('Suggest a correction', { exact: true })).toBeVisible();
-    await expect(page.getByRole('heading', { name: 'Coming soon (Phase 6).' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Suggest a correction' })).toBeVisible();
+    await expect(page.locator('#correction-body')).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Send correction' })).toBeVisible();
   });
 
   test('GET /products/<slug>/correction ships noindex robots meta', async ({ request }) => {

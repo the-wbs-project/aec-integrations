@@ -574,41 +574,32 @@ Errors:
 
 ### 6.7 Vendor requests
 
+Source of truth: `packages/shared/src/api/requests.ts` (the Zod schemas the API validates with, shared with the Signal Forms client — ADR 0009). Implemented in AECI-128 (`apps/api/src/routes/requests.ts`). The request target is addressed by `(target_type, slug)` from the route and resolved to `vendor_requests.target_id` server-side — the client never holds a UUID. `target_type` is `product | vendor` only (no `integration`; Stage 1 claim/correction covers products + vendors). Rows are inserted `status:'open'`, `domain_match:'pending'`, `linear_issue_id:null` for the Phase 6 moderation pipeline (n8n/Linear/admin, including duplicate detection) to pick up.
+
 #### `POST /api/requests/claim`
 
 ```typescript
-export const ClaimRequestSchema = z.object({
-  vendor_id: z.string().uuid(),
-  submitter_name: z.string().min(1).max(200),
-  submitter_email: z.string().email(),
-  submitter_role: z.string().min(1).max(100),
-  phone: z.string().max(50).optional(),
-  notes: z.string().max(2000).optional(),
+export const ClaimRequestSchema = ClaimFormSchema.extend({
+  target_type: z.enum(['product', 'vendor']),
+  slug: z.string().min(1),
 });
-
-export type ClaimRequestResponse = {
-  request_id: string;
-  message: string;
-};
+// ClaimFormSchema = { submitter_name (1–200), submitter_email (email, ≤200),
+//                     submitter_role (1–100), body (20–2000) }
 ```
 
 #### `POST /api/requests/correction`
 
 ```typescript
-export const CorrectionRequestSchema = z.object({
-  entity_type: z.enum(['product', 'vendor', 'integration']),
-  entity_id: z.string().uuid(),
-  what_is_wrong: z.string().min(10).max(2000),
-  what_should_it_say: z.string().min(10).max(2000),
-  submitter_email: z.string().email(),
-  source: z.string().max(500).optional(),
+export const CorrectionRequestSchema = CorrectionFormSchema.extend({
+  target_type: z.enum(['product', 'vendor']),
+  slug: z.string().min(1),
 });
-
-export type CorrectionRequestResponse = {
-  request_id: string;
-  message: string;
-};
+// CorrectionFormSchema = { body (20–2000),
+//                          source_url ('' or a valid URL ≤500),
+//                          submitter_email (email, ≤200) }
 ```
+
+Both return `RequestSubmitResponse` (`{ request_id: string; message: string }`) with HTTP `201`. Errors: `VALIDATION_FAILED` (400), `NOT_FOUND` (404 — `(target_type, slug)` did not resolve), `MALFORMED_REQUEST` (400 — body is not JSON).
 
 ### 6.8 Account
 

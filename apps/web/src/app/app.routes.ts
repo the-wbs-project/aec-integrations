@@ -26,21 +26,22 @@ export const routes: Routes = [
     pathMatch: 'full',
     loadComponent: () => import('./products/products-index').then((m) => m.ProductsIndex),
   },
-  // AECI-57 — Phase 2.11 product detail page + Phase 6 placeholder stubs.
-  // The detail route resolves data SSR-side via the service binding (see
-  // `productDetailResolver`); the placeholders are noindex inline panels
-  // standing in for the full Phase 6 forms. AECI-108 collapsed the four
-  // claim/correction stubs into one `PlaceholderPage`, keyed by route `data`.
+  // AECI-57 — Phase 2.11 product detail page. The detail route resolves data
+  // SSR-side via the service binding (see `productDetailResolver`).
+  // AECI-128 — claim/correction submission forms. One `RequestForm` component
+  // renders all four routes (products/vendors × claim/correction), keyed by the
+  // static route `data` ({ entity, kind }); it addresses its target by
+  // (entity, slug) and the API resolves the slug, so it works whether landed on
+  // (SSR) or reached via a detail-page CTA (client-side `[routerLink]`).
+  // Replaced the noindex `PlaceholderPage` stubs (formerly AECI-108).
   {
     path: 'products/:slug/claim',
-    loadComponent: () =>
-      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
     data: { entity: 'product', kind: 'claim' },
   },
   {
     path: 'products/:slug/correction',
-    loadComponent: () =>
-      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
     data: { entity: 'product', kind: 'correction' },
   },
   {
@@ -48,9 +49,9 @@ export const routes: Routes = [
     loadComponent: () => import('./products/product-detail').then((m) => m.ProductDetailPage),
     resolve: { product: productDetailResolver },
   },
-  // AECI-59 — Phase 2.13 vendor index, detail, and Phase 6 placeholder stubs.
-  // Same shape as the product block above: resolver runs SSR-side, hydration
-  // reads from TransferState; placeholders are noindex inline panels.
+  // AECI-59 — Phase 2.13 vendor index + detail. Resolver runs SSR-side,
+  // hydration reads from TransferState. Claim/correction forms (AECI-128) use
+  // the shared `RequestForm` — see the product block above.
   {
     path: 'vendors',
     pathMatch: 'full',
@@ -58,14 +59,12 @@ export const routes: Routes = [
   },
   {
     path: 'vendors/:slug/claim',
-    loadComponent: () =>
-      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
     data: { entity: 'vendor', kind: 'claim' },
   },
   {
     path: 'vendors/:slug/correction',
-    loadComponent: () =>
-      import('./shared/placeholder-page/placeholder-page').then((m) => m.PlaceholderPage),
+    loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
     data: { entity: 'vendor', kind: 'correction' },
   },
   {

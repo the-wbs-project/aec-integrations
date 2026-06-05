@@ -14,6 +14,7 @@ import {
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
+import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
@@ -86,6 +87,13 @@ phase28.get(
 );
 
 phase28.get('/api/taxonomy', createTaxonomyHandler());
+
+// Vendor requests (AECI-128) — claim & correction form submissions. Public (no
+// auth until Phase 5); insert into `vendor_requests` with an audit row. The
+// Phase 6 moderation pipeline (n8n/Linear/admin, including duplicate detection)
+// is out of scope — see `routes/requests.ts`.
+phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
+phase28.post('/api/requests/claim', createClaimSubmitHandler());
 
 // Review-app push endpoint (promotion). Bearer-auth middleware runs first so an
 // unauthenticated request never reaches the DB; both it and the handler throw
