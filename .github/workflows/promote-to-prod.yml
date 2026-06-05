@@ -409,6 +409,16 @@ jobs:
       # generate the Prisma client explicitly before bundling.
       - run: pnpm --filter @aeci/api exec prisma generate
 
+      # Build the SSR Worker bundle before the SSR `wrangler deploy` below.
+      # The SSR Worker's `main` is a PRE-BUILT artifact (apps/web/dist/server/
+      # server.mjs, produced by `ng build`); `wrangler deploy` does NOT generate
+      # it. The staging path (deploy.yml) builds this in a separate `build-web`
+      # job and ships the artifact via download-artifact, but this workflow has
+      # no such job, so build inline here — otherwise wrangler fails with
+      # "dist/server/server.mjs was not found". The API Worker needs no build
+      # (its `main` is src/index.ts, bundled on the fly).
+      - run: pnpm --filter @aeci/web build
+
       # Single timestamp shared by both Worker deploys so /api/version reports
       # a coherent DEPLOYED_AT for the whole release.
       - name: Compute deploy timestamp
