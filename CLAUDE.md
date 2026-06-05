@@ -54,7 +54,7 @@ If your work touches a topic governed by one of these documents, that document i
 ## Stack at a glance
 
 - **Frontend:** Angular 21+ with SSR, zoneless change detection
-- **Styling:** Tailwind CSS v4 + Spartan UI (brain primitives) + Angular CDK
+- **Styling:** Tailwind CSS v4 + Spartan UI (brain primitives) + Angular CDK. New interactive/form-control patterns (select, combobox, listbox, radio, accordion, tabs, …) proposed to use Angular Aria (`@angular/aria`, stable in v22); Spartan stays for overlay primitives (Popover, Dialog). See `docs/adr/0010-angular-aria-alongside-spartan.md` (Proposed).
 - **Hosting:** Cloudflare Workers (SSR Worker + private API Worker via service binding). SSR Worker runs with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills.
 - **Database:** Supabase (PostgreSQL) + Prisma with `@prisma/extension-accelerate` (HTTPS-based; no TCP pooler required for DB access from Workers — Accelerate is independent of `nodejs_compat`)
 - **Search:** Algolia + InstantSearch Angular

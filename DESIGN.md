@@ -272,6 +272,8 @@ The system is flat by default. Depth is conveyed through color (Bone callouts, s
 
 Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.
 
+> **Behavior providers (proposed — ADR 0010).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the proposed provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically (Tailwind utilities targeting the `aria-*` attributes the directives toggle, both themes). The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
+
 ### Buttons
 
 Spartan `BrnButton` directive provides the headless behavior; Tailwind utility classes bind to tokens.
@@ -294,7 +296,7 @@ Used for vendor profiles, integration cards, search result rows, and content mod
 
 ### Inputs / Fields
 
-Spartan brain provides form primitives; styling binds to tokens.
+Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, combobox, radio) use Angular Aria per the proposed provider note above (ADR 0010). Styling binds to tokens.
 
 - **Style:** 1px solid `border-default`, `surface-base` background, `rounded.md` corner. Padding `spacing.3 spacing.4` (12px / 16px). Body typography role.
 - **Focus:** border shifts to 1px solid `accent-primary`, paired with the focus-ring elevation. No glow halo, no underline animation — clean border swap.
