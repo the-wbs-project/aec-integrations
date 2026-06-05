@@ -87,280 +87,303 @@
   <!-- ======================================================== -->
   <!-- Tabs                                                       -->
   <!-- ======================================================== -->
-  <div [brnTabs]="activeTab()" (brnTabsChange)="onTabChange($event)" class="mt-8">
-    <div brnTabsList class="flex gap-8 border-b border-(--border-default)" role="tablist">
-      <button
-        [brnTabsTrigger]="'overview'"
-        type="button"
-        [class]="tabTriggerClass('overview')"
+  <div ngTabs class="mt-8">
+    <ul
+      ngTabList
+      [(selectedTab)]="selectedTab"
+      class="flex list-none gap-8 border-b border-(--border-default) p-0"
+    >
+      <li
+        ngTab
+        value="overview"
+        class="-mb-px cursor-pointer border-b-2 border-transparent px-1 pb-3 text-sm font-medium tracking-wide text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary) aria-selected:border-(--accent-primary) aria-selected:text-(--text-primary)"
         i18n="@@preview.vendor-detail.tab.overview"
       >
         Overview
-      </button>
-      <button [brnTabsTrigger]="'products'" type="button" [class]="tabTriggerClass('products')">
+      </li>
+      <li
+        ngTab
+        value="products"
+        class="-mb-px cursor-pointer border-b-2 border-transparent px-1 pb-3 text-sm font-medium tracking-wide text-(--text-secondary) transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-(--accent-primary) aria-selected:border-(--accent-primary) aria-selected:text-(--text-primary)"
+      >
         <ng-container i18n="@@preview.vendor-detail.tab.products">Products</ng-container>
-        <span class="ml-1.5 tabular-nums text-(--text-tertiary)">{{ products.length }}</span>
-      </button>
-    </div>
+        <span class="ml-1.5 tabular-nums text-(--text-secondary)">{{ products.length }}</span>
+      </li>
+    </ul>
 
     <!-- ============================================================ -->
     <!-- Overview tab                                                  -->
     <!-- ============================================================ -->
-    @if (activeTab() === 'overview') {
-    <section role="tabpanel" class="grid grid-cols-1 gap-12 pt-10 lg:grid-cols-[1.6fr_1fr]">
-      <div class="space-y-5 text-(--text-primary)">
-        @for (paragraph of vendor.description; track $index) {
-        <p class="text-base leading-relaxed text-(--text-secondary)">{{ paragraph }}</p>
-        }
-      </div>
+    <section ngTabPanel value="overview" class="pt-10">
+      <ng-template ngTabContent>
+        <div class="grid grid-cols-1 gap-12 lg:grid-cols-[1.6fr_1fr]">
+          <div class="space-y-5 text-(--text-primary)">
+            @for (paragraph of vendor.description; track $index) {
+            <p class="text-base leading-relaxed text-(--text-secondary)">{{ paragraph }}</p>
+            }
+          </div>
 
-      <div class="space-y-6">
-        <!-- Company card -->
-        <div
-          class="rounded-md border border-(--border-default) bg-(--surface-base) p-5"
-          aria-labelledby="company-card-title"
-        >
-          <h2
-            id="company-card-title"
-            class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
-            i18n="@@preview.vendor-detail.company-card.title"
-          >
-            Company
-          </h2>
-          <dl class="mt-4 space-y-3 text-sm">
-            <div class="flex justify-between gap-4">
-              <dt class="text-(--text-tertiary)" i18n="@@preview.vendor-detail.company-card.hq">
-                HQ
-              </dt>
-              <dd class="text-right text-(--text-primary)">{{ vendor.hq }}</dd>
-            </div>
-            <div class="flex justify-between gap-4">
-              <dt
-                class="text-(--text-tertiary)"
-                i18n="@@preview.vendor-detail.company-card.founded"
+          <div class="space-y-6">
+            <!-- Company card -->
+            <div
+              class="rounded-md border border-(--border-default) bg-(--surface-base) p-5"
+              aria-labelledby="company-card-title"
+            >
+              <h2
+                id="company-card-title"
+                class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+                i18n="@@preview.vendor-detail.company-card.title"
               >
-                Founded
-              </dt>
-              <dd class="text-right tabular-nums text-(--text-primary)">{{ vendor.founded }}</dd>
+                Company
+              </h2>
+              <dl class="mt-4 space-y-3 text-sm">
+                <div class="flex justify-between gap-4">
+                  <dt class="text-(--text-tertiary)" i18n="@@preview.vendor-detail.company-card.hq">
+                    HQ
+                  </dt>
+                  <dd class="text-right text-(--text-primary)">{{ vendor.hq }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt
+                    class="text-(--text-tertiary)"
+                    i18n="@@preview.vendor-detail.company-card.founded"
+                  >
+                    Founded
+                  </dt>
+                  <dd class="text-right tabular-nums text-(--text-primary)">
+                    {{ vendor.founded }}
+                  </dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt
+                    class="text-(--text-tertiary)"
+                    i18n="@@preview.vendor-detail.company-card.ownership"
+                  >
+                    Ownership
+                  </dt>
+                  <dd class="text-right text-(--text-primary)">{{ vendor.ownership }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt
+                    class="text-(--text-tertiary)"
+                    i18n="@@preview.vendor-detail.company-card.employees"
+                  >
+                    Employees
+                  </dt>
+                  <dd class="text-right tabular-nums text-(--text-primary)">
+                    {{ vendor.employees }}
+                  </dd>
+                </div>
+              </dl>
             </div>
-            <div class="flex justify-between gap-4">
-              <dt
-                class="text-(--text-tertiary)"
-                i18n="@@preview.vendor-detail.company-card.ownership"
-              >
-                Ownership
-              </dt>
-              <dd class="text-right text-(--text-primary)">{{ vendor.ownership }}</dd>
-            </div>
-            <div class="flex justify-between gap-4">
-              <dt
-                class="text-(--text-tertiary)"
-                i18n="@@preview.vendor-detail.company-card.employees"
-              >
-                Employees
-              </dt>
-              <dd class="text-right tabular-nums text-(--text-primary)">{{ vendor.employees }}</dd>
-            </div>
-          </dl>
-        </div>
 
-        <!-- Customer support card -->
-        <div
-          class="rounded-md border border-(--border-default) bg-(--surface-base) p-5"
-          aria-labelledby="support-card-title"
-        >
-          <h2
-            id="support-card-title"
-            class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
-            i18n="@@preview.vendor-detail.support-card.title"
-          >
-            Customer support
-          </h2>
-          <dl class="mt-4 space-y-3 text-sm">
-            <div class="flex justify-between gap-4">
-              <dt class="text-(--text-tertiary)" i18n="@@preview.vendor-detail.support-card.hours">
-                Hours
-              </dt>
-              <dd class="text-right text-(--text-primary)">{{ vendor.support.hours }}</dd>
-            </div>
-            <div class="flex justify-between gap-4">
-              <dt
-                class="text-(--text-tertiary)"
-                i18n="@@preview.vendor-detail.support-card.channels"
+            <!-- Customer support card -->
+            <div
+              class="rounded-md border border-(--border-default) bg-(--surface-base) p-5"
+              aria-labelledby="support-card-title"
+            >
+              <h2
+                id="support-card-title"
+                class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+                i18n="@@preview.vendor-detail.support-card.title"
               >
-                Channels
-              </dt>
-              <dd class="text-right text-(--text-primary)">
-                {{ vendor.support.channels.join(', ') }}
-              </dd>
+                Customer support
+              </h2>
+              <dl class="mt-4 space-y-3 text-sm">
+                <div class="flex justify-between gap-4">
+                  <dt
+                    class="text-(--text-tertiary)"
+                    i18n="@@preview.vendor-detail.support-card.hours"
+                  >
+                    Hours
+                  </dt>
+                  <dd class="text-right text-(--text-primary)">{{ vendor.support.hours }}</dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt
+                    class="text-(--text-tertiary)"
+                    i18n="@@preview.vendor-detail.support-card.channels"
+                  >
+                    Channels
+                  </dt>
+                  <dd class="text-right text-(--text-primary)">
+                    {{ vendor.support.channels.join(', ') }}
+                  </dd>
+                </div>
+                <div class="flex justify-between gap-4">
+                  <dt
+                    class="text-(--text-tertiary)"
+                    i18n="@@preview.vendor-detail.support-card.sla"
+                  >
+                    SLA
+                  </dt>
+                  <dd class="text-right text-(--text-primary)">{{ vendor.support.sla }}</dd>
+                </div>
+              </dl>
             </div>
-            <div class="flex justify-between gap-4">
-              <dt class="text-(--text-tertiary)" i18n="@@preview.vendor-detail.support-card.sla">
-                SLA
-              </dt>
-              <dd class="text-right text-(--text-primary)">{{ vendor.support.sla }}</dd>
-            </div>
-          </dl>
+          </div>
         </div>
-      </div>
+      </ng-template>
     </section>
-
-    }
 
     <!-- ============================================================ -->
     <!-- Products tab                                                  -->
     <!-- ============================================================ -->
-    @if (activeTab() === 'products') {
-    <section role="tabpanel" class="pt-10">
-      <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
-        @for (product of products; track product.id) {
-        <div
-          class="relative grid grid-cols-[1fr_auto] gap-5 rounded-md border border-(--border-default) bg-(--surface-base) p-5 transition-colors hover:bg-(--surface-raised)"
-        >
-          <!-- Info popover, top-right -->
-          <button
-            brnPopoverTrigger
-            [brnPopoverTriggerFor]="rankingsPop"
-            type="button"
-            class="absolute right-3 top-3 inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-(--text-tertiary) transition-colors hover:bg-(--surface-sunken) hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            aria-label="View category rankings for {{ product.name }}"
+    <section ngTabPanel value="products" class="pt-10">
+      <ng-template ngTabContent>
+        <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
+          @for (product of products; track product.id) {
+          <div
+            class="relative grid grid-cols-[1fr_auto] gap-5 rounded-md border border-(--border-default) bg-(--surface-base) p-5 transition-colors hover:bg-(--surface-raised)"
           >
-            <span aria-hidden="true" class="text-sm font-medium tabular-nums">i</span>
-          </button>
-
-          <brn-popover #rankingsPop="brnPopover" class="contents" align="end" [sideOffset]="6">
-            <ng-template brnPopoverContent>
-              <div
-                class="w-[min(90vw,20rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
-              >
-                <h3
-                  class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
-                  i18n="@@preview.vendor-detail.product.rankings-title"
-                >
-                  Category rankings
-                </h3>
-                <ul class="mt-3 divide-y divide-(--border-default)">
-                  @for (ranking of sortedRankings(product); track ranking.category) {
-                  <li class="flex items-center justify-between gap-3 py-2 text-sm">
-                    <span class="text-(--text-primary)">{{ ranking.category }}</span>
-                    @if (ranking.rank !== null) {
-                    <span class="tabular-nums text-(--text-secondary)">
-                      #{{ ranking.rank }}
-                      <span class="text-(--text-tertiary)">&nbsp;/&nbsp;{{ ranking.outOf }}</span>
-                    </span>
-                    } @else {
-                    <span
-                      class="rounded-full border border-(--border-default) bg-(--surface-sunken) px-2 py-0.5 text-xs text-(--text-tertiary)"
-                      i18n="@@preview.vendor-detail.product.unranked"
-                      >Unranked</span
-                    >
-                    }
-                  </li>
-                  }
-                </ul>
-              </div>
-            </ng-template>
-          </brn-popover>
-
-          <!-- Left column: identity -->
-          <div class="min-w-0 space-y-2 pr-6">
-            <div class="flex items-center gap-3">
-              <span
-                class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-(--border-default) bg-(--surface-raised) text-base font-semibold tabular-nums text-(--text-primary)"
-                aria-hidden="true"
-              >
-                {{ product.name.charAt(0) }}
-              </span>
-              <h3 class="text-base font-semibold text-(--text-primary)">{{ product.name }}</h3>
-            </div>
-            <p class="text-sm leading-relaxed text-(--text-secondary)">{{ product.description }}</p>
-          </div>
-
-          <!-- Right column: review score hero -->
-          <div class="flex items-start">
+            <!-- Info popover, top-right -->
             <button
               brnPopoverTrigger
-              [brnPopoverTriggerFor]="scorePop"
+              [brnPopoverTriggerFor]="rankingsPop"
               type="button"
-              class="group cursor-pointer rounded-md px-2 py-1 text-right transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              aria-label="View review distribution for {{ product.name }}"
+              class="absolute right-3 top-3 inline-flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-(--text-tertiary) transition-colors hover:bg-(--surface-sunken) hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              aria-label="View category rankings for {{ product.name }}"
             >
-              <span
-                class="block font-display text-3xl font-semibold tabular-nums text-(--text-primary)"
-              >
-                {{ product.reviewScore.toFixed(1) }}
-              </span>
-              <span
-                class="mt-1 flex justify-end gap-0.5 text-(--accent-primary)"
-                aria-hidden="true"
-              >
-                @for (i of stars; track i) {
-                <span [class]="starClass(i, product.reviewScore)">★</span>
-                }
-              </span>
-              <span class="mt-1 block text-xs tabular-nums text-(--text-tertiary)">
-                {{ product.reviewCount.toLocaleString() }}
-                <ng-container i18n="@@preview.vendor-detail.product.reviews">reviews</ng-container>
-              </span>
+              <span aria-hidden="true" class="text-sm font-medium tabular-nums">i</span>
             </button>
 
-            <brn-popover #scorePop="brnPopover" class="contents" align="end" [sideOffset]="6">
+            <brn-popover #rankingsPop="brnPopover" class="contents" align="end" [sideOffset]="6">
               <ng-template brnPopoverContent>
                 <div
-                  class="w-[min(90vw,22rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
+                  class="w-[min(90vw,20rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
                 >
-                  <div class="flex items-baseline justify-between gap-4">
-                    <h3
-                      class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
-                      i18n="@@preview.vendor-detail.product.distribution-title"
-                    >
-                      Review distribution
-                    </h3>
-                    <span class="tabular-nums text-xs text-(--text-tertiary)">
-                      {{ product.reviewCount.toLocaleString() }}
-                      <ng-container i18n="@@preview.vendor-detail.product.total"
-                        >total</ng-container
-                      >
-                    </span>
-                  </div>
-
-                  <ul class="mt-3 space-y-1.5">
-                    @for (bucket of sortedDistribution(product); track bucket.stars) {
-                    <li class="flex items-center gap-3 text-xs">
-                      <span class="w-3 shrink-0 text-right tabular-nums text-(--text-secondary)"
-                        >{{ bucket.stars }}</span
-                      >
-                      <span aria-hidden="true" class="text-(--accent-primary)">★</span>
-                      <span
-                        class="relative h-2 flex-1 overflow-hidden rounded-full bg-(--surface-sunken)"
-                        role="presentation"
-                      >
-                        <span
-                          class="absolute inset-y-0 left-0 bg-(--accent-primary)"
-                          [style.width.%]="bucketPercent(product, bucket)"
-                        ></span>
+                  <h3
+                    class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+                    i18n="@@preview.vendor-detail.product.rankings-title"
+                  >
+                    Category rankings
+                  </h3>
+                  <ul class="mt-3 divide-y divide-(--border-default)">
+                    @for (ranking of sortedRankings(product); track ranking.category) {
+                    <li class="flex items-center justify-between gap-3 py-2 text-sm">
+                      <span class="text-(--text-primary)">{{ ranking.category }}</span>
+                      @if (ranking.rank !== null) {
+                      <span class="tabular-nums text-(--text-secondary)">
+                        #{{ ranking.rank }}
+                        <span class="text-(--text-tertiary)">&nbsp;/&nbsp;{{ ranking.outOf }}</span>
                       </span>
-                      <span class="w-12 shrink-0 text-right tabular-nums text-(--text-secondary)"
-                        >{{ bucket.count.toLocaleString() }}</span
+                      } @else {
+                      <span
+                        class="rounded-full border border-(--border-default) bg-(--surface-sunken) px-2 py-0.5 text-xs text-(--text-tertiary)"
+                        i18n="@@preview.vendor-detail.product.unranked"
+                        >Unranked</span
                       >
+                      }
                     </li>
                     }
                   </ul>
-
-                  <p class="mt-4 text-xs text-(--text-tertiary)">
-                    <ng-container i18n="@@preview.vendor-detail.product.last-reviewed"
-                      >Last reviewed</ng-container
-                    >
-                    {{ ' ' + formatDate(product.lastReviewed) }}
-                  </p>
                 </div>
               </ng-template>
             </brn-popover>
+
+            <!-- Left column: identity -->
+            <div class="min-w-0 space-y-2 pr-6">
+              <div class="flex items-center gap-3">
+                <span
+                  class="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-(--border-default) bg-(--surface-raised) text-base font-semibold tabular-nums text-(--text-primary)"
+                  aria-hidden="true"
+                >
+                  {{ product.name.charAt(0) }}
+                </span>
+                <h3 class="text-base font-semibold text-(--text-primary)">{{ product.name }}</h3>
+              </div>
+              <p class="text-sm leading-relaxed text-(--text-secondary)">
+                {{ product.description }}
+              </p>
+            </div>
+
+            <!-- Right column: review score hero -->
+            <div class="flex items-start">
+              <button
+                brnPopoverTrigger
+                [brnPopoverTriggerFor]="scorePop"
+                type="button"
+                class="group cursor-pointer rounded-md px-2 py-1 text-right transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                aria-label="View review distribution for {{ product.name }}"
+              >
+                <span
+                  class="block font-display text-3xl font-semibold tabular-nums text-(--text-primary)"
+                >
+                  {{ product.reviewScore.toFixed(1) }}
+                </span>
+                <span
+                  class="mt-1 flex justify-end gap-0.5 text-(--accent-primary)"
+                  aria-hidden="true"
+                >
+                  @for (i of stars; track i) {
+                  <span [class]="starClass(i, product.reviewScore)">★</span>
+                  }
+                </span>
+                <span class="mt-1 block text-xs tabular-nums text-(--text-tertiary)">
+                  {{ product.reviewCount.toLocaleString() }}
+                  <ng-container i18n="@@preview.vendor-detail.product.reviews"
+                    >reviews</ng-container
+                  >
+                </span>
+              </button>
+
+              <brn-popover #scorePop="brnPopover" class="contents" align="end" [sideOffset]="6">
+                <ng-template brnPopoverContent>
+                  <div
+                    class="w-[min(90vw,22rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
+                  >
+                    <div class="flex items-baseline justify-between gap-4">
+                      <h3
+                        class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+                        i18n="@@preview.vendor-detail.product.distribution-title"
+                      >
+                        Review distribution
+                      </h3>
+                      <span class="tabular-nums text-xs text-(--text-tertiary)">
+                        {{ product.reviewCount.toLocaleString() }}
+                        <ng-container i18n="@@preview.vendor-detail.product.total"
+                          >total</ng-container
+                        >
+                      </span>
+                    </div>
+
+                    <ul class="mt-3 space-y-1.5">
+                      @for (bucket of sortedDistribution(product); track bucket.stars) {
+                      <li class="flex items-center gap-3 text-xs">
+                        <span class="w-3 shrink-0 text-right tabular-nums text-(--text-secondary)"
+                          >{{ bucket.stars }}</span
+                        >
+                        <span aria-hidden="true" class="text-(--accent-primary)">★</span>
+                        <span
+                          class="relative h-2 flex-1 overflow-hidden rounded-full bg-(--surface-sunken)"
+                          role="presentation"
+                        >
+                          <span
+                            class="absolute inset-y-0 left-0 bg-(--accent-primary)"
+                            [style.width.%]="bucketPercent(product, bucket)"
+                          ></span>
+                        </span>
+                        <span class="w-12 shrink-0 text-right tabular-nums text-(--text-secondary)"
+                          >{{ bucket.count.toLocaleString() }}</span
+                        >
+                      </li>
+                      }
+                    </ul>
+
+                    <p class="mt-4 text-xs text-(--text-tertiary)">
+                      <ng-container i18n="@@preview.vendor-detail.product.last-reviewed"
+                        >Last reviewed</ng-container
+                      >
+                      {{ ' ' + formatDate(product.lastReviewed) }}
+                    </p>
+                  </div>
+                </ng-template>
+              </brn-popover>
+            </div>
           </div>
+          }
         </div>
-        }
-      </div>
+      </ng-template>
     </section>
-    }
   </div>
 </article>
