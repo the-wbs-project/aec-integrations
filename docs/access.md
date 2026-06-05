@@ -9,7 +9,7 @@ How `staging.aecintegrations.com` and `*.aec-integrations.workers.dev` PR previe
 ## Scope
 
 - **Gated:** `staging.aecintegrations.com` and any preview Worker on `*.aec-integrations.workers.dev`.
-- **Not gated:** production (`aecintegrations.com`). Production is public by design.
+- **Not gated:** web production (`demo.aecintegrations.com`) and the landing site (`aecintegrations.com` + `www.`). All public by design.
 
 Access is a *network-level* gate in front of the non-prod hostnames. Once a user is past the Access challenge they still have to log into AECi itself with a staging-test Supabase account — Access is additional auth, not a replacement (per the AECI-71 spec note).
 
@@ -23,7 +23,7 @@ These were settled by AECI-75. Don't deviate without raising the issue first.
 - **Identity provider:** One-Time PIN (OTP) to email. No SSO required, no IdP dependency, no failure mode that takes both admins offline at once. Swap to Google OAuth later by adding a second IdP and flipping `allowed_idps` on the app — current setup keeps that door open.
 - **Allowlist policy** by explicit email, not domain. Adding someone is a one-line change; nobody gets through by accident from a `@thewbsproject.com` typo.
 - **Single service token** (`aeci-gh-actions`) for all GitHub Actions workflows that need to bypass Access. No per-workflow tokens.
-- **No Access on production.** Don't gate `aecintegrations.com`; that's the public site.
+- **No Access on production.** Don't gate `demo.aecintegrations.com` (web app) or the landing site (`aecintegrations.com` + `www.`); those are public.
 
 ---
 

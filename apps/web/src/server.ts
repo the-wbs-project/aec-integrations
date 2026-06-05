@@ -36,8 +36,8 @@ export type { Bindings } from './server-runtime';
 // where Angular baked it into the build manifest. That list covers:
 //   - `localhost`, `127.0.0.1`               (local dev)
 //   - `*.workers.dev`                        (`workers_dev: true` preview deploys)
-//   - `aecintegrations.com`                  (production custom domain — Phase 7)
-//   - `*.aecintegrations.com`                (future `www.` / `staging.`)
+//   - `aecintegrations.com`                  (landing apex; the web app uses demo.)
+//   - `*.aecintegrations.com`                (web prod `demo.`, plus `staging.`)
 // See AECI-42 for the cutover context. Keep this list and `wrangler.jsonc`
 // routes in sync.
 const angularApp = new AngularAppEngine();

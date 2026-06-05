@@ -6,10 +6,10 @@
  * for the SSR runtime (Node polyfills used by `@angular/ssr`); see
  * `CLAUDE.md` and `docs/CICD_PLAN.md` §4.1.
  *
- * The custom-domain route for production (`aecintegrations.com`) is declared
- * here but DNS has NOT been flipped yet — that is Phase 7 (AECI-?? cutover).
- * Until cutover, the route accepts the config; traffic still flows via
- * `*.workers.dev`. Preview deploys use `workers_dev` URLs per PR.
+ * Web production serves `demo.aecintegrations.com` ONLY (pre-launch). The apex
+ * (`aecintegrations.com`) and `www.` remain served by the landing Worker
+ * (`apps/landing`) — we are not promoting the app to `www` yet. Preview deploys
+ * use `workers_dev` URLs per PR; staging is `staging.aecintegrations.com`.
  *
  * The `services` bindings (`API`) call the private API Worker (`apps/api/`)
  * over Cloudflare's internal RPC fabric — the API has no public ingress.
@@ -92,13 +92,14 @@
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
       },
       "observability": { "enabled": true },
+      // Web prod serves demo.aecintegrations.com ONLY (pre-launch). The apex
+      // (aecintegrations.com) and www stay on the landing Worker (apps/landing)
+      // — we are not promoting the app to www yet. `custom_domain: true` makes
+      // wrangler reconcile the DNS record + cert on the aecintegrations.com zone
+      // on deploy; the next promote also detaches apex/www from this Worker.
       "routes": [
         {
-          "pattern": "aecintegrations.com",
-          "custom_domain": true,
-        },
-        {
-          "pattern": "www.aecintegrations.com",
+          "pattern": "demo.aecintegrations.com",
           "custom_domain": true,
         },
       ],
