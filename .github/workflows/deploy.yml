@@ -48,17 +48,29 @@
 #                                 docs/TESTING_STRATEGY.md §3.3 — coverage is
 #                                 generated and uploaded, never a merge gate.
 #
+# THE RULE (do not deploy if required secrets are missing): deploy-staging runs
+# `scripts/require-secrets.sh` before any deploy and `scripts/verify-worker-secrets.sh`
+# after, so staging is never half-provisioned. Recommended-but-optional secrets
+# only warn. See docs/environments.md §Secrets.
+#
 # Required repo secrets:
 #   CLOUDFLARE_API_TOKEN     — scoped narrowly per CICD_PLAN §7.1
 #   CLOUDFLARE_ACCOUNT_ID    — e62ec9d8012c3e0c225f8e4dbab76b79
 #   CF_ACCESS_CLIENT_ID      — service-token client id (docs/access.md §1)
 #   CF_ACCESS_CLIENT_SECRET  — service-token client secret (docs/access.md §1)
+#   REVIEW_APP_TOKEN         — bearer gating the API Worker's POST /api/promote.
+#                              deploy-staging pushes it to the staging API Worker
+#                              each deploy; absent → promote is 401 fail-closed.
 #   DATABASE_URL_STAGING     — Prisma Accelerate URL for the dev project's main
 #                              branch. e2e-tests-local writes this into the API
 #                              Worker's `.dev.vars` so `pnpm dev:bound` can
 #                              actually serve `/api/*` (otherwise Prisma throws
 #                              `PrismaClientInitializationError`). Same secret
 #                              pr-preview.yml uses for Option 1 (shared dev DB).
+#                              deploy-staging ALSO pushes it to the staging API
+#                              Worker as the `DATABASE_URL` secret on every
+#                              deploy (idempotent) so a fresh `aeci-api-staging`
+#                              can never go live without a DB connection.
 #
 # Optional repo secrets:
 #   DIRECT_URL_STAGING       — Direct Postgres URL (pooler) for the shared
@@ -600,6 +612,29 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v4
+
+      # THE RULE (do not deploy to an environment if the variables it needs are
+      # missing): fail BEFORE any deploy if a required staging secret is absent,
+      # so staging is never half-provisioned. Recommended-but-optional secrets
+      # (Datadog / cache-purge) only warn. Required set must stay in sync with
+      # the runtime contracts in apps/api/src/env.ts + apps/web/src/env.ts and
+      # the secrets pushed below. See docs/environments.md §Secrets.
+      - name: Preflight — required secrets present (staging)
+        env:
+          DATABASE_URL_STAGING: ${{ secrets.DATABASE_URL_STAGING }}
+          REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DIRECT_URL_STAGING: ${{ secrets.DIRECT_URL_STAGING }}
+          ENV_LABEL: staging
+          REQUIRED_SECRETS: 'DATABASE_URL_STAGING REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING'
+        run: bash scripts/require-secrets.sh
+
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
@@ -632,6 +667,59 @@ jobs:
         working-directory: apps/api
         run: pnpm exec wrangler deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
+      # Ensure the staging API Worker has its DATABASE_URL secret. Worker secrets
+      # persist across `wrangler deploy`, so once set this is a no-op — but
+      # pushing it idempotently on every deploy means a freshly (re)created
+      # `aeci-api-staging` can never serve traffic without a DB connection. A
+      # missing DATABASE_URL makes every DB endpoint 500, which turns SSR routes
+      # with a BLOCKING resolver (e.g. /categories) into 404s while
+      # httpResource-backed routes (/products, /vendors) silently render empty —
+      # the exact prod failure mode this guards against (see verify-health.sh).
+      # Runs AFTER `Deploy API` (the Worker must exist) and BEFORE the smoke test
+      # so its /api/health gate is meaningful. `secret put` preserves the
+      # --var COMMIT_SHA/DEPLOYED_AT set above (it patches one binding, not the
+      # whole version) — the same deploy→secret order pr-preview.yml relies on.
+      # `DATABASE_URL_STAGING` is the dev project's Accelerate prisma:// URL
+      # (Option 1 shared dev DB; same value pr-preview.yml + e2e-tests-local use).
+      # printf (not echo) avoids a trailing newline that would corrupt the URL.
+      - name: Push DATABASE_URL to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$DATABASE_URL_VALUE" ]; then
+            echo "::error::DATABASE_URL_STAGING secret is empty. The staging API Worker needs it (Prisma Accelerate prisma:// URL) or every DB endpoint 500s. Configure under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          printf '%s' "$DATABASE_URL_VALUE" \
+            | pnpm exec wrangler secret put DATABASE_URL --env staging
+
+      # Push REVIEW_APP_TOKEN to the staging API Worker (same idempotent pattern
+      # as DATABASE_URL). It gates `POST /api/promote` (the review-app → Supabase
+      # push); when absent the endpoint is 401 fail-closed, so the promotion
+      # pipeline is dead until it's set. `REVIEW_APP_TOKEN` is a single shared GH
+      # secret (REVIEW_APP_PROMOTE_API.md) reused across envs — split it per env
+      # if the team ever issues distinct tokens. The preflight already proved the
+      # GH secret is non-empty; this places it on the Worker and the postflight
+      # (verify-worker-secrets.sh) confirms it landed.
+      - name: Push REVIEW_APP_TOKEN to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REVIEW_APP_TOKEN_VALUE: ${{ secrets.REVIEW_APP_TOKEN }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$REVIEW_APP_TOKEN_VALUE" ]; then
+            echo "::error::REVIEW_APP_TOKEN secret is empty. The API Worker needs it or POST /api/promote is 401 fail-closed (promotion pipeline dead)."
+            exit 1
+          fi
+          printf '%s' "$REVIEW_APP_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put REVIEW_APP_TOKEN --env staging
+
       - name: Deploy SSR
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -639,12 +727,31 @@ jobs:
         working-directory: apps/web
         run: pnpm exec wrangler deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # Cloudflare Worker deploys propagate quickly but not instantly; poll both
-      # the API signal (/api/version) and the SSR Worker's own (/_version) until
-      # BOTH report the new SHA (AECI-92), or fail after the budget.
-      # /api/version is proxied raw to the API Worker, so on its own it can't
-      # catch a stale SSR deploy — verify-version.sh asserts both.
-      - name: Smoke test staging (API + SSR at SHA)
+      # Postflight enforcement of THE RULE at the Worker level: assert the staging
+      # API Worker actually carries its required runtime secrets after the pushes
+      # above (verify-version/verify-health can't see REVIEW_APP_TOKEN). Inspects
+      # the live Worker via `wrangler secret list`. See verify-worker-secrets.sh.
+      - name: Verify staging API Worker has required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_ENV: staging
+          REQUIRED_WORKER_SECRETS: 'DATABASE_URL REVIEW_APP_TOKEN'
+        working-directory: apps/api
+        run: bash ../../scripts/verify-worker-secrets.sh
+
+      # Cloudflare Worker deploys propagate quickly but not instantly; poll until
+      # the release is fully healthy, or fail after the budget. Two gates, both
+      # required:
+      #   - verify-version.sh: /api/version (API Worker) AND /_version (SSR
+      #     Worker) both report the new SHA (AECI-92). /api/version is proxied raw
+      #     to the API Worker, so alone it can't catch a stale SSR deploy.
+      #   - verify-health.sh: /api/health returns {"ok":true,"db":"ok"}, proving
+      #     the API Worker can actually reach the DB (i.e. DATABASE_URL is set).
+      #     The version gate reads vars, not the DB, so without this a Worker that
+      #     shipped without its DATABASE_URL secret would pass green while every
+      #     DB endpoint 500s and /categories 404s.
+      - name: Smoke test staging (API + SSR at SHA, DB healthy)
         env:
           HOST: https://staging.aecintegrations.com
           EXPECTED_SHA: ${{ github.sha }}
@@ -653,11 +760,11 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if bash scripts/verify-version.sh; then
+            if bash scripts/verify-version.sh && bash scripts/verify-health.sh; then
               exit 0
             fi
-            echo "Attempt $attempt: staging not yet at $EXPECTED_SHA on both Workers. Retrying in 6s…"
+            echo "Attempt $attempt: staging not yet at $EXPECTED_SHA on both Workers, or /api/health not green. Retrying in 6s…"
             sleep 6
           done
-          echo "::error::Staging did not report $EXPECTED_SHA on BOTH the API and SSR Workers within 60s"
+          echo "::error::Staging did not reach $EXPECTED_SHA on BOTH Workers AND a healthy /api/health (db:ok) within 60s"
           exit 1
