@@ -405,6 +405,18 @@ jobs:
           path: apps/web/playwright-report
           retention-days: 7
           if-no-files-found: ignore
+      # AECI-64 — the internal-link-graph crawler writes its reachability
+      # snapshot every run (in `beforeAll`, before assertions). Upload it
+      # whenever the job isn't cancelled — the snapshot is most useful exactly
+      # when the crawler fails (a page type went unreachable / a link 404'd).
+      - name: Upload internal-link-graph report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: internal-link-graph-report
+          path: apps/web/e2e/internal-link-graph-report.md
+          retention-days: 30
+          if-no-files-found: warn
       - name: dev:bound logs on failure
         if: failure()
         run: tail -200 dev-bound.log || true
