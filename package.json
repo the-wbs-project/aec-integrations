@@ -40,6 +40,10 @@
     "deploy:landing": "pnpm --filter @aeci/landing deploy",
     "deploy:web": "pnpm --filter @aeci/web deploy",
     "deploy:api": "pnpm --filter @aeci/api deploy",
+    "tail:web": "pnpm --filter @aeci/web run tail",
+    "tail:api": "pnpm --filter @aeci/api run tail",
+    "tail:web:staging": "pnpm --filter @aeci/web run tail:staging",
+    "tail:api:staging": "pnpm --filter @aeci/api run tail:staging",
     "test:coverage": "pnpm -r --if-present run test:coverage",
     "skills:update": "npx skills add coreyhaines31/marketingskills",
     "algolia:provision": "node scripts/algolia/provision.mjs"
