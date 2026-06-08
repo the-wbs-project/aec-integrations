@@ -68,6 +68,13 @@ on:
   workflow_dispatch:
   pull_request:
     types: [opened, synchronize, reopened, closed]
+    # Docs-only PRs don't need an ephemeral preview. paths-ignore skips only when
+    # EVERY changed file matches; any code file keeps the preview deploy/cleanup
+    # running. A pure-docs PR never deploys a preview, so skipping `closed`
+    # cleanup for it is a no-op.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
 
 # Per-PR concurrency. `cancel-in-progress: true` lets a fresh push abort the
 # in-flight deploy; the `closed` event arrives as its own run after that and
