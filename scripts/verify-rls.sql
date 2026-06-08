@@ -48,6 +48,49 @@ insert into public.mailing_list (email) values ('verify-rls-probe@example.com');
 rollback;
 
 -- ---------------------------------------------------------------------------
+-- 2b. anon CAN SELECT every public-read table. A missing table-level GRANT
+--     surfaces as 42501 insufficient_privilege BEFORE RLS is consulted — the
+--     exact failure mode a privilege-stripping staging refresh produces (the
+--     restore strips grants and `db push` skips the already-in-history grant
+--     migration). Probing only the INSERT carve-out (STEP 2) would let that
+--     class of regression through silently, so assert the read grants too. RLS
+--     may still filter the result to zero rows; we only assert the SELECT is
+--     not blocked at the GRANT layer. Each table is probed in its own sub-block
+--     so a missing grant names the offending table. profiles is excluded — it
+--     is granted to authenticated only, never anon.
+-- ---------------------------------------------------------------------------
+do $$
+declare
+  tbl text;
+  granted_tables text[] := array[
+    'vendors',
+    'products',
+    'integrations',
+    'taxonomy_categories',
+    'taxonomy_audiences',
+    'taxonomy_phases',
+    'product_categories',
+    'product_audiences',
+    'product_phases',
+    'product_vendors',
+    'product_extensions',
+    'reviews',
+    'stats_cache',
+    'translations'
+  ];
+begin
+  set local role anon;
+  foreach tbl in array granted_tables loop
+    begin
+      execute format('select 1 from public.%I limit 1', tbl);
+    exception
+      when insufficient_privilege then
+        raise exception 'GRANT FAIL: anon SELECT on % denied (42501) — missing table GRANT', tbl;
+    end;
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- 3. anon CANNOT SELECT the no-grant tables — PostgREST returns 42501
 --    insufficient_privilege before RLS is even consulted. feedback and
 --    mailing_list are included because the carve-out grants INSERT only, so a
