@@ -109,17 +109,6 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               >
                 {{ p.name }}
               </h1>
-              @if (p.vendor; as v) {
-                <p class="text-sm text-(--text-secondary)">
-                  <ng-container i18n="@@products.detail.by">by</ng-container>
-                  <a
-                    [routerLink]="['/vendors', v.slug]"
-                    class="ml-1 text-(--accent-primary) underline underline-offset-2"
-                  >
-                    {{ v.name }}
-                  </a>
-                </p>
-              }
             </div>
           </div>
 
@@ -177,7 +166,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                     class="h-8 w-8 shrink-0 rounded-(--radius-sm) object-contain"
                   />
                 }
-                <span class="font-bold text-(--text-primary)">{{ v.name }}</span>
+                <span class="font-medium text-(--text-primary)">{{ v.name }}</span>
               </a>
             } @else {
               <p

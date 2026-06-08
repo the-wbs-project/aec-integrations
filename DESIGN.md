@@ -242,7 +242,7 @@ Token parity with the light palette. Names mirror the light tokens with a `dark-
 - **Headline** (Source Serif 4, 600, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, line-height 1.15, tracking -0.005em): page H1 on content pages and product surfaces.
 - **Title** (Source Serif 4, 600, 1.5rem / 24px, line-height 1.25): section H2 within long-form content; product surface card titles where editorial weight is wanted.
 - **Body** (Atkinson Hyperlegible, 400, 1rem / 16px, line-height 1.6): default body and reading text. Cap measure at 70ch on long-form pages; product surfaces use container constraints instead. **Use 700 (Bold) only for inline emphasis or product-surface affordances** — never for headings (those are Source Serif 4).
-- **Label** (Atkinson Hyperlegible, 700, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): button text, table headers, badges, form field labels. Sentence case (not uppercase — see the rule below).
+- **Label** (Atkinson Hyperlegible, 700, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): button text, table headers, status badges (verified / pending), form field labels. Sentence case (not uppercase — see the rule below). **Navigational taxonomy chips/tags use the same family and size at medium (500), not 700** — they are content links, not button affordances (see §5 → Tags / taxonomy chips).
 
 ### Named Rules
 
@@ -307,6 +307,14 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, 
 
 - **Verified** (`badge-verified`): Forest fill, surface-base text, `rounded.sm`, label typography. Reserved for vendor-verified integrations and other editorially-confirmed states.
 - **Pending** (`badge-pending`): surface-sunken fill, text-secondary text, 0.5px border-default. Indicates "submitted, not yet reviewed" — never confused with verified.
+
+### Tags / Taxonomy chips
+
+Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge` component). Distinct from the status badges above — these are navigational, not state indicators.
+
+- **Surface:** `surface-raised` fill, 0.5px solid `border-default` raising to 1px `border-strong` on hover. `rounded.sm` (4px) — chips, not pills (the pill shape is reserved for vendor-verified badges).
+- **Typography:** Atkinson Hyperlegible **medium (500)**, 0.8125rem / 13px, tracking +0.01em. Deliberately lighter than the `label` role (700): the chip reads as a content tag, not a button. `text-primary` shifts to `accent-primary` on hover.
+- **Case:** sentence case, per the Sentence-Case Rule.
 
 ### Score Display
 
