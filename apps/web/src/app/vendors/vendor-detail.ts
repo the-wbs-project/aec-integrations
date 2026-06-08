@@ -1,4 +1,4 @@
-import { NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -8,6 +8,7 @@ import type { ProductListItem, VendorDetail } from '@aeci/shared';
 
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
+import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /**
  * AECI-59 — Vendor detail page at `/vendors/:slug`.
@@ -41,7 +42,7 @@ import { NotFound } from '../not-found/not-found';
  */
 @Component({
   selector: 'aec-vendor-detail',
-  imports: [DetailLayout, NgOptimizedImage, NgTemplateOutlet, NotFound, RouterLink],
+  imports: [DetailLayout, LogoOrInitial, NgTemplateOutlet, NotFound, RouterLink],
   template: `
     @let v = vendor();
     @if (v === null) {
@@ -79,26 +80,13 @@ import { NotFound } from '../not-found/not-found';
 
         <div slot="hero" class="space-y-5">
           <div class="flex items-start gap-5">
-            @if (v.logo_url) {
-              <img
-                [ngSrc]="v.logo_url"
-                [alt]="v.company_name + ' logo'"
-                width="64"
-                height="64"
-                priority
-                class="h-16 w-16 shrink-0 rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-raised) object-contain"
-              />
-            } @else {
-              <span
-                class="flex h-16 w-16 shrink-0 items-center justify-center
-                  rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)"
-                aria-hidden="true"
-              >
-                {{ initial() }}
-              </span>
-            }
+            <aec-logo-or-initial
+              [src]="v.logo_url"
+              [name]="v.company_name"
+              [alt]="v.company_name + ' logo'"
+              size="lg"
+              [priority]="true"
+            />
             <div class="min-w-0 space-y-2">
               <p
                 class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
@@ -350,13 +338,6 @@ export class VendorDetailPage {
     this.route.data.pipe(map((d) => (d['vendor'] ?? null) as VendorDetail | null)),
     { initialValue: (this.route.snapshot.data['vendor'] ?? null) as VendorDetail | null },
   );
-
-  protected readonly initial = computed(() => {
-    const name = this.vendor()?.company_name ?? '';
-    // `Array.from` splits on code points, so a leading emoji / surrogate pair
-    // yields a whole glyph instead of half a surrogate (a `charAt(0)` artifact).
-    return (Array.from(name)[0] ?? '').toUpperCase() || '·';
-  });
 
   protected readonly products = computed<ReadonlyArray<ProductListItem>>(
     () => this.vendor()?.products ?? [],
