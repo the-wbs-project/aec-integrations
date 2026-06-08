@@ -41,10 +41,12 @@
     "deploy:web": "pnpm --filter @aeci/web deploy",
     "deploy:api": "pnpm --filter @aeci/api deploy",
     "test:coverage": "pnpm -r --if-present run test:coverage",
-    "skills:update": "npx skills add coreyhaines31/marketingskills"
+    "skills:update": "npx skills add coreyhaines31/marketingskills",
+    "algolia:provision": "node scripts/algolia/provision.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "algoliasearch": "5.52.0",
     "angular-eslint": "^21.4.0",
     "eslint": "^10.4.0",
     "eslint-config-prettier": "^10.1.8",

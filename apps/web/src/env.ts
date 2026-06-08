@@ -26,17 +26,43 @@
  *   - CF_ZONE_ID — public `vars` entry; the Cloudflare zone ID the purge call
  *     targets.
  *
- * All Datadog and purge fields are optional so the Worker boots cleanly in
- * local dev before secrets have been provisioned — the RUM provider and
- * `logToDatadog` helper no-op when missing; the purge endpoint returns
- * `cf_credentials_missing` in its `failed[]` payload.
+ * Algolia search surface (AECI-134 / Phase 3.1):
+ *
+ *   - ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY — explicitly client-exposed. The
+ *     SEARCH key is query-only and scoped to this env's three indexes; both are
+ *     rendered into the SSR HTML by `injectAlgoliaBootstrap` so InstantSearch
+ *     can pick them up at hydration (consumer lands in 3.9). Stored as secrets
+ *     (not `vars`) only to keep values out of git.
+ *   - The Algolia ADMIN/management key is **never** part of `WebEnv` — it must
+ *     never reach the browser (review gate). It lives on the API Worker only
+ *     (`apps/api/src/env.ts`). Mirrors the DD `DD_API_KEY` server-only rule.
+ *
+ * All Datadog, purge, and Algolia fields are optional so the Worker boots
+ * cleanly in local dev before secrets have been provisioned — the RUM provider
+ * and `logToDatadog` helper no-op when missing; the purge endpoint returns
+ * `cf_credentials_missing` in its `failed[]` payload; the Algolia bootstrap
+ * injects nothing (no `window.__AECI_ALGOLIA__`).
  */
+
+import type { AlgoliaIndexNames } from '@aeci/shared/algolia';
 
 export type DatadogPublicConfig = {
   applicationId: string;
   clientToken: string;
   site: string;
   env: string;
+};
+
+/**
+ * Public Algolia config rendered into the SSR HTML for the browser
+ * (`window.__AECI_ALGOLIA__`). Carries the app id, the query-only search key,
+ * and this env's physical index names — all non-secret. The admin/management
+ * key is intentionally absent (review gate). Consumed by InstantSearch in 3.9.
+ */
+export type AlgoliaPublicConfig = {
+  appId: string;
+  searchKey: string;
+  indexes: AlgoliaIndexNames;
 };
 
 export type WebEnv = {
@@ -65,4 +91,12 @@ export type WebEnv = {
   ADMIN_PURGE_TOKEN?: string;
   CF_PURGE_API_TOKEN?: string;
   CF_ZONE_ID?: string;
+  /**
+   * Public Algolia credentials (AECI-134). `ALGOLIA_SEARCH_KEY` is query-only
+   * and index-scoped — safe to render into HTML. Both are absent until the
+   * operator provisions them; absent → the Algolia bootstrap is a no-op. The
+   * admin/management key is deliberately NOT here (review gate).
+   */
+  ALGOLIA_APP_ID?: string;
+  ALGOLIA_SEARCH_KEY?: string;
 };

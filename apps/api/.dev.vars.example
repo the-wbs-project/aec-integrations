@@ -108,3 +108,13 @@ DD_API_KEY=
 # Optional. Datadog region host. Defaults to datadoghq.com when unset.
 # Examples: datadoghq.eu, us3.datadoghq.com, us5.datadoghq.com, ap1.datadoghq.com
 DD_SITE=datadoghq.com
+
+# ─── Algolia (AECI-134) ────────────────────────────────────────────────────
+# Optional until the sync pipeline lands (3.5/3.6) — the Worker reads neither at
+# runtime yet, so leave empty for local dev. ALGOLIA_ADMIN_KEY is the per-env
+# MANAGEMENT key (search + index-mutation ACLs, scoped to this env's indexes),
+# NOT the app-wide root admin key. Provision real per-env values with
+# `node scripts/algolia/provision.mjs` and push them with
+# `wrangler secret put ALGOLIA_APP_ID/ALGOLIA_ADMIN_KEY --env <env>`.
+ALGOLIA_APP_ID=
+ALGOLIA_ADMIN_KEY=

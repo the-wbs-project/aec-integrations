@@ -27,6 +27,12 @@
   //                 the cache purge (graceful no-op).
   //   CF_ZONE_ID  — Cloudflare zone the purge targets. Public value; provision per
   //                 env alongside CF_PURGE_API_TOKEN.
+  //   ALGOLIA_APP_ID    — Algolia app id (AECI-134). Shared across envs. Optional
+  //                 until the sync pipeline (3.5/3.6) reads it.
+  //   ALGOLIA_ADMIN_KEY — per-env MANAGEMENT key (search + index-mutation ACLs,
+  //                 scoped to this env's indexes; NOT the app-wide root admin key).
+  //                 API/sync use only — never client-exposed. Provision per env via
+  //                 `node scripts/algolia/provision.mjs`; see docs/CICD_PLAN.md §7.5.
   //
   // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
   // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the

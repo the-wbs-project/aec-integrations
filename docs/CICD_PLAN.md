@@ -50,7 +50,7 @@ Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-
 - Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
 - **DB:** shared dev project `main` branch via the shared `aeci-api-preview` Worker and Prisma Accelerate. No per-PR Supabase branches (Option 1; see `docs/environments.md` §"PR previews" for the trade-off and revisit conditions for Options 2/3).
 - Fronted by the "AECi Non-Prod" Cloudflare Access app — service token for CI, OTP-to-email for humans (see `docs/access.md`).
-- Algolia, Datadog, Loops, and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to).
+- Datadog, Loops, and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to). **Algolia is the exception:** previews use their own dedicated `preview_*` index set (and `preview` scoped keys), per §7.5 — so preview/local search can't poison staging data. Local `pnpm dev:bound` (`ENV=preview`) rides the same `preview_*` set.
 
 ### 2.2 Staging environment
 
@@ -58,7 +58,7 @@ Mirror of production, but with test data and isolated from real users.
 
 - Always reflects the latest `main` branch
 - Connects to a dedicated staging Supabase project
-- Algolia connects to dedicated staging indexes
+- Algolia connects to dedicated staging indexes (`staging_*`; physical naming per §7.5)
 - Datadog under `env:staging` tag
 - Loops sends real emails but only to allowlisted internal addresses
 - Linear creates real issues in a "Staging Test" project
@@ -366,8 +366,9 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `DATABASE_URL` | Prisma Accelerate runtime URL (`prisma://...`); one per environment. Pushed to Worker via `wrangler secret put DATABASE_URL` | All |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase admin | All |
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |
-| `ALGOLIA_ADMIN_KEY` | Index management | All |
-| `ALGOLIA_APP_ID` | Algolia app | All |
+| `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env **management** key — search + index-mutation ACLs, scoped to that env's three indexes (NOT the app-wide root admin key). Sync pipeline (3.5/3.6) + CI. Pushed to the API Worker as `ALGOLIA_ADMIN_KEY`. Rotated independently per env (§7.4). | staging, production |
+| `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION` | Per-env **search-only** key (`['search']`), scoped to that env's three indexes. Pushed to the web Worker as `ALGOLIA_SEARCH_KEY`; client-exposed (InstantSearch, 3.9). | staging, production |
+| `ALGOLIA_APP_ID` | Algolia application id. **Single value shared across all envs** (one app; only indexes/keys differ). Pushed to both Workers. | All |
 | `DATADOG_API_KEY` | RUM and APM | All |
 | `DATADOG_APP_KEY` | Deployment markers | staging, production |
 | `LOOPS_API_KEY` | Transactional email | staging, production |
@@ -410,6 +411,36 @@ Documented procedure, executed annually or on suspected compromise:
 5. Revoke the old credential at the source
 
 For the API keys with dev/prod separation (Algolia, Datadog), rotate independently per environment.
+
+**Algolia (per-env, independent).** The app-wide root admin key stays operator-held and is used _only_ to run the provision script — it is never a GitHub or Worker secret, so it does not rotate through this pipeline. The per-env scoped keys rotate one env at a time:
+
+1. `node scripts/algolia/provision.mjs --env <env> --rotate` — mints fresh search + management keys for that env and deletes the old ones (the index scope is unchanged).
+2. Re-set the affected secrets with the printed values: `gh secret set ALGOLIA_SEARCH_KEY_<ENV>` / `ALGOLIA_ADMIN_KEY_<ENV>`, and `wrangler secret put ALGOLIA_SEARCH_KEY --env <env>` (web) / `ALGOLIA_ADMIN_KEY --env <env>` (API).
+3. Redeploy that env so the Workers pick up the new secrets.
+
+`ALGOLIA_APP_ID` is not a credential and does not rotate. Rotating the root admin key itself is a dashboard operation (Algolia → API Keys) followed by re-exporting it locally before the next provision run.
+
+### 7.5 Algolia topology (AECI-134)
+
+**One application, per-env indexes.** A single AECi Algolia app (one `ALGOLIA_APP_ID`, shared) holds three index sets, one per environment. Physical names are `<prefix>_<entity>`:
+
+| Prefix | Indexes | Used by |
+|---|---|---|
+| `preview` | `preview_products`, `preview_vendors`, `preview_integrations` | PR previews + local `pnpm dev:bound` (`ENV=preview`) + `development` (bare `wrangler dev`/tests fold here) |
+| `staging` | `staging_products`, `staging_vendors`, `staging_integrations` | staging |
+| `production` | `production_products`, `production_vendors`, `production_integrations` | production |
+
+The prefix is derived from the Worker `ENV` label (matching the Datadog tags + `/api/version` convention); `development` folds onto `preview` so there is no fourth set. The names and the key shapes are defined once in `packages/shared/src/algolia.ts` and consumed by the Workers and the provision script alike.
+
+**Three keys per app, two of them per-env-scoped:**
+
+- **Root admin key** — app-wide, all ACLs. **Operator-held**; used _only_ to run `scripts/algolia/provision.mjs`. Never a GitHub or Worker secret.
+- **Search-only key** (per env) — ACL `['search']`, scoped to that env's three indexes. → web Worker `ALGOLIA_SEARCH_KEY`. Client-exposed (rendered into the SSR HTML as `window.__AECI_ALGOLIA__` for InstantSearch, 3.9).
+- **Management key** (per env) — ACL `search + addObject + deleteObject + editSettings + listIndexes`, scoped to that env's three indexes; excludes the destructive/global ACLs (`deleteIndex`, `usage`, `logs`, …). → API Worker `ALGOLIA_ADMIN_KEY`. Server-only; used by sync from 3.5.
+
+Both per-env keys are standalone (`addApiKey`, not derived/secured keys), so each rotates independently per env (§7.4). The search and management keys are minted by the provision script; the operator pushes them to the Workers via `wrangler secret put`. **The management/admin key must never reach the browser** — it is deliberately absent from the web Worker's `WebEnv`, and a unit test (`apps/web/src/algolia-bootstrap-inject.spec.ts`) enforces that the bootstrap injection never serializes it.
+
+Scope is provisioning + keys only. Index _settings_ (searchable attributes, facets, ranking) land in 3.2; sync in 3.5/3.6; the `/search` UI in 3.9.
 
 ---
 
@@ -557,7 +588,7 @@ Before the first deploy:
 - [ ] All secrets configured per Section 7.1
 - [ ] Cloudflare account has Workers, Pages (for static assets), and zone access
 - [ ] Supabase projects created for dev/staging/production
-- [ ] Algolia app created with dev/staging/production indexes
+- [ ] Algolia app created; per-env indexes + scoped keys provisioned via `scripts/algolia/provision.mjs` (`preview_*` / `staging_*` / `production_*`, per §7.5)
 - [ ] Datadog account configured with appropriate API keys
 - [ ] Loops account configured with environment-specific senders
 - [ ] Linear workspace configured per `STAGE_1_SPEC.md` §24
