@@ -1,9 +1,11 @@
 /**
  * Site footer.
  *
- * Anchor: Stripe (stripe.com) — three-column structured footer with a
- * brand-area column, legal nav, and company nav. Copyright lives on a
- * bottom strip separated by a thin border.
+ * Anchor: Stripe (stripe.com) — structured footer with a brand-area column,
+ * directory nav, legal nav, and company nav. Copyright lives on a bottom strip
+ * separated by a thin border. The Directory column also keeps the four primary
+ * section links in the server-rendered HTML, since the header's nav menu is a
+ * click-mounted overlay that never reaches SSR (see `nav-menu.ts`).
  *
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).
@@ -18,13 +20,59 @@ import { Monogram } from './monogram';
   imports: [RouterLink, Monogram],
   template: `
     <footer class="border-t border-(--border-default) bg-(--surface-raised)">
-      <div class="mx-auto grid max-w-7xl gap-10 px-8 py-12 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="mx-auto grid max-w-7xl gap-10 px-8 py-12 sm:grid-cols-2 lg:grid-cols-4">
         <div>
           <aec-monogram [size]="28" />
           <p class="mt-3 max-w-xs text-sm text-(--text-secondary)" i18n="@@app.footer.tagline">
             Vendor-verified reviews for AEC software integrations.
           </p>
         </div>
+        <nav class="text-sm" i18n-aria-label="@@app.footer.directory.aria" aria-label="Directory">
+          <p
+            class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"
+            i18n="@@app.footer.directory.eyebrow"
+          >
+            Directory
+          </p>
+          <ul class="space-y-2">
+            <li>
+              <a
+                routerLink="/products"
+                class="text-(--text-secondary) hover:text-(--text-primary)"
+                i18n="@@app.nav.products"
+              >
+                Products
+              </a>
+            </li>
+            <li>
+              <a
+                routerLink="/vendors"
+                class="text-(--text-secondary) hover:text-(--text-primary)"
+                i18n="@@app.nav.vendors"
+              >
+                Vendors
+              </a>
+            </li>
+            <li>
+              <a
+                routerLink="/integrations"
+                class="text-(--text-secondary) hover:text-(--text-primary)"
+                i18n="@@app.nav.integrations"
+              >
+                Integrations
+              </a>
+            </li>
+            <li>
+              <a
+                routerLink="/categories"
+                class="text-(--text-secondary) hover:text-(--text-primary)"
+                i18n="@@app.nav.categories"
+              >
+                Categories
+              </a>
+            </li>
+          </ul>
+        </nav>
         <nav class="text-sm" i18n-aria-label="@@app.footer.legal.aria" aria-label="Legal">
           <p
             class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)"

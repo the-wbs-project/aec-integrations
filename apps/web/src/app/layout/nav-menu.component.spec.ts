@@ -2,20 +2,20 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { MobileNavMenu } from './mobile-nav-menu';
+import { NavMenu } from './nav-menu';
 
 // The dropdown panel renders into a CDK overlay that only mounts on click, so
-// the "all four links + search reachable when open" assertion lives in the
-// Playwright e2e (e2e/mobile-nav.spec.ts) where the overlay genuinely opens.
-// Here we assert the always-rendered trigger has a correct accessible name and
-// popup semantics.
-describe('MobileNavMenu', () => {
+// the "all four links + search + theme toggle + sign-in reachable when open"
+// assertion lives in the Playwright e2e (e2e/nav-menu.spec.ts) where the overlay
+// genuinely opens. Here we assert the always-rendered trigger has a correct
+// accessible name and popup semantics.
+describe('NavMenu', () => {
   beforeEach(() => {
     TestBed.configureTestingModule({ providers: [provideRouter([])] });
   });
 
   function toggle(): HTMLButtonElement {
-    const fixture = TestBed.createComponent(MobileNavMenu);
+    const fixture = TestBed.createComponent(NavMenu);
     fixture.detectChanges();
     return (fixture.nativeElement as HTMLElement).querySelector('button')!;
   }
