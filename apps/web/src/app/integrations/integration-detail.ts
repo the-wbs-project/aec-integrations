@@ -68,7 +68,9 @@ import { NotFound } from '../not-found/not-found';
             </a>
           </li>
           <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li class="text-(--text-primary)" aria-current="page">{{ headline() }}</li>
+          <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
+            {{ headline() }}
+          </li>
         </ol>
 
         <div slot="hero" class="space-y-5">
@@ -79,7 +81,7 @@ import { NotFound } from '../not-found/not-found';
             Integration
           </p>
           <h1
-            class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+            class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
           >
             <a
               [routerLink]="['/products', i.source.slug]"
@@ -118,7 +120,7 @@ import { NotFound } from '../not-found/not-found';
             }
             @if (i.listing_url) {
               <a
-                [attr.href]="i.listing_url"
+                [href]="i.listing_url"
                 target="_blank"
                 rel="noopener nofollow"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
@@ -153,7 +155,7 @@ import { NotFound } from '../not-found/not-found';
                 <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.mechanism">
                   Mechanism
                 </dt>
-                <dd class="text-right font-medium text-(--text-primary)">
+                <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
                   @if (i.mechanism_name || mechanismKindLabel(); as mechanism) {
                     {{ mechanism }}
                   } @else {
@@ -175,7 +177,7 @@ import { NotFound } from '../not-found/not-found';
                   >
                     Direction
                   </dt>
-                  <dd class="text-right font-medium text-(--text-primary)">
+                  <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
                     {{ directionLabel() }}
                   </dd>
                 </div>
@@ -185,7 +187,9 @@ import { NotFound } from '../not-found/not-found';
                   <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.maturity">
                     Maturity
                   </dt>
-                  <dd class="text-right font-medium text-(--text-primary)">{{ i.maturity }}</dd>
+                  <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
+                    {{ i.maturity }}
+                  </dd>
                 </div>
               }
               @if (i.pricing_model) {
@@ -193,7 +197,7 @@ import { NotFound } from '../not-found/not-found';
                   <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.pricing">
                     Pricing
                   </dt>
-                  <dd class="text-right font-medium text-(--text-primary)">
+                  <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
                     {{ i.pricing_model }}
                   </dd>
                 </div>
@@ -216,7 +220,9 @@ import { NotFound } from '../not-found/not-found';
                   bg-(--surface-raised) p-4 no-underline transition-colors
                   hover:border-(--border-strong)"
               >
-                <span class="font-bold text-(--text-primary)">{{ vendor.name }}</span>
+                <span class="min-w-0 break-words font-bold text-(--text-primary)">{{
+                  vendor.name
+                }}</span>
               </a>
             </section>
           }
@@ -236,7 +242,9 @@ import { NotFound } from '../not-found/not-found';
                   bg-(--surface-raised) p-4 no-underline transition-colors
                   hover:border-(--border-strong)"
               >
-                <span class="font-bold text-(--text-primary)">{{ connector.name }}</span>
+                <span class="min-w-0 break-words font-bold text-(--text-primary)">{{
+                  connector.name
+                }}</span>
               </a>
             </section>
           }
@@ -254,7 +262,7 @@ import { NotFound } from '../not-found/not-found';
                 @if (i.listing_url) {
                   <li>
                     <a
-                      [attr.href]="i.listing_url"
+                      [href]="i.listing_url"
                       target="_blank"
                       rel="noopener nofollow"
                       class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
@@ -269,7 +277,7 @@ import { NotFound } from '../not-found/not-found';
                 @if (i.docs_url) {
                   <li>
                     <a
-                      [attr.href]="i.docs_url"
+                      [href]="i.docs_url"
                       target="_blank"
                       rel="noopener nofollow"
                       class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
@@ -284,7 +292,7 @@ import { NotFound } from '../not-found/not-found';
                 @if (i.mechanism_url) {
                   <li>
                     <a
-                      [attr.href]="i.mechanism_url"
+                      [href]="i.mechanism_url"
                       target="_blank"
                       rel="noopener nofollow"
                       class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
@@ -311,7 +319,7 @@ import { NotFound } from '../not-found/not-found';
               >
                 About this integration
               </h2>
-              <p class="max-w-prose text-base leading-relaxed text-(--text-secondary)">
+              <p class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)">
                 {{ i.description }}
               </p>
             </section>
@@ -339,7 +347,7 @@ import { NotFound } from '../not-found/not-found';
                     i18n="@@integrations.detail.connects.source"
                     >Source</span
                   >
-                  <span class="text-sm font-bold">{{ i.source.name }}</span>
+                  <span class="break-words text-sm font-bold">{{ i.source.name }}</span>
                 </a>
               </li>
               <li>
@@ -355,7 +363,7 @@ import { NotFound } from '../not-found/not-found';
                     i18n="@@integrations.detail.connects.target"
                     >Target</span
                   >
-                  <span class="text-sm font-bold">{{ i.target.name }}</span>
+                  <span class="break-words text-sm font-bold">{{ i.target.name }}</span>
                 </a>
               </li>
             </ul>

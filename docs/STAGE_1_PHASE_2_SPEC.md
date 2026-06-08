@@ -29,7 +29,7 @@ Phase 2 builds on the following ground truth, all landed in Phase 1:
 - **Layout shell**: header / footer / nav with i18n + theme (AECI-32)
 - **End-to-end SSR + cache plumbing** validated by Hello World (AECI-36)
 
-The non-negotiables baked into every Phase 1 task continue: zoneless, i18n-wrap every string, render correctly in light and dark, RLS-aware, no public API surface (always through the service binding), per-request Prisma Accelerate.
+The non-negotiables baked into every Phase 1 task continue: zoneless, i18n-wrap every string, render correctly in light and dark, RLS-aware, no public API surface (the API Worker is not a separately-exposed/documented API product and has no public ingress on its own hostname — the SSR Worker reaches it via the service binding, and its same-origin `/api/*` passthrough is the sanctioned browser read path; see §7), per-request Prisma Accelerate.
 
 ---
 
@@ -235,7 +235,7 @@ Integrations are accessed by record ID (`/integrations/:id`). The detail page ti
 
 ## 7. API contracts
 
-All public endpoints expose only what the SSR Worker needs to render a page. **No public API surface** — every call goes through `env.API.fetch(...)` via the service binding.
+All public endpoints expose only what the SSR Worker needs to render a page. **No public API surface** means the API Worker is not a separately-exposed, documented, or versioned API product (no OpenAPI, no codegen) and has no public ingress on its own hostname (`workers_dev:false`); the SSR Worker reaches it via `env.API.fetch(...)` (service binding). It does **not** mean browser code may never read `/api/*`: the SSR Worker re-proxies `/api/*` same-origin (ADR 0001 §Consequences), and hydrated client code uses it — the index pages fetch their lists via `httpResource`, and the detail/browse resolvers fetch on a client-navigation `TransferState` miss (AECI-151). Write routes carry per-endpoint auth; read GETs are public by construction.
 
 Per `API_CONTRACTS.md` §2, contracts are TypeScript types + Zod schemas in `packages/shared/`. No OpenAPI, no codegen.
 
@@ -383,7 +383,7 @@ Every page sets:
 - Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image)
 - Twitter card equivalents
 
-Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from their resolver. SSR sets the `<head>` tags before sending HTML.
+Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from their resolver. SSR sets the `<head>` tags before sending HTML; on an in-app client navigation the resolver re-applies them so the SPA's head (title/canonical/OG/JSON-LD) stays correct (idempotent upserts; AECI-151). `MetaService` is platform-agnostic — the platform decision lives in the resolver callers, not the service.
 
 ### 9.2 JSON-LD
 
@@ -527,7 +527,7 @@ Phase 2 is **Done** when:
 - [ ] Crawler test confirms every entity reachable in ≤ 3 hops from `/`
 - [ ] Cache-Tag headers present on every cacheable response per §8.2
 - [ ] `POST /admin/purge` works end-to-end (verified manually + in test)
-- [ ] `POST /api/page-views` returns 204 and is called by every detail page render
+- [ ] `POST /api/page-views` returns 204 and is called by every detail page render (and, post-AECI-151, by every in-app client navigation via `PageViewTracker`, so the metric reflects all visitor arrivals, not just full-document loads)
 - [ ] Slugs backfilled for 100% of existing products and vendors; uniqueness constraint in place
 - [ ] `vendor_requests` table exists with RLS policies applied
 - [ ] All API contracts in `packages/shared/`, all endpoints in `apps/api/` with tests

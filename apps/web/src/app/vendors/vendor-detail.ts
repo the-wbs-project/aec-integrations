@@ -72,7 +72,9 @@ import { NotFound } from '../not-found/not-found';
             </a>
           </li>
           <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li class="text-(--text-primary)" aria-current="page">{{ v.company_name }}</li>
+          <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
+            {{ v.company_name }}
+          </li>
         </ol>
 
         <div slot="hero" class="space-y-5">
@@ -105,7 +107,7 @@ import { NotFound } from '../not-found/not-found';
                 Vendor
               </p>
               <h1
-                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
                 {{ v.company_name }}
               </h1>
@@ -115,7 +117,7 @@ import { NotFound } from '../not-found/not-found';
           <div class="flex flex-wrap items-center gap-3">
             @if (v.website) {
               <a
-                [attr.href]="v.website"
+                [href]="v.website"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
@@ -132,7 +134,7 @@ import { NotFound } from '../not-found/not-found';
             }
             @if (v.headquarters) {
               <span
-                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
+                class="inline-flex max-w-full items-center rounded-(--radius-sm) border border-(--border-default)
                   bg-(--surface-raised) px-3 py-1 text-[0.8125rem] tracking-[0.01em]
                   text-(--text-secondary)"
                 [attr.aria-label]="hqAria()"
@@ -140,7 +142,7 @@ import { NotFound } from '../not-found/not-found';
                 <span class="font-bold text-(--text-tertiary) mr-2" i18n="@@vendors.detail.hq.label"
                   >HQ</span
                 >
-                {{ v.headquarters }}
+                <span class="min-w-0 break-words">{{ v.headquarters }}</span>
               </span>
             }
             @if (v.founded_year !== null) {
@@ -248,7 +250,7 @@ import { NotFound } from '../not-found/not-found';
               >
                 About
               </h2>
-              <p class="max-w-prose text-base leading-relaxed text-(--text-secondary)">
+              <p class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)">
                 {{ v.description }}
               </p>
             </section>
@@ -290,9 +292,11 @@ import { NotFound } from '../not-found/not-found';
                       hover:border-(--border-strong)"
                   >
                     <span class="min-w-0 flex-1">
-                      <span class="block text-sm font-bold">{{ product.name }}</span>
+                      <span class="block break-words text-sm font-bold">{{ product.name }}</span>
                       @if (product.primary_category; as cat) {
-                        <span class="block text-sm text-(--text-secondary)">{{ cat.name }}</span>
+                        <span class="block break-words text-sm text-(--text-secondary)">{{
+                          cat.name
+                        }}</span>
                       }
                     </span>
                     <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
@@ -349,7 +353,9 @@ export class VendorDetailPage {
 
   protected readonly initial = computed(() => {
     const name = this.vendor()?.company_name ?? '';
-    return name.charAt(0).toUpperCase() || '·';
+    // `Array.from` splits on code points, so a leading emoji / surrogate pair
+    // yields a whole glyph instead of half a surrogate (a `charAt(0)` artifact).
+    return (Array.from(name)[0] ?? '').toUpperCase() || '·';
   });
 
   protected readonly products = computed<ReadonlyArray<ProductListItem>>(

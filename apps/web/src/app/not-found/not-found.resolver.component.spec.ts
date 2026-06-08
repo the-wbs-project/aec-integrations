@@ -18,7 +18,9 @@ function buildRoute(): ActivatedRouteSnapshot {
   return { paramMap: convertToParamMap({}) } as unknown as ActivatedRouteSnapshot;
 }
 
-const STATE = {} as RouterStateSnapshot;
+// The client branch reads `state.url` to build the 404 canonical; the server
+// branch ignores it (it uses the SSR `REQUEST`).
+const STATE = { url: '/never-a-real-route' } as RouterStateSnapshot;
 
 function setup(opts: {
   platform: 'server' | 'browser';
@@ -82,22 +84,31 @@ describe('notFoundResolver — server path', () => {
   });
 });
 
-describe('notFoundResolver — client (hydration) path', () => {
+describe('notFoundResolver — client (in-app navigation) path', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('returns null without touching meta or response init', async () => {
+  it('sets the noindex 404 meta for the requested route without touching RESPONSE_INIT', async () => {
     const setNotFoundMeta = vi.fn();
     const responseInit = { status: 200 };
     const run = setup({
       platform: 'browser',
       responseInit,
+      // canonicalUrl() reads REQUEST for the serving origin; the path comes from
+      // `state.url`. Together they yield a deterministic self-referential canonical.
+      request: new Request('https://aecintegrations.com/never-a-real-route'),
       meta: { setNotFoundMeta } as Partial<MetaService>,
     });
 
     const result = await run();
 
     expect(result).toBeNull();
+    // RESPONSE_INIT is server-only — a SPA nav has no HTTP status to set.
     expect(responseInit.status).toBe(200);
-    expect(setNotFoundMeta).not.toHaveBeenCalled();
+    // The noindex 404 meta IS now refreshed client-side (AECI-151).
+    expect(setNotFoundMeta).toHaveBeenCalledWith({
+      kind: 'index',
+      slug: '',
+      canonical: 'https://aecintegrations.com/never-a-real-route',
+    });
   });
 });

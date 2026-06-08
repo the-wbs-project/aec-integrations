@@ -72,7 +72,9 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             </a>
           </li>
           <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li class="text-(--text-primary)" aria-current="page">{{ p.name }}</li>
+          <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
+            {{ p.name }}
+          </li>
         </ol>
 
         <div slot="hero" class="space-y-5">
@@ -105,7 +107,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 Product
               </p>
               <h1
-                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) break-words sm:text-4xl"
               >
                 {{ p.name }}
               </h1>
@@ -115,7 +117,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
           @if (p.website) {
             <div class="flex flex-wrap items-center gap-3">
               <a
-                [attr.href]="p.website"
+                [href]="p.website"
                 target="_blank"
                 rel="noopener noreferrer"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
@@ -158,7 +160,9 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                     class="h-8 w-8 shrink-0 rounded-(--radius-sm) object-contain"
                   />
                 }
-                <span class="font-medium text-(--text-primary)">{{ v.name }}</span>
+                <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
+                  v.name
+                }}</span>
               </a>
             } @else {
               <p
@@ -271,7 +275,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               >
                 About
               </h2>
-              <p class="max-w-prose text-base leading-relaxed text-(--text-secondary)">
+              <p class="max-w-prose break-words text-base leading-relaxed text-(--text-secondary)">
                 {{ p.description }}
               </p>
             </section>
@@ -313,8 +317,10 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                       hover:border-(--border-strong)"
                   >
                     <span class="min-w-0 flex-1">
-                      <span class="block text-sm font-bold">{{ item.integration.name }}</span>
-                      <span class="block text-sm text-(--text-secondary)">
+                      <span class="block break-words text-sm font-bold">{{
+                        item.integration.name
+                      }}</span>
+                      <span class="block break-words text-sm text-(--text-secondary)">
                         <ng-container i18n="@@products.detail.body.integrations.with"
                           >with</ng-container
                         >
@@ -381,7 +387,9 @@ export class ProductDetailPage {
 
   protected readonly initial = computed(() => {
     const name = this.product()?.name ?? '';
-    return name.charAt(0).toUpperCase() || '·';
+    // `Array.from` splits on code points, so a leading emoji / surrogate pair
+    // yields a whole glyph instead of half a surrogate (a `charAt(0)` artifact).
+    return (Array.from(name)[0] ?? '').toUpperCase() || '·';
   });
 
   /**
