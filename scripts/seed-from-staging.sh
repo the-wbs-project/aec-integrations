@@ -139,7 +139,7 @@ psql -v ON_ERROR_STOP=1 "$LOCAL_URL" -f "$DUMP_DIR/migrations.sql"
 echo "→ Re-running auth credential scrub (defensive)"
 psql -v ON_ERROR_STOP=1 "$LOCAL_URL" -f "$SCRIPT_DIR/scrub-auth-credentials.sql"
 
-# `seed-staging-users.sql` is idempotent (ON CONFLICT DO NOTHING). Running
+# `seed-staging-users.sql` is idempotent (adopt-or-mint per email). Running
 # it locally gives developers the same four test accounts staging has, with
 # known passwords — see scripts/seed-staging-users.sql for the credentials.
 echo "→ Seeding test accounts"
