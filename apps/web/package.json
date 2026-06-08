@@ -32,7 +32,7 @@
     "test:e2e:ui": "playwright test --ui",
     "test:extras": "scripts/run-extra-tests.sh",
     "lighthouse": "lhci autorun",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/check-logical-properties.mjs",
     "lint:fix": "eslint . --fix"
   },
   "dependencies": {

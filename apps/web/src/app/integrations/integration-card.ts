@@ -29,7 +29,9 @@ import type { IntegrationListItem } from '@aeci/shared';
         class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >
         {{ integration().source.name }}
-        <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
+        <span class="text-(--text-tertiary) inline-block rtl:-scale-x-100" aria-hidden="true"
+          >→</span
+        >
         {{ integration().target.name }}
       </a>
     </td>

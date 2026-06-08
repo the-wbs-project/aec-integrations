@@ -99,7 +99,7 @@ import { VendorCard } from './vendor-card';
           </th>
           <th
             scope="col"
-            class="px-4 py-3 text-right text-xs font-medium tracking-wide uppercase text-(--text-secondary)"
+            class="px-4 py-3 text-end text-xs font-medium tracking-wide uppercase text-(--text-secondary)"
             i18n="@@vendors.index.col.products"
           >
             Products

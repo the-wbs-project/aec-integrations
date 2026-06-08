@@ -129,7 +129,7 @@ import { NotFound } from '../not-found/not-found';
                   focus-visible:ring-offset-(--surface-base)"
               >
                 <ng-container i18n="@@vendors.detail.visitWebsite">Visit website</ng-container>
-                <span aria-hidden="true">↗</span>
+                <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
               </a>
             }
             @if (v.headquarters) {
@@ -139,7 +139,7 @@ import { NotFound } from '../not-found/not-found';
                   text-(--text-secondary)"
                 [attr.aria-label]="hqAria()"
               >
-                <span class="font-bold text-(--text-tertiary) mr-2" i18n="@@vendors.detail.hq.label"
+                <span class="font-bold text-(--text-tertiary) me-2" i18n="@@vendors.detail.hq.label"
                   >HQ</span
                 >
                 <span class="min-w-0 break-words">{{ v.headquarters }}</span>
@@ -153,7 +153,7 @@ import { NotFound } from '../not-found/not-found';
                 [attr.aria-label]="foundedAria()"
               >
                 <span
-                  class="font-bold text-(--text-tertiary) mr-2"
+                  class="font-bold text-(--text-tertiary) me-2"
                   i18n="@@vendors.detail.founded.label"
                   >Founded</span
                 >
@@ -299,7 +299,11 @@ import { NotFound } from '../not-found/not-found';
                         }}</span>
                       }
                     </span>
-                    <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
+                    <span
+                      class="text-(--text-tertiary) inline-block rtl:-scale-x-100"
+                      aria-hidden="true"
+                      >→</span
+                    >
                   </a>
                 </li>
               </ng-template>

@@ -106,6 +106,15 @@ test.describe('home page (smoke)', () => {
       `SSR <html> must be visitor-state-neutral (§9.1a); got: ${htmlTag}`,
     ).not.toMatch(/theme-(dark|light)|data-theme=/);
 
+    // AECI-153 — the <html> tag carries the locale-derived dir/lang. en-US
+    // ships LTR, so the dormant dir-injection wiring + index.html default must
+    // produce `lang="en-US" dir="ltr"`. Regression-protects the wiring without
+    // a real RTL locale build.
+    expect(htmlTag, `SSR <html> must advertise dir="ltr"; got: ${htmlTag}`).toMatch(/dir="ltr"/);
+    expect(htmlTag, `SSR <html> must advertise lang="en-US"; got: ${htmlTag}`).toMatch(
+      /lang="en-US"/,
+    );
+
     // (b) Full navigation — client reconciles. AC says "within one frame";
     // we give 1s of slack so the test isn't flaky on slow CI runners, but
     // still tight enough to catch a missing reconciliation entirely.

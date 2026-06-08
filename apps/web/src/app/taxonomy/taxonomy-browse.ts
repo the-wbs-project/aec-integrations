@@ -91,7 +91,7 @@ import { ProductCard } from '../products/product-card';
 
         <div slot="grid" class="overflow-x-auto">
           <table
-            class="w-full min-w-[40rem] border-collapse text-left text-sm"
+            class="w-full min-w-[40rem] border-collapse text-start text-sm"
             i18n-aria-label="@@taxonomy.browse.table.aria"
             aria-label="Products"
           >
@@ -110,7 +110,7 @@ import { ProductCard } from '../products/product-card';
                 </th>
                 <th
                   scope="col"
-                  class="px-4 py-3 text-right font-medium"
+                  class="px-4 py-3 text-end font-medium"
                   i18n="@@taxonomy.browse.col.integrations"
                 >
                   Integrations
