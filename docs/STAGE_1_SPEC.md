@@ -53,7 +53,7 @@ When a section of this spec references one of these documents, the companion doc
 | Frontend | Angular 21+ with SSR, **zoneless** (`provideZonelessChangeDetection()` — no `zone.js`) |
 | Styling | Tailwind CSS **v4** (`@tailwindcss/postcss`) with `@spartan-ng/brain/hlm-tailwind-preset.css` |
 | Components | Spartan UI **brain primitives only** (signal-based) + Angular CDK. `helm` codegen is avoided (alpha-CLI instability; decision validated in stack-test) |
-| Hydration | `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — see `apps/web/src/app/app.config.ts:17-29` |
+| Hydration | `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is on by default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130). See `apps/web/src/app/app.config.ts:13-30` |
 | i18n | `@angular/localize` |
 | Hosting | Cloudflare Workers (SSR Worker with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills) |
 | Database | Supabase (PostgreSQL) |
@@ -988,7 +988,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Figma Design System file created with theme tokens from Section 2a.2
 - [ ] Brand guidelines DOCX updated with dark-mode accent variants
 - [ ] Angular 21+ SSR project scaffolded in `apps/web/`, **zoneless** (`provideZonelessChangeDetection()`, no `zone.js`)
-- [ ] Hydration providers wired: `provideClientHydration(withEventReplay(), withHttpTransferCacheOptions({ includePostRequests: false }))` — mirror `apps/web/src/app/app.config.ts`
+- [ ] Hydration providers wired: `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is the default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130) — mirror `apps/web/src/app/app.config.ts`
 - [ ] `@angular/localize` configured with `en-US` as default locale; `angular.json` `i18n.locales` block ready for `es-ES` and others (URL-prefix dispatch, no `Vary` headers — §7a.3)
 - [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to CSS custom property tokens for both themes; `@spartan-ng/brain/hlm-tailwind-preset.css` imported
 - [ ] Theme switcher (system / light / dark) implemented in root layout — SSR reads theme from cookie + `Sec-CH-Prefers-Color-Scheme`; client reconciles from `localStorage` + `matchMedia` (mirror `apps/web/src/app/theme.service.ts`)

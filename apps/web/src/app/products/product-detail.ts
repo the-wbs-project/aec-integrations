@@ -25,8 +25,11 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
  *     integrations sections inside the shared `DetailLayout`.
  *
  * Integrations section: if the combined source + target list exceeds 20,
- * everything past the first 20 ships behind an `@defer (on viewport)` block
- * so the initial render stays light. Each integration links to
+ * everything past the first 20 ships in an `@defer (on viewport; hydrate on
+ * viewport)` block. Under v22 incremental hydration the deferred rows are
+ * SSR-rendered (crawlable, no hydration layout shift); the `on viewport`
+ * trigger still defers the block on client-side navigations (see AECI-130).
+ * Each integration links to
  * `/integrations/:id` with the *other* product also linked alongside, per
  * AC line "each integration links to `/integrations/:id` with the *other*
  * product also linked".
@@ -358,7 +361,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               </ul>
 
               @if (integrationsDeferred().length > 0) {
-                @defer (on viewport) {
+                @defer (on viewport; hydrate on viewport) {
                   <ul class="mt-3 grid gap-3">
                     @for (item of integrationsDeferred(); track item.integration.id) {
                       <ng-container

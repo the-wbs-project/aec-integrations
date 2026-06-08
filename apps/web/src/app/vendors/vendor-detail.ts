@@ -23,8 +23,11 @@ import { NotFound } from '../not-found/not-found';
  *     products grid sections inside the shared `DetailLayout`.
  *
  * Products grid: if `vendor.products` exceeds 20, everything past the first
- * 20 ships behind an `@defer (on viewport)` block so the initial render
- * stays light. Each product links to `/products/:slug`.
+ * 20 ships in an `@defer (on viewport; hydrate on viewport)` block. Under v22
+ * incremental hydration the deferred rows are SSR-rendered (crawlable, no
+ * hydration layout shift); the `on viewport` trigger still defers the block on
+ * client-side navigations. Each product links to `/products/:slug`. See
+ * AECI-130.
  *
  * Cache discipline: tags are written by the SSR runtime (the path matcher
  * emits `route:detail` + `vendor:{slug}`; the resolver pushes
@@ -307,7 +310,7 @@ import { NotFound } from '../not-found/not-found';
               </ul>
 
               @if (productsDeferred().length > 0) {
-                @defer (on viewport) {
+                @defer (on viewport; hydrate on viewport) {
                   <ul class="mt-3 grid gap-3">
                     @for (product of productsDeferred(); track product.id) {
                       <ng-container
