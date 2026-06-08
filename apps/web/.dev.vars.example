@@ -32,3 +32,16 @@ DD_SITE=datadoghq.com
 ADMIN_PURGE_TOKEN=
 CF_PURGE_API_TOKEN=
 CF_ZONE_ID=
+
+# ─── Algolia search (AECI-134) ─────────────────────────────────────────────
+# ALGOLIA_APP_ID + ALGOLIA_SEARCH_KEY are explicitly client-exposed: the SSR
+# Worker renders them into the HTML (window.__AECI_ALGOLIA__) so InstantSearch
+# (3.9) can pick them up at hydration. The SEARCH key is query-only and scoped
+# to this env's three indexes. Both no-op when empty (no script injected), so
+# dev boots cleanly without an Algolia account.
+# The Algolia ADMIN/management key is NEVER set on the web Worker — it would
+# reach the browser. It lives only on the API Worker (apps/api/.dev.vars.example).
+# Provision real per-env values with `node scripts/algolia/provision.mjs` and
+# push them with `wrangler secret put ALGOLIA_APP_ID/ALGOLIA_SEARCH_KEY --env <env>`.
+ALGOLIA_APP_ID=
+ALGOLIA_SEARCH_KEY=

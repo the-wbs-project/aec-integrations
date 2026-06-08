@@ -15,6 +15,7 @@ import { AngularAppEngine } from '@angular/ssr';
 
 import type { ApiError } from '@aeci/shared';
 
+import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
 import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
 import { createApp, type SsrRenderer } from './server-runtime';
@@ -56,7 +57,11 @@ const angularRenderer: SsrRenderer = async (request, ctx) => {
 const app = createApp({
   ssrRenderer: angularRenderer,
   transformResponse: async (res, env, request, ctx) => {
-    const injected = await injectDatadogBootstrap(res, env);
+    // Chain the bootstrap injections: Algolia operates on the DD-injected
+    // response so both `<script>` tags land before `</head>`. Each is a no-op
+    // when its public config is absent (AECI-31 / AECI-134).
+    const ddInjected = await injectDatadogBootstrap(res, env);
+    const injected = await injectAlgoliaBootstrap(ddInjected, env);
     // Pipe-health/error smoke signal. The per-render *volume* signal lives in
     // the bounded `aeci.ssr.render` count metric (server-runtime.ts); this log
     // is gated by `shouldEmitRenderLog` to errors (every env) + all non-prod

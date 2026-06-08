@@ -11,6 +11,9 @@ importers:
       '@eslint/js':
         specifier: ^10.0.1
         version: 10.0.1(eslint@10.4.0(jiti@2.7.0))
+      algoliasearch:
+        specifier: 5.52.0
+        version: 5.52.0
       angular-eslint:
         specifier: ^21.4.0
         version: 21.4.0(@angular/cli@22.0.0(@types/node@24.12.4)(chokidar@5.0.0))(chokidar@5.0.0)(eslint@10.4.0(jiti@2.7.0))(typescript-eslint@8.59.3(eslint@10.4.0(jiti@2.7.0))(typescript@6.0.3))(typescript@6.0.3)

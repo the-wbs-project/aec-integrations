@@ -31,6 +31,15 @@
  *                       aecintegrations.com ONLY (docs/CACHE_STRATEGY.md §5)
  *   CF_ZONE_ID          public var; CF zone the purge call targets
  *
+ * Algolia search (AECI-134) — secrets, NOT vars (values stay out of git). Both
+ * are client-exposed (rendered into HTML by injectAlgoliaBootstrap), but the
+ * SEARCH key is query-only + index-scoped. The admin/management key is NEVER
+ * set on this Worker (it would reach the browser):
+ *   ALGOLIA_APP_ID      shared app id (rendered into HTML)
+ *   ALGOLIA_SEARCH_KEY  per-env query-only search key (rendered into HTML)
+ * Provision per env with `node scripts/algolia/provision.mjs`; see
+ * docs/CICD_PLAN.md §7.5 and docs/environments.md §6/§8.
+ *
  * Push secrets per env (`wrangler secret put`); set `CF_ZONE_ID` under the
  * per-env `vars` block once the production / preview zone IDs are known.
  */

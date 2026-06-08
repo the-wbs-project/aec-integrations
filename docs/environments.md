@@ -348,6 +348,9 @@ Secrets are stored in three places:
 | `LOOPS_API_KEY` (prod) | ❌ | ✅ on prod Workers | — | Sends to real users. |
 | Datadog `DD_*` (per `apps/web/wrangler.jsonc` header) | ✅ per env | ✅ per env | — | RUM + Logs intake. |
 | `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID` | ✅ per env | ✅ per env | — | Cache-tag purge (AECI-56). |
+| `ALGOLIA_APP_ID` | ✅ per env (both Workers) | ✅ per env (both Workers) | ✅ (shared, one value) | Algolia app id (AECI-134). Single value, all envs. |
+| `ALGOLIA_SEARCH_KEY` (per-env, query-only) | ✅ on web Worker | ✅ on web Worker | ✅ as `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION` | Search-only key, scoped to the env's indexes; client-exposed. **Never on the API Worker.** |
+| `ALGOLIA_ADMIN_KEY` (per-env management) | ✅ on API Worker | ✅ on API Worker | ✅ as `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env management key (search + index-mutation, index-scoped) — sync from 3.5. **Never on the web Worker / never client-exposed.** Not the app-wide root admin key. |
 
 All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL --env staging` (and the same for `--env production` once the prod project exists).
 
@@ -453,6 +456,23 @@ wrangler secret put ADMIN_PURGE_TOKEN --env staging
 # …
 ```
 
+### 6b. Algolia indexes + keys (AECI-134)
+
+One-time per env. Provisions the `staging_*` indexes and mints the scoped keys, then sets the secrets. The app-wide **root** admin key stays in your shell only — never `wrangler secret put` it. Full reference: `scripts/algolia/README.md` and CICD_PLAN §7.5.
+
+```bash
+# Run once for staging (also run --env preview so PR/local search has indexes).
+export ALGOLIA_APP_ID=…
+export ALGOLIA_ADMIN_KEY=<root admin key>   # operator-held; NOT pushed to a Worker
+node scripts/algolia/provision.mjs --env staging   # prints the keys + the commands below
+```
+
+- [ ] `gh secret set ALGOLIA_APP_ID` (shared — set once across all envs).
+- [ ] `gh secret set ALGOLIA_SEARCH_KEY_STAGING` and `ALGOLIA_ADMIN_KEY_STAGING` (the printed search + management keys).
+- [ ] Web Worker: `cd apps/web && wrangler secret put ALGOLIA_APP_ID --env staging` + `wrangler secret put ALGOLIA_SEARCH_KEY --env staging`. **Never the admin key on web.**
+- [ ] API Worker: `cd apps/api && wrangler secret put ALGOLIA_APP_ID --env staging` + `wrangler secret put ALGOLIA_ADMIN_KEY --env staging`.
+- [ ] Also run `node scripts/algolia/provision.mjs --env preview` and push its keys to the shared `aeci-api-preview` Worker (no GitHub secret — pr-preview.yml is untouched until 3.9).
+
 ### 7. Flip the gate
 
 - [ ] `gh variable set SUPABASE_DEV_PROJECT_REF --body "<dev-ref>"` (consumed by `refresh-staging.yml` — AECI-77).
@@ -480,6 +500,14 @@ These steps must land before the first successful `promote-to-prod.yml` run. Non
   ```
 - [ ] **Datadog deploy-marker secret.** `gh secret set DATADOG_API_KEY --body "<key>"` (already exists for Worker runtime intake; CI needs its own copy to POST to `/api/v1/events`).
 - [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`.
+- [ ] **Algolia production indexes + keys (AECI-134).** With the root creds exported (as in §6b), `node scripts/algolia/provision.mjs --env production`. Then:
+  ```bash
+  gh secret set ALGOLIA_SEARCH_KEY_PRODUCTION --body "<printed search key>"
+  gh secret set ALGOLIA_ADMIN_KEY_PRODUCTION  --body "<printed management key>"
+  # ALGOLIA_APP_ID is shared — already set in §6b.
+  cd apps/web && wrangler secret put ALGOLIA_APP_ID --env production && wrangler secret put ALGOLIA_SEARCH_KEY --env production   # never the admin key on web
+  cd ../api  && wrangler secret put ALGOLIA_APP_ID --env production && wrangler secret put ALGOLIA_ADMIN_KEY  --env production
+  ```
 - [ ] **Production project ref repo variable.** `gh variable set SUPABASE_PROD_PROJECT_REF --body "jgxebjufabtwkcgxjqvk"` (per §1).
 - [ ] **Verify GH Environment.** The `production` GH Environment (created in §4) must list `chrisw@thewbsproject.com` as a required reviewer. Without that, the workflow's `apply-prod-migrations` job will not pause for approval.
 

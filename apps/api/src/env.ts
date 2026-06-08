@@ -59,4 +59,18 @@ export type Env = {
    * purge is a graceful no-op.
    */
   CF_ZONE_ID?: string;
+  /**
+   * Algolia application id (AECI-134). Single, shared across envs (one app;
+   * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the
+   * sync pipeline (3.5/3.6) reads it.
+   */
+  ALGOLIA_APP_ID?: string;
+  /**
+   * Algolia **management** key (AECI-134) — search + index-mutation ACLs, scoped
+   * to this env's three indexes, rotated independently per env. Provisioned in
+   * Phase 3.1, consumed by the sync scripts from 3.5. NEVER client-exposed: this
+   * is the API Worker only; the SSR Worker (`apps/web/src/env.ts`) gets the
+   * query-only search key instead. Optional until 3.5.
+   */
+  ALGOLIA_ADMIN_KEY?: string;
 };
