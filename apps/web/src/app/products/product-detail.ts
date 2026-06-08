@@ -129,7 +129,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                   focus-visible:ring-offset-(--surface-base)"
               >
                 <ng-container i18n="@@products.detail.visitWebsite">Visit website</ng-container>
-                <span aria-hidden="true">↗</span>
+                <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
               </a>
             </div>
           }
@@ -326,14 +326,18 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                         >
                         <a
                           [routerLink]="['/products', item.other.slug]"
-                          class="ml-1 text-(--accent-primary) underline underline-offset-2"
+                          class="ms-1 text-(--accent-primary) underline underline-offset-2"
                           (click)="$event.stopPropagation()"
                         >
                           {{ item.other.name }}
                         </a>
                       </span>
                     </span>
-                    <span class="text-(--text-tertiary)" aria-hidden="true">→</span>
+                    <span
+                      class="text-(--text-tertiary) inline-block rtl:-scale-x-100"
+                      aria-hidden="true"
+                      >→</span
+                    >
                   </a>
                 </li>
               </ng-template>

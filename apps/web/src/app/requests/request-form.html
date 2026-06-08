@@ -29,10 +29,11 @@
       [routerLink]="backRouterLink()"
       class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
     >
+      <span aria-hidden="true" class="me-2 inline-block rtl:-scale-x-100">←</span>
       @switch (entity) { @case ('product') {
-      <ng-container i18n="@@requests.back.product">← Back to product</ng-container>
+      <ng-container i18n="@@requests.back.product">Back to product</ng-container>
       } @case ('vendor') {
-      <ng-container i18n="@@requests.back.vendor">← Back to vendor</ng-container>
+      <ng-container i18n="@@requests.back.vendor">Back to vendor</ng-container>
       } }
     </a>
   </div>

@@ -88,7 +88,11 @@ import { NotFound } from '../not-found/not-found';
               class="text-(--text-primary) underline decoration-(--border-strong) decoration-1 underline-offset-4 hover:decoration-(--accent-primary)"
               >{{ i.source.name }}</a
             >
-            <span class="mx-1 text-(--text-tertiary)" aria-hidden="true">→</span>
+            <span
+              class="mx-1 text-(--text-tertiary) inline-block rtl:-scale-x-100"
+              aria-hidden="true"
+              >→</span
+            >
             <a
               [routerLink]="['/products', i.target.slug]"
               class="text-(--text-primary) underline decoration-(--border-strong) decoration-1 underline-offset-4 hover:decoration-(--accent-primary)"
@@ -132,7 +136,7 @@ import { NotFound } from '../not-found/not-found';
                   focus-visible:ring-offset-(--surface-base)"
               >
                 <ng-container i18n="@@integrations.detail.viewListing">View listing</ng-container>
-                <span aria-hidden="true">↗</span>
+                <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
               </a>
             }
           </div>
@@ -155,7 +159,7 @@ import { NotFound } from '../not-found/not-found';
                 <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.mechanism">
                   Mechanism
                 </dt>
-                <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
+                <dd class="min-w-0 break-words text-end font-medium text-(--text-primary)">
                   @if (i.mechanism_name || mechanismKindLabel(); as mechanism) {
                     {{ mechanism }}
                   } @else {
@@ -177,7 +181,7 @@ import { NotFound } from '../not-found/not-found';
                   >
                     Direction
                   </dt>
-                  <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
+                  <dd class="min-w-0 break-words text-end font-medium text-(--text-primary)">
                     {{ directionLabel() }}
                   </dd>
                 </div>
@@ -187,7 +191,7 @@ import { NotFound } from '../not-found/not-found';
                   <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.maturity">
                     Maturity
                   </dt>
-                  <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
+                  <dd class="min-w-0 break-words text-end font-medium text-(--text-primary)">
                     {{ i.maturity }}
                   </dd>
                 </div>
@@ -197,7 +201,7 @@ import { NotFound } from '../not-found/not-found';
                   <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.pricing">
                     Pricing
                   </dt>
-                  <dd class="min-w-0 break-words text-right font-medium text-(--text-primary)">
+                  <dd class="min-w-0 break-words text-end font-medium text-(--text-primary)">
                     {{ i.pricing_model }}
                   </dd>
                 </div>
@@ -270,7 +274,7 @@ import { NotFound } from '../not-found/not-found';
                       <ng-container i18n="@@integrations.detail.links.listing"
                         >Marketplace listing</ng-container
                       >
-                      <span aria-hidden="true">↗</span>
+                      <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
                     </a>
                   </li>
                 }
@@ -285,7 +289,7 @@ import { NotFound } from '../not-found/not-found';
                       <ng-container i18n="@@integrations.detail.links.docs"
                         >Documentation</ng-container
                       >
-                      <span aria-hidden="true">↗</span>
+                      <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
                     </a>
                   </li>
                 }
@@ -300,7 +304,7 @@ import { NotFound } from '../not-found/not-found';
                       <ng-container i18n="@@integrations.detail.links.mechanism"
                         >Connector details</ng-container
                       >
-                      <span aria-hidden="true">↗</span>
+                      <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
                     </a>
                   </li>
                 }

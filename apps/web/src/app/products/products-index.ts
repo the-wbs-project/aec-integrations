@@ -99,7 +99,7 @@ import { SortableColumnHeader } from './sortable-column-header';
           </th>
           <th
             scope="col"
-            class="px-4 py-3 text-right text-xs font-medium tracking-wide uppercase text-(--text-secondary)"
+            class="px-4 py-3 text-end text-xs font-medium tracking-wide uppercase text-(--text-secondary)"
             i18n="@@products.index.col.integrations"
           >
             Integrations

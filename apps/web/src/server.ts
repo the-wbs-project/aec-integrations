@@ -18,6 +18,7 @@ import type { ApiError } from '@aeci/shared';
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
 import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
+import { injectHtmlLangDir } from './server-html-dir-inject';
 import { createApp, type SsrRenderer } from './server-runtime';
 
 // Re-exported until SSR data loaders begin parsing API responses against the
@@ -61,7 +62,12 @@ const app = createApp({
     // response so both `<script>` tags land before `</head>`. Each is a no-op
     // when its public config is absent (AECI-31 / AECI-134).
     const ddInjected = await injectDatadogBootstrap(res, env);
-    const injected = await injectAlgoliaBootstrap(ddInjected, env);
+    const algoliaInjected = await injectAlgoliaBootstrap(ddInjected, env);
+    // Rewrite `<html lang/dir>` from the request's locale prefix (AECI-153).
+    // No-op on the shipping en-US LTR path (matches the index.html default);
+    // only a non-default/RTL locale pays a body pass. `request` is the source
+    // of the locale. Cache-safe — `dir`/`lang` are URL-derived (§7a.3a).
+    const injected = await injectHtmlLangDir(algoliaInjected, request);
     // Pipe-health/error smoke signal. The per-render *volume* signal lives in
     // the bounded `aeci.ssr.render` count metric (server-runtime.ts); this log
     // is gated by `shouldEmitRenderLog` to errors (every env) + all non-prod

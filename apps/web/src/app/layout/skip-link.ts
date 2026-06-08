@@ -10,7 +10,7 @@ import { Component } from '@angular/core';
   template: `
     <a
       href="#main"
-      class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:px-3 focus:py-2 focus:rounded-md focus:bg-(--accent-primary) focus:text-(--surface-base) focus:outline-2 focus:outline-offset-2 focus:outline-(--accent-primary) focus:font-medium"
+      class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:start-3 focus:z-50 focus:px-3 focus:py-2 focus:rounded-md focus:bg-(--accent-primary) focus:text-(--surface-base) focus:outline-2 focus:outline-offset-2 focus:outline-(--accent-primary) focus:font-medium"
       i18n="@@app.skipLink"
     >
       Skip to main content

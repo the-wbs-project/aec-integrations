@@ -75,7 +75,7 @@ function fixedRenderer(response: Response): SsrRenderer {
 
 describe('LOCALES', () => {
   it('matches angular.json i18n.locales for Phase 1 (en-US only)', () => {
-    expect(LOCALES).toEqual([{ locale: 'en-US', prefix: '' }]);
+    expect(LOCALES).toEqual([{ locale: 'en-US', prefix: '', dir: 'ltr' }]);
     expect(DEFAULT_LOCALE).toBe('en-US');
   });
 });

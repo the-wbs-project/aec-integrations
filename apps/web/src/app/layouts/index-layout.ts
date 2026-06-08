@@ -44,7 +44,7 @@ import { Component } from '@angular/core';
 
         <div class="-mx-6 overflow-x-auto md:mx-0">
           <table
-            class="w-full min-w-[40rem] border-collapse text-left text-sm"
+            class="w-full min-w-[40rem] border-collapse text-start text-sm"
             i18n-aria-label="@@app.layouts.index.table.aria"
             aria-label="Results table"
           >

@@ -25,7 +25,7 @@ import { IndexLayout } from '../../layouts/index-layout';
           <th scope="col" class="px-4 py-3">Name</th>
           <th scope="col" class="px-4 py-3">Category</th>
           <th scope="col" class="px-4 py-3">Integrations</th>
-          <th scope="col" class="px-4 py-3 text-right">Updated</th>
+          <th scope="col" class="px-4 py-3 text-end">Updated</th>
         </tr>
       </ng-container>
 
@@ -35,7 +35,7 @@ import { IndexLayout } from '../../layouts/index-layout';
             <td class="px-4 py-3 font-medium">{{ row.name }}</td>
             <td class="px-4 py-3 text-(--text-secondary)">{{ row.category }}</td>
             <td class="px-4 py-3 text-(--text-secondary)">{{ row.count }}</td>
-            <td class="px-4 py-3 text-right text-(--text-secondary)">{{ row.updated }}</td>
+            <td class="px-4 py-3 text-end text-(--text-secondary)">{{ row.updated }}</td>
           </tr>
         }
       </ng-container>

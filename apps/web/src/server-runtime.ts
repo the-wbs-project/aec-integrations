@@ -79,12 +79,18 @@ export const DEFAULT_LOCALE = 'en-US';
 /**
  * Mirror of `angular.json` `i18n.locales`. The default locale has no URL
  * prefix; additional locales use a single-segment prefix matching their
- * `subPath`. Adding a locale requires updating BOTH this constant and
- * `angular.json` together (§7a.3a).
+ * `subPath`. `dir` is the locale's writing direction — `localeAttrsForPath`
+ * resolves it onto `<html dir>` so logical Tailwind utilities (`ms-*`, `me-*`,
+ * `text-start/end`, …) flip correctly under an RTL locale (AECI-153). Today
+ * everything is LTR (en-US only). Adding a locale requires updating BOTH this
+ * constant and `angular.json` together (§7a.3a).
  */
-export const LOCALES: readonly { locale: string; prefix: string }[] = [
-  { locale: DEFAULT_LOCALE, prefix: '' },
+export const LOCALES: readonly { locale: string; prefix: string; dir: 'ltr' | 'rtl' }[] = [
+  { locale: DEFAULT_LOCALE, prefix: '', dir: 'ltr' },
 ];
+
+/** A single `LOCALES` entry — the shape `localeAttrsForPath` matches against. */
+export type LocaleEntry = (typeof LOCALES)[number];
 
 /**
  * Removes a leading locale prefix from a pathname (if any) and returns the
@@ -103,6 +109,31 @@ export function stripLocalePrefix(pathname: string): {
     }
   }
   return { locale: DEFAULT_LOCALE, path: pathname };
+}
+
+/**
+ * Resolves the `<html lang>` / `<html dir>` attributes for a pathname from its
+ * locale prefix (AECI-153). `lang` is the matched entry's `locale` (already
+ * BCP-47 — no parallel map needed); `dir` is that locale's writing direction.
+ * Falls back to the default (empty-prefix) entry — LTR en-US today — when no
+ * prefix matches, mirroring `stripLocalePrefix`'s match rules.
+ *
+ * `locales` defaults to `LOCALES` but is injectable so the SSR injection helper
+ * and its unit tests can exercise a synthetic RTL table without mutating the
+ * readonly production constant.
+ */
+export function localeAttrsForPath(
+  pathname: string,
+  locales: readonly LocaleEntry[] = LOCALES,
+): { lang: string; dir: 'ltr' | 'rtl' } {
+  for (const { locale, prefix, dir } of locales) {
+    if (!prefix) continue;
+    if (pathname === prefix || pathname.startsWith(`${prefix}/`)) {
+      return { lang: locale, dir };
+    }
+  }
+  const fallback = locales.find((l) => l.prefix === '') ?? locales[0];
+  return { lang: fallback.locale, dir: fallback.dir };
 }
 
 // ─── Preview-route gate ────────────────────────────────────────────────────

@@ -77,7 +77,7 @@ import type { ProductListItem } from '@aeci/shared';
         >
       }
     </td>
-    <td class="px-4 py-3 text-right text-(--text-secondary) tabular-nums">
+    <td class="px-4 py-3 text-end text-(--text-secondary) tabular-nums">
       {{ product().integration_count }}
     </td>
   `,
