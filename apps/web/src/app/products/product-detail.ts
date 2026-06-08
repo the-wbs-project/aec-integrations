@@ -112,8 +112,8 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             </div>
           </div>
 
-          <div class="flex flex-wrap items-center gap-3">
-            @if (p.website) {
+          @if (p.website) {
+            <div class="flex flex-wrap items-center gap-3">
               <a
                 [attr.href]="p.website"
                 target="_blank"
@@ -129,16 +129,8 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 <ng-container i18n="@@products.detail.visitWebsite">Visit website</ng-container>
                 <span aria-hidden="true">↗</span>
               </a>
-            }
-            <span
-              class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-                bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em]
-                text-(--text-secondary)"
-              [attr.aria-label]="productRoleAria()"
-            >
-              {{ productRoleLabel() }}
-            </span>
-          </div>
+            </div>
+          }
         </div>
 
         <div slot="metadata" class="space-y-6">
@@ -423,24 +415,5 @@ export class ProductDetailPage {
   protected readonly integrationCountLabel = computed(() => {
     const count = this.integrations().length;
     return $localize`:@@products.detail.body.integrations.count:${count}:INTERPOLATION:`;
-  });
-
-  protected readonly productRoleLabel = computed(() => {
-    const role = this.product()?.product_role;
-    switch (role) {
-      case 'application':
-        return $localize`:@@products.detail.role.application:Application`;
-      case 'connector':
-        return $localize`:@@products.detail.role.connector:Connector`;
-      case 'hybrid':
-        return $localize`:@@products.detail.role.hybrid:Hybrid`;
-      default:
-        return '';
-    }
-  });
-
-  protected readonly productRoleAria = computed(() => {
-    const role = this.productRoleLabel();
-    return $localize`:@@products.detail.role.aria:Product role: ${role}:ROLE:`;
   });
 }

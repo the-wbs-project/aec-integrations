@@ -153,10 +153,22 @@ jobs:
             --schema=public \
             --file=/tmp/prod-public.dump \
             "$PGURL"
+          # Exclude auth.schema_migrations: it's GoTrue's OWN migration-history
+          # table, owned by `supabase_auth_admin`, and the `postgres` role behind
+          # DIRECT_URL_STAGING is not granted write access to it — restoring it
+          # fails with `permission denied for table schema_migrations`, which
+          # pg_restore counts as an ignored error and then exits 1 (failing the
+          # step under `set -e`). We don't want prod's GoTrue history in staging
+          # anyway: the staging project's own auth service owns that table and
+          # keeps it in step with the GoTrue version actually running there. Only
+          # the auth *user* data (users/identities/etc.) needs to come from prod.
+          # NB: this is auth.schema_migrations (GoTrue), a different table from
+          # supabase_migrations.schema_migrations (Supabase CLI) handled below.
           pg_dump \
             --format=custom \
             --no-owner --no-privileges \
             --data-only --schema=auth \
+            --exclude-table-data='auth.schema_migrations' \
             --file=/tmp/prod-auth-data.dump \
             "$PGURL"
           # DATA-ONLY, scoped to the schema_migrations table: staging's
