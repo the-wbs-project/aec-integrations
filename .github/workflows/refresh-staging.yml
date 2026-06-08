@@ -260,6 +260,25 @@ jobs:
           supabase db push --linked --include-all
 
       # ---------------------------------------------------------------------
+      # Step 6a: Re-assert the PostgREST authorization surface
+      #   The restore (step 5) uses `pg_dump --no-privileges`, so it brings
+      #   prod's tables/functions/policies but STRIPS every GRANT — and it also
+      #   replays prod's supabase_migrations history, so `db push` (step 6) SKIPS
+      #   20260602051513_rls_grants_and_policies.sql (its row is already present)
+      #   and never re-installs the grants. Net: after a refresh anon/authenticated
+      #   have NO table grants, and the carve-out INSERT + public-read SELECTs are
+      #   gone. The migration itself can't be replayed (it names the pre-AECI-121
+      #   taxonomy_disciplines / product_disciplines, since renamed), so we
+      #   re-assert the CURRENT-schema surface from a dedicated idempotent file.
+      #   Runs AFTER migrate (so any new pending-migration table exists to grant
+      #   on) and BEFORE the verify step below, which is the immediate guard.
+      # ---------------------------------------------------------------------
+      - name: Re-assert authorization surface
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/apply-authorization.sql
+
+      # ---------------------------------------------------------------------
       # Step 6b: Verify RLS GRANT matrix (AECI-87)
       #   20260602051513_rls_grants_and_policies.sql (applied in step 6) installs
       #   the PostgREST GRANT/RLS deny matrix + the feedback/mailing_list
