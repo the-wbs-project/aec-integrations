@@ -1,9 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-// AECI-96. The mobile navigation menu (DESIGN.md §5): below `md` the desktop
-// primary nav and the `lg`-only search are hidden, so a labelled hamburger
-// opens a CDK-overlay dropdown exposing the four directory links + search.
+// AECI-96. The primary navigation menu (DESIGN.md §5): a single always-visible
+// labelled hamburger to the left of the wordmark opens a CDK-overlay dropdown
+// that is the one home for all site chrome — the four directory links, search,
+// the theme toggle, and the Sign-in CTA. It renders identically at every
+// breakpoint (there is no separate desktop inline nav), so the menu is exercised
+// at both a phone width and a desktop width below.
 //
 // Unlike layouts.spec.ts (which EXCLUDES the header from axe), this spec is
 // specifically about the header/menu, so axe INCLUDES `aec-site-header` and the
@@ -14,6 +17,7 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 // Any route renders the global header; browse is a known-200 preview route.
 const ROUTE = '/preview/layouts/browse';
 const MOBILE = { width: 375, height: 667 } as const;
+const DESKTOP = { width: 1280, height: 800 } as const;
 const AXE_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 const NAV_LINKS = ['Products', 'Vendors', 'Integrations', 'Categories'] as const;
 
@@ -23,39 +27,38 @@ const NAV_LINKS = ['Products', 'Vendors', 'Integrations', 'Categories'] as const
 // it for state/focus assertions. The accessible NAME is asserted separately in
 // the closed state below.
 function toggle(page: Page) {
-  return page.locator('aec-mobile-nav-menu button');
+  return page.locator('aec-nav-menu button');
 }
 
 function overlay(page: Page) {
   return page.locator('.cdk-overlay-container');
 }
 
-test.describe('mobile navigation menu (375px)', () => {
+test.describe('primary navigation menu (375px)', () => {
   test.use({ viewport: MOBILE });
 
-  test('desktop nav is hidden and the labelled toggle is reachable', async ({ page }) => {
+  test('the labelled menu toggle is reachable and the header does not overflow', async ({
+    page,
+  }) => {
     await page.goto(ROUTE);
     await expect(page.locator('app-root')).toBeAttached();
 
-    // Desktop primary nav collapses below md.
-    await expect(page.locator('aec-site-header nav[aria-label="Primary"]')).toBeHidden();
-
-    // The toggle replaces it: visible, with an accessible name (closed state, so
-    // it's in the a11y tree and resolvable by role + name).
+    // The always-visible toggle: present with an accessible name (closed state,
+    // so it's in the a11y tree and resolvable by role + name).
     const named = page.getByRole('button', { name: 'Open menu' });
     await expect(named).toBeVisible();
     await expect(named).toHaveAttribute('aria-haspopup', 'dialog');
     await expect(named).toHaveAttribute('aria-expanded', 'false');
 
     // No horizontal page overflow with the toggle present (guards the header
-    // density fix in site-header.ts).
+    // density on the narrowest supported width).
     const overflow = await page.evaluate(
       () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
     );
     expect(overflow, 'document must not overflow horizontally on mobile').toBeLessThanOrEqual(1);
   });
 
-  test('opening the menu exposes all four links and search', async ({ page }) => {
+  test('opening the menu exposes links, search, theme toggle, and sign-in', async ({ page }) => {
     await page.goto(ROUTE);
     await toggle(page).click();
 
@@ -64,6 +67,9 @@ test.describe('mobile navigation menu (375px)', () => {
       await expect(overlay(page).getByRole('link', { name })).toBeVisible();
     }
     await expect(overlay(page).getByRole('searchbox')).toBeVisible();
+    // The theme toggle and Sign-in CTA now live inside the menu, not the bar.
+    await expect(overlay(page).getByRole('button', { name: 'Cycle theme' })).toBeVisible();
+    await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 
   test('Escape closes the menu and returns focus to the toggle', async ({ page }) => {
@@ -143,6 +149,29 @@ test.describe('mobile navigation menu (375px)', () => {
     await toggle(page).click();
     await expect(overlay(page).getByRole('link', { name: 'Products' })).toBeVisible();
     expect(await analyzeHeaderAndOverlay(page), 'open state').toEqual([]);
+  });
+});
+
+test.describe('primary navigation menu (1280px)', () => {
+  test.use({ viewport: DESKTOP });
+
+  // The whole point of the change: the same menu is the navigation at desktop
+  // width too — there is no separate inline nav. Prove the toggle is present and
+  // opens the full set at a wide viewport.
+  test('the same menu toggle is visible and opens at desktop width', async ({ page }) => {
+    await page.goto(ROUTE);
+
+    const named = page.getByRole('button', { name: 'Open menu' });
+    await expect(named).toBeVisible();
+    await expect(named).toHaveAttribute('aria-expanded', 'false');
+
+    await toggle(page).click();
+    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
+    for (const name of NAV_LINKS) {
+      await expect(overlay(page).getByRole('link', { name })).toBeVisible();
+    }
+    await expect(overlay(page).getByRole('button', { name: 'Cycle theme' })).toBeVisible();
+    await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 });
 
