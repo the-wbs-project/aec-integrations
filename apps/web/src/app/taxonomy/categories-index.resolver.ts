@@ -18,6 +18,7 @@ import type { CategoriesListResponse } from '@aeci/shared';
 
 import type { AeciRequestContext } from '../../server/request-context';
 import { fetchCategoriesList } from '../core/api/taxonomy';
+import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 
 const STATE_KEY = makeStateKey<CategoriesListResponse | null>('aeci.categories-index');
@@ -34,7 +35,7 @@ export const categoriesIndexResolver: ResolveFn<CategoriesListResponse | null> =
   // Server path.
   const meta = inject(MetaService);
   const ctx = inject(REQUEST_CONTEXT) as AeciRequestContext | null;
-  const canonical = 'https://aecintegrations.com/categories';
+  const canonical = canonicalUrl('/categories');
 
   if (!ctx) {
     transferState.set(STATE_KEY, null);

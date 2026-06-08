@@ -50,8 +50,11 @@ for (const { kind, segment, listKey } of KINDS) {
         /<title[^>]*>[^<]*tools[^<]*· AEC Integrations[^<]*<\/title>/i,
       );
       expect(html, 'term name must render in the <h1>').toContain(term!.name);
-      expect(html, 'canonical <link> must point at the slug URL').toMatch(
-        new RegExp(`rel="canonical"[^>]+href="https://aecintegrations\\.com/${segment}/[^"]+"`),
+      // Canonical is self-referential — the serving origin, not a hardcoded apex (ADR 0011).
+      const origin = new URL(res.url()).origin;
+      const canonical = html.match(/rel="canonical"[^>]+href="([^"]+)"/)?.[1];
+      expect(canonical, 'canonical <link> must point at the slug URL on the serving origin').toBe(
+        `${origin}/${segment}/${term!.slug}`,
       );
       expect(html, 'breadcrumb must mention Home').toMatch(/Home/);
       expect(html, 'products table must render').toMatch(/<table[^>]+aria-label[^>]*>/);

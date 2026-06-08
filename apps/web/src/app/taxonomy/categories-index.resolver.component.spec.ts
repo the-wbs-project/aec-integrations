@@ -2,7 +2,7 @@
  * Resolver test. Named `.component.spec.ts` so it runs under `ng test` — needs
  * Angular's `inject()` / `TestBed` for the resolver's DI surface.
  */
-import { PLATFORM_ID, REQUEST_CONTEXT, TransferState, makeStateKey } from '@angular/core';
+import { PLATFORM_ID, REQUEST, REQUEST_CONTEXT, TransferState, makeStateKey } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRouteSnapshot, RouterStateSnapshot } from '@angular/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -45,6 +45,9 @@ function setup(opts: {
   TestBed.configureTestingModule({
     providers: [
       { provide: PLATFORM_ID, useValue: opts.platform === 'server' ? 'server' : 'browser' },
+      // canonicalUrl() reads REQUEST to build the self-referential canonical (ADR 0011);
+      // an apex-origin request keeps the canonical assertion below at the apex.
+      { provide: REQUEST, useValue: new Request('https://aecintegrations.com/categories') },
       { provide: REQUEST_CONTEXT, useValue: opts.ctx ?? null },
       { provide: MetaService, useValue: opts.meta ?? {} },
     ],
