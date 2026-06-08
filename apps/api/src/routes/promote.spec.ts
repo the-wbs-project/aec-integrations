@@ -29,6 +29,9 @@ function matchWhere(row: Rec, where: Rec | undefined): boolean {
 function makeFake() {
   const counter = { n: 0 };
   const audit: Rec[] = [];
+  // Captures the options arg passed to `$transaction` so tests can assert it
+  // stays within Prisma Accelerate's interactive-transaction limits.
+  const txOptions: (Rec | undefined)[] = [];
 
   const model = (name: string) => {
     const rows = new Map<string, Rec>();
@@ -109,12 +112,13 @@ function makeFake() {
         return data;
       },
     },
-    $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
+    $transaction<T>(fn: (tx: unknown) => Promise<T>, options?: Rec): Promise<T> {
+      txOptions.push(options);
       return fn(models);
     },
   };
 
-  return { models, audit };
+  return { models, audit, txOptions };
 }
 
 type Fake = ReturnType<typeof makeFake>;
@@ -256,6 +260,26 @@ describe('createPromoteHandler', () => {
     expect(
       fake.audit.every((e) => (e.metadata as { source?: string }).source === 'review-app-promote'),
     ).toBe(true);
+  });
+
+  // Prisma Accelerate rejects an interactive-transaction `timeout` above 15_000ms
+  // at parameter validation (P6005) before the transaction runs, so the whole
+  // promote 500s. The fake `$transaction` ignores options, so without this guard
+  // an out-of-range value passes every other test silently. See promote.ts.
+  it('runs the transaction within Accelerate interactive-transaction limits', async () => {
+    const fake = makeFake();
+    const res = await promote(fake, {
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit', categories: ['BIM'], audiences: ['Architecture'] },
+    });
+
+    expect(res.status).toBe(200);
+    expect(fake.txOptions).toHaveLength(1);
+    const opts = fake.txOptions[0] as { maxWait?: number; timeout?: number };
+    expect(opts.timeout).toBeLessThanOrEqual(15_000);
+    // maxWait should not exceed timeout (waiting longer than the tx can run is
+    // pointless) and stays within Accelerate's bounds.
+    expect(opts.maxWait ?? 0).toBeLessThanOrEqual(opts.timeout ?? 0);
   });
 
   it('updates by supabaseId and keeps the slug stable', async () => {
