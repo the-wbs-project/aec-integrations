@@ -9,9 +9,15 @@
     "sync:secrets:local": "bash sync-secrets.sh local",
     "sync:secrets:production": "bash sync-secrets.sh production",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "vitest",
+    "test:unit": "vitest run",
+    "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260510.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "vitest": "^3.2.4",
     "wrangler": "^4.86.0"
   },
   "dependencies": {
