@@ -1,4 +1,4 @@
-import { NgOptimizedImage, NgTemplateOutlet } from '@angular/common';
+import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -8,6 +8,7 @@ import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shar
 
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
+import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
 /**
@@ -41,7 +42,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
  */
 @Component({
   selector: 'aec-product-detail',
-  imports: [DetailLayout, NgOptimizedImage, NgTemplateOutlet, NotFound, RouterLink, TaxonomyBadge],
+  imports: [DetailLayout, LogoOrInitial, NgTemplateOutlet, NotFound, RouterLink, TaxonomyBadge],
   template: `
     @let p = product();
     @if (p === null) {
@@ -79,26 +80,13 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
         <div slot="hero" class="space-y-5">
           <div class="flex items-start gap-5">
-            @if (p.logo_url) {
-              <img
-                [ngSrc]="p.logo_url"
-                [alt]="p.name + ' logo'"
-                width="64"
-                height="64"
-                priority
-                class="h-16 w-16 shrink-0 rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-raised) object-contain"
-              />
-            } @else {
-              <span
-                class="flex h-16 w-16 shrink-0 items-center justify-center
-                  rounded-(--radius-md) border border-(--border-default)
-                  bg-(--surface-raised) font-display text-2xl font-semibold text-(--text-primary)"
-                aria-hidden="true"
-              >
-                {{ initial() }}
-              </span>
-            }
+            <aec-logo-or-initial
+              [src]="p.logo_url"
+              [name]="p.name"
+              [alt]="p.name + ' logo'"
+              size="lg"
+              [priority]="true"
+            />
             <div class="min-w-0 space-y-2">
               <p
                 class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
@@ -151,15 +139,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                   bg-(--surface-raised) p-4 no-underline transition-colors
                   hover:border-(--border-strong)"
               >
-                @if (v.logo_url) {
-                  <img
-                    [ngSrc]="v.logo_url"
-                    alt=""
-                    width="32"
-                    height="32"
-                    class="h-8 w-8 shrink-0 rounded-(--radius-sm) object-contain"
-                  />
-                }
+                <aec-logo-or-initial [src]="v.logo_url" [name]="v.name" alt="" size="sm" />
                 <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
                   v.name
                 }}</span>
@@ -388,13 +368,6 @@ export class ProductDetailPage {
     this.route.data.pipe(map((d) => (d['product'] ?? null) as ProductDetail | null)),
     { initialValue: (this.route.snapshot.data['product'] ?? null) as ProductDetail | null },
   );
-
-  protected readonly initial = computed(() => {
-    const name = this.product()?.name ?? '';
-    // `Array.from` splits on code points, so a leading emoji / surrogate pair
-    // yields a whole glyph instead of half a surrogate (a `charAt(0)` artifact).
-    return (Array.from(name)[0] ?? '').toUpperCase() || '·';
-  });
 
   /**
    * Normalized integration list. Each entry pairs the integration with the
