@@ -75,7 +75,7 @@ import type { CategoriesListResponse, TaxonomyTermWithCount } from '@aeci/shared
                       >{{ category.description }}</span
                     >
                   }
-                  <span class="mt-4 text-sm font-bold text-(--text-tertiary) tabular-nums">{{
+                  <span class="mt-4 text-sm font-bold text-(--text-secondary) tabular-nums">{{
                     countLabel(category.product_count)
                   }}</span>
                 </a>

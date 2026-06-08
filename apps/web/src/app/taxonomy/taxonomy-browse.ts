@@ -74,7 +74,7 @@ import { ProductCard } from '../products/product-card';
             <p class="max-w-prose text-(--text-secondary)">{{ t.description }}</p>
           }
 
-          <p class="text-sm text-(--text-tertiary)">{{ productCountLabel() }}</p>
+          <p class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</p>
         </div>
 
         <div slot="filters">
