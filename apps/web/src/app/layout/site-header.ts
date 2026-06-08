@@ -2,7 +2,7 @@
  * Site header.
  *
  * Anchor: Stripe (stripe.com) — selected during the AECI-32 layout-options
- * review. Composition cues: generous header padding, monogram + wordmark left,
+ * review. Composition cues: generous header padding, brand wordmark left,
  * centered primary nav, theme toggle + Sign-in CTA right, and a
  * warm Bone "shelf" beneath the header that reads as editorial structure
  * rather than chrome. See `DESIGN.md` §"Named Rules" → "The Anchor-Site Rule".
@@ -13,17 +13,17 @@
 import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
+import { BrandLogo } from './brand-logo';
 import { MobileNavMenu } from './mobile-nav-menu';
-import { Monogram } from './monogram';
 import { ThemeToggle } from './theme-toggle';
 
 @Component({
   selector: 'aec-site-header',
-  imports: [RouterLink, RouterLinkActive, Monogram, ThemeToggle, MobileNavMenu],
+  imports: [RouterLink, RouterLinkActive, BrandLogo, ThemeToggle, MobileNavMenu],
   template: `
     <header class="bg-(--surface-base)">
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
-        <aec-monogram />
+        <aec-brand-logo />
         <nav
           class="hidden flex-1 items-center justify-center gap-7 text-sm font-medium md:flex"
           i18n-aria-label="@@app.nav.primary.aria"
