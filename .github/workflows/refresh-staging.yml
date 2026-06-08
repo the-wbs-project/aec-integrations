@@ -159,11 +159,19 @@ jobs:
             --data-only --schema=auth \
             --file=/tmp/prod-auth-data.dump \
             "$PGURL"
-          # Plain SQL keeps the migration-history seed auditable in workflow
-          # logs and lets us pipe straight through psql without pg_restore.
+          # DATA-ONLY, scoped to the schema_migrations table: staging's
+          # supabase_migrations schema + table already exist (the wipe step only
+          # TRUNCATEs the table, it doesn't drop the schema), so a full schema
+          # dump would replay `CREATE SCHEMA supabase_migrations;` / `CREATE
+          # TABLE schema_migrations` and abort the ON_ERROR_STOP restore on
+          # "already exists". We only need the history rows. Mirrors the
+          # --data-only auth dump above (same reason: don't recreate a
+          # pre-existing Supabase-managed schema). Plain SQL keeps the seed
+          # auditable in workflow logs and pipes straight through psql.
           pg_dump \
             --no-owner --no-privileges \
-            --schema=supabase_migrations \
+            --data-only \
+            --table=supabase_migrations.schema_migrations \
             --file=/tmp/prod-supabase-migrations.sql \
             "$PGURL"
           ls -lh /tmp/prod-*.dump /tmp/prod-supabase-migrations.sql
@@ -203,8 +211,20 @@ jobs:
           PGURL: ${{ secrets.DIRECT_URL_STAGING }}
         run: |
           set -euo pipefail
+          # The public dump carries `CREATE SCHEMA public;` (prod's public schema
+          # isn't the bootstrap-owned default, so pg_dump emits it). The wipe
+          # step already recreated `public` with the Supabase USAGE grants, so
+          # replaying that statement raises "schema public already exists";
+          # pg_restore logs it, restores everything else, then exits non-zero,
+          # which `set -e` turns into a step failure. Strip the SCHEMA entry from
+          # the archive TOC so the restore only touches objects *inside* the
+          # already-present, already-granted schema. Robust either way: if a
+          # future dump omits CREATE SCHEMA, grep -v simply no-ops.
+          pg_restore -l /tmp/prod-public.dump \
+            | grep -v ' SCHEMA - public ' > /tmp/prod-public.toc
           pg_restore \
             --no-owner --no-privileges \
+            --use-list=/tmp/prod-public.toc \
             --dbname="$PGURL" \
             /tmp/prod-public.dump
           pg_restore \
