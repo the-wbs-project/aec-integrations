@@ -661,7 +661,13 @@ export function createPromoteHandler(
         };
         return result;
       },
-      { maxWait: 10_000, timeout: 20_000 },
+      // Prisma Accelerate caps interactive-transaction `timeout` at 15_000ms
+      // globally — anything higher is rejected at parameter validation (P6005)
+      // before the transaction runs, surfacing as a BadRequestError. The cap is
+      // only raisable via a Prisma support/plan request, not from code, so stay
+      // at the max for the most headroom. Keep this bundle short (preload slugs
+      // outside the tx; batch with createMany) to fit comfortably inside it.
+      { maxWait: 10_000, timeout: 15_000 },
     );
 
     // AECI-98: a concurrent first-time promote can generate a duplicate slug; the
