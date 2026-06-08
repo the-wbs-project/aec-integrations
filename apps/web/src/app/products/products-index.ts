@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import type { ProductsListResponse } from '@aeci/shared';
 
+import { canonicalUrl } from '../core/canonical';
 import { IndexLayout } from '../layouts/index-layout';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
 
@@ -166,7 +167,7 @@ export class ProductsIndex {
       entity: 'index',
       name: $localize`:@@products.index.metaName:Products`,
       description: $localize`:@@products.index.metaDescription:The directory of every AEC software product on AEC Integrations. Sortable by name, recency, and last update.`,
-      canonical: 'https://aecintegrations.com/products',
+      canonical: canonicalUrl('/products'),
     },
   });
 }

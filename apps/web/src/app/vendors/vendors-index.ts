@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import type { VendorsListResponse } from '@aeci/shared';
 
+import { canonicalUrl } from '../core/canonical';
 import { IndexLayout } from '../layouts/index-layout';
 import { Paginator } from '../products/paginator';
 import { SortableColumnHeader } from '../products/sortable-column-header';
@@ -166,7 +167,7 @@ export class VendorsIndex {
       entity: 'index',
       name: $localize`:@@vendors.index.metaName:Vendors`,
       description: $localize`:@@vendors.index.metaDescription:The directory of every AEC software vendor on AEC Integrations. Sortable by name, recency, and last update.`,
-      canonical: 'https://aecintegrations.com/vendors',
+      canonical: canonicalUrl('/vendors'),
     },
   });
 }

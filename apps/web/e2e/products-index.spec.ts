@@ -23,9 +23,12 @@ test.describe('/products — product index (AECI-58)', () => {
       /<title[^>]*>[^<]*Products[^<]*· AEC Integrations[^<]*<\/title>/i,
     );
 
-    // Canonical link is set to the bare /products URL (no query params).
-    expect(html, 'canonical <link> must point at /products').toMatch(
-      /<link[^>]+rel="canonical"[^>]+href="https:\/\/aecintegrations\.com\/products"/,
+    // Canonical is self-referential — the serving origin, not a hardcoded apex (ADR 0011).
+    // Bare /products URL, no query params.
+    const origin = new URL(res.url()).origin;
+    const canonical = html.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/)?.[1];
+    expect(canonical, 'canonical <link> must point at /products on the serving origin').toBe(
+      `${origin}/products`,
     );
 
     // og:type for an index page must be "website", not "article".

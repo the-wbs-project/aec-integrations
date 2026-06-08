@@ -23,7 +23,6 @@
 import { isPlatformServer } from '@angular/common';
 import {
   PLATFORM_ID,
-  REQUEST,
   REQUEST_CONTEXT,
   RESPONSE_INIT,
   TransferState,
@@ -38,6 +37,7 @@ import {
   fetchTaxonomyTermBySlug,
   type TaxonomyTermDetail,
 } from '../core/api/taxonomy';
+import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -71,11 +71,9 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
 
     // Server path.
     const meta = inject(MetaService);
-    const request = inject(REQUEST, { optional: true });
     const ctx = inject(REQUEST_CONTEXT) as AeciRequestContext | null;
     const responseInit = inject(RESPONSE_INIT, { optional: true });
-    const origin = request ? new URL(request.url).origin : 'https://aecintegrations.com';
-    const canonical = `${origin}/${segment}/${slug}`;
+    const canonical = canonicalUrl(`/${segment}/${slug}`);
 
     // `REQUEST_CONTEXT` is only provided when the route uses RenderMode.Server.
     // The taxonomy routes sit under the catch-all server route, so this branch

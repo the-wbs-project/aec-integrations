@@ -4,12 +4,7 @@ import {
   provideBrowserGlobalErrorListeners,
   provideZonelessChangeDetection,
 } from '@angular/core';
-import {
-  provideClientHydration,
-  withEventReplay,
-  withHttpTransferCacheOptions,
-  withNoIncrementalHydration,
-} from '@angular/platform-browser';
+import { provideClientHydration, withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 
 import { routes } from './app.routes';
@@ -22,12 +17,13 @@ export const appConfig: ApplicationConfig = {
     provideHttpClient(withFetch()),
     provideRouter(routes),
     provideClientHydration(
-      withEventReplay(),
+      // Angular v22 incremental hydration is on by default and auto-enables event
+      // replay (withIncrementalHydration internally adds withEventReplay), so the
+      // explicit withEventReplay() is redundant. The two detail-page
+      // `@defer (… ; hydrate on viewport)` grids SSR-render their (resolver-only,
+      // visitor-state-neutral) content, so they stay edge-cache-neutral — see
+      // docs/CACHE_STRATEGY.md §6 and AECI-130.
       withHttpTransferCacheOptions({ includePostRequests: false }),
-      // v22 makes incremental hydration the default; opt out to keep pre-v22
-      // eager hydration behavior for this PR. Adopting incremental hydration is
-      // tracked as a separate follow-up (see the Angular v22 upgrade plan).
-      withNoIncrementalHydration(),
     ),
     provideDatadogRum(),
   ],

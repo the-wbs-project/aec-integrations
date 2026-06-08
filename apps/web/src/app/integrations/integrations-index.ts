@@ -5,6 +5,7 @@ import { firstValueFrom } from 'rxjs';
 
 import type { IntegrationsListResponse } from '@aeci/shared';
 
+import { canonicalUrl } from '../core/canonical';
 import { IndexLayout } from '../layouts/index-layout';
 import { Paginator } from '../products/paginator';
 import { SortableColumnHeader } from '../products/sortable-column-header';
@@ -267,7 +268,7 @@ export class IntegrationsIndex {
       entity: 'index',
       name: $localize`:@@integrations.index.metaName:Integrations`,
       description: $localize`:@@integrations.index.metaDescription:The directory of every integration between AEC software products on AEC Integrations. Filterable by source and target product.`,
-      canonical: 'https://aecintegrations.com/integrations',
+      canonical: canonicalUrl('/integrations'),
     },
   });
 

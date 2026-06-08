@@ -331,8 +331,8 @@ Secrets are stored in three places:
 
 | Secret | Staging Worker | Prod Worker | GH Actions | Notes |
 | --- | --- | --- | --- | --- |
-| `DATABASE_URL` (staging Prisma Accelerate `prisma://…`) | ✅ on `aeci-{api}-staging` | ❌ | ✅ as `DATABASE_URL_STAGING` (CI tooling that needs raw access uses `DIRECT_URL_STAGING` instead) | Worker runtime path only. Never the pooler URL. Also the value to put in local `apps/api/.dev.vars` to run the API Worker locally — see "Local dev: running the API Worker". |
-| `DATABASE_URL` (prod Prisma Accelerate `prisma://…`) | ❌ | ✅ on `aeci-{api}-production` | ✅ as `DATABASE_URL_PRODUCTION` | Worker runtime path only. |
+| `DATABASE_URL` (staging Prisma Accelerate `prisma://…`) | ✅ on `aeci-{api}-staging` (CI-pushed) | ❌ | ✅ as `DATABASE_URL_STAGING` (CI tooling that needs raw access uses `DIRECT_URL_STAGING` instead) | Worker runtime path only. Never the pooler URL. `deploy-staging` re-pushes it to the Worker from the GH secret each deploy (see note below table). Also the value to put in local `apps/api/.dev.vars` to run the API Worker locally — see "Local dev: running the API Worker". |
+| `DATABASE_URL` (prod Prisma Accelerate `prisma://…`) | ❌ | ✅ on `aeci-{api}-production` (CI-pushed) | ✅ as `DATABASE_URL_PRODUCTION` | Worker runtime path only. `promote-to-prod.yml` re-pushes it to the Worker from the GH secret each promote (see note below table). |
 | `DIRECT_URL_STAGING` (Supabase pooler `postgresql://…`) | ❌ | ❌ | ✅ | Used by `supabase db push`, `pg_dump`, `pg_restore`. Workers never see this. |
 | `DIRECT_URL_PRODUCTION` | ❌ | ❌ | ✅ | Same. |
 | Supabase service role key (staging) | ✅ on staging Workers | ❌ | ✅ as `SUPABASE_SERVICE_ROLE_KEY_STAGING` | |
@@ -353,6 +353,23 @@ Secrets are stored in three places:
 | `ALGOLIA_ADMIN_KEY` (per-env management) | ✅ on API Worker | ✅ on API Worker | ✅ as `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env management key (search + index-mutation, index-scoped) — sync from 3.5. **Never on the web Worker / never client-exposed.** Not the app-wide root admin key. |
 
 All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL --env staging` (and the same for `--env production` once the prod project exists).
+
+> **`DATABASE_URL` and `REVIEW_APP_TOKEN` are pushed automatically by CI.** `deploy.yml` (`deploy-staging`) re-pushes them to the staging API Worker from `DATABASE_URL_STAGING` + `REVIEW_APP_TOKEN`; `promote-to-prod.yml` (`deploy-prod-workers`) does the same to the prod API Worker from `DATABASE_URL_PRODUCTION` + `REVIEW_APP_TOKEN`. Idempotent, right after the API Worker deploys. The manual `wrangler secret put` is only needed to bootstrap a Worker *before* its first CI deploy (and as a fallback). The other Worker secrets in §6 are still pushed by hand.
+
+### The required-secrets rule (CI fails closed)
+
+**A deploy/promote will not proceed to an environment that is missing a secret it needs.** Three gates enforce it; the required vs. recommended split must stay in sync with the runtime contracts in `apps/api/src/env.ts` and `apps/web/src/env.ts`:
+
+1. **Preflight** — `scripts/require-secrets.sh` runs *before* any deploy (staging: first step of `deploy-staging`; prod: `pre-promotion-checks`, **before** the approval gate and any snapshot/migration). It fails the run, listing every missing **required** GH Actions secret at once, so nothing is deployed and no DB is touched. **Recommended-but-optional** secrets only emit a `::warning::`.
+2. **Push** — the required Worker runtime secrets (`DATABASE_URL`, `REVIEW_APP_TOKEN`) are pushed to the API Worker from those GH secrets (idempotent), each fail-loud if its source is empty.
+3. **Postflight** — `scripts/verify-worker-secrets.sh` lists the live Worker's secrets (`wrangler secret list`) and asserts the required runtime names are actually present; `scripts/verify-health.sh` proves the DB is reachable. Both run after deploy and fail the release if the environment didn't end up with what it needs.
+
+| Tier | Staging (`deploy.yml`) | Production (`promote-to-prod.yml`) | Effect if missing |
+| --- | --- | --- | --- |
+| **Required (fail)** | `DATABASE_URL_STAGING`, `REVIEW_APP_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | + `DATABASE_URL_PRODUCTION`, `DIRECT_URL_PRODUCTION`, `SUPABASE_ACCESS_TOKEN`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT` | Deploy/promote refused |
+| **Recommended (warn)** | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `DIRECT_URL_STAGING` | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID` | Degraded only (observability / cache-purge); deploy proceeds |
+
+To make a recommended secret blocking, move its name from `RECOMMENDED_SECRETS` to `REQUIRED_SECRETS` in the relevant workflow's preflight step (and, if it's a Worker runtime secret, add a push step + the postflight `REQUIRED_WORKER_SECRETS` list).
 
 ## GitHub Environments
 
@@ -438,7 +455,7 @@ Run from `apps/api` and `apps/web` respectively:
 
 ```bash
 cd apps/api
-wrangler secret put DATABASE_URL --env staging              # Prisma Accelerate prisma://…
+wrangler secret put DATABASE_URL --env staging              # Prisma Accelerate prisma://… — OPTIONAL: deploy-staging re-pushes this from DATABASE_URL_STAGING on every deploy; run it by hand only to bootstrap before the first CI deploy
 wrangler secret put DIRECT_URL --env staging                # Supabase pooler postgresql://… (only used by `prisma db pull` locally; harmless on Worker)
 wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env staging
 wrangler secret put DD_API_KEY --env staging
@@ -499,7 +516,7 @@ These steps must land before the first successful `promote-to-prod.yml` run. Non
   gh secret set SUPABASE_SERVICE_ROLE_KEY_PRODUCTION --body "<service role key>"
   ```
 - [ ] **Datadog deploy-marker secret.** `gh secret set DATADOG_API_KEY --body "<key>"` (already exists for Worker runtime intake; CI needs its own copy to POST to `/api/v1/events`).
-- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`.
+- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`. **Exception:** `DATABASE_URL` on the prod API Worker is pushed automatically by `promote-to-prod.yml` from the `DATABASE_URL_PRODUCTION` GH secret (set above) on every promote, so you don't need to push it by hand — but you *can* (the manual put is the fallback and harmless). All the other secrets (`DIRECT_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DD_*`, `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID`, `LOOPS_API_KEY`, …) are still manual.
 - [ ] **Algolia production indexes + keys (AECI-134).** With the root creds exported (as in §6b), `node scripts/algolia/provision.mjs --env production`. Then:
   ```bash
   gh secret set ALGOLIA_SEARCH_KEY_PRODUCTION --body "<printed search key>"

@@ -49,7 +49,7 @@ import { ProductCard } from '../products/product-card';
                   >Home</a
                 >
               </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
+              <li aria-hidden="true" class="text-(--text-secondary)">›</li>
               <li>
                 @if (parentLink(); as link) {
                   <a
@@ -61,7 +61,7 @@ import { ProductCard } from '../products/product-card';
                   <span>{{ parentLabel() }}</span>
                 }
               </li>
-              <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
+              <li aria-hidden="true" class="text-(--text-secondary)">›</li>
               <li class="text-(--text-primary)" aria-current="page">{{ t.name }}</li>
             </ol>
           </nav>
@@ -74,12 +74,12 @@ import { ProductCard } from '../products/product-card';
             <p class="max-w-prose text-(--text-secondary)">{{ t.description }}</p>
           }
 
-          <p class="text-sm text-(--text-tertiary)">{{ productCountLabel() }}</p>
+          <p class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</p>
         </div>
 
         <div slot="filters">
           <div
-            class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-4 text-sm text-(--text-tertiary)"
+            class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-4 text-sm text-(--text-secondary)"
             aria-hidden="true"
           >
             <p class="font-bold text-(--text-secondary)" i18n="@@taxonomy.browse.filters.title">

@@ -131,7 +131,7 @@ describe('createDetailResolver — server path', () => {
     expect(stateKeys['aeci.test-detail:widget']).toEqual(ENTITY);
   });
 
-  it('falls back to the production origin when REQUEST is absent', async () => {
+  it('falls back to the serving origin (DOM location) when REQUEST is absent', async () => {
     const config = buildConfig();
     const ctx = createRequestContext(buildClient());
 
@@ -146,11 +146,14 @@ describe('createDetailResolver — server path', () => {
 
     await run();
 
+    // No REQUEST → `canonicalUrl()` uses the DOM `location.origin` so a canonical rebuilt
+    // without a request still self-references the serving host (ADR 0011). The bare apex is
+    // only the no-DOM (prerender) rung — exercised directly in `canonical.component.spec.ts`.
     expect(config.onResolved).toHaveBeenCalledWith(
       ctx,
       expect.anything(),
       ENTITY,
-      'https://aecintegrations.com/tests/widget',
+      `${document.location.origin}/tests/widget`,
     );
   });
 

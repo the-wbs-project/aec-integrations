@@ -32,9 +32,13 @@
 #        brief mismatch lands with the safer (API-ahead-of-SSR) ordering.
 #      - Both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
 #        per CLAUDE.md non-negotiable.
+#      - After the API deploy, pushes the `DATABASE_URL` Worker secret from
+#        `DATABASE_URL_PRODUCTION` (idempotent) so the prod API Worker always has
+#        a DB connection — secrets aren't set by `wrangler deploy`.
 #      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
-#      - Polls `demo.aecintegrations.com/api/version` (public, no Access headers)
-#        until it reports `inputs.commit_sha`. Fails after 60s.
+#      - Polls `demo.aecintegrations.com` (public, no Access headers) until BOTH
+#        Workers report `inputs.commit_sha` AND `/api/health` is `db:ok`. Fails
+#        after 60s (a DB-unreachable prod fails the promote rather than shipping).
 #
 # Historical gotcha (carried over from AECI-77): `prisma-drift-check.sh`
 # used to fail with Prisma P4002 against any DB containing the cross-schema
@@ -43,7 +47,26 @@
 # the P4002 landmine is gone and the drift step now reports real drift.
 # Hard-stop-on-drift behaviour is still in force per the AECI-71 spec.
 #
+# THE RULE (do not promote if required secrets are missing): the first job
+# (pre-promotion-checks) runs `scripts/require-secrets.sh` over the secrets below
+# BEFORE the approval gate or any snapshot/migration. A missing REQUIRED secret
+# fails the run immediately — nothing is deployed and the DB is never touched.
+# After deploy, `scripts/verify-worker-secrets.sh` asserts the prod API Worker
+# actually carries DATABASE_URL + REVIEW_APP_TOKEN. Recommended-but-optional
+# secrets (ADMIN_PURGE_TOKEN, DATADOG_API_KEY, CF_PURGE_API_TOKEN, CF_ZONE_ID)
+# only warn. See docs/environments.md §Secrets.
+#
 # Required GH Actions secrets:
+#   DATABASE_URL_PRODUCTION  Prisma Accelerate `prisma://...` for prod. Pushed to
+#                            the prod API Worker as its `DATABASE_URL` secret on
+#                            every promote (idempotent) so a fresh
+#                            `aeci-api-production` can never go live without a DB
+#                            connection. Worker RUNTIME path only — never the
+#                            pooler URL. (docs/environments.md §8.)
+#   REVIEW_APP_TOKEN         Bearer gating the API Worker's POST /api/promote
+#                            (review-app → Supabase push). Pushed to the prod API
+#                            Worker each promote; absent → promote is 401
+#                            fail-closed. Worker RUNTIME path. Shared across envs.
 #   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod
 #                            (read+write — pg_dump and supabase db push).
 #   SUPABASE_ACCESS_TOKEN    For `supabase link` / `supabase migration list`
@@ -129,6 +152,38 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit_sha }}
+
+      # -----------------------------------------------------------------------
+      # Step 2b: THE RULE — refuse to promote if prod is missing a required
+      #   secret. Runs in pre-promotion-checks (unattended, BEFORE the approval
+      #   gate and BEFORE any snapshot/migration), so a misconfigured prod fails
+      #   here and nothing destructive runs. Required = every secret the promote
+      #   and the prod Workers' runtime need (Worker DATABASE_URL/REVIEW_APP_TOKEN
+      #   are pushed in deploy-prod-workers from the GH secrets asserted here).
+      #   Recommended-but-optional (Datadog / cache-purge) only warn. Keep in
+      #   sync with apps/api/src/env.ts + docs/environments.md §Secrets.
+      # -----------------------------------------------------------------------
+      - name: Preflight — required secrets present (production)
+        env:
+          DATABASE_URL_PRODUCTION: ${{ secrets.DATABASE_URL_PRODUCTION }}
+          REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
+          DIRECT_URL_PRODUCTION: ${{ secrets.DIRECT_URL_PRODUCTION }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          CF_PURGE_API_TOKEN: ${{ secrets.CF_PURGE_API_TOKEN }}
+          CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          ENV_LABEL: production
+          REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID'
+        run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
       # Step 3: Toolchain
@@ -436,6 +491,57 @@ jobs:
         working-directory: apps/api
         run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
+      # Ensure the prod API Worker has its DATABASE_URL secret before it serves
+      # traffic. Worker secrets persist across `wrangler deploy`, so once set this
+      # is a no-op — but pushing it idempotently here means a freshly-created
+      # `aeci-api-production` can never go live without a DB connection. A missing
+      # DATABASE_URL makes every DB endpoint 500, turning blocking-resolver SSR
+      # routes (e.g. /categories) into 404s while httpResource routes (/products,
+      # /vendors) render empty — the incident this guards against. Runs AFTER
+      # `Deploy API` (the Worker must exist) and BEFORE the smoke test, whose
+      # /api/health gate (added below) now fails the promote if the DB is still
+      # unreachable instead of shipping a broken prod. `secret put` preserves the
+      # --var COMMIT_SHA/DEPLOYED_AT from the deploy above (it patches one
+      # binding, not the whole version) — the deploy→secret order pr-preview.yml
+      # relies on. `DATABASE_URL_PRODUCTION` is the prod Accelerate prisma:// URL
+      # (docs/environments.md §8). printf (not echo) avoids a trailing newline
+      # that would corrupt the URL.
+      - name: Push DATABASE_URL to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$DATABASE_URL_VALUE" ]; then
+            echo "::error::DATABASE_URL_PRODUCTION secret is empty. The prod API Worker needs it (Prisma Accelerate prisma:// URL) or every DB endpoint 500s. Set it with: gh secret set DATABASE_URL_PRODUCTION --body '<prisma:// URL>' (docs/environments.md §8)."
+            exit 1
+          fi
+          printf '%s' "$DATABASE_URL_VALUE" \
+            | pnpm exec wrangler secret put DATABASE_URL --env production
+
+      # Push REVIEW_APP_TOKEN to the prod API Worker (same idempotent pattern as
+      # DATABASE_URL). It gates `POST /api/promote` (the review-app → Supabase
+      # push); absent → the endpoint is 401 fail-closed and the promotion
+      # pipeline is dead. The preflight already proved the GH secret is non-empty;
+      # this places it on the Worker and the postflight (verify-worker-secrets.sh)
+      # confirms it landed.
+      - name: Push REVIEW_APP_TOKEN to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REVIEW_APP_TOKEN_VALUE: ${{ secrets.REVIEW_APP_TOKEN }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$REVIEW_APP_TOKEN_VALUE" ]; then
+            echo "::error::REVIEW_APP_TOKEN secret is empty. The prod API Worker needs it or POST /api/promote is 401 fail-closed (promotion pipeline dead)."
+            exit 1
+          fi
+          printf '%s' "$REVIEW_APP_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put REVIEW_APP_TOKEN --env production
+
       - name: Deploy SSR (production)
         id: deploy_ssr
         env:
@@ -443,6 +549,22 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: apps/web
         run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+
+      # Postflight enforcement of THE RULE at the Worker level: assert the prod
+      # API Worker actually carries its required runtime secrets after the pushes
+      # above. verify-version/verify-health can't observe REVIEW_APP_TOKEN, so
+      # inspect the live Worker via `wrangler secret list`. A failure here means a
+      # push silently no-op'd — fix the GH secret and re-promote. (Runs before the
+      # smoke step, so on failure the auto-rollback below — gated on smoke — does
+      # not fire; the job goes red and the failure runbook prints.)
+      - name: Verify production API Worker has required secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WRANGLER_ENV: production
+          REQUIRED_WORKER_SECRETS: 'DATABASE_URL REVIEW_APP_TOKEN'
+        working-directory: apps/api
+        run: bash ../../scripts/verify-worker-secrets.sh
 
       # -----------------------------------------------------------------------
       # Datadog deployment marker (docs/CICD_PLAN.md §9.1). Markers show as
@@ -472,13 +594,22 @@ jobs:
                   }')"
 
       # -----------------------------------------------------------------------
-      # Smoke test: poll production until BOTH the API (/api/version) and the
-      # SSR Worker's own (/_version, AECI-92) report the promoted SHA, or fail
-      # after the 60s budget. /api/version is proxied raw to the API Worker, so
-      # on its own it can't catch a stale SSR deploy. Production is public so no
-      # Cloudflare Access headers are set; verify-version.sh omits them.
+      # Smoke test: poll production until the release is fully healthy, or fail
+      # after the 60s budget. Two gates, both required:
+      #   - verify-version.sh: BOTH the API (/api/version) and the SSR Worker's
+      #     own (/_version, AECI-92) report the promoted SHA. /api/version is
+      #     proxied raw to the API Worker, so on its own it can't catch a stale
+      #     SSR deploy.
+      #   - verify-health.sh: /api/health returns {"ok":true,"db":"ok"}, proving
+      #     the prod API Worker can actually reach the DB (DATABASE_URL is set).
+      #     The version gate reads vars, not the DB, so without this a Worker
+      #     promoted without its DATABASE_URL secret would pass green while every
+      #     DB endpoint 500s and /categories 404s. A failure here trips the
+      #     auto-rollback below (smoke.outcome == 'failure').
+      # Production is public so no Cloudflare Access headers are set; both scripts
+      # omit them when CF_ACCESS_* are unset.
       # -----------------------------------------------------------------------
-      - name: Smoke test production (API + SSR at SHA)
+      - name: Smoke test production (API + SSR at SHA, DB healthy)
         id: smoke
         env:
           HOST: https://demo.aecintegrations.com
@@ -486,13 +617,13 @@ jobs:
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do
-            if bash scripts/verify-version.sh; then
+            if bash scripts/verify-version.sh && bash scripts/verify-health.sh; then
               exit 0
             fi
-            echo "Attempt $attempt: production not yet at $EXPECTED_SHA on both Workers. Retrying in 6s..."
+            echo "Attempt $attempt: production not yet at $EXPECTED_SHA on both Workers, or /api/health not green. Retrying in 6s..."
             sleep 6
           done
-          echo "::error::Production did not report $EXPECTED_SHA on BOTH the API and SSR Workers within 60s"
+          echo "::error::Production did not reach $EXPECTED_SHA on BOTH Workers AND a healthy /api/health (db:ok) within 60s"
           exit 1
 
       # -----------------------------------------------------------------------
