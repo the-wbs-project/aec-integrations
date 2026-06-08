@@ -26,7 +26,6 @@
 import { isPlatformServer } from '@angular/common';
 import {
   PLATFORM_ID,
-  REQUEST,
   REQUEST_CONTEXT,
   RESPONSE_INIT,
   TransferState,
@@ -37,9 +36,8 @@ import { ResolveFn } from '@angular/router';
 
 import type { ServerApiClient } from '../../server-api-client';
 import type { AeciRequestContext } from '../../server/request-context';
+import { canonicalUrl } from './canonical';
 import { MetaService, type EntityKind } from './meta.service';
-
-const DEFAULT_ORIGIN = 'https://aecintegrations.com';
 
 export interface DetailResolverConfig<T extends { id: string }> {
   /** TransferState key prefix, e.g. `aeci.product-detail:`. The route param is
@@ -81,11 +79,9 @@ export function createDetailResolver<T extends { id: string }>(
 
     // Server path.
     const meta = inject(MetaService);
-    const request = inject(REQUEST, { optional: true });
     const ctx = inject(REQUEST_CONTEXT) as AeciRequestContext | null;
     const responseInit = inject(RESPONSE_INIT, { optional: true });
-    const origin = request ? new URL(request.url).origin : DEFAULT_ORIGIN;
-    const canonical = `${origin}/${config.pathSegment}/${param}`;
+    const canonical = canonicalUrl(`/${config.pathSegment}/${param}`);
 
     // `REQUEST_CONTEXT` is only provided by `@angular/ssr` when the route uses
     // `RenderMode.Server`. The detail routes sit under the catch-all server

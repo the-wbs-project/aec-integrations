@@ -379,8 +379,8 @@ Every page sets:
 
 - `<title>` — page-specific, formatted as `"{entity name} — AEC Integrations"` for details, `"{Taxonomy term} tools — AEC Integrations"` for browse
 - `<meta name="description">` — pulled from the entity's description, truncated to ~155 chars
-- `<link rel="canonical">` — the canonical URL for this entity (no query params)
-- Open Graph: `og:title`, `og:description`, `og:url`, `og:type`, `og:image` (logo where available, otherwise default OG image)
+- `<link rel="canonical">` — the canonical URL for this entity (no query params). The base is the **serving origin** (self-referential, multi-host), **not** a hardcoded apex: each host canonicalises to itself. `MetaService` builds it via `apps/web/src/app/core/canonical.ts` → `canonicalUrl()` (server: SSR `REQUEST` origin; client: `location.origin`; production apex only as the no-request fallback). See **ADR 0011** for the rationale (future-proofs the pre-launch `demo.aecintegrations.com` → apex/www promotion; non-prod hosts are Cloudflare-Access-gated so their self-canonicals never reach the public index). Exceptions: the 404 page self-references the requested URL, and the `/preview/*` design samples keep a fixed apex canonical.
+- Open Graph: `og:title`, `og:description`, `og:url` (same serving-origin canonical as above), `og:type`, `og:image` (logo where available, otherwise default OG image)
 - Twitter card equivalents
 
 Implementation: a `MetaService` in `apps/web/src/app/core/` that pages call from their resolver. SSR sets the `<head>` tags before sending HTML.

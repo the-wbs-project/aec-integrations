@@ -20,8 +20,11 @@ test.describe('/categories — category index (AECI-61)', () => {
     expect(html, '<title> must include "Categories · AEC Integrations"').toMatch(
       /<title[^>]*>[^<]*Categories[^<]*· AEC Integrations[^<]*<\/title>/i,
     );
-    expect(html, 'canonical <link> must point at /categories').toMatch(
-      /<link[^>]+rel="canonical"[^>]+href="https:\/\/aecintegrations\.com\/categories"/,
+    // Canonical is self-referential — the serving origin, not a hardcoded apex (ADR 0011).
+    const origin = new URL(res.url()).origin;
+    const canonical = html.match(/<link[^>]+rel="canonical"[^>]+href="([^"]+)"/)?.[1];
+    expect(canonical, 'canonical <link> must point at /categories on the serving origin').toBe(
+      `${origin}/categories`,
     );
     // Index page → og:type "website", not "article".
     expect(html, 'og:type must be "website" for an index page').toMatch(
