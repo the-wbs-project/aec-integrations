@@ -13,7 +13,9 @@ import { RouterLink } from '@angular/router';
  *   - Text: `text-primary`, shifts to `accent-primary` on hover (Forest in
  *     light, Dark Forest in dark) — matches the link-color contract from
  *     `DESIGN.md` §"Forest-Anchor Rule"
- *   - Typography: `label` role (Atkinson Hyperlegible 700 / 13px)
+ *   - Typography: Atkinson Hyperlegible medium (500) / 13px — a lighter weight
+ *     than the `label` role (700); taxonomy chips are navigational tags, not
+ *     button affordances. See `DESIGN.md` §5 → "Tags / taxonomy chips".
  *   - Shape: `rounded.sm` (4px) — chips, not pills (the pill shape is
  *     reserved for vendor-verified badges per the DESIGN.md badge specs)
  *
@@ -36,7 +38,7 @@ export type TaxonomyKind = 'category' | 'audience' | 'phase';
     <a
       [routerLink]="routerLink()"
       class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
-        bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-bold tracking-[0.01em]
+        bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-medium tracking-[0.01em]
         text-(--text-primary) no-underline transition-colors duration-150
         hover:border-(--border-strong) hover:text-(--accent-primary)
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
