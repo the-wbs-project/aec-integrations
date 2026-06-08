@@ -22,28 +22,23 @@
 # merges to main stay green.
 #
 # Phase 1.19 (AECI-33) added:
-#   - e2e-tests-local           — Playwright + axe smoke against `pnpm dev:bound`
-#   - integration-runner-local  — apps/web/scripts/run-extra-tests.sh against local
+#   - e2e-and-integration       — Playwright + axe smoke AND apps/web/scripts/run-extra-tests.sh,
+#                                 both against one `pnpm dev:bound` (merged from the former
+#                                 e2e-tests-local + integration-runner-local jobs)
 #   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED — see header note re: pr-preview.yml)
 #   - integration-runner-preview — extras script against preview URL (PARKED — see header note re: pr-preview.yml)
 #   - lighthouse                — Lighthouse CI, warn-only (PARKED, Phase 7)
 #
-# AECI-90 added:
-#   - integration-db-tests      — runs the apps/api `src/integration/**` suites
-#                                 (PostgREST RLS deny matrix, the auth-user-delete
-#                                 GDPR trigger, idempotent Airtable→Supabase bulk
-#                                 migrate, landing-form RLS, product-count drift,
-#                                 slug backfill) against a FULL local Supabase
-#                                 stack booted on the runner. Mirrors
-#                                 drift-check.yml's local-Supabase pattern and
-#                                 needs NO repo secrets. Every spec is
-#                                 `describe.skipIf(<env unset>)`, so the job mints
-#                                 a test-user JWT and fails on any 0-collected OR
-#                                 silently-skipped result (guards the green check).
-#                                 NON-BLOCKING for now: intentionally NOT in
-#                                 deploy-staging.needs. Promote to a required
-#                                 check once stable.
-#   - unit-tests also runs `pnpm -r run test:coverage` as an ADVISORY,
+# AECI-90 added the apps/api `src/integration/**` suites (PostgREST RLS deny
+# matrix, auth-user-delete GDPR trigger, idempotent Airtable→Supabase bulk
+# migrate, product-count drift, slug backfill) against a FULL local Supabase
+# stack. Those moved OUT of this workflow into
+# `.github/workflows/integration-db-tests.yml`, which is path-gated (runs only on
+# PRs touching supabase/migrations, the API schema, or the API source the specs
+# exercise) with a nightly backstop — they booted a full Supabase stack
+# (~4 billable min) on every PR push otherwise. Still NON-BLOCKING / not required.
+#
+# AECI-90 also has unit-tests run `pnpm -r run test:coverage` as an ADVISORY,
 #                                 non-blocking step (continue-on-error) per
 #                                 docs/TESTING_STRATEGY.md §3.3 — coverage is
 #                                 generated and uploaded, never a merge gate.
@@ -98,8 +93,18 @@ name: deploy
 on:
   pull_request:
     branches: [main]
+    # Skip the full CI suite for docs-only changes (markdown + docs/). A PR that
+    # also touches code still runs — paths-ignore only skips when EVERY changed
+    # file matches. `main` has no required status checks, so a skipped run can't
+    # deadlock a merge.
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
   push:
     branches: [main]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
 
 # Cancel superseded runs on the same PR / branch.
 concurrency:
@@ -207,20 +212,38 @@ jobs:
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
+      # On a PR, only do the (slow) Supabase install + link + `db push` + the
+      # Accelerate-propagation sleep when the change could actually move the dev
+      # DB schema. Most PRs don't touch migrations, so they skip ~1 min of work
+      # and stop blocking the downstream e2e job on the 30s sleep. `push` to main
+      # always runs (rare; the push is a no-op once the PR already applied it).
+      - name: Detect migration-affecting changes (PR only)
+        id: changes
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            migrations:
+              - 'supabase/migrations/**'
+              - 'supabase/config.toml'
+              - 'apps/api/prisma/schema.prisma'
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
+      - if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
+        run: pnpm install --frozen-lockfile
       - name: Install Supabase CLI
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         run: npm install -g supabase@latest
       # Fail loudly and early when the bootstrap secrets/vars are missing —
       # otherwise `supabase link` produces a generic "unauthorized" or
       # "project not found" error that's harder to diagnose. Matches the
       # gating style of the DATABASE_URL_STAGING check in e2e-tests-local.
       - name: Verify required secrets and vars
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DEV_PROJECT_REF: ${{ vars.SUPABASE_DEV_PROJECT_REF }}
@@ -234,6 +257,7 @@ jobs:
             exit 1
           fi
       - name: supabase link
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           SUPABASE_DEV_PROJECT_REF: ${{ vars.SUPABASE_DEV_PROJECT_REF }}
@@ -243,6 +267,7 @@ jobs:
       # already at HEAD. Forward-only by definition (Supabase doesn't run
       # down-migrations).
       - name: supabase db push
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: supabase db push --linked --include-all
@@ -258,6 +283,7 @@ jobs:
       # asserted by the downstream e2e/edge jobs. Add the secret to enable the
       # dev seed. See docs/adr/0008-taxonomy-reference-data.md.
       - name: Seed taxonomy reference data
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         env:
           PGURL: ${{ secrets.DIRECT_URL_STAGING }}
         run: |
@@ -272,6 +298,7 @@ jobs:
       # `scripts/measure-accelerate-lag.mjs` for the empirical measurement
       # that produced this number; 30s = 1.1s observed + ~30s margin.
       - name: Wait for Prisma Accelerate cache propagation
+        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         run: sleep 30
 
   build-web:
@@ -295,14 +322,16 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  e2e-tests-local:
-    name: E2E + axe (local)
-    # Re-enabled 2026-05-28. Depends on `db-migrate-dev` which now sleeps 30s
-    # post-push to let Accelerate's schema cache catch up. See the
-    # measurement note on `db-migrate-dev` above.
+  e2e-and-integration:
+    name: E2E + axe + edge-cache (local)
+    # Merged from the former `e2e-tests-local` + `integration-runner-local` jobs.
+    # Both booted `pnpm dev:bound` and rebuilt the SSR Worker independently, so
+    # the web app was built 3x per run (here x2 + build-web). This job now
+    # downloads build-web's `web-dist` artifact and boots dev:bound ONCE, then
+    # runs Playwright e2e + the edge-cache extras script against the same server.
     runs-on: ubuntu-latest
     needs: [build-web, db-migrate-dev]
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install pnpm
@@ -313,6 +342,13 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @aeci/api exec prisma generate
+      # Reuse build-web's bundle instead of rebuilding. `apps/web` dev:preview is
+      # `wrangler dev` over the prebuilt `dist/` (it does NOT build), so the
+      # downloaded artifact is exactly what dev:bound serves on :8788.
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
       # Cache Playwright browsers so subsequent runs skip the ~150MB download.
       - uses: actions/cache@v4
         id: playwright-cache
@@ -323,221 +359,55 @@ jobs:
         run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
       - if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @aeci/web exec playwright install-deps chromium
-      # Build the SSR Worker bundle before booting `dev:bound`. `dev:preview`
-      # invokes `wrangler dev` directly (no implicit build), so without this
-      # step wrangler fails with "dist/server/server.mjs was not found".
-      # `build-web` is a `needs:` dependency for ordering only — its artifact
-      # is not downloaded here, so we rebuild locally.
-      - run: pnpm --filter @aeci/web build
-      # Wire DATABASE_URL into the API Worker before `dev:bound` boots it.
-      # `wrangler dev` reads secrets from `apps/api/.dev.vars` (gitignored).
-      # Without this file the Worker boots with `DATABASE_URL` unset and
-      # every Prisma query throws `PrismaClientInitializationError`, which
-      # propagates as a 500 to the SSR Worker — turning AECI-57's product
-      # detail "missing slug → 404" path into a generic 404 (no panel
-      # rendered) and AECI-58's product index into an error state with no
-      # table to assert against.
-      #
-      # `DATABASE_URL_STAGING` is the dev project's Accelerate URL (Option 1
-      # shared dev DB — same value pr-preview.yml uses). The e2e suite is
-      # data-shape-tolerant (assertions don't depend on specific rows), so
-      # any dev/staging-shaped DB works.
+      # Wire DATABASE_URL into the API Worker before dev:bound boots it. Without
+      # it the API Worker boots with DATABASE_URL unset and every Prisma query
+      # 500s (see AECI-57/58). DATABASE_URL_STAGING = the dev project's Accelerate
+      # URL (Option 1 shared dev DB); the e2e suite is data-shape-tolerant.
       - name: Write apps/api/.dev.vars for `pnpm dev:bound`
         env:
           DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
         run: |
           if [ -z "$DATABASE_URL_VALUE" ]; then
-            echo "::error::DATABASE_URL_STAGING secret is empty. E2E job needs it to boot the API Worker with a working Prisma connection. Configure under repo Settings → Secrets and variables → Actions."
+            echo "::error::DATABASE_URL_STAGING secret is empty. This job needs it to boot the API Worker with a working Prisma connection. Configure under repo Settings -> Secrets and variables -> Actions."
             exit 1
           fi
           printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
-      # Playwright's `webServer` in apps/web/playwright.config.ts boots
-      # `pnpm dev:bound` (both Workers) and waits for :8788 to be reachable.
-      - run: pnpm --filter @aeci/web run test:e2e
-      - uses: actions/upload-artifact@v4
+      # Boot both Workers once and wait on /api/health (NOT the SSR root `/`):
+      # `/api/health` proxies through the `env.API` service binding and only
+      # returns 200 once the binding is connected AND `SELECT 1` succeeds, ruling
+      # out the cold-start flake where `/` is up before the API binding is.
+      - name: Boot dev:bound (API + SSR) and wait for /api/health
+        run: |
+          nohup pnpm dev:bound > dev-bound.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/api/health; then
+              echo "dev:bound healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
+      # Playwright targets the already-running server (PLAYWRIGHT_BASE_URL set ->
+      # its `webServer` block is skipped, see apps/web/playwright.config.ts).
+      - name: E2E + axe (Playwright)
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:8788
+        run: pnpm --filter @aeci/web run test:e2e
+      # Edge-cache assertions against the same server. `!cancelled()` so it still
+      # runs (and reports) even if the e2e step above failed — both signals land.
+      - name: Edge-cache integration runner
+        if: ${{ !cancelled() }}
+        run: HOST=http://localhost:8788 ./apps/web/scripts/run-extra-tests.sh
+      - name: Upload Playwright report
         if: failure()
+        uses: actions/upload-artifact@v4
         with:
           name: playwright-report
           path: apps/web/playwright-report
           retention-days: 7
           if-no-files-found: ignore
-
-  integration-runner-local:
-    name: Edge-cache integration runner (local)
-    # Re-enabled 2026-05-28. Same rationale as `e2e-tests-local` — depends on
-    # `db-migrate-dev` which now waits for Accelerate cache propagation.
-    runs-on: ubuntu-latest
-    needs: [build-web, db-migrate-dev]
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @aeci/api exec prisma generate
-      - run: pnpm --filter @aeci/web build
-      # Boot both Workers in the background; the extras script handles its own
-      # preflight reachability check before exercising HTTP.
-      - name: Boot dev:bound (API + SSR)
-        run: nohup pnpm dev:bound > dev-bound.log 2>&1 &
-      - name: Wait for SSR Worker on :8788
-        run: |
-          for i in $(seq 1 60); do
-            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/; then
-              echo "ssr up after ${i}s"; exit 0
-            fi
-            sleep 1
-          done
-          echo "ssr did not come up in 60s"; tail -100 dev-bound.log; exit 1
-      - run: HOST=http://localhost:8788 ./apps/web/scripts/run-extra-tests.sh
-      - if: failure()
+      - name: dev:bound logs on failure
+        if: failure()
         run: tail -200 dev-bound.log || true
-
-  # AECI-90 — run the apps/api integration suites against a full local Supabase
-  # stack. These are the security-/correctness-critical suites that previously
-  # ran nowhere automated:
-  #   src/integration/vendor_requests.rls.spec.ts          (PostgREST deny matrix)
-  #   src/integration/landing_forms.rls.spec.ts            (PostgREST deny matrix)
-  #   src/integration/auth_user_delete_trigger.spec.ts     (GDPR delete trigger)
-  #   src/integration/airtable-to-supabase-bulk-migrate.spec.ts (idempotent migrate)
-  #   src/integration/product-counts.spec.ts               (denormalized-count drift)
-  #   src/integration/backfill-slugs.spec.ts               (slug backfill)
-  #
-  # Why local Supabase (not the shared dev DB): the auth-delete suite
-  # creates+deletes auth.users and the bulk-migrate suite inserts+deletes
-  # products/vendors/taxonomy. Running those against DATABASE_URL_STAGING (the
-  # dev DB staging serves, Option 1 in docs/environments.md) would be
-  # destructive and flaky. A local stack isolates the writes and supplies every
-  # key the specs need with no repo secrets. Pattern mirrors drift-check.yml,
-  # but boots the FULL stack (PostgREST + GoTrue), not Postgres-only.
-  #
-  # NON-BLOCKING: intentionally not in deploy-staging.needs. Reports red/green on
-  # PRs without gating the staging deploy while it proves out. Promote to a
-  # required check (branch protection / add to deploy-staging.needs) once stable.
-  integration-db-tests:
-    name: Integration suites (local Supabase)
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      # The integration specs import @prisma/client directly (e.g.
-      # auth_user_delete_trigger.spec.ts asserts via Prisma raw SQL). Generate
-      # the client before running. `prisma generate` does not hit the DB.
-      - run: pnpm --filter @aeci/api exec prisma generate
-      - name: Install Supabase CLI
-        run: npm install -g supabase@latest
-      # `supabase start` boots the FULL stack (Postgres + GoTrue + PostgREST +
-      # …) and replays every supabase/migrations/** file on a fresh DB. The RLS
-      # suites hit PostgREST `/rest/v1/*` and the auth-delete suite hits GoTrue
-      # `/auth/v1/admin/*`, so the Postgres-only `supabase db start` that
-      # drift-check.yml uses would not be enough.
-      - name: Boot local Supabase (full stack)
-        run: supabase start
-      # Remap the local stack's connection details into the env-var names the
-      # specs read (see apps/api/.dev.vars.example). `supabase status -o env`
-      # prints KEY="value" lines including API_URL, DB_URL, ANON_KEY,
-      # SERVICE_ROLE_KEY — all well-known local values, not secrets.
-      - name: Export Supabase connection env
-        run: |
-          set -euo pipefail
-          supabase status -o env > /tmp/supabase-status.env
-          # Log only the KEY names (not the local demo values) so a CLI-version
-          # change in the output schema is diagnosable.
-          echo "supabase status keys: $(cut -d= -f1 /tmp/supabase-status.env | tr '\n' ' ')"
-          set -a
-          # shellcheck disable=SC1091
-          . /tmp/supabase-status.env
-          set +a
-          missing=
-          for v in API_URL DB_URL ANON_KEY SERVICE_ROLE_KEY; do
-            if [ -z "${!v:-}" ]; then missing="${missing} ${v}"; fi
-          done
-          if [ -n "${missing}" ]; then
-            echo "::error::supabase status -o env did not provide:${missing} — output keys were: $(cut -d= -f1 /tmp/supabase-status.env | tr '\n' ' ')"
-            exit 1
-          fi
-          {
-            echo "SUPABASE_URL=${API_URL}"
-            echo "TEST_DATABASE_URL=${DB_URL}"
-            echo "SUPABASE_ANON_KEY=${ANON_KEY}"
-            echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
-          } >> "$GITHUB_ENV"
-      # Mint a non-admin authenticated-user JWT for the PostgREST RLS suites
-      # (vendor_requests.rls / landing_forms.rls). Without it those suites
-      # describe.skipIf themselves and the guard step below fails the job. The
-      # service-role key creates a confirmed user (mirrors
-      # auth_user_delete_trigger.spec.ts adminCreateUser); the password grant
-      # returns that user's access_token.
-      - name: Mint SUPABASE_TEST_USER_JWT
-        run: |
-          set -euo pipefail
-          email="aeci90-ci-$(date +%s)@example.com"
-          password="ci-$(openssl rand -hex 16)"
-          curl -fsS -X POST "${SUPABASE_URL}/auth/v1/admin/users" \
-            -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"${email}\",\"password\":\"${password}\",\"email_confirm\":true}" \
-            > /dev/null
-          token=$(curl -fsS -X POST "${SUPABASE_URL}/auth/v1/token?grant_type=password" \
-            -H "apikey: ${SUPABASE_ANON_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{\"email\":\"${email}\",\"password\":\"${password}\"}" \
-            | jq -r '.access_token // empty')
-          if [ -z "${token}" ]; then
-            echo "::error::Failed to mint SUPABASE_TEST_USER_JWT — GoTrue admin create or password grant failed."
-            exit 1
-          fi
-          echo "::add-mask::${token}"
-          echo "SUPABASE_TEST_USER_JWT=${token}" >> "$GITHUB_ENV"
-      # Runs `vitest run --config vitest.integration.config.ts` with the JSON
-      # reporter (no dotenv wrapper — env comes from the steps above via
-      # $GITHUB_ENV). Writes apps/api/integration-results.json for the guard.
-      - name: Run apps/api integration suites
-        run: pnpm --filter @aeci/api run test:integration:ci
-      # Guard against silent exclusion (AECI-90 AC #1). Every spec is wrapped in
-      # describe.skipIf(<env unset>); if the DB/keys above were not wired the
-      # suites would be COLLECTED but SKIPPED and vitest would still exit 0
-      # (numTotalTests>0 yet numPendingTests==33). So fail on 0-collected AND on
-      # any pending/skipped test — a green check must mean these security tests
-      # actually ran.
-      - name: Guard — fail on 0-collected or silently-skipped tests
-        run: |
-          set -euo pipefail
-          results="apps/api/integration-results.json"
-          if [ ! -f "${results}" ]; then
-            echo "::error::${results} not found — the vitest JSON reporter did not run."
-            exit 1
-          fi
-          total=$(jq '.numTotalTests' "${results}")
-          passed=$(jq '.numPassedTests' "${results}")
-          pending=$(jq '.numPendingTests' "${results}")
-          failed=$(jq '.numFailedTests' "${results}")
-          echo "integration totals: total=${total} passed=${passed} pending=${pending} failed=${failed}"
-          if [ "${total}" -eq 0 ]; then
-            echo "::error::0 integration tests collected — suites were excluded or no specs matched."
-            exit 1
-          fi
-          if [ "${pending}" -gt 0 ]; then
-            echo "::error::${pending} integration test(s) were skipped — the DB/Supabase env was not fully wired (describe.skipIf fired). Refusing a green check for un-run security tests."
-            exit 1
-          fi
-      - name: Stop local Supabase
-        if: always()
-        run: supabase stop || true
 
   e2e-tests-preview:
     name: E2E + axe (preview URL)
@@ -604,7 +474,7 @@ jobs:
     # gate keeps merges to main green during the bootstrap window.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main' && vars.STAGING_ENABLED == 'true'
     runs-on: ubuntu-latest
-    needs: [build-web, e2e-tests-local, integration-runner-local]
+    needs: [build-web, e2e-and-integration]
     environment:
       name: staging
       url: https://staging.aecintegrations.com
