@@ -15,6 +15,8 @@
  * built-by/powered-by) stay in their thin spec, using the exported
  * `createSetup` + `buildClient`.
  */
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import {
   PLATFORM_ID,
   REQUEST,
@@ -66,6 +68,7 @@ export interface DetailResolverSetupOpts {
 export interface DetailResolverHarness<T> {
   run: () => Promise<T | null>;
   transferState: TransferState;
+  httpMock: HttpTestingController;
 }
 
 /**
@@ -85,11 +88,16 @@ export function createSetup<T>(
         { provide: RESPONSE_INIT, useValue: opts.responseInit ?? null },
         { provide: REQUEST, useValue: opts.request ?? null },
         { provide: MetaService, useValue: opts.meta ?? {} },
+        // The client (in-app navigation) branch fetches via HttpClient against
+        // the same-origin `/api/*` passthrough (AECI-151); mock it.
+        provideHttpClient(),
+        provideHttpClientTesting(),
       ],
     });
 
     return {
       transferState: TestBed.inject(TransferState),
+      httpMock: TestBed.inject(HttpTestingController),
       run: () =>
         TestBed.runInInjectionContext(() =>
           resolver(buildRouteSnapshot(paramKey, paramValue), STATE),
@@ -106,6 +114,9 @@ export interface DetailResolverScenario<T> {
   paramValue: string;
   /** Full request URL the resolver reads for canonical/og construction. */
   url: string;
+  /** Same-origin path the client (in-app nav) branch fetches on a TransferState
+   *  miss, e.g. `/api/products/procore`. */
+  apiPath: string;
   /** TransferState key the resolver writes, e.g. `aeci.product-detail:procore`. */
   stateKey: string;
   /** Hydrated success fixture (with the relations the resolver tags as embedded). */
@@ -244,21 +255,24 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
     });
   });
 
-  describe(`${scenario.name}: client (hydration) path`, () => {
+  describe(`${scenario.name}: client (in-app navigation) path`, () => {
     beforeEach(() => TestBed.resetTestingModule());
 
-    it('reads from TransferState and does not call the API or mutate meta/ctx', async () => {
+    it('reads from TransferState on hydration (no fetch) and re-applies meta idempotently', async () => {
       const fixture = scenario.buildFixture();
       const apiRequest = vi.fn();
       const setEntityMeta = vi.fn();
+      const meta: Partial<MetaService> = { setEntityMeta };
+      const jsonLd = withJsonLd(meta, scenario.jsonLdMethod);
 
-      const { run, transferState } = setup({
+      const { run, transferState, httpMock } = setup({
         platform: 'browser',
-        // Browser context: REQUEST_CONTEXT is normally absent. We pass one with
-        // a stub client so any leaked fetch attempt surfaces as an `apiRequest`
-        // call we can assert *was not* made.
+        // Browser context: REQUEST_CONTEXT is normally absent. We pass one with a
+        // stub `ServerApiClient` so any leaked service-binding call surfaces as an
+        // `apiRequest` we can assert was NOT made (the client uses HttpClient).
         ctx: createRequestContext({ request: apiRequest } as unknown as ServerApiClient),
-        meta: { setEntityMeta },
+        request: new Request(scenario.url),
+        meta,
       });
       transferState.set(makeStateKey<T | null>(scenario.stateKey), fixture);
 
@@ -266,21 +280,63 @@ export function registerDetailResolverSuite<T>(scenario: DetailResolverScenario<
 
       expect(result).toEqual(fixture);
       expect(apiRequest).not.toHaveBeenCalled();
-      expect(setEntityMeta).not.toHaveBeenCalled();
+      httpMock.expectNone(scenario.apiPath); // a hydration HIT never refetches
+      // Meta IS re-applied client-side now (idempotent over the SSR-rendered head).
+      expect(setEntityMeta).toHaveBeenCalledWith(scenario.expectedMeta);
+      if (jsonLd) expect(jsonLd).toHaveBeenCalledWith(fixture);
     });
 
-    it('returns null on TransferState miss (no SSR snapshot for this key)', async () => {
+    it('fetches via the browser /api/* passthrough on a TransferState miss and applies meta', async () => {
+      const fixture = scenario.buildFixture();
       const apiRequest = vi.fn();
-      const { run } = setup({
+      const setEntityMeta = vi.fn();
+      const meta: Partial<MetaService> = { setEntityMeta };
+      const jsonLd = withJsonLd(meta, scenario.jsonLdMethod);
+
+      const { run, httpMock } = setup({
         platform: 'browser',
         ctx: createRequestContext({ request: apiRequest } as unknown as ServerApiClient),
-        meta: {},
+        request: new Request(scenario.url),
+        meta,
       });
 
-      const result = await run();
+      const promise = run();
+      const req = httpMock.expectOne(scenario.apiPath);
+      expect(req.request.method).toBe('GET');
+      req.flush(fixture as object);
+      const result = await promise;
+
+      expect(result).toEqual(fixture);
+      expect(apiRequest).not.toHaveBeenCalled(); // browser path, not the service binding
+      expect(setEntityMeta).toHaveBeenCalledWith(scenario.expectedMeta);
+      if (jsonLd) expect(jsonLd).toHaveBeenCalledWith(fixture);
+    });
+
+    it('renders not-found (setNotFoundMeta, null) on a NOT_FOUND client fetch', async () => {
+      const setEntityMeta = vi.fn();
+      const setNotFoundMeta = vi.fn();
+      const meta: Partial<MetaService> = { setEntityMeta, setNotFoundMeta };
+      withJsonLd(meta, scenario.jsonLdMethod);
+
+      const { run, httpMock } = setup({
+        platform: 'browser',
+        ctx: createRequestContext({ request: vi.fn() } as unknown as ServerApiClient),
+        request: new Request(scenario.url),
+        meta,
+      });
+
+      const promise = run();
+      httpMock
+        .expectOne(scenario.apiPath)
+        .flush(
+          { error: { code: 'NOT_FOUND', message: 'missing' } },
+          { status: 404, statusText: 'Not Found' },
+        );
+      const result = await promise;
 
       expect(result).toBeNull();
-      expect(apiRequest).not.toHaveBeenCalled();
+      expect(setNotFoundMeta).toHaveBeenCalledWith(scenario.notFound);
+      expect(setEntityMeta).not.toHaveBeenCalled();
     });
   });
 }

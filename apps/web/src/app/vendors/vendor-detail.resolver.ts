@@ -3,7 +3,8 @@
  *
  * The hydration / 404 / null-ctx SSR scaffold lives in `createDetailResolver`
  * (`../core/create-detail-resolver`). This file supplies only the vendor
- * specifics: the fetch fn and the `onResolved` side-effects.
+ * specifics: the fetch fn, `applyMeta` (head tags + JSON-LD, runs on SSR and
+ * on client navigations), and `pushEmbedded` (server-only Cache-Tag entities).
  *
  * On success → set page meta + JSON-LD; push embedded cache tags
  * (`product:{slug}` for each product shown on the vendor page) onto
@@ -20,7 +21,7 @@ export const vendorDetailResolver = createDetailResolver<VendorDetail>({
   pathSegment: 'vendors',
   entityKind: 'vendor',
   fetch: fetchVendorBySlug,
-  onResolved: (ctx, meta, vendor, canonical) => {
+  applyMeta: (meta, vendor, canonical) => {
     meta.setEntityMeta({
       entity: 'vendor',
       name: vendor.company_name,
@@ -29,7 +30,8 @@ export const vendorDetailResolver = createDetailResolver<VendorDetail>({
       ogImage: vendor.logo_url ?? undefined,
     });
     meta.setVendorJsonLd(vendor);
-
+  },
+  pushEmbedded: (ctx, vendor) => {
     // Embedded cache-tag entities — every product rendered in the products
     // section. Per CACHE_STRATEGY.md §3: "any entity rendered in the response
     // — even transitively — contributes a tag." Product cards link to their

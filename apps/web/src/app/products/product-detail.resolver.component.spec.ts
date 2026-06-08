@@ -64,6 +64,7 @@ registerDetailResolverSuite<ProductDetail>({
   paramKey: 'slug',
   paramValue: 'procore',
   url: 'https://aecintegrations.com/products/procore',
+  apiPath: '/api/products/procore',
   stateKey: 'aeci.product-detail:procore',
   buildFixture: () =>
     buildProduct({

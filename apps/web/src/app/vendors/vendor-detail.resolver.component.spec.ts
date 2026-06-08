@@ -64,6 +64,7 @@ registerDetailResolverSuite<VendorDetail>({
   paramKey: 'slug',
   paramValue: 'procore',
   url: 'https://aecintegrations.com/vendors/procore',
+  apiPath: '/api/vendors/procore',
   stateKey: 'aeci.vendor-detail:procore',
   buildFixture: () =>
     buildVendor({
