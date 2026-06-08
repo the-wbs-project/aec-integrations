@@ -8,19 +8,24 @@
  *
  * Server flow (RenderMode.Server):
  *   1. Fetch `GET /api/{categories|audiences|phases}/:slug` via the service
- *      binding (no public surface) using `AeciRequestContext.api`.
+ *      binding using `AeciRequestContext.api`.
  *   2. On `NOT_FOUND` → set `RESPONSE_INIT.status = 404` (SSR runtime emits a
  *      real HTTP 404 + `NOT_FOUND_TTL`), set noindex meta, return `null` so the
  *      page renders the inline NotFound panel.
- *   3. On success → set browse meta (`entity: kind` → `"{name} tools — AEC
- *      Integrations"`); push `product:{slug}` for every product shown onto
- *      `ctx.embedded` so `Cache-Tag` covers data-derived dependencies; queue the
- *      fire-and-forget `POST /api/page-views` payload. Store in `TransferState`.
+ *   3. On success → set browse meta; push `product:{slug}` for every product
+ *      shown onto `ctx.embedded` so `Cache-Tag` covers data-derived
+ *      dependencies; queue the fire-and-forget `POST /api/page-views` payload.
+ *      Store in `TransferState`.
  *
- * Client flow (hydration): read the resolved term (or `null`) out of
- * `TransferState`. No fetch, no meta side-effects.
+ * Client flow (AECI-151): on hydration / back-nav read the term out of
+ * `TransferState`; on a genuine client navigation (no key) fetch it from the
+ * browser via the same-origin `/api/*` passthrough (`httpGetOrNull`; ADR 0001).
+ * Either way re-apply the browse meta (idempotent on hydration; the only meta
+ * update on a client nav). `RESPONSE_INIT.status` / `ctx.embedded` stay
+ * server-only; page-views fire from `PageViewTracker`.
  */
 import { isPlatformServer } from '@angular/common';
+import { HttpClient } from '@angular/common/http';
 import {
   PLATFORM_ID,
   REQUEST_CONTEXT,
@@ -32,6 +37,7 @@ import {
 import { ResolveFn } from '@angular/router';
 
 import type { AeciRequestContext } from '../../server/request-context';
+import { httpGetOrNull } from '../core/api/http-get-or-null';
 import {
   KIND_PATH_SEGMENT,
   fetchTaxonomyTermBySlug,
@@ -52,6 +58,25 @@ function termStateKey(kind: TaxonomyKind, slug: string) {
 }
 
 /**
+ * Browse-page head metadata for a resolved term. Shared by the server and
+ * client branches so the `entity: kind` → `"{name} tools — AEC Integrations"`
+ * title stays single-source.
+ */
+function applyBrowseMeta(
+  meta: MetaService,
+  kind: TaxonomyKind,
+  term: TaxonomyTermDetail,
+  canonical: string,
+): void {
+  meta.setEntityMeta({
+    entity: kind,
+    name: term.name,
+    description: term.description,
+    canonical,
+  });
+}
+
+/**
  * Builds the resolver for one taxonomy kind. Exported resolvers below are the
  * only call sites; the factory is not exported to keep route wiring explicit.
  */
@@ -62,18 +87,27 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
     const slug = route.paramMap.get('slug') ?? '';
     const platformId = inject(PLATFORM_ID);
     const transferState = inject(TransferState);
+    const meta = inject(MetaService);
     const stateKey = termStateKey(kind, slug);
+    const canonical = canonicalUrl(`/${segment}/${slug}`);
 
-    // Client hydration path — SSR populated TransferState; read it back.
+    // ── Client path: in-app navigation or initial hydration (AECI-151). ─────
     if (!isPlatformServer(platformId)) {
-      return transferState.get(stateKey, null);
+      const term = transferState.hasKey(stateKey)
+        ? transferState.get(stateKey, null)
+        : await httpGetOrNull<TaxonomyTermDetail>(
+            inject(HttpClient),
+            `/api/${segment}/${encodeURIComponent(slug)}`,
+          );
+
+      if (term) applyBrowseMeta(meta, kind, term, canonical);
+      else meta.setNotFoundMeta({ kind, slug, canonical });
+      return term;
     }
 
-    // Server path.
-    const meta = inject(MetaService);
+    // ── Server path. ────────────────────────────────────────────────────────
     const ctx = inject(REQUEST_CONTEXT) as AeciRequestContext | null;
     const responseInit = inject(RESPONSE_INIT, { optional: true });
-    const canonical = canonicalUrl(`/${segment}/${slug}`);
 
     // `REQUEST_CONTEXT` is only provided when the route uses RenderMode.Server.
     // The taxonomy routes sit under the catch-all server route, so this branch
@@ -92,12 +126,7 @@ function createTaxonomyBrowseResolver(kind: TaxonomyKind): ResolveFn<TaxonomyTer
       return null;
     }
 
-    meta.setEntityMeta({
-      entity: kind,
-      name: term.name,
-      description: term.description,
-      canonical,
-    });
+    applyBrowseMeta(meta, kind, term, canonical);
 
     // Embedded cache-tag entities — every product rendered in the grid. Per
     // CACHE_STRATEGY.md §3 a browse page "lists every product matching the

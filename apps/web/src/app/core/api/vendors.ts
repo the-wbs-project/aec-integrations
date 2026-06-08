@@ -4,9 +4,12 @@
  * SSR call site stays free of stringly-typed paths and `NOT_FOUND` envelope
  * decoding.
  *
- * Anchor: Phase 2 Spec §3.1 / §6.2 — "No public API surface; every call
- * goes through `env.API.fetch(...)` via the service binding." Helpers here
- * are server-only and must never be reached from browser code.
+ * Anchor: Phase 2 Spec §3.1 / §7 — the API Worker is reached by the SSR Worker
+ * via `env.API.fetch(...)` (service binding). Helpers here wrap that server-only
+ * `ServerApiClient` and run during SSR; the resolvers' browser hydration-miss
+ * branch fetches the same endpoints via the same-origin `/api/*` passthrough
+ * (`core/api/http-get-or-null.ts`), not this client. ("No public API surface" =
+ * no separate public API product / no ingress on the API Worker's own host.)
  */
 import type { VendorDetail } from '@aeci/shared';
 

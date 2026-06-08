@@ -3,6 +3,8 @@
  * (Angular's vitest unit-test runner) — needs Angular's `inject()` / `TestBed`
  * to exercise the resolver's DI surface.
  */
+import { provideHttpClient } from '@angular/common/http';
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import {
   PLATFORM_ID,
   REQUEST,
@@ -80,7 +82,11 @@ function setup(opts: {
   meta?: Partial<MetaService>;
   slug?: string;
   resolver?: typeof categoryBrowseResolver;
-}): { run: () => Promise<TaxonomyTermDetail | null>; transferState: TransferState } {
+}): {
+  run: () => Promise<TaxonomyTermDetail | null>;
+  transferState: TransferState;
+  httpMock: HttpTestingController;
+} {
   TestBed.configureTestingModule({
     providers: [
       { provide: PLATFORM_ID, useValue: opts.platform === 'server' ? 'server' : 'browser' },
@@ -88,12 +94,15 @@ function setup(opts: {
       { provide: RESPONSE_INIT, useValue: opts.responseInit ?? null },
       { provide: REQUEST, useValue: opts.request ?? null },
       { provide: MetaService, useValue: opts.meta ?? {} },
+      provideHttpClient(),
+      provideHttpClientTesting(),
     ],
   });
 
   const resolver = opts.resolver ?? categoryBrowseResolver;
   return {
     transferState: TestBed.inject(TransferState),
+    httpMock: TestBed.inject(HttpTestingController),
     run: () =>
       TestBed.runInInjectionContext(() =>
         resolver(buildRouteSnapshot(opts.slug ?? 'project-management'), STATE),
@@ -251,17 +260,25 @@ describe('audienceBrowseResolver — kind wiring', () => {
   });
 });
 
-describe('categoryBrowseResolver — client (hydration) path', () => {
+describe('categoryBrowseResolver — client (in-app navigation) path', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('reads from TransferState and does not call the API or mutate meta', async () => {
+  const expectedMeta = {
+    entity: 'category',
+    name: 'Project Management',
+    description: 'Tools that coordinate construction projects.',
+    canonical: 'https://aecintegrations.com/categories/project-management',
+  };
+
+  it('reads from TransferState on hydration (no fetch) and re-applies browse meta', async () => {
     const term = buildTerm();
     const apiRequest = vi.fn();
     const setEntityMeta = vi.fn();
 
-    const { run, transferState } = setup({
+    const { run, transferState, httpMock } = setup({
       platform: 'browser',
       ctx: createRequestContext({ request: apiRequest } as unknown as ServerApiClient),
+      request: new Request('https://aecintegrations.com/categories/project-management'),
       meta: { setEntityMeta } as Partial<MetaService>,
     });
     transferState.set(
@@ -273,20 +290,60 @@ describe('categoryBrowseResolver — client (hydration) path', () => {
 
     expect(result).toEqual(term);
     expect(apiRequest).not.toHaveBeenCalled();
-    expect(setEntityMeta).not.toHaveBeenCalled();
+    httpMock.expectNone('/api/categories/project-management');
+    expect(setEntityMeta).toHaveBeenCalledWith(expectedMeta);
   });
 
-  it('returns null on TransferState miss', async () => {
+  it('fetches via the browser /api/* passthrough on a TransferState miss and sets meta', async () => {
+    const term = buildTerm();
     const apiRequest = vi.fn();
-    const { run } = setup({
+    const setEntityMeta = vi.fn();
+
+    const { run, httpMock } = setup({
       platform: 'browser',
       ctx: createRequestContext({ request: apiRequest } as unknown as ServerApiClient),
-      meta: {} as Partial<MetaService>,
+      request: new Request('https://aecintegrations.com/categories/project-management'),
+      meta: { setEntityMeta } as Partial<MetaService>,
     });
 
-    const result = await run();
+    const promise = run();
+    const req = httpMock.expectOne('/api/categories/project-management');
+    expect(req.request.method).toBe('GET');
+    req.flush(term);
+    const result = await promise;
+
+    expect(result).toEqual(term);
+    expect(apiRequest).not.toHaveBeenCalled();
+    expect(setEntityMeta).toHaveBeenCalledWith(expectedMeta);
+  });
+
+  it('renders not-found (setNotFoundMeta, null) on a NOT_FOUND client fetch', async () => {
+    const setEntityMeta = vi.fn();
+    const setNotFoundMeta = vi.fn();
+
+    const { run, httpMock } = setup({
+      platform: 'browser',
+      ctx: createRequestContext({ request: vi.fn() } as unknown as ServerApiClient),
+      request: new Request('https://aecintegrations.com/categories/missing'),
+      meta: { setEntityMeta, setNotFoundMeta } as Partial<MetaService>,
+      slug: 'missing',
+    });
+
+    const promise = run();
+    httpMock
+      .expectOne('/api/categories/missing')
+      .flush(
+        { error: { code: 'NOT_FOUND', message: 'missing' } },
+        { status: 404, statusText: 'Not Found' },
+      );
+    const result = await promise;
 
     expect(result).toBeNull();
-    expect(apiRequest).not.toHaveBeenCalled();
+    expect(setNotFoundMeta).toHaveBeenCalledWith({
+      kind: 'category',
+      slug: 'missing',
+      canonical: 'https://aecintegrations.com/categories/missing',
+    });
+    expect(setEntityMeta).not.toHaveBeenCalled();
   });
 });

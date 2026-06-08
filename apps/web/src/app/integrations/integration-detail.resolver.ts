@@ -6,7 +6,8 @@
  *
  * The hydration / 404 / null-ctx SSR scaffold lives in `createDetailResolver`
  * (`../core/create-detail-resolver`). This file supplies only the integration
- * specifics: the fetch fn and the `onResolved` side-effects.
+ * specifics: the fetch fn, `applyMeta` (head tags; no JSON-LD, runs on SSR and
+ * on client navigations), and `pushEmbedded` (server-only Cache-Tag entities).
  *
  * On success → set page meta (no JSON-LD — Phase 2 Spec §9.2 defers integration
  * structured data to Stage 2); push embedded cache tags (both products, the
@@ -33,7 +34,7 @@ export const integrationDetailResolver = createDetailResolver<IntegrationDetail>
   pathSegment: 'integrations',
   entityKind: 'integration',
   fetch: fetchIntegrationById,
-  onResolved: (ctx, meta, integration, canonical) => {
+  applyMeta: (meta, integration, canonical) => {
     meta.setEntityMeta({
       entity: 'integration',
       name: integrationHeadline(integration),
@@ -44,7 +45,8 @@ export const integrationDetailResolver = createDetailResolver<IntegrationDetail>
     });
     // No JSON-LD: Phase 2 Spec §9.2 defers integration structured data to Stage 2
     // ("no clean schema.org type exists").
-
+  },
+  pushEmbedded: (ctx, integration) => {
     // Embedded cache-tag entities — every entity rendered (even transitively) on
     // the page contributes a tag (CACHE_STRATEGY.md §3). The path matcher already
     // emits `integration:{id}` and `route:detail`; the resolver pushes the linked

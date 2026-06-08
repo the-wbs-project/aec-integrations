@@ -43,9 +43,12 @@ export interface SetEntityMetaInput {
 /**
  * Centralized SEO metadata composer for every Phase 2 page. Sets `<title>`,
  * description, canonical link, OG/Twitter tags, and (via `setProductJsonLd` /
- * `setVendorJsonLd`) JSON-LD script tags. Runs in the SSR Worker so all tags
- * ship in the initial HTML — `Title`, `Meta`, and `DOCUMENT` all work under
- * `@angular/ssr` without `isPlatformBrowser` guards.
+ * `setVendorJsonLd`) JSON-LD script tags. Platform-agnostic — `Title`, `Meta`,
+ * and `DOCUMENT` all work under `@angular/ssr` AND in the browser, so no
+ * `isPlatformBrowser` guards. During SSR these ship in the initial HTML; on an
+ * in-app client navigation the resolvers re-invoke them so the head stays
+ * correct in the SPA (idempotent upserts; AECI-151). The methods are pure DOM
+ * upserts — the platform decision lives in the callers, not here.
  *
  * Spec anchor: docs/STAGE_1_PHASE_2_SPEC.md §9.
  */

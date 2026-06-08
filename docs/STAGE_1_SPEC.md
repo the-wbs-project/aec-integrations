@@ -965,7 +965,7 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 
 ### 15.2 API privacy
 
-API Worker remains private via Cloudflare service binding (per existing architecture). SSR Worker is the only public ingress.
+API Worker remains private via Cloudflare service binding (per existing architecture): it has no public ingress on its own hostname. The SSR Worker is the only public ingress — and it re-proxies `/api/*` same-origin to the API Worker (the path hydrated browser code and the `/api/health` / `/api/version` checks use; ADR 0001 §Consequences). Read GETs are public through that passthrough by construction; write routes (`/api/promote`, `/admin/purge`, …) carry per-endpoint auth.
 
 ### 15.3 Supabase RLS
 

@@ -74,6 +74,7 @@ registerDetailResolverSuite<IntegrationDetail>({
   paramKey: 'id',
   paramValue: ID,
   url: `https://aecintegrations.com/integrations/${ID}`,
+  apiPath: `/api/integrations/${ID}`,
   stateKey: `aeci.integration-detail:${ID}`,
   buildFixture: () => buildIntegration(),
   // Headline built from source/target names per Phase 2 Spec §6.5; no og image.
