@@ -203,3 +203,19 @@ select {
   justify-content: center;
   align-items: center;
 }
+
+/* Honor the OS "reduce motion" preference globally. Neutralizes Tailwind's
+   `animate-*` (e.g. the `animate-pulse` @defer skeletons on detail/index
+   pages) and `transition-*` durations for visitors who request it, rather
+   than relying on every component to opt in. Additive — only active when the
+   user has set the preference. See `harden` (motion sensitivity). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
