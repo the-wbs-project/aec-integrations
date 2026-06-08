@@ -11,16 +11,16 @@
 import { Component } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import { Monogram } from './monogram';
+import { BrandLogo } from './brand-logo';
 
 @Component({
   selector: 'aec-site-footer',
-  imports: [RouterLink, Monogram],
+  imports: [RouterLink, BrandLogo],
   template: `
     <footer class="border-t border-(--border-default) bg-(--surface-raised)">
       <div class="mx-auto grid max-w-7xl gap-10 px-8 py-12 sm:grid-cols-2 lg:grid-cols-3">
         <div>
-          <aec-monogram [size]="28" />
+          <aec-brand-logo [height]="28" />
           <p class="mt-3 max-w-xs text-sm text-(--text-secondary)" i18n="@@app.footer.tagline">
             Vendor-verified reviews for AEC software integrations.
           </p>
