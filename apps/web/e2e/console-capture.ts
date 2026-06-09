@@ -121,5 +121,7 @@ export function expectConsoleClean(
     pageErrors,
     `${label}: uncaught page errors:\n${pageErrors.map((e) => `  ${e}`).join('\n')}`,
   ).toEqual([]);
-  expect(errors, `${label}: console errors:\n${errors.map((e) => `  ${e}`).join('\n')}`).toEqual([]);
+  expect(errors, `${label}: console errors:\n${errors.map((e) => `  ${e}`).join('\n')}`).toEqual(
+    [],
+  );
 }
