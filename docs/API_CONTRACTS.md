@@ -477,7 +477,7 @@ export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 
 ### 6.4 Taxonomy
 
-#### `GET /api/categories`
+#### `GET /api/categories`, `/api/audiences`, `/api/phases`
 
 ```typescript
 export const CategoriesListResponseSchema = z.object({
