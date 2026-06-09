@@ -36,27 +36,24 @@ import { ThemeService } from '../theme.service';
         (click)="theme.setMode('system')"
         [attr.aria-pressed]="theme.mode() === 'system'"
         class="flex-1 cursor-pointer rounded-sm px-2.5 py-1 text-center text-sm text-(--text-secondary) transition-colors not-aria-pressed:hover:bg-(--surface-sunken) not-aria-pressed:hover:text-(--text-primary) aria-pressed:bg-(--accent-primary) aria-pressed:font-medium aria-pressed:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@app.theme.label.system"
       >
-        System
+        <ng-container i18n="@@app.theme.label.system">System</ng-container>
       </button>
       <button
         type="button"
         (click)="theme.setMode('light')"
         [attr.aria-pressed]="theme.mode() === 'light'"
         class="flex-1 cursor-pointer rounded-sm px-2.5 py-1 text-center text-sm text-(--text-secondary) transition-colors not-aria-pressed:hover:bg-(--surface-sunken) not-aria-pressed:hover:text-(--text-primary) aria-pressed:bg-(--accent-primary) aria-pressed:font-medium aria-pressed:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@app.theme.label.light"
       >
-        Light
+        <ng-container i18n="@@app.theme.label.light">Light</ng-container>
       </button>
       <button
         type="button"
         (click)="theme.setMode('dark')"
         [attr.aria-pressed]="theme.mode() === 'dark'"
         class="flex-1 cursor-pointer rounded-sm px-2.5 py-1 text-center text-sm text-(--text-secondary) transition-colors not-aria-pressed:hover:bg-(--surface-sunken) not-aria-pressed:hover:text-(--text-primary) aria-pressed:bg-(--accent-primary) aria-pressed:font-medium aria-pressed:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        i18n="@@app.theme.label.dark"
       >
-        Dark
+        <ng-container i18n="@@app.theme.label.dark">Dark</ng-container>
       </button>
     </div>
   `,
