@@ -61,6 +61,14 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).not.toContain('*.datadoghq.com');
   });
 
+  it('allows the Algolia search origins on connect-src (AECI-136)', () => {
+    // InstantSearch resolves the query host as `{appId}-dsn.algolia.net` with
+    // `{appId}-{1,2,3}.algolianet.com` retry fallbacks — the two wildcards cover
+    // every search XHR. Without these, /search (Phase 3.9) would be CSP-blocked.
+    expect(CONTENT_SECURITY_POLICY).toContain('https://*.algolia.net');
+    expect(CONTENT_SECURITY_POLICY).toContain('https://*.algolianet.com');
+  });
+
   it('locks down the hardening directives', () => {
     expect(CONTENT_SECURITY_POLICY).toContain("default-src 'self'");
     expect(CONTENT_SECURITY_POLICY).toContain("object-src 'none'");
