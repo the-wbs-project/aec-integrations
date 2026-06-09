@@ -286,7 +286,16 @@ test.describe('primary navigation menu (1280px)', () => {
     await expect(primaryNav(page).getByRole('link', { name: 'Products' })).toBeVisible();
     expect(await analyzeHeader(page), 'closed').toEqual([]);
 
-    await primaryNav(page).getByRole('button', { name: 'Categories menu' }).click();
+    // Open via keyboard (focus + Enter), not `.click()`: a Playwright click
+    // hovers the host first — which opens the flyout (mouseenter) — and then the
+    // click toggles it back closed, netting to a hidden panel. The disclosure's
+    // documented pointer model is hover-to-open; its button toggle is the
+    // keyboard path, so drive it the same deterministic way the keyboard test
+    // (above) does.
+    const categoriesTrigger = primaryNav(page).getByRole('button', { name: 'Categories menu' });
+    await categoriesTrigger.focus();
+    await page.keyboard.press('Enter');
+    await expect(categoriesTrigger).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('#nav-flyout-category')).toBeVisible();
     expect(await analyzeHeader(page), 'flyout open').toEqual([]);
   });
