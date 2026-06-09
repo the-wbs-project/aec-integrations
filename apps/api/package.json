@@ -18,6 +18,7 @@
     "db:backfill-slugs": "dotenv -e .dev.vars -- tsx scripts/backfill-slugs.ts",
     "db:airtable-migrate": "echo '[DEPRECATED] Prefer POST /api/promote — see docs/REVIEW_APP_PROMOTE_API.md' && dotenv -e .dev.vars -- tsx scripts/airtable-to-supabase-bulk-migrate.ts",
     "db:reconcile-counts": "dotenv -e .dev.vars -- tsx scripts/reconcile-product-counts.ts",
+    "db:algolia-bulk-sync": "dotenv -e .dev.vars -- tsx scripts/algolia-bulk-sync.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
@@ -37,6 +38,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260510.0",
     "@vitest/coverage-v8": "^3.2.4",
+    "algoliasearch": "5.52.0",
     "dotenv-cli": "^11.0.0",
     "prisma": "^6.19.3",
     "tsx": "^4.19.2",
