@@ -28,11 +28,11 @@
  *   surface present on every page — is validated here. If the footer debt is
  *   resolved, drop the `.exclude('aec-site-footer')` below.
  *
- * KNOWN CONTRAST DEBT — the detail pages carry two pre-existing design-token
- *   contrast failures (`--text-tertiary` labels, dark `--accent-primary` links)
- *   that are allowlisted by foreground color and tracked in AECI-166. See
- *   `stripKnownContrastDebt` below; the allowlist is surgical (everything else
- *   still enforces zero AA) and goes away when AECI-166 lands.
+ * CONTRAST — AECI-166 fixed the detail-page design-token contrast debt
+ *   (`--text-tertiary` labels → `--text-secondary`; dark `--accent-primary`
+ *   lifted for AA on raised surfaces) at the source and removed the former
+ *   foreground-color allowlist. The suite now enforces zero AA violations
+ *   everywhere except the separately-tracked footer (excluded above).
  */
 import AxeBuilder from '@axe-core/playwright';
 import {
@@ -113,46 +113,17 @@ test.beforeAll(async () => {
 type AxeViolations = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'];
 
 /**
- * Known, tracked contrast debt — AECI-166.
- *
- * The detail pages carry two PRE-EXISTING design-token contrast failures (same
- * class as the separately-tracked site-footer dark-mode debt). They are
- * allowlisted here — keyed on the exact token foreground colors — so this
- * harness lands green while still enforcing zero AA for everything else.
- * AECI-166 fixes the tokens and removes this allowlist.
- *   • `--text-tertiary` text labels: light `#a0a0aa` (~2.5:1), dark `#71717c` (~3.6–4.1:1)
- *   • `--accent-primary` dark links:  `#4f845f` (3.96:1 on a raised surface)
- * Surgical by design: only a `color-contrast` node whose foreground is one of
- * these known token values is dropped; any other contrast failure still fails.
- */
-const KNOWN_CONTRAST_DEBT_FG = new Set(['#a0a0aa', '#71717c', '#4f845f']);
-
-function stripKnownContrastDebt(violations: AxeViolations): AxeViolations {
-  return violations
-    .map((v) => {
-      if (v.id !== 'color-contrast') return v;
-      const nodes = v.nodes.filter((n) => {
-        const isKnownDebt = n.any.some((c) => {
-          const fg = (c.data as { fgColor?: string } | null | undefined)?.fgColor;
-          return typeof fg === 'string' && KNOWN_CONTRAST_DEBT_FG.has(fg.toLowerCase());
-        });
-        return !isKnownDebt;
-      });
-      return { ...v, nodes };
-    })
-    .filter((v) => v.nodes.length > 0);
-}
-
-/**
- * Run axe at WCAG-AA on the current page (footer excluded — see file header) and
- * return the violations minus the AECI-166 known-contrast-debt allowlist.
+ * Run axe at WCAG-AA on the current page and return all violations. The footer
+ * is excluded (separately-tracked dark-theme contrast debt — see file header);
+ * everything else enforces zero AA violations. AECI-166 removed the former
+ * known-contrast-debt foreground allowlist by fixing the tokens at the source.
  */
 async function aaViolations(page: Page): Promise<AxeViolations> {
   const results = await new AxeBuilder({ page })
     .withTags(WCAG_AA_TAGS)
     .exclude('aec-site-footer')
     .analyze();
-  return stripKnownContrastDebt(results.violations);
+  return results.violations;
 }
 
 /** Navigate with the persisted dark theme applied (cookie + localStorage). */

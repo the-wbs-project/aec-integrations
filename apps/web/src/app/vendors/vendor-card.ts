@@ -36,7 +36,7 @@ import type { VendorListItem } from '@aeci/shared';
         {{ headquarters() }}
       } @else {
         <span
-          class="text-(--text-tertiary)"
+          class="text-(--text-secondary)"
           i18n="@@vendors.card.hq.none"
           i18n-aria-label="@@vendors.card.hq.none.aria"
           aria-label="Headquarters not listed"
@@ -49,7 +49,7 @@ import type { VendorListItem } from '@aeci/shared';
         {{ foundedYear() }}
       } @else {
         <span
-          class="text-(--text-tertiary)"
+          class="text-(--text-secondary)"
           i18n="@@vendors.card.founded.none"
           i18n-aria-label="@@vendors.card.founded.none.aria"
           aria-label="Founded year not listed"

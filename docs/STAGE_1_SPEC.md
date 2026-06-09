@@ -114,8 +114,8 @@ All colors expressed as CSS custom properties bound to theme classes. Tailwind c
 | `--text-primary` | `#FAFAFA` | Body text |
 | `--text-secondary` | `#A1A1AA` | Supporting text |
 | `--text-tertiary` | `#71717A` | Hints, placeholders |
-| `--accent-primary` | `#4A8870` | Lighter Forest — CTAs, links (original too dark for dark mode) |
-| `--accent-primary-hover` | `#5DA088` | Hover state |
+| `--accent-primary` | `#5D916C` | Lighter Forest — CTAs, links (lifted in AECI-166 for AA on raised surfaces) |
+| `--accent-primary-hover` | `#6FAA80` | Hover state |
 | `--accent-secondary` | `#F0A887` | Lighter Clay — highlights, badges (large text / graphical only) |
 | `--accent-warm` | `#2A2520` | Warm-tinted dark sections |
 

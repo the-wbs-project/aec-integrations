@@ -54,7 +54,7 @@ import type { ProductListItem } from '@aeci/shared';
         >
       } @else {
         <span
-          class="text-(--text-tertiary)"
+          class="text-(--text-secondary)"
           i18n="@@products.card.vendor.none"
           aria-label="No vendor listed"
           >–</span
@@ -70,7 +70,7 @@ import type { ProductListItem } from '@aeci/shared';
         >
       } @else {
         <span
-          class="text-(--text-tertiary)"
+          class="text-(--text-secondary)"
           i18n="@@products.card.category.none"
           aria-label="No primary category"
           >–</span

@@ -89,7 +89,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             />
             <div class="min-w-0 space-y-2">
               <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
                 i18n="@@products.detail.eyebrow"
               >
                 Product
@@ -127,7 +127,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
           <section aria-labelledby="vendor-card-title" class="space-y-3">
             <h2
               id="vendor-card-title"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@products.detail.metadata.vendor"
             >
               Vendor
@@ -147,7 +147,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             } @else {
               <p
                 class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)
-                  p-4 text-(--text-tertiary)"
+                  p-4 text-(--text-secondary)"
                 i18n="@@products.detail.vendor.none"
               >
                 No vendor listed
@@ -159,7 +159,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             <section aria-labelledby="categories-label" class="space-y-3">
               <h2
                 id="categories-label"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
                 i18n="@@products.detail.metadata.categories"
               >
                 Categories
@@ -176,7 +176,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             <section aria-labelledby="audiences-label" class="space-y-3">
               <h2
                 id="audiences-label"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
                 i18n="@@products.detail.metadata.audiences"
               >
                 Audiences
@@ -193,7 +193,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
             <section aria-labelledby="phases-label" class="space-y-3">
               <h2
                 id="phases-label"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
                 i18n="@@products.detail.metadata.phases"
               >
                 Project phases
@@ -209,7 +209,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
           <section aria-labelledby="actions-label" class="space-y-3">
             <h2
               id="actions-label"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@products.detail.metadata.actions"
             >
               Actions
@@ -270,7 +270,7 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
               >
                 Integrations
               </h2>
-              <span class="text-sm text-(--text-tertiary)">{{ integrationCountLabel() }}</span>
+              <span class="text-sm text-(--text-secondary)">{{ integrationCountLabel() }}</span>
             </div>
 
             @if (integrations().length === 0) {

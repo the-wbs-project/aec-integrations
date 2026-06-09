@@ -44,7 +44,7 @@ import type { IntegrationListItem } from '@aeci/shared';
         </span>
       } @else {
         <span
-          class="text-(--text-tertiary)"
+          class="text-(--text-secondary)"
           i18n="@@integrations.card.mechanism.none"
           i18n-aria-label="@@integrations.card.mechanism.none.aria"
           aria-label="Mechanism not listed"
@@ -57,7 +57,7 @@ import type { IntegrationListItem } from '@aeci/shared';
         {{ directionLabel() }}
       } @else {
         <span
-          class="text-(--text-tertiary)"
+          class="text-(--text-secondary)"
           i18n="@@integrations.card.direction.none"
           i18n-aria-label="@@integrations.card.direction.none.aria"
           aria-label="Direction not listed"
