@@ -47,6 +47,10 @@
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
     },
+    "./algolia-batch": {
+      "types": "./src/algolia-batch.ts",
+      "default": "./src/algolia-batch.ts"
+    },
     "./datadog": {
       "types": "./src/datadog.ts",
       "default": "./src/datadog.ts"
