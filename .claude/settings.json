@@ -2,7 +2,7 @@
   "enabledPlugins": {
     "claude-code-setup@claude-plugins-official": true
   },
-  "enabledMcpjsonServers": ["angular-cli"],
+  "enabledMcpjsonServers": ["angular-cli", "browserstack"],
   "hooks": {
     "PreToolUse": [
       {
