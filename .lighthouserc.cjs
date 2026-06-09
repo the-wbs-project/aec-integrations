@@ -24,10 +24,12 @@
  * the page-level transferred-script ceiling here; the per-bundle gzip hard-fail
  * (TESTING_STRATEGY §10.2) stays in the size-limit / run-extra-tests.sh T7 path.
  *
- * REPRODUCIBILITY: fixed mobile viewport, pinned simulated Slow-4G throttle,
- * median-of-3 runs. Chrome comes from the CI runner image (a CHROME_PATH env can
- * pin it further); locking the exact Chrome build is a follow-up alongside the
- * warn→error flip.
+ * REPRODUCIBILITY: fixed mobile viewport, pinned simulated Slow-4G throttle.
+ * Runs ONCE by default (this gate is warn-only — wall-clock matters more than
+ * run-to-run median stability here). `LHCI_RUNS` overrides: set it to 3 to
+ * restore the median when flipping the assertions to an error gate. Chrome comes
+ * from the CI runner image (a CHROME_PATH env can pin it further); locking the
+ * exact Chrome build is a follow-up alongside the warn→error flip.
  *
  * Fixture identities mirror supabase/fixtures/phase2-fixtures.sql and
  * apps/web/e2e/phase2-a11y.spec.ts. Taxonomy slugs are existing reference data.
@@ -64,7 +66,13 @@ module.exports = {
         `${baseUrl}/phases`, // phases flat index (AECI-157)
         `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
       ],
-      numberOfRuns: 3,
+      // Collection dominates this job — 13 URLs × N runs × ~12s each. At the
+      // former N=3 the run took ~7m50s; a SINGLE run lands it at ~2m40s. This
+      // gate is warn-only/non-blocking, and its value is per-page-type coverage,
+      // not run-to-run median smoothing, so default to one run. Restore the
+      // median (LHCI_RUNS=3) when flipping the assertions below to 'error'.
+      // `aggregationMethod: 'median-run'` degrades cleanly to "the only run" at N=1.
+      numberOfRuns: Number(process.env.LHCI_RUNS) || 1,
       settings: {
         // Mobile, pinned for reproducibility. No `preset` — the Lighthouse
         // default IS mobile; these explicit settings make it deterministic.

@@ -383,6 +383,16 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      # The ubuntu-latest image ships a Google Chrome apt source
+      # (dl.google.com/linux/chrome-stable). BOTH install branches below run
+      # `apt-get update` over EVERY configured source; when that repo's index is
+      # mid-mirror-sync it returns a size mismatch ("File has unexpected size …
+      # Mirror sync in progress?") and the whole update — and the install step —
+      # exits non-zero (the flake that red-X'd this job 2026-06-09). Chromium's
+      # system deps come from Ubuntu's own repos, never this one, so drop it
+      # before installing. `-f` is a no-op if the file isn't present.
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
       - if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
       - if: steps.playwright-cache.outputs.cache-hit == 'true'
@@ -466,6 +476,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
+      # Drop the flaky Google Chrome apt source before `--with-deps` runs
+      # apt-get update — see the matching note in `e2e-and-integration`.
+      - name: Drop flaky Google Chrome apt source
+        run: sudo rm -f /etc/apt/sources.list.d/google-chrome.list /etc/apt/sources.list.d/google-chrome.sources
       - run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
       - run: pnpm --filter @aeci/web run test:e2e
         env:
