@@ -10,10 +10,12 @@
 # auto-deploy-to-prod here.
 #
 # Per-PR ephemeral previews live in the separate `pr-preview.yml` workflow
-# (AECI-79). The e2e-tests-preview / integration-runner-preview / lighthouse
-# jobs below remain parked: they need a deployed-preview URL but live in this
-# workflow, and cross-workflow `needs:` isn't a thing. Un-parking means either
-# moving them into pr-preview.yml or wiring a `workflow_run` trigger here.
+# (AECI-79). The e2e-tests-preview / integration-runner-preview jobs below remain
+# parked: they need a deployed-preview URL but live in this workflow, and
+# cross-workflow `needs:` isn't a thing. Un-parking means either moving them into
+# pr-preview.yml or wiring a `workflow_run` trigger here. (AECI-65 un-parked the
+# `lighthouse` job by repointing it at a local `dev:bound` server instead — it no
+# longer needs a deployed preview.)
 #
 # `deploy-staging` is gated on `vars.STAGING_ENABLED == 'true'`. Flip the
 # repo variable after the manual prerequisites in `docs/environments.md`
@@ -28,6 +30,12 @@
 #   - e2e-tests-preview         — Playwright + axe against preview URL (PARKED — see header note re: pr-preview.yml)
 #   - integration-runner-preview — extras script against preview URL (PARKED — see header note re: pr-preview.yml)
 #   - lighthouse                — Lighthouse CI, warn-only (PARKED, Phase 7)
+#
+# AECI-65 un-parked `lighthouse`: it now runs Lighthouse mobile against every
+# Phase 2 page type on its own local `dev:bound` server (with the committed
+# fixtures db-migrate-dev seeds), warn-only and non-blocking. db-migrate-dev also
+# gained an ungated "Seed Phase 2 CI fixtures" step, and the e2e job's Playwright
+# run now includes the phase2-a11y success-path axe specs.
 #
 # AECI-90 added the apps/api `src/integration/**` suites (PostgREST RLS deny
 # matrix, auth-user-delete GDPR trigger, idempotent Airtable→Supabase bulk
@@ -292,6 +300,26 @@ jobs:
             exit 0
           fi
           psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
+      # Seed the Phase 2 CI fixtures (AECI-65): a representative
+      # product/vendor/integration + taxonomy links, so the axe success-path
+      # specs (e2e-and-integration) and the Lighthouse job have real detail/browse
+      # pages to measure. Idempotent UPSERTs — safe to re-run. UNGATED (no
+      # migration-change `if:`): both consumer jobs run on EVERY PR and need the
+      # fixtures present, and a refresh-staging wipe (or a never-seeded fresh DB)
+      # would otherwise leave detail pages 404. Runs AFTER the taxonomy seed so the
+      # fixture taxonomy-link subselects resolve. Same DIRECT_URL_STAGING + skip-
+      # with-warning contract as the taxonomy seed above: when the secret is unset
+      # the consumer specs self-skip and Lighthouse is warn-only, so CI stays green
+      # until it's configured. See supabase/fixtures/phase2-fixtures.sql.
+      - name: Seed Phase 2 CI fixtures
+        env:
+          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+        run: |
+          if [ -z "$PGURL" ]; then
+            echo "::warning::DIRECT_URL_STAGING is not set; skipping the Phase 2 fixtures seed. Detail/browse axe + Lighthouse coverage self-skips until the secret is configured."
+            exit 0
+          fi
+          psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/fixtures/phase2-fixtures.sql
       # Wait for Prisma Accelerate to pick up the schema change before any
       # downstream job (e2e-tests-local, integration-runner-local, per-PR
       # Workers) issues typed Prisma queries against the dev DB. See
@@ -457,14 +485,19 @@ jobs:
           PREVIEW_URL: ${{ vars.PREVIEW_URL }}
 
   lighthouse:
-    name: Lighthouse CI (warn-only)
-    # PARKED until `deploy-preview` lands; warn-only assertions per
-    # docs/CICD_PLAN.md §8 and AECI-33 spec — enforcement (error-level)
-    # flips in Phase 7.
-    if: false
+    name: Lighthouse CI (mobile, warn-only)
+    # AECI-65 — Lighthouse mobile against every Phase 2 page type on a local
+    # `dev:bound` server (same boot model as e2e-and-integration), using the
+    # fixtures db-migrate-dev seeded. WARN-ONLY: `.lighthouserc.cjs` assertions
+    # are 'warn', so `lhci autorun` exits 0 even on a budget miss — this job
+    # surfaces the report but never blocks a merge (the warn→error flip is a
+    # follow-up once every page is confirmed green). It boots its OWN server so it
+    # never extends the required e2e-and-integration → deploy-staging critical
+    # path, and so perf is measured on a pristine server (no prior Playwright /
+    # edge-cache traffic). NOT added to deploy-staging `needs:` — non-blocking.
     runs-on: ubuntu-latest
-    needs: [build-web]
-    timeout-minutes: 15
+    needs: [build-web, db-migrate-dev]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Install pnpm
@@ -474,9 +507,43 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lighthouse
+      - run: pnpm --filter @aeci/api exec prisma generate
+      # Reuse build-web's bundle; dev:preview serves the prebuilt dist/ (it does
+      # NOT build), so the artifact is exactly what dev:bound serves on :8788.
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: apps/web/dist
+      # Wire DATABASE_URL into the API Worker before dev:bound boots it (same as
+      # e2e-and-integration). Without it every Prisma query 500s.
+      - name: Write apps/api/.dev.vars for `pnpm dev:bound`
         env:
-          LHCI_URL: ${{ vars.PREVIEW_URL }}
+          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
+        run: |
+          if [ -z "$DATABASE_URL_VALUE" ]; then
+            echo "::error::DATABASE_URL_STAGING secret is empty. Lighthouse needs it to boot the API Worker with a working Prisma connection."
+            exit 1
+          fi
+          printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
+      - name: Boot dev:bound (API + SSR) and wait for /api/health
+        run: |
+          nohup pnpm dev:bound > dev-bound.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/api/health; then
+              echo "dev:bound healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
+      # LHCI_URL intentionally UNSET → .lighthouserc.cjs targets :8788.
+      # continue-on-error: warn assertions exit 0 anyway, but this also shields
+      # the job from a transient collection hiccup becoming a red (non-)gate.
+      - name: Lighthouse CI (warn-only, mobile)
+        continue-on-error: true
+        run: pnpm lighthouse
+      - name: dev:bound logs on failure
+        if: failure()
+        run: tail -200 dev-bound.log || true
 
   deploy-staging:
     name: Deploy staging
