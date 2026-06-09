@@ -294,6 +294,22 @@ Used for vendor profiles, integration cards, search result rows, and content mod
 - **Border:** 0.5px solid `border-default`. Hover (when interactive) raises to 1px solid `border-strong` — no fill change, no shadow, no scale.
 - **Internal Padding:** `spacing.5` (24px). Dense list contexts may use `spacing.4` (16px).
 
+### Entity cards (index rows)
+
+The three index pages render their rows through dedicated per-entity components — `ProductCard`, `VendorCard`, `IntegrationCard` (Phase 2 Spec §11.2, in `apps/web/src/app/{products,vendors,integrations}/`). Despite the "card" name they currently render as **table rows**: each uses an attribute selector on `<tr>` (`tr[aec-product-card]`, `tr[aec-vendor-card]`, `tr[aec-integration-card]`) so the rendered DOM stays a valid `<tbody>` child — a custom element placed directly inside `<tbody>` is foster-parented out by the HTML tree builder (the same pattern Angular CDK uses for `tr[cdk-row]`). The "card" vocabulary is shared with the eventual card-grid tile the Phase 3 browse pages will introduce; when that first grid consumer lands the component either gains a `variant: 'row' | 'card'` input or splits into a row + tile pair.
+
+Shared behavior across all three:
+
+- **Host:** `text-primary`; `hover` and `focus-within` raise the row fill to `surface-muted`. No shadow, no scale.
+- **Cells:** `spacing.4` horizontal / `spacing.3` vertical padding. Numeric cells (counts, founded year) are `text-end` and `tabular-nums`. Linked cells shift to `accent-primary` on hover with a `focus-visible` ring.
+- **Empty states:** a missing optional field renders an en-dash (`–`) in `text-tertiary` carrying an i18n-wrapped `aria-label` (`@@{entity}.card.{field}.none`) — never a bare blank, and color is never the sole signal.
+
+The three variants differ only in cell content:
+
+- **ProductCard** (`tr[aec-product-card]`) — name (→ `/products/:slug`), vendor (→ `/vendors/:slug`; nullable per AECI-115), primary category (→ `/categories/:slug`), integration count.
+- **VendorCard** (`tr[aec-vendor-card]`) — company name (→ `/vendors/:slug`), headquarters, founded year, product count.
+- **IntegrationCard** (`tr[aec-integration-card]`) — the `"{source} → {target}"` headline (→ `/integrations/:id`; integrations are keyed by id, not slug, per §6.5), a `mechanism_kind` badge (reusing the chip treatment from Tags / Taxonomy chips), and the direction label. The `→` glyph is `aria-hidden` and RTL-mirrored (`rtl:-scale-x-100`).
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, combobox, radio) use Angular Aria per the proposed provider note above (ADR 0010). Styling binds to tokens.
@@ -353,6 +369,8 @@ All three share the same outer container: `max-w-7xl` centered, `surface-base` b
   - **Pagination:** bordered above, flex row with summary copy left + button group right.
 
 Every visible string and every ARIA label is i18n-wrapped (`@@app.layouts.{detail|browse|index}.{slot}.aria`). Concrete pages add their own i18n keys for projected content.
+
+> **`EntityTable` (§11.2) — subsumed into `IndexLayout`, not a standalone component.** The Phase 2 spec listed a generic sortable / paginated `EntityTable` primitive. In implementation its entire responsibility — the semantic `<table>`, the horizontally-scrollable container, and the `table-header` / `table-body` / `pagination` slots — lives in **`IndexLayout`**, composed with the per-entity row components above (`{Product,Vendor,Integration}Card`). No separate `EntityTable` class ships. This is recorded so the spec's component list reconciles with the codebase; if a non-index table consumer ever needs the table shell independently, that is the moment to extract `EntityTable`.
 
 ## 6. Do's and Don'ts
 
