@@ -26,7 +26,7 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
 | `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
-| `index:products` / `index:vendors` / `index:integrations` / `index:categories` / `index:audiences` / `index:phases` | The respective index pages |
+| `index:products` / `index:categories` / `index:audiences` / `index:phases` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
 | `sitemap` | `sitemap.xml` |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
 | `route:404` | Single sentinel tag on every 404 response — both cacheable-route 404s and non-cacheable-path 404s (see §4). Used for bulk-purge via `POST /admin/purge` after a config fix (e.g. slug regenerated, route table corrected). 404s have no entity identity so this is the only invalidation handle. Emitted by `withCacheHeaders` in `server-runtime.ts`, not by `buildCacheTags`. |
@@ -108,8 +108,7 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 
 | Route | `cacheKeyParams` (kept in the key) |
 |---|---|
-| `/products`, `/vendors` (index) | `page`, `perPage`, `sort` |
-| `/integrations` (index) | `page`, `perPage`, `sort`, `sourceProductId`, `targetProductId` |
+| `/products` (index) | `page`, `perPage`, `sort` |
 | Detail (`/products/:slug`, `/vendors/:slug`, `/integrations/:id`) | none — strip all |
 | Browse (`/categories\|audiences\|phases/:slug`), taxonomy index (`/categories`) | none — strip all |
 | Home (`/`), `/about`, `/legal/*` | none — strip all |

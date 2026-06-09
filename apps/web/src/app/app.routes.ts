@@ -53,14 +53,14 @@ export const routes: Routes = [
     loadComponent: () => import('./products/product-detail').then((m) => m.ProductDetailPage),
     resolve: { product: productDetailResolver },
   },
-  // AECI-59 — Phase 2.13 vendor index + detail. Resolver runs SSR-side,
-  // hydration reads from TransferState. Claim/correction forms (AECI-128) use
-  // the shared `RequestForm` — see the product block above.
-  {
-    path: 'vendors',
-    pathMatch: 'full',
-    loadComponent: () => import('./vendors/vendors-index').then((m) => m.VendorsIndex),
-  },
+  // AECI-59 — Phase 2.13 vendor detail. Resolver runs SSR-side, hydration reads
+  // from TransferState. Claim/correction forms (AECI-128) use the shared
+  // `RequestForm` — see the product block above.
+  //
+  // AECI-165 removed the `/vendors` index/listing page (orphaned from the nav
+  // after AECI-160). `/vendors` now 301-redirects to `/products` at the SSR
+  // Worker (see `server-runtime.ts`), so there is no Angular index route here —
+  // only the detail + claim/correction routes below.
   {
     path: 'vendors/:slug/claim',
     loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
@@ -120,17 +120,16 @@ export const routes: Routes = [
     data: { kind: 'phase' },
     resolve: { term: phaseBrowseResolver },
   },
-  // AECI-60 — Phase 2.14 integration index + detail. Integrations are keyed by
-  // record ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side
-  // via the service binding; hydration reads from TransferState. A null result
-  // renders the global 404 shell. No claim/correction routes — explicitly out
-  // of scope for Stage 1 (Phase 6 covers product + vendor only).
-  {
-    path: 'integrations',
-    pathMatch: 'full',
-    loadComponent: () =>
-      import('./integrations/integrations-index').then((m) => m.IntegrationsIndex),
-  },
+  // AECI-60 — Phase 2.14 integration detail. Integrations are keyed by record
+  // ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side via the
+  // service binding; hydration reads from TransferState. A null result renders
+  // the global 404 shell. No claim/correction routes — explicitly out of scope
+  // for Stage 1 (Phase 6 covers product + vendor only).
+  //
+  // AECI-165 removed the `/integrations` index/listing page (orphaned from the
+  // nav after AECI-160). `/integrations` now 301-redirects to `/products` at the
+  // SSR Worker (see `server-runtime.ts`), so there is no Angular index route
+  // here — only the detail route below.
   {
     path: 'integrations/:id',
     loadComponent: () =>
