@@ -5,12 +5,12 @@
  * keeps each env's three Algolia indexes fresh between full reindexes via the
  * §20.5 write-event pipeline. Two callers share one core (`indexEntity`):
  *
- *   - the **daily cron** (`../scheduled.ts`, 03:00 UTC) passes a watermark window
- *     (`{ updatedAt: { gt, lte } }`) so it pushes only rows changed since the last
- *     run, and
+ *   - the **daily cron** (`../scheduled.ts`, 08:00 UTC = 03:00 EST) passes a
+ *     watermark window (`{ updatedAt: { gt, lte } }`) so it pushes only rows
+ *     changed since the last run, and
  *   - the **promote hook** (`syncAlgoliaAfterPromote`, fired from `routes/promote.ts`
  *     via `ctx.waitUntil`) passes the just-touched ids (`{ id: { in } }`) so a
- *     promote is searchable immediately, not at the next 03:00.
+ *     promote is searchable immediately, not at the next daily sync.
  *
  * Index-membership rule (identical to the bulk script, so cron / bulk / promote
  * converge on the same index state): a **product/vendor** is in the index iff

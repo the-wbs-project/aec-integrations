@@ -595,7 +595,7 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 ### 7.4 Sync strategy
 
 - **Initial bulk import**: one-off script `apps/api/scripts/algolia-bulk-sync.ts` (Prisma-bound — it reuses the AECI-137 transform and the vanilla `@prisma/client` over `DIRECT_URL`, so it lives alongside the other `apps/api` Node CLIs rather than at the repo root; AECI-138) reads **promoted** rows from Supabase, transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
-- **Ongoing sync**: scheduled Cloudflare Worker at 03:00 UTC daily reads Supabase changes since last sync, pushes incremental updates to Algolia
+- **Ongoing sync**: scheduled Cloudflare Worker at 08:00 UTC (= 03:00 EST, our US-East launch base; UTC is DST-unaware so 04:00 EDT in summer) daily reads Supabase changes since last sync, pushes incremental updates to Algolia
 - **Real-time sync (deferred)**: Supabase webhook → Worker → Algolia, planned for Stage 2 when vendors edit their data
 
 ### 7.5 InstantSearch integration
@@ -1305,8 +1305,10 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage.
 
 > **Implementation note (AECI-140):** the "Algolia index drift" line item ships as the
-> API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 04:00
-> UTC cron registered per-env in `apps/api/wrangler.jsonc` (staging + production). It compares
+> API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 09:00
+> UTC (= 04:00 EST) cron registered per-env in `apps/api/wrangler.jsonc` (staging + production),
+> trailing the 08:00 UTC incremental sync by one hour so it reads a settled index. (Decoupled
+> from the 04:00 UTC slot of the broader §23.1 data-quality job, which remains unbuilt.) It compares
 > promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
 > gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`),
 > not the email summary (the full §23.1 email + the other nine checks remain to be built). A

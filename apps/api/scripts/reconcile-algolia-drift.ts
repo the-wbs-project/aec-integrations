@@ -4,8 +4,8 @@
  * Counts the **promoted** product / vendor / integration rows in Supabase and
  * the object count of each matching Algolia index, and reports any per-index
  * mismatch. The comparison rule lives in `src/lib/algolia-drift.ts` — this is a
- * thin runner around `findAlgoliaIndexDrift` (the daily 04:00 UTC run is the
- * Worker cron in `src/scheduled.ts`; §23.1).
+ * thin runner around `findAlgoliaIndexDrift` (the daily 09:00 UTC = 04:00 EST run
+ * is the Worker cron in `src/scheduled.ts`; §23.1).
  *
  * Two surfaces use this CLI:
  *   - the `deploy-staging` job's report-only post-deploy hook (CICD §3.2 step 5),

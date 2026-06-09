@@ -157,7 +157,7 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 5. Update Algolia staging index settings (AECI-137), then run the **report-only**
    Algolia ↔ Supabase index-drift check (AECI-140, `scripts/reconcile-algolia-drift.ts`,
    `continue-on-error`) — surfaces drift via the `aeci.algolia.index_drift` gauge without
-   blocking the deploy. The scheduled (daily 04:00 UTC) drift check runs as the API Worker
+   blocking the deploy. The scheduled (daily 09:00 UTC = 04:00 EST) drift check runs as the API Worker
    cron (`apps/api/src/scheduled.ts`, §23.1); this step is the immediate post-deploy check.
 6. Send deployment marker to Datadog
 7. Notify Slack: "Staging updated, awaiting production approval"
@@ -362,7 +362,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 
 | Secret | Purpose | Environments |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | Wrangler auth + cache purge. Scope: **`Zone.Cache Purge` on `aecintegrations.com` only** (narrowest possible). Do not promote to a broader scope under deadline pressure — issue a new token with the same minimal scope and rotate. | All |
+| `CLOUDFLARE_API_TOKEN` | Wrangler auth + cache purge. Scope: **`Zone.Cache Purge` on `aecintegrations.com`**, the Workers Scripts edit `wrangler deploy` requires, **and `Account → Queues → Edit`** (ADR 0013 — the deploy provisions + binds the Algolia job queues; without it `wrangler queues create` and the consumer-binding deploy fail). Keep it as narrow as these three need; issue a new token at the same scope and rotate rather than broadening reactively. | All |
 | `CLOUDFLARE_ACCOUNT_ID` | Account identifier | All |
 | `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; used by wrangler and the zone-scoped cache-purge token backing `POST /admin/purge` (see `CACHE_STRATEGY.md` §5) | staging, production |
 | `SUPABASE_ACCESS_TOKEN` | Migrations via Supabase CLI | All |

@@ -306,7 +306,7 @@ function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason:
 }
 
 // ─── Algolia index sync (AECI-139) ───────────────────────────────────────────
-// Closes the "viewable on promote (purge) but not searchable until 03:00" gap:
+// Closes the "viewable on promote (purge) but not searchable until the daily sync" gap:
 // after the commit, push the just-promoted records to Algolia immediately so the
 // index matches the freshly-purged pages. Best-effort and post-commit — fired via
 // `waitUntil` (never blocks/fails the promote), gated on the Algolia secrets, and
@@ -756,7 +756,7 @@ export function createPromoteHandler(
     }
 
     // AECI-139: push the promoted records to Algolia immediately so they're
-    // searchable now, not at the next 03:00 cron. Independent best-effort task
+    // searchable now, not at the next daily sync cron. Independent best-effort task
     // (separate `waitUntil`, so it never blocks the purge or the response).
     // No-ops when the Algolia secrets are unset (local / preview).
     if (c.env.ALGOLIA_APP_ID && c.env.ALGOLIA_ADMIN_KEY) {

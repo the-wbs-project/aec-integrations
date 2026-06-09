@@ -1,3 +1,22 @@
+/** Which daily Algolia job a queue message asks the consumer to run. */
+export type AlgoliaJob = 'sync' | 'drift';
+
+/**
+ * Body of a message on the Algolia job queues. Producer: the cron `scheduled()`
+ * handler; consumer: the `queue()` handler — both in `src/scheduled.ts`. The
+ * cron no longer runs the work inline; it enqueues one of these and the consumer
+ * executes it (decouples scheduling from execution; queue-native retries). See
+ * `docs/adr/0013-algolia-jobs-via-queue.md`.
+ */
+export type AlgoliaJobMessage = {
+  job: AlgoliaJob;
+  /** What caused the enqueue: `cron` = the daily scheduled trigger; `manual` =
+   *  an operator force-run (a future admin/REST producer). */
+  trigger: 'cron' | 'manual';
+  /** ISO 8601 enqueue timestamp, for staleness / observability. */
+  enqueuedAt: string;
+};
+
 export type Env = {
   /** Prisma Accelerate URL (`prisma://...`) used by the Worker at runtime. */
   DATABASE_URL: string;
@@ -73,4 +92,17 @@ export type Env = {
    * query-only search key instead. Optional until 3.5.
    */
   ALGOLIA_ADMIN_KEY?: string;
+  /**
+   * Cloudflare Queue **producer** bindings for the two daily Algolia jobs
+   * (AECI-139 sync, AECI-140 drift). The cron `scheduled()` handler enqueues a
+   * `AlgoliaJobMessage` here rather than doing the work inline; the `queue()`
+   * consumer (`src/scheduled.ts`) runs it. Bound on staging + production only
+   * (mirrors the cron triggers). Absent on local `wrangler dev` / preview → the
+   * scheduled handler falls back to running the job inline (see `enqueueOrRun`),
+   * so a `--test-scheduled` tick is never silently dropped. The Worker also
+   * *consumes* these queues (the consumer binding lives in `wrangler.jsonc`, not
+   * the `Env` type). See `docs/adr/0013-algolia-jobs-via-queue.md`.
+   */
+  ALGOLIA_SYNC_QUEUE?: Queue<AlgoliaJobMessage>;
+  ALGOLIA_DRIFT_QUEUE?: Queue<AlgoliaJobMessage>;
 };

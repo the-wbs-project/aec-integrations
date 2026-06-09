@@ -108,7 +108,7 @@ nothing auto-repairs.
 pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
 ```
 
-To re-check on demand without waiting for the 04:00 UTC cron:
+To re-check on demand without waiting for the 09:00 UTC (= 04:00 EST) cron:
 
 ```bash
 DIRECT_URL=<DIRECT_URL_{STAGING,PRODUCTION}> ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
