@@ -5,7 +5,6 @@ import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { metricsMiddleware } from './metrics-middleware';
-import { createCategoriesListHandler } from './routes/categories';
 import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
@@ -17,6 +16,7 @@ import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
+import { createTaxonomyListHandler } from './routes/taxonomy-list';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 
@@ -57,7 +57,7 @@ phase28.get('/api/vendors/:slug', createVendorDetailHandler());
 phase28.get('/api/integrations', createIntegrationsListHandler());
 phase28.get('/api/integrations/:id', createIntegrationDetailHandler());
 
-phase28.get('/api/categories', createCategoriesListHandler());
+phase28.get('/api/categories', createTaxonomyListHandler('categories'));
 phase28.get(
   '/api/categories/:slug',
   createTaxonomyDetailHandler({
@@ -67,6 +67,7 @@ phase28.get(
     schema: CategoryDetailSchema,
   }),
 );
+phase28.get('/api/audiences', createTaxonomyListHandler('audiences'));
 phase28.get(
   '/api/audiences/:slug',
   createTaxonomyDetailHandler({
@@ -76,6 +77,7 @@ phase28.get(
     schema: AudienceDetailSchema,
   }),
 );
+phase28.get('/api/phases', createTaxonomyListHandler('phases'));
 phase28.get(
   '/api/phases/:slug',
   createTaxonomyDetailHandler({

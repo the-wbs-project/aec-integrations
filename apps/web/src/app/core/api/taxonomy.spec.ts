@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ServerApiError, type ServerApiClient } from '../../../server-api-client';
 
-import { fetchCategoriesList, fetchTaxonomyTermBySlug } from './taxonomy';
+import { fetchTaxonomyList, fetchTaxonomyTermBySlug } from './taxonomy';
+import type { TaxonomyKind } from '../../shared/taxonomy-badge/taxonomy-badge';
 
 function stubClient(impl: ServerApiClient['request']): ServerApiClient {
   return { request: vi.fn(impl) as ServerApiClient['request'] };
@@ -70,14 +71,21 @@ describe('fetchTaxonomyTermBySlug', () => {
   });
 });
 
-describe('fetchCategoriesList', () => {
-  it('requests /api/categories and returns the parsed list', async () => {
-    const list = { data: [{ id: 'c1', slug: 'pm', name: 'PM', product_count: 3 }] } as const;
-    const client = stubClient(async () => list as unknown);
+describe('fetchTaxonomyList', () => {
+  it.each([
+    ['category', '/api/categories'],
+    ['audience', '/api/audiences'],
+    ['phase', '/api/phases'],
+  ] as const)(
+    'requests %s list endpoint and returns the parsed list',
+    async (kind, expectedPath) => {
+      const list = { data: [{ id: 'c1', slug: 'pm', name: 'PM', product_count: 3 }] } as const;
+      const client = stubClient(async () => list as unknown);
 
-    const result = await fetchCategoriesList(client);
+      const result = await fetchTaxonomyList(client, kind as TaxonomyKind);
 
-    expect(result).toEqual(list);
-    expect(client.request).toHaveBeenCalledWith('/api/categories');
-  });
+      expect(result).toEqual(list);
+      expect(client.request).toHaveBeenCalledWith(expectedPath);
+    },
+  );
 });

@@ -131,11 +131,16 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   if ((m = /^\/categories\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'category', slug: m[1]! } };
 
-  if (path === '/audiences') return { route: 'browse', entity: { type: 'audience', slug: '*' } };
+  // `/audiences` and `/phases` are flat indexes (AECI-157) — like `/categories`,
+  // they render the full taxonomy, so they carry `index:<segment>` + `taxonomy`,
+  // distinct from the per-slug browse pages below.
+  if (path === '/audiences')
+    return { route: 'index', entity: { type: 'index', slug: 'audiences' }, taxonomy: true };
   if ((m = /^\/audiences\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'audience', slug: m[1]! } };
 
-  if (path === '/phases') return { route: 'browse', entity: { type: 'phase', slug: '*' } };
+  if (path === '/phases')
+    return { route: 'index', entity: { type: 'index', slug: 'phases' }, taxonomy: true };
   if ((m = /^\/phases\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'phase', slug: m[1]! } };
 
