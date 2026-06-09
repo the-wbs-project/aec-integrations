@@ -77,9 +77,7 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toMatch(
       /script-src[^;]*https:\/\/static\.cloudflareinsights\.com/,
     );
-    expect(CONTENT_SECURITY_POLICY).toMatch(
-      /connect-src[^;]*https:\/\/cloudflareinsights\.com/,
-    );
+    expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*https:\/\/cloudflareinsights\.com/);
   });
 
   it('locks down the hardening directives', () => {
