@@ -47,7 +47,8 @@
     "test:coverage": "pnpm -r --if-present run test:coverage",
     "skills:update": "npx skills add coreyhaines31/marketingskills",
     "algolia:provision": "node scripts/algolia/provision.mjs",
-    "algolia:apply-settings": "node scripts/algolia/apply-settings.mjs"
+    "algolia:apply-settings": "node scripts/algolia/apply-settings.mjs",
+    "algolia:bulk-sync": "pnpm --filter @aeci/api db:algolia-bulk-sync"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

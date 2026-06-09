@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyIndexSettings,
+  applyIndexSettingsTo,
+  DEFAULT_LOCALE,
   INDEX_ENTITIES,
   indexListFor,
   indexNamesFor,
   indexPrefixForEnv,
   indexSettingsFor,
   keyDescription,
+  localizedIndexNamesFor,
   managementKeyParams,
   MECHANISM_RANK,
   mechanismRank,
@@ -66,6 +69,34 @@ describe('indexListFor', () => {
       'production_vendors',
       'production_integrations',
     ]);
+  });
+});
+
+describe('localizedIndexNamesFor', () => {
+  it('returns the bare canonical names for the default locale', () => {
+    expect(DEFAULT_LOCALE).toBe('en-US');
+    expect(localizedIndexNamesFor('staging', 'en-US')).toEqual(indexNamesFor('staging'));
+    // Defaulting the locale arg is equivalent to passing en-US.
+    expect(localizedIndexNamesFor('production')).toEqual(indexNamesFor('production'));
+  });
+
+  it('suffixes every index with _<locale> for a non-default locale (§7.6)', () => {
+    expect(localizedIndexNamesFor('staging', 'es')).toEqual({
+      products: 'staging_products_es',
+      vendors: 'staging_vendors_es',
+      integrations: 'staging_integrations_es',
+    });
+    expect(localizedIndexNamesFor('production', 'fr')).toEqual({
+      products: 'production_products_fr',
+      vendors: 'production_vendors_fr',
+      integrations: 'production_integrations_fr',
+    });
+  });
+
+  it('folds development onto the preview set before suffixing', () => {
+    expect(localizedIndexNamesFor('development', 'es')).toEqual(
+      localizedIndexNamesFor('preview', 'es'),
+    );
   });
 });
 
@@ -281,5 +312,16 @@ describe('applyIndexSettings', () => {
       'production_vendors',
       'production_integrations',
     ]);
+  });
+
+  it('applyIndexSettingsTo targets an explicit (e.g. per-locale) index set', async () => {
+    const { client, calls } = makeClient();
+    const applied = await applyIndexSettingsTo(client, localizedIndexNamesFor('staging', 'es'));
+    expect(calls.map((c) => c.indexName)).toEqual([
+      'staging_products_es',
+      'staging_vendors_es',
+      'staging_integrations_es',
+    ]);
+    expect(applied.map((a) => a.entity)).toEqual(['products', 'vendors', 'integrations']);
   });
 });

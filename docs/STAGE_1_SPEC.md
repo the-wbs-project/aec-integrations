@@ -591,7 +591,7 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 
 ### 7.4 Sync strategy
 
-- **Initial bulk import**: one-off script `scripts/algolia-bulk-sync.ts` reads from Supabase, transforms to Algolia record shape, batch uploads
+- **Initial bulk import**: one-off script `apps/api/scripts/algolia-bulk-sync.ts` (Prisma-bound — it reuses the AECI-137 transform and the vanilla `@prisma/client` over `DIRECT_URL`, so it lives alongside the other `apps/api` Node CLIs rather than at the repo root; AECI-138) reads **promoted** rows from Supabase, transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
 - **Ongoing sync**: scheduled Cloudflare Worker at 03:00 UTC daily reads Supabase changes since last sync, pushes incremental updates to Algolia
 - **Real-time sync (deferred)**: Supabase webhook → Worker → Algolia, planned for Stage 2 when vendors edit their data
 

@@ -89,3 +89,50 @@ pnpm db:push         # remote (linked project)
 # — or —
 pnpm db:reset        # local stack via supabase start
 ```
+
+## `algolia-bulk-sync.ts` — AECI-138 / Phase 3.5 (`STAGE_1_SPEC.md` §7.4, §7.6)
+
+One-off, rerunnable **full reindex**. Reads every **promoted** product / vendor /
+integration from Supabase, denormalizes each row into its §7.1 Algolia record via
+the shared AECI-137 transform (`src/lib/algolia-transforms.ts`), validates it
+against the `@aeci/shared/algolia-records` Zod schema, applies the §7.2/§7.3 index
+settings, and batch-uploads to one environment's index set. The orchestration is
+the unit-tested core `src/lib/algolia-bulk-sync.ts`; this script is the thin
+runner. Integrations may be **0 rows** (clean — the index stays empty until
+AECI-86 re-enables integration seeding in `POST /api/promote`).
+
+Uploads go through `saveObjects`, which upserts by `objectID` (the Supabase UUID),
+so a re-run replaces each record in place. It deliberately does **not** use
+`replaceAllObjects` (its temp index is outside the per-env management key's scope,
+CICD §7.5), so rows that fall out of `promoted` (retracted) are not pruned here.
+
+### Prerequisites
+
+- `DIRECT_URL` — always required (the source DB to read). Point it at the target
+  env's Postgres; the vanilla `@prisma/client` runs over it with the privileged
+  role (bypassing RLS), like `reconcile-product-counts.ts`.
+- `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY` — required for a real run.
+  `ALGOLIA_ADMIN_KEY` is the per-env **management** key (never the search-only
+  key). `--dry-run` needs neither Algolia var.
+
+The operator points `DIRECT_URL` at the env's DB, `ALGOLIA_ADMIN_KEY` at the
+matching env's management key, and `--env` at that env's index prefix.
+
+### Invocation
+
+```bash
+# Preview the plan — reads + transforms + validates, prints per-entity counts,
+# writes nothing. Needs only DIRECT_URL.
+pnpm --filter @aeci/api db:algolia-bulk-sync -- --env preview --dry-run
+
+# Real reindex against an env's indexes (needs the management key).
+pnpm --filter @aeci/api db:algolia-bulk-sync -- --env staging
+# or from the repo root:
+pnpm algolia:bulk-sync -- --env staging
+```
+
+Flags: `--env <preview|staging|production>` (required; `development` folds onto
+`preview`), `--locale <code>` (default `en-US`; other locales target the
+`<prefix>_<entity>_<locale>` set per §7.6), `--dry-run`, `--skip-settings`.
+
+Covered by `apps/api/src/lib/algolia-bulk-sync.spec.ts`.

@@ -84,6 +84,34 @@ export function indexListFor(env: AlgoliaEnv): string[] {
   return INDEX_ENTITIES.map((entity) => names[entity]);
 }
 
+/**
+ * The launch locale. Its indexes are the bare `<prefix>_<entity>` set (no locale
+ * suffix), so the default `en-US` run uses exactly the indexes the search-key
+ * scope and the CI settings step already manage.
+ */
+export const DEFAULT_LOCALE = 'en-US';
+
+/**
+ * Physical index names for an env **and locale** (§7.6 multi-language readiness).
+ * The default locale maps to the bare names (`staging_products`); any other
+ * locale appends `_<locale>` (`staging_products_es`, `staging_products_fr`), so
+ * the bulk/daily sync can populate parallel per-locale indexes without a rewrite
+ * when additional locales are added. At launch only `en-US` exists, so this
+ * returns `indexNamesFor(env)` unchanged.
+ */
+export function localizedIndexNamesFor(
+  env: AlgoliaEnv,
+  locale: string = DEFAULT_LOCALE,
+): AlgoliaIndexNames {
+  const base = indexNamesFor(env);
+  if (locale === DEFAULT_LOCALE) return base;
+  return {
+    products: `${base.products}_${locale}`,
+    vendors: `${base.vendors}_${locale}`,
+    integrations: `${base.integrations}_${locale}`,
+  };
+}
+
 /** The `aeci:<role>:<prefix>` description tag used to find/rotate a key. */
 export function keyDescription(role: AlgoliaKeyRole, env: AlgoliaEnv): string {
   return `aeci:${role}:${indexPrefixForEnv(env)}`;
@@ -253,20 +281,21 @@ export type AppliedIndexSettings = {
 };
 
 /**
- * Idempotently apply the managed settings (`indexSettingsFor`) to all three of an
- * environment's indexes. This is the single routine the CI "update Algolia
- * indexes" step (CICD §3.2) and the sync scripts (3.5/3.6) both call.
+ * Idempotently apply the managed settings (`indexSettingsFor`) to a specific set
+ * of physical index names (one per entity). The locale-aware lower level used by
+ * the sync scripts (3.5/3.6): pass `localizedIndexNamesFor(env, locale)` to
+ * configure a per-locale index set, or `indexNamesFor(env)` for the canonical
+ * (default-locale) set.
  *
  * Idempotent because `setSettings` overwrites the index config with the same
  * definition — re-running with an unchanged `INDEX_SETTINGS` is a no-op at the
  * search layer. The client is injected (see `AlgoliaSettingsClient`) so this
  * stays dependency-free.
  */
-export async function applyIndexSettings(
+export async function applyIndexSettingsTo(
   client: AlgoliaSettingsClient,
-  env: AlgoliaEnv,
+  names: AlgoliaIndexNames,
 ): Promise<AppliedIndexSettings[]> {
-  const names = indexNamesFor(env);
   const applied: AppliedIndexSettings[] = [];
   for (const entity of INDEX_ENTITIES) {
     const indexName = names[entity];
@@ -280,4 +309,17 @@ export async function applyIndexSettings(
     applied.push({ entity, indexName, taskID });
   }
   return applied;
+}
+
+/**
+ * Idempotently apply the managed settings to all three of an environment's
+ * canonical (default-locale) indexes. This is the single routine the CI "update
+ * Algolia indexes" step (CICD §3.2) and the sync scripts (3.5/3.6) call for the
+ * `en-US` index set; locale-specific runs go through `applyIndexSettingsTo`.
+ */
+export async function applyIndexSettings(
+  client: AlgoliaSettingsClient,
+  env: AlgoliaEnv,
+): Promise<AppliedIndexSettings[]> {
+  return applyIndexSettingsTo(client, indexNamesFor(env));
 }
