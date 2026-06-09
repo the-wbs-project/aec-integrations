@@ -72,7 +72,7 @@ when clean (value 0)** — one gauge point per `entity`/`index` — so the monit
 tell "ran clean" from "didn't run". Positive = the index is missing rows; negative =
 orphans. Report-only: re-run the AECI-138 bulk sync to repair. Emitted as a **gauge** (a
 level, not a delta) via the shared transport's `submitGauge` (AECI-140 added it alongside
-`submitCount`); the daily 04:00 UTC run is the API Worker cron (`apps/api/src/scheduled.ts`),
+`submitCount`); the daily 09:00 UTC (= 04:00 EST) run is the API Worker cron (`apps/api/src/scheduled.ts`),
 and the deploy-staging hook + manual triage reuse the same comparison via
 `apps/api/scripts/reconcile-algolia-drift.ts`.
 

@@ -108,7 +108,7 @@ nothing auto-repairs.
 pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
 ```
 
-To re-check on demand without waiting for the 04:00 UTC cron:
+To re-check on demand without waiting for the 09:00 UTC (= 04:00 EST) cron:
 
 ```bash
 DIRECT_URL=<DIRECT_URL_{STAGING,PRODUCTION}> ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
@@ -129,8 +129,8 @@ liveness alert watches `aeci.algolia.sync{outcome:ok,trigger:cron}` instead
 (AECI-139 sync; AECI-141 monitors). Companion signals: `aeci.algolia.sync.records`
 (`op:saved|deleted`) and `aeci.algolia.sync.duration_ms` per run.
 
-**What it means:** A push to one of the env's Algolia indexes failed — the daily 03:00 UTC
-incremental sync (`trigger:cron`) or the post-promote hook (`trigger:promote`). The affected
+**What it means:** A push to one of the env's Algolia indexes failed — the daily 08:00 UTC
+(= 03:00 EST) incremental sync (`trigger:cron`) or the post-promote hook (`trigger:promote`). The affected
 index keeps serving stale results until the next successful run; there is **no page-level
 symptom**, which is why this monitor exists. On a cron failure the watermark for that entity
 is held so the next cron retries it.
@@ -149,7 +149,7 @@ is held so the next cron retries it.
 4. Algolia status? Check https://status.algolia.com — an Algolia outage surfaces as transient
    push failures that self-heal on the next run.
 5. Liveness alert ("sync not running"): this is the no-data variant of the `outcome:ok`
-   cron series — the 03:00 UTC cron (`apps/api/src/scheduled.ts`) hasn't reported a successful
+   cron series — the 08:00 UTC (= 03:00 EST) cron (`apps/api/src/scheduled.ts`) hasn't reported a successful
    push for 48h, so it likely isn't firing. Check the staging/production API Worker's scheduled
    invocation in the Cloudflare dashboard / `wrangler tail`. (The "sync failed" alert does not
    use no-data — `outcome:failed` is absent on a healthy run.)

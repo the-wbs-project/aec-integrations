@@ -422,6 +422,20 @@ provisioning a fresh empty project for development:
 - [ ] Add a custom hostname for `staging.aecintegrations.com` pointing at the Workers zone (Cloudflare Dashboard → Workers & Pages → `aeci-web-staging` → Settings → Triggers → Custom Domains → Add). Wrangler will reconcile the route on first deploy.
 - [ ] Add `demo.aecintegrations.com` as the custom domain on `aeci-web-production` (Wrangler reconciles it on first prod promote; `custom_domain: true` provisions the DNS record + cert on the zone). The apex + `www` stay on the landing Worker.
 
+### 2a. Cloudflare Queues — Algolia jobs (ADR 0013)
+
+The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The four queues are created by an **idempotent `wrangler queues create` step in `deploy.yml` / `promote-to-prod.yml`** (before each API deploy), so no manual creation is normally needed — but two account/token prerequisites must be satisfied first or both that step and the Worker deploy (its `queues.consumers` binding) fail:
+
+- [ ] **Workers Paid plan** is active on the AEC Cloudflare account (Cloudflare Queues require it).
+- [ ] The CI **`CLOUDFLARE_API_TOKEN`** carries the **Queues edit** permission (Account → *Queues* → Edit), in addition to the Workers Scripts edit it already uses for `wrangler deploy`. Without it, `wrangler queues create` returns a permission error.
+- [ ] (Optional, to pre-create by hand before the first deploy) from `apps/api`:
+  ```bash
+  for q in aeci-algolia-sync-staging aeci-algolia-drift-staging \
+           aeci-algolia-sync-production aeci-algolia-drift-production; do
+    pnpm exec wrangler queues create "$q"   # "already exists" is fine
+  done
+  ```
+
 ### 3. Cloudflare Access
 
 Already provisioned per `docs/access.md` §1. Re-verify after bootstrapping the staging hostname:

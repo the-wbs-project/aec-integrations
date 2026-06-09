@@ -509,6 +509,10 @@ export function toProductDetail(
     })),
     audiences: raw.productAudiences.map((r) => r.audience),
     phases: raw.productPhases.map((r) => r.phase),
+    // Narrative "how teams use it" value (API_CONTRACTS §5.1). Stubbed `null`
+    // until the DB column + promotion/hydration land (AECI-169); no `usefulness`
+    // column exists yet, so this is hardcoded and not read off `raw`.
+    usefulness: null,
     integrations_as_source: raw.sourceIntegrations.map(toIntegrationListItem),
     integrations_as_target: raw.targetIntegrations.map(toIntegrationListItem),
     related_products: relatedProducts.map(toProductListItem),
