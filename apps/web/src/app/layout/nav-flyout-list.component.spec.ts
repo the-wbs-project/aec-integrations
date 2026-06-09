@@ -1,7 +1,7 @@
 import { Component } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { provideRouter } from '@angular/router';
-import { describe, expect, it } from 'vitest';
+import { Router, provideRouter } from '@angular/router';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { TaxonomyTermWithCount } from '@aeci/shared';
 
@@ -15,21 +15,31 @@ function term(slug: string, name: string): TaxonomyTermWithCount {
 
 @Component({
   imports: [NavFlyoutList],
-  template: `<aec-nav-flyout-list [items]="items" [kind]="kind" [viewAllLabel]="viewAllLabel" />`,
+  template: `<aec-nav-flyout-list
+    [items]="items"
+    [kind]="kind"
+    [viewAllLabel]="viewAllLabel"
+    (navigate)="navCount = navCount + 1"
+  />`,
 })
 class Host {
   items: TaxonomyTermWithCount[] = [term('bim', 'BIM Authoring'), term('est', 'Estimating')];
   kind: TaxonomyKind = 'category';
   viewAllLabel = 'View all categories';
+  navCount = 0;
 }
 
-function render(kind: TaxonomyKind, viewAllLabel: string): HTMLElement {
+function setup(kind: TaxonomyKind, viewAllLabel: string) {
   TestBed.configureTestingModule({ providers: [provideRouter([])] });
   const fixture = TestBed.createComponent(Host);
   fixture.componentInstance.kind = kind;
   fixture.componentInstance.viewAllLabel = viewAllLabel;
   fixture.detectChanges();
-  return fixture.nativeElement as HTMLElement;
+  return fixture;
+}
+
+function render(kind: TaxonomyKind, viewAllLabel: string): HTMLElement {
+  return setup(kind, viewAllLabel).nativeElement as HTMLElement;
 }
 
 describe('NavFlyoutList', () => {
@@ -61,5 +71,19 @@ describe('NavFlyoutList', () => {
     const root = render(kind, 'View all');
     expect(root.querySelector(`ul a[href="${valueHref}"]`)).not.toBeNull();
     expect(root.querySelector(`a[href="${indexHref}"]`)).not.toBeNull();
+  });
+
+  it('emits (navigate) when a value or the View-all link is activated', () => {
+    const fixture = setup('category', 'View all categories');
+    // The links are real RouterLinks; stub navigation so clicking them only
+    // exercises the (navigate) output (no unmatched-route rejection on teardown).
+    vi.spyOn(TestBed.inject(Router), 'navigateByUrl').mockResolvedValue(true);
+    const root = fixture.nativeElement as HTMLElement;
+
+    root.querySelector<HTMLAnchorElement>('ul a[href="/categories/bim"]')!.click();
+    expect(fixture.componentInstance.navCount).toBe(1);
+
+    root.querySelector<HTMLAnchorElement>('a[href="/categories"]')!.click();
+    expect(fixture.componentInstance.navCount).toBe(2);
   });
 });

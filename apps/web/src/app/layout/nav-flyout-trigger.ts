@@ -7,6 +7,7 @@ import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { NavFlyoutList } from './nav-flyout-list';
+import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 
 /**
  * One taxonomy entry in the desktop primary nav (AECI-158): a label that links
@@ -91,28 +92,10 @@ export class NavFlyoutTrigger {
   protected readonly panelId = computed(() => `nav-flyout-${this.kind()}`);
 
   /** Top-level label (also the index link text). */
-  protected readonly label = computed(() => {
-    switch (this.kind()) {
-      case 'category':
-        return $localize`:@@app.nav.categories:Categories`;
-      case 'audience':
-        return $localize`:@@app.nav.audiences:Audiences`;
-      case 'phase':
-        return $localize`:@@app.nav.phases:Phases`;
-    }
-  });
+  protected readonly label = computed(() => facetNavLabel(this.kind()));
 
   /** "View all <facet>" footer link in the flyout. */
-  protected readonly viewAllLabel = computed(() => {
-    switch (this.kind()) {
-      case 'category':
-        return $localize`:@@app.nav.flyout.viewAll.categories:View all categories`;
-      case 'audience':
-        return $localize`:@@app.nav.flyout.viewAll.audiences:View all audiences`;
-      case 'phase':
-        return $localize`:@@app.nav.flyout.viewAll.phases:View all phases`;
-    }
-  });
+  protected readonly viewAllLabel = computed(() => facetViewAllLabel(this.kind()));
 
   /** Accessible name for the disclosure button. */
   protected readonly triggerAria = computed(() => {

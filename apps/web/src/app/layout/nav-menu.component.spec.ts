@@ -1,3 +1,5 @@
+import { provideHttpClient, withXhr } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -5,13 +7,17 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { NavMenu } from './nav-menu';
 
 // The dropdown panel renders into a CDK overlay that only mounts on click, so
-// the "all four links + search + theme toggle + sign-in reachable when open"
-// assertion lives in the Playwright e2e (e2e/nav-menu.spec.ts) where the overlay
-// genuinely opens. Here we assert the always-rendered trigger has a correct
-// accessible name and popup semantics.
+// the "links + taxonomy disclosures + search + theme toggle + sign-in reachable
+// when open" assertion lives in the Playwright e2e (e2e/nav-menu.spec.ts) where
+// the overlay genuinely opens. Here we assert the always-rendered trigger has a
+// correct accessible name and popup semantics. NavMenu injects TaxonomyNavStore
+// (a browser-gated `httpResource`), so HttpClient must be provided even though
+// the trigger-only assertions never flush the taxonomy request.
 describe('NavMenu', () => {
   beforeEach(() => {
-    TestBed.configureTestingModule({ providers: [provideRouter([])] });
+    TestBed.configureTestingModule({
+      providers: [provideRouter([]), provideHttpClient(withXhr()), provideHttpClientTesting()],
+    });
   });
 
   function toggle(): HTMLButtonElement {

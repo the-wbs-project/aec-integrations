@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, input, output } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
 import type { TaxonomyTermWithCount } from '@aeci/shared';
@@ -30,6 +30,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
         <li>
           <a
             [routerLink]="[basePath(), item.slug]"
+            (click)="navigate.emit()"
             class="block rounded-(--radius-sm) px-3 py-1.5 text-sm text-(--text-primary) no-underline transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             >{{ item.name }}</a
           >
@@ -38,6 +39,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
     </ul>
     <a
       [routerLink]="basePath()"
+      (click)="navigate.emit()"
       class="mt-1 block border-t border-(--border-default) px-3 pt-2 pb-1 text-sm font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >{{ viewAllLabel() }}</a
     >
@@ -47,6 +49,13 @@ export class NavFlyoutList {
   readonly items = input.required<readonly TaxonomyTermWithCount[]>();
   readonly kind = input.required<TaxonomyKind>();
   readonly viewAllLabel = input.required<string>();
+
+  /**
+   * Emits when any link (a value or "View all") is activated. The mobile overlay
+   * (`nav-menu.ts`) wires this to close the popover after navigation; the desktop
+   * flyout ignores it (its disclosure closes on the post-navigation focusout).
+   */
+  readonly navigate = output<void>();
 
   protected readonly basePath = computed(() => `/${KIND_PATH_SEGMENT[this.kind()]}`);
 }
