@@ -1,0 +1,14 @@
+{
+  "name": "AECi — Algolia sync failed (daily cron)",
+  "type": "query alert",
+  "query": "sum(last_1d):sum:aeci.algolia.sync{outcome:failed,env:production}.as_count() > 0",
+  "message": "The incremental Algolia sync reported a failed entity push (AECI-139, daily 08:00 UTC = 03:00 EST cron / post-promote hook). The affected index is stale until the next successful run, with no page-level symptom. `outcome:failed` is per entity — pivot the 'AECi Phase 3 — Search' dashboard by `entity` (products/vendors/integrations) to see which.\n\nNote: this monitor fires only on an actual failed push and deliberately does NOT use notify_no_data — `outcome:failed` is absent on a healthy run, so no-data here would be a constant false alarm. Cron liveness ('did the 08:00 UTC = 03:00 EST sync run at all?') is the companion monitor 'AECi — Algolia sync not running', which watches the `outcome:ok` series that does report every healthy run.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#algolia-sync-failed\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:3", "managed-by:aeci-141"],
+  "options": {
+    "thresholds": { "critical": 0 },
+    "notify_no_data": false,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

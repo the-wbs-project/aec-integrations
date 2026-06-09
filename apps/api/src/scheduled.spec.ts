@@ -15,6 +15,7 @@ import type { AlgoliaJob, Env } from './env';
 vi.mock('./datadog', () => ({
   logToDatadog: vi.fn(),
   submitCount: vi.fn(),
+  submitDistribution: vi.fn(),
   submitGauge: vi.fn(),
 }));
 vi.mock('./lib/algolia-sync', () => ({ runDailySync: vi.fn() }));

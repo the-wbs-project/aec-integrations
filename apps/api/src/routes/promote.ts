@@ -62,11 +62,12 @@ import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aec
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 import type { Context } from 'hono';
 
-import { logToDatadog, submitCount } from '../datadog';
+import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
 import { syncPromoteTargets, type AlgoliaSyncPrisma } from '../lib/algolia-sync';
+import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import type { PrismaFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/product-counts';
 import { getPrisma } from '../prisma';
@@ -330,18 +331,23 @@ async function syncAlgoliaAfterPromote(
 ): Promise<void> {
   const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
   const env: AlgoliaEnv = c.env.ENV ?? 'development';
+  const started = Date.now();
   try {
     const results = await syncPromoteTargets(prisma, fetch, creds, env, {
       product: response.product ? { id: response.product.id } : null,
       vendors: response.vendors.map((v) => ({ id: v.id })),
       integrations: response.integrations.map((i) => ({ id: i.id })),
     });
+    // Per-entity outcome + records counts and the run-level duration distribution
+    // (AECI-141), shared with the daily cron so the two writers can't drift.
+    const sink: SyncMetricSink = {
+      count: (metric, value, tags) =>
+        submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+      distribution: (metric, value, tags) =>
+        submitDistribution(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+    };
+    emitAlgoliaSyncMetrics(sink, 'promote', results, Date.now() - started);
     for (const result of results) {
-      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.algolia.sync', 1, [
-        'trigger:promote',
-        `entity:${result.entity}`,
-        `outcome:${result.ok ? 'ok' : 'failed'}`,
-      ]);
       if (!result.ok) logAlgoliaSyncFailure(c, result.entity, result.error ?? 'unknown');
     }
   } catch (error) {
