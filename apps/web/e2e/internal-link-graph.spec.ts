@@ -33,10 +33,18 @@
  *     a partially-seeded DB while still enforcing §10 once data exists.
  *
  * The AC's "discipline browse" is this codebase's AUDIENCE browse
- * (`/audiences/:slug`, kind="audience"). There are no audience/phase INDEX pages
- * (deferred — `app.routes.ts`), so discipline + phase browse are reachable only
- * at depth exactly 3, via the `TaxonomyBadge` links on a product detail page —
- * the tightest constraint and the most likely to regress.
+ * (`/audiences/:slug`, kind="audience"). Since AECI-157 the `/audiences` and
+ * `/phases` indexes exist and are linked from the primary nav + footer, so
+ * discipline + phase browse are now reachable at depth 2 (index → card), not
+ * only at depth 3 via a product-detail `TaxonomyBadge`.
+ *
+ * AECI-160 re-pointed the primary nav at the taxonomy and pulled Vendors /
+ * Integrations out of the nav AND footer (PO decision). Their DETAIL pages stay
+ * reachable ≤ 3 via a product detail's vendor / integration links, but the
+ * `/vendors` and `/integrations` INDEX pages are now reachable only via their
+ * own detail-page breadcrumbs (depth 4, beyond this crawl) + `sitemap.xml` +
+ * direct URL — so they are intentionally NOT asserted ≤ 3 (see
+ * `INTENTIONALLY_DEEP_INDEX_TYPES`).
  *
  * Every run writes `e2e/internal-link-graph-report.md` (a seed-stable,
  * type-level snapshot) in `beforeAll`, before the assertions, so it is produced
@@ -72,6 +80,8 @@ type PageType =
   | 'integration-detail'
   | 'categories'
   | 'category-browse'
+  | 'audience-index'
+  | 'phase-index'
   | 'discipline-browse' // = /audiences/:slug (audience browse)
   | 'phase-browse'
   | 'home'
@@ -86,6 +96,8 @@ const PATTERN_OF: Record<PageType, string> = {
   'integration-detail': '/integrations/:id',
   categories: '/categories',
   'category-browse': '/categories/:slug',
+  'audience-index': '/audiences',
+  'phase-index': '/phases',
   'discipline-browse': '/audiences/:slug',
   'phase-browse': '/phases/:slug',
   home: '/',
@@ -101,20 +113,31 @@ const TYPE_LABEL: Record<PageType, string> = {
   'integration-detail': 'integration detail',
   categories: '/categories (flat list)',
   'category-browse': 'category browse',
+  'audience-index': '/audiences (flat list)',
+  'phase-index': '/phases (flat list)',
   'discipline-browse': 'discipline browse (audience)',
   'phase-browse': 'phase browse',
   home: 'home',
   other: 'other',
 };
 
-// Always asserted. Index shells render `200` from the header nav regardless of
-// data; `/categories` needs taxonomy seeded (CI seeds it).
+// Always asserted reachable ≤ 3. Index shells render `200` from the header nav /
+// footer regardless of data; the taxonomy indexes need taxonomy seeded (CI seeds
+// it). Vendor / integration indexes are deliberately excluded — AECI-160 pulled
+// them from the nav + footer; see `INTENTIONALLY_DEEP_INDEX_TYPES`.
 const STRUCTURAL_TYPES: PageType[] = [
   'product-index',
-  'vendor-index',
-  'integration-index',
   'categories',
+  'audience-index',
+  'phase-index',
 ];
+
+// Index pages intentionally NOT reachable ≤ 3 from `/` after AECI-160 (removed
+// from the primary nav + footer per PO decision). They remain reachable via
+// their own detail-page breadcrumbs (depth 4), `sitemap.xml`, and direct URL /
+// search — so the no-404 / no-5xx gates still cover them when crawled, but the
+// ≤3-hop reachability assertion does not. Recorded in the report for visibility.
+const INTENTIONALLY_DEEP_INDEX_TYPES: PageType[] = ['vendor-index', 'integration-index'];
 
 const ENTITY_BROWSE_TYPES: PageType[] = [
   'product-detail',
@@ -129,16 +152,17 @@ const ENTITY_BROWSE_TYPES: PageType[] = [
 // so an unreachable type names its candidate start/parent URLs (AC requirement).
 const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
   'product-index': 'site-header primary nav → /products',
-  'vendor-index': 'site-header primary nav → /vendors',
-  'integration-index': 'site-header primary nav → /integrations',
   categories: 'site-header primary nav → /categories',
+  'audience-index': 'site-header primary nav / footer → /audiences',
+  'phase-index': 'site-header primary nav / footer → /phases',
   'product-detail': 'a /products index row → /products/:slug',
-  'vendor-detail': 'a /vendors index row → /vendors/:slug',
-  'integration-detail': 'an /integrations index row → /integrations/:id',
+  'vendor-detail': 'a product-detail vendor link → /vendors/:slug',
+  'integration-detail': 'a product-detail integration link → /integrations/:id',
   'category-browse':
     'a /categories list entry or a product-detail category TaxonomyBadge → /categories/:slug',
-  'discipline-browse': 'a product-detail audience TaxonomyBadge → /audiences/:slug',
-  'phase-browse': 'a product-detail phase TaxonomyBadge → /phases/:slug',
+  'discipline-browse':
+    'an /audiences list entry or a product-detail audience badge → /audiences/:slug',
+  'phase-browse': 'a /phases list entry or a product-detail phase badge → /phases/:slug',
 };
 
 // ---------------------------------------------------------------------------
@@ -193,7 +217,9 @@ function classifyPath(pathname: string): PageType {
   if (/^\/categories\/[^/]+\/?$/.test(p)) return 'category-browse';
   if (/^\/categories\/?$/.test(p)) return 'categories';
   if (/^\/audiences\/[^/]+\/?$/.test(p)) return 'discipline-browse';
+  if (/^\/audiences\/?$/.test(p)) return 'audience-index';
   if (/^\/phases\/[^/]+\/?$/.test(p)) return 'phase-browse';
+  if (/^\/phases\/?$/.test(p)) return 'phase-index';
   return 'other';
 }
 
@@ -513,10 +539,20 @@ function entityRow(result: CrawlResult, type: PageType): string {
   return `| ${TYPE_LABEL[type]} | \`${PATTERN_OF[type]}\` | ${present ? 'yes' : 'no'} | ${reachable} | ${depth} | ${path} |`;
 }
 
+/** Row for an index that is intentionally not required reachable ≤ 3 (AECI-160). */
+function deepIndexRow(result: CrawlResult, type: PageType): string {
+  const best = bestReach(result, type);
+  const reached = best ? `✓ reached at depth ${best.depth}` : '— not within 3 hops (by design)';
+  return `| ${TYPE_LABEL[type]} | \`${PATTERN_OF[type]}\` | ${reached} |`;
+}
+
 function writeReport(result: CrawlResult): void {
   const s = result.seed;
   const structuralRows = STRUCTURAL_TYPES.map((t) => structuralRow(result, t)).join('\n');
   const entityRows = ENTITY_BROWSE_TYPES.map((t) => entityRow(result, t)).join('\n');
+  const deepIndexRows = INTENTIONALLY_DEEP_INDEX_TYPES.map((t) => deepIndexRow(result, t)).join(
+    '\n',
+  );
   const pendingLines = result.pending.length
     ? result.pending
         .map((p) => `- \`${p.path}\` ← linked from \`${p.parent ?? '/'}\``)
@@ -548,6 +584,17 @@ Always asserted reachable ≤ ${MAX_DEPTH}.
 | Page type | URL pattern | Reachable | Min depth | Shortest path (patterns) |
 |---|---|---|---|---|
 ${structuralRows}
+
+## Intentionally beyond-3-hop indexes (AECI-160)
+
+Pulled from the primary nav + footer per the PO decision. Reachable via their
+own detail-page breadcrumbs (depth 4), \`sitemap.xml\`, and direct URL / search —
+so they are covered by the no-404 / no-5xx gates if crawled, but **not** by the
+≤ ${MAX_DEPTH}-hop reachability assertion.
+
+| Page type | URL pattern | Status |
+|---|---|---|
+${deepIndexRows}
 
 ## Entity & browse page types
 
