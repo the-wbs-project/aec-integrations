@@ -12,8 +12,8 @@ hydration — keyed by pathname (query/hash stripped), following only **internal
 links. Paths are shown as **patterns**, not concrete slugs, so the snapshot
 stays seed-stable and PR diffs stay meaningful.
 
-- **Environment crawled:** `https://demo.aecintegrations.com`
-- **Seed totals (API):** products 1, vendors 1, integrations 0; taxonomy — categories 32, audiences-with-products 2, phases-with-products 4
+- **Environment crawled:** `http://localhost:8788`
+- **Seed totals (API):** products 3, vendors 2, integrations 1; taxonomy — categories 32, audiences-with-products 3, phases-with-products 4
 
 ## Structural index page types
 
@@ -22,9 +22,21 @@ Always asserted reachable ≤ 3.
 | Page type | URL pattern | Reachable | Min depth | Shortest path (patterns) |
 |---|---|---|---|---|
 | product index | `/products` | ✓ | 1 | / → /products |
-| vendor index | `/vendors` | ✓ | 1 | / → /vendors |
-| integration index | `/integrations` | ✓ | 1 | / → /integrations |
 | /categories (flat list) | `/categories` | ✓ | 1 | / → /categories |
+| /audiences (flat list) | `/audiences` | ✓ | 1 | / → /audiences |
+| /phases (flat list) | `/phases` | ✓ | 1 | / → /phases |
+
+## Intentionally beyond-3-hop indexes (AECI-160)
+
+Pulled from the primary nav + footer per the PO decision. Reachable via their
+own detail-page breadcrumbs (depth 4), `sitemap.xml`, and direct URL / search —
+so they are covered by the no-404 / no-5xx gates if crawled, but **not** by the
+≤ 3-hop reachability assertion.
+
+| Page type | URL pattern | Status |
+|---|---|---|
+| vendor index | `/vendors` | ✓ reached at depth 3 |
+| integration index | `/integrations` | — not within 3 hops (by design) |
 
 ## Entity & browse page types
 
@@ -38,10 +50,10 @@ the tightest constraint.
 |---|---|---|---|---|---|
 | product detail | `/products/:slug` | yes | ✓ | 2 | / → /products → /products/:slug |
 | vendor detail | `/vendors/:slug` | yes | ✓ | 2 | / → /products → /vendors/:slug |
-| integration detail | `/integrations/:id` | no | n/a (no data) | — | (no seeded data for this type) |
-| category browse | `/categories/:slug` | yes | ✓ | 2 | / → /products → /categories/:slug |
-| discipline browse (audience) | `/audiences/:slug` | yes | ✓ | 3 | / → /products → /products/:slug → /audiences/:slug |
-| phase browse | `/phases/:slug` | yes | ✓ | 3 | / → /products → /products/:slug → /phases/:slug |
+| integration detail | `/integrations/:id` | yes | ✓ | 3 | / → /products → /products/:slug → /integrations/:id |
+| category browse | `/categories/:slug` | yes | ✓ | 1 | / → /categories/:slug |
+| discipline browse (audience) | `/audiences/:slug` | yes | ✓ | 1 | / → /audiences/:slug |
+| phase browse | `/phases/:slug` | yes | ✓ | 1 | / → /phases/:slug |
 
 ## Known-pending links (intentional 404 placeholders)
 
@@ -49,6 +61,7 @@ Forward-reference links shipped ahead of their page (allowlisted in the spec;
 they do **not** fail the no-404 gate). Remove the allowlist entry in
 `internal-link-graph.spec.ts` when the page lands so the link becomes enforced.
 
+- `/auth/login` ← linked from `/`
 - `/contact` ← linked from `/`
 - `/legal/listing-accuracy` ← linked from `/`
 - `/legal/privacy` ← linked from `/`
@@ -59,12 +72,25 @@ they do **not** fail the no-404 gate). Remove the allowlist entry in
 
 | Metric | Count |
 |---|---|
-| Distinct internal pages reached (2xx) | 49 |
-| Distinct internal pages discovered (incl. 404 / 5xx / redirect) | 54 |
+| Distinct internal pages reached (2xx) | 89 |
+| Distinct internal pages discovered (incl. 404 / 5xx / redirect) | 95 |
 | Unexpected internal 404s | 0 |
 | Internal 5xx / navigation failures | 0 |
 | Redirects (recorded, not followed) | 0 |
-| Distinct external links seen (recorded, never counted toward reach) | 3 |
+| Distinct external links seen (recorded, never counted toward reach) | 6 |
+
+## Console health (AECI-162)
+
+Captured across every visited page (§15.15). **Errors + uncaught page errors fail
+the suite; warnings are reported, not gated** (matches the homepage smoke posture —
+see `console-capture.ts`). Counts only — per-message detail is in the test output,
+not this committed snapshot.
+
+| Metric | Count |
+|---|---|
+| Console errors (gated) | 0 |
+| Console warnings (reported, not gated) | 0 |
+| Uncaught page errors (gated) | 0 |
 
 _Counts are environment-dependent; the reachability tables above are the
 seed-stable contract._

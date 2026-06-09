@@ -1,6 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import {
+  attachConsoleCapture,
+  expectConsoleClean,
+  waitForHydrationSettle,
+} from './console-capture';
+
 // AECI-60 / Phase 2.14 — integration index at /integrations.
 // Verifies SSR render (title, breadcrumbs, sortable table), §8.3 cache
 // headers, sort + filter URL behavior, and axe AA. Resilient to a populated
@@ -59,6 +65,20 @@ test.describe('/integrations — integration index (AECI-60)', () => {
       .analyze();
 
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
+
+  // AECI-162 — §15.15 console gate. /integrations is beyond the crawler's ≤3-hop
+  // reach (AECI-160 pulled it from nav + footer), so guard the page type here.
+  // Runs unconditionally — the client-list shell renders 200 with or without
+  // seeded rows; `waitForHydrationSettle` waits out the httpResource fetch.
+  test('renders /integrations with no console errors or page errors (AECI-162)', async ({
+    page,
+  }) => {
+    const capture = attachConsoleCapture(page);
+    await page.goto('/integrations');
+    await expect(page.locator('app-root')).toBeAttached();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /integrations');
   });
 
   test('sorting by Integration updates ?sort=name in the URL', async ({ page }) => {

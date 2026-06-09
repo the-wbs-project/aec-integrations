@@ -1,6 +1,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import {
+  attachConsoleCapture,
+  expectConsoleClean,
+  waitForHydrationSettle,
+} from './console-capture';
+
 // AECI-59 / Phase 2.13 — paginated vendor index at /vendors.
 // Verifies the page renders SSR-side with the right title, breadcrumbs,
 // cache headers, and an accessible table; that the sort and pagination
@@ -78,6 +84,18 @@ test.describe('/vendors — vendor index (AECI-59)', () => {
       .analyze();
 
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
+
+  // AECI-162 — §15.15 console gate. /vendors is beyond the crawler's ≤3-hop reach
+  // (AECI-160 pulled it from nav + footer), so guard the page type here. Runs
+  // unconditionally — the client-list shell renders 200 with or without seeded
+  // rows; `waitForHydrationSettle` waits out the httpResource fetch.
+  test('renders /vendors with no console errors or page errors (AECI-162)', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    await page.goto('/vendors');
+    await expect(page.locator('app-root')).toBeAttached();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /vendors');
   });
 
   test('sorting by Name updates ?sort=name in the URL', async ({ page }) => {

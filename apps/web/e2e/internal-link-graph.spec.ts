@@ -50,11 +50,28 @@
  * type-level snapshot) in `beforeAll`, before the assertions, so it is produced
  * even when an assertion later fails (CI uploads it as an `if: always()`
  * artifact).
+ *
+ * AECI-162 — because this crawl already navigates a real browser to every page
+ * type reachable from `/`, it doubles as the console-health gate for those types
+ * (Phase 2 Spec §15.15, "No new console warnings or errors on any page type").
+ * One `console`/`pageerror` listener is attached to the crawl page; each message
+ * is attributed (via `page.url()`) to the page current when it fired, and gated
+ * ONLY for pages that rendered 2xx — a non-2xx document (the intentional 404
+ * placeholders, redirects) makes the browser log a "Failed to load resource:
+ * ...404" for the navigation itself, which is the document status (already gated
+ * by the no-404 / no-5xx assertions), not an app defect. Console ERRORS +
+ * uncaught page errors FAIL; WARNINGS are reported, not gated (matching
+ * `smoke.spec.ts`'s posture — see `console-capture.ts` for the rationale and the
+ * shared `isIgnorableConsole` allowlist). The two index types this crawl can't
+ * reach (`/vendors`, `/integrations` — beyond 3 hops since AECI-160) and the
+ * `not-found` shell are console-checked by their own specs.
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { chromium, expect, test, type APIRequestContext, type Page } from '@playwright/test';
+
+import { isIgnorableConsole, waitForHydrationSettle } from './console-capture';
 
 // Mirrors `playwright.config.ts`'s BASE_URL default. `beforeAll` hooks don't
 // receive the test-scoped fixtures, so we recompute it from the same env var
@@ -369,6 +386,10 @@ interface CrawlResult {
   serverErrors: (LinkRef & { status: number })[]; // 5xx or status 0 = nav failure
   redirects: (LinkRef & { status: number; location: string | null })[];
   externalSeen: Map<string, number>; // href -> times seen
+  // AECI-162 — console health, keyed by the page that emitted each message.
+  consoleErrors: { path: string; text: string }[]; // gated (fail)
+  consoleWarnings: { path: string; text: string }[]; // reported, not gated
+  pageErrors: { path: string; message: string }[]; // uncaught exceptions, gated
 }
 
 /**
@@ -414,6 +435,48 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
   const serverErrors: CrawlResult['serverErrors'] = [];
   const redirects: CrawlResult['redirects'] = [];
   const externalSeen = new Map<string, number>();
+  const consoleErrors: CrawlResult['consoleErrors'] = [];
+  const consoleWarnings: CrawlResult['consoleWarnings'] = [];
+  const pageErrors: CrawlResult['pageErrors'] = [];
+
+  // AECI-162 — console health. Attach ONCE on the reused crawl page; listeners
+  // persist across navigations and fire per message exactly once. Attribute via
+  // `page.url()` read INSIDE the handler (the committed URL when the message
+  // fired) rather than a mutable "current path" variable — non-racy by
+  // construction. Each reached (2xx) page is settled before the next `goto` (the
+  // harvest for depth < MAX_DEPTH, an explicit settle at MAX_DEPTH), so a page's
+  // async tail fires while it's still current. A message in the microtask gap
+  // right after the next commit can mis-attribute to the next page — rare,
+  // acceptable for a gate (still a real visited page; the text names the source).
+  //
+  // We gate ONLY pages that rendered 2xx (`reached.has(path)`). A non-2xx
+  // document (the intentional 404 placeholders, redirects) makes the browser log
+  // "Failed to load resource: ...404" for the navigation itself — that's the
+  // document status, not an app defect, and it's already gated by the no-404 /
+  // no-5xx link assertions. The not-found SHELL's own console health is covered
+  // by `not-found.spec.ts`.
+  const here = (): string => {
+    try {
+      return stripLocale(new URL(page.url()).pathname);
+    } catch {
+      return page.url();
+    }
+  };
+  page.on('console', (msg) => {
+    const type = msg.type();
+    if (type !== 'error' && type !== 'warning') return;
+    const path = here();
+    if (!reached.has(path)) return;
+    const text = msg.text();
+    if (isIgnorableConsole(text)) return;
+    (type === 'error' ? consoleErrors : consoleWarnings).push({ path, text });
+  });
+  page.on('pageerror', (err) => {
+    const path = here();
+    if (!reached.has(path)) return;
+    if (isIgnorableConsole(err.message)) return;
+    pageErrors.push({ path, message: err.message });
+  });
 
   const queue: { path: string; depth: number; parent: string | null }[] = [];
   const enqueue = (path: string, depth: number, parent: string | null) => {
@@ -457,7 +520,14 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
     }
 
     reached.set(path, { status, type: classifyPath(path) });
-    if (depth >= MAX_DEPTH) continue; // reached, but don't follow its links
+    if (depth >= MAX_DEPTH) {
+      // Reached but we don't follow its links. `harvestHydratedHrefs` (the
+      // per-page hydration settle) only runs on the depth < MAX_DEPTH branch
+      // below, so settle here too — otherwise console output on depth-3 pages
+      // wouldn't get a beat to fire before the next navigation.
+      await waitForHydrationSettle(page).catch(() => undefined);
+      continue;
+    }
 
     const hrefs = await harvestHydratedHrefs(page);
     for (const href of hrefs) {
@@ -480,6 +550,9 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
     serverErrors,
     redirects,
     externalSeen,
+    consoleErrors,
+    consoleWarnings,
+    pageErrors,
   };
 }
 
@@ -627,6 +700,19 @@ ${pendingLines}
 | Redirects (recorded, not followed) | ${result.redirects.length} |
 | Distinct external links seen (recorded, never counted toward reach) | ${result.externalSeen.size} |
 
+## Console health (AECI-162)
+
+Captured across every visited page (§15.15). **Errors + uncaught page errors fail
+the suite; warnings are reported, not gated** (matches the homepage smoke posture —
+see \`console-capture.ts\`). Counts only — per-message detail is in the test output,
+not this committed snapshot.
+
+| Metric | Count |
+|---|---|
+| Console errors (gated) | ${result.consoleErrors.length} |
+| Console warnings (reported, not gated) | ${result.consoleWarnings.length} |
+| Uncaught page errors (gated) | ${result.pageErrors.length} |
+
 _Counts are environment-dependent; the reachability tables above are the
 seed-stable contract._
 `;
@@ -694,6 +780,37 @@ test.describe('internal-link graph — ≤3-hop reachability (AECI-64)', () => {
     expect(
       result.serverErrors,
       `Internal links that 5xx'd / failed to load:\n${lines.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  test('no console errors or uncaught page errors on any visited page (§15.15)', () => {
+    // The crawl attached console/pageerror listeners for its whole run and
+    // settled every 200 page (and the 404 shell) before navigating on, so this
+    // gate covers every page type the crawl reached. Coverage narrows naturally
+    // on a sparse DB (fewer pages visited) and stays green — no `test.skip`
+    // needed (AC#4). Warnings are reported here, not gated (see file header).
+    const checked = result.reached.size;
+    console.log(
+      `[internal-link-graph] console-checked ${checked} reached page(s): ` +
+        `${result.consoleErrors.length} error(s), ${result.consoleWarnings.length} warning(s), ` +
+        `${result.pageErrors.length} uncaught page error(s)`,
+    );
+    if (result.consoleWarnings.length > 0) {
+      console.log(
+        '[internal-link-graph] console warnings (reported, not gated):\n' +
+          result.consoleWarnings.map((w) => `  ${w.path}  ${w.text}`).join('\n'),
+      );
+    }
+
+    const errorLines = result.consoleErrors.map((e) => `  ${e.path}  ${e.text}`);
+    const pageErrorLines = result.pageErrors.map((e) => `  ${e.path}  ${e.message}`);
+    expect(
+      result.pageErrors,
+      `Uncaught page errors on visited pages:\n${pageErrorLines.join('\n')}`,
+    ).toEqual([]);
+    expect(
+      result.consoleErrors,
+      `Console errors on visited pages:\n${errorLines.join('\n')}`,
     ).toEqual([]);
   });
 
