@@ -31,9 +31,10 @@ export const TaxonomyResponseSchema = z.object({
 export type TaxonomyResponse = z.infer<typeof TaxonomyResponseSchema>;
 
 /**
- * Response for `GET /api/categories` (the flat list of all categories). Same
- * shape applies to `audiences` and `phases` if list-style endpoints are
- * added later. Not paginated — the taxonomy is small (≈30 terms) by design.
+ * Response for the flat taxonomy list endpoints — `GET /api/categories`,
+ * `GET /api/audiences`, and `GET /api/phases` — all generalised through
+ * `createTaxonomyListHandler`. The three share this shape. Not paginated —
+ * the taxonomy is small (≈30 terms) by design.
  */
 export const CategoriesListResponseSchema = z.object({
   data: z.array(TaxonomyTermWithCountSchema),
