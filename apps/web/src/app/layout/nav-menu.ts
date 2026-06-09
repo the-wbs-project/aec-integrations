@@ -152,7 +152,7 @@ import { ThemeToggleGroup } from './theme-toggle-group';
               type="search"
               i18n-placeholder="@@app.header.search.placeholder"
               placeholder="Search integrations"
-              class="h-9 w-full rounded-full border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-tertiary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              class="h-9 w-full rounded-full border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             />
           </label>
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">

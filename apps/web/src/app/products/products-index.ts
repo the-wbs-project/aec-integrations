@@ -136,7 +136,7 @@ import { SortableColumnHeader } from './sortable-column-header';
           <tr aria-busy="true">
             <td
               colspan="4"
-              class="px-4 py-12 text-center text-(--text-tertiary)"
+              class="px-4 py-12 text-center text-(--text-secondary)"
               i18n="@@products.index.loading"
             >
               Loading products…

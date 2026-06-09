@@ -80,8 +80,8 @@
   --text-primary: oklch(98.43% 0 0); /* #FAFAFA */
   --text-secondary: oklch(70.9% 0.0149 286.07); /* #A1A1AA */
   --text-tertiary: oklch(55.21% 0.0163 285.94); /* #71717A */
-  --accent-primary: oklch(56.51% 0.0805 152.41); /* #4A8870 (Forest dark) */
-  --accent-primary-hover: oklch(64.02% 0.0867 152.69); /* #5DA088 (Forest dark hover) */
+  --accent-primary: oklch(61% 0.0805 152.41); /* #5D916C (Forest dark) */
+  --accent-primary-hover: oklch(68.5% 0.0867 152.69); /* #6FAA80 (Forest dark hover) */
   --accent-secondary: oklch(78.5% 0.1141 47.85); /* #F0A887 (Clay dark) */
   --accent-warm: oklch(22.42% 0.0079 67.38); /* #2A2520 (Bone dark) */
 }
