@@ -20,6 +20,12 @@ describe('NavMenu', () => {
     return (fixture.nativeElement as HTMLElement).querySelector('button')!;
   }
 
+  it('is hidden at md+ via its host class (hamburger is the small-screen affordance)', () => {
+    const fixture = TestBed.createComponent(NavMenu);
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).classList).toContain('md:hidden');
+  });
+
   it('renders a labelled, button-type toggle', () => {
     const button = toggle();
     expect(button).toBeTruthy();

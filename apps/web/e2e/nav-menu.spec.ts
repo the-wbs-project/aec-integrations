@@ -1,12 +1,13 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
-// AECI-96. The primary navigation menu (DESIGN.md §5): a single always-visible
-// labelled hamburger to the left of the wordmark opens a CDK-overlay dropdown
-// that is the one home for all site chrome — the four directory links, search,
-// the theme toggle, and the Sign-in CTA. It renders identically at every
-// breakpoint (there is no separate desktop inline nav), so the menu is exercised
-// at both a phone width and a desktop width below.
+// AECI-96. The primary navigation (DESIGN.md §5) is responsive. Below `md` it is
+// a labelled hamburger to the left of the wordmark that opens a CDK-overlay
+// dropdown holding all site chrome — the four directory links, search, the theme
+// toggle, and the Sign-in CTA. At `md+` the hamburger drops out and those
+// affordances render as an inline desktop nav + actions cluster in the header
+// bar. The two viewports below exercise both arrangements: the overlay at a phone
+// width, the inline nav at a desktop width.
 //
 // Unlike layouts.spec.ts (which EXCLUDES the header from axe), this spec is
 // specifically about the header/menu, so axe INCLUDES `aec-site-header` and the
@@ -58,7 +59,7 @@ test.describe('primary navigation menu (375px)', () => {
     expect(overflow, 'document must not overflow horizontally on mobile').toBeLessThanOrEqual(1);
   });
 
-  test('opening the menu exposes links, search, theme toggle, and sign-in', async ({ page }) => {
+  test('opening the menu exposes links, search, theme group, and sign-in', async ({ page }) => {
     await page.goto(ROUTE);
     await toggle(page).click();
 
@@ -67,9 +68,37 @@ test.describe('primary navigation menu (375px)', () => {
       await expect(overlay(page).getByRole('link', { name })).toBeVisible();
     }
     await expect(overlay(page).getByRole('searchbox')).toBeVisible();
-    // The theme toggle and Sign-in CTA now live inside the menu, not the bar.
-    await expect(overlay(page).getByRole('button', { name: 'Cycle theme' })).toBeVisible();
+    // The theme control inside the menu is a segmented button group (the compact
+    // cycle button stays on the desktop bar). All three modes are direct targets,
+    // with the default 'system' pressed; the Sign-in CTA also lives in the menu.
+    const themeGroup = overlay(page).getByRole('group', { name: 'Theme' });
+    await expect(themeGroup.getByRole('button', { name: 'System' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await expect(themeGroup.getByRole('button', { name: 'Light' })).toBeVisible();
+    await expect(themeGroup.getByRole('button', { name: 'Dark' })).toBeVisible();
     await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
+  });
+
+  test('the theme button group selects a mode and drives the theme', async ({ page }) => {
+    await page.goto(ROUTE);
+    await toggle(page).click();
+
+    const themeGroup = overlay(page).getByRole('group', { name: 'Theme' });
+    const system = themeGroup.getByRole('button', { name: 'System' });
+    const dark = themeGroup.getByRole('button', { name: 'Dark' });
+    await expect(system).toHaveAttribute('aria-pressed', 'true');
+
+    await dark.click();
+
+    // Selection moves to Dark and actually drives the document theme — the menu
+    // stays open (a mode button is not a navigation, unlike the links above).
+    await expect(dark).toHaveAttribute('aria-pressed', 'true');
+    await expect(system).toHaveAttribute('aria-pressed', 'false');
+    await expect
+      .poll(() => page.evaluate(() => document.documentElement.classList.contains('theme-dark')))
+      .toBe(true);
   });
 
   test('Escape closes the menu and returns focus to the toggle', async ({ page }) => {
@@ -155,23 +184,33 @@ test.describe('primary navigation menu (375px)', () => {
 test.describe('primary navigation menu (1280px)', () => {
   test.use({ viewport: DESKTOP });
 
-  // The whole point of the change: the same menu is the navigation at desktop
-  // width too — there is no separate inline nav. Prove the toggle is present and
-  // opens the full set at a wide viewport.
-  test('the same menu toggle is visible and opens at desktop width', async ({ page }) => {
+  // The responsive split flips at `md+`: the hamburger drops out of the layout
+  // and the links, theme toggle, and Sign-in render inline in the header bar.
+  test('inline nav replaces the hamburger at desktop width', async ({ page }) => {
     await page.goto(ROUTE);
+    await expect(page.locator('app-root')).toBeAttached();
 
-    const named = page.getByRole('button', { name: 'Open menu' });
-    await expect(named).toBeVisible();
-    await expect(named).toHaveAttribute('aria-expanded', 'false');
+    // The hamburger trigger is removed from the layout (md:hidden host).
+    await expect(toggle(page)).toBeHidden();
 
-    await toggle(page).click();
-    await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
+    // The four directory links render inline inside the "Primary" landmark —
+    // not in an overlay (none is mounted; nothing was clicked).
+    const primaryNav = page.locator('aec-site-header').getByRole('navigation', { name: 'Primary' });
     for (const name of NAV_LINKS) {
-      await expect(overlay(page).getByRole('link', { name })).toBeVisible();
+      await expect(primaryNav.getByRole('link', { name })).toBeVisible();
     }
-    await expect(overlay(page).getByRole('button', { name: 'Cycle theme' })).toBeVisible();
-    await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
+
+    // The theme toggle and Sign-in CTA sit inline in the header bar.
+    const header = page.locator('aec-site-header');
+    await expect(header.getByRole('button', { name: 'Cycle theme' })).toBeVisible();
+    await expect(header.getByRole('link', { name: 'Sign in' })).toBeVisible();
+  });
+
+  test('desktop header is axe-clean in light theme', async ({ page }) => {
+    await page.goto(ROUTE);
+    const primaryNav = page.locator('aec-site-header').getByRole('navigation', { name: 'Primary' });
+    await expect(primaryNav.getByRole('link', { name: 'Products' })).toBeVisible();
+    expect(await analyzeHeader(page)).toEqual([]);
   });
 });
 

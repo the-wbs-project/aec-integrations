@@ -1,15 +1,15 @@
 /**
- * Primary navigation menu — always visible, at every breakpoint.
+ * Primary navigation menu — the small-screen hamburger (below `md`).
  *
  * A labelled hamburger trigger (to the left of the wordmark in `site-header.ts`)
- * opens a CDK-overlay dropdown that is the single home for all site chrome: the
- * four directory links, search, the theme toggle, and the Sign-in CTA. Because
- * it renders identically from the smallest phone to the widest desktop, the
- * header bar stays minimal (`[☰] [wordmark]`) and there is no separate desktop
- * inline nav to keep in sync. The four directory links are additionally rendered
- * in the SSR footer (`site-footer.ts` → "Directory") so crawlers and no-JS
- * visitors still reach them — this overlay content is template-only and never
- * server-rendered.
+ * opens a CDK-overlay dropdown that is the home for all site chrome on small
+ * screens: the four directory links, search, the theme button group, and the
+ * Sign-in CTA. The component is hidden at `md+` via its `md:hidden` host class — at those
+ * widths the same links/search/theme/Sign-in render as an inline desktop nav in
+ * `site-header.ts`. Below `md` the header bar stays minimal (`[☰] [wordmark]`).
+ * The four directory links are additionally rendered in the SSR footer
+ * (`site-footer.ts` → "Directory") so crawlers and no-JS visitors still reach
+ * them — this overlay content is template-only and never server-rendered.
  *
  * The overlay is `BrnPopover` (extends `BrnDialog`), which supplies the CDK
  * overlay, focus trap, Escape / outside-click close, and focus-return-to-trigger
@@ -31,17 +31,21 @@ import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
-import { ThemeToggle } from './theme-toggle';
+import { ThemeToggleGroup } from './theme-toggle-group';
 
 @Component({
   selector: 'aec-nav-menu',
+  // Hamburger is the small-screen affordance only; at `md+` the inline desktop
+  // nav in `site-header.ts` takes over, so the trigger (and its overlay) are
+  // removed from the layout above `md`.
+  host: { class: 'md:hidden' },
   imports: [
     RouterLink,
     RouterLinkActive,
     BrnPopover,
     BrnPopoverContent,
     BrnPopoverTrigger,
-    ThemeToggle,
+    ThemeToggleGroup,
   ],
   template: `
     <button
@@ -121,7 +125,7 @@ import { ThemeToggle } from './theme-toggle';
             />
           </label>
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
-            <aec-theme-toggle class="self-start" />
+            <aec-theme-toggle-group />
             <a
               routerLink="/auth/login"
               (click)="menu.close()"
