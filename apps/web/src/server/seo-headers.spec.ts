@@ -69,6 +69,19 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toContain('https://*.algolianet.com');
   });
 
+  it('allows the Cloudflare Web Analytics beacon (script + report hosts)', () => {
+    // Cloudflare auto-injects beacon.min.js from static.cloudflareinsights.com
+    // at the edge; it then POSTs RUM data to cloudflareinsights.com/cdn-cgi/rum.
+    // Both hosts must be allowlisted or the injected <script> is CSP-refused.
+    expect(CONTENT_SECURITY_POLICY).toContain('https://static.cloudflareinsights.com');
+    expect(CONTENT_SECURITY_POLICY).toMatch(
+      /script-src[^;]*https:\/\/static\.cloudflareinsights\.com/,
+    );
+    expect(CONTENT_SECURITY_POLICY).toMatch(
+      /connect-src[^;]*https:\/\/cloudflareinsights\.com/,
+    );
+  });
+
   it('locks down the hardening directives', () => {
     expect(CONTENT_SECURITY_POLICY).toContain("default-src 'self'");
     expect(CONTENT_SECURITY_POLICY).toContain("object-src 'none'");
