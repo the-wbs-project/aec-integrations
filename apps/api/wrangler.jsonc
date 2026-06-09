@@ -134,11 +134,12 @@
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
         },
       ],
-      // AECI-139: daily incremental Algolia sync at 03:00 UTC. Staging + production
-      // only (the base config / preview have no `triggers`, so PR previews don't
-      // run it). Dispatched by `controller.cron` in `src/scheduled.ts`.
+      // Daily Algolia crons, dispatched by `controller.cron` in `src/scheduled.ts`.
+      // Staging + production only (base config / preview have no `triggers`, so PR
+      // previews don't run them). 03:00 — incremental sync (AECI-139); 04:00 —
+      // index-drift reconciliation (AECI-140, §23.1).
       "triggers": {
-        "crons": ["0 3 * * *"],
+        "crons": ["0 3 * * *", "0 4 * * *"],
       },
       "observability": {
         "logs": {
@@ -165,9 +166,10 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
-      // AECI-139: daily incremental Algolia sync at 03:00 UTC (see staging note).
+      // Daily Algolia crons (see staging note): 03:00 incremental sync (AECI-139);
+      // 04:00 index-drift reconciliation (AECI-140). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 3 * * *"],
+        "crons": ["0 3 * * *", "0 4 * * *"],
       },
       "observability": {
         "logs": {

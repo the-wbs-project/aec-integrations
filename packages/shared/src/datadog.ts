@@ -76,6 +76,14 @@ export type DatadogClient = {
     value: number,
     tags?: string[],
   ): void;
+  submitGauge(
+    ctx: WaitUntilContext,
+    env: DatadogEnv,
+    request: Request,
+    metric: string,
+    value: number,
+    tags?: string[],
+  ): void;
 };
 
 const DEFAULT_SITE = 'us5.datadoghq.com';
@@ -84,6 +92,7 @@ const LOCALE = 'en-US'; // Phase 1; expand alongside LOCALES in server-runtime.t
 
 /** v2 metric intake type enum: 0 unspecified, 1 count, 2 rate, 3 gauge. */
 const DD_METRIC_TYPE_COUNT = 1;
+const DD_METRIC_TYPE_GAUGE = 3;
 
 /**
  * Builds a Worker-tagged Datadog transport. Methods are closures over `config`
@@ -242,5 +251,39 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
     postMetric(ctx, apiKey, url, payload);
   }
 
-  return { hostnameFromRequest, logToDatadog, submitDistribution, submitCount };
+  /**
+   * Submit a gauge metric (a level, not a delta — the value as-of submission).
+   * Right for periodic snapshots like the daily Algolia index-drift count
+   * (`aeci.algolia.index_drift`, AECI-140) or `aeci.product_counts.drift`, where
+   * each run reports the current state rather than an increment.
+   */
+  function submitGauge(
+    ctx: WaitUntilContext,
+    env: DatadogEnv,
+    request: Request,
+    metric: string,
+    value: number,
+    tags: string[] = [],
+  ): void {
+    const apiKey = env.DD_API_KEY;
+    if (!apiKey) return;
+
+    const site = env.DD_SITE || DEFAULT_SITE;
+    const url = `https://api.${site}/api/v2/series`;
+    const timestamp = Math.floor(Date.now() / 1000);
+    const payload = {
+      series: [
+        {
+          metric,
+          type: DD_METRIC_TYPE_GAUGE,
+          points: [{ timestamp, value }],
+          tags: [...metricBaseTags(env), ...tags],
+          resources: [{ name: hostnameFromRequest(request), type: 'host' }],
+        },
+      ],
+    };
+    postMetric(ctx, apiKey, url, payload);
+  }
+
+  return { hostnameFromRequest, logToDatadog, submitDistribution, submitCount, submitGauge };
 }
