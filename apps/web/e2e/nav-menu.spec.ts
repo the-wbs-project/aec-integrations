@@ -286,7 +286,12 @@ test.describe('primary navigation menu (1280px)', () => {
     await expect(primaryNav(page).getByRole('link', { name: 'Products' })).toBeVisible();
     expect(await analyzeHeader(page), 'closed').toEqual([]);
 
-    await primaryNav(page).getByRole('button', { name: 'Categories menu' }).click();
+    // Pointer affordance is hover-to-open (see the "hovering a facet" test
+    // above): the host opens on `mouseenter`, while the trigger button's click
+    // *toggles*. A literal `.click()` therefore lands as mouseenter(open) →
+    // click(toggle→close), netting closed — so drive the open state the way a
+    // mouse user actually does, by hovering the trigger.
+    await primaryNav(page).getByRole('button', { name: 'Categories menu' }).hover();
     await expect(page.locator('#nav-flyout-category')).toBeVisible();
     expect(await analyzeHeader(page), 'flyout open').toEqual([]);
   });
