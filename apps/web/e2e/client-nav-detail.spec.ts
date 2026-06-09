@@ -66,7 +66,11 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     await page.goto('/categories');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const firstCategoryLink = page.locator('a[href^="/categories/"]').first();
+    // Scope to the <main id="main"> content region: the shared header taxonomy
+    // flyout (AECI-155) renders hidden `/categories/:slug` links in the global
+    // <header> (outside #main). An unscoped `.first()` resolves to one of those
+    // hidden flyout links and `.click()` times out (AECI-164).
+    const firstCategoryLink = page.locator('#main a[href^="/categories/"]').first();
     test.skip((await firstCategoryLink.count()) === 0, 'no categories seeded in this environment');
 
     await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));

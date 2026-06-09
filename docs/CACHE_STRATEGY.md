@@ -25,8 +25,8 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 | `category:{slug}` | Category browse page |
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
-| `taxonomy` | Any page that displays the full taxonomy (nav, footer, `/categories`) |
-| `index:products` / `index:vendors` / `index:integrations` / `index:categories` | The respective index pages |
+| `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
+| `index:products` / `index:vendors` / `index:integrations` / `index:categories` / `index:audiences` / `index:phases` | The respective index pages |
 | `sitemap` | `sitemap.xml` |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
 | `route:404` | Single sentinel tag on every 404 response — both cacheable-route 404s and non-cacheable-path 404s (see §4). Used for bulk-purge via `POST /admin/purge` after a config fix (e.g. slug regenerated, route table corrected). 404s have no entity identity so this is the only invalidation handle. Emitted by `withCacheHeaders` in `server-runtime.ts`, not by `buildCacheTags`. |
@@ -60,7 +60,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes that render the taxonomy nav (home today; more in Phase 4+). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -75,7 +75,7 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 | Detail pages | 0 | 900 (15 min) |
 | Browse pages (category / audience / phase) | 0 | 300 (5 min) |
 | Index pages | 0 | 300 (5 min) |
-| Taxonomy fetch (`/taxonomy`) | 0 | 3600 (1 hr) |
+| `/api/taxonomy` fetch (nav flyouts) | 0 | not edge-cached — `private, no-store` (see below); KV read-through, 5 min, in the API Worker |
 | `sitemap.xml` | 0 | 3600 |
 | `robots.txt` | 86400 | 86400 |
 | 404 | 0 | 60 |
@@ -182,11 +182,11 @@ In addition to `Cache-Control` and `Cache-Tag`, every cacheable response carries
 - `Link: </sitemap.xml>; rel=sitemap`
 - `Content-Security-Policy` — **defined and first emitted in AECI-89.** (Earlier drafts of this section and `STAGE_1_PHASE_2_SPEC.md` §8.6 called the CSP "unchanged / existing from Phase 1," but no Phase 1 CSP was ever implemented — AECI-89 closes that gap.) The policy is a static, cache-safe string assembled in `apps/web/src/server/seo-headers.ts` and applied via `withCacheHeaders`. Nonces/hashes are deliberately **not** used: the HTML is edge-cached and served byte-identically to every visitor, so a cached nonce would be reused by all (defeating it), and Angular's `withEventReplay()` injects a version-generated inline script a hash allowlist would have to chase across upgrades. The directives:
   - `default-src 'self'`
-  - `script-src 'self' 'unsafe-inline'` — the `index.html` theme bootstrap, the injected Datadog RUM bootstrap, and Angular's event-replay inline script
+  - `script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com` — the `index.html` theme bootstrap, the injected Datadog RUM bootstrap, and Angular's event-replay inline script. The host entry allowlists the Cloudflare Web Analytics beacon (`beacon.min.js`) that Cloudflare auto-injects at the edge for the zone
   - `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com` — Angular SSR inlines component `<style>` blocks; Google Fonts stylesheet
   - `font-src 'self' https://fonts.gstatic.com`
   - `img-src 'self' data: https:` — vendor/Airtable `logo_url`s come from arbitrary https origins
-  - `connect-src 'self' https://browser-intake-datadoghq.com https://*.algolia.net https://*.algolianet.com` — the `/api/*` proxy, the Datadog RUM intake host, and the Algolia search origins. The v7 browser SDK beacons to `browser-intake-datadoghq.com`, a distinct registrable domain (a `*.datadoghq.com` wildcard does **not** match it). This assumes the default `DD_SITE=datadoghq.com` (US1); other sites use a different `browser-intake-*` host (e.g. `browser-intake-datadoghq.eu`). The Algolia origins were added in **AECI-136** (Phase 3.4) for InstantSearch: the browser client resolves its query host as `{appId}-dsn.algolia.net` with `{appId}-{1,2,3}.algolianet.com` retry fallbacks, so the two wildcards cover every search XHR.
+  - `connect-src 'self' https://browser-intake-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com` — the `/api/*` proxy, the Datadog RUM intake host, the Algolia search origins, and the Cloudflare Web Analytics report host. The v7 browser SDK beacons to `browser-intake-datadoghq.com`, a distinct registrable domain (a `*.datadoghq.com` wildcard does **not** match it). This assumes the default `DD_SITE=datadoghq.com` (US1); other sites use a different `browser-intake-*` host (e.g. `browser-intake-datadoghq.eu`). The Algolia origins were added in **AECI-136** (Phase 3.4) for InstantSearch: the browser client resolves its query host as `{appId}-dsn.algolia.net` with `{appId}-{1,2,3}.algolianet.com` retry fallbacks, so the two wildcards cover every search XHR. `https://cloudflareinsights.com` is where the Cloudflare Web Analytics beacon POSTs its RUM payload (`/cdn-cgi/rum`); it pairs with the `static.cloudflareinsights.com` entry on `script-src`.
   - `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'` — hardening
 
 **Note on the `Vary` policy.** This updates the previous `STAGE_1_SPEC.md` §9.3 stance ("no `Vary` headers on cached SSR responses"). The reasoning behind the original ban — `Vary: Cookie` and `Vary: User-Agent` fragment the edge cache without a corresponding invalidation handle — still holds for *those* values. `Vary: Accept-Language` is safe because locale variance is already segmented at the URL-prefix layer, so there's no additional cache fragmentation beyond what the URL key already provides. Any *other* `Vary` value (`Cookie`, `User-Agent`, etc.) remains forbidden.

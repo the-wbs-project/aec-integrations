@@ -27,12 +27,22 @@
   //                 the cache purge (graceful no-op).
   //   CF_ZONE_ID  — Cloudflare zone the purge targets. Public value; provision per
   //                 env alongside CF_PURGE_API_TOKEN.
-  //   ALGOLIA_APP_ID    — Algolia app id (AECI-134). Shared across envs. Optional
-  //                 until the sync pipeline (3.5/3.6) reads it.
+  //   ALGOLIA_APP_ID    — Algolia app id (AECI-134). Shared across envs. Consumed at
+  //                 runtime by the AECI-139 daily-sync cron + promote→index hook
+  //                 (and the SSR search bootstrap). Pushed per env via `wrangler
+  //                 secret put` in CI.
   //   ALGOLIA_ADMIN_KEY — per-env MANAGEMENT key (search + index-mutation ACLs,
   //                 scoped to this env's indexes; NOT the app-wide root admin key).
   //                 API/sync use only — never client-exposed. Provision per env via
   //                 `node scripts/algolia/provision.mjs`; see docs/CICD_PLAN.md §7.5.
+  //                 Required on production (verify-worker-secrets.sh fails the deploy
+  //                 if absent — AECI-139); absent on preview/local → the cron +
+  //                 promote hook are a graceful no-op.
+  //
+  // AECI-139: the API Worker also runs a `scheduled` handler (daily incremental
+  // Algolia sync). Cron triggers are registered ONLY on staging + production (see
+  // each env's `triggers` block) — NOT on the base config or preview, so
+  // ephemeral PR-preview Workers don't each run a daily sync.
   //
   // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
   // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the
@@ -124,13 +134,12 @@
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
         },
       ],
-      // AECI-140 / §23.1: daily Algolia ↔ Supabase index-drift check at 04:00 UTC.
+      // Daily Algolia crons, dispatched by `controller.cron` in `src/scheduled.ts`.
       // Staging + production only (base config / preview have no `triggers`, so PR
-      // previews don't run it). Dispatched by `controller.cron` in `src/scheduled.ts`.
-      // NOTE: this Worker can carry multiple daily crons — if AECI-139's 03:00 sync
-      // also lands, this becomes `"crons": ["0 3 * * *", "0 4 * * *"]`.
+      // previews don't run them). 03:00 — incremental sync (AECI-139); 04:00 —
+      // index-drift reconciliation (AECI-140, §23.1).
       "triggers": {
-        "crons": ["0 4 * * *"],
+        "crons": ["0 3 * * *", "0 4 * * *"],
       },
       "observability": {
         "logs": {
@@ -157,12 +166,10 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
-      // AECI-140 / §23.1: daily Algolia ↔ Supabase index-drift check at 04:00 UTC
-      // (see staging note). Dispatched by `controller.cron` in `src/scheduled.ts`.
-      // If AECI-139's 03:00 sync also lands, this becomes
-      // `"crons": ["0 3 * * *", "0 4 * * *"]`.
+      // Daily Algolia crons (see staging note): 03:00 incremental sync (AECI-139);
+      // 04:00 index-drift reconciliation (AECI-140). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 4 * * *"],
+        "crons": ["0 3 * * *", "0 4 * * *"],
       },
       "observability": {
         "logs": {

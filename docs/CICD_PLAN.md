@@ -44,7 +44,7 @@ Three environments, all on Cloudflare:
 
 ### 2.1 Preview environment
 
-Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-79). Provides a working deployment for human review; automated test jobs against the preview URL (E2E, accessibility, Lighthouse) remain parked in `deploy.yml` pending separate work to bridge them across workflows.
+Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-79). Provides a working deployment for human review; the preview-URL E2E / integration-runner jobs remain parked in `deploy.yml` pending separate work to bridge them across workflows. (E2E, axe, and Lighthouse already run **on every PR** against a local `dev:bound` server in `deploy.yml` — the `lighthouse` job was un-parked and repointed at `dev:bound` in AECI-65, so it no longer needs a deployed preview.)
 
 - Each PR gets a unique SSR Worker `aeci-web-pr-<N>` at `https://aeci-web-pr-<N>.aec-integrations.workers.dev`.
 - Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
@@ -458,11 +458,16 @@ Every PR must pass these gates before merge:
 - ✓ Bundle size under budget
 - ✓ Preview deploys successfully
 - ✓ E2E tests pass against preview
-- ✓ No new accessibility violations (axe-core)
-- ✓ Lighthouse scores meet budget (Performance > 80, Accessibility > 95)
+- ✓ No new accessibility violations (axe-core) — blocking
+- ✓ Lighthouse scores meet budget (Performance / Accessibility / Best-Practices / SEO ≥ 90 mobile) — **advisory / warn-only today** (see the AECI-65 note below)
 - ✓ At least one human reviewer approval
 
 Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3), and the `integration-db-tests` suites report red/green without gating the staging deploy until they're promoted to a required check (`TESTING_STRATEGY.md` §6.5).
+
+**axe + Lighthouse wiring (AECI-65 / Phase 2.19).** Both harnesses (scaffolded in AECI-33) now run against **every Phase 2 page type** on a local `dev:bound` server in `deploy.yml`, using committed seed fixtures (`supabase/fixtures/phase2-fixtures.sql`, seeded by `db-migrate-dev`):
+
+- **axe** runs in the `e2e-and-integration` job (`apps/web/e2e/phase2-a11y.spec.ts`) across all 13 page types in **light and dark** themes — **zero AA violations, blocking** (the site footer's pre-existing dark-mode contrast debt is carved out and tracked separately).
+- **Lighthouse** runs in the un-parked `lighthouse` job (mobile, simulated throttle, median-of-3). Budgets (§12 of `STAGE_1_PHASE_2_SPEC.md`: scores ≥ 90, LCP ≤ 2.5s, CLS ≤ 0.1, detail-page JS ≤ 200 KB) are asserted **warn-only** for now — `.lighthouserc.cjs` exits 0 even on a miss, so the job surfaces the report without blocking. This supersedes the older "warn-only until Phase 7" wording: the **warn→merge-blocking flip is a dedicated follow-up**, gated on confirming every page passes (perf optimization itself is out of AECI-65's scope). To flip, change the `'warn'` levels in `.lighthouserc.cjs` to `'error'`.
 
 The "human reviewer" requirement is enforced by GitHub branch protection on `main`.
 

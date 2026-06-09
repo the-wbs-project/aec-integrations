@@ -119,7 +119,7 @@ app.all('*', () => {
 // Hono `fetch`. The explicit arrow wrapper (not a bare `app.fetch` reference)
 // keeps Hono's request handling intact. Cron triggers are registered per-env in
 // `wrangler.jsonc` (staging + production only); `src/scheduled.ts` dispatches by
-// `controller.cron` (AECI-140 04:00 drift check; AECI-139 03:00 sync).
+// `controller.cron` (AECI-139 03:00 sync; AECI-140 04:00 drift check).
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled,
