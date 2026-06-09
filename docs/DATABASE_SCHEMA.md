@@ -233,6 +233,9 @@ create table products (
   has_api_docs boolean not null default false,
   tool_integration_check_notes text,
 
+  -- Narrative content
+  usefulness jsonb, -- slug-based {audiences,phases} narrative; shape in API_CONTRACTS §5.1
+
   -- Classification
   product_role text not null default 'application' check (product_role in ('application', 'connector', 'hybrid')),
 
@@ -279,6 +282,8 @@ create index products_priority_tier_idx on products(priority_tier);
 create index products_product_role_idx on products(product_role);
 create index products_updated_at_idx on products(updated_at desc);
 ```
+
+`usefulness` is a nullable `jsonb` column holding narrative "how teams use it" value, grouped by audience and by project phase. Its stored shape mirrors the public `ProductUsefulness` contract (`API_CONTRACTS.md` §5.1) — `{ audiences: [{ slug, name, points[] }], phases: [{ slug, name, points[] }] }` — where each `slug` references a `taxonomy_audiences` / `taxonomy_phases` slug. It is `null` when the source has no usefulness for either facet; otherwise either facet array may be empty. The column is written by promote (`REVIEW_APP_PROMOTE_API.md` §3.3), which resolves each group to an existing taxonomy term and stores the canonical `{ slug, name }` denormalized — so a later taxonomy rename leaves already-promoted labels stale until the product is re-promoted. Not indexed: it is read with the row, never filtered on.
 
 ### 4.3 `integrations`
 
