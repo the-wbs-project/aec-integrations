@@ -36,7 +36,7 @@ This directory holds the planning, architecture, and operational documentation f
 | [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
 | [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |
 | [`CODE_REVIEW_EXEMPTIONS.md`](./CODE_REVIEW_EXEMPTIONS.md) | Active | Accepted/deferred review findings and their expiry rules. Loaded alongside the checklist on every review. |
-| [`SEARCH_RANKING.md`](./SEARCH_RANKING.md) | Planned | Algolia ranking customization, tuning rules, feedback loops. Not yet written. |
+| [`SEARCH_RANKING.md`](./SEARCH_RANKING.md) | Active | Canonical search-ranking spec: per-index searchable attributes, custom ranking signals, mechanism-kind priority, tie-breakers, and the post-launch tuning/feedback loop. Lifts `STAGE_1_SPEC.md` §7.3. |
 
 ### Design and brand
 
