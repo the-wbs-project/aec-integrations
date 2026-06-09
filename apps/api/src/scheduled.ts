@@ -29,7 +29,7 @@
 
 import type { AlgoliaEnv } from '@aeci/shared/algolia';
 
-import { logToDatadog, submitCount, submitGauge } from './datadog';
+import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import type { Env } from './env';
 import {
   createAlgoliaCounter,
@@ -38,6 +38,7 @@ import {
   type DriftCountPrisma,
 } from './lib/algolia-drift';
 import { runDailySync, type AlgoliaSyncPrisma } from './lib/algolia-sync';
+import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { getPrisma } from './prisma';
 
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`). */
@@ -62,6 +63,15 @@ function algoliaEnvFor(env: Env): AlgoliaEnv {
   return env.ENV ?? 'development';
 }
 
+/** Adapt the shared Datadog submitters into the pure metrics module's sink, so
+ *  `emitAlgoliaSyncMetrics` stays free of `ctx`/`env`/`Request` plumbing. */
+function syncMetricSink(ctx: ExecutionContext, env: Env, req: Request): SyncMetricSink {
+  return {
+    count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
+    distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
+  };
+}
+
 async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/algolia-sync');
   const creds = { appId: env.ALGOLIA_APP_ID, apiKey: env.ALGOLIA_ADMIN_KEY };
@@ -84,13 +94,16 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
 
   const prisma = getPrisma(env) as unknown as AlgoliaSyncPrisma;
 
+  const started = Date.now();
   let result: Awaited<ReturnType<typeof runDailySync>>;
   try {
     result = await runDailySync(prisma, fetch, creds, algoliaEnvFor(env), new Date());
   } catch (error) {
     // runDailySync swallows per-entity push failures, but the watermark
     // read/write (Prisma/Accelerate) can still throw — log loudly, never rethrow
-    // (a thrown cron just shows as a failed invocation with no detail).
+    // (a thrown cron just shows as a failed invocation with no detail). This is
+    // a pre-push crash, not a completed run, so it stays inline rather than going
+    // through emitAlgoliaSyncMetrics (which is per-entity, completed-run only).
     submitCount(ctx, env, req, 'aeci.algolia.sync', 1, [
       'trigger:cron',
       'entity:all',
@@ -105,12 +118,16 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
     return;
   }
 
+  // Per-entity outcome + records counts and the run-level duration distribution
+  // (AECI-141). Shared with the promote hook so the two writers can't drift.
+  emitAlgoliaSyncMetrics(
+    syncMetricSink(ctx, env, req),
+    'cron',
+    result.entities,
+    Date.now() - started,
+  );
+
   for (const entity of result.entities) {
-    submitCount(ctx, env, req, 'aeci.algolia.sync', 1, [
-      'trigger:cron',
-      `entity:${entity.entity}`,
-      `outcome:${entity.ok ? 'ok' : 'failed'}`,
-    ]);
     logToDatadog(ctx, env, req, {
       level: entity.ok ? 'info' : 'error',
       message: `aeci.algolia.sync ${entity.entity} saved=${entity.saved} deleted=${entity.deleted}`,
