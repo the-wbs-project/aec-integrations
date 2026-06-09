@@ -3,12 +3,16 @@ import { Routes } from '@angular/router';
 import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
-import { categoriesIndexResolver } from './taxonomy/categories-index.resolver';
 import {
   categoryBrowseResolver,
   audienceBrowseResolver,
   phaseBrowseResolver,
 } from './taxonomy/taxonomy-browse.resolver';
+import {
+  categoriesIndexResolver,
+  audiencesIndexResolver,
+  phasesIndexResolver,
+} from './taxonomy/taxonomy-index.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 export const routes: Routes = [
@@ -72,16 +76,17 @@ export const routes: Routes = [
     loadComponent: () => import('./vendors/vendor-detail').then((m) => m.VendorDetailPage),
     resolve: { vendor: vendorDetailResolver },
   },
-  // AECI-61 — Phase 2.15 taxonomy browse pages + `/categories` flat list. The
-  // three browse routes share one component + one resolver factory, keyed by
-  // the static `data.kind`; `/categories` is the only flat-list page in Stage 1
-  // (audience / phase indexes are deferred). Resolvers run SSR-side; hydration
-  // reads from TransferState.
+  // AECI-61 / AECI-157 — Phase 2.15 taxonomy index + browse pages. Both the
+  // three flat indexes and the three `:slug` browse pages each share one
+  // component + one resolver factory, keyed by the static `data.kind`. AECI-157
+  // lit up the `/audiences` + `/phases` indexes (originally deferred to Phase 3).
+  // Resolvers run SSR-side; hydration reads from TransferState.
   {
     path: 'categories',
     pathMatch: 'full',
-    loadComponent: () => import('./taxonomy/categories-index').then((m) => m.CategoriesIndex),
-    resolve: { categories: categoriesIndexResolver },
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'category' },
+    resolve: { terms: categoriesIndexResolver },
   },
   {
     path: 'categories/:slug',
@@ -90,10 +95,24 @@ export const routes: Routes = [
     resolve: { term: categoryBrowseResolver },
   },
   {
+    path: 'audiences',
+    pathMatch: 'full',
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'audience' },
+    resolve: { terms: audiencesIndexResolver },
+  },
+  {
     path: 'audiences/:slug',
     loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
     data: { kind: 'audience' },
     resolve: { term: audienceBrowseResolver },
+  },
+  {
+    path: 'phases',
+    pathMatch: 'full',
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'phase' },
+    resolve: { terms: phasesIndexResolver },
   },
   {
     path: 'phases/:slug',

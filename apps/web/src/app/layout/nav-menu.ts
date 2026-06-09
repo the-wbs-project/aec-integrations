@@ -3,13 +3,14 @@
  *
  * A labelled hamburger trigger (to the left of the wordmark in `site-header.ts`)
  * opens a CDK-overlay dropdown that is the home for all site chrome on small
- * screens: the four directory links, search, the theme button group, and the
- * Sign-in CTA. The component is hidden at `md+` via its `md:hidden` host class — at those
- * widths the same links/search/theme/Sign-in render as an inline desktop nav in
- * `site-header.ts`. Below `md` the header bar stays minimal (`[☰] [wordmark]`).
- * The four directory links are additionally rendered in the SSR footer
- * (`site-footer.ts` → "Directory") so crawlers and no-JS visitors still reach
- * them — this overlay content is template-only and never server-rendered.
+ * screens: Home + Products links, the three taxonomy facets as tap-to-expand
+ * disclosure sections (Categories / Audiences / Phases), search, the theme
+ * button group, and the Sign-in CTA. The component is hidden at `md+` via its
+ * `md:hidden` host class — at those widths the same affordances render as the
+ * inline desktop nav in `site-header.ts` (with hover flyouts). Both surfaces
+ * share `NavFlyoutList` + the `@@app.nav.*` copy (`taxonomy-nav-copy.ts`), so
+ * the link sets cannot drift. AECI-158/159 re-pointed the nav at the taxonomy;
+ * Vendors / Integrations moved to the SSR footer (`site-footer.ts`).
  *
  * The overlay is `BrnPopover` (extends `BrnDialog`), which supplies the CDK
  * overlay, focus trap, Escape / outside-click close, and focus-return-to-trigger
@@ -20,17 +21,24 @@
  * the CDK overlay on click (always client-side), so the server renders just the
  * static, visitor-state-neutral toggle button — including the embedded theme
  * toggle, which therefore never bakes per-visitor theme state into cached HTML.
+ * (The taxonomy values likewise only appear client-side; the SSR-crawlable
+ * facet links live on the desktop bar + the footer.)
  *
  * The toggle is the canonical Lucide `menu` glyph inlined as SVG with
  * `stroke="currentColor"` so it themes via `--text-primary` (DESIGN.md: Lucide
  * icons exclusively — no icon library needed for a single glyph).
  *
- * Spec: DESIGN.md §5 (Navigation); §21 (a11y); AECI-96.
+ * Spec: DESIGN.md §5 (Navigation); §21 (a11y); AECI-96/158/159.
  */
-import { Component } from '@angular/core';
+import { Component, computed, inject, signal } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
+import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
+import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
+
+import { NavFlyoutList } from './nav-flyout-list';
+import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 import { ThemeToggleGroup } from './theme-toggle-group';
 
 @Component({
@@ -45,6 +53,7 @@ import { ThemeToggleGroup } from './theme-toggle-group';
     BrnPopover,
     BrnPopoverContent,
     BrnPopoverTrigger,
+    NavFlyoutList,
     ThemeToggleGroup,
   ],
   template: `
@@ -75,10 +84,20 @@ import { ThemeToggleGroup } from './theme-toggle-group';
     <brn-popover #menu="brnPopover" class="contents" align="start" [sideOffset]="8">
       <ng-template brnPopoverContent>
         <nav
-          class="w-[min(92vw,17rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
+          class="w-[min(92vw,18rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-2 text-(--text-primary) shadow-lg"
           i18n-aria-label="@@app.nav.primary.aria"
           aria-label="Primary"
         >
+          <a
+            routerLink="/"
+            routerLinkActive="text-(--accent-primary)"
+            [routerLinkActiveOptions]="{ exact: true }"
+            (click)="menu.close()"
+            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.nav.home"
+          >
+            Home
+          </a>
           <a
             routerLink="/products"
             routerLinkActive="text-(--accent-primary)"
@@ -88,33 +107,44 @@ import { ThemeToggleGroup } from './theme-toggle-group';
           >
             Products
           </a>
-          <a
-            routerLink="/vendors"
-            routerLinkActive="text-(--accent-primary)"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.vendors"
-          >
-            Vendors
-          </a>
-          <a
-            routerLink="/integrations"
-            routerLinkActive="text-(--accent-primary)"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.integrations"
-          >
-            Integrations
-          </a>
-          <a
-            routerLink="/categories"
-            routerLinkActive="text-(--accent-primary)"
-            (click)="menu.close()"
-            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.nav.categories"
-          >
-            Categories
-          </a>
+
+          @for (section of sections(); track section.kind) {
+            <div>
+              <button
+                type="button"
+                (click)="toggleSection(section.kind)"
+                [attr.aria-expanded]="isOpen(section.kind)"
+                [attr.aria-controls]="panelId(section.kind)"
+                class="flex w-full cursor-pointer items-center justify-between rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >
+                <span>{{ section.label }}</span>
+                <svg
+                  aria-hidden="true"
+                  class="h-4 w-4 transition-transform"
+                  [class.rotate-180]="isOpen(section.kind)"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="m6 9 6 6 6-6" />
+                </svg>
+              </button>
+              @if (isOpen(section.kind)) {
+                <div [id]="panelId(section.kind)" class="ps-2 pb-1">
+                  <aec-nav-flyout-list
+                    [items]="section.items"
+                    [kind]="section.kind"
+                    [viewAllLabel]="section.viewAll"
+                    (navigate)="menu.close()"
+                  />
+                </div>
+              }
+            </div>
+          }
+
           <label class="relative mt-1 block px-1 pb-1">
             <span class="sr-only" i18n="@@app.header.search.label">Search</span>
             <input
@@ -125,7 +155,7 @@ import { ThemeToggleGroup } from './theme-toggle-group';
             />
           </label>
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
-            <aec-theme-toggle-group />
+            <aec-theme-toggle-group class="self-start" />
             <a
               routerLink="/auth/login"
               (click)="menu.close()"
@@ -140,4 +170,44 @@ import { ThemeToggleGroup } from './theme-toggle-group';
     </brn-popover>
   `,
 })
-export class NavMenu {}
+export class NavMenu {
+  private readonly taxonomy = inject(TaxonomyNavStore);
+
+  protected readonly sections = computed(() => [
+    {
+      kind: 'category' as const,
+      label: facetNavLabel('category'),
+      viewAll: facetViewAllLabel('category'),
+      items: this.taxonomy.categoriesTop10(),
+    },
+    {
+      kind: 'audience' as const,
+      label: facetNavLabel('audience'),
+      viewAll: facetViewAllLabel('audience'),
+      items: this.taxonomy.audiencesTop10(),
+    },
+    {
+      kind: 'phase' as const,
+      label: facetNavLabel('phase'),
+      viewAll: facetViewAllLabel('phase'),
+      items: this.taxonomy.phasesAll(),
+    },
+  ]);
+
+  private readonly openSections = signal<ReadonlySet<TaxonomyKind>>(new Set());
+
+  protected panelId(kind: TaxonomyKind): string {
+    return `m-nav-flyout-${kind}`;
+  }
+
+  protected isOpen(kind: TaxonomyKind): boolean {
+    return this.openSections().has(kind);
+  }
+
+  protected toggleSection(kind: TaxonomyKind): void {
+    const next = new Set(this.openSections());
+    if (next.has(kind)) next.delete(kind);
+    else next.add(kind);
+    this.openSections.set(next);
+  }
+}

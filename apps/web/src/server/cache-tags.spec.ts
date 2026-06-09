@@ -139,12 +139,15 @@ describe('cacheTagInputsForPath', () => {
       '/categories/structural',
       { route: 'browse', entity: { type: 'category', slug: 'structural' } },
     ],
-    ['/audiences', { route: 'browse', entity: { type: 'audience', slug: '*' } }],
+    [
+      '/audiences',
+      { route: 'index', entity: { type: 'index', slug: 'audiences' }, taxonomy: true },
+    ],
     [
       '/audiences/architecture',
       { route: 'browse', entity: { type: 'audience', slug: 'architecture' } },
     ],
-    ['/phases', { route: 'browse', entity: { type: 'phase', slug: '*' } }],
+    ['/phases', { route: 'index', entity: { type: 'index', slug: 'phases' }, taxonomy: true }],
     [
       '/phases/preconstruction',
       { route: 'browse', entity: { type: 'phase', slug: 'preconstruction' } },

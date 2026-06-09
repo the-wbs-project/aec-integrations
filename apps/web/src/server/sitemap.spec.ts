@@ -120,11 +120,14 @@ describe('resolveSitemapEntries', () => {
     return resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com').then(
       (entries) => {
         const locs = entries.map((e) => e.loc);
-        // Index pages
+        // Index pages — all three taxonomy indexes plus the entity indexes
+        // (vendors/integrations stay listed for crawler discovery; AECI-160).
         expect(locs).toContain('https://aecintegrations.com/products');
         expect(locs).toContain('https://aecintegrations.com/vendors');
         expect(locs).toContain('https://aecintegrations.com/integrations');
         expect(locs).toContain('https://aecintegrations.com/categories');
+        expect(locs).toContain('https://aecintegrations.com/audiences');
+        expect(locs).toContain('https://aecintegrations.com/phases');
         // Entities
         expect(locs).toContain('https://aecintegrations.com/vendors/autodesk');
         expect(locs).toContain('https://aecintegrations.com/integrations/int-uuid-1');

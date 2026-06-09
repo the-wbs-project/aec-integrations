@@ -57,12 +57,15 @@ export async function fetchTaxonomyTermBySlug(
 }
 
 /**
- * Fetch the flat list of all categories with product counts (`GET
- * /api/categories`). Not paginated — the taxonomy is small (≈30 terms) by
- * design (see `CategoriesListResponseSchema`).
+ * Fetch the flat list of all terms for one facet with product counts
+ * (`GET /api/{categories|audiences|phases}`). Not paginated — the taxonomy is
+ * small (≈30 terms) by design (see `CategoriesListResponseSchema`, whose shape
+ * is shared by all three facets). Powers the `/categories`, `/audiences`, and
+ * `/phases` index pages (AECI-157).
  */
-export async function fetchCategoriesList(
+export async function fetchTaxonomyList(
   client: ServerApiClient,
+  kind: TaxonomyKind,
 ): Promise<CategoriesListResponse> {
-  return client.request<CategoriesListResponse>('/api/categories');
+  return client.request<CategoriesListResponse>(`/api/${KIND_PATH_SEGMENT[kind]}`);
 }
