@@ -240,6 +240,8 @@ describe('GET /api/products/:slug', () => {
     expect(parsed.audiences.map((d) => d.slug)).toContain('construction');
     expect(parsed.phases.map((p) => p.slug)).toContain('construction-phase');
     expect(parsed.related_products.map((p) => p.slug)).toEqual(['revizto']);
+    // `usefulness` is a typed null-stub until the DB column + pipeline land (AECI-169).
+    expect(parsed.usefulness).toBeNull();
   });
 
   it('passes the row id to the related-products query (excludes self by id)', async () => {

@@ -60,6 +60,25 @@ export const ProductListItemSchema = z.object({
 
 export type ProductListItem = z.infer<typeof ProductListItemSchema>;
 
+// `usefulness` is narrative value ("how teams use it"), NOT a taxonomy facet. Each
+// group elaborates one audience or phase term by `slug`/`name` (same field types as
+// LinkRef, but it carries NO `id` — it is slug-based, not a hydrated LinkRef; do not
+// "fix" this by extending LinkRefSchema). `points` holds >= 1 bullet, in display order.
+export const UsefulnessGroupSchema = z.object({
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  points: z.array(z.string().min(1)).min(1),
+});
+
+export type UsefulnessGroup = z.infer<typeof UsefulnessGroupSchema>;
+
+export const ProductUsefulnessSchema = z.object({
+  audiences: z.array(UsefulnessGroupSchema),
+  phases: z.array(UsefulnessGroupSchema),
+});
+
+export type ProductUsefulness = z.infer<typeof ProductUsefulnessSchema>;
+
 /**
  * Full product detail returned by `GET /api/products/:slug`. Embeds every
  * relation the detail page renders (taxonomy chips, integrations as source /
@@ -75,6 +94,10 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
+  // Narrative value grouped by audience/phase, distinct from the `audiences`/`phases`
+  // facet LinkRef[] above. `null` when the source has nothing for either facet;
+  // otherwise either facet array may be empty.
+  usefulness: ProductUsefulnessSchema.nullable(),
   integrations_as_source: z.array(IntegrationListItemSchema),
   integrations_as_target: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),

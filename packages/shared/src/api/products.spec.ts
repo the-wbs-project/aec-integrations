@@ -6,6 +6,8 @@ import {
   ProductSortSchema,
   ProductsListQuerySchema,
   ProductsListResponseSchema,
+  ProductUsefulnessSchema,
+  UsefulnessGroupSchema,
 } from './products';
 import { registerSchemaStructuralCases } from './schema-suite.harness';
 
@@ -119,12 +121,14 @@ describe('ProductDetailSchema', () => {
       categories: [],
       audiences: [],
       phases: [],
+      usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
       related_products: [],
     });
     expect(parsed.has_api_docs).toBe(false);
     expect(parsed.related_products).toEqual([]);
+    expect(parsed.usefulness).toBeNull();
   });
 
   it('parses a detail with hydrated taxonomy and related products', () => {
@@ -138,12 +142,24 @@ describe('ProductDetailSchema', () => {
       categories: [{ id: uuid(3), name: 'Project management', slug: 'project-management' }],
       audiences: [{ id: uuid(4), name: 'Construction', slug: 'construction' }],
       phases: [{ id: uuid(5), name: 'Construction', slug: 'construction-phase' }],
+      usefulness: {
+        audiences: [
+          {
+            slug: 'construction',
+            name: 'Construction',
+            points: ['Track RFIs across the project.'],
+          },
+        ],
+        phases: [],
+      },
       integrations_as_source: [],
       integrations_as_target: [],
       related_products: [validListItem],
     });
     expect(parsed.categories).toHaveLength(1);
     expect(parsed.related_products).toHaveLength(1);
+    expect(parsed.usefulness?.audiences[0]?.points).toEqual(['Track RFIs across the project.']);
+    expect(parsed.usefulness?.phases).toEqual([]);
   });
 
   it('rejects when has_api_docs is missing', () => {
@@ -156,11 +172,50 @@ describe('ProductDetailSchema', () => {
       categories: [],
       audiences: [],
       phases: [],
+      usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
       related_products: [],
     });
     expect(result.success).toBe(false);
+  });
+});
+
+describe('ProductUsefulnessSchema / UsefulnessGroupSchema', () => {
+  const validGroup = {
+    slug: 'architecture',
+    name: 'Architecture',
+    points: ['Coordinate models across disciplines.', 'Resolve clashes before site.'],
+  };
+
+  it('parses a fully populated usefulness payload', () => {
+    const parsed = ProductUsefulnessSchema.parse({
+      audiences: [validGroup],
+      phases: [{ slug: 'design', name: 'Design', points: ['Iterate options early.'] }],
+    });
+    expect(parsed.audiences[0]?.points).toHaveLength(2);
+    expect(parsed.phases[0]?.slug).toBe('design');
+  });
+
+  it('accepts empty facet arrays (source had nothing for a facet)', () => {
+    const parsed = ProductUsefulnessSchema.parse({ audiences: [], phases: [] });
+    expect(parsed.audiences).toEqual([]);
+    expect(parsed.phases).toEqual([]);
+  });
+
+  it('rejects a group with no points (min 1)', () => {
+    const result = UsefulnessGroupSchema.safeParse({ ...validGroup, points: [] });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a group with an empty-string point', () => {
+    const result = UsefulnessGroupSchema.safeParse({ ...validGroup, points: [''] });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects a group with an empty slug or name', () => {
+    expect(UsefulnessGroupSchema.safeParse({ ...validGroup, slug: '' }).success).toBe(false);
+    expect(UsefulnessGroupSchema.safeParse({ ...validGroup, name: '' }).success).toBe(false);
   });
 });
 
