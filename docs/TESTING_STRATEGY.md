@@ -409,9 +409,13 @@ Run axe on:
 
 Run in both light and dark themes.
 
+**Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in **both themes** (13 URLs × 2), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`supabase/fixtures/phase2-fixtures.sql`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. The site **footer** is carved out (`.exclude('aec-site-footer')`) for pre-existing dark-mode contrast debt tracked separately; the header (incl. the new flyout nav) is in scope.
+
 ### 8.3 Severity threshold
 
 Block PR merge on any `serious` or `critical` violations. Warn (but don't block) on `moderate`. Ignore `minor`.
+
+The Phase 2 success-path suite (AECI-65, above) is stricter: it asserts **zero violations at WCAG-AA** (tags `wcag2a` / `wcag2aa` / `wcag21a` / `wcag21aa`) on every page type — any such violation fails the run.
 
 Some violations are unfixable in third-party code; maintain an explicit allowlist with documented reason for each.
 
@@ -482,6 +486,14 @@ Use `size-limit` or `bundlewatch` to enforce the JS/CSS budgets in CI. For the W
 - Search results (`/search?q=Procore`)
 
 Mobile and desktop profiles separately.
+
+### 10.4 Phase 2 implementation status (AECI-65)
+
+Lighthouse CI is wired in `deploy.yml`'s un-parked `lighthouse` job and runs **mobile** (simulated Slow-4G throttle, median-of-3) against **every Phase 2 page type** on a local `dev:bound` server — not a deployed preview — using the committed fixtures (`supabase/fixtures/phase2-fixtures.sql`). The URL set and assertions live in [`.lighthouserc.cjs`](../.lighthouserc.cjs).
+
+Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / Accessibility / Best-Practices / SEO; LCP ≤ 2.5s; CLS ≤ 0.1; detail-page total JS transfer ≤ 200 KB). Per-URL handling: the JS budget targets detail/browse pages only; the `noindex` 404 is exempt from the SEO score.
+
+> **Posture: warn-only today.** Although §12 (and the AECI-65 issue) call for budgets to **block** merge — stricter than the §10.1 table's "Performance > 80 / warn" — the assertions land at `'warn'` first, so `lhci autorun` exits 0 and the job is non-blocking. This is a deliberate, recorded rollout: the **warn→merge-blocking flip is a dedicated follow-up**, gated on confirming every page passes (perf optimization is out of AECI-65's scope). Flip by changing the `'warn'` levels in `.lighthouserc.cjs` to `'error'`; at that point reconcile the §10.1 thresholds (Performance/SEO warn→block, Performance 80→90) with §12.
 
 ---
 
