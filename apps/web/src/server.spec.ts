@@ -166,8 +166,6 @@ describe('cacheControlForRoute', () => {
     // audience / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
     // taxonomy rows from a stale 30 min edge.)
     ['/products', { edge: 300, browser: 0 }],
-    ['/vendors', { edge: 300, browser: 0 }],
-    ['/integrations', { edge: 300, browser: 0 }],
     ['/categories', { edge: 300, browser: 0 }],
     ['/categories/design', { edge: 300, browser: 0 }],
     ['/audiences/structural', { edge: 300, browser: 0 }],
@@ -187,6 +185,12 @@ describe('cacheControlForRoute', () => {
     // AECI-121 — `/disciplines/*` is no longer in the SSR cache matrix; it 301-
     // redirects to `/audiences/*` and the redirect handler sets its own headers.
     '/disciplines/structural',
+    // AECI-165 — the `/vendors` and `/integrations` INDEX pages were removed; they
+    // 301-redirect to `/products` (the redirect handler sets its own headers), so
+    // the bare index paths are no longer in the SSR cache matrix. Their `:slug` /
+    // `:id` DETAIL paths remain cacheable (asserted above).
+    '/vendors',
+    '/integrations',
   ])('returns null (non-cacheable) for %s', (path) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toBeNull();
   });
@@ -242,20 +246,11 @@ describe('cacheKeyUrl (AECI-100 — edge cache key normalization)', () => {
       expect(key('/products?page=1')).not.toBe(key('/products?page=2'));
     });
 
-    it('keeps the integrations-only filter params (sourceProductId/targetProductId)', () => {
-      expect(key('/integrations?sourceProductId=abc&utm_source=x')).toBe(
-        'https://x/integrations?sourceProductId=abc',
-      );
-      expect(key('/integrations?targetProductId=def&page=2&fbclid=y')).toBe(
-        'https://x/integrations?page=2&targetProductId=def',
-      );
-    });
-
-    it('does not retain integrations-only params on /products or /vendors', () => {
-      // The split entry means a stray sourceProductId on /products is treated
-      // as noise — it isn't a content param there.
+    it('treats stray filter params on /products as noise (not content params)', () => {
+      // `sourceProductId` is not in the products index `cacheKeyParams`, so it is
+      // dropped — only `page` / `perPage` / `sort` survive there. (AECI-165 removed
+      // the `/integrations` index that once declared those filter params.)
       expect(key('/products?sourceProductId=abc')).toBe('https://x/products');
-      expect(key('/vendors?targetProductId=def')).toBe('https://x/vendors');
     });
   });
 
@@ -610,6 +605,61 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     expect(res.headers.get('location')).toBe(
       'https://aecintegrations.com/audiences/structural?utm_source=x',
     );
+  });
+});
+
+describe('createApp /vendors + /integrations → /products 301 redirects (AECI-165)', () => {
+  function appWithSpyRenderer(): { app: ReturnType<typeof createApp>; ssrRenderer: SsrRenderer } {
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    return { app: createApp({ ssrRenderer }), ssrRenderer };
+  }
+
+  it.each(['/vendors', '/integrations'])(
+    'redirects the removed %s index → /products (301, edge-cacheable) without invoking SSR',
+    async (path) => {
+      const { binding } = recordingApiBinding();
+      const { app, ssrRenderer } = appWithSpyRenderer();
+      const res = await app.fetch(
+        new Request(`https://aecintegrations.com${path}`),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+      expect(res.status).toBe(301);
+      expect(res.headers.get('location')).toBe('https://aecintegrations.com/products');
+      // Permanent mapping → long edge TTL (NOT no-store). No Cache-Tag: the
+      // mapping never changes, so there is no purge handle to mint.
+      expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+      expect(res.headers.get('cache-tag')).toBeNull();
+      // The redirect is emitted standalone — it never reaches the SSR pipeline.
+      expect(ssrRenderer).not.toHaveBeenCalled();
+    },
+  );
+
+  it('drops the listing query string across the redirect (params do not map to /products)', async () => {
+    const { binding } = recordingApiBinding();
+    const { app } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/integrations?sourceProductId=abc&page=2'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe('https://aecintegrations.com/products');
+  });
+
+  it('leaves the vendor/integration DETAIL routes to the SSR pipeline (only the bare index redirects)', async () => {
+    const { binding } = recordingApiBinding();
+    const { app, ssrRenderer } = appWithSpyRenderer();
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/vendors/autodesk'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    // Detail page renders via SSR (200), not a redirect.
+    expect(res.status).toBe(200);
+    expect(ssrRenderer).toHaveBeenCalledTimes(1);
   });
 });
 

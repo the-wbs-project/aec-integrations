@@ -590,12 +590,12 @@ describe('cache purge after promote (AECI-105)', () => {
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer cf-token');
 
     const sent = JSON.parse(init.body as string) as { tags: string[] };
+    // AECI-165 — no `index:vendors`: the `/vendors` index page was removed.
     expect(new Set(sent.tags)).toEqual(
       new Set([
         'product:revit',
         'index:products',
         'vendor:autodesk',
-        'index:vendors',
         'category:bim',
         'audience:architecture',
         'taxonomy',
@@ -654,6 +654,121 @@ describe('cache purge after promote (AECI-105)', () => {
   });
 });
 
+describe('Algolia index sync after promote (AECI-139)', () => {
+  // The promote hook re-queries the touched rows and upserts them to Algolia via
+  // the global `fetch` (the same best-effort `waitUntil` pattern as the purge).
+  // These env vars have NO CF purge creds, so the only `waitUntil`/`fetch` is the
+  // Algolia sync — isolating it from the AECI-105 purge.
+  const algoliaEnv: Env = {
+    ...baseEnv,
+    ALGOLIA_APP_ID: 'APP',
+    ALGOLIA_ADMIN_KEY: 'write-key',
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Seed a fully-shaped (transformable) product so the update path's re-query
+   *  yields a real Algolia record. The fake's `findMany` ignores `select`, so the
+   *  seeded relation arrays flow straight into `toAlgoliaProduct`. */
+  function seedPromotedProduct(fake: Fake, id: string) {
+    fake.models.product.rows.set(id, {
+      id,
+      slug: 'procore',
+      name: 'Procore',
+      description: null,
+      logoUrl: null,
+      hasApiDocs: false,
+      integrationCount: 0,
+      reviewCount: 0,
+      ratingOverallAvg: null,
+      promotionStatus: 'promoted',
+      updatedAt: new Date('2026-06-08T00:00:00.000Z'),
+      productVendors: [],
+      productCategories: [],
+      productAudiences: [],
+      productPhases: [],
+    });
+  }
+
+  async function promoteWith(
+    env: Env,
+    fake: Fake,
+    body: unknown,
+    fetchMock: ReturnType<typeof vi.fn>,
+  ) {
+    vi.stubGlobal('fetch', fetchMock);
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp(fake).request('/api/promote', post(body), env, execCtx);
+    const waitUntil = vi.mocked(execCtx.waitUntil);
+    // Settle every scheduled best-effort task before asserting.
+    await Promise.all(waitUntil.mock.calls.map((call) => call[0]));
+    return { res, execCtx };
+  }
+
+  it('upserts the promoted product to the env index when credentials are present', async () => {
+    const fake = makeFake();
+    const id = uuid(1);
+    seedPromotedProduct(fake, id);
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"taskID":1}', { status: 200 }));
+
+    const { res, execCtx } = await promoteWith(
+      algoliaEnv,
+      fake,
+      { product: { ref: 'p1', supabaseId: id, name: 'Procore' } },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+    expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    // ENV 'preview' → the preview index set.
+    expect(url).toBe('https://APP.algolia.net/1/indexes/preview_products/batch');
+    expect((init.headers as Record<string, string>)['x-algolia-api-key']).toBe('write-key');
+    const sent = JSON.parse(init.body as string) as {
+      requests: Array<{ action: string; body: { objectID: string } }>;
+    };
+    expect(sent.requests).toEqual([
+      { action: 'updateObject', body: expect.objectContaining({ objectID: id }) },
+    ]);
+  });
+
+  it('does not touch Algolia when credentials are absent (graceful no-op)', async () => {
+    const fake = makeFake();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const execCtx = fakeExecutionContext();
+    // `baseEnv` has neither CF nor Algolia creds.
+    const res = await buildApp(fake).request(
+      '/api/promote',
+      post({ product: { ref: 'p1', name: 'Revit' } }),
+      baseEnv,
+      execCtx,
+    );
+    expect(res.status).toBe(200);
+    expect(execCtx.waitUntil).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 when the Algolia push throws (never fails the promote)', async () => {
+    const fake = makeFake();
+    const id = uuid(1);
+    seedPromotedProduct(fake, id);
+    const fetchMock = vi.fn().mockRejectedValue(new Error('algolia unreachable'));
+
+    const { res } = await promoteWith(
+      algoliaEnv,
+      fake,
+      { product: { ref: 'p1', supabaseId: id, name: 'Procore' } },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('cacheTagsForPromote (AECI-105)', () => {
   const entity = (slug: string, operation: 'created' | 'updated') => ({
     ref: `ref-${slug}`,
@@ -685,7 +800,6 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         'product:revit',
         'index:products',
         'vendor:autodesk',
-        'index:vendors',
         'category:bim',
         'audience:architecture',
         'taxonomy', // an audience was newly created
@@ -703,17 +817,11 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set([
-        'product:revit',
-        'index:products',
-        'vendor:autodesk',
-        'index:vendors',
-        'category:bim',
-      ]),
+      new Set(['product:revit', 'index:products', 'vendor:autodesk', 'category:bim']),
     );
   });
 
-  it('vendor-only update → vendor + index:vendors only (no product/taxonomy/sitemap)', () => {
+  it('vendor-only update → vendor tag only (no index:vendors/product/taxonomy/sitemap)', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'updated')],
       product: null,
@@ -721,10 +829,11 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       taxonomy: emptyTaxonomy,
       skipped: [],
     };
-    expect(cacheTagsForPromote(response).sort()).toEqual(['index:vendors', 'vendor:autodesk']);
+    // AECI-165 — `index:vendors` is no longer emitted (the index page was removed).
+    expect(cacheTagsForPromote(response).sort()).toEqual(['vendor:autodesk']);
   });
 
-  it('created vendor (no product) → sitemap included', () => {
+  it('created vendor (no product) → vendor + sitemap (no index:vendors)', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'created')],
       product: null,
@@ -732,9 +841,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       taxonomy: emptyTaxonomy,
       skipped: [],
     };
-    expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set(['vendor:autodesk', 'index:vendors', 'sitemap']),
-    );
+    expect(new Set(cacheTagsForPromote(response))).toEqual(new Set(['vendor:autodesk', 'sitemap']));
   });
 
   it('a newly created phase → phase tag + taxonomy', () => {

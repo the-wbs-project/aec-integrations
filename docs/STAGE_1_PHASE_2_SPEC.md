@@ -315,7 +315,7 @@ Cache-Tag values are comma-separated strings, ≤ 16 KB per response, no spaces.
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
 | `taxonomy` | Any page that displays the full taxonomy (nav, footer, /categories) |
-| `index:products` / `index:vendors` / `index:integrations` / `index:categories` | The respective index pages |
+| `index:products` / `index:categories` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages, so `index:vendors` / `index:integrations` are no longer emitted.) |
 | `sitemap` | sitemap.xml |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
 

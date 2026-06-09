@@ -1,9 +1,12 @@
 /**
  * Component test for the global `NotFound` surface (AECI-62 / Phase 2.16).
- * Verifies the rendered template carries the recovery links the
- * acceptance criteria pin (/products, /vendors, /integrations,
- * /categories) and the page-level a11y handles (single h1 +
- * aria-labelledby).
+ * Verifies the rendered template carries the recovery links and the page-level
+ * a11y handles (single h1 + aria-labelledby).
+ *
+ * AECI-165 removed the `/vendors` and `/integrations` index pages, so the
+ * recovery cards point at the taxonomy-first entry points (/products,
+ * /categories, /audiences, /phases) — the same set the footer Directory
+ * surfaces — rather than the removed vendor/integration listings.
  */
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
@@ -33,12 +36,16 @@ describe('NotFound component', () => {
     expect(el.querySelectorAll('h1')).toHaveLength(1);
   });
 
-  it('exposes the four AC-pinned recovery links plus the home CTA', () => {
+  it('exposes the four taxonomy-first recovery links plus the home CTA', () => {
     const el = render().nativeElement as HTMLElement;
     const hrefs = Array.from(el.querySelectorAll('a[href]')).map((a) => a.getAttribute('href'));
+    // AECI-165 — vendor/integration index cards replaced by audiences/phases.
     expect(hrefs).toEqual(
-      expect.arrayContaining(['/products', '/vendors', '/integrations', '/categories', '/']),
+      expect.arrayContaining(['/products', '/categories', '/audiences', '/phases', '/']),
     );
+    // The removed indexes must not reappear as recovery links.
+    expect(hrefs).not.toContain('/vendors');
+    expect(hrefs).not.toContain('/integrations');
   });
 
   it('groups recovery links inside a labelled nav landmark', () => {

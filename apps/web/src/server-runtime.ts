@@ -28,12 +28,13 @@
  * ────────────────────────────────────────────────────────────────────────────
  * CACHEABLE (cookies stripped, edge-cached with route-specific TTL):
  *   /                                       → 15min edge / 5min browser
- *   /products, /vendors, /integrations      → 5min  edge / 0     browser  (§8.3)
+ *   /products                               → 5min  edge / 0     browser  (§8.3)
  *   /products/:slug, /vendors/:slug,
  *     /integrations/:id                      → 15min edge / 0     browser  (§8.3)
  *   /categories/*, /audiences/*,
  *     /phases/*                             → 30min edge / 5min browser
  *   /disciplines, /disciplines/:slug        → 301 → /audiences[/:slug] (AECI-121)
+ *   /vendors, /integrations                 → 301 → /products (AECI-165)
  *   /about, /legal/*                        → 24hr edge / 1hr  browser
  *
  * NON-CACHEABLE (cookies pass through unchanged, no edge cache, no s-maxage):
@@ -244,27 +245,24 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
-  // Phase 2 Spec §8.3 — index pages: edge 5 min, browser 0. The shorter edge
-  // TTL is fine because the routes also carry `index:<entity>` tags that the
-  // /admin/purge endpoint can invalidate on writes; the browser is told to
-  // refetch on every navigation so users always see fresh server HTML.
+  // Phase 2 Spec §8.3 — the `/products` index: edge 5 min, browser 0. The
+  // shorter edge TTL is fine because the route also carries the `index:products`
+  // tag that the /admin/purge endpoint can invalidate on writes; the browser is
+  // told to refetch on every navigation so users always see fresh server HTML.
   //
-  // AECI-100 — products/vendors read `page` + `sort` from the URL; integrations
-  // additionally read `sourceProductId` + `targetProductId`. The combined entry
-  // was split so integrations can declare its extra filter params without
-  // over-permitting products/vendors (same TTL, so behavior is unchanged).
-  // `perPage` is the canonical pagination param (packages/shared PageQuerySchema)
-  // — listed for forward-safety even though components currently hardcode the
-  // default. Keep these lists in sync with the index components' queryParam reads.
+  // AECI-100 — the products index reads `page` + `sort` from the URL. `perPage`
+  // is the canonical pagination param (packages/shared PageQuerySchema) — listed
+  // for forward-safety even though the component currently hardcodes the default.
+  // Keep this list in sync with the products-index component's queryParam reads.
+  //
+  // AECI-165 removed the `/vendors` and `/integrations` index pages (they now
+  // 301-redirect to `/products` — registered before the SSR catch-all in
+  // `createApp`), so they are no longer matched here. Their `:slug` / `:id`
+  // detail routes are still matched by the detail patterns above.
   {
-    match: (p) => p === '/products' || p === '/vendors',
+    match: (p) => p === '/products',
     ttl: { edge: 300, browser: 0 },
     cacheKeyParams: ['page', 'perPage', 'sort'],
-  },
-  {
-    match: (p) => p === '/integrations',
-    ttl: { edge: 300, browser: 0 },
-    cacheKeyParams: ['page', 'perPage', 'sort', 'sourceProductId', 'targetProductId'],
   },
   // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index
   // are `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav),
@@ -714,6 +712,32 @@ export function createApp(options: {
   };
   app.get('/disciplines', audienceRedirect);
   app.get('/disciplines/:slug', audienceRedirect);
+
+  // AECI-165 — the `/vendors` and `/integrations` index/listing pages were
+  // removed (orphaned from the nav after AECI-160). They were previously
+  // indexable and in `sitemap.xml`, so they 301-redirect to `/products` (the
+  // remaining directory listing) rather than 404 — search engines transfer link
+  // equity instead of dropping the URLs. Registered BEFORE the SSR catch-all so
+  // they win, and as a standalone Response (NOT through `handleSsr`, which forces
+  // 3xx to `no-store`) so the permanent mapping stays edge-cacheable. Only the
+  // bare index paths match here — `/vendors/:slug`, the claim/correction forms,
+  // and `/integrations/:id` fall through to the SSR pipeline unchanged. The
+  // mapping never changes, so no `Cache-Tag` purge handle is needed. The query
+  // string is dropped: the old listing's `page` / `sort` / `sourceProductId`
+  // params don't map onto `/products`. Locale-prefixed `/es/vendors` (no locales
+  // ship yet) would fall through to the SSR 404, acceptable until a locale lands.
+  const removedIndexRedirect = (c: Context<{ Bindings: Bindings }>): Response => {
+    const url = new URL(c.req.url);
+    return new Response(null, {
+      status: 301,
+      headers: {
+        Location: `${url.origin}/products`,
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+      },
+    });
+  };
+  app.get('/vendors', removedIndexRedirect);
+  app.get('/integrations', removedIndexRedirect);
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {

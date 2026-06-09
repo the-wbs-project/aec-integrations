@@ -88,54 +88,6 @@ import { RouterLink } from '@angular/router';
           </li>
           <li>
             <a
-              routerLink="/vendors"
-              class="block rounded-(--radius-md) border border-(--border-default)
-                bg-(--surface-raised) px-5 py-4 no-underline transition-colors
-                hover:border-(--border-strong) hover:text-(--accent-primary)
-                focus-visible:outline-none focus-visible:ring-2
-                focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                focus-visible:ring-offset-(--surface-base)"
-            >
-              <span
-                class="block text-base font-semibold text-(--text-primary)"
-                i18n="@@notFound.links.vendors.label"
-              >
-                Vendors
-              </span>
-              <span
-                class="mt-1 block text-sm text-(--text-secondary)"
-                i18n="@@notFound.links.vendors.helper"
-              >
-                Software companies serving AEC.
-              </span>
-            </a>
-          </li>
-          <li>
-            <a
-              routerLink="/integrations"
-              class="block rounded-(--radius-md) border border-(--border-default)
-                bg-(--surface-raised) px-5 py-4 no-underline transition-colors
-                hover:border-(--border-strong) hover:text-(--accent-primary)
-                focus-visible:outline-none focus-visible:ring-2
-                focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
-                focus-visible:ring-offset-(--surface-base)"
-            >
-              <span
-                class="block text-base font-semibold text-(--text-primary)"
-                i18n="@@notFound.links.integrations.label"
-              >
-                Integrations
-              </span>
-              <span
-                class="mt-1 block text-sm text-(--text-secondary)"
-                i18n="@@notFound.links.integrations.helper"
-              >
-                How products connect to each other.
-              </span>
-            </a>
-          </li>
-          <li>
-            <a
               routerLink="/categories"
               class="block rounded-(--radius-md) border border-(--border-default)
                 bg-(--surface-raised) px-5 py-4 no-underline transition-colors
@@ -155,6 +107,54 @@ import { RouterLink } from '@angular/router';
                 i18n="@@notFound.links.categories.helper"
               >
                 Tools grouped by what they do.
+              </span>
+            </a>
+          </li>
+          <li>
+            <a
+              routerLink="/audiences"
+              class="block rounded-(--radius-md) border border-(--border-default)
+                bg-(--surface-raised) px-5 py-4 no-underline transition-colors
+                hover:border-(--border-strong) hover:text-(--accent-primary)
+                focus-visible:outline-none focus-visible:ring-2
+                focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
+                focus-visible:ring-offset-(--surface-base)"
+            >
+              <span
+                class="block text-base font-semibold text-(--text-primary)"
+                i18n="@@notFound.links.audiences.label"
+              >
+                Audiences
+              </span>
+              <span
+                class="mt-1 block text-sm text-(--text-secondary)"
+                i18n="@@notFound.links.audiences.helper"
+              >
+                Tools for your role and discipline.
+              </span>
+            </a>
+          </li>
+          <li>
+            <a
+              routerLink="/phases"
+              class="block rounded-(--radius-md) border border-(--border-default)
+                bg-(--surface-raised) px-5 py-4 no-underline transition-colors
+                hover:border-(--border-strong) hover:text-(--accent-primary)
+                focus-visible:outline-none focus-visible:ring-2
+                focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
+                focus-visible:ring-offset-(--surface-base)"
+            >
+              <span
+                class="block text-base font-semibold text-(--text-primary)"
+                i18n="@@notFound.links.phases.label"
+              >
+                Phases
+              </span>
+              <span
+                class="mt-1 block text-sm text-(--text-secondary)"
+                i18n="@@notFound.links.phases.helper"
+              >
+                Tools grouped by project phase.
               </span>
             </a>
           </li>

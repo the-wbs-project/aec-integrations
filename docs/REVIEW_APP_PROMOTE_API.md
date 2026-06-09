@@ -316,6 +316,25 @@ no correctness regression. No retry or action is required from the review app.
 
 ---
 
+## 6b. Search-index freshness after a promote (AECI-139)
+
+Also nothing for you to do — documented for expectations. Alongside the edge-cache
+purge above, a successful promote also pushes the promoted records to Algolia
+**immediately** (the product, its vendors, and any integrations), so they're
+*searchable* right away rather than waiting for the 03:00 UTC daily sync. This closes
+the "viewable on promote but not searchable until 03:00" gap.
+
+Same failure semantics as the purge: it's **best-effort, post-commit, and never
+affects your response** — a promote returns `200` even if the Algolia push fails.
+Outcomes are observable as `aeci.algolia.sync{trigger:promote,entity,outcome}` plus a
+`warn` log (`aeci.api.promote.algolia_sync_failed`) on failure; a failed push is
+reconciled by the next daily sync. When the Worker has no Algolia credentials
+(local / PR previews) the push is a graceful no-op. Membership matches the daily sync
+and the bulk reindex: promoted products/vendors are upserted; an integration is indexed
+only when both its endpoint products are promoted.
+
+---
+
 ## 7. Worked example
 
 A product (**Revit**) with one vendor (**Autodesk**), two categories, and one

@@ -19,6 +19,7 @@ import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
+import { scheduled } from './scheduled';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -114,4 +115,12 @@ app.all('*', () => {
   throw new ApiError(404, 'NOT_FOUND', 'Route not found');
 });
 
-export default app;
+// The API Worker gains a `scheduled` handler (daily Algolia jobs) alongside its
+// Hono `fetch`. The explicit arrow wrapper (not a bare `app.fetch` reference)
+// keeps Hono's request handling intact. Cron triggers are registered per-env in
+// `wrangler.jsonc` (staging + production only); `src/scheduled.ts` dispatches by
+// `controller.cron` (AECI-139 03:00 sync; AECI-140 04:00 drift check).
+export default {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  scheduled,
+};

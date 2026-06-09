@@ -19,4 +19,5 @@ const client = createDatadogClient({
   ddSource: 'worker',
 });
 
-export const { hostnameFromRequest, logToDatadog, submitDistribution, submitCount } = client;
+export const { hostnameFromRequest, logToDatadog, submitDistribution, submitCount, submitGauge } =
+  client;

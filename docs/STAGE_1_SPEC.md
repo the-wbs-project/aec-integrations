@@ -195,9 +195,7 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/products/:slug/integrations` | Product detail — Integrations tab | 1 hr edge / 5 min browser |
 | `/products/:slug/reviews` | Product detail — Reviews tab | 1 hr edge / 5 min browser |
 | `/products/:slug/details` | Product detail — Details tab | 1 hr edge / 5 min browser |
-| `/vendors` | All vendors paginated | 30 min edge |
 | `/vendors/:slug` | Vendor detail page | 1 hr edge / 5 min browser |
-| `/integrations` | All integrations paginated | 30 min edge |
 | `/integrations/:id` | Integration detail page | 1 hr edge |
 | `/categories` | All categories (flat taxonomy index) | 5 min edge |
 | `/categories/:slug` | Browse by category | 30 min edge |
@@ -212,6 +210,8 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/legal/privacy` | Privacy Policy | 24 hr edge |
 | `/legal/review-guidelines` | Review Guidelines | 24 hr edge |
 | `/legal/listing-accuracy` | Listing Accuracy Policy | 24 hr edge |
+
+> **Removed index pages (AECI-165).** The `/vendors` and `/integrations` index/listing pages were removed after AECI-160 pulled Vendors / Integrations from the primary nav and footer (PO decision), which orphaned the two listings. Both paths now **301-redirect to `/products`** at the SSR Worker. The entity **detail** routes above (`/vendors/:slug`, `/vendors/:slug/{claim,correction}`, `/integrations/:id`) are unaffected — products link to vendors, and integrations are core.
 
 ### 3.2 Authenticated routes
 
@@ -1303,6 +1303,15 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Algolia index drift (record count mismatch with Supabase)
 
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage.
+
+> **Implementation note (AECI-140):** the "Algolia index drift" line item ships as the
+> API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 04:00
+> UTC cron registered per-env in `apps/api/wrangler.jsonc` (staging + production). It compares
+> promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
+> gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`),
+> not the email summary (the full §23.1 email + the other nine checks remain to be built). A
+> report-only post-deploy check also runs in `deploy-staging` (CICD §3.2). Report-only — re-run
+> the AECI-138 bulk sync to repair.
 
 ### 23.2 Duplicate detection on submission
 

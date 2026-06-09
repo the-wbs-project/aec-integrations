@@ -26,18 +26,6 @@ Always asserted reachable ≤ 3.
 | /audiences (flat list) | `/audiences` | ✓ | 1 | / → /audiences |
 | /phases (flat list) | `/phases` | ✓ | 1 | / → /phases |
 
-## Intentionally beyond-3-hop indexes (AECI-160)
-
-Pulled from the primary nav + footer per the PO decision. Reachable via their
-own detail-page breadcrumbs (depth 4), `sitemap.xml`, and direct URL / search —
-so they are covered by the no-404 / no-5xx gates if crawled, but **not** by the
-≤ 3-hop reachability assertion.
-
-| Page type | URL pattern | Status |
-|---|---|---|
-| vendor index | `/vendors` | ✓ reached at depth 3 |
-| integration index | `/integrations` | — not within 3 hops (by design) |
-
 ## Entity & browse page types
 
 Reachability is asserted **only for types that have data** ("Data" = yes). A

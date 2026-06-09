@@ -20,13 +20,13 @@ import { expect, test } from '@playwright/test';
  */
 
 // Cacheable routes that always exist (static + index + browse facet roots).
+// AECI-165 removed the `/vendors` and `/integrations` index pages (they now
+// 301-redirect to `/products`), so they are no longer driven here.
 const FIXED_ROUTES = [
   '/',
   '/about',
   '/legal/privacy',
   '/products',
-  '/vendors',
-  '/integrations',
   '/categories',
   '/audiences',
   '/phases',
@@ -34,10 +34,11 @@ const FIXED_ROUTES = [
 
 // Patterns used to harvest live detail/browse slugs from the index pages, so we
 // exercise `route_class:detail` + `route_class:browse` against real entities.
+// Vendor / integration DETAIL slugs are harvested transitively from the product
+// detail pages discovered below (their `/vendors/:slug` + `/integrations/:id`
+// links) — there is no longer a vendor/integration index to scrape (AECI-165).
 const DISCOVERY: { from: string; pattern: RegExp }[] = [
   { from: '/products', pattern: /\/products\/[a-z0-9][a-z0-9-]*/g },
-  { from: '/vendors', pattern: /\/vendors\/[a-z0-9][a-z0-9-]*/g },
-  { from: '/integrations', pattern: /\/integrations\/[a-z0-9][a-z0-9-]*/g },
   { from: '/categories', pattern: /\/categories\/[a-z0-9][a-z0-9-]*/g },
 ];
 

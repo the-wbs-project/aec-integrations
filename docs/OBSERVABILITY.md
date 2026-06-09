@@ -32,6 +32,8 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
+| `aeci.algolia.sync` | count | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/src/routes/promote.ts` (`syncAlgoliaAfterPromote`) | `trigger` (cron / promote), `entity` (products / vendors / integrations / all), `outcome` (ok / failed / skipped_no_creds) |
+| `aeci.algolia.index_drift` | gauge | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/scripts/reconcile-algolia-drift.ts` (CLI / deploy-staging hook) | `entity` (products/vendors/integrations), `index` (physical index name) |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -49,6 +51,27 @@ silent fabrication. A product with no `ProductVendor` row now renders an empty s
 instead of a fake `/vendors/unknown` link; the metric (plus a paired `warn` log naming
 the product slug, `data_gap:missing_vendor`) makes the gap visible to operators. A
 gap-free DB emits nothing.
+
+`aeci.algolia.sync` (AECI-139) is one count per entity per run of the Algolia index
+sync — the daily cron (`trigger:cron`) and the post-promote hook (`trigger:promote`).
+`outcome:failed` means a batch push to Algolia failed (the watermark for that entity is
+held for the next cron to retry; a failure is also logged — `aeci.algolia.sync.*` /
+`aeci.api.promote.algolia_sync_failed`). `outcome:skipped_no_creds` is the graceful
+no-op when the Worker has no Algolia credentials (local/preview). The dashboard widget +
+the `outcome:failed` monitor (a daily cron that silently fails leaves a stale index with
+no page-level symptom) are owned by AECI-141 (search observability); this issue only
+emits the signal.
+
+`aeci.algolia.index_drift` (AECI-140) is the §23.1 daily data-quality check: the signed
+difference (`supabase − algolia`) between the promoted-row count per entity in Supabase
+and the object count of the matching Algolia index. It is **emitted every run, including
+when clean (value 0)** — one gauge point per `entity`/`index` — so the monitor below can
+tell "ran clean" from "didn't run". Positive = the index is missing rows; negative =
+orphans. Report-only: re-run the AECI-138 bulk sync to repair. Emitted as a **gauge** (a
+level, not a delta) via the shared transport's `submitGauge` (AECI-140 added it alongside
+`submitCount`); the daily 04:00 UTC run is the API Worker cron (`apps/api/src/scheduled.ts`),
+and the deploy-staging hook + manual triage reuse the same comparison via
+`apps/api/scripts/reconcile-algolia-drift.ts`.
 
 ### Two gotchas when querying
 
@@ -109,6 +132,7 @@ at apply time).
 | Cache hit rate low | hit rate < 70% sustained 15m | `observability/datadog/monitor-cache-hit-rate.json` |
 | Detail render slow | p95 detail render (cache MISS) > 1.5s sustained 10m | `observability/datadog/monitor-detail-render-p95.json` |
 | Worker error rate high | combined SSR+API 5xx rate > 1% over 5m | `observability/datadog/monitor-error-rate.json` |
+| Algolia index drift | any index's \|drift\| > 0 (daily); or no data for 48h | `observability/datadog/monitor-algolia-index-drift.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.

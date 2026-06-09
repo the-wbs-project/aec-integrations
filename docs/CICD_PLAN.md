@@ -154,7 +154,11 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 2. Run pending Supabase migrations against staging
 3. `wrangler deploy --env staging`
 4. Run smoke test suite against staging (Playwright subset, ~2 min)
-5. Update Algolia staging indexes if schema changed
+5. Update Algolia staging index settings (AECI-137), then run the **report-only**
+   Algolia ↔ Supabase index-drift check (AECI-140, `scripts/reconcile-algolia-drift.ts`,
+   `continue-on-error`) — surfaces drift via the `aeci.algolia.index_drift` gauge without
+   blocking the deploy. The scheduled (daily 04:00 UTC) drift check runs as the API Worker
+   cron (`apps/api/src/scheduled.ts`, §23.1); this step is the immediate post-deploy check.
 6. Send deployment marker to Datadog
 7. Notify Slack: "Staging updated, awaiting production approval"
 8. Open GitHub Environment approval request

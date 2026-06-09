@@ -57,6 +57,7 @@ import {
   type PromoteProduct,
   type PromoteIntegration,
 } from '@aeci/shared';
+import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 import type { Context } from 'hono';
@@ -65,6 +66,7 @@ import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
+import { syncPromoteTargets, type AlgoliaSyncPrisma } from '../lib/algolia-sync';
 import type { PrismaFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/product-counts';
 import { getPrisma } from '../prisma';
@@ -300,6 +302,64 @@ function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason:
     reason,
     tags: batch.join(','),
     tags_count: batch.length,
+  });
+}
+
+// ─── Algolia index sync (AECI-139) ───────────────────────────────────────────
+// Closes the "viewable on promote (purge) but not searchable until 03:00" gap:
+// after the commit, push the just-promoted records to Algolia immediately so the
+// index matches the freshly-purged pages. Best-effort and post-commit — fired via
+// `waitUntil` (never blocks/fails the promote), gated on the Algolia secrets, and
+// each entity's outcome is recorded as `aeci.algolia.sync{trigger:promote,...}`
+// (the cron emits the same metric with `trigger:cron`). A promote only ever
+// writes `promotionStatus:'promoted'`, so this path upserts; the delete path
+// (retract/reject) is the daily cron's job. Index membership + transport live in
+// `lib/algolia-sync.ts`.
+
+/**
+ * Best-effort post-commit Algolia upsert for a promote. Re-queries the touched
+ * rows by id (the response carries ids, not full denormalized records) and pushes
+ * them to the env's indexes via the shared sync core. No-ops for an entity the
+ * promote didn't touch. Never throws (the sync core is never-throw; the outer
+ * try/catch is belt-and-suspenders so a bug can't reject the `waitUntil`).
+ */
+async function syncAlgoliaAfterPromote(
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+  prisma: AlgoliaSyncPrisma,
+): Promise<void> {
+  const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
+  const env: AlgoliaEnv = c.env.ENV ?? 'development';
+  try {
+    const results = await syncPromoteTargets(prisma, fetch, creds, env, {
+      product: response.product ? { id: response.product.id } : null,
+      vendors: response.vendors.map((v) => ({ id: v.id })),
+      integrations: response.integrations.map((i) => ({ id: i.id })),
+    });
+    for (const result of results) {
+      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.algolia.sync', 1, [
+        'trigger:promote',
+        `entity:${result.entity}`,
+        `outcome:${result.ok ? 'ok' : 'failed'}`,
+      ]);
+      if (!result.ok) logAlgoliaSyncFailure(c, result.entity, result.error ?? 'unknown');
+    }
+  } catch (error) {
+    logAlgoliaSyncFailure(c, 'all', error instanceof Error ? error.message : String(error));
+  }
+}
+
+function logAlgoliaSyncFailure(
+  c: Context<{ Bindings: Env }>,
+  entity: string,
+  reason: string,
+): void {
+  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    level: 'warn',
+    message: 'aeci.api.promote.algolia_sync_failed',
+    source: 'review-app-promote',
+    entity,
+    reason,
   });
 }
 
@@ -693,6 +753,16 @@ export function createPromoteHandler(
     // response. No-ops when `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` are unset.
     if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
       c.executionCtx.waitUntil(purgeAfterPromote(c, response));
+    }
+
+    // AECI-139: push the promoted records to Algolia immediately so they're
+    // searchable now, not at the next 03:00 cron. Independent best-effort task
+    // (separate `waitUntil`, so it never blocks the purge or the response).
+    // No-ops when the Algolia secrets are unset (local / preview).
+    if (c.env.ALGOLIA_APP_ID && c.env.ALGOLIA_ADMIN_KEY) {
+      c.executionCtx.waitUntil(
+        syncAlgoliaAfterPromote(c, response, prisma as unknown as AlgoliaSyncPrisma),
+      );
     }
 
     return json(response);

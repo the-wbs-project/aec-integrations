@@ -39,12 +39,12 @@
  * only at depth 3 via a product-detail `TaxonomyBadge`.
  *
  * AECI-160 re-pointed the primary nav at the taxonomy and pulled Vendors /
- * Integrations out of the nav AND footer (PO decision). Their DETAIL pages stay
- * reachable ≤ 3 via a product detail's vendor / integration links, but the
- * `/vendors` and `/integrations` INDEX pages are now reachable only via their
- * own detail-page breadcrumbs (depth 4, beyond this crawl) + `sitemap.xml` +
- * direct URL — so they are intentionally NOT asserted ≤ 3 (see
- * `INTENTIONALLY_DEEP_INDEX_TYPES`).
+ * Integrations out of the nav AND footer (PO decision); AECI-165 then removed
+ * the `/vendors` and `/integrations` INDEX pages entirely (they now 301-redirect
+ * to `/products`). Only the vendor / integration DETAIL pages remain — reachable
+ * ≤ 3 via a product detail's vendor / integration links — so this crawler tracks
+ * `vendor-detail` / `integration-detail` reachability and no longer carries any
+ * index page type for them.
  *
  * Every run writes `e2e/internal-link-graph-report.md` (a seed-stable,
  * type-level snapshot) in `beforeAll`, before the assertions, so it is produced
@@ -62,9 +62,11 @@
  * by the no-404 / no-5xx assertions), not an app defect. Console ERRORS +
  * uncaught page errors FAIL; WARNINGS are reported, not gated (matching
  * `smoke.spec.ts`'s posture — see `console-capture.ts` for the rationale and the
- * shared `isIgnorableConsole` allowlist). The two index types this crawl can't
- * reach (`/vendors`, `/integrations` — beyond 3 hops since AECI-160) and the
- * `not-found` shell are console-checked by their own specs.
+ * shared `isIgnorableConsole` allowlist). The one page type this crawl can't
+ * reach — the `not-found` shell, only linked via the temporary pending-prefix
+ * placeholders — is console-checked by its own spec (`not-found.spec.ts`).
+ * (AECI-165 removed the `/vendors` and `/integrations` indexes, which this
+ * paragraph previously routed to their own specs; those pages now 301-redirect.)
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -85,15 +87,15 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const MAX_DEPTH = 3;
 
 // ---------------------------------------------------------------------------
-// Page-type taxonomy (the 10 Phase 2 page types in the AC + non-required pages).
+// Page-type taxonomy (the Phase 2 page types in the AC + non-required pages).
+// AECI-165 removed the `vendor-index` / `integration-index` types — those index
+// pages no longer exist; only the vendor / integration DETAIL types remain.
 // ---------------------------------------------------------------------------
 
 type PageType =
   | 'product-index'
   | 'product-detail'
-  | 'vendor-index'
   | 'vendor-detail'
-  | 'integration-index'
   | 'integration-detail'
   | 'categories'
   | 'category-browse'
@@ -107,9 +109,7 @@ type PageType =
 const PATTERN_OF: Record<PageType, string> = {
   'product-index': '/products',
   'product-detail': '/products/:slug',
-  'vendor-index': '/vendors',
   'vendor-detail': '/vendors/:slug',
-  'integration-index': '/integrations',
   'integration-detail': '/integrations/:id',
   categories: '/categories',
   'category-browse': '/categories/:slug',
@@ -124,9 +124,7 @@ const PATTERN_OF: Record<PageType, string> = {
 const TYPE_LABEL: Record<PageType, string> = {
   'product-index': 'product index',
   'product-detail': 'product detail',
-  'vendor-index': 'vendor index',
   'vendor-detail': 'vendor detail',
-  'integration-index': 'integration index',
   'integration-detail': 'integration detail',
   categories: '/categories (flat list)',
   'category-browse': 'category browse',
@@ -140,21 +138,15 @@ const TYPE_LABEL: Record<PageType, string> = {
 
 // Always asserted reachable ≤ 3. Index shells render `200` from the header nav /
 // footer regardless of data; the taxonomy indexes need taxonomy seeded (CI seeds
-// it). Vendor / integration indexes are deliberately excluded — AECI-160 pulled
-// them from the nav + footer; see `INTENTIONALLY_DEEP_INDEX_TYPES`.
+// it). There are no longer vendor / integration index types — AECI-165 removed
+// those pages (they 301-redirect to `/products`); only their DETAIL pages remain
+// (asserted via `ENTITY_BROWSE_TYPES`).
 const STRUCTURAL_TYPES: PageType[] = [
   'product-index',
   'categories',
   'audience-index',
   'phase-index',
 ];
-
-// Index pages intentionally NOT reachable ≤ 3 from `/` after AECI-160 (removed
-// from the primary nav + footer per PO decision). They remain reachable via
-// their own detail-page breadcrumbs (depth 4), `sitemap.xml`, and direct URL /
-// search — so the no-404 / no-5xx gates still cover them when crawled, but the
-// ≤3-hop reachability assertion does not. Recorded in the report for visibility.
-const INTENTIONALLY_DEEP_INDEX_TYPES: PageType[] = ['vendor-index', 'integration-index'];
 
 const ENTITY_BROWSE_TYPES: PageType[] = [
   'product-detail',
@@ -227,10 +219,11 @@ function classifyPath(pathname: string): PageType {
   if (/^\/(?:products|vendors)\/[^/]+\/(?:claim|correction)\/?$/.test(p)) return 'other';
   if (/^\/products\/[^/]+\/?$/.test(p)) return 'product-detail';
   if (/^\/products\/?$/.test(p)) return 'product-index';
+  // AECI-165 — `/vendors` and `/integrations` (bare index) no longer exist as
+  // pages (they 301-redirect to `/products`); only their `:slug` / `:id` detail
+  // routes are real page types, so there is no bare-index branch here.
   if (/^\/vendors\/[^/]+\/?$/.test(p)) return 'vendor-detail';
-  if (/^\/vendors\/?$/.test(p)) return 'vendor-index';
   if (/^\/integrations\/[^/]+\/?$/.test(p)) return 'integration-detail';
-  if (/^\/integrations\/?$/.test(p)) return 'integration-index';
   if (/^\/categories\/[^/]+\/?$/.test(p)) return 'category-browse';
   if (/^\/categories\/?$/.test(p)) return 'categories';
   if (/^\/audiences\/[^/]+\/?$/.test(p)) return 'discipline-browse';
@@ -338,8 +331,6 @@ async function probeSeed(req: APIRequestContext): Promise<SeedInfo> {
 function hasData(seed: SeedInfo, type: PageType): boolean {
   switch (type) {
     case 'product-index':
-    case 'vendor-index':
-    case 'integration-index':
     case 'categories':
       return true;
     case 'product-detail':
@@ -612,20 +603,10 @@ function entityRow(result: CrawlResult, type: PageType): string {
   return `| ${TYPE_LABEL[type]} | \`${PATTERN_OF[type]}\` | ${present ? 'yes' : 'no'} | ${reachable} | ${depth} | ${path} |`;
 }
 
-/** Row for an index that is intentionally not required reachable ≤ 3 (AECI-160). */
-function deepIndexRow(result: CrawlResult, type: PageType): string {
-  const best = bestReach(result, type);
-  const reached = best ? `✓ reached at depth ${best.depth}` : '— not within 3 hops (by design)';
-  return `| ${TYPE_LABEL[type]} | \`${PATTERN_OF[type]}\` | ${reached} |`;
-}
-
 function writeReport(result: CrawlResult): void {
   const s = result.seed;
   const structuralRows = STRUCTURAL_TYPES.map((t) => structuralRow(result, t)).join('\n');
   const entityRows = ENTITY_BROWSE_TYPES.map((t) => entityRow(result, t)).join('\n');
-  const deepIndexRows = INTENTIONALLY_DEEP_INDEX_TYPES.map((t) => deepIndexRow(result, t)).join(
-    '\n',
-  );
   const pendingLines = result.pending.length
     ? result.pending
         .map((p) => `- \`${p.path}\` ← linked from \`${p.parent ?? '/'}\``)
@@ -657,17 +638,6 @@ Always asserted reachable ≤ ${MAX_DEPTH}.
 | Page type | URL pattern | Reachable | Min depth | Shortest path (patterns) |
 |---|---|---|---|---|
 ${structuralRows}
-
-## Intentionally beyond-3-hop indexes (AECI-160)
-
-Pulled from the primary nav + footer per the PO decision. Reachable via their
-own detail-page breadcrumbs (depth 4), \`sitemap.xml\`, and direct URL / search —
-so they are covered by the no-404 / no-5xx gates if crawled, but **not** by the
-≤ ${MAX_DEPTH}-hop reachability assertion.
-
-| Page type | URL pattern | Status |
-|---|---|---|
-${deepIndexRows}
 
 ## Entity & browse page types
 

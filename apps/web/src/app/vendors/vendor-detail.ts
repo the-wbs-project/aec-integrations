@@ -63,16 +63,6 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             </a>
           </li>
           <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li>
-            <a
-              routerLink="/vendors"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@vendors.detail.breadcrumbs.vendors"
-            >
-              Vendors
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
           <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
             {{ v.company_name }}
           </li>

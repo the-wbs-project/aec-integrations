@@ -13,7 +13,9 @@
  * Composition rules (`docs/CACHE_STRATEGY.md` §3):
  *   - Entity tags (`product:{slug}`, `vendor:{slug}`, `category|audience|phase:
  *     {slug}`) invalidate that entity's detail / browse pages.
- *   - `index:products` / `index:vendors` invalidate the listing pages.
+ *   - `index:products` invalidates the products listing page. (AECI-165 removed
+ *     the `/vendors` and `/integrations` index pages, so `index:vendors` /
+ *     `index:integrations` are no longer emitted or purged.)
  *   - `taxonomy` invalidates every page whose HTML renders the full taxonomy
  *     term set (home, `/categories`, `/audiences`, `/phases`) — only relevant
  *     when the *set* of taxonomy terms changed, i.e. a term was newly created.
@@ -50,13 +52,11 @@ export function cacheTagsForPromote(response: PromoteResponse): string[] {
     if (response.product.operation === 'created') tags.add('sitemap');
   }
 
-  // Vendor details + vendors index.
-  if (response.vendors.length > 0) {
-    tags.add('index:vendors');
-    for (const vendor of response.vendors) {
-      tags.add(`vendor:${vendor.slug}`);
-      if (vendor.operation === 'created') tags.add('sitemap');
-    }
+  // Vendor detail pages. (No `index:vendors` — the `/vendors` index page was
+  // removed in AECI-165; it now 301-redirects to `/products`.)
+  for (const vendor of response.vendors) {
+    tags.add(`vendor:${vendor.slug}`);
+    if (vendor.operation === 'created') tags.add('sitemap');
   }
 
   // Taxonomy browse pages: one tag per touched term (created *and* reused — the

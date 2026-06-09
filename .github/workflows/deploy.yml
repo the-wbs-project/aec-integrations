@@ -674,6 +674,30 @@ jobs:
           printf '%s' "$REVIEW_APP_TOKEN_VALUE" \
             | pnpm exec wrangler secret put REVIEW_APP_TOKEN --env staging
 
+      # Push the Algolia credentials to the staging API Worker so the AECI-139
+      # daily-sync cron + promote→index hook can write the index. ALGOLIA_APP_ID
+      # is the shared app id; ALGOLIA_ADMIN_KEY is the per-env MANAGEMENT key
+      # (never the search-only or root key). Staging is graceful — if the GH
+      # secrets aren't provisioned yet, skip the push (the cron/hook then no-op)
+      # rather than failing the deploy. Production fail-closes (promote-to-prod.yml).
+      - name: Push Algolia credentials to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_ADMIN_KEY_VALUE" ]; then
+            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY_STAGING not set — skipping push. The AECI-139 sync cron + promote→index hook will no-op on staging until these are provisioned."
+            exit 0
+          fi
+          printf '%s' "$ALGOLIA_APP_ID_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_APP_ID --env staging
+          printf '%s' "$ALGOLIA_ADMIN_KEY_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_ADMIN_KEY --env staging
+
       - name: Deploy SSR
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -737,3 +761,22 @@ jobs:
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
         run: pnpm algolia:apply-settings --env staging
+
+      # CICD §3.2 step 5 (AECI-140): report-only post-deploy verification that the
+      # staging Algolia indexes match the promoted Supabase rows, right after the
+      # settings apply above. NON-BLOCKING (`continue-on-error`) — drift is
+      # report-only (§23.1; humans triage) and the script itself exits 0 on drift;
+      # the alert is the Datadog monitor on `aeci.algolia.index_drift`. Skips
+      # cleanly when ALGOLIA_* are unset. Uses the vanilla Prisma client over
+      # DIRECT_URL (the `prisma generate` above produced it). The daily 04:00 UTC
+      # run is the API Worker cron (apps/api/src/scheduled.ts); this is the
+      # immediate post-deploy check.
+      - name: Reconcile Algolia staging index drift (report-only)
+        continue-on-error: true
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL_STAGING }}
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+          DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          DD_ENV: staging
+        run: pnpm --filter @aeci/api exec tsx scripts/reconcile-algolia-drift.ts --env staging

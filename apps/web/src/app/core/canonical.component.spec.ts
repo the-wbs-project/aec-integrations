@@ -51,9 +51,9 @@ describe('canonicalUrl / servingOrigin', () => {
   it('falls back to the DOM location.origin when REQUEST is absent (client/hydration)', () => {
     const url = inContext(
       [{ provide: REQUEST, useValue: null }, docWithOrigin('https://demo.aecintegrations.com')],
-      () => canonicalUrl('/vendors'),
+      () => canonicalUrl('/audiences'),
     );
-    expect(url).toBe('https://demo.aecintegrations.com/vendors');
+    expect(url).toBe('https://demo.aecintegrations.com/audiences');
   });
 
   it('falls back to the production apex when neither REQUEST nor a DOM location exists (prerender)', () => {
@@ -65,8 +65,8 @@ describe('canonicalUrl / servingOrigin', () => {
 
   it('tolerates a path with no leading slash', () => {
     const url = inContext([{ provide: REQUEST, useValue: new Request('https://x.test/y') }], () =>
-      canonicalUrl('integrations'),
+      canonicalUrl('phases'),
     );
-    expect(url).toBe('https://x.test/integrations');
+    expect(url).toBe('https://x.test/phases');
   });
 });
