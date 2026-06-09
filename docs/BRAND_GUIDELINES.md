@@ -43,8 +43,8 @@ The dark theme uses lighter variants of Forest and Clay because the originals la
 
 | Color | Hex | Role |
 |---|---|---|
-| Forest dark | `#4A8870` | Primary brand in dark theme. CTAs, links. |
-| Forest dark hover | `#5DA088` | Hover state for Forest-dark interactive elements. |
+| Forest dark | `#5D916C` | Primary brand in dark theme. CTAs, links. |
+| Forest dark hover | `#6FAA80` | Hover state for Forest-dark interactive elements. |
 | Clay dark | `#F0A887` | Highlights, badges, callouts. **Large text or graphical only** — see §5. |
 | Bone dark | `#2A2520` | Warm-tinted accent surface (dark equivalent of Bone). Used the same way Bone is used in light theme. |
 
@@ -86,8 +86,9 @@ Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for norma
 | Forest hover `#2E5C45` | White `#FFFFFF` | ~7.7 : 1 | AAA |
 | Clay `#E89668` | White `#FFFFFF` | ~2.4 : 1 | Fails AA body — **large/graphical only** |
 | Ink `#0F1419` | Bone `#F5F2EA` | ~17 : 1 | AAA (Bone accent surface) |
-| Forest dark `#4A8870` | Near-black `#0A0A0A` | ~5.1 : 1 | AA normal, AAA large |
-| Forest dark hover `#5DA088` | Near-black `#0A0A0A` | ~6.6 : 1 | AAA large, AA normal |
+| Forest dark `#5D916C` | Near-black `#0A0A0A` | ~5.4 : 1 | AA normal, AAA large |
+| Forest dark `#5D916C` | Raised dark `#18181B` | ~4.8 : 1 | AA normal — binding case for links (AECI-166) |
+| Forest dark hover `#6FAA80` | Near-black `#0A0A0A` | ~7.3 : 1 | AAA large, AA normal |
 | Clay dark `#F0A887` | Near-black `#0A0A0A` | ~10.3 : 1 | Passes AAA (brand policy still restricts use) |
 | White `#FAFAFA` | Bone dark `#2A2520` | ~15.8 : 1 | AAA |
 

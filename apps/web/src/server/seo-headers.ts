@@ -38,12 +38,17 @@
  *   - `img-src 'self' data: https:` — vendor/Airtable `logo_url`s come from
  *     arbitrary https origins; `data:` for inline SVG/placeholders.
  *   - `connect-src` — `'self'` for the `/api/*` service-binding proxy plus the
- *     Datadog RUM intake host. The v7 browser SDK ships beacons to
- *     `browser-intake-datadoghq.com` (a distinct registrable domain, NOT a
- *     `*.datadoghq.com` subdomain — the wildcard would not match it). This
- *     assumes the default `DD_SITE` of `datadoghq.com` (US1); other sites use a
- *     different `browser-intake-*` host (e.g. `browser-intake-datadoghq.eu`),
- *     so broaden this entry if `DD_SITE` changes. The Algolia search origins
+ *     Datadog RUM intake host(s). The v7 browser SDK ships beacons to a
+ *     per-`DD_SITE` host (a distinct registrable domain, NOT a `*.datadoghq.com`
+ *     subdomain — the wildcard would not match it). Two are allowlisted: the
+ *     US1 default `browser-intake-datadoghq.com` (the local `.dev.vars` default
+ *     `DD_SITE=datadoghq.com`) and `browser-intake-us5-datadoghq.com` for the
+ *     deployed preview/staging/production envs, which run `DD_SITE=us5.datadoghq.com`
+ *     (see `wrangler.jsonc` env vars; the SDK maps `us5.datadoghq.com` →
+ *     `browser-intake-us5-datadoghq.com`). AECI-162 caught the missing US5 host —
+ *     RUM beacons were CSP-blocked in every deployed env. Other sites use yet
+ *     another `browser-intake-*` host (e.g. `browser-intake-datadoghq.eu`), so
+ *     add its intake host here if `DD_SITE` changes again. The Algolia search origins
  *     (`https://*.algolia.net https://*.algolianet.com`) were added in AECI-136
  *     (Phase 3.4) for InstantSearch: the browser client resolves its query host
  *     as `{appId}-dsn.algolia.net` with `{appId}-{1,2,3}.algolianet.com` retry
@@ -57,7 +62,7 @@ const CSP_DIRECTIVES: readonly string[] = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://browser-intake-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com",
+  "connect-src 'self' https://browser-intake-datadoghq.com https://browser-intake-us5-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
