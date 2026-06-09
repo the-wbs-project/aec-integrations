@@ -19,7 +19,7 @@ import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
-import { scheduled } from './scheduled';
+import { queue, scheduled } from './scheduled';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -115,12 +115,15 @@ app.all('*', () => {
   throw new ApiError(404, 'NOT_FOUND', 'Route not found');
 });
 
-// The API Worker gains a `scheduled` handler (daily Algolia jobs) alongside its
-// Hono `fetch`. The explicit arrow wrapper (not a bare `app.fetch` reference)
-// keeps Hono's request handling intact. Cron triggers are registered per-env in
-// `wrangler.jsonc` (staging + production only); `src/scheduled.ts` dispatches by
-// `controller.cron` (AECI-139 03:00 sync; AECI-140 04:00 drift check).
+// The API Worker gains `scheduled` + `queue` handlers (daily Algolia jobs)
+// alongside its Hono `fetch`. The explicit arrow wrapper (not a bare `app.fetch`
+// reference) keeps Hono's request handling intact. Cron triggers + queue
+// producer/consumer bindings are registered per-env in `wrangler.jsonc` (staging
+// + production only). The cron `scheduled` handler enqueues a job; the `queue`
+// consumer runs it (ADR 0013) — see `src/scheduled.ts`. Crons: AECI-139 08:00 UTC
+// sync; AECI-140 09:00 UTC drift check.
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled,
+  queue,
 };

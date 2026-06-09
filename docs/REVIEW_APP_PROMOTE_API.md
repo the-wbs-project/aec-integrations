@@ -326,8 +326,8 @@ no correctness regression. No retry or action is required from the review app.
 Also nothing for you to do — documented for expectations. Alongside the edge-cache
 purge above, a successful promote also pushes the promoted records to Algolia
 **immediately** (the product, its vendors, and any integrations), so they're
-*searchable* right away rather than waiting for the 03:00 UTC daily sync. This closes
-the "viewable on promote but not searchable until 03:00" gap.
+*searchable* right away rather than waiting for the 08:00 UTC (= 03:00 EST) daily sync. This closes
+the "viewable on promote but not searchable until the daily sync" gap.
 
 Same failure semantics as the purge: it's **best-effort, post-commit, and never
 affects your response** — a promote returns `200` even if the Algolia push fails.

@@ -39,10 +39,18 @@
   //                 if absent — AECI-139); absent on preview/local → the cron +
   //                 promote hook are a graceful no-op.
   //
-  // AECI-139: the API Worker also runs a `scheduled` handler (daily incremental
-  // Algolia sync). Cron triggers are registered ONLY on staging + production (see
-  // each env's `triggers` block) — NOT on the base config or preview, so
-  // ephemeral PR-preview Workers don't each run a daily sync.
+  // AECI-139: the API Worker also runs `scheduled` + `queue` handlers (daily
+  // Algolia jobs). The cron `scheduled` handler does not work inline — it enqueues
+  // a message onto the matching Cloudflare Queue, and the `queue` consumer runs it
+  // (ADR 0013: cron→queue→consumer). Cron triggers AND the queue producer/consumer
+  // bindings are registered ONLY on staging + production (see each env's
+  // `triggers` + `queues` blocks) — NOT on the base config or preview, so
+  // ephemeral PR-preview Workers carry no queues and run no daily jobs. The four
+  // queues (`aeci-algolia-{sync,drift}-{staging,production}`) are provisioned by an
+  // idempotent `wrangler queues create` step in deploy.yml / promote-to-prod.yml
+  // before the Worker deploy. PREREQS: Workers Paid plan, and the CI
+  // CLOUDFLARE_API_TOKEN must carry the Queues edit permission. See ADR 0013 and
+  // docs/environments.md.
   //
   // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
   // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the
@@ -136,10 +144,38 @@
       ],
       // Daily Algolia crons, dispatched by `controller.cron` in `src/scheduled.ts`.
       // Staging + production only (base config / preview have no `triggers`, so PR
-      // previews don't run them). 03:00 — incremental sync (AECI-139); 04:00 —
-      // index-drift reconciliation (AECI-140, §23.1).
+      // previews don't run them). 08:00 UTC (= 03:00 EST, US-East launch base) —
+      // incremental sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
+      // reconciliation (AECI-140, §23.1). UTC is DST-unaware → 04:00/05:00 EDT in
+      // summer (accepted). Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
-        "crons": ["0 3 * * *", "0 4 * * *"],
+        "crons": ["0 8 * * *", "0 9 * * *"],
+      },
+      // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
+      // `queue` consumer (same Worker) runs the job. `binding` is the producer
+      // handle read in `src/scheduled.ts`; the consumer entries make this Worker
+      // process the same queues. Batch size 1 (each job is a singleton); 3 retries
+      // (jobs are idempotent — sync upserts, drift is read-only). Queues must
+      // exist before deploy (idempotent `wrangler queues create` in deploy.yml).
+      "queues": {
+        "producers": [
+          { "queue": "aeci-algolia-sync-staging", "binding": "ALGOLIA_SYNC_QUEUE" },
+          { "queue": "aeci-algolia-drift-staging", "binding": "ALGOLIA_DRIFT_QUEUE" },
+        ],
+        "consumers": [
+          {
+            "queue": "aeci-algolia-sync-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-algolia-drift-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
       },
       "observability": {
         "logs": {
@@ -166,10 +202,32 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
-      // Daily Algolia crons (see staging note): 03:00 incremental sync (AECI-139);
-      // 04:00 index-drift reconciliation (AECI-140). Dispatched by `controller.cron`.
+      // Daily Algolia crons (see staging note): 08:00 UTC (= 03:00 EST) incremental
+      // sync (AECI-139); 09:00 UTC (= 04:00 EST) index-drift reconciliation
+      // (AECI-140). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 3 * * *", "0 4 * * *"],
+        "crons": ["0 8 * * *", "0 9 * * *"],
+      },
+      // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
+      "queues": {
+        "producers": [
+          { "queue": "aeci-algolia-sync-production", "binding": "ALGOLIA_SYNC_QUEUE" },
+          { "queue": "aeci-algolia-drift-production", "binding": "ALGOLIA_DRIFT_QUEUE" },
+        ],
+        "consumers": [
+          {
+            "queue": "aeci-algolia-sync-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-algolia-drift-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
       },
       "observability": {
         "logs": {

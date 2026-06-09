@@ -625,6 +625,33 @@ jobs:
         id: ts
         run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
 
+      # ADR 0013: provision the Algolia job queues BEFORE the API deploy — the
+      # Worker's `queues.consumers` binding errors if the queue does not exist yet.
+      # Idempotent: re-creating an existing queue returns "already exists", treated
+      # as success. PREREQ: CLOUDFLARE_API_TOKEN must carry the Queues edit
+      # permission and the account must be on the Workers Paid plan, or this fails.
+      - name: Provision Algolia job queues (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          create_queue() {
+            local name="$1"
+            if pnpm exec wrangler queues create "$name" > queue-out.log 2>&1; then
+              echo "created $name"
+            elif grep -qiE "already exists|already created|a queue with this name" queue-out.log; then
+              echo "$name already exists — ok"
+            else
+              cat queue-out.log
+              echo "::error::failed to create queue $name (does CLOUDFLARE_API_TOKEN have the Queues edit permission, and is the account on Workers Paid?)"
+              exit 1
+            fi
+          }
+          create_queue aeci-algolia-sync-staging
+          create_queue aeci-algolia-drift-staging
+
       # API deploys FIRST. The SSR Worker's `services.API` binding talks to
       # `aeci-api-staging`; deploying API ahead of web means any brief
       # mismatch lands in the safer direction (API ahead of web).
@@ -782,8 +809,8 @@ jobs:
       # report-only (§23.1; humans triage) and the script itself exits 0 on drift;
       # the alert is the Datadog monitor on `aeci.algolia.index_drift`. Skips
       # cleanly when ALGOLIA_* are unset. Uses the vanilla Prisma client over
-      # DIRECT_URL (the `prisma generate` above produced it). The daily 04:00 UTC
-      # run is the API Worker cron (apps/api/src/scheduled.ts); this is the
+      # DIRECT_URL (the `prisma generate` above produced it). The daily 09:00 UTC
+      # (= 04:00 EST) run is the API Worker cron (apps/api/src/scheduled.ts); this is the
       # immediate post-deploy check.
       - name: Reconcile Algolia staging index drift (report-only)
         continue-on-error: true
