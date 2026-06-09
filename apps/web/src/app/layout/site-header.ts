@@ -9,8 +9,10 @@
  * over a warm Bone "shelf" that reads as editorial structure rather than chrome.
  *
  * AECI-158 re-points the directory at the taxonomy: Home · Products ·
- * Categories▾ · Audiences▾ · Phases▾ (Vendors / Integrations move to the
- * footer). The three taxonomy entries each link to their facet index AND open a
+ * Categories▾ · Audiences▾ · Phases▾. Vendors / Integrations were removed from
+ * the primary nav AND the footer (AECI-160, PO decision) — they stay reachable
+ * via `sitemap.xml`, detail-page breadcrumbs, and search. The three taxonomy
+ * entries each link to their facet index AND open a
  * `aec-nav-flyout-trigger` flyout of the top values by count. The same link set
  * renders in the overlay (`nav-menu.ts`) and footer, so only one
  * `<nav aria-label="Primary">` is ever in the a11y tree at a given width (the

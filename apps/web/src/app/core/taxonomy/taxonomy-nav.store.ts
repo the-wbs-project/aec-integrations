@@ -17,8 +17,14 @@ import { TOP_N, topByCount } from './taxonomy-rank';
  * flyout *values* are a client-only enhancement fetched once after hydration
  * via the same-origin `/api/*` passthrough (edge + KV cached). This deliberately
  * avoids the SSR `/api/*` loopback the codebase shuns (see `core/api/taxonomy.ts`)
- * and keeps cached page HTML free of taxonomy state, so a taxonomy edit needs no
- * per-route cache-tag — `/api/taxonomy` owns its own KV/edge invalidation.
+ * and keeps cached page HTML free of taxonomy state: because the flyout values
+ * are fetched from the browser, no page's edge-cached HTML bakes in the taxonomy
+ * term set. `/api/taxonomy` is `private, no-store` at the edge (AECI-43) and
+ * read-through cached in the API Worker's KV with a 5-minute TTL, which is its
+ * only staleness bound — there is no active KV invalidation (see
+ * `routes/taxonomy.ts`), so a taxonomy edit can take up to ~5 min to surface in
+ * the flyouts. The SSR taxonomy index pages (`/categories`, `/audiences`,
+ * `/phases`) separately carry the `taxonomy` cache-tag and purge immediately.
  *
  * Root singleton: the resource is created once and shared by every nav surface,
  * so the fetch happens a single time per app load. AECI-156.

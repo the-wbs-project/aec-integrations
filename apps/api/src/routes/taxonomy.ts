@@ -3,11 +3,14 @@
  *
  *   GET /api/taxonomy → { categories, audiences, phases }
  *
- * Each list ships `TaxonomyTermWithCount[]`. Used by the SSR Worker to render
- * nav, footer, and the flat `/categories` page. The taxonomy is small (≈30
- * terms) and rarely changes, so this endpoint is read-through cached in KV
- * with a 5-minute TTL. Cache invalidation lands in Phase 2.10 (admin/purge);
- * for now the TTL is the staleness bound.
+ * Each list ships `TaxonomyTermWithCount[]`. Consumed by the SSR Worker for the
+ * flat taxonomy index pages (`/categories`, `/audiences`, `/phases`) and, since
+ * AECI-156, by the client-side primary-nav flyouts (desktop bar + mobile
+ * overlay). The taxonomy is small (≈30 terms) and rarely changes, so this
+ * endpoint is read-through cached in KV with a 5-minute TTL. That TTL is the
+ * only staleness bound: there is no active invalidation of this KV key — the
+ * AECI-105 promote purge invalidates the edge `taxonomy` cache-tag (the SSR
+ * taxonomy pages), not this internal KV entry.
  *
  * The KV binding (`TAXONOMY_KV`) is optional. If absent (e.g. local `wrangler
  * dev` without `--remote`), the handler falls back to a direct Prisma query.
@@ -34,7 +37,7 @@ import {
 import { getPrisma } from '../prisma';
 
 const CACHE_KEY = 'taxonomy:v1';
-const CACHE_TTL_SECONDS = 300; // 5 minutes — staleness bound until admin/purge lands (Phase 2.10).
+const CACHE_TTL_SECONDS = 300; // 5 minutes — sole staleness bound; no active KV invalidation (see header).
 
 export function createTaxonomyHandler(
   prismaFor: PrismaFactory = getPrisma,

@@ -77,7 +77,11 @@ for (const facet of FACETS) {
       await page.goto(path);
       await expect(page.locator('app-root')).toBeAttached();
 
-      const cards = page.locator(`a[href^="${path}/"]`);
+      // Scope to the <main id="main"> content region: the shared header taxonomy
+      // flyout (AECI-155) renders the same `/{segment}/:slug` links in the global
+      // <header>, which sits outside #main. An unscoped selector would also match
+      // those ~10 flyout links and inflate the count (AECI-164).
+      const cards = page.locator(`#main a[href^="${path}/"]`);
       await expect(cards).toHaveCount(terms.length);
       await expect(cards.first()).toContainText(/\bproducts\b/);
     });
@@ -86,7 +90,9 @@ for (const facet of FACETS) {
       await page.goto(path);
       await expect(page.locator('app-root')).toBeAttached();
 
-      const firstCard = page.locator(`a[href^="${path}/"]`).first();
+      // Scope to #main so the header flyout's `/{segment}/:slug` links (AECI-155)
+      // — hidden, outside the content region — can't be `.first()` (AECI-164).
+      const firstCard = page.locator(`#main a[href^="${path}/"]`).first();
       test.skip((await firstCard.count()) === 0, `no ${facet.segment} seeded in this environment`);
 
       const href = await firstCard.getAttribute('href');

@@ -10,7 +10,8 @@
  * inline desktop nav in `site-header.ts` (with hover flyouts). Both surfaces
  * share `NavFlyoutList` + the `@@app.nav.*` copy (`taxonomy-nav-copy.ts`), so
  * the link sets cannot drift. AECI-158/159 re-pointed the nav at the taxonomy;
- * Vendors / Integrations moved to the SSR footer (`site-footer.ts`).
+ * Vendors / Integrations were removed from the nav AND the footer (AECI-160, PO
+ * decision) — reachable via `sitemap.xml`, detail-page breadcrumbs, and search.
  *
  * The overlay is `BrnPopover` (extends `BrnDialog`), which supplies the CDK
  * overlay, focus trap, Escape / outside-click close, and focus-return-to-trigger

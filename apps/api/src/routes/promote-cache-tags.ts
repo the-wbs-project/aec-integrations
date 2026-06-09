@@ -14,9 +14,9 @@
  *   - Entity tags (`product:{slug}`, `vendor:{slug}`, `category|audience|phase:
  *     {slug}`) invalidate that entity's detail / browse pages.
  *   - `index:products` / `index:vendors` invalidate the listing pages.
- *   - `taxonomy` invalidates every page that renders the global taxonomy nav
- *     (home, `/categories`, footer) — only relevant when the *set* of taxonomy
- *     terms changed, i.e. a term was newly created.
+ *   - `taxonomy` invalidates every page whose HTML renders the full taxonomy
+ *     term set (home, `/categories`, `/audiences`, `/phases`) — only relevant
+ *     when the *set* of taxonomy terms changed, i.e. a term was newly created.
  *   - `sitemap` invalidates `sitemap.xml` (enumerates all entities) — only when a
  *     product or vendor was newly created.
  *   - **No `route:*` tags.** §3.3 reserves the coarse `route:detail|index|browse`
