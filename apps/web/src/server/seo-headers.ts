@@ -40,9 +40,11 @@
  *     `*.datadoghq.com` subdomain — the wildcard would not match it). This
  *     assumes the default `DD_SITE` of `datadoghq.com` (US1); other sites use a
  *     different `browser-intake-*` host (e.g. `browser-intake-datadoghq.eu`),
- *     so broaden this entry if `DD_SITE` changes. Phase 3: add Algolia search
- *     origins (`https://*.algolia.net https://*.algolianet.com`) when search
- *     lands.
+ *     so broaden this entry if `DD_SITE` changes. The Algolia search origins
+ *     (`https://*.algolia.net https://*.algolianet.com`) were added in AECI-136
+ *     (Phase 3.4) for InstantSearch: the browser client resolves its query host
+ *     as `{appId}-dsn.algolia.net` with `{appId}-{1,2,3}.algolianet.com` retry
+ *     fallbacks, so the two wildcards cover every search XHR.
  */
 const CSP_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
@@ -50,7 +52,7 @@ const CSP_DIRECTIVES: readonly string[] = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://browser-intake-datadoghq.com",
+  "connect-src 'self' https://browser-intake-datadoghq.com https://*.algolia.net https://*.algolianet.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
