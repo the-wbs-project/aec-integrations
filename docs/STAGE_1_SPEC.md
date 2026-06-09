@@ -587,7 +587,7 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 - `vendors`: `integration_count` desc, `product_count` desc
 - `integrations`: `mechanism_kind` priority (native > marketplace-app > iPaaS > api > webhook > partner)
 
-**Full ranking specification, tuning rules, tie-breakers, and feedback loops are maintained in `SEARCH_RANKING.md` (pending).** Search quality is a continuous concern post-launch — that document captures the evolving model.
+**Full ranking specification, tuning rules, tie-breakers, and feedback loops are maintained in `SEARCH_RANKING.md`.** Search quality is a continuous concern post-launch — that document captures the evolving model.
 
 ### 7.4 Sync strategy
 

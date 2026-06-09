@@ -35,6 +35,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
 | Code-review exemptions (accepted/deferred findings, expiry rules) | `docs/CODE_REVIEW_EXEMPTIONS.md` |
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
+| Search ranking: Algolia index settings (searchable attrs, faceting), custom ranking signals, mechanism-kind priority, tie-breakers, post-launch tuning loop | `docs/SEARCH_RANKING.md` |
 | Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
 | Auth model and RLS policies | `docs/AUTH_AND_RLS.md` (placeholder — defer to spec until completed) |
