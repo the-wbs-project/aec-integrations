@@ -25,9 +25,12 @@
  *
  * `script-src 'unsafe-inline'` therefore covers the three trusted inline
  * scripts (the `index.html` theme bootstrap, the injected Datadog RUM
- * bootstrap, and Angular's event-replay script); the remaining directives do
- * the real hardening (no plugins, no `<base>` hijack, no off-site form posts,
- * no framing).
+ * bootstrap, and Angular's event-replay script). It also allowlists
+ * `https://static.cloudflareinsights.com`, the host of the Cloudflare Web
+ * Analytics beacon (`beacon.min.js`) that Cloudflare auto-injects at the edge
+ * for the zone; without it the injected `<script>` is CSP-refused. The
+ * remaining directives do the real hardening (no plugins, no `<base>` hijack,
+ * no off-site form posts, no framing).
  *
  * Origin notes:
  *   - `style-src` / `font-src` — Google Fonts stylesheet + woff2 (index.html).
@@ -44,15 +47,17 @@
  *     (`https://*.algolia.net https://*.algolianet.com`) were added in AECI-136
  *     (Phase 3.4) for InstantSearch: the browser client resolves its query host
  *     as `{appId}-dsn.algolia.net` with `{appId}-{1,2,3}.algolianet.com` retry
- *     fallbacks, so the two wildcards cover every search XHR.
+ *     fallbacks, so the two wildcards cover every search XHR. Finally
+ *     `https://cloudflareinsights.com` is the host the Cloudflare Web Analytics
+ *     beacon POSTs its RUM payload to (`/cdn-cgi/rum`).
  */
 const CSP_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://browser-intake-datadoghq.com https://*.algolia.net https://*.algolianet.com",
+  "connect-src 'self' https://browser-intake-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
