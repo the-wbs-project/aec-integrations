@@ -367,6 +367,16 @@ Magic link doesn't work well in E2E (requires real email). Two options:
 
 Recommend the test mode bypass for simplicity. Enable only with `ENV !== 'production'`.
 
+### 7.7 Cross-browser & real-device — BrowserStack (Phase 7)
+
+The projects list above is **chromium-only** by design — cross-browser/mobile is deferred to Phase 7 (see the `apps/web/playwright.config.ts` comment). The chosen Phase 7 approach is **BrowserStack** (real-device cloud), recorded in **ADR 0012** (Proposed) and tracked by **AECI-154**. Planned shape:
+
+- Fan the *existing* Playwright suite out to **BrowserStack Automate** (`browserstack-node-sdk` + `browserstack.yml`) running a **curated cross-browser smoke subset** — critical journeys only, not the full suite (parallel-session quota).
+- Matrix: **real iOS Safari** + **real Android Chrome** (the gap local WebKit can't reproduce — bundled WebKit ≈ Safari, not the real engine), plus desktop Safari, Firefox, Edge.
+- A **separate, non-blocking** CI job — the fast PR lane (unit / component / integration / chromium-E2E / axe) stays fast and free and keeps gating merge.
+- Access-gated staging/preview are reached with the CF Access **service-token headers** (`CF-Access-Client-Id` / `CF-Access-Client-Secret`); `demo.aecintegrations.com` is public and needs none.
+- A BrowserStack **MCP server** (`@browserstack/mcp-server`) is already wired for ad-hoc real-device checks during UI work — that part is *not* CI.
+
 ---
 
 ## 8. Accessibility testing — axe-core
@@ -428,6 +438,10 @@ Chromatic free tier covers ~5,000 snapshots/month. Avoid snapshotting every page
 ### 9.4 Approval flow
 
 Visual diffs appear as a check on the PR. Reviewers approve or reject visual changes inline in Chromatic's UI. Once approved, the new baseline is committed.
+
+### 9.5 Why not Percy (BrowserStack)
+
+BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run both.** Chromatic stays the visual-regression tool (above); Percy is only worth adopting if cross-*real*-browser visual diffs become a requirement, in which case it consolidates billing under BrowserStack alongside the Phase 7 cross-browser work (ADR 0012, AECI-154).
 
 ---
 
