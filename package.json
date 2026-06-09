@@ -42,7 +42,8 @@
     "deploy:api": "pnpm --filter @aeci/api deploy",
     "test:coverage": "pnpm -r --if-present run test:coverage",
     "skills:update": "npx skills add coreyhaines31/marketingskills",
-    "algolia:provision": "node scripts/algolia/provision.mjs"
+    "algolia:provision": "node scripts/algolia/provision.mjs",
+    "algolia:apply-settings": "node scripts/algolia/apply-settings.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

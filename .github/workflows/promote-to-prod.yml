@@ -180,9 +180,15 @@ jobs:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           CF_PURGE_API_TOKEN: ${{ secrets.CF_PURGE_API_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          # Algolia (AECI-137): recommended-but-optional. When unset the
+          # "Update Algolia production index settings" step in deploy-prod-workers
+          # skips cleanly (search degraded, not broken) — so a promote isn't
+          # blocked before Algolia is provisioned.
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY_PRODUCTION: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
           ENV_LABEL: production
           REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -625,6 +631,24 @@ jobs:
           done
           echo "::error::Production did not reach $EXPECTED_SHA on BOTH Workers AND a healthy /api/health (db:ok) within 60s"
           exit 1
+
+      # -----------------------------------------------------------------------
+      # CICD §3.2 step 5 (AECI-137): apply the Algolia PRODUCTION index settings
+      # (searchable attributes, facets, custom ranking — STAGE_1_SPEC §7.2/§7.3)
+      # as code. Idempotent: `setSettings` overwrites with the same definition, so
+      # running on every promote is a no-op when unchanged. SKIPS (exit 0) when
+      # ALGOLIA_* are unset, so a promote isn't blocked before Algolia is
+      # provisioned (the secrets are RECOMMENDED in the preflight). Uses the
+      # per-env MANAGEMENT key (editSettings ACL) — never the root admin key.
+      # Runs AFTER the smoke gate: the Workers are healthy + live, so a transient
+      # Algolia failure here marks the promote red WITHOUT rolling back the
+      # Workers (the auto-rollback below is gated on `smoke.outcome == 'failure'`).
+      # -----------------------------------------------------------------------
+      - name: Update Algolia production index settings
+        env:
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
+        run: pnpm algolia:apply-settings --env production
 
       # -----------------------------------------------------------------------
       # AECI-91: auto-rollback BOTH production Workers when the post-deploy

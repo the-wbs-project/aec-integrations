@@ -55,8 +55,10 @@ import type {
 // Select shapes
 // ---------------------------------------------------------------------------
 
-/** Lean vendor display fields (`VendorLink`). */
-const vendorLinkSelect = {
+/** Lean vendor display fields (`VendorLink`). Exported so the Algolia product
+ *  transform (`algolia-transforms.ts`, AECI-137) reuses the exact vendor select
+ *  `pickPrimaryVendor` expects, keeping the two in lockstep. */
+export const vendorLinkSelect = {
   id: true,
   companyName: true,
   slug: true,
@@ -327,7 +329,7 @@ function toIso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : value;
 }
 
-function toNumberOrNull(value: DecimalLike): number | null {
+export function toNumberOrNull(value: DecimalLike): number | null {
   if (value === null || value === undefined) return null;
   if (typeof value === 'number') return value;
   return value.toNumber();
@@ -350,7 +352,7 @@ const VALID_MECHANISM_KINDS = new Set<IntegrationMechanismKind>([
  * `'native'`. The throw is a plain `Error`, which the API error middleware
  * forwards to Datadog as a logged 500.
  */
-function toMechanismKind(
+export function toMechanismKind(
   raw: string | null,
   integrationId: string,
 ): IntegrationMechanismKind | null {
@@ -363,7 +365,7 @@ function toMechanismKind(
   );
 }
 
-function coerceDirection(raw: string | null): 'one-way' | 'bidirectional' | null {
+export function coerceDirection(raw: string | null): 'one-way' | 'bidirectional' | null {
   if (raw === 'one-way' || raw === 'bidirectional') return raw;
   return null;
 }
@@ -463,7 +465,7 @@ function pickPrimaryCategory(
  * than fabricating a `/vendors/unknown` sentinel. `product_vendors` has no DB
  * constraint forcing ≥1 link, so this is a legitimate absence, not corruption.
  */
-function pickPrimaryVendor(rows: RawProductVendor[]): VendorLink | null {
+export function pickPrimaryVendor(rows: RawProductVendor[]): VendorLink | null {
   if (rows.length === 0) return null;
   // `orderBy: { isPrimary: 'desc' }` puts the primary row first; fall back to
   // index 0 anyway so the mapper is independent of caller ordering.
