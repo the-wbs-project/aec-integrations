@@ -199,8 +199,11 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/vendors/:slug` | Vendor detail page | 1 hr edge / 5 min browser |
 | `/integrations` | All integrations paginated | 30 min edge |
 | `/integrations/:id` | Integration detail page | 1 hr edge |
+| `/categories` | All categories (flat taxonomy index) | 5 min edge |
 | `/categories/:slug` | Browse by category | 30 min edge |
+| `/audiences` | All audiences (flat taxonomy index) | 5 min edge |
 | `/audiences/:slug` | Browse by audience | 30 min edge |
+| `/phases` | All project phases (flat taxonomy index) | 5 min edge |
 | `/phases/:slug` | Browse by project phase | 30 min edge |
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |

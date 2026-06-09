@@ -8,11 +8,11 @@
  * The three handlers were byte-for-byte identical apart from the Prisma model,
  * the relation/count field, the resource label, and the response schema. This
  * factory parameterises those four points (AECI-120 A6) and is called 3× from
- * `index.ts`. The list endpoint (`GET /api/categories`) stays in
- * `routes/categories.ts` — only the *detail* shape is shared here.
- *
- * No list endpoint for audiences/phases per Phase 2 Spec §7.1 — those are read
- * via `GET /api/taxonomy` when the SSR Worker needs the whole tree.
+ * `index.ts`. The *list* endpoints (`GET /api/categories|audiences|phases`) live
+ * in `routes/taxonomy-list.ts` (`createTaxonomyListHandler`, generalised across
+ * all three facets in AECI-157) — only the *detail* shape is shared here.
+ * `GET /api/taxonomy` still returns the whole tree in one shot for the SSR
+ * Worker and the nav flyouts.
  */
 
 import type { Context } from 'hono';
