@@ -139,6 +139,7 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 | `categories` | string[] | — | Category **names or slugs**. Find-or-created by slug. |
 | `audiences` | string[] | — | Audience names or slugs. |
 | `phases` | string[] | — | Project-phase names or slugs. |
+| `usefulness` | `{ audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }` \| null | — | Per-audience / per-phase narrative value. `UsefulnessGroup = { slug \| name, points: string[] }` (≥ 1 point). See **`usefulness` resolution** below. |
 | `extensionOf` | `{ supabaseId }[]` | — | Host products this product extends. **Must use `supabaseId`** (hosts are promoted separately). |
 | `description`, `website`, `toolIntegrationsUrl`, `apiDocsUrl`, `toolIntegrationCheckNotes`, `logoUrl`, `researchNotes`, `adminNotes` | string \| null | — | |
 | `hasApiDocs` | boolean | — | |
@@ -150,6 +151,8 @@ Omit it entirely for a vendor-only / integration-only push (§3.5). When present
 
 > Do **not** send `id`, `slug`, `createdAt`, `updatedAt`, or `promotionStatus` —
 > they are server-managed. On promote, AECi sets `promotion_status = 'promoted'`.
+
+**`usefulness` resolution.** The Airtable source field nests `disciplines` and `phases`; the review app renames `disciplines` → `audiences` before sending (per AECI-121), so the payload key is always `audiences` — there is no `disciplines` alias. Each group names its taxonomy term by `slug` or `name`. **Unlike the `categories`/`audiences`/`phases` facet arrays above, usefulness groups never find-or-create** — AECi resolves each group against an **existing** audience/phase term (by `slug`, then `name`, with the same normalization as the facet path) and stores the canonical `{ slug, name }` it resolved to, plus the group's `points`, as slug-based `jsonb` on the product (`DATABASE_SCHEMA.md` §4.2; public shape `ProductUsefulness`, `API_CONTRACTS.md` §5.1). Within a facet, groups that resolve to the same term are merged (points concatenated, source order preserved). A group that resolves to no existing term is dropped from the stored value and reported in `skipped[]` (§4) with `kind: "usefulness"` and `ref` set to the product's `ref`. Send `usefulness: null` (or omit it) when there is no value for either facet; otherwise either facet array may be empty.
 
 ### 3.4 `integrations[]`
 
@@ -235,8 +238,10 @@ integration-only push (send only `integrations[]`) — but note that without a
 - `operation`: `created` | `updated` for vendors/product/integrations;
   `created` | `reused` for taxonomy.
 - **Always inspect `skipped[]`.** An entry there means AECi could **not** link
-  that integration/extension (typically the other endpoint isn't promoted yet).
-  It is not an error — re-push after promoting the other product.
+  that integration/extension (typically the other endpoint isn't promoted yet),
+  or — for `kind: "usefulness"` — could **not** resolve a usefulness group to an
+  existing audience/phase term. It is not an error: re-push after promoting the
+  other product, or after the referenced taxonomy term exists.
 
 ---
 
