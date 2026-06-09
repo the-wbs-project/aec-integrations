@@ -180,15 +180,16 @@ jobs:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           CF_PURGE_API_TOKEN: ${{ secrets.CF_PURGE_API_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
-          # Algolia (AECI-137): recommended-but-optional. When unset the
-          # "Update Algolia production index settings" step in deploy-prod-workers
-          # skips cleanly (search degraded, not broken) — so a promote isn't
-          # blocked before Algolia is provisioned.
+          # Algolia (AECI-139): REQUIRED on production. Search is a launch-critical
+          # surface, so prod fails closed — a missing app id / management key aborts
+          # the promote here (and the push + verify steps in deploy-prod-workers),
+          # rather than silently shipping a Worker whose AECI-139 sync cron +
+          # promote→index hook no-op and let the index go stale.
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY_PRODUCTION: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
           ENV_LABEL: production
-          REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_PRODUCTION'
+          REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -548,6 +549,31 @@ jobs:
           printf '%s' "$REVIEW_APP_TOKEN_VALUE" \
             | pnpm exec wrangler secret put REVIEW_APP_TOKEN --env production
 
+      # Push the Algolia credentials to the prod API Worker so the AECI-139
+      # daily-sync cron + promote→index hook can write the index. Search is a
+      # launch-critical surface, so production FAILS CLOSED: a missing secret
+      # aborts the promote (here + the preflight REQUIRED gate + the postflight
+      # verify-worker-secrets check below). ALGOLIA_APP_ID is the shared app id;
+      # ALGOLIA_ADMIN_KEY is the per-env MANAGEMENT key (never the search-only or
+      # root key). Same idempotent deploy→secret order as DATABASE_URL above.
+      - name: Push Algolia credentials to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_ADMIN_KEY_VALUE" ]; then
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY_PRODUCTION secret is empty. The prod API Worker needs them or the AECI-139 sync cron + promote→index hook silently no-op (search goes stale). Set them under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          printf '%s' "$ALGOLIA_APP_ID_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_APP_ID --env production
+          printf '%s' "$ALGOLIA_ADMIN_KEY_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_ADMIN_KEY --env production
+
       - name: Deploy SSR (production)
         id: deploy_ssr
         env:
@@ -568,7 +594,10 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_ENV: production
-          REQUIRED_WORKER_SECRETS: 'DATABASE_URL REVIEW_APP_TOKEN'
+          # AECI-139: ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY are required on prod —
+          # the daily-sync cron + promote→index hook need them, and search is
+          # launch-critical (fail closed if a push silently no-op'd).
+          REQUIRED_WORKER_SECRETS: 'DATABASE_URL REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
 
