@@ -183,6 +183,7 @@ describe('buildProductJsonLd', () => {
       ],
       audiences: [{ id: 'd1', name: 'Architecture', slug: 'architecture' }],
       phases: [],
+      usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
       related_products: [],
