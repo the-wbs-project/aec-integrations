@@ -590,12 +590,12 @@ describe('cache purge after promote (AECI-105)', () => {
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer cf-token');
 
     const sent = JSON.parse(init.body as string) as { tags: string[] };
+    // AECI-165 — no `index:vendors`: the `/vendors` index page was removed.
     expect(new Set(sent.tags)).toEqual(
       new Set([
         'product:revit',
         'index:products',
         'vendor:autodesk',
-        'index:vendors',
         'category:bim',
         'audience:architecture',
         'taxonomy',
@@ -685,7 +685,6 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         'product:revit',
         'index:products',
         'vendor:autodesk',
-        'index:vendors',
         'category:bim',
         'audience:architecture',
         'taxonomy', // an audience was newly created
@@ -703,17 +702,11 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set([
-        'product:revit',
-        'index:products',
-        'vendor:autodesk',
-        'index:vendors',
-        'category:bim',
-      ]),
+      new Set(['product:revit', 'index:products', 'vendor:autodesk', 'category:bim']),
     );
   });
 
-  it('vendor-only update → vendor + index:vendors only (no product/taxonomy/sitemap)', () => {
+  it('vendor-only update → vendor tag only (no index:vendors/product/taxonomy/sitemap)', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'updated')],
       product: null,
@@ -721,10 +714,11 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       taxonomy: emptyTaxonomy,
       skipped: [],
     };
-    expect(cacheTagsForPromote(response).sort()).toEqual(['index:vendors', 'vendor:autodesk']);
+    // AECI-165 — `index:vendors` is no longer emitted (the index page was removed).
+    expect(cacheTagsForPromote(response).sort()).toEqual(['vendor:autodesk']);
   });
 
-  it('created vendor (no product) → sitemap included', () => {
+  it('created vendor (no product) → vendor + sitemap (no index:vendors)', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'created')],
       product: null,
@@ -732,9 +726,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       taxonomy: emptyTaxonomy,
       skipped: [],
     };
-    expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set(['vendor:autodesk', 'index:vendors', 'sitemap']),
-    );
+    expect(new Set(cacheTagsForPromote(response))).toEqual(new Set(['vendor:autodesk', 'sitemap']));
   });
 
   it('a newly created phase → phase tag + taxonomy', () => {

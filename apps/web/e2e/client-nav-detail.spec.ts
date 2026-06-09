@@ -13,17 +13,33 @@ import { expect, test } from '@playwright/test';
 // Skipped when the environment has no seeded data (mirrors the index specs).
 
 test.describe('client-side navigation to detail pages (AECI-151)', () => {
-  test('clicking a vendor card renders the vendor, not the 404 shell', async ({ page }) => {
-    await page.goto('/vendors');
+  test('clicking through product → vendor renders the vendor, not the 404 shell', async ({
+    page,
+  }) => {
+    // AECI-165 removed the /vendors index, so a vendor detail is now reached via a
+    // product detail's vendor link. Exercise that client-side path end to end —
+    // every hop is a SPA navigation off the single initial /products load.
+    await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const firstVendorLink = page.locator('tr[aec-vendor-card] a[href^="/vendors/"]').first();
-    test.skip((await firstVendorLink.count()) === 0, 'no vendors seeded in this environment');
+    const firstProductLink = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
+    test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
 
-    // Marker to prove the navigation is client-side (a full reload would clear it).
+    // Marker to prove every hop below is client-side (a full reload would clear it).
     await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));
 
-    await firstVendorLink.click();
+    await firstProductLink.click();
+    await expect(page).toHaveURL(/\/products\/[^/]+$/);
+
+    // The product detail links its owning vendor (nullable per AECI-115); skip if
+    // this product has none seeded.
+    const vendorLink = page.locator('aec-product-detail a[href^="/vendors/"]').first();
+    test.skip(
+      (await vendorLink.count()) === 0,
+      'first product has no vendor link in this environment',
+    );
+
+    await vendorLink.click();
     await expect(page).toHaveURL(/\/vendors\/[^/]+$/);
 
     const spaPreserved = await page.evaluate(

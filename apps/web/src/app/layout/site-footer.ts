@@ -7,9 +7,10 @@
  * links (Home, Products, and the three taxonomy facets) in server-rendered HTML,
  * since the header's flyout values render client-side and its overlay is a
  * click-mounted overlay that never reaches SSR (see `nav-menu.ts`). Vendors /
- * Integrations were pulled from the nav and footer (AECI-160, PO decision) —
- * they stay reachable via `sitemap.xml`, their detail-page breadcrumbs, and
- * direct URL / search.
+ * Integrations were pulled from the nav and footer (AECI-160, PO decision);
+ * AECI-165 then removed the `/vendors` and `/integrations` index pages entirely
+ * (they now 301-redirect to `/products`). Their DETAIL pages stay reachable via
+ * product → vendor / integration links, `sitemap.xml`, and direct URL / search.
  *
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).

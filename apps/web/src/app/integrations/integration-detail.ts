@@ -58,16 +58,6 @@ import { NotFound } from '../not-found/not-found';
             </a>
           </li>
           <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li>
-            <a
-              routerLink="/integrations"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@integrations.detail.breadcrumbs.integrations"
-            >
-              Integrations
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
           <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
             {{ headline() }}
           </li>
