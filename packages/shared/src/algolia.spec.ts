@@ -1,14 +1,20 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyIndexSettings,
   INDEX_ENTITIES,
   indexListFor,
   indexNamesFor,
   indexPrefixForEnv,
+  indexSettingsFor,
   keyDescription,
   managementKeyParams,
+  MECHANISM_RANK,
+  mechanismRank,
   searchKeyParams,
   type AlgoliaEnv,
+  type AlgoliaSettingsClient,
+  type IndexSettings,
 } from './algolia';
 
 describe('INDEX_ENTITIES', () => {
@@ -123,5 +129,157 @@ describe('managementKeyParams', () => {
       expect(managementKeyParams(env).indexes).not.toContain('*');
       expect(searchKeyParams(env).indexes).not.toContain('*');
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AECI-137 — index settings as code
+// ---------------------------------------------------------------------------
+
+describe('indexSettingsFor', () => {
+  it('products: ranks by integration_count then review_count (§7.3)', () => {
+    const s = indexSettingsFor('products');
+    expect(s.customRanking).toEqual(['desc(integration_count)', 'desc(review_count)']);
+  });
+
+  it('products: facets categories/audiences/phases/vendor_name/has_api_docs/integration_count (§7.2)', () => {
+    const s = indexSettingsFor('products');
+    expect(s.attributesForFaceting).toEqual([
+      'searchable(categories)',
+      'searchable(audiences)',
+      'searchable(phases)',
+      'searchable(vendor_name)',
+      'has_api_docs',
+      'integration_count',
+    ]);
+    // name is the most important searchable attribute (first).
+    expect(s.searchableAttributes[0]).toBe('name');
+    expect(s.searchableAttributes).toContain('audiences');
+  });
+
+  it('vendors: ranks by integration_count then product_count; facets HQ/founded/product_count (§7.2/§7.3)', () => {
+    const s = indexSettingsFor('vendors');
+    expect(s.customRanking).toEqual(['desc(integration_count)', 'desc(product_count)']);
+    expect(s.attributesForFaceting).toEqual([
+      'searchable(headquarters)',
+      'founded_year',
+      'product_count',
+      'integration_count',
+    ]);
+    expect(s.searchableAttributes[0]).toBe('company_name');
+  });
+
+  it('integrations: ranks by mechanism_rank; facets mechanism_kind/direction/source/target (§7.2/§7.3)', () => {
+    const s = indexSettingsFor('integrations');
+    expect(s.customRanking).toEqual(['desc(mechanism_rank)']);
+    expect(s.attributesForFaceting).toEqual([
+      'mechanism_kind',
+      'direction',
+      'searchable(source_product_name)',
+      'searchable(target_product_name)',
+    ]);
+  });
+
+  it('never references the renamed "discipline" facet (AECI-121 → audiences)', () => {
+    for (const entity of INDEX_ENTITIES) {
+      const s = indexSettingsFor(entity);
+      const all = [...s.searchableAttributes, ...s.attributesForFaceting, ...s.customRanking];
+      for (const attr of all) {
+        expect(attr).not.toMatch(/disciplin/i);
+      }
+    }
+  });
+});
+
+describe('mechanismRank', () => {
+  it('orders native > marketplace-app > iPaaS > api > webhook > partner (§7.3)', () => {
+    expect(MECHANISM_RANK).toEqual({
+      native: 6,
+      'marketplace-app': 5,
+      iPaaS: 4,
+      api: 3,
+      webhook: 2,
+      partner: 1,
+    });
+    const ordered = ['native', 'marketplace-app', 'iPaaS', 'api', 'webhook', 'partner'];
+    for (let i = 1; i < ordered.length; i++) {
+      expect(mechanismRank(ordered[i - 1]!)).toBeGreaterThan(mechanismRank(ordered[i]!));
+    }
+  });
+
+  it('ranks an absent / unknown kind last (0)', () => {
+    expect(mechanismRank(null)).toBe(0);
+    expect(mechanismRank(undefined)).toBe(0);
+    expect(mechanismRank('not-a-mechanism')).toBe(0);
+  });
+});
+
+describe('applyIndexSettings', () => {
+  type Call = { indexName: string; indexSettings: IndexSettings };
+
+  function makeClient(): { client: AlgoliaSettingsClient; calls: Call[]; waited: string[] } {
+    const calls: Call[] = [];
+    const waited: string[] = [];
+    let taskID = 100;
+    const client: AlgoliaSettingsClient = {
+      async setSettings(args) {
+        calls.push({ indexName: args.indexName, indexSettings: args.indexSettings });
+        return { taskID: ++taskID };
+      },
+      async waitForTask(args) {
+        waited.push(args.indexName);
+        return undefined;
+      },
+    };
+    return { client, calls, waited };
+  }
+
+  it('applies the managed settings to all three of an env’s indexes', async () => {
+    const { client, calls, waited } = makeClient();
+    const applied = await applyIndexSettings(client, 'staging');
+
+    expect(calls.map((c) => c.indexName)).toEqual([
+      'staging_products',
+      'staging_vendors',
+      'staging_integrations',
+    ]);
+    expect(calls[0]!.indexSettings).toEqual(indexSettingsFor('products'));
+    expect(calls[1]!.indexSettings).toEqual(indexSettingsFor('vendors'));
+    expect(calls[2]!.indexSettings).toEqual(indexSettingsFor('integrations'));
+
+    // waitForTask is awaited per index when the client provides it.
+    expect(waited).toEqual(['staging_products', 'staging_vendors', 'staging_integrations']);
+
+    expect(applied).toEqual([
+      { entity: 'products', indexName: 'staging_products', taskID: 101 },
+      { entity: 'vendors', indexName: 'staging_vendors', taskID: 102 },
+      { entity: 'integrations', indexName: 'staging_integrations', taskID: 103 },
+    ]);
+  });
+
+  it('folds development onto the preview index set', async () => {
+    const { client, calls } = makeClient();
+    await applyIndexSettings(client, 'development');
+    expect(calls.map((c) => c.indexName)).toEqual([
+      'preview_products',
+      'preview_vendors',
+      'preview_integrations',
+    ]);
+  });
+
+  it('works when the client exposes no waitForTask', async () => {
+    const calls: Call[] = [];
+    const client: AlgoliaSettingsClient = {
+      async setSettings(args) {
+        calls.push({ indexName: args.indexName, indexSettings: args.indexSettings });
+        return { taskID: 1 };
+      },
+    };
+    await expect(applyIndexSettings(client, 'production')).resolves.toHaveLength(3);
+    expect(calls.map((c) => c.indexName)).toEqual([
+      'production_products',
+      'production_vendors',
+      'production_integrations',
+    ]);
   });
 });

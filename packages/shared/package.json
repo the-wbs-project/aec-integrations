@@ -39,6 +39,10 @@
       "types": "./src/algolia.ts",
       "default": "./src/algolia.ts"
     },
+    "./algolia-records": {
+      "types": "./src/algolia-records.ts",
+      "default": "./src/algolia-records.ts"
+    },
     "./cache-purge": {
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
