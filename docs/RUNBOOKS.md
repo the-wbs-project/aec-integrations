@@ -77,3 +77,43 @@ API → investigate the SSR render path. Page on-call if user-facing.
 
 **Escalation:** > 1% sustained is page-worthy. Capture a `trace_id` from the logs before
 mitigating so the post-mortem can reconstruct the failure.
+
+---
+
+## Algolia index drift
+
+**Alert:** `AECi — Algolia index drift (Supabase ≠ Algolia)`
+**Metric:** `aeci.algolia.index_drift` — signed `supabase − algolia` count per `entity`/`index`
+(AECI-140, §23.1 daily data-quality check).
+
+**What it means:** An Algolia index's object count no longer matches the promoted Supabase
+rows it should mirror. **Positive** drift = the index is *missing* rows (a sync didn't run
+or half-failed). **Negative** = the index holds *orphans* (rows fell out of `promoted` but
+weren't pruned — the AECI-138 bulk sync upserts and does not delete). This is **report-only**;
+nothing auto-repairs.
+
+**First checks**
+
+1. Which index? The alert is split `by {index}` — note `<env>_products` / `_vendors` /
+   `_integrations` and the sign/magnitude (logged with the gauge).
+2. Recent promotes? Drift right after a `POST /api/promote` is expected until a sync runs.
+3. No-data variant: if the alert is "no data for 48h", the daily cron
+   (`apps/api/src/scheduled.ts`) didn't report — check the staging/production API Worker's
+   scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that
+   `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` are set on the Worker.
+
+**Repair:** re-run the AECI-138 bulk reindex for the affected env (idempotent upsert):
+
+```bash
+pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
+```
+
+To re-check on demand without waiting for the 04:00 UTC cron:
+
+```bash
+DIRECT_URL=<DIRECT_URL_{STAGING,PRODUCTION}> ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
+  pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env <staging|production>
+```
+
+**Escalation:** persistent negative drift after a re-sync means orphan objects the upsert
+can't remove — a deliberate prune is out of scope for AECI-140; open a follow-up.

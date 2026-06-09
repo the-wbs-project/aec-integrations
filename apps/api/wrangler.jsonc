@@ -124,6 +124,14 @@
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
         },
       ],
+      // AECI-140 / §23.1: daily Algolia ↔ Supabase index-drift check at 04:00 UTC.
+      // Staging + production only (base config / preview have no `triggers`, so PR
+      // previews don't run it). Dispatched by `controller.cron` in `src/scheduled.ts`.
+      // NOTE: this Worker can carry multiple daily crons — if AECI-139's 03:00 sync
+      // also lands, this becomes `"crons": ["0 3 * * *", "0 4 * * *"]`.
+      "triggers": {
+        "crons": ["0 4 * * *"],
+      },
       "observability": {
         "logs": {
           "enabled": true,
@@ -149,6 +157,13 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
+      // AECI-140 / §23.1: daily Algolia ↔ Supabase index-drift check at 04:00 UTC
+      // (see staging note). Dispatched by `controller.cron` in `src/scheduled.ts`.
+      // If AECI-139's 03:00 sync also lands, this becomes
+      // `"crons": ["0 3 * * *", "0 4 * * *"]`.
+      "triggers": {
+        "crons": ["0 4 * * *"],
+      },
       "observability": {
         "logs": {
           "enabled": true,

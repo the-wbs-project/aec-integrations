@@ -1301,6 +1301,15 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage.
 
+> **Implementation note (AECI-140):** the "Algolia index drift" line item ships as the
+> API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 04:00
+> UTC cron registered per-env in `apps/api/wrangler.jsonc` (staging + production). It compares
+> promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
+> gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`),
+> not the email summary (the full §23.1 email + the other nine checks remain to be built). A
+> report-only post-deploy check also runs in `deploy-staging` (CICD §3.2). Report-only — re-run
+> the AECI-138 bulk sync to repair.
+
 ### 23.2 Duplicate detection on submission
 
 - Review submission blocks if duplicate detected (Section 22.4)

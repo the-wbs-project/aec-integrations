@@ -263,3 +263,43 @@ describe('createDatadogClient — submitCount', () => {
     expect(warn).toHaveBeenCalled();
   });
 });
+
+describe('createDatadogClient — submitGauge', () => {
+  it('is a no-op when DD_API_KEY is absent', () => {
+    const { ctx } = makeCtx();
+    client.submitGauge(
+      ctx as never,
+      makeEnv({ DD_API_KEY: undefined }),
+      makeRequest(),
+      'aeci.algolia.index_drift',
+      0,
+    );
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('posts a gauge series (type 3) with resources + merged tags', async () => {
+    const { ctx, promises } = makeCtx();
+    client.submitGauge(
+      ctx as never,
+      makeEnv(),
+      makeRequest('https://api.aeci.com/x'),
+      'aeci.algolia.index_drift',
+      -5,
+      ['entity:vendors', 'index:production_vendors'],
+    );
+    await Promise.all(promises);
+
+    const [url, init] = fetchSpy.mock.calls[0]!;
+    expect(url).toBe('https://api.us5.datadoghq.com/api/v2/series');
+    const series = JSON.parse(init!.body as string).series[0];
+    expect(series.metric).toBe('aeci.algolia.index_drift');
+    expect(series.type).toBe(3);
+    expect(series.points[0]).toMatchObject({ value: -5 });
+    expect(series.points[0].timestamp).toEqual(expect.any(Number));
+    expect(series.resources).toEqual([{ name: 'api.aeci.com', type: 'host' }]);
+    expect(series.tags).toEqual(
+      expect.arrayContaining(['service:aeci-test', 'entity:vendors', 'index:production_vendors']),
+    );
+  });
+});

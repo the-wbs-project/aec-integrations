@@ -19,6 +19,7 @@
     "db:airtable-migrate": "echo '[DEPRECATED] Prefer POST /api/promote — see docs/REVIEW_APP_PROMOTE_API.md' && dotenv -e .dev.vars -- tsx scripts/airtable-to-supabase-bulk-migrate.ts",
     "db:reconcile-counts": "dotenv -e .dev.vars -- tsx scripts/reconcile-product-counts.ts",
     "db:algolia-bulk-sync": "dotenv -e .dev.vars -- tsx scripts/algolia-bulk-sync.ts",
+    "db:reconcile-algolia-drift": "dotenv -e .dev.vars -- tsx scripts/reconcile-algolia-drift.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
