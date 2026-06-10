@@ -41,11 +41,22 @@ import { RoleBadge } from './role-badge';
           >
             <div class="flex items-start justify-between gap-4">
               <aec-logo-or-initial [src]="product.logo_url" [name]="product.name" size="lg" />
-              <span
-                class="text-xs tracking-wide text-(--text-secondary)"
-                i18n="@@products.grid.featured"
-                >Recently added</span
-              >
+              @switch (featuredEyebrow()) {
+                @case ('trending') {
+                  <span
+                    class="text-xs tracking-wide text-(--text-secondary)"
+                    i18n="@@products.grid.featured.trending"
+                    >Most viewed this week</span
+                  >
+                }
+                @default {
+                  <span
+                    class="text-xs tracking-wide text-(--text-secondary)"
+                    i18n="@@products.grid.featured"
+                    >Recently added</span
+                  >
+                }
+              }
             </div>
             <div class="min-w-0 flex-1">
               <p class="font-display text-2xl font-semibold text-(--text-primary) md:text-3xl">
@@ -115,6 +126,13 @@ export class ProductCardGrid {
    * false and the grid renders uniform.
    */
   readonly featuredLead = input<boolean>(true);
+  /**
+   * Label for the featured lead's eyebrow. Defaults to the catalog's "Recently
+   * added" (the original, unchanged string + id) so the `/products` caller is
+   * untouched. The home "Trending products" section (AECI-185) passes `'trending'`
+   * to render "Most viewed this week" on the same broken grid.
+   */
+  readonly featuredEyebrow = input<'recently-added' | 'trending'>('recently-added');
 
   protected readonly featured = computed<ProductListItem | null>(() =>
     this.featuredLead() ? (this.products()[0] ?? null) : null,

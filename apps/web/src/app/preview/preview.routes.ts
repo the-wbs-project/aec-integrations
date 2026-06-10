@@ -31,4 +31,11 @@ export const previewRoutes: Routes = [
     path: 'layouts/index',
     loadComponent: () => import('./layouts/index-layout-preview').then((m) => m.IndexLayoutPreview),
   },
+  // AECI-185 — the home "recently added integrations" + "trending products"
+  // modules, shown across every state (populated / empty / fallback) so they can
+  // be axe-scanned and reviewed in both themes before 4.11 assembles `/`.
+  {
+    path: 'home/sections',
+    loadComponent: () => import('./home/home-sections-preview').then((m) => m.HomeSectionsPreview),
+  },
 ];
