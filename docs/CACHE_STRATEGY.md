@@ -108,12 +108,15 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 
 | Route | `cacheKeyParams` (kept in the key) |
 |---|---|
-| `/products` (index) | `page`, `perPage`, `sort` |
+| `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
+| Browse (`/categories\|audiences\|phases/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
 | Detail (`/products/:slug`, `/vendors/:slug`, `/integrations/:id`) | none — strip all |
-| Browse (`/categories\|audiences\|phases/:slug`), taxonomy index (`/categories`) | none — strip all |
+| Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
 | Home (`/`), `/about`, `/legal/*` | none — strip all |
 
-**Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.
+The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the three `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* two facet ids ever appear in its query — but listing all three keeps the const uniform (over-including is harmless).
+
+**Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change — AECI-143 did exactly this when it added the facet sidebar. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.
 
 **Scope.** This normalizes the Worker-managed `caches.default` key only. Cloudflare's zone-level CDN cache (Cache Rules / "ignore query string") is a separate layer configured outside this code; the Worker key is the normalization point for the AECi SSR cache.
 

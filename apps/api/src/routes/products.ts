@@ -32,6 +32,7 @@ import {
   type PrismaFactory,
 } from '../lib/handler-utils';
 import {
+  buildProductsWhere,
   productDetailSelect,
   productListSelect,
   toProductDetail,
@@ -127,36 +128,4 @@ export function createProductDetailHandler(
 
     return json(body);
   };
-}
-
-type ProductsWhere = {
-  productRole?: string;
-  hasApiDocs?: boolean;
-  name?: { contains: string; mode: 'insensitive' };
-  productCategories?: { some: { categoryId: string } };
-  productAudiences?: { some: { audienceId: string } };
-  productPhases?: { some: { phaseId: string } };
-  productVendors?: { some: { vendorId: string } };
-};
-
-function buildProductsWhere(query: {
-  search?: string;
-  category_id?: string;
-  audience_id?: string;
-  phase_id?: string;
-  vendor_id?: string;
-  product_role?: string;
-  has_api_docs?: boolean;
-}): ProductsWhere {
-  const where: ProductsWhere = {};
-  if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
-  if (query.category_id) where.productCategories = { some: { categoryId: query.category_id } };
-  if (query.audience_id) {
-    where.productAudiences = { some: { audienceId: query.audience_id } };
-  }
-  if (query.phase_id) where.productPhases = { some: { phaseId: query.phase_id } };
-  if (query.vendor_id) where.productVendors = { some: { vendorId: query.vendor_id } };
-  if (query.product_role) where.productRole = query.product_role;
-  if (query.has_api_docs !== undefined) where.hasApiDocs = query.has_api_docs;
-  return where;
 }

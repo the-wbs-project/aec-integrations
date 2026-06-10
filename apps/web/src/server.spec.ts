@@ -252,6 +252,33 @@ describe('cacheKeyUrl (AECI-100 — edge cache key normalization)', () => {
       // the `/integrations` index that once declared those filter params.)
       expect(key('/products?sourceProductId=abc')).toBe('https://x/products');
     });
+
+    it('keeps the AECI-143 taxonomy filter ids on /products and drops tracking noise', () => {
+      // The facet sidebar writes `category_id`/`audience_id`/`phase_id` to the URL,
+      // so each filter combination must key to its own edge entry.
+      expect(key('/products?category_id=abc&utm_source=x')).toBe(
+        'https://x/products?category_id=abc',
+      );
+      expect(key('/products?audience_id=a&phase_id=p')).toBe(
+        'https://x/products?audience_id=a&phase_id=p',
+      );
+    });
+
+    it('keeps the cross-filter ids on a taxonomy browse page (AECI-143)', () => {
+      // A browse page's own dimension rides the path; the other two ride the query
+      // and must survive into the key (tracking params still stripped).
+      expect(key('/categories/structural?audience_id=a&fbclid=y')).toBe(
+        'https://x/categories/structural?audience_id=a',
+      );
+      expect(key('/phases/preconstruction?category_id=c')).toBe(
+        'https://x/phases/preconstruction?category_id=c',
+      );
+    });
+
+    it('keys distinct filter combinations as distinct entries (AECI-143)', () => {
+      expect(key('/products?category_id=a')).not.toBe(key('/products?category_id=b'));
+      expect(key('/products')).not.toBe(key('/products?category_id=a'));
+    });
   });
 
   it('preserves origin (host + port) so the key never crosses environments', () => {
@@ -502,6 +529,26 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     );
     expect(res.status).toBe(200);
     expect(res.headers.get('cache-tag')).toBe(expected);
+  });
+
+  it('emits filter-independent Cache-Tags on a filtered listing/browse URL (AECI-143)', async () => {
+    // Filters are query params; `cacheTagInputsForPath` is path-only, so a
+    // filtered URL depends on the same entity set as the unfiltered one — no new
+    // tag namespace is introduced by the facet sidebar.
+    const { binding } = recordingApiBinding();
+    const cases: [string, string][] = [
+      ['/products?category_id=abc', 'route:index,index:products'],
+      ['/categories/structural?audience_id=a', 'route:browse,category:structural'],
+    ];
+    for (const [path, expected] of cases) {
+      const res = await appReturningOk().fetch(
+        new Request(`https://aecintegrations.com${path}`),
+        binding as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+      expect(res.status).toBe(200);
+      expect(res.headers.get('cache-tag')).toBe(expected);
+    }
   });
 
   it('omits Cache-Tag for static cacheable pages with no §2 entity (/about, /legal/*)', async () => {

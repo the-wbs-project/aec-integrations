@@ -44,22 +44,17 @@ import type {
   AlgoliaVendorRecord,
 } from '@aeci/shared/algolia-records';
 
+import type { RefinementItem } from '../shared/facets/refinement-item';
+
 import type { AlgoliaPublicConfig } from './algolia-config';
 
 // ─── Public signal-backed view models ───────────────────────────────────────
 
-/** One value in a refinement list (a faceted attribute's distinct values). */
-export interface RefinementItem {
-  /** The facet value — for AECi records this is the display name (categories,
-   *  audiences, vendor/product names) or a boolean string (`has_api_docs`). */
-  readonly value: string;
-  /** Algolia's display label; equals `value` for our records. */
-  readonly label: string;
-  /** Match count for this value under the current query. */
-  readonly count: number;
-  /** Whether this value is currently selected. */
-  readonly isRefined: boolean;
-}
+// `RefinementItem` now lives in `app/shared/facets/refinement-item.ts` (AECI-143)
+// so the API-backed listing sidebar can reuse it without importing this Algolia
+// controller. Re-exported here so existing `from '../search-controller'` imports
+// keep resolving.
+export type { RefinementItem };
 
 /** A refinement-list facet: its attribute + reactive items + a `refine` toggle. */
 export interface RefinementListView {

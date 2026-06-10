@@ -77,6 +77,16 @@ describe('stripQueryParams', () => {
     ],
     ['https://aecintegrations.com/products/foo', 'https://aecintegrations.com/products/foo'],
     ['https://aecintegrations.com/', 'https://aecintegrations.com/'],
+    // AECI-143 — facet filters are query params, so a filtered listing/browse URL
+    // canonicalizes to its unfiltered base (§20.6).
+    [
+      'https://aecintegrations.com/products?category_id=abc&page=2',
+      'https://aecintegrations.com/products',
+    ],
+    [
+      'https://aecintegrations.com/categories/structural?audience_id=a',
+      'https://aecintegrations.com/categories/structural',
+    ],
   ])('strips %s → %s', (input, expected) => {
     expect(stripQueryParams(input)).toBe(expected);
   });

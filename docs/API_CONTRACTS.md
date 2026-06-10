@@ -415,6 +415,29 @@ export const ProductsListResponseSchema = paginatedResponseSchema(ProductListIte
 export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 ```
 
+#### `GET /api/products/facets`
+
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Prisma aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+
+```typescript
+export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
+  page: true,
+  perPage: true,
+  sort: true,
+});
+export type ProductFacetsQuery = z.infer<typeof ProductFacetsQuerySchema>;
+
+// One `TaxonomyTermWithCount[]` per dimension; here `product_count` is the
+// SCOPED count (reflecting the other active filters), ordered by `display_order`
+// then name — same per-term shape the flat taxonomy list endpoints return.
+export const ProductFacetsResponseSchema = z.object({
+  categories: z.array(TaxonomyTermWithCountSchema),
+  audiences: z.array(TaxonomyTermWithCountSchema),
+  phases: z.array(TaxonomyTermWithCountSchema),
+});
+export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
+```
+
 #### `GET /api/products/:slug`
 
 Get full product detail by slug. Hydration per §3.4.

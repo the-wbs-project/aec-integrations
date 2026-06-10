@@ -1,6 +1,6 @@
 import { Component, input, output } from '@angular/core';
 
-import type { RefinementItem } from '../search-controller';
+import type { RefinementItem } from '../../shared/facets/refinement-item';
 
 /**
  * Generic refinement-list facet widget (AECI-142): a checkbox group bound to a
