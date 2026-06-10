@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 
 import type { IntegrationListItem } from '@aeci/shared';
 
+import { directionLabel, mechanismKindLabel } from '../search/mechanism-labels';
+
 /**
  * Row representation of an `IntegrationListItem`, slotted into `IndexLayout`'s
  * `table-body` slot. Uses an attribute selector on `<tr>` so the rendered
@@ -70,33 +72,12 @@ import type { IntegrationListItem } from '@aeci/shared';
 export class IntegrationCard {
   readonly integration = input.required<IntegrationListItem>();
 
-  protected readonly mechanismKindLabel = computed(() => {
-    switch (this.integration().mechanism_kind) {
-      case 'native':
-        return $localize`:@@integrations.mechanism.native:Native`;
-      case 'iPaaS':
-        return $localize`:@@integrations.mechanism.ipaas:iPaaS`;
-      case 'marketplace-app':
-        return $localize`:@@integrations.mechanism.marketplaceApp:Marketplace app`;
-      case 'api':
-        return $localize`:@@integrations.mechanism.api:API`;
-      case 'webhook':
-        return $localize`:@@integrations.mechanism.webhook:Webhook`;
-      case 'partner':
-        return $localize`:@@integrations.mechanism.partner:Partner`;
-      default:
-        return '';
-    }
-  });
+  // Labels are shared with the /search integration hit card via
+  // `search/mechanism-labels.ts` (AECI-142) so the `$localize` id set can't
+  // drift between the two surfaces.
+  protected readonly mechanismKindLabel = computed(() =>
+    mechanismKindLabel(this.integration().mechanism_kind),
+  );
 
-  protected readonly directionLabel = computed(() => {
-    switch (this.integration().direction) {
-      case 'one-way':
-        return $localize`:@@integrations.direction.oneWay:One-way`;
-      case 'bidirectional':
-        return $localize`:@@integrations.direction.bidirectional:Bidirectional`;
-      default:
-        return '';
-    }
-  });
+  protected readonly directionLabel = computed(() => directionLabel(this.integration().direction));
 }

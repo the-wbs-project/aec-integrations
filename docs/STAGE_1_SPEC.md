@@ -600,6 +600,17 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 
 ### 7.5 InstantSearch integration
 
+> **Deviation (AECI-142 / Phase 3.9 — see `docs/adr/0014-instantsearch-js-over-angular-instantsearch.md`):**
+> `angular-instantsearch` (below) is **not used**. It caps its peer dep at `@angular/core <16`,
+> is deprecated, and is `NgModule`/zone-based — unusable on this Angular 22 zoneless/SSR stack.
+> `/search` instead uses **`instantsearch.js` + connectors**, rendered with Angular templates and
+> mapped into **signals** (Algolia's recommended modern-Angular path), SSR-safe via a dynamic
+> `import()` run only in `afterNextRender`. The `ais-*` widget vocabulary below is therefore
+> illustrative, not literal; the per-tab sort dropdown is deferred (needs Algolia replicas). All
+> other §4.6/§7.5 acceptance criteria (browser-side search-only key, facets, entity tabs, branded
+> hit cards, empty state, noindex, non-cacheable, both themes, axe-AA) are met. ADR 0014 has the
+> full rationale.
+
 - Use `angular-instantsearch` v4+
 - Standard widgets: `ais-instant-search`, `ais-search-box`, `ais-hits`, `ais-refinement-list`, `ais-range-input`, `ais-pagination`, `ais-stats`
 - Custom hit components per index for branded result cards

@@ -66,7 +66,15 @@
               "entry": "src/server.ts",
               "platform": "neutral"
             },
-            "externalDependencies": ["cloudflare:workers"],
+            // `util` (AECI-142): the browser-only `/search` Algolia chunk pulls
+            // `instantsearch.js` → `qs` → `object-inspect`, whose Node entry does
+            // a bare `require('util')`. The browser build stubs it via
+            // object-inspect's `browser` field, but the SSR build
+            // (`platform: neutral`) can't resolve a bare Node builtin, so it must
+            // be external. Safe: the chunk is dynamically imported only inside
+            // `afterNextRender` (browser), so the SSR Worker never loads it — and
+            // even if it did, `nodejs_compat` provides `util` at runtime.
+            "externalDependencies": ["cloudflare:workers", "util"],
             "outputPath": "dist"
           },
           "configurations": {
