@@ -8,29 +8,31 @@ import type { TaxonomyResponse } from '@aeci/shared';
 import { TOP_N, topByCount } from '../core/taxonomy/taxonomy-rank';
 
 import { BrowseGrid } from './browse-grid';
+import { HomeHero } from './home-hero';
 
 /**
- * Home page. AECI-184 (Phase 4.9) builds the below-the-fold "Browse by" grids:
- * three count-chip subsections (category / audience / project phase) reading the
- * **live** aggregate taxonomy (`GET /api/taxonomy`, resolved SSR-side by
+ * Home page (`/`). The page is assembled in phases (Stage 1 §4.1): 4.7 hero,
+ * 4.8 stats cards, 4.9 "Browse by" grids (this), 4.10 recently-added / trending,
+ * and 4.11 final assembly + meta / JSON-LD / Cache-Tag (AECI-186). It stacks the
+ * shipped modules top-to-bottom; later phases append theirs below.
+ *
+ * AECI-184 (4.9) adds the below-the-fold "Browse by" grids: three count-chip
+ * subsections (category / audience / project phase) reading the **live**
+ * aggregate taxonomy (`GET /api/taxonomy`, resolved SSR-side by
  * `homeBrowseResolver`), NOT `stats_cache`. Each facet is ranked by
  * `product_count` (`topByCount`) and capped — categories/audiences at `TOP_N`,
  * phases (a small facet) shown in full — with a "View all" link to the facet
- * index.
- *
- * The hero, three stats cards, recently-added and trending modules are sibling
- * Phase-4 issues (4.7 / 4.8 / 4.10); the 4.11 assembly issue (AECI-186) composes
- * the full page (and the visible hero `<h1>`, meta and JSON-LD). Until then the
- * page carries an sr-only `<h1>` so the heading order is valid and axe-clean.
+ * index. The hero owns the page `<h1>`; the grids render as `<h2>` sections
+ * beneath it, so the heading order stays valid and axe-clean.
  */
 @Component({
   selector: 'app-home',
-  imports: [BrowseGrid],
+  imports: [HomeHero, BrowseGrid],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
-        <h1 class="sr-only" i18n="@@home.h1">AEC Integrations</h1>
+      <aec-home-hero />
 
+      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <div class="flex flex-col gap-10 md:gap-12">
           <app-browse-grid kind="category" [terms]="topCategories()" />
           <app-browse-grid kind="audience" [terms]="topAudiences()" />

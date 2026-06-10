@@ -130,7 +130,11 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
 - **Most-active-category** null: a non-link card reading "No category data yet".
 - **Recently added** empty: a bordered note, "No integrations added yet. The first vendor-verified
   integrations land at launch."
-- **Trending** empty: a bordered note, "Trending lands once we have product view data."
+- **Trending** empty: **fall back to `recently_added_products`** (AECI-185 decision) — render the
+  same broken grid under a truthful "Recently added products" heading + the grid's default
+  "Recently added" eyebrow (capped at 5), never labelling recently-added products "trending". Only
+  when *both* `trending_products` and `recently_added_products` are empty does the section show the
+  bordered note, "Trending lands once we have product view data."
 - **Browse grids** pre-launch: taxonomy is seeded, so chips render with `0` counts (count in
   `--text-secondary` — the AECI-184 AC requires secondary, not the AA-failing `--text-tertiary`)
   rather than disappearing — the grid structure shows before data arrives.

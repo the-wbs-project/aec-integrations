@@ -68,10 +68,13 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
       await page.goto('/');
       await expect(page.locator('app-root')).toBeAttached();
 
-      // Scope to <main id="main">: the global header taxonomy flyout (AECI-155)
-      // renders the same `/{segment}/:slug` links outside the content region, and
-      // the "View all" link is `/{segment}` (no trailing slug) so it's excluded.
-      const chips = page.locator(`#main a[href^="/${facet.segment}/"]`);
+      // Scope to the browse-grid `<ul>` inside <main id="main">: the chips are
+      // `ul li a`, whereas the same `/{segment}/:slug` links also appear in the
+      // global header flyout (AECI-155, outside #main) and the hero "Popular:"
+      // row (AECI-182, a `<p>` that hydrates in post-SSR) — both are excluded by
+      // the `ul` scope. The "View all" link is `/{segment}` (no slug) so it too
+      // is excluded.
+      const chips = page.locator(`#main ul a[href^="/${facet.segment}/"]`);
       await expect(chips).toHaveCount(expected);
       // Each chip shows a numeric product count ("{name} {count}").
       await expect(chips.first()).toContainText(/\d/);
@@ -101,7 +104,8 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
     await page.goto('/');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const firstChip = page.locator('#main a[href^="/categories/"]').first();
+    // `ul` scope so we click a browse-grid chip, not a hero "Popular:" link.
+    const firstChip = page.locator('#main ul a[href^="/categories/"]').first();
     const href = await firstChip.getAttribute('href');
     expect(href, 'chip must link to /categories/:slug').toMatch(/^\/categories\/[^/]+$/);
     await firstChip.click();
