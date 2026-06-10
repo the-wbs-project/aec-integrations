@@ -349,7 +349,7 @@ Secrets are stored in three places:
 | Datadog `DD_*` (per `apps/web/wrangler.jsonc` header) | ✅ per env | ✅ per env | — | RUM + Logs intake. |
 | `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID` | ✅ per env | ✅ per env | — | Cache-tag purge (AECI-56). |
 | `ALGOLIA_APP_ID` | ✅ per env (both Workers) | ✅ per env (both Workers) | ✅ (shared, one value) | Algolia app id (AECI-134). Single value, all envs. |
-| `ALGOLIA_SEARCH_KEY` (per-env, query-only) | ✅ on web Worker | ✅ on web Worker | ✅ as `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION` | Search-only key, scoped to the env's indexes; client-exposed. **Never on the API Worker.** |
+| `ALGOLIA_SEARCH_KEY` (per-env, query-only) | ✅ on web Worker | ✅ on web Worker | ✅ as `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION`; also `_PREVIEW` (consumed by `lighthouse.yml`, which provisions `/search` with the real SDK for the post-merge error gate — AECI-188) | Search-only key, scoped to the env's indexes; client-exposed. **Never on the API Worker.** |
 | `ALGOLIA_ADMIN_KEY` (per-env management) | ✅ on API Worker | ✅ on API Worker | ✅ as `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env management key (search + index-mutation, index-scoped) — sync from 3.5. **Never on the web Worker / never client-exposed.** Not the app-wide root admin key. |
 
 All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL --env staging` (and the same for `--env production` once the prod project exists).

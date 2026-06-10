@@ -36,8 +36,9 @@
 # `lighthouse` job has since MOVED OUT of this workflow into
 # `.github/workflows/lighthouse.yml`, which triggers on push-to-main ONLY — so
 # Lighthouse no longer runs on PRs (it was advisory there anyway) and instead
-# reports on the post-merge run, just before/alongside the staging deploy. The
-# fixtures-seed (db-migrate-dev) + axe specs (e2e-and-integration) stay here.
+# ERROR-GATES the post-merge run (AECI-188: a11y/BP/SEO/TBT + /search TTFB at
+# error level), just before/alongside the staging deploy. The fixtures-seed
+# (db-migrate-dev) + axe specs (e2e-and-integration) stay here.
 #
 # AECI-90 added the apps/api `src/integration/**` suites (PostgREST RLS deny
 # matrix, auth-user-delete GDPR trigger, idempotent Airtable→Supabase bulk
@@ -311,8 +312,11 @@ jobs:
       # would otherwise leave detail pages 404. Runs AFTER the taxonomy seed so the
       # fixture taxonomy-link subselects resolve. Same DIRECT_URL_STAGING + skip-
       # with-warning contract as the taxonomy seed above: when the secret is unset
-      # the consumer specs self-skip and Lighthouse is warn-only, so CI stays green
-      # until it's configured. See supabase/fixtures/phase2-fixtures.sql.
+      # the consumer specs self-skip, so THIS workflow stays green until it's
+      # configured — but the post-merge lighthouse.yml run is error-gated
+      # (AECI-188) and WILL go red measuring 404 shells on an unseeded DB. That
+      # red is the deliberate alarm for a wiped/never-seeded dev DB; re-seed and
+      # re-run it. See supabase/fixtures/phase2-fixtures.sql.
       - name: Seed Phase 2 CI fixtures
         env:
           PGURL: ${{ secrets.DIRECT_URL_STAGING }}

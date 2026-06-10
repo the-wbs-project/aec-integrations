@@ -75,6 +75,12 @@ Lighthouse half stays Phase 2 or is formally re-scoped to Phase 7. Either way it
 block AECI-67 (not a `blockedBy` of the checkpoint, and no Phase 2 page is known to fail
 the budget — it is simply not yet gated).
 
+*[Update (AECI-188, 2026-06-10): the warn→error flip landed **partially** on the post-merge
+`lighthouse.yml` run — a11y/best-practices/SEO/TBT at error level; perf/LCP/CLS + JS budgets
+stay warn because several pages measurably miss them (numbers on the perf follow-up issue
+referenced in `.lighthouserc.cjs`). "No Phase 2 page is known to fail the budget" above is
+superseded by those measurements.]*
+
 ### F2 — Finish AECI-66's live Datadog apply + verification → **New follow-up issue**
 
 The metric-emission code + dashboard/monitor **definitions** shipped under AECI-66 (Done,
