@@ -19,11 +19,23 @@ import { RouterLink } from '@angular/router';
  *   - Shape: `rounded.sm` (4px) — chips, not pills (the pill shape is
  *     reserved for vendor-verified badges per the DESIGN.md badge specs)
  *
+ * Count (AECI-184): an optional `[count]` renders a trailing product count
+ * inside the same chip ("{name} {count}") — the home "Browse by" count-chip the
+ * design doc specifies (`home-direction.md` §"Section rhythm") IS this chip plus
+ * a count, so the home reuses it rather than rebuilding. The count is
+ * `tabular-nums` in `--text-secondary` (AA-safe; the issue mandates secondary,
+ * not the AA-failing `--text-tertiary`). When `count` is omitted the chip is
+ * unchanged — the detail-sidebar usages render name-only.
+ *
  * Accessibility:
  *   - Renders as `<a>` so it's keyboard-focusable by default
  *   - Visible focus ring via `:focus-visible` matching the global
  *     focus-ring elevation token
- *   - Visible label text is `[name]` — no aria-label override needed
+ *   - Visible label text is `[name]`. When a `[count]` is shown, the link gets an
+ *     explicit `aria-label` ("{name} {n} products") so its accessible name is the
+ *     clean, un-smushed string (Angular strips the inter-element whitespace, so
+ *     relying on concatenated child text would announce "{name}{n}"). The visible
+ *     label remains a substring of the accessible name (WCAG 2.5.3 Label in Name).
  *
  * Anchor-Site Rule (DESIGN.md §"Named Rules"): pulled from the same Mobbin
  * reference site selected for the product detail surface — see the
@@ -37,14 +49,18 @@ export type TaxonomyKind = 'category' | 'audience' | 'phase';
   template: `
     <a
       [routerLink]="routerLink()"
-      class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
+      [attr.aria-label]="ariaLabel()"
+      class="inline-flex items-center gap-1.5 rounded-(--radius-sm) border border-(--border-default)
         bg-(--surface-raised) px-3 py-1 text-[0.8125rem] font-medium tracking-[0.01em]
         text-(--text-primary) no-underline transition-colors duration-150
         hover:border-(--border-strong) hover:text-(--accent-primary)
         focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary)
         focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
     >
-      {{ name() }}
+      <span>{{ name() }}</span>
+      @if (count() !== undefined) {
+        <span class="tabular-nums text-(--text-secondary)">{{ count() }}</span>
+      }
     </a>
   `,
   styles: `
@@ -57,6 +73,21 @@ export class TaxonomyBadge {
   readonly kind = input.required<TaxonomyKind>();
   readonly slug = input.required<string>();
   readonly name = input.required<string>();
+  /** Optional product count rendered inside the chip (AECI-184 home grids). */
+  readonly count = input<number | undefined>(undefined);
+
+  /**
+   * Explicit link accessible name when a count is shown ("{name} {n} products"),
+   * else `null` so the link falls back to its visible `[name]` text. Authored on
+   * the anchor because Angular strips the whitespace between the name and count
+   * spans, which would otherwise smush the announced name to "{name}{n}".
+   */
+  protected readonly ariaLabel = computed(() => {
+    const c = this.count();
+    return c === undefined
+      ? null
+      : $localize`:@@taxonomy.badge.count.aria:${this.name()}:NAME: ${c}:COUNT: products`;
+  });
 
   protected readonly routerLink = computed(() => {
     const k = this.kind();

@@ -102,8 +102,10 @@ Avoid three identical card matrices stacked (DESIGN.md "no identical card grids"
   **count-chips** ("{term} {count}", `--surface-raised` bordered `rounded-(--radius-sm)`,
   `tabular-nums` count in `--text-secondary`). Chips link to the term browse page. This is a denser
   texture than the product tiles, so the page does not read as one repeating card. Each links to
-  the relevant taxonomy browse page; data from the `category_counts` / `audience_counts` /
-  `phase_counts` cache keys (`TaxonomyTermWithCount[]`).
+  the relevant taxonomy browse page; data from the **live** `GET /api/taxonomy`
+  (`TaxonomyResponse`, each facet a `TaxonomyTermWithCount[]` with `product_count`), **not**
+  `stats_cache` (AECI-184): the browse counts read live taxonomy so this section is independent of
+  the stats pipeline (4.3/4.4) and the home edge cache purges on the `taxonomy` `Cache-Tag`.
 - **Recently added integrations:** a 2-up grid of **integration tiles** — source monogram → target
   monogram, the "{source} → {target}" headline (Source Serif), a `mechanism_kind` chip and the
   direction label. The `→` glyph is `aria-hidden` (and should RTL-mirror, matching the shipped
@@ -133,8 +135,9 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
   "Recently added" eyebrow (capped at 5), never labelling recently-added products "trending". Only
   when *both* `trending_products` and `recently_added_products` are empty does the section show the
   bordered note, "Trending lands once we have product view data."
-- **Browse grids** pre-launch: taxonomy is seeded, so chips render with `0` counts (muted
-  `--text-tertiary`) rather than disappearing — the grid structure shows before data arrives.
+- **Browse grids** pre-launch: taxonomy is seeded, so chips render with `0` counts (count in
+  `--text-secondary` — the AECI-184 AC requires secondary, not the AA-failing `--text-tertiary`)
+  rather than disappearing — the grid structure shows before data arrives.
 
 `IntegrationStat` already renders "Not yet connected" at zero; reuse that precedent for any count.
 
