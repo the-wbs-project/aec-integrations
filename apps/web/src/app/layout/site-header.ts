@@ -25,7 +25,9 @@ import { Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
-import { navigateToSearch } from './search-submit';
+import { SearchAutocomplete } from '../search/search-autocomplete';
+import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
+import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 
 import { BrandLogo } from './brand-logo';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
@@ -34,7 +36,15 @@ import { ThemeToggle } from './theme-toggle';
 
 @Component({
   selector: 'aec-site-header',
-  imports: [RouterLink, RouterLinkActive, BrandLogo, NavMenu, NavFlyoutTrigger, ThemeToggle],
+  imports: [
+    RouterLink,
+    RouterLinkActive,
+    BrandLogo,
+    NavMenu,
+    NavFlyoutTrigger,
+    ThemeToggle,
+    SearchAutocomplete,
+  ],
   template: `
     <header class="bg-(--surface-base)">
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
@@ -67,25 +77,12 @@ import { ThemeToggle } from './theme-toggle';
           <aec-nav-flyout-trigger kind="phase" [items]="taxonomy.phasesAll()" />
         </nav>
         <div class="hidden items-center gap-3 md:flex">
-          <form
-            class="relative hidden lg:block"
-            role="search"
-            action="/search"
-            method="get"
-            (submit)="onSearchSubmit($event)"
-          >
-            <label class="block">
-              <span class="sr-only" i18n="@@app.header.search.label">Search</span>
-              <input
-                name="q"
-                type="search"
-                autocomplete="off"
-                i18n-placeholder="@@app.header.search.placeholder"
-                placeholder="Search integrations"
-                class="h-9 w-52 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              />
-            </label>
-          </form>
+          <aec-search-autocomplete
+            class="hidden lg:block"
+            inputId="header-search"
+            (querySubmitted)="onSearchQuery($event)"
+            (suggestionChosen)="onSuggestion($event)"
+          />
           <aec-theme-toggle />
           <a
             routerLink="/auth/login"
@@ -104,7 +101,11 @@ export class SiteHeader {
   protected readonly taxonomy = inject(TaxonomyNavStore);
   private readonly router = inject(Router);
 
-  protected onSearchSubmit(event: SubmitEvent): void {
-    navigateToSearch(this.router, event);
+  protected onSearchQuery(query: string): void {
+    navigateToSearchQuery(this.router, query);
+  }
+
+  protected onSuggestion(suggestion: AutocompleteSuggestion): void {
+    navigateToSuggestion(this.router, suggestion);
   }
 }

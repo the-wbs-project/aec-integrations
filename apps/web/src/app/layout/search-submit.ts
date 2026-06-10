@@ -1,21 +1,24 @@
 /**
- * Shared submit handler for the header + mobile-overlay search boxes (AECI-142).
+ * Shared navigation helpers for the header + mobile-overlay search boxes.
  *
- * Both forms are progressive: `action="/search" method="get"` with an
- * `<input name="q">`, so a no-JS submit performs a native GET navigation to
- * `/search?q=…`. With JS, the `(submit)` binding calls this to do a smooth SPA
- * navigation instead (preventing the full reload). Search-as-you-type from the
- * header is out of scope here — that's Phase 3.11.
- *
- * Kept as a tiny pure helper so `SiteHeader` and `NavMenu` share one
- * implementation rather than duplicating the FormData read + navigate.
+ * Both surfaces mount `aec-search-autocomplete` (AECI-144), which keeps the
+ * progressive-enhancement `<form action="/search" method="get">` as the no-JS
+ * base layer (a native GET still reaches `/search?q=…`) and, with JS, emits
+ * `querySubmitted` / `suggestionChosen` instead. These helpers turn those events
+ * into SPA navigations, kept here so `SiteHeader` and `NavMenu` share one
+ * implementation rather than duplicating the `router.navigate` calls.
  */
 import type { Router } from '@angular/router';
 
-export function navigateToSearch(router: Router, event: SubmitEvent): void {
-  event.preventDefault();
-  const form = event.target as HTMLFormElement;
-  const raw = new FormData(form).get('q');
-  const q = typeof raw === 'string' ? raw.trim() : '';
+import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
+
+/** Navigate to `/search?q=…` (drops `?q=` when the query is blank). */
+export function navigateToSearchQuery(router: Router, query: string): void {
+  const q = query.trim();
   void router.navigate(['/search'], { queryParams: q ? { q } : {} });
+}
+
+/** Navigate to a chosen suggestion's detail page (`/products/:slug`, etc.). */
+export function navigateToSuggestion(router: Router, suggestion: AutocompleteSuggestion): void {
+  void router.navigate([...suggestion.routerLink]);
 }

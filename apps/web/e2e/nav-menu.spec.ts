@@ -81,7 +81,9 @@ test.describe('primary navigation menu (375px)', () => {
       await expect(overlay(page).getByRole('link', { name })).toHaveCount(0);
     }
 
-    await expect(overlay(page).getByRole('searchbox')).toBeVisible();
+    // The search box is the `aec-search-autocomplete` combobox (AECI-144); Angular
+    // Aria sets role="combobox" on the input (was a plain searchbox placeholder).
+    await expect(overlay(page).getByRole('combobox', { name: 'Search' })).toBeVisible();
     const themeGroup = overlay(page).getByRole('group', { name: 'Theme' });
     await expect(themeGroup.getByRole('button', { name: 'System' })).toHaveAttribute(
       'aria-pressed',

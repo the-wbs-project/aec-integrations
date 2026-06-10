@@ -36,10 +36,12 @@ import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
+import { SearchAutocomplete } from '../search/search-autocomplete';
+import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { NavFlyoutList } from './nav-flyout-list';
-import { navigateToSearch } from './search-submit';
+import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 import { ThemeToggleGroup } from './theme-toggle-group';
 
@@ -57,6 +59,7 @@ import { ThemeToggleGroup } from './theme-toggle-group';
     BrnPopoverTrigger,
     NavFlyoutList,
     ThemeToggleGroup,
+    SearchAutocomplete,
   ],
   template: `
     <button
@@ -147,25 +150,13 @@ import { ThemeToggleGroup } from './theme-toggle-group';
             </div>
           }
 
-          <form
-            class="relative mt-1 block px-1 pb-1"
-            role="search"
-            action="/search"
-            method="get"
-            (submit)="onSearchSubmit($event); menu.close()"
-          >
-            <label class="block">
-              <span class="sr-only" i18n="@@app.header.search.label">Search</span>
-              <input
-                name="q"
-                type="search"
-                autocomplete="off"
-                i18n-placeholder="@@app.header.search.placeholder"
-                placeholder="Search integrations"
-                class="h-9 w-full rounded-full border border-(--border-default) bg-(--surface-base) px-4 text-sm text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              />
-            </label>
-          </form>
+          <aec-search-autocomplete
+            class="mt-1 block px-1 pb-1"
+            inputId="mobile-search"
+            inputClass="w-full"
+            (querySubmitted)="onSearchQuery($event); menu.close()"
+            (suggestionChosen)="onSuggestion($event); menu.close()"
+          />
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
             <aec-theme-toggle-group class="self-start" />
             <a
@@ -186,8 +177,12 @@ export class NavMenu {
   private readonly taxonomy = inject(TaxonomyNavStore);
   private readonly router = inject(Router);
 
-  protected onSearchSubmit(event: SubmitEvent): void {
-    navigateToSearch(this.router, event);
+  protected onSearchQuery(query: string): void {
+    navigateToSearchQuery(this.router, query);
+  }
+
+  protected onSuggestion(suggestion: AutocompleteSuggestion): void {
+    navigateToSuggestion(this.router, suggestion);
   }
 
   protected readonly sections = computed(() => [
