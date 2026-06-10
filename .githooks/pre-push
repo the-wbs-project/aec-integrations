@@ -1,0 +1,22 @@
+#!/bin/sh
+# Pre-push lint gate.
+#
+# Runs the same `pnpm lint` that CI runs, before a branch is pushed — so lint
+# failures are caught no matter how the push originates (the agent, Conductor's
+# "Create PR" button, or a manual `git push`). This is the one chokepoint every
+# PR passes through, which is why the gate lives here rather than in a
+# Claude Code hook that only fires when the agent itself runs `gh pr create`.
+#
+# Activated per-workspace by the `prepare` script in package.json, which points
+# git at this directory (`git config core.hooksPath .githooks`) on `pnpm install`.
+#
+# Intentionally bypass a single push with:  git push --no-verify
+
+if ! command -v pnpm >/dev/null 2>&1; then
+  echo "pre-push: pnpm not found on PATH — cannot run the lint gate." >&2
+  echo "          Fix your shell environment, or bypass once with: git push --no-verify" >&2
+  exit 1
+fi
+
+echo "pre-push: running 'pnpm lint'… (bypass with: git push --no-verify)" >&2
+pnpm lint
