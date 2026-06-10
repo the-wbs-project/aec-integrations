@@ -1,23 +1,17 @@
 import { Component } from '@angular/core';
 
+import { HomeHero } from './home-hero';
+
+/**
+ * Home page (`/`). The page is assembled in phases (Stage 1 §4.1): 4.7 hero
+ * (this), then stats cards (4.8), browse grids (4.9), recently-added / trending
+ * (4.10), and final assembly + meta / JSON-LD / Cache-Tag (4.11). For now it is
+ * a thin shell rendering the hero as its first stacked module; later phases
+ * append their modules below it.
+ */
 @Component({
   selector: 'app-home',
-  template: `
-    <section class="mx-auto max-w-3xl px-6 py-16">
-      <p class="mb-3 text-xs uppercase tracking-wide text-(--text-secondary)" i18n="@@home.eyebrow">
-        AEC Integrations
-      </p>
-      <h1
-        class="font-display text-4xl font-semibold tracking-tight text-(--text-primary)"
-        i18n="@@home.heading"
-      >
-        Coming soon
-      </h1>
-      <p class="mt-4 text-base text-(--text-secondary)" i18n="@@home.lede">
-        The vendor-verified directory for AEC software integrations is in pre-launch. The home page
-        lands in Phase 4.
-      </p>
-    </section>
-  `,
+  imports: [HomeHero],
+  template: ` <aec-home-hero /> `,
 })
 export class Home {}
