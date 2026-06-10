@@ -1,0 +1,110 @@
+# AEC Integrations — post-merge Lighthouse (mobile, warn-only).
+#
+# WHY THIS IS ITS OWN WORKFLOW (moved out of deploy.yml).
+#   Lighthouse used to run as a job in deploy.yml on EVERY PR push. It never
+#   gated anything (warn-only `.lighthouserc.cjs`, `continue-on-error`, not in
+#   deploy-staging `needs:`), so on a PR it was pure noise + ~5 min of CI. This
+#   workflow runs it on PUSH TO MAIN ONLY — so it's off PRs entirely and instead
+#   reports on the post-merge run, right before/alongside the staging deploy in
+#   deploy.yml. You still see a red/warn here if perf regressed; you just see it
+#   after merge, not on the PR.
+#
+#   It can't simply be an `if: push`-gated job back in deploy.yml: that workflow's
+#   run-level `concurrency` is `cancel-in-progress: true`, which is correct for
+#   DEPLOYS (a rapid second merge should cancel the now-superseded staging deploy)
+#   but would also cancel an in-flight Lighthouse run before it reports. Deploys
+#   want ref-based cancellation; a Lighthouse report wants to always complete for
+#   the exact commit it measured. Opposite needs -> separate workflows.
+#
+# CONCURRENCY. Per-COMMIT group, never cancelled: every merged commit gets its
+#   own Lighthouse run that always finishes, fully decoupled from deploy.yml's
+#   cancellation. (A shared group + cancel-in-progress:false would drop the
+#   intermediate commit when several merges land in a row — GitHub keeps only the
+#   running + newest-pending run and cancels the rest. Per-SHA avoids that.)
+#
+# SELF-CONTAINED. Unlike the old job it can't `needs:` build-web / download that
+#   workflow's `web-dist` artifact (artifacts don't cross workflow runs), so it
+#   builds the SSR Worker itself and boots `dev:bound` exactly like the old job.
+#   The Phase 2 detail/browse fixtures it measures live on the shared dev DB,
+#   kept at HEAD + seeded by deploy.yml's `db-migrate-dev` (which ran on the PR
+#   before merge); the rc is degradation-tolerant if a page is missing, and the
+#   gate is warn-only regardless.
+#
+# Chrome comes from the ubuntu-latest runner image (lhci/chrome-launcher finds
+#   /usr/bin/google-chrome) — no Playwright/Chromium install needed, matching the
+#   former job.
+#
+# Required repo secret: DATABASE_URL_STAGING (dev project's Accelerate prisma://
+#   URL — the API Worker needs it or every Prisma query 500s and the measured
+#   pages render empty/404). Same secret deploy.yml + pr-preview.yml use.
+
+name: lighthouse
+
+on:
+  push:
+    branches: [main]
+    # Docs-only merges can't move perf — skip them (matches deploy.yml).
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+
+# Per-commit group so each merged SHA gets an uncancelled report, independent of
+# deploy.yml's run-level (ref-based, cancel-in-progress) concurrency.
+concurrency:
+  group: lighthouse-${{ github.sha }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  lighthouse:
+    name: Lighthouse CI (mobile, warn-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @aeci/api exec prisma generate
+      # Build the SSR Worker here (no cross-workflow artifact to reuse).
+      # `dev:preview` serves the prebuilt dist/ via `wrangler dev` — it does NOT
+      # build — so the bundle must exist before dev:bound boots.
+      - run: pnpm --filter @aeci/web build
+      # Wire DATABASE_URL into the API Worker before dev:bound boots it. Without
+      # it every Prisma query 500s and the measured pages render empty/404.
+      - name: Write apps/api/.dev.vars for `pnpm dev:bound`
+        env:
+          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
+        run: |
+          if [ -z "$DATABASE_URL_VALUE" ]; then
+            echo "::error::DATABASE_URL_STAGING secret is empty. Lighthouse needs it to boot the API Worker with a working Prisma connection."
+            exit 1
+          fi
+          printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
+      - name: Boot dev:bound (API + SSR) and wait for /api/health
+        run: |
+          nohup pnpm dev:bound > dev-bound.log 2>&1 &
+          for i in $(seq 1 90); do
+            if curl -fsS -o /dev/null --max-time 2 http://localhost:8788/api/health; then
+              echo "dev:bound healthy after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
+      # LHCI_URL intentionally UNSET → .lighthouserc.cjs targets :8788.
+      # continue-on-error: warn assertions exit 0 anyway, but this also shields
+      # the job from a transient collection hiccup becoming a red (non-)gate.
+      - name: Lighthouse CI (warn-only, mobile)
+        continue-on-error: true
+        run: pnpm lighthouse
+      - name: dev:bound logs on failure
+        if: failure()
+        run: tail -200 dev-bound.log || true
