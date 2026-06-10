@@ -18,8 +18,11 @@
  * cache-HIT behavior and is acceptable for a view counter.
  *
  * Browser-only (no-op on the server) and fire-and-forget (errors swallowed —
- * analytics must never break navigation). The endpoint is a Phase 2 no-op that
- * returns 204; Phase 4 wires the write (`packages/shared` `PageViewPayload`).
+ * analytics must never break navigation). The endpoint returns 204 and, since
+ * Phase 4 (AECI-177), inserts an enriched `page_views` row server-side; this
+ * client only ever sends the lean `{ route }` payload (`packages/shared`
+ * `PageViewPayload`). The browser POST is proxied through the SSR Worker, which
+ * adds trusted Cloudflare request context the API Worker uses for enrichment.
  */
 import { isPlatformBrowser } from '@angular/common';
 import { HttpClient } from '@angular/common/http';

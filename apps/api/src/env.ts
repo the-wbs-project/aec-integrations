@@ -105,4 +105,14 @@ export type Env = {
    */
   ALGOLIA_SYNC_QUEUE?: Queue<AlgoliaJobMessage>;
   ALGOLIA_DRIFT_QUEUE?: Queue<AlgoliaJobMessage>;
+  /**
+   * Bot-score sampling floor for `page_views` capture (AECI-177). Cloudflare Bot
+   * Management scores requests 1–99 (lower = more bot-like). When SET to an
+   * integer N, captured page views whose `cf_bot_score < N` are dropped to keep
+   * the table from growing on automated traffic; UNSET (the default everywhere
+   * today) captures every view. The §14.2 sampling **policy** is deferred until
+   * launch traffic is visible — this is only the seam, so nothing is hardcoded
+   * to drop. Parsed with `parseInt`; a non-numeric value is treated as unset.
+   */
+  PAGE_VIEWS_MIN_BOT_SCORE?: string;
 };

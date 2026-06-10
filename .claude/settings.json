@@ -2,21 +2,5 @@
   "enabledPlugins": {
     "claude-code-setup@claude-plugins-official": true
   },
-  "enabledMcpjsonServers": ["angular-cli", "browserstack"],
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "if": "Bash(gh pr create*)",
-            "command": "cmd=$(jq -r '.tool_input.command // \"\"'); case \"$cmd\" in *\"gh pr create\"*) cd \"$CLAUDE_PROJECT_DIR\" && pnpm lint ;; *) exit 0 ;; esac",
-            "timeout": 180,
-            "statusMessage": "Running pnpm lint before PR…"
-          }
-        ]
-      }
-    ]
-  }
+  "enabledMcpjsonServers": ["angular-cli", "browserstack"]
 }

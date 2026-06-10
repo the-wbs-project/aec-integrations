@@ -123,12 +123,21 @@ export const statsCacheValueSchemas = {
  * `GET /api/stats/home` response (docs/API_CONTRACTS.md §6.5). Assembled from
  * the per-key schemas above so the read endpoint and the cache writers can
  * never drift. Reads from `stats_cache`; never aggregates live.
+ *
+ * The two single-card fields (`most_integrated_product`, `most_active_category`)
+ * are `.nullable()` here even though the per-key write schemas above are not:
+ * those schemas validate a *present* compute-job write (a real product/category
+ * with a valid UUID), but pre-launch the cache is sparse, so the endpoint (4.4)
+ * must still return a valid 200. An absent (or drifted) cache key surfaces as
+ * `null` — the genuine "no data yet" empty state — and the 4.11 consumer just
+ * branches on `null`. The scalar/array fields have valid empties (`0` / `[]`),
+ * so only these two need to widen.
  */
 export const HomeStatsResponseSchema = z.object({
   total_integrations: statsCacheValueSchemas['home.total_integrations'],
   integrations_added_30d: statsCacheValueSchemas['home.integrations_added_30d'],
-  most_integrated_product: statsCacheValueSchemas['home.most_integrated_product'],
-  most_active_category: statsCacheValueSchemas['home.most_active_category'],
+  most_integrated_product: statsCacheValueSchemas['home.most_integrated_product'].nullable(),
+  most_active_category: statsCacheValueSchemas['home.most_active_category'].nullable(),
   recent_integrations: statsCacheValueSchemas['home.recent_integrations'],
   trending_products: statsCacheValueSchemas['home.trending_products'],
   recently_added_products: statsCacheValueSchemas['home.recently_added_products'],

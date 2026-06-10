@@ -564,7 +564,14 @@ Used by the SSR Worker to populate nav, footer, and the `/categories` flat list.
 
 #### `GET /api/stats/home`
 
-Reads from `stats_cache` table. Never aggregates live.
+Reads from `stats_cache` table. Never aggregates live. Pre-launch the cache is
+sparse (until the daily compute job, §10, first runs), so a missing/empty cache
+yields a valid **200 with empty defaults**, never a 500: the two single-card
+fields are `null`, the scalars are `0`, and the lists are `[]`. The same fallback
+applies per-field if a cached value has drifted from its schema.
+
+`Cache-Control: private, no-store` (per `CACHE_STRATEGY.md` §4 — API responses are
+never edge-cached; daily-freshness edge caching is owned by the SSR home route).
 
 ```typescript
 export type HomeStatsResponse = {
@@ -573,11 +580,11 @@ export type HomeStatsResponse = {
   most_integrated_product: {
     product: ProductRef;
     integration_count: number;
-  };
+  } | null;                              // null when the cache key is absent
   most_active_category: {
     category: TaxonomyRef;
     integration_count: number;
-  };
+  } | null;                              // null when the cache key is absent
   recent_integrations: Integration[];   // last 10
   trending_products: Product[];          // top 5
   recently_added_products: Product[];   // last 10
@@ -663,7 +670,7 @@ Errors: `UNAUTHENTICATED`.
 
 #### `POST /api/page-views`
 
-Lean fire-and-forget capture hook for client-side pageviews per Phase 2 Spec §7.1. Returns `204` with no body. In Phase 2 the handler is a no-op; Phase 4 wires it to the `page_views` table once that table lands. The shape was simplified from the earlier `TrackPageviewSchema` draft (path / product_id / vendor_id / session_id / referrer) to match the Phase 2 contract.
+Lean fire-and-forget capture hook for pageviews per Phase 2 Spec §7.1. Returns `204` with no body. The shape was simplified from the earlier `TrackPageviewSchema` draft (path / product_id / vendor_id / session_id / referrer) to match the Phase 2 contract.
 
 ```typescript
 export const PageViewPayloadSchema = z.object({
@@ -675,7 +682,26 @@ export const PageViewPayloadSchema = z.object({
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-User-blocking errors are never raised.
+**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). The table + Prisma `PageView` model already exist (baseline migration), so there is no migration. A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
+
+**Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and `product_id` / `vendor_id` resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. `user_id` / `profile_role` stay null until Phase 5 wires the authenticated session. **No raw IP is ever persisted** (§14.2 privacy).
+
+**CF context forwarding contract.** The browser POST reaches the SSR Worker first, and `request.cf` does **not** survive the SSR→API service binding, so the SSR Worker forwards the four CF fields on trusted headers (`@aeci/shared` `PAGE_VIEW_CF_HEADERS`):
+
+| Header | Source (`request.cf`) | `page_views` column |
+|---|---|---|
+| `x-aeci-cf-country` | `cf.country` | `cf_country` |
+| `x-aeci-cf-colo` | `cf.colo` | `cf_colo` |
+| `x-aeci-cf-asn` | `cf.asn` | `cf_asn` |
+| `x-aeci-cf-bot-score` | `cf.botManagement.score` | `cf_bot_score` |
+
+The SSR Worker is the **sole writer** of these headers: on the `/api/page-views` proxy path it strips any client-supplied copies (anti-spoof) before setting them from `request.cf`. The API Worker treats them as trusted because it has no public ingress (service-binding only); it falls back to a directly-present `request.cf` for local/test runs.
+
+**Two writers, de-duped.** The browser `PageViewTracker` (AECI-151) is the canonical per-view counter; the SSR Worker's `firePageView` is a supplementary write that adds CF/bot context on full-document renders. They don't double-count — the client tracker skips the initial navigation (the SSR Worker already counted the landing arrival) and only counts subsequent in-app navigations. The SSR path undercounts because true edge-cache hits bypass the SSR Worker (§14.2, accepted). Both writers carry the same `PAGE_VIEW_CF_HEADERS` enrichment.
+
+**Bot-score sampling** is a deferred §14.2 policy: the `PAGE_VIEWS_MIN_BOT_SCORE` env knob (unset everywhere today → capture all) drops views below the floor when set. Nothing is hardcoded to drop.
+
+**No audit log.** §26.1 scopes `appendAuditLog()` to *state-changing* domain writes; `page_views` is a read-analytics log, so no audit row is written.
 
 ### 6.10 Admin endpoints
 

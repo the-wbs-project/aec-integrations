@@ -254,7 +254,7 @@ Admin auth is a simple role check on the `profiles` table. No separate admin UI 
 
 **Footer:** standard nav, legal links, contact, social.
 
-**Stats card data source:** scheduled Cloudflare Worker recomputes stats daily at 02:00 UTC, writes to a `stats_cache` table in Supabase. Pages read from this cache, not live aggregations.
+**Stats card data source:** a daily stats job on the **existing** scheduled API Worker (the AECI-139 cron→queue→consumer; runs in early UTC alongside the Algolia sync at `0 8 * * *` and drift at `0 9 * * *` — *not* a separate Worker, superseding the stale "02:00 UTC") recomputes stats and writes to the `stats_cache` table in Supabase (already created in the baseline migration). Pages read from this cache via `GET /api/stats/home`, not live aggregations.
 
 ### 4.2 Product page (`/products/:slug`)
 
@@ -776,7 +776,7 @@ Worker API responses use `Cache-Control` and Cloudflare KV for hot paths. The SS
 
 ## 10. Stats Pipeline
 
-Scheduled Cloudflare Worker, runs daily at 02:00 UTC.
+A daily stats job on the **existing** scheduled API Worker (`apps/api/src/scheduled.ts` — the AECI-139 cron→queue→consumer, ADR 0013), added as a **third cron trigger** (recommended `0 7 * * *` UTC) alongside the Algolia incremental sync (`0 8 * * *`) and drift reconciliation (`0 9 * * *`). It is **not** a separate Worker, and supersedes the stale "02:00 UTC". The `stats_cache` and `page_views` tables already exist (baseline migration `20260515024116`); Phase 4 wires reads/writes, not new tables.
 
 **Computes and writes to `stats_cache`:**
 - `home.total_integrations` — count from integrations table
@@ -789,6 +789,10 @@ Scheduled Cloudflare Worker, runs daily at 02:00 UTC.
 - `category_counts` — product count per category
 - `audience_counts` — product count per audience
 - `phase_counts` — product count per phase
+
+**Phase 4 reconciliation (2026-06-10):**
+- `category_counts` / `audience_counts` / `phase_counts` are **optional/deferred** — the live taxonomy endpoints (`GET /api/taxonomy`, `/api/categories`, …) already return `product_count`, so the home "browse by" grids read those directly rather than this cache.
+- `home.trending_products` is computed from the `page_views` table **only** in Stage 1 (PostHog is not wired until Phase 7). The **client** `POST /api/page-views` capture is the canonical per-view signal; the SSR server-side write undercounts because edge-cache hits bypass the SSR Worker (§9.1, §14.2).
 
 Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggregation on page load.
 
@@ -906,6 +910,7 @@ A lean server-side log captured by the SSR Worker on every cacheable page reques
 - SSR Worker writes page_views row asynchronously via `ctx.waitUntil()` — never blocks the response
 - Failures don't affect the user (logged to Datadog)
 - Bot Score < 30 (likely automated) entries can be sampled rather than fully captured to control table growth — decision deferred until launch traffic patterns are visible
+- **Two capture paths, one table (Phase 4 reconciliation, 2026-06-10).** The **client** `POST /api/page-views` (fired post-hydration on every view — including edge-cache hits and client-side navigations) is the **canonical per-view signal**, and the source for `home.trending_products`. The SSR Worker's server-side `waitUntil()` write only runs on cache **misses** (edge-cache hits bypass the Worker, §9.1), so it **undercounts** and is treated as supplementary CF/bot-context enrichment, not the counter.
 
 ### 14.3 Datadog (performance, errors, logs, audit)
 
@@ -1031,7 +1036,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Edge caching configured with per-route TTLs (see `docs/CACHE_STRATEGY.md` §4)
 - [ ] `Cache-Tag` write helper + `POST /admin/purge` endpoint implemented (see `docs/CACHE_STRATEGY.md` §3, §5; lands in AECI-56)
 - [ ] Single write-event pipeline scaffolded (Section 20.5)
-- [ ] SSR Worker writes server-side page_views rows with CF header enrichment
+- [ ] ~~SSR Worker writes server-side page_views rows with CF header enrichment~~ — **relocated to Phase 4.** Phase 2 shipped only the no-op `POST /api/page-views` endpoint (AECI-55); the `page_views` table exists (baseline migration) but the write wiring + CF enrichment is Phase 4 (see API_CONTRACTS §6.9 and Phase 4 below).
 
 ### Phase 3: Search & discovery (Week 5)
 - [ ] Algolia indexes created and populated via bulk sync script
@@ -1041,10 +1046,21 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Faceted filters on listing pages
 
 ### Phase 4: Home page & stats (Week 6)
-- [ ] Stats pipeline Worker (daily computation)
-- [ ] Home page implementation with all stats cards
-- [ ] Recently added / trending sections
-- [ ] "+X in the last 30 days" subtitle on total integrations card
+
+Decomposed into AECI Phase 4.1–4.12 (planned 2026-06-10). The `stats_cache` and `page_views` tables and the scheduled Worker already exist (Phases 2–3); Phase 4 is wiring + UI, not new infra.
+
+- [ ] Shared `HomeStatsResponse` types + Zod (`packages/shared`)
+- [ ] Wire `page_views` writes + CF enrichment (client `POST /api/page-views` insert is canonical; SSR write supplementary — §14.2)
+- [ ] Daily stats computation job → `stats_cache` (third cron on the existing scheduled Worker; §10)
+- [ ] `GET /api/stats/home` endpoint (reads `stats_cache`, never live-aggregates)
+- [ ] Stats pipeline + page_views observability (job health + `stats_cache` freshness alert)
+- [ ] Home page design pass (Impeccable shape + Mobbin anchor)
+- [ ] Home hero + search autocomplete mount (reuses the AECI-144 widget)
+- [ ] Three stats cards incl. "+X in the last 30 days" subtitle
+- [ ] "Browse by" category / audience / phase grids (live taxonomy endpoints)
+- [ ] Recently-added integrations + Trending products sections (graceful empty states)
+- [ ] Home page assembly: SSR route/resolver, cache tags, home `WebSite`/`Organization` JSON-LD
+- [ ] Phase 4 completion checkpoint
 
 ### Phase 5: Auth & reviews (Week 7)
 - [ ] Supabase Auth setup with magic link + Google OAuth

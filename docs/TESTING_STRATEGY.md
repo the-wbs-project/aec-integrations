@@ -501,12 +501,12 @@ Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / A
 
 ### 10.5 Search route (AECI-145 / Phase 3.12)
 
-`/search` is added to `.lighthouserc.cjs`'s collection (now 14 URLs) under its **own assertion class (D)** because it differs from every Phase 2 page on two axes:
+`/search` is in `.lighthouserc.cjs`'s collection (14 URLs total). It differs from every Phase 2 page on two axes, handled by two assertion classes:
 
-- **`noindex`** — like the 404, its SEO audit fails by design, so class D is **SEO-exempt** (`/search` is excluded from the non-404 class's `categories:seo` assertion).
-- **No-cache (always an edge MISS)** — `/search` is `private, no-store`, the one route that never serves from an edge HIT. Class D therefore carries a **MISS-only TTFB budget** (`server-response-time ≤ 600ms`) rather than inheriting cached-page timing assumptions. The threshold is Lighthouse's own native pass bar and measures the SSR-shell document fetch — a CI proxy on `dev:bound` (graceful-degradation shell, no Algolia round-trip), not production search latency.
+- **`noindex`** — like the 404, its SEO audit fails by design. AECI-146 grouped `/search` with the 404 in the **noindex class** (matched by `NOINDEX_URL_PATTERN`): perf/a11y/CWV only, **SEO-exempt** (excluded from the indexable class's `categories:seo`).
+- **No-cache (always an edge MISS)** — `/search` is `private, no-store`, the one route that never serves from an edge HIT. AECI-145 adds a `/search`-only class with a **MISS-only TTFB budget** (`server-response-time ≤ 600ms`) rather than inheriting cached-page timing assumptions. The threshold is Lighthouse's own native pass bar and measures the SSR-shell document fetch — a CI proxy on `dev:bound` (graceful-degradation shell, no Algolia round-trip), not production search latency.
 
-`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget (class B) — InstantSearch ships more than a detail page. `?q=…` is intentionally not collected: in CI it renders the identical degradation shell. Budgets stay `'warn'` (same rollout posture as AECI-65).
+`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. `?q=…` is intentionally not collected: in CI it renders the identical degradation shell. Budgets stay `'warn'` (same rollout posture as AECI-65).
 
 ---
 
