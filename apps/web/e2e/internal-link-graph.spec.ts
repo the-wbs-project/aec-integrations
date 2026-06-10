@@ -717,8 +717,19 @@ test.describe('internal-link graph — ≤3-hop reachability (AECI-64)', () => {
   let result: CrawlResult;
 
   test.beforeAll(async () => {
-    // Browser crawl over dozens of URLs, each with a hydration settle.
-    test.setTimeout(180_000);
+    // Browser crawl over dozens of URLs, each with a hydration settle. The cap
+    // must absorb a slow CI runner, NOT just the crawl's nominal cost: this whole
+    // suite has been observed running ~2x its normal wall-time (7.9m vs a ~3.7m
+    // green baseline hours earlier) on GitHub's hosted runners, which pushed this
+    // crawl past a 180s budget on back-to-back runs across unrelated PRs. That was
+    // the hook timing out under runner-wide slowdown — not any assertion, so no
+    // internal link was actually broken. 360s gives >2x headroom over the nominal
+    // crawl; the job's `timeout-minutes: 20` (deploy.yml) is the real backstop
+    // against a genuine hang. Do NOT instead shrink the per-page settle waits in
+    // `harvestHydratedHrefs` — those exist to let client-rendered links
+    // materialise, and trimming them would make the crawl LESS reliable on the
+    // exact slow runners this guards against.
+    test.setTimeout(360_000);
     const browser = await chromium.launch();
     const context = await browser.newContext({ baseURL: BASE_URL });
     try {
