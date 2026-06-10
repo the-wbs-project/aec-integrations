@@ -1,0 +1,15 @@
+{
+  "name": "AECi — Home stats not running (no daily compute)",
+  "type": "query alert",
+  "query": "sum(last_2d):sum:aeci.stats.compute{trigger:cron,env:production}.as_count() < 1",
+  "message": "The daily home-stats compute cron has reported no completed run in ~26h (AECI-178, 07:00 UTC = 02:00 EST). Every completed invocation emits exactly one `aeci.stats.compute{trigger:cron}` point (any outcome — success/partial/failed, plus the pre-compute crash path), so a silent series means the cron (apps/api/src/scheduled.ts) is not running and the `home.*` stats_cache rows are going stale with no page-level symptom — the home page keeps serving the last computed numbers. This is the freshness/liveness check: a missed run emits nothing, so reading `computed_at` directly is impossible (the run that would emit it didn't happen) — no-data on the heartbeat IS the staleness signal. It relies on notify_no_data, so the outcome-agnostic `{trigger:cron}` scope is load-bearing; the per-key failure quality check is the companion monitor 'AECi — Home stats compute failed'.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#home-stats-stale-or-compute-failed\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:4", "managed-by:aeci-180"],
+  "options": {
+    "thresholds": { "critical": 1 },
+    "notify_no_data": true,
+    "no_data_timeframe": 1560,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

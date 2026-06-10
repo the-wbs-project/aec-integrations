@@ -51,6 +51,7 @@ import {
 import { runDailySync, type AlgoliaSyncPrisma } from './lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsPrisma, type HomeStatsResult } from './lib/home-stats';
+import { emitHomeStatsMetrics } from './lib/home-stats-metrics';
 import { getPrisma } from './prisma';
 
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
@@ -88,9 +89,11 @@ function algoliaEnvFor(env: Env): AlgoliaEnv {
   return env.ENV ?? 'development';
 }
 
-/** Adapt the shared Datadog submitters into the pure metrics module's sink, so
- *  `emitAlgoliaSyncMetrics` stays free of `ctx`/`env`/`Request` plumbing. */
-function syncMetricSink(ctx: ExecutionContext, env: Env, req: Request): SyncMetricSink {
+/** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
+ *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` stay free of `ctx`/`env`/
+ *  `Request` plumbing. The `SyncMetricSink` shape (count + distribution) also
+ *  satisfies `StatsMetricSink`, so both helpers take it. */
+function metricSink(ctx: ExecutionContext, env: Env, req: Request): SyncMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
@@ -145,12 +148,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
 
   // Per-entity outcome + records counts and the run-level duration distribution
   // (AECI-141). Shared with the promote hook so the two writers can't drift.
-  emitAlgoliaSyncMetrics(
-    syncMetricSink(ctx, env, req),
-    'cron',
-    result.entities,
-    Date.now() - started,
-  );
+  emitAlgoliaSyncMetrics(metricSink(ctx, env, req), 'cron', result.entities, Date.now() - started);
 
   for (const entity of result.entities) {
     logToDatadog(ctx, env, req, {
@@ -247,9 +245,6 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const written = result.keys.filter((k) => k.status === 'written').length;
   const failed = result.keys.filter((k) => k.status === 'failed').length;
   const skipped = result.keys.filter((k) => k.status === 'skipped').length;
-  // success: every key written/skipped cleanly; partial: some wrote, some failed;
-  // failed: nothing wrote and at least one key failed.
-  const outcome = failed === 0 ? 'success' : written > 0 ? 'partial' : 'failed';
 
   for (const k of result.keys) {
     logToDatadog(ctx, env, req, {
@@ -262,12 +257,10 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
     });
   }
 
-  // Job-level metrics + completion log feed the 4.5 / AECI-180 dashboard + alert;
-  // names follow the `aeci.<domain>.<action>` convention and can be finalized there.
-  submitCount(ctx, env, req, 'aeci.stats.compute', 1, ['trigger:cron', `outcome:${outcome}`]);
-  submitDistribution(ctx, env, req, 'aeci.stats.compute.duration_ms', Date.now() - started, [
-    'trigger:cron',
-  ]);
+  // Job-level + per-key outcome/duration metrics (AECI-180 / 4.5) — the dashboard
+  // and the failure + freshness monitors query these. The shared emitter derives
+  // the run `outcome` from the per-key statuses so it can't drift from the log.
+  emitHomeStatsMetrics(metricSink(ctx, env, req), 'cron', result, Date.now() - started);
   logToDatadog(ctx, env, req, {
     level: failed > 0 ? 'warn' : 'info',
     message: `aeci.stats.computed keys_written=${written} keys_failed=${failed} keys_skipped=${skipped}`,

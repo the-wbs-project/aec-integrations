@@ -302,6 +302,10 @@ export type HomeStatKeyStatus = 'written' | 'skipped' | 'failed';
 export type HomeStatKeyOutcome = {
   key: HomeStatsKey;
   status: HomeStatKeyStatus;
+  /** Wall-clock ms for this key's compute → validate → upsert. The caller emits
+   *  it as the per-key `aeci.stats.compute.key.duration_ms` distribution (AECI-180
+   *  / 4.5 observability). */
+  durationMs: number;
   /** Present on `failed` — a compute throw, or the Zod validation message. */
   error?: string;
 };
@@ -323,36 +327,44 @@ async function upsertStat(
   });
 }
 
+/** Compute → validate → upsert one key. Never throws — a compute throw or a
+ *  value that fails its `statsCacheValueSchemas` check returns `failed` so the
+ *  caller can keep going. Timing is the caller's concern (it wraps this call). */
+async function computeOneKey(
+  prisma: HomeStatsPrisma,
+  key: HomeStatsKey,
+  now: Date,
+): Promise<Pick<HomeStatKeyOutcome, 'status' | 'error'>> {
+  try {
+    const value = await PRODUCERS[key](prisma, now);
+    if (value === null || value === undefined) {
+      return { status: 'skipped' };
+    }
+    const parsed = statsCacheValueSchemas[key].safeParse(value);
+    if (!parsed.success) {
+      return { status: 'failed', error: `validation failed: ${parsed.error.message}` };
+    }
+    await upsertStat(prisma, key, parsed.data as Prisma.InputJsonValue, now);
+    return { status: 'written' };
+  } catch (error) {
+    return { status: 'failed', error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
 /**
  * Compute → validate → upsert each `home.*` key. Each key runs inside its own
  * try/catch so a single failing key (a compute throw, or a value that fails its
- * `statsCacheValueSchemas` check) is logged as `failed` and the remaining keys
+ * `statsCacheValueSchemas` check) is recorded as `failed` and the remaining keys
  * still write. Never throws — the orchestration returns a per-key outcome list
- * the caller turns into Datadog logs/metrics (4.5).
+ * (with per-key wall-clock `durationMs`) the caller turns into Datadog
+ * logs/metrics (4.5 / AECI-180).
  */
 export async function runHomeStats(prisma: HomeStatsPrisma, now: Date): Promise<HomeStatsResult> {
   const keys: HomeStatKeyOutcome[] = [];
   for (const key of HOME_STAT_KEYS) {
-    try {
-      const value = await PRODUCERS[key](prisma, now);
-      if (value === null || value === undefined) {
-        keys.push({ key, status: 'skipped' });
-        continue;
-      }
-      const parsed = statsCacheValueSchemas[key].safeParse(value);
-      if (!parsed.success) {
-        keys.push({ key, status: 'failed', error: `validation failed: ${parsed.error.message}` });
-        continue;
-      }
-      await upsertStat(prisma, key, parsed.data as Prisma.InputJsonValue, now);
-      keys.push({ key, status: 'written' });
-    } catch (error) {
-      keys.push({
-        key,
-        status: 'failed',
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    const startedAt = Date.now();
+    const outcome = await computeOneKey(prisma, key, now);
+    keys.push({ key, durationMs: Date.now() - startedAt, ...outcome });
   }
   return { keys };
 }

@@ -164,3 +164,100 @@ pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
 **Escalation:** failures across multiple consecutive runs with Algolia healthy point at a data
 shape / transform regression (`apps/api/src/lib/algolia-sync.ts`) or a rotated admin key — page
 on-call and capture a failing `reason` from the logs for the post-mortem.
+
+---
+
+## Home stats stale or compute failed
+
+**Alerts:** `AECi — Home stats compute failed (daily cron)` (one or more `home.*` keys failed) and
+`AECi — Home stats not running (no daily compute)` (the cron stopped firing — the freshness alert).
+**Metric:** `aeci.stats.compute.key{outcome:failed}` (failed per-key computes) **+** the job-level
+`aeci.stats.compute{outcome:failed}` count — the job-level term covers a pre-compute crash that
+emits no per-key points. The freshness/liveness alert watches the `aeci.stats.compute{trigger:cron}`
+heartbeat (one point per completed run, any outcome) via `notify_no_data` instead (AECI-178 compute;
+AECI-180 monitors).
+Companion signals: `aeci.stats.compute{outcome:success|partial|failed}` (job rollup),
+`aeci.stats.compute.duration_ms` + `aeci.stats.compute.key.duration_ms` per run.
+
+**What it means:** The daily home-stats compute (`apps/api/src/scheduled.ts` → `lib/home-stats.ts`,
+07:00 UTC = 02:00 EST) recomputes the seven `home.*` `stats_cache` rows the home page reads. Each
+key computes/validates/upserts independently, so a single failed key leaves **that** cached value
+stale (or absent) while the rest refresh — e.g. a failed `home.trending_products` keeps yesterday's
+list. The home page never errors; it just serves the last good numbers. The "not running" freshness
+alert means no completed run reported in ~26h — a **missed daily run**, so `computed_at` for the
+`home.*` keys is going stale with no page-level symptom.
+
+**First checks**
+
+1. Which alert? "Compute failed" → the cron ran (or crashed pre-compute) and reported a failure: a
+   key threw/failed validation, or the whole job crashed before any key ran. "Not running" → no
+   completed run reported at all in ~26h (freshness). A pre-compute crash trips "Compute failed" (via
+   the job-level `aeci.stats.compute{outcome:failed}`) but not "Not running" — the crash still emits
+   the liveness heartbeat. "Not running" fires only when the cron never reports (it never fired, or
+   never reached even the crash path), in which case there's no failure metric and "Compute failed"
+   stays silent.
+2. Which key? `aeci.stats.compute.key{outcome:failed}` is per key — pivot the "AECi Phase 4 — Home /
+   Stats" dashboard by `key`, and read Datadog logs `service:aeci-api source:stats-cron`
+   (`aeci.stats.compute <key> status=failed`, with `reason`; `aeci.stats.compute.crashed` is a
+   pre-compute throw before any key ran).
+3. DB health: the job reads/writes Supabase via Prisma Accelerate. A `DATABASE_URL` problem or a
+   Supabase outage surfaces as `aeci.stats.compute.crashed` (pre-compute) or many failed keys —
+   check the Supabase dashboard and the Worker's `DATABASE_URL` secret.
+4. Recent deploy? A regression in `lib/home-stats.ts` (a producer) or a `stats_cache` schema drift
+   that fails the shared `statsCacheValueSchemas` validation shows as `outcome:failed` with a
+   `validation failed: …` reason. Correlate with `GET /api/version`.
+5. "Not running" only: confirm the 07:00 UTC cron fired — check the staging/production API Worker's
+   scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that the `STATS_QUEUE`
+   binding + the `0 7 * * *` trigger are present (`apps/api/wrangler.jsonc`, staging + production
+   only). (The "compute failed" alert does **not** use no-data — `outcome:failed` is absent on a
+   healthy run.)
+
+**Repair:** there is no manual trigger endpoint yet (ADR 0013 leaves a future REST/queue producer
+out of scope). Fix the root cause; the **next daily cron self-heals** — `computed_at` advances and
+the stale rows refresh on the next successful run. A failed key does not block the others, so a
+single flaky key needs no immediate action beyond confirming it recovers next run.
+
+**Escalation:** repeated failures of the same key across consecutive days (DB healthy) point at a
+producer regression in `apps/api/src/lib/home-stats.ts` or a `stats_cache`/schema drift — page
+on-call and capture a failing `reason` from the logs for the post-mortem. A persistent "not running"
+alert with a healthy Worker is a cron/queue wiring problem (see check 5).
+
+---
+
+## Page-view writes failing
+
+**Alert:** `AECi — page_views write error rate > 10% (10m)`.
+**Metric:** `aeci.pageviews.write{outcome:failed}` / `aeci.pageviews.write` (all) — the failed-insert
+ratio over 10m (AECI-177 write; AECI-180 monitor). Companion signal: the `aeci.api.page_view.capture_failed`
+log carries the `reason`.
+
+**What it means:** `POST /api/page-views` validates the body, returns **204 immediately**, and
+inserts one `page_views` row via `ctx.waitUntil()`. A failing insert is **user-invisible** (the 204
+already went out) — but `page_views` is the **only** source for `home.trending_products`, so a
+sustained insert regression silently **zeroes trending** at the next 07:00 UTC daily compute. This
+monitor exists to surface the regression *before* the home page goes blank. (Distinct from "Home
+stats compute failed": there the compute job breaks; here the upstream data the compute reads stops
+arriving.)
+
+**First checks**
+
+1. Read the failure: Datadog logs `service:aeci-api source:page-views` —
+   `aeci.api.page_view.capture_failed` carries the `reason` (the Prisma/Supabase error).
+2. DB health: the insert goes to Supabase via Prisma Accelerate. A `DATABASE_URL` problem, a
+   Supabase outage, or pooler saturation surfaces as a broad failure spike — check the Supabase
+   dashboard and the Worker's `DATABASE_URL` secret.
+3. Recent deploy? A regression in `apps/api/src/routes/page-views.ts` (or a `page_views` schema
+   drift — a column/type the insert writes that no longer matches the table) shows as a step-change
+   in the error rate. Correlate with `GET /api/version`.
+4. All writes or a subset? If only entity pages fail, suspect `resolveEntity` (the product/vendor
+   PK lookup) or an FK constraint; if every write fails, suspect the DB connection / schema.
+
+**Repair:** fix the root cause (DB connectivity, a reverted bad deploy, or a schema mismatch). Writes
+resume immediately — there is no backfill: views during the outage are lost, and the next daily
+compute reflects whatever `page_views` holds at 07:00 UTC. If trending already zeroed, it self-fills
+once writes resume and the next compute runs.
+
+**Escalation:** a sustained > 10% error rate with the DB healthy points at a `page-views.ts` /
+schema regression — page on-call, capture a `reason` from the logs, and consider rolling back the
+correlated deploy. (The 10% threshold is a pre-launch starting point — see `docs/OBSERVABILITY.md`;
+retune once production traffic is known.)

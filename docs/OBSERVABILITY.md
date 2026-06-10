@@ -37,6 +37,11 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.algolia.sync.records` | count | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `entity` (products / vendors / integrations), `op` (saved / deleted) |
 | `aeci.algolia.sync.duration_ms` | distribution | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
 | `aeci.search.query` _(planned, AECI-174)_ | RUM action | `apps/web` search UI — **not yet emitted** (deferred; see "Browser search RUM" below) | `index`, `status`, `results_bucket` + `duration_ms` context |
+| `aeci.stats.compute` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (success / partial / failed) |
+| `aeci.stats.compute.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron) |
+| `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
+| `aeci.stats.compute.key.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key) |
+| `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed) |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -87,15 +92,40 @@ work), tagged only by `trigger`. The cron's pre-push early-returns (`outcome:ski
 and the `outcome:failed` when the watermark read/write throws) stay as inline single counts — they
 are not completed-run signals and don't flow through the helper.
 
+`aeci.stats.compute*` (AECI-180, the 4.5 analogue) is the home-stats compute health picture for the
+daily cron (AECI-178, 07:00 UTC = 02:00 EST). A **completed** run flows through the shared
+`emitHomeStatsMetrics` (`apps/api/src/lib/home-stats-metrics.ts`): one job-level `aeci.stats.compute`
+count (`outcome:success` = every key written/skipped cleanly, `partial` = some wrote + some failed,
+`failed` = nothing wrote and ≥1 key failed), one job-level `aeci.stats.compute.duration_ms`
+distribution, plus per-key `aeci.stats.compute.key` (`outcome:written|skipped|failed`) and
+`aeci.stats.compute.key.duration_ms` so a dashboard/monitor sees *which* `home.*` key failed or
+slowed without reading logs. The pre-compute crash path (a Prisma-init throw before `runHomeStats`)
+stays an inline single `aeci.stats.compute{outcome:failed}` count — like the Algolia crash path, it
+isn't a completed run. Because every completed invocation (and the crash path) emits exactly one
+job-level `aeci.stats.compute{trigger:cron}` point regardless of outcome, that series is the
+**liveness heartbeat** the "not running" monitor watches via `notify_no_data` (the same
+always-reports pattern as the index-drift gauge).
+
+`aeci.pageviews.write` (AECI-180) is the write-health signal for the `POST /api/page-views` insert
+(AECI-177): one count per attempted insert, `outcome:ok` after a successful `page_views` write and
+`outcome:failed` in the swallow-and-log catch. The bot-score sampled-out early return emits nothing
+— it's an intentional skip, not a write, and must not pollute the error-rate denominator. The
+endpoint already returned 204, so a failing insert is user-invisible; this metric makes the
+regression visible as an error **rate** *before* it silently zeroes `home.trending_products` at the
+next daily compute. Note it is monitored on error-rate **only**, never liveness/no-data: page_views
+is traffic-driven, so zero writes (no visitors) is normal at pre-launch and a no-data alert would
+fire constantly — unlike the fixed-cadence stats cron.
+
 ### Three gotchas when querying
 
 1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as
    `cache_status:hit`; `status_class:5xx` stays `5xx`. All dashboard/monitor queries
    use lowercase.
 2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms`,
-   `aeci.api.query.duration_ms`, and `aeci.algolia.sync.duration_ms` are distribution
-   metrics — to query `p50/p95/p99` you must enable percentile aggregations under
-   **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
+   `aeci.api.query.duration_ms`, `aeci.algolia.sync.duration_ms`,
+   `aeci.stats.compute.duration_ms`, and `aeci.stats.compute.key.duration_ms` are
+   distribution metrics — to query `p50/p95/p99` you must enable percentile aggregations
+   under **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
    aggregations**. Done once per metric.
 3. **Count metrics whose value isn't 1 need `sum:`, not `count:`.** `count:` counts the
    number of submitted points; `sum:` sums their values. Most count metrics here submit
@@ -154,6 +184,16 @@ AECI-140 `aeci.algolia.index_drift` gauge). The browser-side query-latency + err
 widgets are **deferred** until there's a search UI to instrument — see "Browser search
 RUM" below.
 
+### `AECi Phase 4 — Home / Stats`
+
+- **Definition (for record):** `observability/datadog/dashboard-home-stats.json`
+- **Live URL:** _TBD — filled in after the live apply (AECI-180 verification step; coordinate with AECI-161 to avoid duplicate scaffolding)._
+
+Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute runs by
+`outcome` · stats compute duration p50/p95/p99 · per-key compute outcome by `key`/`outcome`
+(which `home.*` key failed) · per-key compute duration p95 by `key` · page-view writes by
+`outcome` · page-view write error rate (`100 × failed / total`, with a 10% marker).
+
 ## Monitors
 
 Each monitor's `message` links the matching runbook in `docs/RUNBOOKS.md` and routes to
@@ -168,6 +208,9 @@ at apply time).
 | Algolia index drift | any index's \|drift\| > 0 (daily); or no data for 48h | `observability/datadog/monitor-algolia-index-drift.json` |
 | Algolia sync failed | any `outcome:failed` push in the last 1d | `observability/datadog/monitor-algolia-sync-failed.json` |
 | Algolia sync not running | no successful (`outcome:ok`) cron push for 48h | `observability/datadog/monitor-algolia-sync-no-data.json` |
+| Home stats compute failed | any `aeci.stats.compute.key{outcome:failed}` or job-level `aeci.stats.compute{outcome:failed}` (the latter covers a pre-compute crash) in the last 1d | `observability/datadog/monitor-stats-compute-failed.json` |
+| Home stats not running | no `aeci.stats.compute{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-stats-compute-no-data.json` |
+| page_views write errors | write error rate > 10% over 10m | `observability/datadog/monitor-pageviews-write-errors.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
@@ -178,6 +221,30 @@ alert there fires constantly. The "sync not running" liveness monitor instead wa
 `outcome:ok{trigger:cron}` series (which reports every healthy run) via `notify_no_data`, the
 same always-reports pattern that lets the index-drift monitor's no-data mean "the cron didn't
 run." Keep the failure and liveness concerns on separate metrics — don't fold them back together.
+
+Home stats (AECI-180) follow the **same failure + liveness split**. "Home stats compute failed"
+alerts when either the per-key `aeci.stats.compute.key{outcome:failed}` count or the job-level
+`aeci.stats.compute{outcome:failed}` count is non-zero (no `notify_no_data` — both are empty on a
+healthy run). The per-key term names the offending `home.*` key; the job-level term also catches a
+**pre-compute crash** (a Prisma-init throw before `runHomeStats`), which emits the job-level
+`outcome:failed` heartbeat but no per-key points. That term is load-bearing — the crash also emits
+the `{trigger:cron}` liveness heartbeat, which keeps the "not running" monitor green, so without the
+job-level failure term a total crash would slip past **both** monitors. "Home stats not running" is the
+freshness/liveness monitor: it watches the always-emitted `aeci.stats.compute{trigger:cron}`
+heartbeat (one point per completed run, **any** outcome) via `notify_no_data`, `no_data_timeframe`
+1560 (~26h = a missed daily run + grace). It deliberately watches the outcome-agnostic heartbeat,
+not `outcome:success`, so a persistently-`partial` run still counts as "ran." Reading `stats_cache`'s
+`computed_at` directly isn't an option for the missed-run case — a run that never fired can't emit
+its own timestamp — so no-data on the heartbeat **is** the staleness signal (the AC's "computed_at
+older than ~26h").
+
+The page_views write monitor is the one **deliberate exception** to the liveness pattern. It alerts
+on the error **rate** (`aeci.pageviews.write` `outcome:failed / total`) and must **not** use
+`notify_no_data`: page_views is **traffic-driven**, not a fixed-cadence cron, so zero writes (no
+visitors) is normal at pre-launch and a liveness/no-data alert would fire constantly. Only the
+failure ratio is meaningful. The 10% threshold is a launch-tunable starting point (§14.3 cites 1%
+for request error rate; page_views runs at far lower volume, so the floor is higher to avoid
+single-failure noise) — retune once production traffic is known.
 
 ## Browser search RUM (deferred — contract for the search UI)
 

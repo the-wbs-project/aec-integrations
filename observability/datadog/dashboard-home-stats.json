@@ -1,0 +1,171 @@
+{
+  "title": "AECi Phase 4 — Home / Stats",
+  "description": "Phase 4.5 home-page observability (AECI-180). Worker-side health of the two silent-failure surfaces behind the home page, from the API Worker (aeci-api): the daily home-stats compute cron (AECI-178) and the page_views write (AECI-177). Metrics: aeci.stats.compute (count, outcome — one per run), aeci.stats.compute.duration_ms (distribution — enable percentile aggregations under Metrics > Summary), aeci.stats.compute.key (count, per-key outcome), aeci.stats.compute.key.duration_ms (distribution, per key), and aeci.pageviews.write (count, outcome:ok|failed). NOTE: Datadog lowercases tag values (outcome queried as ok/failed/success/partial). All these counts submit value 1, so count: and sum: coincide. Committed for record (AECI-180); the live dashboard is the source of truth — re-export after edits. Live apply is the operator step in docs/OBSERVABILITY.md (coordinate with AECI-161).",
+  "layout_type": "ordered",
+  "reflow_type": "fixed",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": ["staging", "production"],
+      "default": "production"
+    }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "title": "Stats compute runs by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "runs",
+                "data_source": "metrics",
+                "query": "count:aeci.stats.compute{$env} by {outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "runs" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Stats compute duration — p50 / p95 / p99",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p50",
+                "data_source": "metrics",
+                "query": "p50:aeci.stats.compute.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p50", "alias": "p50" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p95",
+                "data_source": "metrics",
+                "query": "p95:aeci.stats.compute.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p95", "alias": "p95" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p99",
+                "data_source": "metrics",
+                "query": "p99:aeci.stats.compute.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p99", "alias": "p99" }]
+          }
+        ],
+        "yaxis": { "label": "ms" }
+      }
+    },
+    {
+      "definition": {
+        "title": "Per-key compute outcome (which key failed)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "keys",
+                "data_source": "metrics",
+                "query": "count:aeci.stats.compute.key{$env} by {key,outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "keys" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Per-key compute duration — p95 (by key)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p95",
+                "data_source": "metrics",
+                "query": "p95:aeci.stats.compute.key.duration_ms{$env} by {key}"
+              }
+            ],
+            "formulas": [{ "formula": "p95" }]
+          }
+        ],
+        "yaxis": { "label": "ms" }
+      }
+    },
+    {
+      "definition": {
+        "title": "Page-view writes by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "writes",
+                "data_source": "metrics",
+                "query": "count:aeci.pageviews.write{$env} by {outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "writes" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Page-view write error rate (%)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "failed",
+                "data_source": "metrics",
+                "query": "sum:aeci.pageviews.write{$env,outcome:failed}.as_count()"
+              },
+              {
+                "name": "total",
+                "data_source": "metrics",
+                "query": "sum:aeci.pageviews.write{$env}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "100 * failed / total", "alias": "error_rate" }]
+          }
+        ],
+        "yaxis": { "label": "%" },
+        "markers": [
+          { "value": "y = 10", "display_type": "warning dashed", "label": "alert threshold" }
+        ]
+      }
+    }
+  ]
+}

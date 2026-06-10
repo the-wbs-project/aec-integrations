@@ -1,7 +1,7 @@
 import { PAGE_VIEW_CF_HEADERS, PageViewPayloadSchema, type PageViewPayload } from '@aeci/shared';
 import type { Context } from 'hono';
 
-import { logToDatadog } from '../datadog';
+import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { noContent } from '../http';
@@ -171,6 +171,12 @@ function botScoreSampledOut(env: Env, botScore: number | null): boolean {
  * The deferred capture task. Enriches and inserts one `page_views` row. Never
  * throws: any failure is logged to Datadog (`warn`) and swallowed so the
  * already-returned 204 stands and the request path is never affected.
+ *
+ * Write-health signal (AECI-180 / 4.5): the insert emits `aeci.pageviews.write`
+ * (`outcome:ok|failed`) so a silent insert regression is visible as an error
+ * rate **before** it zeroes `home.trending_products` at the next daily compute.
+ * The bot-score sampled-out early return emits nothing — it is an intentional
+ * skip, not a write, and must not pollute the error-rate denominator.
  */
 async function capturePageView(
   c: Context<{ Bindings: Env }>,
@@ -204,7 +210,9 @@ async function capturePageView(
         // (§14.2 privacy); sessionId / referrer are out of scope for this issue.
       },
     });
+    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:ok']);
   } catch (error) {
+    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:failed']);
     logToDatadog(c.executionCtx, c.env, req, {
       level: 'warn',
       message: 'aeci.api.page_view.capture_failed',

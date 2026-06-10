@@ -26,7 +26,7 @@ vi.mock('./lib/algolia-drift', () => ({
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./prisma', () => ({ getPrisma: vi.fn(() => ({})) }));
 
-import { logToDatadog } from './datadog';
+import { logToDatadog, submitCount, submitDistribution } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runHomeStats } from './lib/home-stats';
@@ -166,5 +166,55 @@ describe('queue (consumer)', () => {
     expect(runHomeStats).toHaveBeenCalledTimes(1);
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('emits per-key + job-level stats metrics through the real emitter (AECI-180)', async () => {
+    // The real `emitHomeStatsMetrics` runs (only `./datadog` is mocked), so this
+    // locks in that a completed stats run lands the 4.5 metrics on the wire.
+    vi.mocked(runHomeStats).mockResolvedValue({
+      keys: [
+        { key: 'home.total_integrations', status: 'written', durationMs: 3 },
+        { key: 'home.trending_products', status: 'failed', durationMs: 5, error: 'boom' },
+      ],
+    } as never);
+    const { batch } = makeBatch('stats', 'aeci-stats-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    // per-key outcome (names the failing key)
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.stats.compute.key',
+      1,
+      ['trigger:cron', 'key:home.trending_products', 'outcome:failed'],
+    );
+    // job rollup: one written + one failed → partial
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.stats.compute',
+      1,
+      ['trigger:cron', 'outcome:partial'],
+    );
+    // per-key + job-level duration distributions
+    expect(submitDistribution).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.stats.compute.key.duration_ms',
+      5,
+      ['trigger:cron', 'key:home.trending_products'],
+    );
+    expect(submitDistribution).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.stats.compute.duration_ms',
+      expect.any(Number),
+      ['trigger:cron'],
+    );
   });
 });
