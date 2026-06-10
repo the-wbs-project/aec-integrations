@@ -5,6 +5,7 @@ export * from './product-facets';
 export * from './products';
 export * from './promote';
 export * from './requests';
+export * from './stats';
 export * from './taxonomy';
 export * from './vendors';
 export * from './version';
