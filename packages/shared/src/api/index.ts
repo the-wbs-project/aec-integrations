@@ -1,6 +1,7 @@
 export * from './common';
 export * from './integrations';
 export * from './page-views';
+export * from './product-facets';
 export * from './products';
 export * from './promote';
 export * from './requests';

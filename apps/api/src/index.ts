@@ -11,6 +11,7 @@ import {
   createIntegrationsListHandler,
 } from './routes/integrations';
 import { createPageViewsHandler } from './routes/page-views';
+import { createProductFacetsHandler } from './routes/product-facets';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
@@ -50,6 +51,9 @@ const phase28 = new Hono<{ Bindings: Env }>();
 phase28.onError(errorHandler());
 
 phase28.get('/api/products', createProductsListHandler());
+// AECI-143 — scoped facet counts. MUST register before `/api/products/:slug` so
+// the static `facets` segment is not captured as a `:slug`.
+phase28.get('/api/products/facets', createProductFacetsHandler());
 phase28.get('/api/products/:slug', createProductDetailHandler());
 
 phase28.get('/api/vendors', createVendorsListHandler());

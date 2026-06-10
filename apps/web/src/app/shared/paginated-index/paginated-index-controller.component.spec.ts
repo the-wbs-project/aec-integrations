@@ -1,4 +1,4 @@
-import { Component } from '@angular/core';
+import { Component, signal } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { beforeEach, describe, expect, it } from 'vitest';
 
@@ -229,6 +229,86 @@ describe('createPaginatedIndex', () => {
 
     expect(fixture.componentInstance.idx.error()).toBeTruthy();
     expect(fixture.componentInstance.idx.data()).toBeNull();
+    httpMock.verify();
+  });
+});
+
+/**
+ * AECI-143 host: exercises the `baseParams` (fixed, non-URL filter params) and
+ * `enabled` (fetch gate) config options, and the now-optional `meta` (omitted —
+ * the taxonomy browse page lets its resolver own meta). Mirrors how the browse
+ * page locks `{kind}_id` while a cross-filter rides the URL.
+ */
+@Component({
+  template: `@if (idx.data(); as response) {
+    <span class="total">{{ response.total }}</span>
+  }`,
+})
+class TestBaseParamsHost {
+  readonly fetchEnabled = signal(true);
+  readonly lockId = signal<string | undefined>('locked-1');
+  readonly idx: PaginatedIndex<Resp> = createPaginatedIndex<Resp>({
+    apiPath: '/api/test',
+    validSorts: new Set(['created', 'name']),
+    defaultSort: 'created',
+    baseParams: () => ({ category_id: this.lockId() }),
+    passthroughParams: ['audience_id'],
+    enabled: () => this.fetchEnabled(),
+    // no `meta` — verifies the optional-meta path constructs without throwing.
+  });
+}
+
+describe('createPaginatedIndex baseParams + enabled (AECI-143)', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('merges baseParams into the request alongside URL passthroughs', async () => {
+    const { httpMock, router } = createIndexSetup(TestBaseParamsHost, 'test');
+    await router.navigateByUrl('/test?audience_id=A');
+    const fixture = TestBed.createComponent(TestBaseParamsHost);
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne(
+      (r) =>
+        r.url === '/api/test' &&
+        r.params.get('category_id') === 'locked-1' &&
+        r.params.get('audience_id') === 'A',
+    );
+    req.flush(FIXTURE);
+    await settle();
+    httpMock.verify();
+  });
+
+  it('skips a baseParams key whose value is undefined', async () => {
+    const { httpMock, router } = createIndexSetup(TestBaseParamsHost, 'test');
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestBaseParamsHost);
+    fixture.componentInstance.lockId.set(undefined);
+    fixture.detectChanges();
+
+    const req = httpMock.expectOne((r) => r.url === '/api/test');
+    expect(req.request.params.has('category_id')).toBe(false);
+    req.flush(FIXTURE);
+    await settle();
+    httpMock.verify();
+  });
+
+  it('does not fetch while enabled() is false, then fetches once it flips true', async () => {
+    const { httpMock, router } = createIndexSetup(TestBaseParamsHost, 'test');
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestBaseParamsHost);
+    fixture.componentInstance.fetchEnabled.set(false);
+    fixture.detectChanges();
+
+    // Gate closed → no request dispatched at all.
+    httpMock.expectNone((r) => r.url === '/api/test');
+
+    // Open the gate → the resource recomputes and fires.
+    fixture.componentInstance.fetchEnabled.set(true);
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.url === '/api/test').flush(FIXTURE);
+    await settle();
     httpMock.verify();
   });
 });

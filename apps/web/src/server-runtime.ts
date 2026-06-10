@@ -232,6 +232,26 @@ type RoutePattern = {
   cacheKeyParams?: readonly string[];
 };
 
+/**
+ * AECI-143 — the listing/browse routes (`/products` + the three taxonomy
+ * browse pages) all read the same content-affecting query params: pagination
+ * (`page`/`perPage`), `sort`, and the faceted-filter ids (`category_id` /
+ * `audience_id` / `phase_id`) the `aec-facet-sidebar` writes to the URL. One
+ * shared allowlist keeps the four routes in sync and forward-safe. Per
+ * CACHE_STRATEGY.md §4a this MUST be a superset of every URL param each
+ * component reads; over-including is explicitly harmless (e.g. a browse page
+ * carries its own `{kind}_id` on the path, not the query, but listing it here
+ * costs nothing), so the union is applied uniformly.
+ */
+const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
+  'page',
+  'perPage',
+  'sort',
+  'category_id',
+  'audience_id',
+  'phase_id',
+];
+
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/', ttl: { edge: 900, browser: 300 } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
@@ -250,10 +270,11 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // tag that the /admin/purge endpoint can invalidate on writes; the browser is
   // told to refetch on every navigation so users always see fresh server HTML.
   //
-  // AECI-100 — the products index reads `page` + `sort` from the URL. `perPage`
-  // is the canonical pagination param (packages/shared PageQuerySchema) — listed
-  // for forward-safety even though the component currently hardcodes the default.
-  // Keep this list in sync with the products-index component's queryParam reads.
+  // AECI-100 — the products index reads `page` + `sort` from the URL. AECI-143
+  // added the facet sidebar, so it now also reads `category_id` / `audience_id`
+  // / `phase_id`; all share `LISTING_CACHE_KEY_PARAMS`. `perPage` is the
+  // canonical pagination param (packages/shared PageQuerySchema) — listed for
+  // forward-safety even though the component currently hardcodes the default.
   //
   // AECI-165 removed the `/vendors` and `/integrations` index pages (they now
   // 301-redirect to `/products` — registered before the SSR catch-all in
@@ -262,7 +283,7 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   {
     match: (p) => p === '/products',
     ttl: { edge: 300, browser: 0 },
-    cacheKeyParams: ['page', 'perPage', 'sort'],
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index
   // are `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav),
@@ -270,15 +291,27 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // predated AECI-61 and contradicted the canonical doc (spec §3.1's "30 min" is
   // stale — CACHE_STRATEGY.md supersedes it for caching). Per-slug pages also
   // carry `{type}:{slug}` + embedded `product:{slug}` tags for targeted purge.
+  //
+  // AECI-143 — the `:slug` browse pages gained the facet sidebar + a filtered
+  // products grid, so they now read the listing query params; they share
+  // `LISTING_CACHE_KEY_PARAMS` with `/products`. The flat index pages
+  // (`/categories` etc.) don't read those params, but the combined match means
+  // they inherit the allowlist — a harmless over-include per §4a.
   {
     match: (p) => p === '/categories' || p.startsWith('/categories/'),
     ttl: { edge: 300, browser: 0 },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   {
     match: (p) => p === '/audiences' || p.startsWith('/audiences/'),
     ttl: { edge: 300, browser: 0 },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
-  { match: (p) => p === '/phases' || p.startsWith('/phases/'), ttl: { edge: 300, browser: 0 } },
+  {
+    match: (p) => p === '/phases' || p.startsWith('/phases/'),
+    ttl: { edge: 300, browser: 0 },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
+  },
 ];
 
 /**

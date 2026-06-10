@@ -3,12 +3,17 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
+import type { ProductsListResponse } from '@aeci/shared';
+
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { KIND_PATH_SEGMENT, type TaxonomyTermDetail } from '../core/api/taxonomy';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { NotFound } from '../not-found/not-found';
+import { Paginator } from '../products/paginator';
 import { ProductCard } from '../products/product-card';
+import { FacetSidebar } from '../shared/facets/facet-sidebar';
+import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
 
 /**
  * AECI-61 — shared browse page for `/categories/:slug`, `/audiences/:slug`,
@@ -19,17 +24,28 @@ import { ProductCard } from '../products/product-card';
  *   - `term === null` → the global `aec-not-found` shell (the resolver already
  *     set `RESPONSE_INIT.status = 404` + noindex meta).
  *   - `term` set → `BrowseLayout` with a header strip (breadcrumb + name +
- *     description + count), a Phase 3 filter-sidebar placeholder, and the
- *     matching products rendered as the same `tr[aec-product-card]` table the
- *     `/products` index uses (visual parity — AECI-61 reuses, doesn't fork).
+ *     description + count), the API-backed facet sidebar, and the matching
+ *     products as a paginated grid.
  *
- * Cache discipline: the path matcher emits `route:browse` + `{kind}:{slug}`;
- * the resolver pushes `product:{slug}` for each shown product onto
- * `ctx.embedded`. Nothing here triggers HTTP — hydration reads `route.data`.
+ * AECI-143 — the filter sidebar (`aec-facet-sidebar`) is locked to this page's
+ * own taxonomy (`lockedKind`/`lockedId`) so it cross-filters by the *other* two
+ * dimensions, and the static `term.products` table is replaced by a
+ * `createPaginatedIndex` grid that fetches `GET /api/products?{kind}_id=<term>`
+ * with the cross-filters from the URL. The locked dimension rides `baseParams`
+ * (not the URL); the cross-filters ride `passthroughParams`. The resolver is
+ * unchanged — it still fetches the term (header, 404, canonical, embedded
+ * `product:{slug}` cache tags). The grid + facets fetches run during SSR and are
+ * captured in the HTTP transfer cache, same mechanism as `/products`.
+ *
+ * Cache discipline: the path matcher emits `route:browse` + `{kind}:{slug}`; the
+ * resolver pushes `product:{slug}` for every product the term carries onto
+ * `ctx.embedded` (a superset of any filtered grid subset), so editing any of
+ * those products purges this page. Filters are query params → `<link
+ * rel="canonical">` stays on the unfiltered `/{kind}/{slug}` (§20.6).
  */
 @Component({
   selector: 'aec-taxonomy-browse',
-  imports: [BrowseLayout, NotFound, ProductCard, RouterLink],
+  imports: [BrowseLayout, FacetSidebar, NotFound, Paginator, ProductCard, RouterLink],
   template: `
     @let t = term();
     @if (t === null) {
@@ -77,62 +93,95 @@ import { ProductCard } from '../products/product-card';
           <p class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</p>
         </div>
 
-        <div slot="filters">
-          <div
-            class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-4 text-sm text-(--text-secondary)"
-            aria-hidden="true"
-          >
-            <p class="font-bold text-(--text-secondary)" i18n="@@taxonomy.browse.filters.title">
-              Filters
-            </p>
-            <p class="mt-1" i18n="@@taxonomy.browse.filters.placeholder">Coming soon.</p>
-          </div>
-        </div>
+        <aec-facet-sidebar slot="filters" [lockedKind]="kind()" [lockedId]="t.id" />
 
-        <div slot="grid" class="overflow-x-auto">
-          <table
-            class="w-full min-w-[40rem] border-collapse text-start text-sm"
-            i18n-aria-label="@@taxonomy.browse.table.aria"
-            aria-label="Products"
-          >
-            <thead
-              class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary) uppercase"
+        <div slot="grid" class="space-y-8">
+          <div class="overflow-x-auto">
+            <table
+              class="w-full min-w-[40rem] border-collapse text-start text-sm"
+              i18n-aria-label="@@taxonomy.browse.table.aria"
+              aria-label="Products"
             >
-              <tr>
-                <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.name">
-                  Name
-                </th>
-                <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.vendor">
-                  Vendor
-                </th>
-                <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.category">
-                  Primary category
-                </th>
-                <th
-                  scope="col"
-                  class="px-4 py-3 text-end font-medium"
-                  i18n="@@taxonomy.browse.col.integrations"
-                >
-                  Integrations
-                </th>
-              </tr>
-            </thead>
-            <tbody class="divide-y divide-(--border-default)">
-              @for (product of t.products; track product.id) {
-                <tr aec-product-card [product]="product"></tr>
-              } @empty {
+              <thead
+                class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary) uppercase"
+              >
                 <tr>
-                  <td
-                    colspan="4"
-                    class="px-4 py-12 text-center text-(--text-secondary)"
-                    i18n="@@taxonomy.browse.empty"
+                  <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.name">
+                    Name
+                  </th>
+                  <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.vendor">
+                    Vendor
+                  </th>
+                  <th
+                    scope="col"
+                    class="px-4 py-3 font-medium"
+                    i18n="@@taxonomy.browse.col.category"
                   >
-                    No products tagged with this term yet. Check back soon.
-                  </td>
+                    Primary category
+                  </th>
+                  <th
+                    scope="col"
+                    class="px-4 py-3 text-end font-medium"
+                    i18n="@@taxonomy.browse.col.integrations"
+                  >
+                    Integrations
+                  </th>
                 </tr>
-              }
-            </tbody>
-          </table>
+              </thead>
+              <tbody class="divide-y divide-(--border-default)">
+                @if (idx.data(); as response) {
+                  @for (product of response.data; track product.id) {
+                    <tr aec-product-card [product]="product"></tr>
+                  } @empty {
+                    <tr>
+                      <td
+                        colspan="4"
+                        class="px-4 py-12 text-center text-(--text-secondary)"
+                        i18n="@@taxonomy.browse.empty"
+                      >
+                        No products match these filters.
+                      </td>
+                    </tr>
+                  }
+                } @else if (idx.error()) {
+                  <tr>
+                    <td
+                      colspan="4"
+                      class="px-4 py-12 text-center text-(--text-secondary)"
+                      i18n="@@taxonomy.browse.error"
+                    >
+                      Couldn't load products. Refresh to try again.
+                    </td>
+                  </tr>
+                } @else {
+                  <tr aria-busy="true">
+                    <td
+                      colspan="4"
+                      class="px-4 py-12 text-center text-(--text-secondary)"
+                      i18n="@@taxonomy.browse.loading"
+                    >
+                      Loading products…
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          @if (idx.data(); as response) {
+            <nav
+              class="flex items-center justify-between border-t border-(--border-default) pt-6"
+              i18n-aria-label="@@taxonomy.browse.pagination.aria"
+              aria-label="Pagination"
+            >
+              <aec-paginator
+                [page]="response.page"
+                [perPage]="response.perPage"
+                [total]="response.total"
+                (pageChange)="idx.onPageChange($event)"
+              />
+            </nav>
+          }
         </div>
       </aec-browse-layout>
     }
@@ -155,6 +204,24 @@ export class TaxonomyBrowsePage {
     this.route.data.pipe(map((d) => (d['term'] ?? null) as TaxonomyTermDetail | null)),
     { initialValue: (this.route.snapshot.data['term'] ?? null) as TaxonomyTermDetail | null },
   );
+
+  /**
+   * Filtered products grid. Locks this page's own dimension via `baseParams`
+   * (`{kind}_id=<term.id>`, never a URL param) and lets the facet sidebar drive
+   * the other two dimensions through the URL (`passthroughParams`). `enabled`
+   * gates the fetch on a resolved term so a 404 doesn't query the whole catalog.
+   * Meta is owned by the resolver, so none is passed here.
+   */
+  protected readonly idx = createPaginatedIndex<ProductsListResponse>({
+    apiPath: '/api/products',
+    validSorts: new Set(['created', 'name', 'updated']),
+    defaultSort: 'created',
+    baseParams: () => ({ [`${this.kind()}_id`]: this.term()?.id }),
+    passthroughParams: (['category_id', 'audience_id', 'phase_id'] as const).filter(
+      (param) => param !== `${this.kind()}_id`,
+    ),
+    enabled: () => this.term() !== null,
+  });
 
   /** Breadcrumb ancestor label per kind (e.g. "Categories"). */
   protected readonly parentLabel = computed(() => {

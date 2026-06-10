@@ -58,8 +58,33 @@ export interface PaginatedIndexConfig {
    * surfaced via `params()` for the page to drive filter UI state.
    */
   passthroughParams?: readonly string[];
-  /** SEO metadata, set once. The page builds this with per-entity `$localize`. */
-  meta: SetEntityMetaInput;
+  /**
+   * Fixed, non-URL filter params merged into every request ahead of the URL
+   * passthroughs (AECI-143). Read inside the `httpResource` computation so the
+   * fetch re-runs if the returned values change. Powers the taxonomy browse
+   * grid: the page locks its own dimension (`{kind}_id=<term.id>`) here while
+   * cross-filters ride the URL via `passthroughParams`. `/products` passes none.
+   * Keys with an `undefined` value are skipped. The function MUST return a
+   * stable key order so the SSR transfer-cache key stays byte-identical across
+   * server and client.
+   */
+  baseParams?: () => Record<string, string | undefined>;
+  /**
+   * Gate for the fetch (AECI-143). When provided and it returns `false`, the
+   * `httpResource` request function returns `undefined` so no request fires and
+   * `data()` stays `null`. The taxonomy browse page passes `() => term() !== null`
+   * so a 404 (term not found) never fires a spurious whole-catalog `/api/products`
+   * query — the grid isn't rendered on a 404, but the controller is still
+   * constructed in the page's field initializer. Omitted ⇒ always enabled.
+   */
+  enabled?: () => boolean;
+  /**
+   * SEO metadata, set once. The page builds this with per-entity `$localize`.
+   * Optional (AECI-143): the taxonomy browse page's meta is owned by its
+   * resolver (term name + canonical), so it omits this to avoid clobbering the
+   * resolved term meta with a generic index title.
+   */
+  meta?: SetEntityMetaInput;
 }
 
 export interface PaginatedIndex<TResponse> {
@@ -111,7 +136,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   const parseSort = (raw: string | null): string =>
     raw && config.validSorts.has(raw) ? raw : config.defaultSort;
 
-  meta.setEntityMeta(config.meta);
+  if (config.meta) meta.setEntityMeta(config.meta);
 
   // Active query params as a signal. Emits synchronously on subscribe (the
   // router seeds the current value), so `requireSync` holds.
@@ -122,12 +147,23 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // emitted in a stable order (page, perPage, sort, then passthroughs) so the
   // SSR transfer-cache key stays byte-identical across server and client.
   const resource = httpResource<TResponse>(() => {
+    if (config.enabled && !config.enabled()) return undefined;
     const qp = queryParamMap();
     const params: Record<string, string | number> = {
       page: parsePage(qp.get('page')),
       perPage,
       sort: parseSort(qp.get('sort')),
     };
+    // Fixed (non-URL) base params first — e.g. the browse page's locked
+    // `{kind}_id` — then the URL passthrough cross-filters. Stable key order
+    // keeps the SSR transfer-cache key byte-identical across server + client.
+    const base = config.baseParams?.();
+    if (base) {
+      for (const key of Object.keys(base)) {
+        const value = base[key];
+        if (value !== undefined) params[key] = value;
+      }
+    }
     for (const key of passthroughParams) {
       const value = qp.get(key);
       if (value) params[key] = value;

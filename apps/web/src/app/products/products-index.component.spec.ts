@@ -46,7 +46,10 @@ registerIndexPageSuite({
   defaultSort: 'created',
   h1Text: 'Products',
   detailHref: '/products/procore',
-  emptyText: 'No products yet',
+  emptyText: 'No products match these filters',
   errorText: "Couldn't load products",
   fixtureResponse,
+  // AECI-143 — the index now renders the API-backed facet sidebar, which fetches
+  // scoped counts from `/api/products/facets`; the harness drains that request.
+  facetsUrl: '/api/products/facets',
 });

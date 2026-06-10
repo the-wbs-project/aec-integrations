@@ -49,6 +49,22 @@ export interface IndexPageScenario {
   errorText: string;
   /** A one-item list response to flush on the happy path (a `*ListResponse`). */
   fixtureResponse: object;
+  /**
+   * AECI-143 — set when the page renders an `aec-facet-sidebar` that fetches
+   * scoped facet counts (`/api/products/facets`). The sidebar fires this once on
+   * init and not again on `page`/`sort` navigation, so the harness drains it
+   * before each `verify()`. Omit for index pages without a filter sidebar.
+   */
+  facetsUrl?: string;
+}
+
+/** Flush the facet-sidebar's scoped-count request(s), if the page has one, so a
+ *  `verify()` doesn't trip on the outstanding `/api/products/facets` request. */
+function drainFacets(httpMock: HttpTestingController, s: IndexPageScenario): void {
+  if (!s.facetsUrl) return;
+  for (const req of httpMock.match((r) => r.url === s.facetsUrl)) {
+    req.flush({ categories: [], audiences: [], phases: [] });
+  }
 }
 
 /**
@@ -100,6 +116,7 @@ function registerCommonCases(s: IndexPageScenario): void {
     const root = fixture.nativeElement as HTMLElement;
     expect(root.querySelector('h1')?.textContent).toContain(s.h1Text);
     expect(root.querySelector(`a[href="${s.detailHref}"]`)).not.toBeNull();
+    drainFacets(httpMock, s);
     httpMock.verify();
   });
 
@@ -111,6 +128,7 @@ function registerCommonCases(s: IndexPageScenario): void {
 
     httpMock.expectOne((r) => r.params.get('sort') === s.defaultSort).flush(s.fixtureResponse);
     await settle();
+    drainFacets(httpMock, s);
     httpMock.verify();
   });
 
@@ -131,6 +149,7 @@ function registerCommonCases(s: IndexPageScenario): void {
 
     const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
     expect(errorRow?.textContent).toContain(s.errorText);
+    drainFacets(httpMock, s);
     httpMock.verify();
   });
 
@@ -148,6 +167,7 @@ function registerCommonCases(s: IndexPageScenario): void {
 
     const emptyRow = (fixture.nativeElement as HTMLElement).querySelector('tbody td');
     expect(emptyRow?.textContent).toContain(s.emptyText);
+    drainFacets(httpMock, s);
     httpMock.verify();
   });
 }
@@ -168,6 +188,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
     // name sorts ascending (A→Z), so aria-sort must be "ascending".
     const th = (fixture.nativeElement as HTMLElement).querySelector('th[aria-sort]');
     expect(th?.getAttribute('aria-sort')).toBe('ascending');
+    drainFacets(httpMock, s);
     httpMock.verify();
   });
 
@@ -194,6 +215,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
     fixture.detectChanges();
     httpMock.expectOne((r) => r.url === s.apiUrl).flush(s.fixtureResponse);
     await settle();
+    drainFacets(httpMock, s);
     httpMock.verify();
   });
 
@@ -226,6 +248,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
     // The error row must be visible; stale page-1 data must not be shown.
     const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
     expect(errorRow?.textContent).toContain(s.errorText);
+    drainFacets(httpMock, s);
     httpMock.verify();
   });
 }
