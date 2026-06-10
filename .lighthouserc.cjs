@@ -71,6 +71,7 @@ module.exports = {
   ci: {
     collect: {
       url: [
+        `${baseUrl}/`, // home page (AECI-187) — indexable (class A): scores + CWV
         `${baseUrl}/products`, // product index
         `${baseUrl}/products/fixture-procore`, // product detail
         `${baseUrl}/vendors`, // vendor index
@@ -86,7 +87,7 @@ module.exports = {
         `${baseUrl}/search`, // Phase 3 search page (AECI-146) — noindex, SEO-exempt
         `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
       ],
-      // Collection dominates this job — 14 URLs × N runs × ~12s each. At the
+      // Collection dominates this job — 15 URLs × N runs × ~12s each. At the
       // former N=3 the run took ~7m50s; a SINGLE run lands it at ~2m40s. This
       // gate is warn-only/non-blocking, and its value is per-page-type coverage,
       // not run-to-run median smoothing, so default to one run. Restore the
