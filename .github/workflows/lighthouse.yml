@@ -139,7 +139,13 @@ jobs:
       # step above — this catches a regression in the SSR injection itself).
       - name: Assert /search serves the InstantSearch config
         run: |
-          if ! curl -fsS http://localhost:8788/search | grep -q '__AECI_ALGOLIA__'; then
+          # Capture the body first: `curl … | grep -q` is unsafe under the
+          # default `bash -eo pipefail` — grep -q closes the pipe on first match
+          # (the token sits near the top of <head>), so on a >64 KB SSR document
+          # curl is still writing and exits non-zero (EPIPE), which pipefail then
+          # propagates as a spurious guard failure.
+          search_html="$(curl -fsS http://localhost:8788/search)"
+          if ! grep -q '__AECI_ALGOLIA__' <<<"$search_html"; then
             echo "::error::/search did not render window.__AECI_ALGOLIA__ — the SSR Worker is not injecting the Algolia search config, so Lighthouse would measure the degraded shell."
             exit 1
           fi
