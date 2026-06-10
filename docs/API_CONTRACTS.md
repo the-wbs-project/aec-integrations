@@ -564,7 +564,14 @@ Used by the SSR Worker to populate nav, footer, and the `/categories` flat list.
 
 #### `GET /api/stats/home`
 
-Reads from `stats_cache` table. Never aggregates live.
+Reads from `stats_cache` table. Never aggregates live. Pre-launch the cache is
+sparse (until the daily compute job, §10, first runs), so a missing/empty cache
+yields a valid **200 with empty defaults**, never a 500: the two single-card
+fields are `null`, the scalars are `0`, and the lists are `[]`. The same fallback
+applies per-field if a cached value has drifted from its schema.
+
+`Cache-Control: private, no-store` (per `CACHE_STRATEGY.md` §4 — API responses are
+never edge-cached; daily-freshness edge caching is owned by the SSR home route).
 
 ```typescript
 export type HomeStatsResponse = {
@@ -573,11 +580,11 @@ export type HomeStatsResponse = {
   most_integrated_product: {
     product: ProductRef;
     integration_count: number;
-  };
+  } | null;                              // null when the cache key is absent
   most_active_category: {
     category: TaxonomyRef;
     integration_count: number;
-  };
+  } | null;                              // null when the cache key is absent
   recent_integrations: Integration[];   // last 10
   trending_products: Product[];          // top 5
   recently_added_products: Product[];   // last 10

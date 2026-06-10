@@ -76,8 +76,8 @@ describe('HomeStatsResponseSchema', () => {
   it('round-trips a fully populated payload', () => {
     const parsed = HomeStatsResponseSchema.parse(validHomeStats);
     expect(parsed.total_integrations).toBe(128);
-    expect(parsed.most_integrated_product.product.slug).toBe('procore-platform');
-    expect(parsed.most_active_category.integration_count).toBe(64);
+    expect(parsed.most_integrated_product?.product.slug).toBe('procore-platform');
+    expect(parsed.most_active_category?.integration_count).toBe(64);
     expect(parsed.recent_integrations[0]?.source.slug).toBe('procore-platform');
     expect(parsed.trending_products).toHaveLength(1);
   });
@@ -90,6 +90,16 @@ describe('HomeStatsResponseSchema', () => {
       recently_added_products: [],
     });
     expect(parsed.recent_integrations).toEqual([]);
+  });
+
+  it('accepts null for the two single-card fields (sparse cache, no data yet)', () => {
+    const parsed = HomeStatsResponseSchema.parse({
+      ...validHomeStats,
+      most_integrated_product: null,
+      most_active_category: null,
+    });
+    expect(parsed.most_integrated_product).toBeNull();
+    expect(parsed.most_active_category).toBeNull();
   });
 
   it('rejects when a top-level field is missing', () => {

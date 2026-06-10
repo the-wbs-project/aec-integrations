@@ -15,6 +15,7 @@ import { createProductFacetsHandler } from './routes/product-facets';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
+import { createStatsHomeHandler } from './routes/stats';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
@@ -94,6 +95,11 @@ phase28.get(
 );
 
 phase28.get('/api/taxonomy', createTaxonomyHandler());
+
+// Phase 4.4 (AECI-179) — home stats, read straight from the `stats_cache`
+// `home.*` keys (filled daily by 4.3). Never live-aggregates; a sparse cache
+// returns empty-but-valid defaults, never a 500.
+phase28.get('/api/stats/home', createStatsHomeHandler());
 
 // Vendor requests (AECI-128) — claim & correction form submissions. Public (no
 // auth until Phase 5); insert into `vendor_requests` with an audit row. The
