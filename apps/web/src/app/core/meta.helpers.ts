@@ -12,6 +12,14 @@ import type { ProductDetail, VendorDetail } from '@aeci/shared';
 export const META_DESCRIPTION_MAX = 155;
 
 /**
+ * The publisher / brand name used in the home structured data (§20.3 `WebSite`
+ * and the publisher `Organization`). The `· AEC Integrations` title chrome is
+ * `$localize`-wrapped in `MetaService`, but this is the language-neutral brand
+ * proper-noun that schema.org consumes, so it stays a plain constant.
+ */
+export const SITE_NAME = 'AEC Integrations';
+
+/**
  * Default OG image when an entity has no logo of its own. We reuse the brand
  * monogram so we don't have to ship a new asset for AECI-51. Some scrapers
  * (older LinkedIn, some Slack flavors) render SVG OG images inconsistently;
@@ -51,6 +59,30 @@ export interface OrganizationLd {
 }
 
 /**
+ * `schema.org/SearchAction` nested in the home `WebSite` payload — the signal
+ * Google reads to offer a sitelinks search box (§20.3). `target` is a URI
+ * template; `query-input` names the substitution variable.
+ */
+export interface SearchActionLd {
+  '@type': 'SearchAction';
+  target: string;
+  'query-input': string;
+}
+
+/**
+ * `schema.org/WebSite` JSON-LD for the home page (§20.3). Carries the site name,
+ * the homepage URL, and a `SearchAction` `potentialAction` so search engines can
+ * render the sitelinks search box wired to `/search`.
+ */
+export interface WebSiteLd {
+  '@context': 'https://schema.org';
+  '@type': 'WebSite';
+  name: string;
+  url: string;
+  potentialAction: SearchActionLd;
+}
+
+/**
  * Truncate `input` to ≤ `max` characters at a word boundary, appending an
  * ellipsis. Returns `''` for null / empty / whitespace-only input. If a single
  * token exceeds `max`, hard-cut at `max - 1` and append '…'.
@@ -77,6 +109,21 @@ export function stripQueryParams(url: string): string {
     parsed.search = '';
     parsed.hash = '';
     return parsed.toString();
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * The scheme+host origin of an absolute URL (no trailing slash, no path), e.g.
+ * `https://aecintegrations.com/` → `https://aecintegrations.com`. Used to build
+ * the home `WebSite` / `Organization` JSON-LD against the serving origin
+ * (canonical URLs are self-referential, ADR 0011). Returns the input unchanged
+ * if it doesn't parse.
+ */
+export function originOf(url: string): string {
+  try {
+    return new URL(url).origin;
   } catch {
     return url;
   }
@@ -174,5 +221,49 @@ export function buildVendorJsonLd(vendor: VendorDetail): OrganizationLd {
     ld.foundingDate = String(vendor.founded_year);
   }
   if (vendor.headquarters) ld.address = vendor.headquarters;
+  return ld;
+}
+
+/**
+ * Build the home `schema.org/WebSite` JSON-LD with the `SearchAction` that lets
+ * Google offer a sitelinks search box (§20.3 — the home JSON-LD item NOT covered
+ * by AECI-51's product/vendor structured data). `origin` is the serving origin
+ * with no trailing slash (e.g. `https://aecintegrations.com`); the homepage
+ * `url` and the `/search?q=` target are composed from it so the structured data
+ * follows the serving host (self-referential canonicals, ADR 0011).
+ */
+export function buildWebSiteJsonLd(input: { origin: string; name: string }): WebSiteLd {
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: input.name,
+    url: `${input.origin}/`,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: `${input.origin}/search?q={search_term_string}`,
+      'query-input': 'required name=search_term_string',
+    },
+  };
+}
+
+/**
+ * Build the publisher `schema.org/Organization` JSON-LD for the home page
+ * (§20.3 / §20.4) — AECi as the site's publisher. Distinct from
+ * `buildVendorJsonLd`, which describes a vendor *entity* on its detail page;
+ * this is the directory's own brand. `origin` is the serving origin (no trailing
+ * slash); `logo` should be an absolute URL when supplied.
+ */
+export function buildSiteOrganizationLd(input: {
+  origin: string;
+  name: string;
+  logo?: string;
+}): OrganizationLd {
+  const ld: OrganizationLd = {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    name: input.name,
+    url: `${input.origin}/`,
+  };
+  if (input.logo) ld.logo = input.logo;
   return ld;
 }

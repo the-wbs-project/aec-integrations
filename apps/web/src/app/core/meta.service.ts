@@ -7,12 +7,16 @@ import type { ProductDetail, VendorDetail } from '@aeci/shared';
 import {
   DEFAULT_OG_IMAGE,
   type EntityKind,
+  SITE_NAME,
   buildEntityTitle,
   buildOgTags,
   buildProductJsonLd,
+  buildSiteOrganizationLd,
   buildVendorJsonLd,
+  buildWebSiteJsonLd,
   isBrowseKind,
   ogTypeForKind,
+  originOf,
   stripQueryParams,
   truncateAtWordBoundary,
 } from './meta.helpers';
@@ -147,6 +151,51 @@ export class MetaService {
     }
   }
 
+  /**
+   * Meta + structured data for the home page (`/`, AECI-186 / §20.3–§20.6).
+   * Unlike the entity pages, the home `<title>` and description are STATIC (they
+   * don't depend on fetched data), so this is set from the `Home` component
+   * constructor — like `setSearchMeta` — and the stats resolver stays narrow.
+   * Home is indexable, so no `robots` tag is set (cf. `setNotFoundMeta` /
+   * `setSearchMeta`, which both noindex).
+   *
+   * Emits, beyond `<title>` + description + canonical + OG/Twitter
+   * (`og:type=website`), the two home-specific JSON-LD items not covered by
+   * AECI-51's product/vendor structured data: the §20.3 `WebSite` (with a
+   * `SearchAction` for Google's sitelinks search box) and a publisher
+   * `Organization`. Both are derived from the serving origin so they follow the
+   * self-referential canonical (ADR 0011). Stale detail JSON-LD from a prior
+   * in-app navigation is left untouched — like `setProductJsonLd` /
+   * `setVendorJsonLd`, which only upsert their own kind; each SSR render (the
+   * SEO-relevant path) is a fresh per-URL app, so it never ships cross-page LD.
+   */
+  setHomeMeta(input: { canonical: string }): void {
+    const title = $localize`:@@meta.homeTitle:AEC Integrations: verified software integrations for the AEC industry`;
+    const description = $localize`:@@meta.homeDescription:Find verified integrations between AEC software. Every integration is confirmed by both vendors, with no marketing and no pay-for-placement.`;
+
+    this.title.setTitle(title);
+    this.meta.updateTag({ name: 'description', content: description });
+
+    const canonical = stripQueryParams(input.canonical);
+    this.upsertCanonical(canonical);
+
+    const origin = originOf(canonical);
+    const tags = buildOgTags({
+      title,
+      description,
+      url: canonical,
+      type: 'website',
+      image: DEFAULT_OG_IMAGE,
+    });
+    for (const tag of tags) this.meta.updateTag(tag);
+
+    this.upsertJsonLdScript('website', buildWebSiteJsonLd({ origin, name: SITE_NAME }));
+    this.upsertJsonLdScript(
+      'organization',
+      buildSiteOrganizationLd({ origin, name: SITE_NAME, logo: `${origin}${DEFAULT_OG_IMAGE}` }),
+    );
+  }
+
   setProductJsonLd(product: ProductDetail): void {
     this.upsertJsonLdScript('product', buildProductJsonLd(product));
   }
@@ -166,7 +215,10 @@ export class MetaService {
     link.setAttribute('href', href);
   }
 
-  private upsertJsonLdScript(kind: 'product' | 'vendor', payload: object): void {
+  private upsertJsonLdScript(
+    kind: 'product' | 'vendor' | 'website' | 'organization',
+    payload: object,
+  ): void {
     const head = this.document.head;
     const selector = `script[type="application/ld+json"][data-aeci-jsonld="${kind}"]`;
     let script = head.querySelector(selector) as HTMLScriptElement | null;
