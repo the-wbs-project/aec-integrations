@@ -147,6 +147,19 @@ pnpm dev:bound
 
 `pnpm dev:bound` runs `pnpm -r --parallel --filter @aeci/api --filter @aeci/web run dev:preview`. Running only one of the two Workers leaves the binding unresolved and the SSR `/api/health` proxy will fail. The legacy single-Worker `pnpm dev:web` / `pnpm dev:api` scripts remain for solo-Worker iteration.
 
+#### Parallel Conductor workspaces: `dev:conductor` vs `dev:agent`
+
+Many Conductor workspaces run in parallel. Naively they collide two ways: on **ports** (`Address already in use` on `8788/8787`) **and** on wrangler's **local dev registry**, which is keyed by *worker name* (`aeci-web` / `aeci-api-preview`), not port. The registry clash is the nastier one — a second workspace registering the same names makes the first `wrangler dev` exit immediately, and pnpm `--parallel` then SIGTERMs its sibling (symptom: `web: Done` + `api: … signal "SIGTERM"`, no "Address already in use"). Both clashes are fixed:
+
+- **Ports** — two scripts split the lanes:
+  - **`pnpm dev:conductor`** — pins SSR `8788` / API `8787`, always (`scripts/dev-conductor.sh`), and **reclaims those ports** if a stale/previous session is holding them. This pair is **reserved for the human's primary workspace** (whose preview button/URL points at `localhost:8788`). Exactly one workspace should use this.
+  - **`pnpm dev:agent`** — for every other (agent) workspace. Auto-scans for a free pair **starting at `8790/8789`** (`scripts/dev-launch.sh`), stepping up in twos, so it never touches the reserved conductor pair. Prints the URL it chose.
+- **Registry** — `dev:bound` sets `WRANGLER_REGISTRY_PATH=$PWD/.wrangler/registry`, giving **each workspace its own isolated dev registry** (gitignored). Both Workers in a workspace share it (so the `env.API` service binding still resolves), but no two workspaces share names — so no cross-workspace SIGTERM and no binding cross-talk.
+
+The port override is plumbed through `AECI_WEB_PORT` / `AECI_API_PORT` (honored by each app's `dev:preview` and by `playwright.config.ts`); both default to `8788/8787`, so direct `pnpm dev:bound`, CI, and e2e are unchanged (each gets its own registry too). **When you (an agent) need to boot the app in a workspace, use `pnpm dev:agent`, not `pnpm dev:conductor` / `pnpm dev` / `pnpm dev:bound`** — leave the constant pair for the human.
+
+If launches start failing with the SIGTERM symptom, it's almost always **orphaned `workerd` processes** from a prior run that Conductor didn't clean up. Clear them: `lsof -nP -iTCP -sTCP:LISTEN | grep workerd` then `kill` the PIDs (or just re-run `dev:conductor`, which reclaims its own pair).
+
 ### Version reporting (AECI-74)
 
 `apps/api` exposes `GET /api/version` returning `{ sha, deployedAt, environment }`. The SSR Worker proxies the same path via the existing `/api/*` service binding, so `GET /api/version` on `apps/web` reports the **API Worker's** values. The SSR Worker *also* serves its **own** `GET /_version` (`apps/web/src/server/routes/version.ts`, AECI-92) — same response shape, but **not proxied**, so it reports the **SSR Worker's** `COMMIT_SHA`. The two endpoints exist precisely because `/api/version` alone can't catch a stale SSR deploy (the SSR Worker forwards `/api/*` untouched to the API Worker). The deploy gates (`deploy.yml`, `promote-to-prod.yml`, `pr-preview.yml`, `refresh-staging.yml`) assert **both** equal the target commit via `scripts/verify-version.sh`.
