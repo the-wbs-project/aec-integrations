@@ -22,6 +22,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 |---|---|
 | What we're building and why | `docs/STAGE_1_SPEC.md` |
 | Phase 2 scope and spec (supersedes §16 Phase 2 of the Stage 1 spec) | `docs/STAGE_1_PHASE_2_SPEC.md` |
+| Phase 5 scope and spec (auth & reviews; supersedes §16 Phase 5 of the Stage 1 spec) | `docs/STAGE_1_PHASE_5_SPEC.md` |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
 | Review-app → Supabase promotion push (`POST /api/promote` payload/response, idempotency, integration rule) | `docs/REVIEW_APP_PROMOTE_API.md` |
 | Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
@@ -38,7 +39,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Search ranking: Algolia index settings (searchable attrs, faceting), custom ranking signals, mechanism-kind priority, tie-breakers, post-launch tuning loop | `docs/SEARCH_RANKING.md` |
 | Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
-| Auth model and RLS policies | `docs/AUTH_AND_RLS.md` (placeholder — defer to spec until completed) |
+| Auth model, GRANTs & RLS policies (3-layer authz: Worker JWT/role/ban, PostgREST GRANTs, RLS; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
 | Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
 | Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
 | Angular / TypeScript conventions (zoneless, signals, control flow, OnPush, SSR safety, file naming, lint rules) | `ANGULAR_STYLE_GUIDE.md` (repo root) |

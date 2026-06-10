@@ -623,6 +623,31 @@ Errors:
 - `NOT_FOUND` if product doesn't exist
 - `VALIDATION_FAILED` for bad input
 
+#### `GET /api/products/:slug/reviews`
+
+Public, paginated, **approved-only** review list for a product (added for Phase 5; see `STAGE_1_PHASE_5_SPEC.md` §5.4). No PII (no reviewer email). The `GET /api/products/:slug` (`ProductDetail`) payload additionally embeds the summary (`review_count`, `rating_overall_avg`, `rating_onboarding_avg` — denormalized) plus the first page for SSR.
+
+```typescript
+export const ProductReviewsQuerySchema = PaginationQuerySchema;
+
+export type PublicReview = {
+  id: string;
+  rating_overall: number;
+  rating_onboarding: number;
+  title: string;
+  body: string;
+  role_at_company: string | null;
+  years_using: number | null;
+  would_recommend: 'yes' | 'no' | 'maybe' | null;
+  verified_work_email: boolean;
+  created_at: string;
+};
+
+export type ProductReviewsResponse = PaginatedResponse<PublicReview>;
+```
+
+Cacheable (approved content is visitor-neutral). The endpoint always returns the list; the numeric rating **averages are withheld from the UI until ≥5 approved reviews** exist (`STAGE_1_PHASE_5_SPEC.md` §5.5). Errors: `NOT_FOUND` (product slug).
+
 ### 6.7 Vendor requests
 
 Source of truth: `packages/shared/src/api/requests.ts` (the Zod schemas the API validates with, shared with the Signal Forms client — ADR 0009). Implemented in AECI-128 (`apps/api/src/routes/requests.ts`). The request target is addressed by `(target_type, slug)` from the route and resolved to `vendor_requests.target_id` server-side — the client never holds a UUID. `target_type` is `product | vendor` only (no `integration`; Stage 1 claim/correction covers products + vendors). Rows are inserted `status:'open'`, `domain_match:'pending'`, `linear_issue_id:null` for the Phase 6 moderation pipeline (n8n/Linear/admin, including duplicate detection) to pick up.

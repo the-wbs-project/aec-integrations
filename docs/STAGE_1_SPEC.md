@@ -1063,15 +1063,18 @@ Decomposed into AECI Phase 4.1–4.12 (planned 2026-06-10). The `stats_cache` an
 - [ ] Phase 4 completion checkpoint
 
 ### Phase 5: Auth & reviews (Week 7)
-- [ ] Supabase Auth setup with magic link + Google OAuth
-- [ ] Login page, callback handler
-- [ ] Account page with delete flow (GDPR-compliant anonymization)
-- [ ] Review submission form with locale capture
-- [ ] Review moderation queue (admin)
-- [ ] Perspective API integration for profanity flagging
-- [ ] Review duplicate detection on submission
-- [ ] Review display on product pages with ≥5 threshold logic
-- [ ] "Be the first to review" empty state on products with no reviews
+
+Governed by `docs/STAGE_1_PHASE_5_SPEC.md` (decomposed into AECI Phase 5.1–5.16, planned 2026-06-10). The data layer already exists (profiles, reviews + all moderation columns, RLS, workflow tables, audit log, `handle_new_user`, `is_admin()`/`is_active_user()`) — Phase 5 is app code, ~zero migrations. **Moderation boundary:** Phase 5 ships *functional* review moderation (queue, approve/reject, toxicity-flag, ban enforcement on submit); the workflow-FSM, Slack alerts, Linear sync, and ban-management UI move to **Phase 6** (Phase-5 spec §3.2).
+
+- [ ] Supabase Auth (magic link + Google OAuth): `/auth/login`, `/auth/callback`, SSR session read, sign-out
+- [ ] API Worker authz middleware (JWT verify + role/ban; `AUTH_AND_RLS.md` §4)
+- [ ] `POST /api/reviews` (dedup, banned rejection, locale) + Perspective toxicity flagging
+- [ ] `GET /api/products/:slug/reviews` (public, approved-only) + ProductDetail summary + ≥5 threshold
+- [ ] Review submission form `/products/:slug/review` (Signal Forms + Angular Aria — satisfies AECI-133)
+- [ ] Reviews display + "Be the first to review" empty state + cache-neutral personalized CTA
+- [ ] `/account` + `DELETE /api/account` (GDPR anonymization; Loops email deferred to Phase 7)
+- [ ] Admin moderation: `/admin` guard, `GET`/`PATCH /api/admin/reviews`, `/admin/reviews` queue UI
+- [ ] Auth/reviews observability + Phase 5 completion checkpoint
 
 ### Phase 6: Requests & moderation (Week 8)
 - [ ] Claim request form + n8n + Linear integration via REST API
