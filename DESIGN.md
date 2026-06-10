@@ -349,6 +349,20 @@ Two non-link chips for the card grid, sharing the Tags / Taxonomy-chip surface (
 - **RoleBadge** (`aec-role-badge`) — the product's `product_role`, shown **only** for `connector` / `hybrid`; the default `application` renders nothing, so the chip earns attention by appearing selectively.
 - **CategoryChip** (`aec-category-chip`) — the primary category as plain styled text (not a link), for contexts where the whole card is already a link.
 
+### Home (Phase 4)
+
+The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface from new home-only components plus reused catalog vocabulary. Anchor site: **Faire** (recorded in `docs/design/home-direction.md`, AECI-181) — the home reuses the AECI-190 `ProductCardGrid` / `IntegrationStat` so the front door and the catalog read as **one publication**, not a mashup (the Anchor-Site Rule). Every component renders correctly in both themes via tokens and i18n-wraps every visible string. Stats data is SSR-resolved from `GET /api/stats/home` (`home-stats.resolver.ts`); the "Browse by" counts come from the **live** `GET /api/taxonomy` (`home-browse.resolver.ts`), never the stats_cache.
+
+- **Home hero** (`<aec-home-hero>`, `home/home-hero.ts`) — a warm **Bone** (`accent-warm`) band with a 1px bottom border (the §"Surfaces-Are-Neutral" accent-band treatment, not a page background): an i18n eyebrow, a **Display**-face (Source Serif) tagline used at most once on the page, a lede, then the **reused header search autocomplete** (`<aec-search-autocomplete>`, AECI-144) mounted as the hero search field, and a browser-only "popular" quick-links row sourced from the `TaxonomyNavStore` (progressive enhancement — absent from the SSR/no-JS base, so it never poisons the cached shell).
+
+- **Home stats cards** (`<aec-home-stats-cards>`, `home/home-stats-cards.ts`) — the three §4.1 cards as bordered surfaces (deliberately **not** the rejected hero-metric template): (1) **Total integrations indexed** — the count as a large Forest (`accent-primary`) figure with the **"+X in the last 30 days"** subtitle below it (i18n `@@home.stats.total.delta`, rendered only when the 30-day delta > 0); (2) **Most integrated product** — a whole-card link to `/products/:slug` with the count as an `IntegrationStat` headline; (3) **Most active category** — a whole-card link to `/categories/:slug`. Each card carries a first-class empty state (e.g. "No integrations indexed yet") so the sparse pre-launch `stats_cache` payload renders cleanly rather than as bare zeros.
+
+- **Browse grid** (`<app-browse-grid>`, `home/browse-grid.ts`) — one reusable count-chip grid rendered three times (category / audience / phase). It reads the **live taxonomy** `product_count` (passed down from `home-browse.resolver.ts` → `GET /api/taxonomy`), **not** the stats_cache, so the "Browse by" counts match the listing pages exactly. Each variant i18n-wraps its heading, its "view all" link, and its empty state.
+
+- **Recently added integrations** (`<aec-recent-integrations-section>` + `<aec-integration-tile>`, `home/recent-integrations-section.ts` + `home/integration-tile.ts`) — the last 10 integrations as a 2-up grid of **integration tiles** (source → target monograms + names + a mechanism chip; whole-tile link to `/integrations/:id`, reusing the shared `mechanism-labels` so badges match the `/integrations` table). A bordered, i18n'd empty state covers the pre-seed state (integrations stay empty until AECI-86 seeding returns).
+
+- **Trending products this week** (`<aec-trending-products-section>`, `home/trending-products-section.ts`) — the top 5 products by 7-day `page_views`, rendered through the reused **`ProductCardGrid`** (Faire vocabulary). When trending is empty it **falls back to recently-added products** (the heading swaps, both i18n'd); when both are empty it shows a bordered empty state — keeping the §4.1 "trending" slot honest while `page_views` is still sparse at pre-launch.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, combobox, radio) use Angular Aria per the proposed provider note above (ADR 0010). Styling binds to tokens.
