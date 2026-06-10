@@ -19,6 +19,16 @@
  *   - LCP ≤ 2.5s, CLS ≤ 0.1, TBT ≤ 200ms
  *   - Total JS transfer ≤ 200 KB on detail pages
  *
+ * SEARCH ROUTE (AECI-145 / Phase 3.12): `/search` (browser-side Algolia
+ * InstantSearch) is added with its OWN assertion class because it differs from
+ * every Phase 2 page on two axes — it is `noindex` (so the SEO audit fails by
+ * design, like the 404) and it is the only NO-CACHE route (`private, no-store`,
+ * always an edge MISS). It is therefore SEO-exempt and carries a MISS-only TTFB
+ * budget (`server-response-time`) instead of inheriting cached-page timing
+ * assumptions. In CI there is no Algolia, so `/search` renders its
+ * graceful-degradation shell — `?q=…` is intentionally NOT collected (it would
+ * render the identical shell for zero added signal).
+ *
  * gzipped-vs-transfer NOTE: `resource-summary:script:size` measures TRANSFER
  * bytes (compressed as served — Cloudflare brotli/gzip), not uncompressed. It is
  * the page-level transferred-script ceiling here; the per-bundle gzip hard-fail
@@ -45,7 +55,12 @@ const DETAIL_URL_PATTERN =
 // The 404 carries `noindex`, which makes Lighthouse's SEO audit fail by design —
 // so the 404 is asserted on perf/a11y/CWV only, never SEO/best-practices.
 const NOT_FOUND_SLUG = 'aeci-65-no-such-page';
-const NON_404_URL_PATTERN = `^(?!.*${NOT_FOUND_SLUG}).*$`;
+// /search is ALSO noindex (AECI-145), so it gets the same SEO exemption: exclude
+// it from the NON_404 class so that class's `categories:seo` assertion never
+// fires on it. The `/search(?:[/?]|$)` boundary stays correct if `?q=` is ever
+// added; no Phase 2 URL contains the literal "search", so class A is unaffected.
+const SEARCH_URL_PATTERN = '/search(?:[/?]|$)';
+const NON_404_URL_PATTERN = `^(?!.*${NOT_FOUND_SLUG})(?!.*${SEARCH_URL_PATTERN}).*$`;
 const NOT_FOUND_URL_PATTERN = NOT_FOUND_SLUG;
 
 module.exports = {
@@ -64,9 +79,10 @@ module.exports = {
         `${baseUrl}/categories`, // categories flat index
         `${baseUrl}/audiences`, // audiences flat index (AECI-157)
         `${baseUrl}/phases`, // phases flat index (AECI-157)
+        `${baseUrl}/search`, // search page (AECI-145) — noindex, no-cache; class D
         `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
       ],
-      // Collection dominates this job — 13 URLs × N runs × ~12s each. At the
+      // Collection dominates this job — 14 URLs × N runs × ~12s each. At the
       // former N=3 the run took ~7m50s; a SINGLE run lands it at ~2m40s. This
       // gate is warn-only/non-blocking, and its value is per-page-type coverage,
       // not run-to-run median smoothing, so default to one run. Restore the
@@ -140,6 +156,29 @@ module.exports = {
             'categories:accessibility': ['warn', { minScore: 0.95 }],
             'largest-contentful-paint': ['warn', { maxNumericValue: 2500 }],
             'cumulative-layout-shift': ['warn', { maxNumericValue: 0.1 }],
+          },
+        },
+        // (D) /search (AECI-145): perf / a11y / best-practices / CWV, plus a
+        // MISS-only TTFB budget — NOT SEO (noindex, same as the 404). `/search`
+        // is the one route that is always an edge MISS (`private, no-store`), so
+        // it's the only page where a `server-response-time` budget is meaningful;
+        // every other route normally serves from an edge HIT. 600ms matches
+        // Lighthouse's own native pass threshold for this audit and measures the
+        // SSR-shell document fetch (a CI-only proxy on dev:bound, not production
+        // search latency — TTFB is observed, not scaled by the simulate throttle).
+        // /search does NOT match DETAIL_URL_PATTERN, so it skips the 200 KB JS
+        // budget (class B) — correct, InstantSearch ships more than a detail page.
+        {
+          matchingUrlPattern: SEARCH_URL_PATTERN,
+          aggregationMethod: 'median-run',
+          assertions: {
+            'categories:performance': ['warn', { minScore: 0.9 }],
+            'categories:accessibility': ['warn', { minScore: 0.95 }],
+            'categories:best-practices': ['warn', { minScore: 0.9 }],
+            'largest-contentful-paint': ['warn', { maxNumericValue: 2500 }],
+            'cumulative-layout-shift': ['warn', { maxNumericValue: 0.1 }],
+            'total-blocking-time': ['warn', { maxNumericValue: 200 }],
+            'server-response-time': ['warn', { maxNumericValue: 600 }],
           },
         },
       ],
