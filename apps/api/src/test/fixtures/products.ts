@@ -99,6 +99,24 @@ export const procoreProductDetailRow: RawProductDetailRow = {
   ],
   sourceIntegrations: [],
   targetIntegrations: [],
+  // Narrative "how teams use it" jsonb (AECI-171/-173). Slug-based groups keyed by
+  // the same taxonomy terms this product is tagged with; `points` are free-form prose.
+  usefulness: {
+    audiences: [
+      {
+        slug: 'construction',
+        name: 'Construction',
+        points: ['Track RFIs and submittals across every job.', 'Standardize daily logs.'],
+      },
+    ],
+    phases: [
+      {
+        slug: 'construction-phase',
+        name: 'Construction',
+        points: ['Keep field and office on one schedule of record.'],
+      },
+    ],
+  },
 };
 
 export const allProductRows: RawProductListRow[] = [procoreProductRow, reviztoProductRow];
