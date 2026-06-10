@@ -62,27 +62,24 @@ import { BrandLogo } from './brand-logo';
               <a
                 routerLink="/categories"
                 class="text-(--text-secondary) hover:text-(--text-primary)"
-                i18n="@@app.nav.categories"
               >
-                Categories
+                <!-- Tight i18n wrap so the source matches taxonomy-nav-copy.ts's
+                     $localize (shared @@app.nav.* id): avoids a duplicate-id
+                     collision in extraction (mirrors the AECI-67 fix). -->
+                <ng-container i18n="@@app.nav.categories">Categories</ng-container>
               </a>
             </li>
             <li>
               <a
                 routerLink="/audiences"
                 class="text-(--text-secondary) hover:text-(--text-primary)"
-                i18n="@@app.nav.audiences"
               >
-                Audiences
+                <ng-container i18n="@@app.nav.audiences">Audiences</ng-container>
               </a>
             </li>
             <li>
-              <a
-                routerLink="/phases"
-                class="text-(--text-secondary) hover:text-(--text-primary)"
-                i18n="@@app.nav.phases"
-              >
-                Phases
+              <a routerLink="/phases" class="text-(--text-secondary) hover:text-(--text-primary)">
+                <ng-container i18n="@@app.nav.phases">Phases</ng-container>
               </a>
             </li>
           </ul>
