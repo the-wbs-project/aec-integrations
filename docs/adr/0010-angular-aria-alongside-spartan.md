@@ -213,3 +213,61 @@ visibility.
 both-theme styling *more* ergonomic than Spartan brain, not merely equivalent. Nothing surfaced in the
 pilot argues against the proposed posture; the `ngTabContent`-vs-SSR trade-off is the one structural rule
 to document for adopters.
+
+## First combobox adoption (AECI-144)
+
+Status stays **Proposed** — this records the first real `@angular/aria` **combobox** adoption (the
+"First real use" follow-up's trigger). The Proposed → Accepted flip is a separate sign-off; this adoption
+is the evidence for it and the **recommendation here is to ratify**.
+
+The header search-as-you-type autocomplete (`apps/web/src/app/search/search-autocomplete.ts`,
+`aec-search-autocomplete`) was built on `@angular/aria@22.0.0` `Combobox`/`ComboboxPopup`/`ComboboxWidget`
+(`@angular/aria/combobox`) + `Listbox`/`Option` (`@angular/aria/listbox`), and is mounted in **both** the
+desktop header (`lg+`) and the mobile `BrnPopover` overlay (`layout/site-header.ts`, `layout/nav-menu.ts`).
+This **precedes** the Phase 5/6 form the ADR anticipated as the first adopter, and is a **non-form** case:
+the combobox value is a transient query string, not a `[formField]`, so it does **not** exercise the Signal
+Forms integration — that path still wants a Phase 5/6 form as its reference implementation.
+
+**Pattern recipe — "navigation autocomplete" (vs. value autocomplete).** Selecting a suggestion navigates
+to a detail page rather than filling the input. The commit signal is the **listbox `value` model**
+(`(valueChange)` on `ngListbox`); each `ngOption [value]` carries the full suggestion object, so the
+handler reads the committed object and routes. The combobox `[(value)]` (query text) and the listbox
+`[(value)]` (selection) are independent models — Aria does not copy the option into the input. The
+network search is owned by the app (debounced `liteClient.searchForHits`), not by Aria; Aria owns only the
+widget/keyboard/overlay. This is the reusable shape for "search box that jumps to a record."
+
+**Findings to flag for the next adopter:**
+
+1. **SSR is clean and cache-safe.** The `<input ngCombobox>` SSR-renders with `role="combobox"` +
+   `aria-autocomplete`/`aria-expanded`/`aria-haspopup` already applied (Aria runs on the server). The
+   popup lives in `ng-template ngComboboxPopup` (a `DeferredContent` host directive, like `ngTabContent`),
+   so suggestions are **never** in the server HTML — the header stays visitor-state-neutral and safe inside
+   cached SSR responses (verified by curling `/products`).
+2. **Collapsed combobox is axe-clean — no dangling `aria-controls`.** `ComboboxPattern.popupId` is
+   `computed(() => popup()?.popupId())`, and the popup's id derives from the `ComboboxWidget`, which lives
+   in the deferred popup template. While collapsed the widget isn't instantiated, so `popupId()` is
+   `undefined` and Angular **omits** `aria-controls` — there is no reference to a non-existent element.
+   (**Watch-out:** Aria's combobox `(input)` handler sets `expanded` on **every keystroke**, so gating
+   *expansion* on a non-empty result set is impossible — the popup opens before results exist. Instead render
+   the `ngListbox` itself only when there is ≥1 hit (`@if (suggestions().length > 0)`): a zero-hit query then
+   mounts no widget, so there's no empty `role="listbox"` (an `aria-required-children` risk) and no empty
+   floating panel. The same omitted-`aria-controls` reasoning above applies to this gated-empty state, not
+   just the collapsed state.)
+3. **CDK Overlay positions the popup**, as the ADR predicted — no new infra (CDK is already a transitive
+   dep) and no hand-rolled `top-full` positioning needed.
+4. **Token styling matched the tabs ergonomics:** highlight via the `data-[active=true]:` variant Aria sets
+   on the active option, selection via `aria-selected:`; both-theme via tokens, no TS state mirror.
+
+**Open / deferred:**
+
+- **Live interactive + mobile-nesting verification is pending a provisioned Algolia index.** The local
+  `preview_*` indexes don't exist (queries 404 → the controller's catch degrades to "no dropdown"), and the
+  browser extension wasn't available in this environment, so the open → ArrowDown → Enter flow and the
+  combobox-CDK-overlay-inside-`BrnPopover`-CDK-overlay interaction (Escape ordering, outside-click,
+  clipping) were **not** exercised end-to-end here. They are covered by the unit/component specs (handler
+  logic + a11y structure + graceful degradation) and will light up in the existing `phase2-a11y` e2e
+  (which axe-scans the header) once a staging index is seeded — mirroring how that spec self-skips
+  fixture-dependent cases. **Recommend a staging smoke before ratifying** the mobile mount.
+- **Ratification:** with this non-form adoption + the tabs pilot, the recommendation is to flip Proposed →
+  Accepted and harden `ANGULAR_STYLE_GUIDE.md` §19 / `DESIGN.md` §5 wording — pending Chris's sign-off and
+  the staging smoke above.
