@@ -1,7 +1,7 @@
 /**
  * AECI-57 / Phase 2.11 — product detail page end-to-end coverage.
  *
- * Two paths are covered here without depending on seeded data:
+ * Two seed-free paths plus one fixture-gated guard are covered here:
  *   1. 404 path (`/products/:slug` with a slug that isn't in the dev DB).
  *      Asserts the global 404 shell renders (AECI-62), the response is a real
  *      HTTP 404 (not the pinned-404 trap — see Stage 1 Spec §9.1b), the cache
@@ -9,6 +9,12 @@
  *   2. Claim/correction request forms (`/products/:slug/claim`,
  *      `/products/:slug/correction`, AECI-128) render the `RequestForm` with
  *      `<meta name="robots" content="noindex">`.
+ *   3. "How teams use it" usefulness section (AECI-170) — a regression guard
+ *      that the section stays INERT (heading absent) while the API returns a
+ *      null `usefulness` stub (AECI-169). Gated on the seed fixture
+ *      (`fixture-procore`, like `phase2-a11y.spec.ts`); self-skips when the
+ *      fixture is absent so the file stays green pre-seed. The populated-state
+ *      assertion lands later with API hydration.
  *
  * The success-path coverage (hero / breadcrumbs / Cache-Tag with vendor +
  * integration tags / second-visit cache HIT) lives in the Phase 2.18 crawler
@@ -19,7 +25,9 @@
  * runs before the seed lands.
  */
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test } from '@playwright/test';
+import { expect, request as playwrightRequest, test } from '@playwright/test';
+
+const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 
 test.describe('product detail — 404 path', () => {
   test('GET /products/<bogus> returns a real HTTP 404 with NOT_FOUND_TTL', async ({ request }) => {
@@ -112,5 +120,40 @@ test.describe('product detail — claim/correction request forms (AECI-128)', ()
   test('GET /products/<slug>/correction ships noindex robots meta', async ({ request }) => {
     const html = await (await request.get('/products/anything/correction')).text();
     expect(html).toMatch(/<meta[^>]+name="robots"[^>]+content="noindex"/);
+  });
+});
+
+test.describe('product detail — usefulness section (AECI-170)', () => {
+  // The "How teams use it" section ships inert: it renders only when the API
+  // returns a non-null `usefulness`, which is a typed null-stub for every
+  // product until the data pipeline lands (AECI-169). This guards that inert
+  // state — the heading must be ABSENT even on a real (fixture) product page.
+  // Gated on the seed fixture so it self-skips pre-seed (mirrors phase2-a11y).
+  const FIXTURE_PRODUCT_SLUG = 'fixture-procore';
+  let fixturesPresent = false;
+
+  test.beforeAll(async () => {
+    const ctx = await playwrightRequest.newContext({ baseURL: BASE_URL });
+    try {
+      const res = await ctx.get(`/products/${FIXTURE_PRODUCT_SLUG}`, { maxRedirects: 0 });
+      fixturesPresent = res.status() === 200;
+      if (!fixturesPresent) {
+        console.warn(
+          `[products-detail] Fixtures absent: GET /products/${FIXTURE_PRODUCT_SLUG} -> ${res.status()}. ` +
+            'Usefulness-section guard will be SKIPPED. Seed supabase/fixtures/phase2-fixtures.sql ' +
+            'into the dev DB (CI: set DIRECT_URL_STAGING) to enable it.',
+        );
+      }
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
+  test('stays inert (heading absent) while usefulness is null-stubbed', async ({ page }) => {
+    test.skip(!fixturesPresent, 'fixtures not seeded — see beforeAll warning');
+
+    await page.goto(`/products/${FIXTURE_PRODUCT_SLUG}`);
+    await expect(page.locator('app-root')).toBeAttached();
+    await expect(page.getByRole('heading', { name: 'How teams use it' })).toHaveCount(0);
   });
 });

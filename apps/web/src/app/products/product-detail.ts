@@ -11,6 +11,8 @@ import { NotFound } from '../not-found/not-found';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { ProductUsefulnessSection } from './product-usefulness';
+
 /**
  * AECI-57 — Product detail page at `/products/:slug`.
  *
@@ -42,7 +44,15 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
  */
 @Component({
   selector: 'aec-product-detail',
-  imports: [DetailLayout, LogoOrInitial, NgTemplateOutlet, NotFound, RouterLink, TaxonomyBadge],
+  imports: [
+    DetailLayout,
+    LogoOrInitial,
+    NgTemplateOutlet,
+    NotFound,
+    ProductUsefulnessSection,
+    RouterLink,
+    TaxonomyBadge,
+  ],
   template: `
     @let p = product();
     @if (p === null) {
@@ -259,6 +269,10 @@ import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
                 {{ p.description }}
               </p>
             </section>
+          }
+
+          @if (p.usefulness; as u) {
+            <aec-product-usefulness [data]="u" />
           }
 
           <section aria-labelledby="integrations-title" class="space-y-4">
