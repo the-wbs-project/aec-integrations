@@ -103,8 +103,12 @@ function firstFieldFromZodError(error: ZodError): string | undefined {
  *
  * `trace_id` is `crypto.randomUUID()` for now. When Datadog APM lands, this
  * will be the active span ID so logs and the response are pivot-able together.
+ *
+ * Generic over the router's env so `Variables`-extended sub-routers (e.g. the
+ * AECI-193 auth-spike router, whose middleware sets `c.get('user')`) can reuse
+ * the same handler — the implementation only touches `Bindings`.
  */
-export function errorHandler(): ErrorHandler<{ Bindings: Env }> {
+export function errorHandler<E extends { Bindings: Env }>(): ErrorHandler<E> {
   return (error, c) => {
     const traceId = crypto.randomUUID();
 
@@ -142,7 +146,11 @@ export function errorHandler(): ErrorHandler<{ Bindings: Env }> {
   };
 }
 
-function renderApiError(c: Context<{ Bindings: Env }>, error: ApiError, traceId: string): Response {
+function renderApiError<E extends { Bindings: Env }>(
+  c: Context<E>,
+  error: ApiError,
+  traceId: string,
+): Response {
   const errorObject: Record<string, unknown> = {
     code: error.code,
     message: error.message,

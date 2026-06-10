@@ -50,6 +50,8 @@
     "@angular/ssr": "^22.0.0",
     "@datadog/browser-rum": "^7.1.0",
     "@spartan-ng/brain": "0.0.1-alpha.708",
+    "@supabase/ssr": "^0.7.0",
+    "@supabase/supabase-js": "^2.49.0",
     "algoliasearch": "^5.40.0",
     "hono": "^4.12.12",
     "instantsearch.js": "^4.79.0",

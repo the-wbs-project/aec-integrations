@@ -99,4 +99,20 @@ export type WebEnv = {
    */
   ALGOLIA_APP_ID?: string;
   ALGOLIA_SEARCH_KEY?: string;
+  /**
+   * Supabase auth surface (AECI-193 / Phase 5.2).
+   *
+   * - SUPABASE_URL — public project base URL (`https://<ref>.supabase.co`),
+   *   plain `vars` entry per env (dev project for preview/staging, prod
+   *   project for production).
+   * - SUPABASE_ANON_KEY — the publishable/anon key. Safe to expose (it only
+   *   unlocks anon-RLS access + the auth endpoints) but stored as a CI-pushed
+   *   secret to keep values out of git — same convention as
+   *   `ALGOLIA_SEARCH_KEY`. Absent → `createSupabaseServerClient` returns
+   *   `null` and auth surfaces degrade gracefully (no throw at boot).
+   * - The service-role key is NEVER part of `WebEnv` (or any Worker env) —
+   *   AUTH_AND_RLS.md §3. Mirrors the Algolia admin-key rule above.
+   */
+  SUPABASE_URL?: string;
+  SUPABASE_ANON_KEY?: string;
 };

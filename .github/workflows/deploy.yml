@@ -410,12 +410,23 @@ jobs:
       - name: Write apps/api/.dev.vars for `pnpm dev:bound`
         env:
           DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
         run: |
           if [ -z "$DATABASE_URL_VALUE" ]; then
             echo "::error::DATABASE_URL_STAGING secret is empty. This job needs it to boot the API Worker with a working Prisma connection. Configure under repo Settings -> Secrets and variables -> Actions."
             exit 1
           fi
           printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
+          # AECI-193: give both local Workers the shared-dev Supabase config so
+          # the /auth/whoami 401 e2e actually exercises the auth path (without
+          # SUPABASE_URL the SSR route 503s and the spec skips itself). The anon
+          # key is web-only; the API Worker needs only the URL (JWKS + issuer).
+          printf 'SUPABASE_URL="https://lfqxneqihbejrkufvafw.supabase.co"\n' >> apps/api/.dev.vars
+          if [ -n "$SUPABASE_ANON_KEY_VALUE" ]; then
+            printf 'SUPABASE_URL="https://lfqxneqihbejrkufvafw.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
+          else
+            echo "::warning::SUPABASE_ANON_KEY_STAGING not set — /auth/whoami will 503 and its e2e spec will skip."
+          fi
       # Boot both Workers once and wait on /api/health (NOT the SSR root `/`):
       # `/api/health` proxies through the `env.API` service binding and only
       # returns 200 once the binding is connected AND `SELECT 1` succeeds, ruling
@@ -543,9 +554,13 @@ jobs:
           # (search degraded, not broken) — so staging stays green pre-provision.
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY_STAGING: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+          SUPABASE_ANON_KEY_STAGING: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
           ENV_LABEL: staging
           REQUIRED_SECRETS: 'DATABASE_URL_STAGING REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING'
+          # AECI-193: SUPABASE_ANON_KEY_STAGING is recommended (warn-and-skip)
+          # during the Phase 5 spike — flip to REQUIRED in 5.5 when real auth
+          # surfaces ship.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING SUPABASE_ANON_KEY_STAGING'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -692,6 +707,27 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: apps/web
         run: pnpm exec wrangler deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+
+      # AECI-193: push the Supabase anon (publishable) key to the staging WEB
+      # Worker — web only; the API Worker verifies user JWTs with public JWKS
+      # material and deliberately carries no Supabase keys. Warn-and-skip while
+      # auth is a spike (the SSR auth surfaces then return 503
+      # `auth_not_configured`) — flip to REQUIRED in 5.5 when real auth ships.
+      # Same idempotent deploy→secret order as the API pushes above.
+      - name: Push SUPABASE_ANON_KEY to web Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$SUPABASE_ANON_KEY_VALUE" ]; then
+            echo "::warning::SUPABASE_ANON_KEY_STAGING not set — skipping push. Staging auth surfaces will return 503 auth_not_configured until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
+            | pnpm exec wrangler secret put SUPABASE_ANON_KEY --env staging
 
       # Postflight enforcement of THE RULE at the Worker level: assert the staging
       # API Worker actually carries its required runtime secrets after the pushes
