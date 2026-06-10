@@ -88,3 +88,93 @@ describe('MetaService.setNotFoundMeta', () => {
     ).toHaveLength(0);
   });
 });
+
+describe('MetaService.setHomeMeta', () => {
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    const head = document.head;
+    for (const el of head.querySelectorAll(
+      'meta[name="description"], meta[name="robots"], meta[property^="og:"], meta[name^="twitter:"], link[rel="canonical"], script[data-aeci-jsonld]',
+    )) {
+      el.remove();
+    }
+    document.title = '';
+  });
+
+  it('sets the static home title, description, canonical, and website OG type', () => {
+    const { service, doc } = setup();
+
+    service.setHomeMeta({ canonical: 'https://aecintegrations.com/' });
+
+    expect(doc.title).toContain('AEC Integrations');
+
+    const desc = doc.head.querySelector('meta[name="description"]') as HTMLMetaElement | null;
+    expect(desc?.getAttribute('content')).toContain('verified');
+
+    // Home is indexable — no robots tag.
+    expect(doc.head.querySelector('meta[name="robots"]')).toBeNull();
+
+    const canonical = doc.head.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    expect(canonical?.getAttribute('href')).toBe('https://aecintegrations.com/');
+
+    const ogType = doc.head.querySelector('meta[property="og:type"]') as HTMLMetaElement | null;
+    expect(ogType?.getAttribute('content')).toBe('website');
+    const ogUrl = doc.head.querySelector('meta[property="og:url"]') as HTMLMetaElement | null;
+    expect(ogUrl?.getAttribute('content')).toBe('https://aecintegrations.com/');
+  });
+
+  it('strips query params from the canonical and derives the origin for JSON-LD', () => {
+    const { service, doc } = setup();
+
+    service.setHomeMeta({ canonical: 'https://aecintegrations.com/?utm_source=x#frag' });
+
+    const canonical = doc.head.querySelector('link[rel="canonical"]') as HTMLLinkElement | null;
+    expect(canonical?.getAttribute('href')).toBe('https://aecintegrations.com/');
+
+    const website = doc.head.querySelector(
+      'script[type="application/ld+json"][data-aeci-jsonld="website"]',
+    ) as HTMLScriptElement | null;
+    const parsed = JSON.parse(website?.textContent ?? '{}');
+    expect(parsed['@type']).toBe('WebSite');
+    expect(parsed.url).toBe('https://aecintegrations.com/');
+    expect(parsed.potentialAction.target).toBe(
+      'https://aecintegrations.com/search?q={search_term_string}',
+    );
+  });
+
+  it('upserts both the WebSite and publisher Organization JSON-LD scripts', () => {
+    const { service, doc } = setup();
+
+    service.setHomeMeta({ canonical: 'https://aecintegrations.com/' });
+
+    const scripts = doc.head.querySelectorAll(
+      'script[type="application/ld+json"][data-aeci-jsonld]',
+    );
+    const kinds = Array.from(scripts).map((s) => s.getAttribute('data-aeci-jsonld'));
+    expect(kinds).toEqual(expect.arrayContaining(['website', 'organization']));
+
+    const org = doc.head.querySelector(
+      'script[type="application/ld+json"][data-aeci-jsonld="organization"]',
+    ) as HTMLScriptElement | null;
+    const parsed = JSON.parse(org?.textContent ?? '{}');
+    expect(parsed['@type']).toBe('Organization');
+    expect(parsed.name).toBe('AEC Integrations');
+    expect(parsed.logo).toBe('https://aecintegrations.com/branding/monogram-light.svg');
+  });
+
+  it('is idempotent — re-applying does not duplicate JSON-LD scripts', () => {
+    const { service, doc } = setup();
+
+    service.setHomeMeta({ canonical: 'https://aecintegrations.com/' });
+    service.setHomeMeta({ canonical: 'https://aecintegrations.com/' });
+
+    expect(
+      doc.head.querySelectorAll('script[type="application/ld+json"][data-aeci-jsonld="website"]'),
+    ).toHaveLength(1);
+    expect(
+      doc.head.querySelectorAll(
+        'script[type="application/ld+json"][data-aeci-jsonld="organization"]',
+      ),
+    ).toHaveLength(1);
+  });
+});

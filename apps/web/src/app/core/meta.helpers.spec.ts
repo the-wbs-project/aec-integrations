@@ -5,12 +5,16 @@ import type { ProductDetail, VendorDetail } from '@aeci/shared';
 import {
   DEFAULT_OG_IMAGE,
   META_DESCRIPTION_MAX,
+  SITE_NAME,
   buildEntityTitle,
   buildOgTags,
   buildProductJsonLd,
+  buildSiteOrganizationLd,
   buildVendorJsonLd,
+  buildWebSiteJsonLd,
   isBrowseKind,
   ogTypeForKind,
+  originOf,
   stripQueryParams,
   truncateAtWordBoundary,
 } from './meta.helpers';
@@ -93,6 +97,24 @@ describe('stripQueryParams', () => {
 
   it('returns input unchanged on parse failure', () => {
     expect(stripQueryParams('not a url')).toBe('not a url');
+  });
+});
+
+describe('originOf', () => {
+  it.each([
+    ['https://aecintegrations.com/', 'https://aecintegrations.com'],
+    ['https://aecintegrations.com', 'https://aecintegrations.com'],
+    [
+      'https://staging.aecintegrations.com/products/revit?q=1',
+      'https://staging.aecintegrations.com',
+    ],
+    ['http://localhost:8788/', 'http://localhost:8788'],
+  ])('extracts the origin of %s', (input, expected) => {
+    expect(originOf(input)).toBe(expected);
+  });
+
+  it('returns input unchanged on parse failure', () => {
+    expect(originOf('not a url')).toBe('not a url');
   });
 });
 
@@ -299,6 +321,57 @@ describe('buildVendorJsonLd', () => {
     expect(ld).not.toHaveProperty('logo');
     expect(ld).not.toHaveProperty('address');
     expect(ld).not.toHaveProperty('foundingDate');
+  });
+});
+
+describe('buildWebSiteJsonLd', () => {
+  it('produces the canonical WebSite shape with a SearchAction', () => {
+    const ld = buildWebSiteJsonLd({ origin: 'https://aecintegrations.com', name: SITE_NAME });
+    expect(ld).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: 'AEC Integrations',
+      url: 'https://aecintegrations.com/',
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: 'https://aecintegrations.com/search?q={search_term_string}',
+        'query-input': 'required name=search_term_string',
+      },
+    });
+  });
+
+  it('composes the homepage url and search target from the serving origin', () => {
+    const ld = buildWebSiteJsonLd({
+      origin: 'https://staging.aecintegrations.com',
+      name: SITE_NAME,
+    });
+    expect(ld.url).toBe('https://staging.aecintegrations.com/');
+    expect(ld.potentialAction.target).toBe(
+      'https://staging.aecintegrations.com/search?q={search_term_string}',
+    );
+  });
+});
+
+describe('buildSiteOrganizationLd', () => {
+  it('produces the publisher Organization shape with an absolute logo', () => {
+    const ld = buildSiteOrganizationLd({
+      origin: 'https://aecintegrations.com',
+      name: SITE_NAME,
+      logo: 'https://aecintegrations.com/branding/monogram-light.svg',
+    });
+    expect(ld).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'Organization',
+      name: 'AEC Integrations',
+      url: 'https://aecintegrations.com/',
+      logo: 'https://aecintegrations.com/branding/monogram-light.svg',
+    });
+  });
+
+  it('omits logo when not supplied', () => {
+    const ld = buildSiteOrganizationLd({ origin: 'https://aecintegrations.com', name: SITE_NAME });
+    expect(ld).not.toHaveProperty('logo');
+    expect(ld.url).toBe('https://aecintegrations.com/');
   });
 });
 

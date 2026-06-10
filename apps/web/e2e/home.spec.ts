@@ -131,6 +131,107 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
   }
 });
 
+// AECI-186 — Phase 4.11 home assembly. The six section components (hero / stats
+// cards / browse grids / recently-added / trending) are stacked in §4.1 order and
+// the home SEO (meta + OG/Twitter + WebSite/Organization JSON-LD + canonical) is
+// emitted. The both-theme axe coverage above runs against `/`, so it now also
+// validates these added sections — no duplicate axe pass is needed here.
+//
+// Resilient to a populated or empty stats_cache: assertions key off the labels /
+// headings that render in BOTH the data and empty states, never the data itself.
+test.describe('/ — home assembly (AECI-186)', () => {
+  test('SSR-renders the stats / recently-added / trending sections', async ({ request }) => {
+    const res = await request.get('/');
+    expect(res.status(), 'GET / must return 200').toBe(200);
+    const html = await res.text();
+
+    // Stats card label + recent-integrations heading render in every data state.
+    expect(html, 'stats cards must render').toContain('Total integrations indexed');
+    expect(html, 'recently-added section must render').toContain('Recently added integrations');
+    // Trending heading is one of: trending / recently-added fallback / empty note.
+    const trendingRendered =
+      html.includes('Trending products this week') ||
+      html.includes('Recently added products') ||
+      html.includes('Trending lands once we have product view data');
+    expect(trendingRendered, 'trending section must render in some state').toBe(true);
+  });
+
+  test('stacks the sections in §4.1 order', async ({ request }) => {
+    const html = await (await request.get('/')).text();
+    const order = [
+      'aec-home-hero',
+      'aec-home-stats-cards',
+      'app-browse-grid',
+      'aec-recent-integrations-section',
+      'aec-trending-products-section',
+    ].map((tag) => html.indexOf(tag));
+
+    for (const [i, pos] of order.entries()) {
+      expect(pos, `section ${i} must be present in SSR HTML`).toBeGreaterThan(-1);
+      if (i > 0) {
+        expect(pos, `section ${i} must follow section ${i - 1} in §4.1 order`).toBeGreaterThan(
+          order[i - 1],
+        );
+      }
+    }
+  });
+
+  test('emits home SEO — title, description, canonical, website OG type', async ({ page }) => {
+    await page.goto('/');
+    await expect(page).toHaveTitle(/AEC Integrations/);
+
+    await expect(page.locator('head meta[name="description"]')).toHaveAttribute(
+      'content',
+      /verified/,
+    );
+
+    const canonical = page.locator('head link[rel="canonical"]');
+    await expect(canonical).toHaveCount(1);
+    await expect(canonical).toHaveAttribute('href', /\/$/);
+
+    await expect(page.locator('head meta[property="og:type"]')).toHaveAttribute(
+      'content',
+      'website',
+    );
+  });
+
+  test('emits WebSite (with SearchAction) and publisher Organization JSON-LD', async ({ page }) => {
+    await page.goto('/');
+
+    const website = page.locator('script[data-aeci-jsonld="website"]');
+    await expect(website).toHaveCount(1);
+    const websiteLd = JSON.parse((await website.textContent()) ?? '{}');
+    expect(websiteLd['@type']).toBe('WebSite');
+    expect(websiteLd.potentialAction['@type']).toBe('SearchAction');
+    expect(websiteLd.potentialAction.target).toContain('/search?q={search_term_string}');
+
+    const org = page.locator('script[data-aeci-jsonld="organization"]');
+    await expect(org).toHaveCount(1);
+    const orgLd = JSON.parse((await org.textContent()) ?? '{}');
+    expect(orgLd['@type']).toBe('Organization');
+    expect(orgLd.name).toBe('AEC Integrations');
+  });
+
+  test('fires POST /api/page-views with route "/" on in-app navigation home', async ({ page }) => {
+    // The SSR Worker counts the initial landing server-side (not browser-visible);
+    // the client PageViewTracker counts subsequent in-app navigations. Land on
+    // /products, then navigate home via the Primary-nav link and observe the POST.
+    await page.goto('/products');
+    await expect(page.locator('app-root')).toBeAttached();
+
+    const homeLink = page.locator('nav[aria-label="Primary"] a[href="/"]').first();
+    await expect(homeLink).toBeVisible();
+
+    const [req] = await Promise.all([
+      page.waitForRequest((r) => r.url().includes('/api/page-views') && r.method() === 'POST'),
+      homeLink.click(),
+    ]);
+
+    expect((req.postDataJSON() as { route?: string }).route).toBe('/');
+    await expect(page).toHaveURL(/\/$/);
+  });
+});
+
 function formatViolations(
   violations: Awaited<ReturnType<AxeBuilder['analyze']>>['violations'],
 ): string {

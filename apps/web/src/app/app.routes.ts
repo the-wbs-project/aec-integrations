@@ -1,6 +1,7 @@
 import { Routes } from '@angular/router';
 
 import { homeBrowseResolver } from './home/home-browse.resolver';
+import { homeStatsResolver } from './home/home-stats.resolver';
 import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
@@ -17,17 +18,23 @@ import {
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 export const routes: Routes = [
-  // AECI-184 — Phase 4.9 home "Browse by" grids. The resolver fetches the live
-  // aggregate taxonomy (`GET /api/taxonomy`, with `product_count`) SSR-side via
-  // the service binding; hydration reads from TransferState. Browse counts are
-  // live, NOT `stats_cache` (§10). The home already carries the `taxonomy`
-  // cache-tag (`cacheTagInputsForPath`), so taxonomy edits purge it. The full
-  // home resolver + meta/JSON-LD is the 4.11 assembly issue (AECI-186).
+  // AECI-186 — Phase 4.11 home assembly. Two parallel SSR resolvers feed the
+  // page (both via the service binding; hydration reads from TransferState):
+  //   - `browse` (`homeBrowseResolver`, AECI-184) — the live aggregate taxonomy
+  //     (`GET /api/taxonomy`, with `product_count`) for the "Browse by" grids.
+  //     Counts are LIVE, not `stats_cache` (§10).
+  //   - `stats` (`homeStatsResolver`, AECI-186) — the daily `stats_cache`
+  //     snapshot (`GET /api/stats/home`, AECI-179) for the stats cards +
+  //     recently-added + trending sections.
+  // The home carries `Cache-Tag: route:index,taxonomy` (`cacheTagInputsForPath`),
+  // so a taxonomy edit purges it; the daily stats snapshot needs no purge handle
+  // (the §4 900s edge TTL bounds staleness). Home meta/JSON-LD is set by the
+  // `Home` component (static copy), not a resolver.
   {
     path: '',
     pathMatch: 'full',
     loadComponent: () => import('./home/home').then((m) => m.Home),
-    resolve: { browse: homeBrowseResolver },
+    resolve: { browse: homeBrowseResolver, stats: homeStatsResolver },
   },
   {
     path: '_demo/spartan',
