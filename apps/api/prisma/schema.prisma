@@ -107,6 +107,12 @@ model Product {
   hasApiDocs                Boolean @default(false) @map("has_api_docs")
   toolIntegrationCheckNotes String? @map("tool_integration_check_notes")
 
+  // Narrative content (§4.2): per-audience / per-phase "how teams use it" value,
+  // slug-based {audiences,phases} blob; shape in API_CONTRACTS §5.1. Read whole,
+  // never queried by point. Written by promote (AECI-172), read by detail
+  // hydration (AECI-173); null-stubbed until then.
+  usefulness Json? @map("usefulness")
+
   productRole String  @default("application") @map("product_role")
   logoUrl     String? @map("logo_url")
 
