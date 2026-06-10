@@ -43,6 +43,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import type { UsefulnessGroup } from '@aeci/shared';
 import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 
@@ -185,6 +186,72 @@ function canonicalSlug(
   }
 }
 
+/** Canonical `{ slug, name }` of a migrated taxonomy term, keyed by Airtable rec-id. */
+type TaxonomyMeta = Map<string, { slug: string; name: string }>;
+
+/**
+ * Parse the Airtable Products `usefulness` field into the stored
+ * `ProductUsefulness` shape. The raw value is JSON
+ * `{ disciplines: [{ id, name, points[] }], phases: [{ id, name, points[] }] }`
+ * where each `id` is a Disciplines / Project-Phases **rec-id**. Disciplines map
+ * to AECi **audiences** (the facet was renamed in AECI-121). Each entry's rec-id
+ * is resolved to the migrated term's canonical `{ slug, name }` via the meta
+ * maps; an entry whose rec-id wasn't migrated (or that has no points) is dropped
+ * — mirroring the promote route's `skipped` handling. Groups resolving to the
+ * same term merge (points concatenated, source order kept). Returns `null` when
+ * the field is empty, unparseable, or resolves to nothing.
+ */
+function parseUsefulness(
+  raw: string | null,
+  audienceMeta: TaxonomyMeta,
+  phaseMeta: TaxonomyMeta,
+  log: Log,
+  recId: string,
+): { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] } | null {
+  if (!raw) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    log.warn(`[usefulness] ${recId} has unparseable usefulness JSON — skipping`);
+    return null;
+  }
+  if (!parsed || typeof parsed !== 'object') return null;
+  const obj = parsed as { disciplines?: unknown; phases?: unknown };
+
+  const resolveGroups = (
+    entries: unknown,
+    meta: TaxonomyMeta,
+    facet: string,
+  ): UsefulnessGroup[] => {
+    if (!Array.isArray(entries)) return [];
+    const merged = new Map<string, UsefulnessGroup>();
+    for (const entry of entries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as { id?: unknown; points?: unknown };
+      const id = typeof e.id === 'string' ? e.id : null;
+      const points = Array.isArray(e.points)
+        ? e.points.filter((pt): pt is string => typeof pt === 'string' && pt.trim() !== '')
+        : [];
+      if (!id || points.length === 0) continue;
+      const term = meta.get(id);
+      if (!term) {
+        log.warn(`[usefulness] ${recId} ${facet} rec ${id} not in migrated taxonomy — dropping`);
+        continue;
+      }
+      const existing = merged.get(term.slug);
+      if (existing) existing.points.push(...points);
+      else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...points] });
+    }
+    return [...merged.values()];
+  };
+
+  const audiences = resolveGroups(obj.disciplines, audienceMeta, 'discipline');
+  const phases = resolveGroups(obj.phases, phaseMeta, 'phase');
+  if (audiences.length === 0 && phases.length === 0) return null;
+  return { audiences, phases };
+}
+
 // ─── Core migration ──────────────────────────────────────────────────────────
 export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise<MigrateResult> {
   const { airtable, prisma, forward } = deps;
@@ -254,6 +321,10 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
   // "disciplines").
   const audienceUuid = new Map<string, string>();
   const phaseUuid = new Map<string, string>();
+  // rec-id → canonical { slug, name } for audiences/phases, so the per-product
+  // `usefulness` blob can resolve its discipline/phase rec-ids to public slugs.
+  const audienceMeta: TaxonomyMeta = new Map();
+  const phaseMeta: TaxonomyMeta = new Map();
 
   // Track which records this run newly inserted, for Airtable write-back.
   const newProductWriteback: { id: string; fields: Record<string, unknown> }[] = [];
@@ -292,6 +363,10 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
     slugSet: Set<string>,
     uuidMap: Map<string, string>,
     entity: 'category' | 'audience' | 'phase',
+    // Optional rec-id → canonical `{ slug, name }` map, populated for both
+    // inserted and reused rows. Used by `parseUsefulness` to resolve the
+    // usefulness JSON's discipline/phase rec-ids to public slugs.
+    metaMap?: TaxonomyMeta,
   ): Promise<void> {
     const bySlug = new Map<string, string>();
     // Seed from existing rows so re-runs reuse, not duplicate.
@@ -310,6 +385,9 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
       const existingId = bySlug.get(canonical.slug);
       if (existingId) {
         uuidMap.set(rec.id, existingId);
+        // Reuse matched by canonical slug, so the existing row's slug IS the
+        // canonical slug; `name` is non-null here (canonical.ok).
+        metaMap?.set(rec.id, { slug: canonical.slug, name: name as string });
         result.taxonomy.skipped += 1;
         continue;
       }
@@ -318,6 +396,7 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
       const id = randomUUID();
       uuidMap.set(rec.id, id);
       bySlug.set(slug, id);
+      metaMap?.set(rec.id, { slug, name: name as string });
       log.log(`[${entity}] ${name} → ${slug} ${dryRun ? '(WOULD WRITE)' : '(INSERT)'}`);
       await insertWithAudit(
         (tx) =>
@@ -352,8 +431,16 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
     audienceSlugs,
     audienceUuid,
     'audience',
+    audienceMeta,
   );
-  await migrateTaxonomy(airtablePhases, prisma.taxonomyPhase, phaseSlugs, phaseUuid, 'phase');
+  await migrateTaxonomy(
+    airtablePhases,
+    prisma.taxonomyPhase,
+    phaseSlugs,
+    phaseUuid,
+    'phase',
+    phaseMeta,
+  );
 
   // ── Step 5: vendors (those linked to a promoted product) ────────────────────
   const referencedVendorIds = new Set<string>();
@@ -478,6 +565,16 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
     const phaseIds = links(p.fields, 'supported_project_phases')
       .map((r) => phaseUuid.get(r))
       .filter((x): x is string => !!x);
+    // Resolve the narrative `usefulness` blob against the migrated taxonomy.
+    // `null` → omit the column (defaults to SQL NULL); a literal JS `null` is
+    // rejected for `Json?`, so never pass it.
+    const usefulness = parseUsefulness(
+      str(p.fields, 'usefulness'),
+      audienceMeta,
+      phaseMeta,
+      log,
+      p.id,
+    );
 
     await insertWithAudit(
       async (tx) => {
@@ -501,6 +598,7 @@ export async function bulkMigrate(deps: MigrateDeps, opts: MigrateOpts): Promise
             searchVolumeMonthly: num(p.fields, 'search_volume_monthly'),
             redditMentions24mo: num(p.fields, 'reddit_mentions_24mo'),
             adminNotes: str(p.fields, 'admin_notes'),
+            usefulness: usefulness ?? undefined,
             promotionStatus: 'promoted',
           },
         });

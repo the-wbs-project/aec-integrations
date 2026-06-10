@@ -80,6 +80,16 @@ function buildStore(): Record<string, AirtableRecord[]> {
           supported_project_phases: ['recPH1'],
           has_api_docs: true,
           product_role: 'application',
+          // usefulness: disciplines → audiences, plus a phase and a bogus rec-id
+          // that must be dropped (AECI-172). `name` mirrors the Airtable export
+          // but is ignored — rec-id resolution drives the stored slug/name.
+          usefulness: JSON.stringify({
+            disciplines: [
+              { id: 'recD1', name: `Disc ${TAG}`, points: ['Coordinate disciplines'] },
+              { id: 'recBOGUS', name: 'Ghost Discipline', points: ['should drop'] },
+            ],
+            phases: [{ id: 'recPH1', name: `Phase ${TAG}`, points: ['Phase value'] }],
+          }),
         },
       },
       {
@@ -209,6 +219,23 @@ describe.skipIf(!testDbUrl)('bulkMigrate — integration (AECI-83)', () => {
     // P3 (not promoted) never lands.
     const ghost = await prisma.product.findFirst({ where: { slug: `ghost-${TAG}`.toLowerCase() } });
     expect(ghost).toBeNull();
+
+    // usefulness (AECI-172): disciplines resolve to audiences with the migrated
+    // slug + name, the phase is included, and the bogus rec-id is dropped. P2
+    // has no usefulness field → the column is NULL.
+    expect(p1.usefulness).toEqual({
+      audiences: [
+        {
+          slug: `disc-${TAG}`.toLowerCase(),
+          name: `Disc ${TAG}`,
+          points: ['Coordinate disciplines'],
+        },
+      ],
+      phases: [
+        { slug: `phase-${TAG}`.toLowerCase(), name: `Phase ${TAG}`, points: ['Phase value'] },
+      ],
+    });
+    expect(p2.usefulness).toBeNull();
 
     // Vendor link + taxonomy joins on P1.
     const pvs = await prisma.productVendor.findMany({ where: { productId: p1.id } });

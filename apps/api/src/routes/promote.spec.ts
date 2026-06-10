@@ -1,4 +1,5 @@
 import type { PromoteResponse } from '@aeci/shared';
+import { Prisma } from '@prisma/client/edge';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -528,6 +529,198 @@ describe('createPromoteHandler', () => {
     expect(res.status).toBe(500);
     const b = (await res.json()) as { error: { code: string } };
     expect(b.error.code).toBe('INTERNAL_ERROR');
+  });
+});
+
+describe('usefulness resolution on promote (AECI-172)', () => {
+  type UseGroup = { slug: string; name: string; points: string[] };
+  type Stored = { audiences: UseGroup[]; phases: UseGroup[] };
+
+  const seedAudience = (fake: Fake, id: string, slug: string, name: string) =>
+    fake.models.taxonomyAudience.rows.set(id, { id, slug, name });
+  const seedPhase = (fake: Fake, id: string, slug: string, name: string) =>
+    fake.models.taxonomyPhase.rows.set(id, { id, slug, name });
+
+  /** The `usefulness` value written to the (single) promoted product row. */
+  const storedUsefulness = (fake: Fake, productId: string) =>
+    fake.models.product.rows.get(productId)?.usefulness;
+
+  it('resolves groups by name and by slug, storing the canonical {slug,name}', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+    seedPhase(fake, 'ph-design', 'design', 'Design');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [{ name: 'Architecture', points: ['Coordinate models', 'Clash detection'] }],
+          phases: [{ slug: 'design', points: ['Author drawings'] }],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string }; skipped: unknown[] };
+    expect(b.skipped).toHaveLength(0);
+    expect(storedUsefulness(fake, b.product.id)).toEqual({
+      audiences: [
+        {
+          slug: 'architecture',
+          name: 'Architecture',
+          points: ['Coordinate models', 'Clash detection'],
+        },
+      ],
+      phases: [{ slug: 'design', name: 'Design', points: ['Author drawings'] }],
+    });
+  });
+
+  it('resolves usefulness against a term created in the same promote (runs after taxonomy)', async () => {
+    const fake = makeFake();
+    // No seeded audience: the facet array creates "Architecture", and the
+    // usefulness group must resolve against that just-created term.
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        audiences: ['Architecture'],
+        usefulness: { audiences: [{ name: 'Architecture', points: ['x'] }], phases: [] },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string }; skipped: unknown[] };
+    expect(b.skipped).toHaveLength(0);
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['x'] },
+    ]);
+  });
+
+  it('merges same-term groups, concatenating points in source order', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [
+            { slug: 'architecture', points: ['first'] },
+            { name: 'Architecture', points: ['second'] },
+          ],
+          phases: [],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string } };
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['first', 'second'] },
+    ]);
+  });
+
+  it('drops an unresolvable group and reports it in skipped[] with kind=usefulness', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [
+            { name: 'Architecture', points: ['kept'] },
+            { name: 'Nonexistent Discipline', points: ['dropped'] },
+          ],
+          phases: [],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      product: { id: string };
+      skipped: { ref: string; kind: string }[];
+    };
+    expect(b.skipped).toEqual([expect.objectContaining({ ref: 'p1', kind: 'usefulness' })]);
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['kept'] },
+    ]);
+  });
+
+  it('clears the column with Prisma.DbNull when usefulness is null', async () => {
+    const fake = makeFake();
+    const prodX = uuid(3);
+    fake.models.product.rows.set(prodX, {
+      id: prodX,
+      slug: 'revit',
+      name: 'Revit',
+      usefulness: {
+        audiences: [{ slug: 'architecture', name: 'Architecture', points: ['old'] }],
+        phases: [],
+      },
+    });
+
+    const res = await promote(fake, {
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit', usefulness: null },
+    });
+
+    expect(res.status).toBe(200);
+    // A literal JS `null` is rejected for `Json?`; the handler must use DbNull.
+    expect(storedUsefulness(fake, prodX)).toBe(Prisma.DbNull);
+  });
+
+  it('leaves the column untouched (undefined) when usefulness is absent', async () => {
+    const fake = makeFake();
+    const res = await promote(fake, { product: { ref: 'p1', name: 'Revit' } });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string } };
+    expect(storedUsefulness(fake, b.product.id)).toBeUndefined();
+  });
+
+  it('accepts and strips unknown keys inside a usefulness group (Zod passthrough off)', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [{ slug: 'architecture', points: ['x'], bogusKey: 'ignored' }],
+          phases: [],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string } };
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['x'] },
+    ]);
+  });
+
+  it('rejects a usefulness group with neither slug nor name', async () => {
+    const fake = makeFake();
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: { audiences: [{ points: ['x'] }], phases: [] },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    const b = (await res.json()) as { error: { code: string } };
+    expect(b.error.code).toBe('VALIDATION_FAILED');
   });
 });
 
