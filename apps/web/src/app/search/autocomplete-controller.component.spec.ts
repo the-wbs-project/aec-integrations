@@ -4,7 +4,13 @@ import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteResult, AutocompleteSuggestion } from './autocomplete-mapping';
 
 function suggestion(title: string): AutocompleteSuggestion {
-  return { kind: 'product', objectID: title, title, subtitle: null, routerLink: ['/products', title] };
+  return {
+    kind: 'product',
+    objectID: title,
+    title,
+    subtitle: null,
+    routerLink: ['/products', title],
+  };
 }
 
 function result(...titles: string[]): AutocompleteResult {
@@ -78,10 +84,7 @@ describe('AutocompleteController', () => {
   it('drops a stale response when a newer query has already fired', async () => {
     const first = deferred<AutocompleteResult>();
     const second = deferred<AutocompleteResult>();
-    const searchFn = vi
-      .fn()
-      .mockReturnValueOnce(first.promise)
-      .mockReturnValueOnce(second.promise);
+    const searchFn = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
     const controller = new AutocompleteController(searchFn);
 
     controller.setQuery('a');
