@@ -130,8 +130,9 @@ app.all('*', () => {
 // reference) keeps Hono's request handling intact. Cron triggers + queue
 // producer/consumer bindings are registered per-env in `wrangler.jsonc` (staging
 // + production only). The cron `scheduled` handler enqueues a job; the `queue`
-// consumer runs it (ADR 0013) — see `src/scheduled.ts`. Crons: AECI-139 08:00 UTC
-// sync; AECI-140 09:00 UTC drift check.
+// consumer runs it (ADR 0013) — see `src/scheduled.ts`. Crons: AECI-178 07:00 UTC
+// home-stats compute; AECI-139 08:00 UTC Algolia sync; AECI-140 09:00 UTC drift
+// check.
 export default {
   fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
   scheduled,

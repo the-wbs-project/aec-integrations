@@ -3,7 +3,7 @@
  * Phase 3.7). Two handlers, deliberately split:
  *
  *   • `scheduled` — the cron trigger. It does NOT run the work; it only enqueues
- *     a `AlgoliaJobMessage` onto the matching Cloudflare Queue (`enqueueOrRun`).
+ *     a `ScheduledJobMessage` onto the matching Cloudflare Queue (`enqueueOrRun`).
  *   • `queue` — the consumer. It receives the message and runs the actual job.
  *
  * This cron→queue→consumer split (ADR 0013) decouples scheduling from execution:
@@ -15,6 +15,11 @@
  * `--test-scheduled` tick is never silently dropped.
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
+ * 07:00 UTC (= 02:00 EST) — daily home-stats compute (`./lib/home-stats`,
+ * AECI-178 / Phase 4.3 / §10): recompute the seven `home.*` `stats_cache` keys
+ * and upsert each. Runs before the Algolia sync so a fresh stats row is ready at
+ * the start of the US morning. Per-key best-effort (one key failing doesn't abort
+ * the rest); empty `page_views` → empty `trending_products`.
  * 08:00 UTC (= 03:00 EST) — incremental Algolia sync (`./lib/algolia-sync`,
  * AECI-139): push rows changed since the stored watermark to the env's three
  * indexes, removing `retracted`/`rejected` records. The full reindex is the
@@ -36,7 +41,7 @@
 import type { AlgoliaEnv } from '@aeci/shared/algolia';
 
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
-import type { AlgoliaJob, AlgoliaJobMessage, Env } from './env';
+import type { ScheduledJob, ScheduledJobMessage, Env } from './env';
 import {
   createAlgoliaCounter,
   reportAlgoliaDrift,
@@ -45,6 +50,7 @@ import {
 } from './lib/algolia-drift';
 import { runDailySync, type AlgoliaSyncPrisma } from './lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
+import { runHomeStats, type HomeStatsPrisma, type HomeStatsResult } from './lib/home-stats';
 import { getPrisma } from './prisma';
 
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
@@ -59,6 +65,12 @@ const ALGOLIA_SYNC_CRON = '0 8 * * *';
  *  09:00 UTC = 04:00 EST — kept one hour after the sync so reconciliation reads
  *  a settled index. MUST stay byte-equal to `wrangler.jsonc` (see sync note). */
 const ALGOLIA_DRIFT_CRON = '0 9 * * *';
+
+/** Cron expression for the daily home-stats compute (`wrangler.jsonc`, AECI-178).
+ *  07:00 UTC = 02:00 EST — one hour before the Algolia sync, so the `home.*`
+ *  `stats_cache` rows are fresh at the start of the US morning. MUST stay
+ *  byte-equal to `wrangler.jsonc` (see sync note). */
+const STATS_CRON = '0 7 * * *';
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -209,15 +221,97 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
   }
 }
 
+async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/stats');
+  const prisma = getPrisma(env) as unknown as HomeStatsPrisma;
+
+  const started = Date.now();
+  let result: HomeStatsResult;
+  try {
+    result = await runHomeStats(prisma, new Date());
+  } catch (error) {
+    // `runHomeStats` is per-key best-effort and never throws on a compute/write
+    // failure, so reaching here is a pre-compute crash (e.g. Prisma client init).
+    // Log loudly + count an outright failure; never rethrow (a thrown cron is an
+    // opaque failed invocation with no detail).
+    submitCount(ctx, env, req, 'aeci.stats.compute', 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.stats.compute.crashed',
+      source: 'stats-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  const written = result.keys.filter((k) => k.status === 'written').length;
+  const failed = result.keys.filter((k) => k.status === 'failed').length;
+  const skipped = result.keys.filter((k) => k.status === 'skipped').length;
+  // success: every key written/skipped cleanly; partial: some wrote, some failed;
+  // failed: nothing wrote and at least one key failed.
+  const outcome = failed === 0 ? 'success' : written > 0 ? 'partial' : 'failed';
+
+  for (const k of result.keys) {
+    logToDatadog(ctx, env, req, {
+      level: k.status === 'failed' ? 'error' : 'info',
+      message: `aeci.stats.compute ${k.key} status=${k.status}`,
+      source: 'stats-cron',
+      key: k.key,
+      status: k.status,
+      ...(k.error ? { reason: k.error } : {}),
+    });
+  }
+
+  // Job-level metrics + completion log feed the 4.5 / AECI-180 dashboard + alert;
+  // names follow the `aeci.<domain>.<action>` convention and can be finalized there.
+  submitCount(ctx, env, req, 'aeci.stats.compute', 1, ['trigger:cron', `outcome:${outcome}`]);
+  submitDistribution(ctx, env, req, 'aeci.stats.compute.duration_ms', Date.now() - started, [
+    'trigger:cron',
+  ]);
+  logToDatadog(ctx, env, req, {
+    level: failed > 0 ? 'warn' : 'info',
+    message: `aeci.stats.computed keys_written=${written} keys_failed=${failed} keys_skipped=${skipped}`,
+    source: 'stats-cron',
+    keys_written: written,
+    keys_failed: failed,
+    keys_skipped: skipped,
+  });
+}
+
+/** The producer queue binding for a job (absent on local/preview → inline run). */
+function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | undefined {
+  switch (job) {
+    case 'sync':
+      return env.ALGOLIA_SYNC_QUEUE;
+    case 'drift':
+      return env.ALGOLIA_DRIFT_QUEUE;
+    case 'stats':
+      return env.STATS_QUEUE;
+  }
+}
+
+/** Cron path + log identifiers for a job's enqueue-failure log. `sync`/`drift`
+ *  live under the `algolia` domain (unchanged); `stats` under its own. */
+function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; source: string } {
+  if (job === 'stats') {
+    return { path: '/cron/stats', message: 'aeci.stats.enqueue_failed', source: 'stats-cron' };
+  }
+  return {
+    path: `/cron/algolia-${job}`,
+    message: `aeci.algolia.${job}.enqueue_failed`,
+    source: `algolia-${job}-cron`,
+  };
+}
+
 /** Run a job, or — preferably — enqueue it. On staging/production the matching
  *  queue binding is present, so we `send` a message and return immediately; the
  *  `queue` consumer below does the work (ADR 0013). On an env without the binding
  *  (local `wrangler dev`, preview) there is no queue, so run inline — a
  *  `--test-scheduled` tick must never be silently dropped. */
-async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: AlgoliaJob): Promise<void> {
-  const queue = job === 'sync' ? env.ALGOLIA_SYNC_QUEUE : env.ALGOLIA_DRIFT_QUEUE;
+async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: ScheduledJob): Promise<void> {
+  const queue = queueForJob(env, job);
   if (queue) {
-    const message: AlgoliaJobMessage = {
+    const message: ScheduledJobMessage = {
       job,
       trigger: 'cron',
       enqueuedAt: new Date().toISOString(),
@@ -230,26 +324,33 @@ async function enqueueOrRun(env: Env, ctx: ExecutionContext, job: AlgoliaJob): P
       // deleted/missing queue). Don't let it escape as an opaque failed-cron
       // with no detail — log loudly (as the job impls do) and fall through to
       // an inline run so the scheduled tick is never silently dropped.
-      logToDatadog(ctx, env, cronRequest(`/cron/algolia-${job}`), {
+      const log = enqueueFailureLog(job);
+      logToDatadog(ctx, env, cronRequest(log.path), {
         level: 'error',
-        message: `aeci.algolia.${job}.enqueue_failed`,
-        source: `algolia-${job}-cron`,
+        message: log.message,
+        source: log.source,
         reason: error instanceof Error ? error.message : String(error),
       });
     }
   } else {
     console.warn(`scheduled: no queue binding for "${job}" — running inline (local/preview)`);
   }
-  await runAlgoliaJob(env, ctx, job);
+  await runScheduledJob(env, ctx, job);
 }
 
 /** Dispatch a job kind to its implementation. Shared by the inline fallback and
  *  the queue consumer so both paths stay identical. */
-async function runAlgoliaJob(env: Env, ctx: ExecutionContext, job: AlgoliaJob): Promise<void> {
-  if (job === 'sync') {
-    await runAlgoliaSync(env, ctx);
-  } else {
-    await runAlgoliaDrift(env, ctx);
+async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJob): Promise<void> {
+  switch (job) {
+    case 'sync':
+      await runAlgoliaSync(env, ctx);
+      return;
+    case 'drift':
+      await runAlgoliaDrift(env, ctx);
+      return;
+    case 'stats':
+      await runHomeStatsJob(env, ctx);
+      return;
   }
 }
 
@@ -261,6 +362,9 @@ async function runAlgoliaJob(env: Env, ctx: ExecutionContext, job: AlgoliaJob): 
  */
 export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller, env, ctx) => {
   switch (controller.cron) {
+    case STATS_CRON:
+      await enqueueOrRun(env, ctx, 'stats');
+      return;
     case ALGOLIA_SYNC_CRON:
       await enqueueOrRun(env, ctx, 'sync');
       return;
@@ -275,16 +379,17 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
 };
 
 /**
- * Worker `queue` consumer — runs the actual Algolia job for each message the
- * cron `scheduled` handler enqueued (ADR 0013). Bound to both job queues in
+ * Worker `queue` consumer — runs the actual scheduled job for each message the
+ * cron `scheduled` handler enqueued (ADR 0013). Bound to every job queue in
  * `wrangler.jsonc`; `batch.queue` would distinguish them, but the message body's
  * `job` is authoritative. Batches are size-1 (each job is a singleton), so this
- * loops at most once per invocation. `runAlgoliaSync`/`runAlgoliaDrift` swallow
- * their own operational errors (logging to Datadog), so reaching the `catch`
- * means an unexpected throw (e.g. Prisma client init) — `retry()` it per the
- * consumer's `max_retries`; everything else `ack()`s.
+ * loops at most once per invocation. The job impls (`runAlgoliaSync`,
+ * `runAlgoliaDrift`, `runHomeStatsJob`) swallow their own operational errors
+ * (logging to Datadog), so reaching the `catch` means an unexpected throw (e.g.
+ * Prisma client init) — `retry()` it per the consumer's `max_retries`; everything
+ * else `ack()`s.
  */
-export const queue: ExportedHandlerQueueHandler<Env, AlgoliaJobMessage> = async (
+export const queue: ExportedHandlerQueueHandler<Env, ScheduledJobMessage> = async (
   batch,
   env,
   ctx,
@@ -292,11 +397,11 @@ export const queue: ExportedHandlerQueueHandler<Env, AlgoliaJobMessage> = async 
   for (const message of batch.messages) {
     const { job } = message.body;
     try {
-      await runAlgoliaJob(env, ctx, job);
+      await runScheduledJob(env, ctx, job);
       message.ack();
     } catch (error) {
       console.error(
-        `queue: Algolia job "${job}" threw on ${batch.queue} (retrying):`,
+        `queue: scheduled job "${job}" threw on ${batch.queue} (retrying):`,
         error instanceof Error ? error.message : String(error),
       );
       message.retry();

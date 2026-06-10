@@ -10,7 +10,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AlgoliaJob, Env } from './env';
+import type { ScheduledJob, Env } from './env';
 
 vi.mock('./datadog', () => ({
   logToDatadog: vi.fn(),
@@ -23,15 +23,18 @@ vi.mock('./lib/algolia-drift', () => ({
   createAlgoliaCounter: vi.fn(() => ({})),
   reportAlgoliaDrift: vi.fn(),
 }));
+vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./prisma', () => ({ getPrisma: vi.fn(() => ({})) }));
 
 import { logToDatadog } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
+import { runHomeStats } from './lib/home-stats';
 import { getPrisma } from './prisma';
 import { queue, scheduled } from './scheduled';
 
 // Must stay byte-equal to the constants / `wrangler.jsonc` triggers.
+const STATS_CRON = '0 7 * * *';
 const SYNC_CRON = '0 8 * * *';
 const DRIFT_CRON = '0 9 * * *';
 
@@ -50,7 +53,7 @@ function cronController(cron: string) {
   return { cron, scheduledTime: 0, noRetry: vi.fn() } as unknown as Parameters<typeof scheduled>[0];
 }
 
-function makeBatch(job: AlgoliaJob, queueName: string) {
+function makeBatch(job: ScheduledJob, queueName: string) {
   const ack = vi.fn();
   const retry = vi.fn();
   const batch = {
@@ -66,6 +69,8 @@ beforeEach(() => {
   vi.clearAllMocks();
   // runAlgoliaSync reads `result.entities` after the call; default to a clean run.
   vi.mocked(runDailySync).mockResolvedValue({ entities: [] } as never);
+  // runHomeStatsJob reads `result.keys` after the call; default to a clean run.
+  vi.mocked(runHomeStats).mockResolvedValue({ keys: [] } as never);
   vi.mocked(getPrisma).mockReturnValue({} as never);
 });
 
@@ -91,10 +96,26 @@ describe('scheduled (cron producer)', () => {
     expect(reportAlgoliaDrift).not.toHaveBeenCalled();
   });
 
+  it('enqueues the stats job onto its own queue (AECI-178)', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ STATS_QUEUE: { send } as never });
+
+    await scheduled(cronController(STATS_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ job: 'stats', trigger: 'cron' }));
+    expect(runHomeStats).not.toHaveBeenCalled();
+  });
+
   it('runs the job inline when no queue binding is present (local/preview)', async () => {
     await scheduled(cronController(SYNC_CRON), makeEnv(), ctx);
 
     expect(runDailySync).toHaveBeenCalledTimes(1);
+  });
+
+  it('runs the stats job inline when no STATS_QUEUE binding is present', async () => {
+    await scheduled(cronController(STATS_CRON), makeEnv(), ctx);
+
+    expect(runHomeStats).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to an inline run and logs to Datadog when queue.send rejects', async () => {
@@ -135,5 +156,15 @@ describe('queue (consumer)', () => {
 
     expect(retry).toHaveBeenCalledTimes(1);
     expect(ack).not.toHaveBeenCalled();
+  });
+
+  it('ack()s a stats job message and runs the home-stats compute (AECI-178)', async () => {
+    const { batch, ack, retry } = makeBatch('stats', 'aeci-stats-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(runHomeStats).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
   });
 });

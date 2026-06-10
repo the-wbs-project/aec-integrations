@@ -487,13 +487,13 @@ jobs:
         id: ts
         run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
 
-      # ADR 0013: provision the prod Algolia job queues BEFORE the API deploy — the
+      # ADR 0013: provision the prod scheduled-job queues BEFORE the API deploy — the
       # Worker's `queues.consumers` binding errors if the queue does not exist yet.
       # Idempotent: re-creating an existing queue returns "Queue name '...' is
       # already taken" (API error code 11009), treated as success. PREREQ:
       # CLOUDFLARE_API_TOKEN must carry the Queues edit permission and the account
       # must be on the Workers Paid plan, or this fails.
-      - name: Provision Algolia job queues (production)
+      - name: Provision scheduled job queues (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -514,6 +514,7 @@ jobs:
           }
           create_queue aeci-algolia-sync-production
           create_queue aeci-algolia-drift-production
+          create_queue aeci-stats-production
 
       # API deploys FIRST. The SSR Worker's `services.API` binding talks to
       # `aeci-api-production`; deploying API ahead of SSR means any brief
