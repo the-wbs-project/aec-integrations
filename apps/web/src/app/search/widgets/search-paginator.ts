@@ -25,7 +25,10 @@ import { Component, input, output } from '@angular/core';
         >
           Previous
         </button>
-        <span class="text-sm tabular-nums text-(--text-secondary)" i18n="@@search.pagination.status">
+        <span
+          class="text-sm tabular-nums text-(--text-secondary)"
+          i18n="@@search.pagination.status"
+        >
           Page {{ page() + 1 }} of {{ nbPages() }}
         </span>
         <button

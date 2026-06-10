@@ -39,9 +39,7 @@ function setup(initial: AlgoliaIntegrationRecord = baseRecord) {
 describe('SearchIntegrationCard', () => {
   it('links the source → target headline to /integrations/:objectID', () => {
     const el = setup();
-    const link = el.querySelector(
-      'a[href="/integrations/00000000-0000-4000-8000-000000030001"]',
-    );
+    const link = el.querySelector('a[href="/integrations/00000000-0000-4000-8000-000000030001"]');
     expect(link?.textContent).toContain('Revit');
     expect(link?.textContent).toContain('Navisworks');
   });

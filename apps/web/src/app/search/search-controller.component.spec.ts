@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  type InstantSearchLib,
-  type IsWidget,
-  SearchController,
-} from './search-controller';
+import { type InstantSearchLib, type IsWidget, SearchController } from './search-controller';
 import type { AlgoliaPublicConfig } from './algolia-config';
 
 /**
@@ -23,7 +19,10 @@ interface Captured {
 
 function makeFakeLib() {
   const calls = {
-    instantsearch: [] as { indexName: string; future?: { preserveSharedStateOnUnmount?: boolean } }[],
+    instantsearch: [] as {
+      indexName: string;
+      future?: { preserveSharedStateOnUnmount?: boolean };
+    }[],
     index: [] as { indexName: string }[],
     configure: [] as Record<string, unknown>[],
     searchBox: [] as Captured[],

@@ -14,11 +14,15 @@ import { Component, input, output } from '@angular/core';
   selector: 'aec-search-range-input',
   template: `
     <fieldset class="border-0 p-0">
-      <legend class="mb-2 text-xs font-semibold tracking-[0.08em] text-(--text-secondary) uppercase">
+      <legend
+        class="mb-2 text-xs font-semibold tracking-[0.08em] text-(--text-secondary) uppercase"
+      >
         {{ label() }}
       </legend>
       <div class="flex items-center gap-2">
-        <label class="sr-only" [attr.for]="name() + '-min'" i18n="@@search.range.min">Minimum</label>
+        <label class="sr-only" [attr.for]="name() + '-min'" i18n="@@search.range.min"
+          >Minimum</label
+        >
         <input
           #minInput
           type="number"
@@ -31,7 +35,9 @@ import { Component, input, output } from '@angular/core';
           (change)="emit(minInput.value, maxInput.value)"
         />
         <span class="text-(--text-secondary)" aria-hidden="true">–</span>
-        <label class="sr-only" [attr.for]="name() + '-max'" i18n="@@search.range.max">Maximum</label>
+        <label class="sr-only" [attr.for]="name() + '-max'" i18n="@@search.range.max"
+          >Maximum</label
+        >
         <input
           #maxInput
           type="number"

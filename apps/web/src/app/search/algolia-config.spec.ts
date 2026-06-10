@@ -14,7 +14,11 @@ type GlobalWithConfig = { __AECI_ALGOLIA__?: unknown };
 const VALID = {
   appId: 'APP123',
   searchKey: 'search-only-key',
-  indexes: { products: 'preview_products', vendors: 'preview_vendors', integrations: 'preview_integrations' },
+  indexes: {
+    products: 'preview_products',
+    vendors: 'preview_vendors',
+    integrations: 'preview_integrations',
+  },
 };
 
 function setGlobal(value: unknown): void {

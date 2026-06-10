@@ -205,7 +205,10 @@ const COUNT_BUCKETS: { label: string; start?: number; end?: number }[] = [
 
 interface FacetConfig {
   refinementLists: readonly string[];
-  numericMenus: readonly { attribute: string; items: { label: string; start?: number; end?: number }[] }[];
+  numericMenus: readonly {
+    attribute: string;
+    items: { label: string; start?: number; end?: number }[];
+  }[];
   ranges: readonly string[];
 }
 
@@ -230,12 +233,7 @@ const FACET_CONFIG: Record<'products' | 'vendors' | 'integrations', FacetConfig>
     ranges: ['founded_year'],
   },
   integrations: {
-    refinementLists: [
-      'mechanism_kind',
-      'direction',
-      'source_product_name',
-      'target_product_name',
-    ],
+    refinementLists: ['mechanism_kind', 'direction', 'source_product_name', 'target_product_name'],
     numericMenus: [],
     ranges: [],
   },

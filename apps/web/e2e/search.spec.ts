@@ -18,7 +18,9 @@ test.describe('/search — search page (AECI-142)', () => {
     expect(res.status(), 'GET /search must return 200').toBe(200);
     const html = await res.text();
 
-    expect(html, '<h1>Search</h1> must render SSR-side').toMatch(/<h1[^>]*>[^<]*Search[^<]*<\/h1>/i);
+    expect(html, '<h1>Search</h1> must render SSR-side').toMatch(
+      /<h1[^>]*>[^<]*Search[^<]*<\/h1>/i,
+    );
     expect(html, 'a search input named q must render').toMatch(
       /<input[^>]+name="q"[^>]+type="search"|<input[^>]+type="search"[^>]+name="q"/,
     );
@@ -34,7 +36,9 @@ test.describe('/search — search page (AECI-142)', () => {
     expect(cacheControl, `Cache-Control must be no-store; got: ${cacheControl}`).toContain(
       'no-store',
     );
-    expect(cacheControl, `Cache-Control must be private; got: ${cacheControl}`).toContain('private');
+    expect(cacheControl, `Cache-Control must be private; got: ${cacheControl}`).toContain(
+      'private',
+    );
 
     const html = await res.text();
     expect(html, 'robots noindex meta must be present').toMatch(

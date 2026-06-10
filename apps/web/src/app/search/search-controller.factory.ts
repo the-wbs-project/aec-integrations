@@ -58,14 +58,14 @@ export async function createSearchEngine(config: AlgoliaPublicConfig): Promise<S
     import('algoliasearch/lite'),
   ]);
 
-  const instantsearch = (is.default ??
-    (is as unknown)) as InstantSearchLib['instantsearch'];
+  const instantsearch = (is.default ?? (is as unknown)) as InstantSearchLib['instantsearch'];
 
   const lib: InstantSearchLib = {
     instantsearch,
     index: widgets.index as unknown as InstantSearchLib['index'],
     configure: widgets.configure as unknown as InstantSearchLib['configure'],
-    connectSearchBox: connectors.connectSearchBox as unknown as InstantSearchLib['connectSearchBox'],
+    connectSearchBox:
+      connectors.connectSearchBox as unknown as InstantSearchLib['connectSearchBox'],
     connectHits: connectors.connectHits as unknown as InstantSearchLib['connectHits'],
     connectStats: connectors.connectStats as unknown as InstantSearchLib['connectStats'],
     connectPagination:

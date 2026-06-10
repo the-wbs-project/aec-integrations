@@ -111,7 +111,10 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             class="mt-10 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) px-6 py-10 text-center"
             role="status"
           >
-            <p class="text-base font-medium text-(--text-primary)" i18n="@@search.unavailable.title">
+            <p
+              class="text-base font-medium text-(--text-primary)"
+              i18n="@@search.unavailable.title"
+            >
               Search is temporarily unavailable.
             </p>
             <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@search.unavailable.body">
@@ -119,7 +122,12 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             </p>
           </div>
         } @else {
-          <div role="tablist" class="mt-8 flex gap-1 border-b border-(--border-default)" aria-label="Search results by type" i18n-aria-label="@@search.tablist.aria">
+          <div
+            role="tablist"
+            class="mt-8 flex gap-1 border-b border-(--border-default)"
+            aria-label="Search results by type"
+            i18n-aria-label="@@search.tablist.aria"
+          >
             @for (tab of tabs; track tab) {
               <button
                 #tabBtn
@@ -289,8 +297,7 @@ export class SearchPage implements OnDestroy {
   private readonly tabButtons = viewChildren<ElementRef<HTMLButtonElement>>('tabBtn');
 
   /** Seeded once from `?q=` for the SSR `[value]` and the controller's first query. */
-  private readonly initialQuery =
-    this.route.snapshot.queryParamMap.get('q')?.trim() ?? '';
+  private readonly initialQuery = this.route.snapshot.queryParamMap.get('q')?.trim() ?? '';
 
   protected readonly controller = signal<SearchController | null>(null);
   /** True once we know the public Algolia config is absent (browser-only). */
