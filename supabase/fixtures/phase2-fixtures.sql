@@ -80,8 +80,15 @@ ON CONFLICT ("slug") DO UPDATE
 -- Products (2) — a primary application + a connector for the integration target.
 -- integration_count = 1 (each participates in the single fixture integration).
 -- -----------------------------------------------------------------------------
+-- The primary product carries a `usefulness` blob (AECI-173) so the product detail
+-- page's "How teams use it" section renders live in the e2e populated-state test.
+-- Slug-based groups key off the SAME taxonomy terms this product is tagged with
+-- below (audience general-contracting / phase construction); names mirror
+-- supabase/reference-data/taxonomy.sql. The connector keeps NULL usefulness so it
+-- stays a real null-path page. Shape: API_CONTRACTS §5.1 / DATABASE_SCHEMA §4.2.
 INSERT INTO "products" ("id", "slug", "name", "description", "website",
-                        "product_role", "integration_count", "promotion_status")
+                        "product_role", "integration_count", "promotion_status",
+                        "usefulness")
 VALUES
   (
     '00000000-0000-4000-8000-000000000062',
@@ -95,7 +102,28 @@ VALUES
     'https://example.com/fixture-procore',
     'application',
     1,
-    'promoted'
+    'promoted',
+    '{
+       "audiences": [
+         {
+           "slug": "general-contracting",
+           "name": "General Contracting",
+           "points": [
+             "Track RFIs and submittals across every job so nothing slips between trades.",
+             "Give superintendents one daily-log workflow instead of paper and spreadsheets."
+           ]
+         }
+       ],
+       "phases": [
+         {
+           "slug": "construction",
+           "name": "Construction",
+           "points": [
+             "Keep field and office on one schedule of record during active construction."
+           ]
+         }
+       ]
+     }'::jsonb
   ),
   (
     '00000000-0000-4000-8000-000000000063',
@@ -107,7 +135,8 @@ VALUES
     'https://example.com/fixture-acme-connector',
     'connector',
     1,
-    'promoted'
+    'promoted',
+    NULL
   )
 ON CONFLICT ("slug") DO UPDATE
   SET "name"              = EXCLUDED."name",
@@ -116,6 +145,7 @@ ON CONFLICT ("slug") DO UPDATE
       "product_role"      = EXCLUDED."product_role",
       "integration_count" = EXCLUDED."integration_count",
       "promotion_status"  = EXCLUDED."promotion_status",
+      "usefulness"        = EXCLUDED."usefulness",
       "updated_at"        = now();
 
 -- -----------------------------------------------------------------------------

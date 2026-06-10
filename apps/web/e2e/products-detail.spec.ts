@@ -9,12 +9,13 @@
  *   2. Claim/correction request forms (`/products/:slug/claim`,
  *      `/products/:slug/correction`, AECI-128) render the `RequestForm` with
  *      `<meta name="robots" content="noindex">`.
- *   3. "How teams use it" usefulness section (AECI-170) — a regression guard
- *      that the section stays INERT (heading absent) while the API returns a
- *      null `usefulness` stub (AECI-169). Gated on the seed fixture
- *      (`fixture-procore`, like `phase2-a11y.spec.ts`); self-skips when the
- *      fixture is absent so the file stays green pre-seed. The populated-state
- *      assertion lands later with API hydration.
+ *   3. "How teams use it" usefulness section (AECI-170/-173) — covers BOTH the
+ *      populated state (`fixture-procore` carries a `usefulness` blob: heading,
+ *      both facet columns, group label, and a seeded point render) and the null
+ *      path (`fixture-acme-connector` has no usefulness: heading absent). Each
+ *      test gates on the API actually returning the expected usefulness state, so
+ *      both self-skip when the fixture isn't seeded and the file stays green
+ *      pre-seed (mirrors `phase2-a11y.spec.ts`).
  *
  * The success-path coverage (hero / breadcrumbs / Cache-Tag with vendor +
  * integration tags / second-visit cache HIT) lives in the Phase 2.18 crawler
@@ -123,25 +124,40 @@ test.describe('product detail — claim/correction request forms (AECI-128)', ()
   });
 });
 
-test.describe('product detail — usefulness section (AECI-170)', () => {
-  // The "How teams use it" section ships inert: it renders only when the API
-  // returns a non-null `usefulness`, which is a typed null-stub for every
-  // product until the data pipeline lands (AECI-169). This guards that inert
-  // state — the heading must be ABSENT even on a real (fixture) product page.
-  // Gated on the seed fixture so it self-skips pre-seed (mirrors phase2-a11y).
-  const FIXTURE_PRODUCT_SLUG = 'fixture-procore';
-  let fixturesPresent = false;
+test.describe('product detail — "How teams use it" usefulness section (AECI-170/-173)', () => {
+  // The section renders only when the API returns a non-null `usefulness` (AECI-173
+  // reads the jsonb column; AECI-170 renders it). Both states are exercised against
+  // the seed fixture (supabase/fixtures/phase2-fixtures.sql): `fixture-procore`
+  // carries a usefulness blob (populated) and `fixture-acme-connector` does not
+  // (null path). Each test gates on the API ACTUALLY returning the expected
+  // usefulness state — so a product that exists but wasn't re-seeded skips loudly
+  // instead of failing. The SSR Worker proxies `/api/*`, so the probe reads the
+  // same hydration the page renders from.
+  const POPULATED_SLUG = 'fixture-procore';
+  const NULL_SLUG = 'fixture-acme-connector';
+  // A seeded point unique to fixture-procore's usefulness blob (not a taxonomy label).
+  const SEEDED_POINT =
+    'Track RFIs and submittals across every job so nothing slips between trades.';
+  let populatedSeeded = false;
+  let nullPathSeeded = false;
 
   test.beforeAll(async () => {
     const ctx = await playwrightRequest.newContext({ baseURL: BASE_URL });
     try {
-      const res = await ctx.get(`/products/${FIXTURE_PRODUCT_SLUG}`, { maxRedirects: 0 });
-      fixturesPresent = res.status() === 200;
-      if (!fixturesPresent) {
+      const populated = await ctx.get(`/api/products/${POPULATED_SLUG}`, { maxRedirects: 0 });
+      const populatedBody = populated.ok() ? await populated.json() : null;
+      populatedSeeded = populatedBody?.usefulness != null;
+
+      const nullPath = await ctx.get(`/api/products/${NULL_SLUG}`, { maxRedirects: 0 });
+      const nullBody = nullPath.ok() ? await nullPath.json() : null;
+      nullPathSeeded = nullPath.ok() && nullBody?.usefulness == null;
+
+      if (!populatedSeeded) {
         console.warn(
-          `[products-detail] Fixtures absent: GET /products/${FIXTURE_PRODUCT_SLUG} -> ${res.status()}. ` +
-            'Usefulness-section guard will be SKIPPED. Seed supabase/fixtures/phase2-fixtures.sql ' +
-            'into the dev DB (CI: set DIRECT_URL_STAGING) to enable it.',
+          `[products-detail] usefulness not seeded: GET /api/products/${POPULATED_SLUG} -> ` +
+            `${populated.ok() ? 'usefulness=null' : `HTTP ${populated.status()}`}. ` +
+            'Populated-state test will be SKIPPED. Seed supabase/fixtures/phase2-fixtures.sql ' +
+            'into the dev DB (CI: set DIRECT_URL_STAGING) after the AECI-171 migration.',
         );
       }
     } finally {
@@ -149,10 +165,29 @@ test.describe('product detail — usefulness section (AECI-170)', () => {
     }
   });
 
-  test('stays inert (heading absent) while usefulness is null-stubbed', async ({ page }) => {
-    test.skip(!fixturesPresent, 'fixtures not seeded — see beforeAll warning');
+  test('renders columns + points when the product carries usefulness', async ({ page }) => {
+    test.skip(!populatedSeeded, 'usefulness fixture not seeded — see beforeAll warning');
 
-    await page.goto(`/products/${FIXTURE_PRODUCT_SLUG}`);
+    await page.goto(`/products/${POPULATED_SLUG}`);
+    await expect(page.locator('app-root')).toBeAttached();
+
+    // The section is a `region` landmark named by its <h2> — scope label
+    // assertions to it so the audience facet chip (same "General Contracting"
+    // text) elsewhere on the page doesn't double-match.
+    const section = page.getByRole('region', { name: 'How teams use it' });
+    await expect(section.getByRole('heading', { name: 'How teams use it' })).toBeVisible();
+    await expect(section.getByRole('heading', { name: 'By audience' })).toBeVisible();
+    await expect(section.getByRole('heading', { name: 'By phase' })).toBeVisible();
+    await expect(section.getByText('General Contracting')).toBeVisible();
+
+    // The seeded point string is unique to the usefulness blob.
+    await expect(page.getByText(SEEDED_POINT)).toBeVisible();
+  });
+
+  test('stays inert (heading absent) for a product with no usefulness', async ({ page }) => {
+    test.skip(!nullPathSeeded, 'null-path fixture not seeded — see beforeAll warning');
+
+    await page.goto(`/products/${NULL_SLUG}`);
     await expect(page.locator('app-root')).toBeAttached();
     await expect(page.getByRole('heading', { name: 'How teams use it' })).toHaveCount(0);
   });
