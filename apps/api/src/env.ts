@@ -117,6 +117,18 @@ export type Env = {
   ALGOLIA_DRIFT_QUEUE?: Queue<ScheduledJobMessage>;
   STATS_QUEUE?: Queue<ScheduledJobMessage>;
   /**
+   * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
+   * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
+   * env. Used ONLY to derive the JWKS endpoint
+   * (`${SUPABASE_URL}/auth/v1/.well-known/jwks.json`) and the expected `iss`
+   * claim for user-JWT verification in `lib/user-auth.ts` — no DB round-trip,
+   * no Supabase client on this Worker. Absent → `requireUserAuth()` rejects
+   * every request 401 (fail-closed). The anon key and service-role key are
+   * deliberately NOT bound here: the API Worker verifies tokens with public
+   * JWKS material only (AUTH_AND_RLS.md §4).
+   */
+  SUPABASE_URL?: string;
+  /**
    * Bot-score sampling floor for `page_views` capture (AECI-177). Cloudflare Bot
    * Management scores requests 1–99 (lower = more bot-like). When SET to an
    * integer N, captured page views whose `cf_bot_score < N` are dropped to keep

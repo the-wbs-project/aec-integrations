@@ -80,6 +80,9 @@
     // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
     "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+    // AECI-193: Supabase project base URL (public) — see env comment in the
+    // preview block. Base config mirrors preview (bare `wrangler dev`).
+    "SUPABASE_URL": "https://lfqxneqihbejrkufvafw.supabase.co",
   },
   "dev": {
     "port": 8787,
@@ -110,6 +113,12 @@
         // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // AECI-193: Supabase base URL (public; dev project for preview/staging,
+        // prod project for production). Drives JWKS user-JWT verification in
+        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
+        // on the API Worker — it verifies with public JWKS material only
+        // (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://lfqxneqihbejrkufvafw.supabase.co",
       },
       "kv_namespaces": [
         {
@@ -136,6 +145,12 @@
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // AECI-193: Supabase base URL (public; dev project for preview/staging,
+        // prod project for production). Drives JWKS user-JWT verification in
+        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
+        // on the API Worker — it verifies with public JWKS material only
+        // (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://lfqxneqihbejrkufvafw.supabase.co",
       },
       "kv_namespaces": [
         {
@@ -205,6 +220,12 @@
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // AECI-193: Supabase base URL (public; dev project for preview/staging,
+        // prod project for production). Drives JWKS user-JWT verification in
+        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
+        // on the API Worker — it verifies with public JWKS material only
+        // (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
       },
       "kv_namespaces": [
         {

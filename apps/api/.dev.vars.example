@@ -19,18 +19,33 @@ DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=REPLACE_ME"
 # See docs/migrations.md for the migration workflow.
 DIRECT_URL="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
 
-# ─── Integration tests (AECI-48) ───────────────────────────────────────────
-# Used by `pnpm test:integration`. Not bound to the deployed Worker — these
-# only feed local/CI integration suites that talk to Supabase's PostgREST
-# surface directly. Tests `describe.skipIf` themselves when any are unset.
+# ─── Supabase URL + integration tests (AECI-48 / AECI-193) ──────────────────
+# SUPABASE_URL is now ALSO read by the Worker at runtime (AECI-193): it drives
+# JWKS user-JWT verification in `lib/user-auth.ts` (no DB round-trip). In
+# deployed envs it's a wrangler `vars` entry (see wrangler.jsonc); locally,
+# point it at the SHARED DEV project (https://lfqxneqihbejrkufvafw.supabase.co)
+# so `pnpm dev:bound` verifies real tokens minted by the web mint script
+# (apps/web/scripts/mint-dev-session.mjs).
 #
-# SUPABASE_URL: your project URL, e.g. https://abcd1234.supabase.co
+# The integration suites (`pnpm test:integration`) read the same variable for
+# PostgREST/RLS probes. For LOCAL-STACK RLS runs (supabase start), override
+# per-invocation — shell-set vars beat `dotenv -e .dev.vars`:
+#   SUPABASE_URL=http://127.0.0.1:54321 \
+#   SUPABASE_ANON_KEY=<local anon> SUPABASE_SERVICE_ROLE_KEY=<local secret> \
+#   pnpm test:integration
+# NEVER run the service-role trigger specs (auth_user_delete_trigger) against
+# the shared dev project — they create/delete auth users. Keep
+# SUPABASE_SERVICE_ROLE_KEY empty here so they self-skip; supply it only in a
+# local-stack override. Tests `describe.skipIf` themselves when vars are unset.
 SUPABASE_URL=
-# Public anon JWT (Supabase dashboard → Project Settings → API).
+# Publishable/anon key for the project SUPABASE_URL points at.
 SUPABASE_ANON_KEY=
-# Access token for a non-admin authenticated user. Refresh by signing in to
-# the project from an incognito session and copying the access_token from
-# the dashboard's auth.users row, or mint one via the Supabase admin API.
+# Access token for a non-admin authenticated user. Mint a fresh one (1h
+# expiry) with the kept dev tool:
+#   cd apps/web && node --env-file=.dev.vars scripts/mint-dev-session.mjs
+# Also consumed by the AECI-193 JWKS verification spec
+# (src/integration/user-auth.jwks.spec.ts), which skips itself when unset or
+# expired.
 SUPABASE_TEST_USER_JWT=
 # Service-role key. Required by the AECI-69 trigger test, which mints and
 # deletes throwaway auth users via the Supabase admin API. Local Supabase

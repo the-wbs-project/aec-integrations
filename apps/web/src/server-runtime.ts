@@ -69,6 +69,7 @@ import { createRequestContext, type AeciRequestContext } from './server/request-
 import { buildRobotsTxt } from './server/robots';
 import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
+import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createVersionHandler } from './server/routes/version';
 import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
 
@@ -795,6 +796,14 @@ export function createApp(options: {
   // `COMMIT_SHA` so CI can verify the SSR bundle is current independently of the
   // API deploy. `private, no-store` (set in the handler), no `Cache-Tag`.
   app.get('/_version', createVersionHandler());
+
+  // GET /auth/whoami — THROWAWAY(AECI-193) auth-spike smoke route; remove when
+  // Phase 5.5 lands real auth surfaces. Registered before the SSR catch-all so
+  // it wins; `/auth/*` is already non-cacheable in the route classifier (the
+  // fail-closed matrix above), so no classifier or `VISITOR_STATE_COOKIES`
+  // change accompanies it. 401 without a session cookie, 200 (with a
+  // full-chain API-Worker verification payload) with one.
+  app.get('/auth/whoami', createAuthWhoamiHandler());
 
   // AECI-121 — permanent redirects for the renamed taxonomy facet
   // (Discipline → Audience). Registered BEFORE the SSR catch-all so they win;

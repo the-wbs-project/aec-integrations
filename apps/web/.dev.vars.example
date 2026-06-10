@@ -45,3 +45,24 @@ CF_ZONE_ID=
 # push them with `wrangler secret put ALGOLIA_APP_ID/ALGOLIA_SEARCH_KEY --env <env>`.
 ALGOLIA_APP_ID=
 ALGOLIA_SEARCH_KEY=
+
+# ─── Supabase auth (AECI-193 / Phase 5) ──────────────────────────────────────
+# SUPABASE_URL + SUPABASE_ANON_KEY are read by the SSR Worker at runtime: they
+# feed `createSupabaseServerClient` (src/server/auth/supabase-server-client.ts),
+# the cookie-session factory behind /auth/*. The anon (publishable) key is not
+# truly secret — it's stored as a secret only to keep values out of git (same
+# convention as ALGOLIA_SEARCH_KEY). Both empty → auth surfaces return 503
+# `auth_not_configured` and everything else works. For local dev use the shared
+# dev project (https://lfqxneqihbejrkufvafw.supabase.co); fetch the key with
+# `supabase projects api-keys --project-ref lfqxneqihbejrkufvafw`.
+# The service-role key is NEVER set on any Worker (AUTH_AND_RLS.md §3).
+SUPABASE_URL=
+SUPABASE_ANON_KEY=
+
+# Mint-script-only credentials (apps/web/scripts/mint-dev-session.mjs) — the
+# shared-dev throwaway test user. NEVER a Worker binding; the Worker does not
+# read these. Used to mint a real session cookie / bearer token for the
+# /auth/whoami 200-path smoke. See docs/environments.md → "Local dev: Supabase
+# auth (Phase 5)".
+SUPABASE_TEST_USER_EMAIL=
+SUPABASE_TEST_USER_PASSWORD=

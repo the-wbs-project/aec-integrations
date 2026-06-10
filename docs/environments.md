@@ -322,6 +322,57 @@ The script:
 | `permission denied for schema public` | Local DB is in a half-reset state | `pnpm db:reset` then re-run. |
 | Restore looks complete but `pnpm db:studio` shows no rows | Browsed to wrong DB | Studio defaults to `postgres` on 54322 — verify the connection bar. |
 
+## Local dev: Supabase auth (Phase 5)
+
+AECI-193 wired Supabase Auth into both Workers. To exercise it locally against
+the **shared dev project** (`lfqxneqihbejrkufvafw`):
+
+1. **`.dev.vars` setup.**
+   - `apps/web/.dev.vars`: set `SUPABASE_URL=https://lfqxneqihbejrkufvafw.supabase.co`
+     and `SUPABASE_ANON_KEY=<dev publishable key>` (fetch with
+     `supabase projects api-keys --project-ref lfqxneqihbejrkufvafw`). Also set
+     `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` for the mint
+     script (these are **never** Worker bindings).
+   - `apps/api/.dev.vars`: set the same `SUPABASE_URL` (the API Worker reads it
+     for JWKS + issuer). It needs **no** anon/service-role key.
+
+2. **Mint a session.** From `apps/web`:
+   ```bash
+   node --env-file=.dev.vars scripts/mint-dev-session.mjs
+   ```
+   It signs in the test user and prints the JWT header (confirm `alg: ES256`),
+   the raw access token, and a ready-to-paste `Cookie:` header. The session
+   lasts 1h — re-mint when it lapses.
+
+3. **curl smoke** (boot the stack with `pnpm dev:agent`; note the printed web
+   port, e.g. `8790`):
+   ```bash
+   # 401 without a session, non-cacheable:
+   curl -is http://localhost:8790/auth/whoami
+   # 200 { ssr, api } with the minted cookie (proves the full chain):
+   curl -s  http://localhost:8790/auth/whoami -H "Cookie: <minted cookie>"
+   # Direct API: 401 without / 200 with the bearer token:
+   curl -s  http://localhost:8790/api/auth/whoami -H "Authorization: Bearer <token>"
+   ```
+   An unprovisioned Worker (no `SUPABASE_ANON_KEY`) returns `503
+   auth_not_configured` instead of 401 — distinct on purpose.
+
+4. **`SUPABASE_URL` override for local-stack RLS specs.** The API Worker runtime
+   `SUPABASE_URL` points at the shared dev project, but the PostgREST/RLS
+   integration suites can run against a **local** `supabase start` stack by
+   overriding per-invocation — a shell-set var beats `dotenv -e .dev.vars`:
+   ```bash
+   SUPABASE_URL=http://127.0.0.1:54321 \
+   SUPABASE_ANON_KEY=<local anon> SUPABASE_SERVICE_ROLE_KEY=<local secret> \
+   pnpm --filter @aeci/api test:integration
+   ```
+
+> ⚠️ **Never run the service-role trigger specs against the shared dev
+> project.** `auth_user_delete_trigger.spec.ts` creates and deletes real
+> `auth.users` via the admin API. Keep `SUPABASE_SERVICE_ROLE_KEY` empty in
+> `apps/api/.dev.vars` (the spec self-skips) and supply it **only** in a
+> local-stack override like the one above.
+
 ## Secrets
 
 Secrets are stored in three places:
@@ -351,6 +402,9 @@ Secrets are stored in three places:
 | `ALGOLIA_APP_ID` | ✅ per env (both Workers) | ✅ per env (both Workers) | ✅ (shared, one value) | Algolia app id (AECI-134). Single value, all envs. |
 | `ALGOLIA_SEARCH_KEY` (per-env, query-only) | ✅ on web Worker | ✅ on web Worker | ✅ as `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION` | Search-only key, scoped to the env's indexes; client-exposed. **Never on the API Worker.** |
 | `ALGOLIA_ADMIN_KEY` (per-env management) | ✅ on API Worker | ✅ on API Worker | ✅ as `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env management key (search + index-mutation, index-scoped) — sync from 3.5. **Never on the web Worker / never client-exposed.** Not the app-wide root admin key. |
+| `SUPABASE_URL` (per-env project URL) | ✅ per env (both Workers, as a wrangler `var`) | ✅ per env (both Workers, as a wrangler `var`) | — (it's a public `var` in `wrangler.jsonc`, not a GH secret) | AECI-193 / Phase 5. Public base URL (dev project for preview/staging, prod project for production). Web Worker → cookie-session factory; API Worker → JWKS user-JWT verify (no DB round-trip). |
+| `SUPABASE_ANON_KEY` (publishable/anon) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `SUPABASE_ANON_KEY_STAGING` / `_PRODUCTION` | AECI-193 / Phase 5. Publishable key; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). **Never on the API Worker** (it verifies with public JWKS material). **Recommended, not required, during Phase 5 — warn-and-skip; flips to REQUIRED in 5.5.** Absent → SSR auth surfaces return `503 auth_not_configured`. |
+| Supabase **service-role** key | ❌ never on a Worker | ❌ never on a Worker | only as `SUPABASE_SERVICE_ROLE_KEY_*` for CI tooling | The Worker runtime has no use for the service role (`AUTH_AND_RLS.md` §3). Used transiently from the shell to provision the dev test user (AECI-193), never written to any Worker config. |
 
 All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL --env staging` (and the same for `--env production` once the prod project exists).
 

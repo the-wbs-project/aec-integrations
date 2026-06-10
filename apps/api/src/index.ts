@@ -4,6 +4,9 @@ import { Hono } from 'hono';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireReviewAppAuth } from './lib/review-auth';
+import { requireUserAuth } from './lib/user-auth';
+import type { UserAuthVariables } from './lib/user-auth';
+import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { metricsMiddleware } from './metrics-middleware';
 import { createHealthHandler } from './routes/health';
 import {
@@ -115,6 +118,17 @@ phase28.post('/api/requests/claim', createClaimSubmitHandler());
 phase28.post('/api/promote', requireReviewAppAuth(), createPromoteHandler());
 
 app.route('/', phase28);
+
+// AECI-193 auth-spike sub-router. Own router because `requireUserAuth()`
+// extends `Variables` (`c.get('user')`), which the `phase28` type doesn't
+// carry. The route itself is THROWAWAY(AECI-193) — remove with the real 5.5
+// authz middleware — but `requireUserAuth()` (lib/user-auth.ts) is permanent.
+// Reached only over the service binding like every other route: no wrangler
+// ingress change, so "no new public API surface" holds.
+const authSpike = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
+authSpike.onError(errorHandler());
+authSpike.get('/api/auth/whoami', requireUserAuth(), createAuthWhoamiHandler());
+app.route('/', authSpike);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.

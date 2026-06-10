@@ -40,6 +40,16 @@
  * Provision per env with `node scripts/algolia/provision.mjs`; see
  * docs/CICD_PLAN.md §7.5 and docs/environments.md §6/§8.
  *
+ * Supabase auth (AECI-193 / Phase 5.2):
+ *   SUPABASE_URL        public var per env (dev project for preview/staging,
+ *                       prod project for production) — set in `vars` below
+ *   SUPABASE_ANON_KEY   publishable/anon key. Secret (NOT a var) only to keep
+ *                       values out of git — same convention as
+ *                       ALGOLIA_SEARCH_KEY. CI pushes it after deploy
+ *                       (warn-and-skip when the GH secret is absent this
+ *                       phase; flips to REQUIRED in 5.5). The service-role
+ *                       key is NEVER set on any Worker (AUTH_AND_RLS.md §3).
+ *
  * Push secrets per env (`wrangler secret put`); set `CF_ZONE_ID` under the
  * per-env `vars` block once the production / preview zone IDs are known.
  */
@@ -72,6 +82,10 @@
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // AECI-193: Supabase base URL (public; dev project for preview/staging,
+        // prod project for production). Pairs with the CI-pushed
+        // SUPABASE_ANON_KEY secret — see the header comment.
+        "SUPABASE_URL": "https://lfqxneqihbejrkufvafw.supabase.co",
       },
       "services": [{ "binding": "API", "service": "aeci-api-preview" }],
     },
@@ -82,6 +96,7 @@
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        "SUPABASE_URL": "https://lfqxneqihbejrkufvafw.supabase.co",
       },
       "observability": { "enabled": true },
       "routes": [
@@ -99,6 +114,7 @@
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
       },
       "observability": { "enabled": true },
       // Web prod serves demo.aecintegrations.com ONLY (pre-launch). The apex
