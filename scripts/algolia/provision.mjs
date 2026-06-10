@@ -128,9 +128,11 @@ function printNextSteps({ env, appId, searchKey, managementKey }) {
   console.log(`gh secret set ALGOLIA_APP_ID --body '${appId}'`);
   if (env === 'preview') {
     console.log(
-      '#   preview has no GitHub secret: pr-preview.yml is untouched until 3.9, and the\n' +
-        '#   preview Worker secrets below persist. Sync (3.5) uses the management key directly.',
+      '#   preview search key → lighthouse.yml (AECI-188): the post-merge Lighthouse\n' +
+        '#   workflow hard-fails without it (it provisions /search with the real SDK).\n' +
+        '#   No preview ADMIN GitHub secret: sync (3.5) uses the management key directly.',
     );
+    console.log(`gh secret set ALGOLIA_SEARCH_KEY_PREVIEW --body '${searchKey}'`);
   } else {
     console.log(`gh secret set ALGOLIA_SEARCH_KEY_${SUFFIX} --body '${searchKey}'`);
     console.log(`gh secret set ALGOLIA_ADMIN_KEY_${SUFFIX}  --body '${managementKey}'`);

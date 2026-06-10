@@ -457,17 +457,21 @@ BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run
 
 ### 10.1 Budget enforcement
 
-Lighthouse CI runs against the preview deployment. Performance budget:
+Lighthouse CI runs post-merge against a local `dev:bound` server (see §10.4). Performance budget and enforcement as of AECI-188 (the gate is the post-merge [`lighthouse.yml`](../.github/workflows/lighthouse.yml) run going red — Lighthouse does not run on PRs):
 
 | Metric | Threshold | Action |
 |---|---|---|
-| LCP | < 2.5s | Block merge if exceeded |
-| INP | < 200ms | Block merge if exceeded |
-| CLS | < 0.1 | Block merge if exceeded |
-| TBT | < 200ms | Warn |
-| Accessibility score | > 95 | Block merge |
-| Performance score | > 80 | Warn |
-| SEO score | > 90 | Warn |
+| Accessibility score | ≥ 95 | **Error** (red post-merge run) |
+| Best-Practices score | ≥ 90 | **Error** (red post-merge run) |
+| SEO score (indexable pages) | ≥ 90 | **Error** (red post-merge run) |
+| TBT | ≤ 200ms | **Error** (red post-merge run) |
+| `/search` TTFB (`server-response-time`) | ≤ 600ms | **Error** (red post-merge run) |
+| Performance score | ≥ 90 | Warn (perf follow-up; see §10.4) |
+| LCP | ≤ 2.5s | Warn (perf follow-up; see §10.4) |
+| CLS | ≤ 0.1 | Warn (perf follow-up; see §10.4) |
+| JS transfer (detail pages 200 KB; `/search` see §10.5) | per class | Warn (perf follow-up; see §10.4) |
+
+(INP isn't lab-measurable — TBT is its Lighthouse proxy.)
 
 ### 10.2 Bundle size budget
 
@@ -493,20 +497,20 @@ Mobile and desktop profiles separately.
 
 ### 10.4 Phase 2 implementation status (AECI-65)
 
-Lighthouse CI is wired in `deploy.yml`'s un-parked `lighthouse` job and runs **mobile** (simulated Slow-4G throttle, median-of-3) against **every Phase 2 page type** on a local `dev:bound` server — not a deployed preview — using the committed fixtures (`supabase/fixtures/phase2-fixtures.sql`). The URL set and assertions live in [`.lighthouserc.cjs`](../.lighthouserc.cjs).
+Lighthouse CI is wired in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow (push-to-main only) and runs **mobile** (simulated Slow-4G throttle, median-of-3) against **every Phase 2 page type** on a local `dev:bound` server — not a deployed preview — using the committed fixtures (`supabase/fixtures/phase2-fixtures.sql`). The URL set and assertions live in [`.lighthouserc.cjs`](../.lighthouserc.cjs).
 
 Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / Accessibility / Best-Practices / SEO; LCP ≤ 2.5s; CLS ≤ 0.1; detail-page total JS transfer ≤ 200 KB). Per-URL handling: the JS budget targets detail/browse pages only; the `noindex` 404 is exempt from the SEO score.
 
-> **Posture: warn-only today.** Although §12 (and the AECI-65 issue) call for budgets to **block** merge — stricter than the §10.1 table's "Performance > 80 / warn" — the assertions land at `'warn'` first, so `lhci autorun` exits 0 and the job is non-blocking. This is a deliberate, recorded rollout: the **warn→merge-blocking flip is a dedicated follow-up**, gated on confirming every page passes (perf optimization is out of AECI-65's scope). Flip by changing the `'warn'` levels in `.lighthouserc.cjs` to `'error'`; at that point reconcile the §10.1 thresholds (Performance/SEO warn→block, Performance 80→90) with §12.
+> **Posture: partial error gate (AECI-188).** The warn→error flip landed **partially**, driven by what every page actually passes today: Accessibility / Best-Practices / SEO / TBT (+ the `/search` TTFB, §10.5) assert at `'error'` — `lhci autorun` exits 1 on a miss and the post-merge `lighthouse.yml` run goes red — while Performance / LCP / CLS / the JS-transfer budgets stay `'warn'` because multiple pages measurably miss them (per-page numbers recorded on the perf follow-up issue referenced in `.lighthouserc.cjs`). The remaining flip is gated on fixing those misses — **budgets are not lowered to pass** (AECI-65's rule). Note the gate is post-merge, not merge-blocking: a red run means `main` already regressed; fix forward or revert. The §10.1 table reflects the enforced levels.
 
 ### 10.5 Search route (AECI-145 / Phase 3.12)
 
-`/search` is in `.lighthouserc.cjs`'s collection (14 URLs total). It differs from every Phase 2 page on two axes, handled by two assertion classes:
+`/search` is in `.lighthouserc.cjs`'s collection (15 URLs total). It differs from every Phase 2 page on two axes, handled by two assertion classes:
 
 - **`noindex`** — like the 404, its SEO audit fails by design. AECI-146 grouped `/search` with the 404 in the **noindex class** (matched by `NOINDEX_URL_PATTERN`): perf/a11y/CWV only, **SEO-exempt** (excluded from the indexable class's `categories:seo`).
-- **No-cache (always an edge MISS)** — `/search` is `private, no-store`, the one route that never serves from an edge HIT. AECI-145 adds a `/search`-only class with a **MISS-only TTFB budget** (`server-response-time ≤ 600ms`) rather than inheriting cached-page timing assumptions. The threshold is Lighthouse's own native pass bar and measures the SSR-shell document fetch — a CI proxy on `dev:bound` (graceful-degradation shell, no Algolia round-trip), not production search latency.
+- **No-cache (always an edge MISS)** — `/search` is `private, no-store`, the one route that never serves from an edge HIT. AECI-145 adds a `/search`-only class with a **MISS-only TTFB budget** (`server-response-time ≤ 600ms`, error-level since AECI-188) rather than inheriting cached-page timing assumptions. The threshold is Lighthouse's own native pass bar and measures the SSR-shell document fetch on `dev:bound` — the document itself involves no Algolia round-trip (InstantSearch loads browser-side) — not production search latency.
 
-`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. `?q=…` is intentionally not collected: in CI it renders the identical degradation shell. Budgets stay `'warn'` (same rollout posture as AECI-65).
+`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. Instead it carries its **own JS-transfer budget** (AECI-188; ceiling recorded in `.lighthouserc.cjs`, measured against the real SDK). To make that measurement meaningful, `lighthouse.yml` provisions the preview search key (`ALGOLIA_SEARCH_KEY_PREVIEW`) into `apps/web/.dev.vars`, so CI's `/search` boots real InstantSearch against the `preview_*` indexes rather than the degraded shell — and hard-fails if the key is missing. `?q=…` is intentionally not collected: the empty-query page already loads the full SDK + widgets, and a pinned query would couple the budget to index contents. Enforcement: a11y + TTFB at `'error'`; perf/CWV + the JS budget stay `'warn'` (§10.4).
 
 ---
 

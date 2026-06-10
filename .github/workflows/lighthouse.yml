@@ -1,13 +1,11 @@
-# AEC Integrations — post-merge Lighthouse (mobile, warn-only).
+# AEC Integrations — post-merge Lighthouse (mobile, error gate — AECI-188).
 #
 # WHY THIS IS ITS OWN WORKFLOW (moved out of deploy.yml).
 #   Lighthouse used to run as a job in deploy.yml on EVERY PR push. It never
-#   gated anything (warn-only `.lighthouserc.cjs`, `continue-on-error`, not in
-#   deploy-staging `needs:`), so on a PR it was pure noise + ~5 min of CI. This
-#   workflow runs it on PUSH TO MAIN ONLY — so it's off PRs entirely and instead
-#   reports on the post-merge run, right before/alongside the staging deploy in
-#   deploy.yml. You still see a red/warn here if perf regressed; you just see it
-#   after merge, not on the PR.
+#   gated anything there (warn-only at the time, not in deploy-staging
+#   `needs:`), so on a PR it was pure noise + ~5 min of CI. This workflow runs
+#   it on PUSH TO MAIN ONLY — so it's off PRs entirely and instead reports on
+#   the post-merge run, right before/alongside the staging deploy in deploy.yml.
 #
 #   It can't simply be an `if: push`-gated job back in deploy.yml: that workflow's
 #   run-level `concurrency` is `cancel-in-progress: true`, which is correct for
@@ -15,6 +13,16 @@
 #   but would also cancel an in-flight Lighthouse run before it reports. Deploys
 #   want ref-based cancellation; a Lighthouse report wants to always complete for
 #   the exact commit it measured. Opposite needs -> separate workflows.
+#
+# ENFORCEMENT (AECI-188 partial warn→error flip). `.lighthouserc.cjs` asserts
+#   accessibility / best-practices / SEO / TBT / the `/search` TTFB at ERROR
+#   level — a miss exits 1 and turns this workflow red (the post-merge alarm).
+#   performance / LCP / CLS / the JS budgets stay WARN pending the perf
+#   follow-up tracked on the Linear issue referenced in `.lighthouserc.cjs`.
+#   Because the gate is post-merge, a red here means MAIN already regressed:
+#   treat it like a failed deploy gate — fix forward or revert, don't ignore it.
+#   N=3 runs (LHCI_RUNS below) give a median-run aggregation so the error gate
+#   doesn't flake on a single noisy run.
 #
 # CONCURRENCY. Per-COMMIT group, never cancelled: every merged commit gets its
 #   own Lighthouse run that always finishes, fully decoupled from deploy.yml's
@@ -27,16 +35,24 @@
 #   builds the SSR Worker itself and boots `dev:bound` exactly like the old job.
 #   The Phase 2 detail/browse fixtures it measures live on the shared dev DB,
 #   kept at HEAD + seeded by deploy.yml's `db-migrate-dev` (which ran on the PR
-#   before merge); the rc is degradation-tolerant if a page is missing, and the
-#   gate is warn-only regardless.
+#   before merge). NOTE (error gate): if the dev DB is wiped/unseeded, detail
+#   URLs render the 404 shell and the error-level SEO/a11y assertions go red —
+#   that is a deliberate alarm, not a flake; re-seed and re-run.
 #
 # Chrome comes from the ubuntu-latest runner image (lhci/chrome-launcher finds
 #   /usr/bin/google-chrome) — no Playwright/Chromium install needed, matching the
 #   former job.
 #
-# Required repo secret: DATABASE_URL_STAGING (dev project's Accelerate prisma://
-#   URL — the API Worker needs it or every Prisma query 500s and the measured
-#   pages render empty/404). Same secret deploy.yml + pr-preview.yml use.
+# Required repo secrets:
+#   - DATABASE_URL_STAGING — dev project's Accelerate prisma:// URL (the API
+#     Worker needs it or every Prisma query 500s and the measured pages render
+#     empty/404). Same secret deploy.yml + pr-preview.yml use.
+#   - ALGOLIA_APP_ID + ALGOLIA_SEARCH_KEY_PREVIEW — the preview env's
+#     client-exposed, query-only search key (AECI-188). Without it `/search`
+#     renders the degraded "search unavailable" shell, the InstantSearch SDK
+#     never loads, and the /search JS budget + a11y numbers measure a page that
+#     doesn't exist in production. The preview_* indexes it queries are created/
+#     populated by `pnpm algolia:bulk-sync -- --env preview` (read-only here).
 
 name: lighthouse
 
@@ -61,9 +77,9 @@ env:
 
 jobs:
   lighthouse:
-    name: Lighthouse CI (mobile, warn-only)
+    name: Lighthouse CI (mobile, error gate)
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - name: Install pnpm
@@ -89,6 +105,25 @@ jobs:
             exit 1
           fi
           printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
+      # Wire the preview Algolia search key into the SSR Worker so `/search`
+      # boots the REAL InstantSearch SDK (AECI-188): the JS budget + a11y
+      # assertions on /search are meaningless against the degraded shell.
+      # `.dev.vars` overlays wrangler.jsonc vars PER-KEY, so writing only the
+      # ALGOLIA_* keys preserves `ENV=preview` (and with it the preview_* index
+      # names) from apps/web/wrangler.jsonc.
+      - name: Write apps/web/.dev.vars (Algolia search key for /search)
+        env:
+          ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_PREVIEW }}
+        run: |
+          if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY_PREVIEW secret is empty. The /search Lighthouse budgets must measure the real InstantSearch SDK, not the degraded shell. Seed it from the preview search-only key (scripts/algolia/provision.mjs prints the gh secret command; the key is client-exposed/query-only by design)."
+            exit 1
+          fi
+          {
+            printf 'ALGOLIA_APP_ID="%s"\n' "$ALGOLIA_APP_ID_VALUE"
+            printf 'ALGOLIA_SEARCH_KEY="%s"\n' "$ALGOLIA_SEARCH_KEY_VALUE"
+          } > apps/web/.dev.vars
       - name: Boot dev:bound (API + SSR) and wait for /api/health
         run: |
           nohup pnpm dev:bound > dev-bound.log 2>&1 &
@@ -99,11 +134,27 @@ jobs:
             sleep 1
           done
           echo "::error::dev:bound did not become healthy on :8788 within 90s"; tail -200 dev-bound.log; exit 1
-      # LHCI_URL intentionally UNSET → .lighthouserc.cjs targets :8788.
-      # continue-on-error: warn assertions exit 0 anyway, but this also shields
-      # the job from a transient collection hiccup becoming a red (non-)gate.
-      - name: Lighthouse CI (warn-only, mobile)
-        continue-on-error: true
+      # Guard: /search must serve the real Algolia config, or every /search
+      # number below is measured against the degraded shell (see the .dev.vars
+      # step above — this catches a regression in the SSR injection itself).
+      - name: Assert /search serves the InstantSearch config
+        run: |
+          # Capture the body first: `curl … | grep -q` is unsafe under the
+          # default `bash -eo pipefail` — grep -q closes the pipe on first match
+          # (the token sits near the top of <head>), so on a >64 KB SSR document
+          # curl is still writing and exits non-zero (EPIPE), which pipefail then
+          # propagates as a spurious guard failure.
+          search_html="$(curl -fsS http://localhost:8788/search)"
+          if ! grep -q '__AECI_ALGOLIA__' <<<"$search_html"; then
+            echo "::error::/search did not render window.__AECI_ALGOLIA__ — the SSR Worker is not injecting the Algolia search config, so Lighthouse would measure the degraded shell."
+            exit 1
+          fi
+      # AECI_LHCI_URL intentionally UNSET → .lighthouserc.cjs targets :8788.
+      # LHCI_RUNS=3 restores the median-run aggregation the error gate needs
+      # (the rc defaults to a single run for quick local passes).
+      - name: Lighthouse CI (error gate, mobile)
+        env:
+          LHCI_RUNS: '3'
         run: pnpm lighthouse
       - name: dev:bound logs on failure
         if: failure()

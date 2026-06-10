@@ -91,6 +91,14 @@ warn→error carryover that **AECI-65** (Phase 2.19) owns for the Phase 2 pages,
 `/search`-appropriate JS-transfer budget (the page lazy-loads the InstantSearch SDK, so the
 §12 200 KB *detail-page* script budget doesn't fit as-is). Routed through AECI-188.
 
+*[Update (AECI-188, 2026-06-10): landed as a **partial** flip — a11y/best-practices/SEO/TBT +
+the `/search` TTFB now assert at error level on the post-merge `lighthouse.yml` run (N=3,
+`continue-on-error` removed); `/search` gets its own JS-transfer budget, measured with the
+real InstantSearch SDK via the new `ALGOLIA_SEARCH_KEY_PREVIEW` CI provisioning. The
+"`deploy.yml` `lighthouse` job is parked (`if: false`)" wording above was already stale when
+filed — the job had moved to `lighthouse.yml` (push-to-main, PR #276). perf/LCP/CLS + JS
+budgets stay warn pending the perf follow-up issue referenced in `.lighthouserc.cjs`.]*
+
 ### F2 — e2e facet-interaction coverage for the listing sidebar (3.10) → **new [AECI-189](https://linear.app/aec-integrations/issue/AECI-189)**
 
 The AECI-143 sidebar is **unit-tested** (`facet-sidebar.component.spec.ts`) and its cache-key
