@@ -1,10 +1,11 @@
 /**
  * Lighthouse CI config — AECI-65 / Phase 2.19.
  *
- * Runs Lighthouse MOBILE against every live Phase 2 page type on the local
- * `dev:bound` SSR Worker (:8788), using the committed seed fixtures
- * (`supabase/fixtures/phase2-fixtures.sql`) so the detail/browse pages have real
- * content to measure. Replaces the Phase 1 single-`/`, desktop, parked config.
+ * Runs Lighthouse MOBILE against every live Phase 2 page type — plus the Phase 3
+ * `/search` page (AECI-146) — on the local `dev:bound` SSR Worker (:8788), using
+ * the committed seed fixtures (`supabase/fixtures/phase2-fixtures.sql`) so the
+ * detail/browse pages have real content to measure. Replaces the Phase 1
+ * single-`/`, desktop, parked config.
  *
  * ENFORCEMENT POSTURE — WARN-ONLY (deliberate, recorded).
  *   AECI-65 / Phase 2 Spec §12 call for these budgets to BLOCK merge. We land
@@ -42,11 +43,16 @@ const baseUrl = process.env.LHCI_URL || 'http://localhost:8788';
 // /integrations, /categories, /audiences, /phases) which have no trailing segment.
 const DETAIL_URL_PATTERN =
   '/(?:products|vendors|integrations|categories|audiences|phases)/[^/?#]+$';
-// The 404 carries `noindex`, which makes Lighthouse's SEO audit fail by design —
-// so the 404 is asserted on perf/a11y/CWV only, never SEO/best-practices.
+// NOINDEX page class. Both the 404 and `/search` (Phase 3, §4.6 — search results
+// aren't canonical content) carry `robots: noindex`, which makes Lighthouse's SEO
+// audit fail BY DESIGN. So neither is held to the SEO/best-practices score — they
+// are asserted on perf/a11y/CWV only. Keeping `/search` out of the SEO assertion
+// also means it won't emit a permanent spurious SEO warning here, and won't have
+// to be special-cased when the warn→error flip lands (that flip is F1 / AECI-65's
+// scope).
 const NOT_FOUND_SLUG = 'aeci-65-no-such-page';
-const NON_404_URL_PATTERN = `^(?!.*${NOT_FOUND_SLUG}).*$`;
-const NOT_FOUND_URL_PATTERN = NOT_FOUND_SLUG;
+const NOINDEX_URL_PATTERN = `(?:${NOT_FOUND_SLUG}|/search)`;
+const INDEXABLE_URL_PATTERN = `^(?!.*${NOINDEX_URL_PATTERN}).*$`;
 
 module.exports = {
   ci: {
@@ -64,6 +70,7 @@ module.exports = {
         `${baseUrl}/categories`, // categories flat index
         `${baseUrl}/audiences`, // audiences flat index (AECI-157)
         `${baseUrl}/phases`, // phases flat index (AECI-157)
+        `${baseUrl}/search`, // Phase 3 search page (AECI-146) — noindex, SEO-exempt
         `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
       ],
       // Collection dominates this job — 13 URLs × N runs × ~12s each. At the
@@ -109,9 +116,10 @@ module.exports = {
       // the JS budget targets detail pages, and the noindex 404 is exempt from
       // the SEO/best-practices score.
       assertMatrix: [
-        // (A) Every non-404 URL: category scores + Core Web Vitals.
+        // (A) Every indexable URL (excludes the noindex 404 + /search): category
+        // scores incl. SEO + Core Web Vitals.
         {
-          matchingUrlPattern: NON_404_URL_PATTERN,
+          matchingUrlPattern: INDEXABLE_URL_PATTERN,
           aggregationMethod: 'median-run',
           assertions: {
             'categories:performance': ['warn', { minScore: 0.9 }],
@@ -131,9 +139,10 @@ module.exports = {
             'resource-summary:script:size': ['warn', { maxNumericValue: 204800 }],
           },
         },
-        // (C) 404: perf / a11y / CWV only — NOT SEO/best-practices (noindex).
+        // (C) Noindex pages (404 + /search): perf / a11y / CWV only — NOT
+        // SEO/best-practices (both carry `robots: noindex` by design).
         {
-          matchingUrlPattern: NOT_FOUND_URL_PATTERN,
+          matchingUrlPattern: NOINDEX_URL_PATTERN,
           aggregationMethod: 'median-run',
           assertions: {
             'categories:performance': ['warn', { minScore: 0.9 }],

@@ -29,7 +29,9 @@ import { mapAutocompleteResults, type AutocompleteSearchFn } from './autocomplet
 const HITS_PER_ENTITY = 5;
 
 /** The factory signature `SearchAutocomplete` calls to obtain a loaded search fn. */
-export type CreateAutocompleteSearch = (config: AlgoliaPublicConfig) => Promise<AutocompleteSearchFn>;
+export type CreateAutocompleteSearch = (
+  config: AlgoliaPublicConfig,
+) => Promise<AutocompleteSearchFn>;
 
 /**
  * DI seam for the search factory. Defaults to the real dynamic-import
