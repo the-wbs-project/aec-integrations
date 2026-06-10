@@ -826,6 +826,8 @@ The existing coming-soon landing page captures emails to a `marketing.waitlist` 
 
 ## 12. Issue Tracking — Linear via n8n
 
+> **Superseded for Phase 6 (2026-06-10) — see `docs/STAGE_1_PHASE_6_SPEC.md` §4.** n8n is **dropped**: the form→Linear handler is a **Cloudflare Worker** (Phase 2 Spec §18.1), not an n8n workflow, and AECI-18 (n8n setup) is abandoned for this path. The bidirectional-sync and Linear-board structure below still apply; only the n8n mechanism is replaced by the Worker. There is **no Slack** — Linear's native email notifications + an admin-email-on-failure replace it.
+
 **Workflow:**
 1. User submits claim or correction request on the site
 2. POST to `/api/requests/claim` or `/api/requests/correction`
@@ -1077,14 +1079,17 @@ Governed by `docs/STAGE_1_PHASE_5_SPEC.md` (decomposed into AECI Phase 5.1–5.1
 - [ ] Auth/reviews observability + Phase 5 completion checkpoint
 
 ### Phase 6: Requests & moderation (Week 8)
-- [ ] Claim request form + n8n + Linear integration via REST API
-- [ ] Correction request form + same pipeline
-- [ ] Linear webhook endpoint for bidirectional sync (`/api/webhooks/linear`)
-- [ ] Workflow instance creation on form submission (Section 26.2)
-- [ ] Workflow state machines implemented for vendor_claim, review_moderation, correction_request
-- [ ] Admin views for requests and pending reviews
-- [ ] Slack alerts for new moderation items
-- [ ] Reviewer ban infrastructure (`banned_at` enforcement)
+
+Governed by `docs/STAGE_1_PHASE_6_SPEC.md` (decomposed into AECI Phase 6.1–6.13, planned 2026-06-10). Forms already shipped (AECI-128); tables + contracts exist → **zero migrations**. **Decisions:** n8n dropped (form→Linear is a Cloudflare Worker — §12 / Phase 2 §18.1; AECI-18 superseded); **no Slack** (Linear "Vendor Requests" issues + native email + admin-email on pipeline failure); **lean workflow tracking** (status columns + append-only `workflow_transitions`, not a guarded FSM — relaxes §26.3); domain-match is an informational hint only (no auto-approval).
+
+- [ ] Lean workflow tracking (`workflow_instances` + `workflow_transitions` audit; §26.2)
+- [ ] Linear issue creation on request submit (CF Worker, idempotent, `waitUntil`) + failure handling
+- [ ] `POST /api/webhooks/linear` (HMAC → transitions) + site→Linear sync on admin action
+- [ ] Reconciliation sweep (cron) for stuck requests + admin-email backstop
+- [ ] domain-match + duplicate flags on submit (informational; no auto-approval)
+- [ ] `GET /api/admin/requests` + resolve/reject actions + `/admin/requests` UI
+- [ ] Reviewer ban management (admin sets `banned_at`; enforcement-on-submit is Phase 5)
+- [ ] Phase 6 observability + completion checkpoint
 
 ### Phase 7: SEO, accessibility, legal, polish (Week 9–10)
 - [ ] Dynamic XML sitemap (root + per-entity sub-sitemaps)
@@ -1283,7 +1288,7 @@ Brand tokens validated against WCAG AA contrast ratios:
   - Rejection reason field (required on reject)
 - Sortable by queue age, product, reviewer
 - "Pending count" badge visible in admin nav
-- Slack alert on each new submission to a dedicated `#moderation` channel
+- ~~Slack alert on each new submission to a dedicated `#moderation` channel~~ — **no Slack (Phase 6 decision, 2026-06-10).** New claim/correction requests create a Linear issue (Vendor Requests project) → Linear's native email notifications; new reviews surface via the admin pending badge. See `STAGE_1_PHASE_6_SPEC.md` §10.
 
 ### 22.2 Profanity filter
 
@@ -1583,6 +1588,8 @@ create index workflow_transitions_workflow_idx on workflow_transitions(workflow_
 | `correction_request` | submitted → triaged → applied / rejected | Correction form submission | applied, rejected |
 
 Each workflow type has a documented state machine in the codebase. Invalid transitions throw at the API layer.
+
+> **Stage-1 relaxation (Phase 6, 2026-06-10):** Stage 1 ships **lean** workflow tracking — moderation is driven off the entities' `status` columns and `workflow_transitions` is an append-only history; the guarded state machine (enforced/throwing transitions) is **deferred** given low request volume. See `STAGE_1_PHASE_6_SPEC.md` §5.
 
 ### 26.4 Linear bidirectional sync
 

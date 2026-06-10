@@ -23,6 +23,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | What we're building and why | `docs/STAGE_1_SPEC.md` |
 | Phase 2 scope and spec (supersedes §16 Phase 2 of the Stage 1 spec) | `docs/STAGE_1_PHASE_2_SPEC.md` |
 | Phase 5 scope and spec (auth & reviews; supersedes §16 Phase 5 of the Stage 1 spec) | `docs/STAGE_1_PHASE_5_SPEC.md` |
+| Phase 6 scope and spec (requests & moderation; supersedes §16 Phase 6 + §12 of the Stage 1 spec) | `docs/STAGE_1_PHASE_6_SPEC.md` |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
 | Review-app → Supabase promotion push (`POST /api/promote` payload/response, idempotency, integration rule) | `docs/REVIEW_APP_PROMOTE_API.md` |
 | Database schema and RLS hooks | `docs/DATABASE_SCHEMA.md` |
@@ -65,7 +66,7 @@ If your work touches a topic governed by one of these documents, that document i
 - **Issue tracker:** Linear
 - **i18n:** `@angular/localize` (en-US only at launch; architecture supports more)
 - **Email:** Loops
-- **Workflow automation:** n8n with native Linear node
+- **Workflow automation:** Cloudflare Worker for the form→Linear request pipeline (n8n **dropped** — Phase 2 §18.1 / `docs/STAGE_1_PHASE_6_SPEC.md`). No Slack (Linear native email + admin-email-on-failure).
 - **Theme:** light/dark with system preference detection (tokens defined in `docs/STAGE_1_SPEC.md` §2a)
 
 ## Constraints that aren't negotiable
