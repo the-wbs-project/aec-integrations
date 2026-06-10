@@ -489,9 +489,10 @@ jobs:
 
       # ADR 0013: provision the prod Algolia job queues BEFORE the API deploy — the
       # Worker's `queues.consumers` binding errors if the queue does not exist yet.
-      # Idempotent: re-creating an existing queue returns "already exists", treated
-      # as success. PREREQ: CLOUDFLARE_API_TOKEN must carry the Queues edit
-      # permission and the account must be on the Workers Paid plan, or this fails.
+      # Idempotent: re-creating an existing queue returns "Queue name '...' is
+      # already taken" (API error code 11009), treated as success. PREREQ:
+      # CLOUDFLARE_API_TOKEN must carry the Queues edit permission and the account
+      # must be on the Workers Paid plan, or this fails.
       - name: Provision Algolia job queues (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -503,7 +504,7 @@ jobs:
             local name="$1"
             if pnpm exec wrangler queues create "$name" > queue-out.log 2>&1; then
               echo "created $name"
-            elif grep -qiE "already exists|already created|a queue with this name" queue-out.log; then
+            elif grep -qiE "already exists|already created|already taken|a queue with this name|code: ?11009" queue-out.log; then
               echo "$name already exists — ok"
             else
               cat queue-out.log
