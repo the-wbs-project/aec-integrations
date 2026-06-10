@@ -6,6 +6,34 @@ Newest entries on top.
 
 ---
 
+## 2026-06-10 — For multi-concept design selection, default to the in-app `preview/` route, not a `.context/` HTML file (AECI-181, Home design pass)
+
+**Lesson:** When a design pass produces several concepts for the PO to choose between, the
+preferred review surface is a **dev-only Angular `preview/` route** running in the real app, not a
+self-contained HTML prototype in `.context/`. Chris reviews concepts with the real components,
+fonts, theming, and SSR/hydration in front of him.
+
+**Context:** AECI-181's plan offered both formats (a self-contained `.context/` HTML prototype with
+concept/theme/state toggles, or a dev-only Angular preview route under `apps/web/src/app/preview/`).
+The HTML route is faster to author and doesn't touch the app, so it was built first. Chris's
+response: "I wanted you to build all three in preview and then I chose." Selection wasn't blocked
+(he opened the HTML and picked Faire), but the standalone file wasn't the surface he wanted to
+evaluate in. The `preview/` infrastructure already exists for exactly this (lazy-loaded,
+production-blocked via `isPreviewPath`, used for the v0 port loop), so there was a ready home.
+
+**Action:**
+
+- For future multi-concept selection, default to a `apps/web/src/app/preview/<surface>/` route
+  registered in `preview.routes.ts`, reusing the real components + tokens, so the PO reviews in the
+  running app (`pnpm dev:agent`). Reserve a `.context/` HTML prototype for a fast fallback or when
+  the app can't boot.
+- State the format choice up front and let Chris redirect **before** building, since the two
+  formats are a non-trivial fork in effort.
+- Chosen home direction (anchor **Faire**) recorded in `docs/design/home-direction.md`; AECI-190's
+  shipped components are the reused Faire vocabulary, keeping the home coherent with `/products`.
+
+---
+
 ## 2026-05-19 — v0 share URLs are opaque to WebFetch and to cross-origin iframe inspection (AECI-19, Vendor Detail)
 
 **Lesson:** We cannot pull v0's emitted React code out of a v0 share URL programmatically. `WebFetch` only retrieves the chat transcript text (descriptions of changes), not the file contents. Loading the share URL in a real browser session reveals an iframe at `sb-*.vercel.run` that hosts a VS Code Web editor for the project — cross-origin to v0.app, so its DOM is unreadable, and the actual rendered preview happens at a separate sandbox origin we cannot extract code from.
