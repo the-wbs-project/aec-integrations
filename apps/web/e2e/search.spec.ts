@@ -76,6 +76,34 @@ test.describe('/search — search page (AECI-142)', () => {
   });
 });
 
+// AECI-145 / Phase 3.12 — the live-Algolia leg of "search → results → click
+// result lands on the detail page". This needs a provisioned Algolia search key
+// (the `window.__AECI_ALGOLIA__` bootstrap), which CI's dev:bound does NOT have,
+// so every test here self-skips in CI and runs only locally/preview when
+// `.dev.vars` supplies search creds. The CI-deterministic embodiment of this
+// flow (facet refine → result click → detail h1, via the API-backed /products
+// path) lives in facets.spec.ts.
+test.describe('/search — live results (requires Algolia; local/preview only)', () => {
+  test('search box → product results → result click lands on the detail page', async ({ page }) => {
+    await page.goto('/search');
+    const hasAlgolia = await page.evaluate(() =>
+      Boolean((globalThis as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__),
+    );
+    test.skip(!hasAlgolia, 'Algolia not provisioned (CI dev:bound) — live results unavailable');
+
+    // Products is the default tab. Type a broad query and wait for hits to land.
+    await page.locator('#search-input').fill('a');
+
+    const firstHit = page.locator('aec-search-product-card a[href^="/products/"]').first();
+    await firstHit.waitFor({ timeout: 8000 }).catch(() => {});
+    test.skip((await firstHit.count()) === 0, 'no product hits for this query in the live index');
+
+    await firstHit.click();
+    await expect(page).toHaveURL(/\/products\/[^/?#]+$/);
+    await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
+  });
+});
+
 async function aaViolations(page: Page) {
   const results = await new AxeBuilder({ page })
     .withTags(WCAG_AA_TAGS)

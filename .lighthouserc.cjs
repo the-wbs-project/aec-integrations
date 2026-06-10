@@ -19,6 +19,14 @@
  *   - Performance / Accessibility / Best-Practices / SEO ≥ 90 (mobile)
  *   - LCP ≤ 2.5s, CLS ≤ 0.1, TBT ≤ 200ms
  *   - Total JS transfer ≤ 200 KB on detail pages
+ *   - /search server-response-time (TTFB) ≤ 600ms — MISS-only (AECI-145)
+ *
+ * SEARCH ROUTE: `/search` is collected (AECI-146) and held SEO-exempt as a
+ * noindex page (class C). AECI-145 adds the MISS-only TTFB budget (class D)
+ * because `/search` is the one always-edge-MISS route (`private, no-store`) — so
+ * its server-response-time gets a realistic budget rather than inheriting the
+ * cached-page timing the other routes enjoy. `?q=…` is intentionally not
+ * collected: in CI (no Algolia) it renders the identical degradation shell.
  *
  * gzipped-vs-transfer NOTE: `resource-summary:script:size` measures TRANSFER
  * bytes (compressed as served — Cloudflare brotli/gzip), not uncompressed. It is
@@ -53,6 +61,11 @@ const DETAIL_URL_PATTERN =
 const NOT_FOUND_SLUG = 'aeci-65-no-such-page';
 const NOINDEX_URL_PATTERN = `(?:${NOT_FOUND_SLUG}|/search)`;
 const INDEXABLE_URL_PATTERN = `^(?!.*${NOINDEX_URL_PATTERN}).*$`;
+// `/search`-only matcher (AECI-145). Unlike the 404, `/search` is `private,
+// no-store` — the one route that is ALWAYS an edge MISS — so it gets a MISS-only
+// TTFB budget (class D below) on top of the noindex class's perf/a11y/CWV. The
+// `(?:[/?]|$)` boundary keeps the match correct if `?q=` is ever collected.
+const SEARCH_URL_PATTERN = '/search(?:[/?]|$)';
 
 module.exports = {
   ci: {
@@ -73,7 +86,7 @@ module.exports = {
         `${baseUrl}/search`, // Phase 3 search page (AECI-146) — noindex, SEO-exempt
         `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
       ],
-      // Collection dominates this job — 13 URLs × N runs × ~12s each. At the
+      // Collection dominates this job — 14 URLs × N runs × ~12s each. At the
       // former N=3 the run took ~7m50s; a SINGLE run lands it at ~2m40s. This
       // gate is warn-only/non-blocking, and its value is per-page-type coverage,
       // not run-to-run median smoothing, so default to one run. Restore the
@@ -149,6 +162,23 @@ module.exports = {
             'categories:accessibility': ['warn', { minScore: 0.95 }],
             'largest-contentful-paint': ['warn', { maxNumericValue: 2500 }],
             'cumulative-layout-shift': ['warn', { maxNumericValue: 0.1 }],
+          },
+        },
+        // (D) /search only (AECI-145): a MISS-only TTFB budget. `/search` is
+        // `private, no-store`, so it never serves from an edge HIT — it's the one
+        // page where a `server-response-time` budget is meaningful (every other
+        // route normally HITs). 600ms is Lighthouse's own native pass threshold
+        // and measures the SSR-shell document fetch — a CI proxy on `dev:bound`
+        // (graceful-degradation shell, no Algolia round-trip), not production
+        // search latency. TTFB is observed, not scaled by the simulate throttle.
+        // perf/a11y/CWV are already covered by class (C); SEO/best-practices stay
+        // out (noindex). This is the only assertion class that targets /search
+        // exclusively, so it layers cleanly on the shared noindex class.
+        {
+          matchingUrlPattern: SEARCH_URL_PATTERN,
+          aggregationMethod: 'median-run',
+          assertions: {
+            'server-response-time': ['warn', { maxNumericValue: 600 }],
           },
         },
       ],

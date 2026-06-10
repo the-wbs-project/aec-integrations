@@ -325,6 +325,8 @@ Critical user journeys:
 
 Anything that crosses multiple components or pages is a candidate for E2E.
 
+**Phase 3.12 implementation (AECI-145).** The "search → results → faceted filter → result click" journey is covered on the **API-backed listing path** (`apps/web/e2e/facets.spec.ts`): the AECI-143 facet sidebar on `/products` (facet click → `{kind}_id` + `page=1` in the URL, checkbox state, grid refresh, Clear-filters reset), the locked-kind sidebar on `/categories/:slug` (hides its own dimension), and the deterministic refine → product-card click → detail `<h1>` chain. This is the CI-runnable embodiment of the journey because **`/search` itself degrades in CI** — `dev:bound` boots without Algolia, so the InstantSearch results never render. The live `/search` box → hits → click → detail flow therefore lives in a **self-skipping block** in `search.spec.ts`, guarded on the `window.__AECI_ALGOLIA__` bootstrap (runs locally/preview with search creds, skips in CI). **Cache-key correctness** ("distinct facets → distinct cache entries") is proven by a unit test on the exported `cacheKeyUrl()` (`apps/web/src/cache-key-url.spec.ts`) — HIT/MISS is unobservable on localhost (Miniflare ≠ Cloudflare edge) — with `facets.spec.ts` asserting the complement at the wire: distinct facet URLs are independently cacheable yet share one `Cache-Tag` (facets live in the key, not the tag).
+
 ### 7.3 What not to test in E2E
 
 - Things already covered by unit/component tests
@@ -411,6 +413,8 @@ Run in both light and dark themes.
 
 **Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in **both themes** (13 URLs × 2), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`supabase/fixtures/phase2-fixtures.sql`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. The site **footer** is carved out (`.exclude('aec-site-footer')`) for pre-existing dark-mode contrast debt tracked separately; the header (incl. the new flyout nav) is in scope.
 
+**Phase 3.12 implementation (AECI-145).** `/search` axe coverage (both themes, zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
+
 ### 8.3 Severity threshold
 
 Block PR merge on any `serious` or `critical` violations. Warn (but don't block) on `moderate`. Ignore `minor`.
@@ -494,6 +498,15 @@ Lighthouse CI is wired in `deploy.yml`'s un-parked `lighthouse` job and runs **m
 Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / Accessibility / Best-Practices / SEO; LCP ≤ 2.5s; CLS ≤ 0.1; detail-page total JS transfer ≤ 200 KB). Per-URL handling: the JS budget targets detail/browse pages only; the `noindex` 404 is exempt from the SEO score.
 
 > **Posture: warn-only today.** Although §12 (and the AECI-65 issue) call for budgets to **block** merge — stricter than the §10.1 table's "Performance > 80 / warn" — the assertions land at `'warn'` first, so `lhci autorun` exits 0 and the job is non-blocking. This is a deliberate, recorded rollout: the **warn→merge-blocking flip is a dedicated follow-up**, gated on confirming every page passes (perf optimization is out of AECI-65's scope). Flip by changing the `'warn'` levels in `.lighthouserc.cjs` to `'error'`; at that point reconcile the §10.1 thresholds (Performance/SEO warn→block, Performance 80→90) with §12.
+
+### 10.5 Search route (AECI-145 / Phase 3.12)
+
+`/search` is in `.lighthouserc.cjs`'s collection (14 URLs total). It differs from every Phase 2 page on two axes, handled by two assertion classes:
+
+- **`noindex`** — like the 404, its SEO audit fails by design. AECI-146 grouped `/search` with the 404 in the **noindex class** (matched by `NOINDEX_URL_PATTERN`): perf/a11y/CWV only, **SEO-exempt** (excluded from the indexable class's `categories:seo`).
+- **No-cache (always an edge MISS)** — `/search` is `private, no-store`, the one route that never serves from an edge HIT. AECI-145 adds a `/search`-only class with a **MISS-only TTFB budget** (`server-response-time ≤ 600ms`) rather than inheriting cached-page timing assumptions. The threshold is Lighthouse's own native pass bar and measures the SSR-shell document fetch — a CI proxy on `dev:bound` (graceful-degradation shell, no Algolia round-trip), not production search latency.
+
+`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. `?q=…` is intentionally not collected: in CI it renders the identical degradation shell. Budgets stay `'warn'` (same rollout posture as AECI-65).
 
 ---
 
