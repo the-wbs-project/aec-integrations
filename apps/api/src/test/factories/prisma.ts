@@ -67,6 +67,7 @@ export type MockAcceleratedPrisma = {
   taxonomyCategory: ModelMock;
   taxonomyAudience: ModelMock;
   taxonomyPhase: ModelMock;
+  statsCache: ModelMock;
   $queryRaw: Mock<QueryRawFn>;
 };
 
@@ -77,6 +78,7 @@ export type MockAcceleratedPrismaOverrides = Partial<{
   taxonomyCategory: ModelOverrides;
   taxonomyAudience: ModelOverrides;
   taxonomyPhase: ModelOverrides;
+  statsCache: ModelOverrides;
   queryRaw: QueryRawFn;
 }>;
 
@@ -92,6 +94,9 @@ export function makeMockAcceleratedPrisma(
     taxonomyCategory: buildModelMock(overrides.taxonomyCategory, listDefaults),
     taxonomyAudience: buildModelMock(overrides.taxonomyAudience, listDefaults),
     taxonomyPhase: buildModelMock(overrides.taxonomyPhase, listDefaults),
+    // Phase 4.4 (AECI-179) — `prisma.statsCache.findMany` backs GET /api/stats/home.
+    // Default empty array models a cold/sparse cache (pre-compute-job).
+    statsCache: buildModelMock(overrides.statsCache, listDefaults),
     $queryRaw: vi.fn(overrides.queryRaw ?? (async () => [{ '?column?': 1 }])),
   };
 }
