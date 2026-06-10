@@ -1,5 +1,6 @@
 import { Routes } from '@angular/router';
 
+import { homeBrowseResolver } from './home/home-browse.resolver';
 import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
@@ -16,10 +17,17 @@ import {
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 export const routes: Routes = [
+  // AECI-184 — Phase 4.9 home "Browse by" grids. The resolver fetches the live
+  // aggregate taxonomy (`GET /api/taxonomy`, with `product_count`) SSR-side via
+  // the service binding; hydration reads from TransferState. Browse counts are
+  // live, NOT `stats_cache` (§10). The home already carries the `taxonomy`
+  // cache-tag (`cacheTagInputsForPath`), so taxonomy edits purge it. The full
+  // home resolver + meta/JSON-LD is the 4.11 assembly issue (AECI-186).
   {
     path: '',
     pathMatch: 'full',
     loadComponent: () => import('./home/home').then((m) => m.Home),
+    resolve: { browse: homeBrowseResolver },
   },
   {
     path: '_demo/spartan',

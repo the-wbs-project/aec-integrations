@@ -11,7 +11,7 @@
  * (`core/api/http-get-or-null.ts`), not this client. ("No public API surface" =
  * no separate public API product / no ingress on the API Worker's own host.)
  */
-import type { CategoriesListResponse, CategoryDetail } from '@aeci/shared';
+import type { CategoriesListResponse, CategoryDetail, TaxonomyResponse } from '@aeci/shared';
 
 import type { ServerApiClient } from '../../../server-api-client';
 import type { TaxonomyKind } from '../../shared/taxonomy-badge/taxonomy-badge';
@@ -68,4 +68,17 @@ export async function fetchTaxonomyList(
   kind: TaxonomyKind,
 ): Promise<CategoriesListResponse> {
   return client.request<CategoriesListResponse>(`/api/${KIND_PATH_SEGMENT[kind]}`);
+}
+
+/**
+ * Fetch the aggregate taxonomy (`GET /api/taxonomy → { categories, audiences,
+ * phases }`), each facet a `TaxonomyTermWithCount[]` carrying live
+ * `product_count`. One round-trip for all three facets — the natural shape for
+ * the home "Browse by" grids (AECI-184), which read **live** taxonomy counts,
+ * never `stats_cache`. The endpoint is read-through KV-cached in the API Worker
+ * (5-min TTL); consumed here via the SSR service binding, its own
+ * `private, no-store` edge directive does not apply.
+ */
+export async function fetchTaxonomy(client: ServerApiClient): Promise<TaxonomyResponse> {
+  return client.request<TaxonomyResponse>('/api/taxonomy');
 }
