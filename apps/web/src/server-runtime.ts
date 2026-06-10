@@ -57,6 +57,7 @@
  * from cookie stripping (i.e. added to the non-cacheable list instead).
  */
 
+import { PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
@@ -439,28 +440,85 @@ export type ResponseTransform = (
 ) => Promise<Response> | Response;
 
 /**
- * Schedule a fire-and-forget `POST /api/page-views` against the API Worker
- * via the service binding. Phase 2 endpoint is a no-op (AECI-55); Phase 4
- * wires the actual write. Errors are swallowed — the page render must not
- * fail because analytics did. The payload shape is pinned in
- * `packages/shared/src/api/page-views.ts` (`PageViewPayloadSchema`).
+ * Cloudflare request context (`request.cf`) the API Worker needs to enrich
+ * `page_views` (AECI-177). It is populated on the inbound eyeball request but
+ * does NOT survive the `env.API` service binding, so we copy the needed fields
+ * onto the trusted `PAGE_VIEW_CF_HEADERS` (`x-aeci-cf-*`) before forwarding.
+ * Structural — we read only the four fields we forward, so no global CF typing
+ * is required and a `.cf`-less request (Node tests, local dev) is a clean no-op.
+ */
+interface CfLike {
+  country?: string | null;
+  colo?: string | null;
+  asn?: number | null;
+  botManagement?: { score?: number | null } | null;
+}
+
+/**
+ * Set the trusted `x-aeci-cf-*` headers from `request.cf`. Only fields that are
+ * actually present are set, so the API Worker sees a header exactly when the
+ * value exists. No-op when `request.cf` is absent.
+ */
+export function applyCfContextHeaders(headers: Headers, request: Request): void {
+  const cf = (request as { cf?: CfLike }).cf;
+  if (!cf) return;
+  if (cf.country) headers.set(PAGE_VIEW_CF_HEADERS.country, cf.country);
+  if (cf.colo) headers.set(PAGE_VIEW_CF_HEADERS.colo, cf.colo);
+  if (typeof cf.asn === 'number') headers.set(PAGE_VIEW_CF_HEADERS.asn, String(cf.asn));
+  const score = cf.botManagement?.score;
+  if (typeof score === 'number') headers.set(PAGE_VIEW_CF_HEADERS.botScore, String(score));
+}
+
+/**
+ * Rebuild a proxied `POST /api/page-views` request carrying trusted CF context.
+ * The SSR Worker is the sole writer of `PAGE_VIEW_CF_HEADERS`, so any
+ * client-supplied copies are stripped first (anti-spoof) before we set fresh
+ * values from `request.cf`. Body / method / other headers (incl. `user-agent`,
+ * which the API hashes) pass through unchanged.
+ */
+export function withForwardedCfContext(request: Request): Request {
+  const headers = new Headers(request.headers);
+  for (const name of Object.values(PAGE_VIEW_CF_HEADERS)) headers.delete(name);
+  applyCfContextHeaders(headers, request);
+  return new Request(request, { headers });
+}
+
+/**
+ * Schedule a fire-and-forget `POST /api/page-views` against the API Worker via
+ * the service binding. This is the SSR Worker's supplementary write (§14.2): it
+ * captures CF/bot context for full-document renders. It is NOT the canonical
+ * per-view counter — it undercounts because true edge-cache hits bypass the SSR
+ * Worker entirely; the browser `PageViewTracker` (AECI-151) is the canonical
+ * counter and is de-duped against this by skipping the initial navigation (SSR
+ * counts the landing arrival, the client counts subsequent in-app navigations).
  *
- * Cacheable routes fire on BOTH cache HIT and MISS so the metric reflects
- * visitor arrivals rather than SSR misses. On HIT the resolver never runs,
- * so the runtime synthesizes a minimal `{ route }` payload from the locale-
- * stripped path; on MISS the resolver may attach a richer payload (with
- * entity_type / entity_id) via `AeciRequestContext.pageView`.
+ * Errors are swallowed — the page render must not fail because analytics did.
+ * The payload shape is pinned in `@aeci/shared` (`PageViewPayloadSchema`).
+ * `sourceRequest` is the inbound eyeball request: its `request.cf` and
+ * `user-agent` are forwarded so the API Worker enriches this write the same way
+ * it enriches the browser's proxied POST.
+ *
+ * Cacheable routes fire on BOTH cache HIT and MISS so the SSR-side signal counts
+ * visitor arrivals rather than SSR misses. On HIT the resolver never runs, so
+ * the runtime synthesizes a minimal `{ route }` payload from the locale-stripped
+ * path; on MISS the resolver may attach a richer payload (with entity_type /
+ * entity_id) via `AeciRequestContext.pageView`.
  */
 function firePageView(
   execCtx: WaitUntilContext,
   env: Bindings,
   payload: NonNullable<AeciRequestContext['pageView']>,
+  sourceRequest: Request,
 ): void {
+  const headers = new Headers({ 'content-type': 'application/json' });
+  applyCfContextHeaders(headers, sourceRequest);
+  const userAgent = sourceRequest.headers.get('user-agent');
+  if (userAgent) headers.set('user-agent', userAgent);
   execCtx.waitUntil(
     env.API.fetch(
       new Request('https://api/api/page-views', {
         method: 'POST',
-        headers: { 'content-type': 'application/json' },
+        headers,
         body: JSON.stringify(payload),
       }),
     )
@@ -532,7 +590,7 @@ async function handleSsr(
         ? withCacheHeaders(transformed, NOT_FOUND_TTL, null)
         : ensureNoStore(transformed);
     if (reqCtx.pageView && finalResponse.status >= 200 && finalResponse.status < 300) {
-      firePageView(execCtx, env, reqCtx.pageView);
+      firePageView(execCtx, env, reqCtx.pageView, request);
     }
     emitRenderCount('non_cacheable', finalResponse.status);
     return finalResponse;
@@ -575,7 +633,7 @@ async function handleSsr(
     if (hit) {
       emitRenderMetric('HIT', hit.status);
       emitRenderCount('hit', hit.status);
-      firePageView(execCtx, env, { route: localePath });
+      firePageView(execCtx, env, { route: localePath }, request);
       return hit;
     }
   }
@@ -605,7 +663,7 @@ async function handleSsr(
   // the resolver-attached payload (carries entity_type/entity_id when
   // available); otherwise fall back to the path-derived `{ route }`.
   if (response.status >= 200 && response.status < 300) {
-    firePageView(execCtx, env, reqCtx.pageView ?? { route: localePath });
+    firePageView(execCtx, env, reqCtx.pageView ?? { route: localePath }, request);
   }
 
   return response;
@@ -632,7 +690,19 @@ export function createApp(options: {
   // binding. Cookies (Supabase session, anti-CSRF, anything else) MUST reach
   // the API Worker untouched. No envelope normalization on this path; SSR
   // data loaders that want normalization go through `createServerApiClient`.
-  app.all('/api/*', (c) => c.env.API.fetch(c.req.raw));
+  //
+  // `POST /api/page-views` is the one enriched exception (AECI-177): the
+  // browser's view-capture POST is rebuilt with trusted Cloudflare request
+  // context headers (request.cf doesn't survive the binding) after stripping any
+  // client-supplied copies. Every other `/api/*` request still forwards
+  // `c.req.raw` byte-for-byte.
+  app.all('/api/*', (c) => {
+    const req = c.req.raw;
+    if (req.method === 'POST' && new URL(req.url).pathname === '/api/page-views') {
+      return c.env.API.fetch(withForwardedCfContext(req));
+    }
+    return c.env.API.fetch(req);
+  });
 
   // POST /admin/purge — manual cache-tag invalidation (AECI-56, Phase 2.10).
   // Non-cacheable; the handler authenticates with `ADMIN_PURGE_TOKEN` and

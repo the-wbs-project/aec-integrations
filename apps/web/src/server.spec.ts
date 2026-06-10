@@ -6,6 +6,7 @@ import {
   LOCALES,
   NOT_FOUND_TTL,
   VISITOR_STATE_COOKIES,
+  applyCfContextHeaders,
   buildCacheControl,
   cacheControlForRoute,
   cacheKeyUrl,
@@ -1440,5 +1441,111 @@ describe('createApp page-view capture (AECI-58)', () => {
     );
 
     expect(pageViewCalls(calls)).toHaveLength(0);
+  });
+
+  it('forwards the user-agent header (for API-side hashing) but never the raw UA in the body (AECI-177)', async () => {
+    // The SSR supplementary write forwards the eyeball `user-agent` so the API
+    // Worker can SHA-256 it; the body stays the lean `{ route }` payload — the
+    // raw UA must never appear in the JSON the SSR Worker sends.
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/products', {
+        headers: { 'user-agent': 'Mozilla/5.0 (AECI test)' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = pageViewCalls(calls);
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.headers.get('user-agent')).toBe('Mozilla/5.0 (AECI test)');
+    expect(await pv[0]!.clone().json()).toEqual({ route: '/products' });
+  });
+});
+
+// ─── AECI-177: CF request-context forwarding across the SSR→API binding ──────
+// `request.cf` does not survive the service binding, so the SSR Worker copies
+// the needed fields onto trusted `x-aeci-cf-*` headers — for the browser's
+// proxied POST and for its own `firePageView` write — after stripping any
+// client-supplied copies (anti-spoof). See docs/API_CONTRACTS.md §6.9.
+
+describe('CF context forwarding for page-views (AECI-177)', () => {
+  it('maps request.cf onto the trusted x-aeci-cf-* headers', () => {
+    const headers = new Headers();
+    applyCfContextHeaders(headers, {
+      cf: { country: 'US', colo: 'SJC', asn: 13335, botManagement: { score: 88 } },
+    } as unknown as Request);
+
+    expect(headers.get('x-aeci-cf-country')).toBe('US');
+    expect(headers.get('x-aeci-cf-colo')).toBe('SJC');
+    expect(headers.get('x-aeci-cf-asn')).toBe('13335');
+    expect(headers.get('x-aeci-cf-bot-score')).toBe('88');
+  });
+
+  it('sets only the CF fields that are present (no empty headers)', () => {
+    const headers = new Headers();
+    // bot score 0 is a real value and must still be forwarded.
+    applyCfContextHeaders(headers, {
+      cf: { country: 'GB', botManagement: { score: 0 } },
+    } as unknown as Request);
+
+    expect(headers.get('x-aeci-cf-country')).toBe('GB');
+    expect(headers.get('x-aeci-cf-bot-score')).toBe('0');
+    expect(headers.get('x-aeci-cf-colo')).toBeNull();
+    expect(headers.get('x-aeci-cf-asn')).toBeNull();
+  });
+
+  it('is a no-op when request.cf is absent (local dev / non-CF runtime)', () => {
+    const headers = new Headers();
+    applyCfContextHeaders(headers, new Request('https://api/api/page-views'));
+    expect([...headers.keys()]).toEqual([]);
+  });
+
+  it('strips client-supplied x-aeci-cf-* on the proxied POST /api/page-views (anti-spoof)', async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    await app.fetch(
+      new Request('https://aecintegrations.com/api/page-views', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          // A malicious client forging CF context — must not survive the proxy.
+          'x-aeci-cf-country': 'SPOOF',
+          'x-aeci-cf-bot-score': '99',
+        },
+        body: JSON.stringify({ route: '/products/procore' }),
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
+    expect(pv).toHaveLength(1);
+    // The test request carries no real request.cf, so the stripped spoof is not
+    // replaced — the API Worker would see no (untrusted) CF context.
+    expect(pv[0]!.headers.get('x-aeci-cf-country')).toBeNull();
+    expect(pv[0]!.headers.get('x-aeci-cf-bot-score')).toBeNull();
+    // Body and method pass through unchanged.
+    expect(pv[0]!.method).toBe('POST');
+    expect(await pv[0]!.clone().json()).toEqual({ route: '/products/procore' });
+  });
+
+  it('forwards a non-page-views /api/* request byte-for-byte (no CF rebuild)', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
+
+    const original = new Request('https://aecintegrations.com/api/health', {
+      headers: { 'x-aeci-cf-country': 'SPOOF' },
+    });
+    await app.fetch(original, binding as unknown as Bindings, fakeExecutionContext());
+
+    // The passthrough hands the raw request straight to the binding.
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe(original);
   });
 });
