@@ -9,7 +9,12 @@ import { defineConfig, devices } from '@playwright/test';
 // Phase 1.19: chromium-only smoke + axe. Cross-browser / mobile deferred to
 // Phase 7 per `docs/TESTING_STRATEGY.md` §7 and the AECI-33 spec.
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
+// Mirror the `AECI_WEB_PORT` override honored by `apps/web`'s `dev:preview`
+// script (defaults to 8788). Lets a Conductor workspace run dev + e2e on its
+// own port pair without colliding with sibling workspaces. A `PLAYWRIGHT_BASE_URL`
+// (CI preview-URL job) still takes precedence and skips the local webServer.
+const WEB_PORT = process.env['AECI_WEB_PORT'] ?? '8788';
+const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? `http://localhost:${WEB_PORT}`;
 const IS_CI = !!process.env['CI'];
 
 export default defineConfig({
@@ -50,7 +55,7 @@ export default defineConfig({
         // once the binding is connected AND `SELECT 1` succeeds; binding-down /
         // DB-down return 5xx, which Playwright (ready iff status in [200,404))
         // keeps polling past. So tests don't start until the API is serving.
-        url: 'http://localhost:8788/api/health',
+        url: `http://localhost:${WEB_PORT}/api/health`,
         reuseExistingServer: !IS_CI,
         timeout: 180_000,
         stdout: 'pipe',

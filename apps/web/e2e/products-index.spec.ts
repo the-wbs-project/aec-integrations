@@ -1,19 +1,19 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-// AECI-58 / Phase 2.12 — paginated product index at /products.
-// Verifies the page renders SSR-side with the right title, breadcrumbs,
-// cache headers, and an accessible table; that the sort and pagination
-// controls update the URL; and that the product-card click target resolves
-// to a /products/:slug URL.
+// AECI-58 / Phase 2.12 — paginated product index at /products. Redesigned in
+// AECI-190: a buyer-facing card grid (default) + a table view, switched by a
+// toolbar toggle, with a sort dropdown. Verifies the page renders SSR-side with
+// the right title, breadcrumbs, cache headers, and toolbar; that the sort, view,
+// and pagination controls update the URL; and that a product link resolves to a
+// /products/:slug URL.
 //
-// The spec is resilient to a populated or empty local DB. Sort and
-// pagination URL behavior is exercised even when no products are seeded
-// (clicking the Name header still produces ?sort=name). Card-link
-// navigation is only asserted when at least one product row is rendered.
+// The spec is resilient to a populated or empty local DB. Sort/view URL behavior
+// is exercised even when no products are seeded; link navigation and the table
+// render are only asserted when at least one product is present.
 
 test.describe('/products — product index (AECI-58)', () => {
-  test('renders SSR HTML with title, breadcrumbs, and the products table', async ({ request }) => {
+  test('renders SSR HTML with title, breadcrumbs, and the view toolbar', async ({ request }) => {
     const res = await request.get('/products');
     expect(res.status(), 'GET /products must return 200').toBe(200);
     const html = await res.text();
@@ -40,10 +40,9 @@ test.describe('/products — product index (AECI-58)', () => {
     expect(html).toMatch(/<h1[^>]*>[^<]*Products[^<]*<\/h1>/i);
     expect(html, 'breadcrumb nav must mention Home and Products').toMatch(/Home/);
 
-    // The products table is present (IndexLayout shell).
-    expect(html, '<table> with the index aria-label must render').toMatch(
-      /<table[^>]+aria-label[^>]*>/,
-    );
+    // The toolbar renders regardless of data: a sort <select> + the view toggle.
+    expect(html, 'sort dropdown must render').toMatch(/<select[^>]+id="aec-products-sort"/);
+    expect(html, 'view toggle buttons must render (aria-pressed)').toMatch(/aria-pressed/);
   });
 
   test('emits §8.3 cache headers — s-maxage=300, max-age=0, Cache-Tag for /products', async ({
@@ -80,22 +79,33 @@ test.describe('/products — product index (AECI-58)', () => {
     expect(results.violations, formatViolations(results.violations)).toEqual([]);
   });
 
-  test('sorting by Name updates ?sort=name in the URL', async ({ page }) => {
+  test('the sort dropdown updates ?sort= in the URL and reflects the choice', async ({ page }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    // Find the sortable header button labeled "Name".
-    const nameHeader = page.locator('aec-sortable-column-header button', { hasText: 'Name' });
-    await expect(nameHeader).toBeVisible();
-    await nameHeader.click();
+    const sort = page.locator('#aec-products-sort');
+    await expect(sort).toBeVisible();
+    await sort.selectOption('name');
 
     await expect(page).toHaveURL(/\?.*sort=name/);
+    await expect(sort).toHaveValue('name');
+  });
 
-    // The column's `<th>` should reflect the active state via aria-sort.
-    // Per Phase 2 Spec §7.4 / `apps/api/src/lib/sort.ts:resolveProductSort`,
-    // the `name` sort key is fixed to ascending direction — the column header
-    // for Name renders with `direction="ascending"` (see `products-index.ts`).
-    await expect(page.locator('th[aria-sort="ascending"]')).toBeVisible();
+  test('the view toggle switches between cards and table and reflects ?view=', async ({ page }) => {
+    await page.goto('/products');
+    await expect(page.locator('app-root')).toBeAttached();
+
+    await page.getByRole('button', { name: 'Table' }).click();
+    await expect(page).toHaveURL(/\?.*view=table/);
+    // The table only renders when products are present; assert it when there is data.
+    const hasProducts = (await page.locator('#main a[href^="/products/"]').count()) > 0;
+    if (hasProducts) {
+      await expect(page.locator('table[aria-label="Products"]')).toBeVisible();
+    }
+
+    await page.getByRole('button', { name: 'Cards' }).click();
+    await expect(page).toHaveURL(/\?.*view=cards/);
+    await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
   });
 
   test('Pagination Next button advances ?page= when more than one page exists', async ({
@@ -119,7 +129,7 @@ test.describe('/products — product index (AECI-58)', () => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const firstProductLink = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
+    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
     const exists = (await firstProductLink.count()) > 0;
     test.skip(!exists, 'no products seeded in this environment');
 

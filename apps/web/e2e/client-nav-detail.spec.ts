@@ -22,7 +22,7 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const firstProductLink = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
+    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
     test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
 
     // Marker to prove every hop below is client-side (a full reload would clear it).
@@ -60,7 +60,7 @@ test.describe('client-side navigation to detail pages (AECI-151)', () => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const firstProductLink = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
+    const firstProductLink = page.locator('#main a[href^="/products/"]').first();
     test.skip((await firstProductLink.count()) === 0, 'no products seeded in this environment');
 
     await page.evaluate(() => ((window as unknown as Record<string, unknown>).__aeciSpa = true));

@@ -12,7 +12,7 @@
     "watch": "ng build --watch --configuration development",
     "serve:ssr": "node dist/server/server.mjs",
     "dev": "pnpm run build && wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
-    "dev:preview": "wrangler dev --env preview --port 8788 --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+    "dev:preview": "wrangler dev --env preview --port ${AECI_WEB_PORT:-8788} --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "preview": "pnpm run build && wrangler dev",
     "deploy": "pnpm run deploy:production",
     "deploy:preview": "pnpm run build && wrangler deploy --env preview",

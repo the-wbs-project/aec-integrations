@@ -99,9 +99,28 @@ describe('ProductCard', () => {
     expect((fixture.nativeElement as HTMLElement).querySelector('a[href^="/vendors/"]')).toBeNull();
   });
 
-  it('renders integration_count in the last cell', () => {
+  it('renders integration_count as a stat in the last cell', () => {
     const fixture = setupFixture();
     const cells = (fixture.nativeElement as HTMLElement).querySelectorAll('td');
-    expect(cells[cells.length - 1].textContent?.trim()).toBe('12');
+    // AECI-190: the count now renders via <aec-integration-stat> (number + noun),
+    // not a bare digit — assert the figure is present rather than exact-matching.
+    expect(cells[cells.length - 1].textContent).toContain('12');
+  });
+
+  it('renders the "not yet connected" zero state instead of a bare 0', () => {
+    const fixture = setupFixture({ ...baseProduct, integration_count: 0 });
+    const cells = (fixture.nativeElement as HTMLElement).querySelectorAll('td');
+    const last = cells[cells.length - 1].textContent ?? '';
+    expect(last).not.toContain('0');
+    expect(last).toContain('Not yet connected');
+  });
+
+  it('renders a monogram fallback in the name cell when logo_url is null', () => {
+    const fixture = setupFixture();
+    // LogoOrInitial renders the initial letter (code-point safe) when src is null.
+    const monogram = (fixture.nativeElement as HTMLElement).querySelector(
+      'aec-logo-or-initial span[aria-hidden="true"]',
+    );
+    expect(monogram?.textContent?.trim()).toBe('P');
   });
 });

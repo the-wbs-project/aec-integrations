@@ -243,11 +243,18 @@ type RoutePattern = {
  * component reads; over-including is explicitly harmless (e.g. a browse page
  * carries its own `{kind}_id` on the path, not the query, but listing it here
  * costs nothing), so the union is applied uniformly.
+ *
+ * AECI-190 — `/products` SSR-renders a different layout for `?view=table`
+ * (the dense table) vs. the card-grid default, so `view` is content-affecting
+ * and MUST be in the key or the two renders collapse onto one entry and serve
+ * wrong HTML. Only `/products` reads it; on the browse routes it's a harmless
+ * over-include per the §4a rule above.
  */
 const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
   'page',
   'perPage',
   'sort',
+  'view',
   'category_id',
   'audience_id',
   'phase_id',

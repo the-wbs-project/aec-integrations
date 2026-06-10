@@ -39,6 +39,27 @@ describe('cacheKeyUrl — distinct facets → distinct cache entries (AECI-145)'
   });
 });
 
+describe('cacheKeyUrl — ?view= forks the /products key (AECI-190)', () => {
+  // `/products` SSR-renders a different layout for `?view=table` (dense table)
+  // vs. the card-grid default. If `view` weren't in the allowlist the two
+  // renders would collapse onto one entry and the edge would serve whichever
+  // warmed the key first — so the table and cards URLs MUST get distinct keys.
+  it('forks the key for the table view vs. the cards default', () => {
+    expect(key('/products?view=table')).not.toBe(key('/products'));
+  });
+
+  it('forks the key for table vs. an explicit cards view', () => {
+    expect(key('/products?view=table')).not.toBe(key('/products?view=cards'));
+  });
+
+  it('keeps view alongside the other listing params', () => {
+    const k = key('/products?view=table&sort=name&page=2');
+    expect(k).toContain('view=table');
+    expect(k).toContain('sort=name');
+    expect(k).toContain('page=2');
+  });
+});
+
 describe('cacheKeyUrl — canonicalization (param order must not fork the key)', () => {
   it('is invariant to the order of page + sort', () => {
     expect(key('/products?page=2&sort=name')).toBe(key('/products?sort=name&page=2'));
