@@ -56,10 +56,16 @@ import {
   type PromoteVendor,
   type PromoteProduct,
   type PromoteIntegration,
+  type PromoteUsefulnessGroup,
+  type UsefulnessGroup,
 } from '@aeci/shared';
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
+// Value import (not a generated model type): `Prisma.DbNull` is the only correct
+// way to set a nullable `Json?` column to SQL NULL — Prisma 6 rejects a literal
+// JS `null` for Json fields at runtime. Used to clear `products.usefulness`.
+import { Prisma } from '@prisma/client/edge';
 import type { Context } from 'hono';
 
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
@@ -132,6 +138,21 @@ function compact(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
   return out;
+}
+
+/**
+ * Slugify for matching, never throwing. Usefulness resolution looks an input
+ * `slug`/`name` up against existing terms; an input that maps to a reserved or
+ * empty slug simply can't match anything, so we return `null` (→ unresolvable →
+ * `skipped`) rather than 500-ing the whole promote the way the facet path's bare
+ * `slugify` would.
+ */
+function safeSlugify(value: string): string | null {
+  try {
+    return slugify(value);
+  } catch {
+    return null;
+  }
 }
 
 /** Generate a slug or throw a typed 400 for the two expected failure modes. */
@@ -501,6 +522,69 @@ export function createPromoteHandler(
           : emptyTax;
         const phases = p ? await resolveTaxonomy(p.phases, tx.taxonomyPhase, 'phase') : emptyTax;
 
+        // ── Usefulness (find-only resolution against existing terms) ──────────
+        // Unlike the facet arrays above, usefulness groups NEVER find-or-create:
+        // each group resolves against an EXISTING audience/phase term (by slug,
+        // then name, same normalization as the facet path) and is stored as the
+        // canonical `{ slug, name }` it resolved to, with the group's `points`.
+        // Groups resolving to the same term merge (points concatenated, source
+        // order kept); an unresolvable group is dropped and reported in
+        // `skipped[]`. Runs AFTER resolveTaxonomy so a term this same promote
+        // just created is resolvable. See `REVIEW_APP_PROMOTE_API.md` §3.3.
+        const resolveUsefulnessFacet = async (
+          groups: PromoteUsefulnessGroup[],
+          model: ModelDelegate,
+          productRef: string,
+        ): Promise<UsefulnessGroup[]> => {
+          const rows = await model.findMany({ select: { id: true, slug: true, name: true } });
+          const bySlug = new Map(
+            rows.map((r) => [r.slug as string, { slug: r.slug as string, name: r.name as string }]),
+          );
+          const resolveOne = (value?: string) => {
+            if (!value) return undefined;
+            const key = safeSlugify(value);
+            return key ? bySlug.get(key) : undefined;
+          };
+          const merged = new Map<string, UsefulnessGroup>();
+          for (const g of groups) {
+            const term = resolveOne(g.slug) ?? resolveOne(g.name);
+            if (!term) {
+              skipped.push({
+                ref: productRef,
+                kind: 'usefulness',
+                reason: `usefulness group "${g.slug ?? g.name}" did not resolve to an existing term`,
+              });
+              continue;
+            }
+            const existing = merged.get(term.slug);
+            if (existing) existing.points.push(...g.points);
+            else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...g.points] });
+          }
+          return [...merged.values()];
+        };
+
+        // `undefined` → column untouched (Prisma omits it); `Prisma.DbNull` →
+        // cleared to SQL NULL (a literal JS `null` is rejected for `Json?`);
+        // object → the resolved value.
+        let usefulnessData:
+          | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
+          | typeof Prisma.DbNull
+          | undefined;
+        if (p) {
+          if (p.usefulness === null) {
+            usefulnessData = Prisma.DbNull;
+          } else if (p.usefulness) {
+            usefulnessData = {
+              audiences: await resolveUsefulnessFacet(
+                p.usefulness.audiences,
+                tx.taxonomyAudience,
+                p.ref,
+              ),
+              phases: await resolveUsefulnessFacet(p.usefulness.phases, tx.taxonomyPhase, p.ref),
+            };
+          }
+        }
+
         // ── Resolvers (used by extensions + integrations) ─────────────────────
         // `productId` is filled in by the product block below; resolvers read it
         // via closure, so they must be called after that block runs.
@@ -534,7 +618,12 @@ export function createPromoteHandler(
           if (p.supabaseId) {
             const row = await tx.product.update({
               where: { id: p.supabaseId },
-              data: { name: p.name, promotionStatus: 'promoted', ...productEditableData(p) },
+              data: {
+                name: p.name,
+                promotionStatus: 'promoted',
+                usefulness: usefulnessData,
+                ...productEditableData(p),
+              },
             });
             productResult = {
               ref: p.ref,
@@ -551,7 +640,13 @@ export function createPromoteHandler(
           } else {
             const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
             const row = await tx.product.create({
-              data: { slug, name: p.name, promotionStatus: 'promoted', ...productEditableData(p) },
+              data: {
+                slug,
+                name: p.name,
+                promotionStatus: 'promoted',
+                usefulness: usefulnessData,
+                ...productEditableData(p),
+              },
             });
             productResult = { ref: p.ref, id: row.id, slug, operation: 'created' };
             await audit({
