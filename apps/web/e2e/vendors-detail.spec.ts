@@ -55,13 +55,13 @@ test.describe('vendor detail — 404 path', () => {
       'href',
       /\/products$/,
     );
-    await expect(directory.getByRole('link', { name: /Vendors/ })).toHaveAttribute(
+    await expect(directory.getByRole('link', { name: /Audiences/ })).toHaveAttribute(
       'href',
-      /\/vendors$/,
+      /\/audiences$/,
     );
-    await expect(directory.getByRole('link', { name: /Integrations/ })).toHaveAttribute(
+    await expect(directory.getByRole('link', { name: /Phases/ })).toHaveAttribute(
       'href',
-      /\/integrations$/,
+      /\/phases$/,
     );
     await expect(directory.getByRole('link', { name: /Categories/ })).toHaveAttribute(
       'href',

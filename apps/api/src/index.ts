@@ -5,7 +5,6 @@ import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { metricsMiddleware } from './metrics-middleware';
-import { createCategoriesListHandler } from './routes/categories';
 import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
@@ -17,8 +16,10 @@ import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
+import { createTaxonomyListHandler } from './routes/taxonomy-list';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
+import { queue, scheduled } from './scheduled';
 
 const app = new Hono<{ Bindings: Env }>();
 
@@ -57,7 +58,7 @@ phase28.get('/api/vendors/:slug', createVendorDetailHandler());
 phase28.get('/api/integrations', createIntegrationsListHandler());
 phase28.get('/api/integrations/:id', createIntegrationDetailHandler());
 
-phase28.get('/api/categories', createCategoriesListHandler());
+phase28.get('/api/categories', createTaxonomyListHandler('categories'));
 phase28.get(
   '/api/categories/:slug',
   createTaxonomyDetailHandler({
@@ -67,6 +68,7 @@ phase28.get(
     schema: CategoryDetailSchema,
   }),
 );
+phase28.get('/api/audiences', createTaxonomyListHandler('audiences'));
 phase28.get(
   '/api/audiences/:slug',
   createTaxonomyDetailHandler({
@@ -76,6 +78,7 @@ phase28.get(
     schema: AudienceDetailSchema,
   }),
 );
+phase28.get('/api/phases', createTaxonomyListHandler('phases'));
 phase28.get(
   '/api/phases/:slug',
   createTaxonomyDetailHandler({
@@ -112,4 +115,15 @@ app.all('*', () => {
   throw new ApiError(404, 'NOT_FOUND', 'Route not found');
 });
 
-export default app;
+// The API Worker gains `scheduled` + `queue` handlers (daily Algolia jobs)
+// alongside its Hono `fetch`. The explicit arrow wrapper (not a bare `app.fetch`
+// reference) keeps Hono's request handling intact. Cron triggers + queue
+// producer/consumer bindings are registered per-env in `wrangler.jsonc` (staging
+// + production only). The cron `scheduled` handler enqueues a job; the `queue`
+// consumer runs it (ADR 0013) — see `src/scheduled.ts`. Crons: AECI-139 08:00 UTC
+// sync; AECI-140 09:00 UTC drift check.
+export default {
+  fetch: (request: Request, env: Env, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  scheduled,
+  queue,
+};

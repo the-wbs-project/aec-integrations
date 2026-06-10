@@ -180,6 +180,8 @@ Per-detail hydration rules:
 
 Each list endpoint returns the lean `*ListItem` shape; the corresponding `*Detail` shape (returned only by the `:slug` / `:id` endpoint) extends it with the heavier hydration.
 
+Not every `*Detail` field is a hydrated relation. `ProductDetail.usefulness` (`ProductUsefulness | null`, see §5.1) is **embedded narrative jsonb** — "how teams use it" value text grouped by audience/phase term — not a link to another entity, so it is absent from the table above.
+
 ---
 
 ## 4. Error codes
@@ -271,6 +273,21 @@ export const ProductListItemSchema = z.object({
   updated_at: z.string().datetime(),
 });
 
+// `usefulness` is narrative value ("how teams use it"), NOT a taxonomy facet. Each
+// group elaborates one audience or phase term by `slug`/`name` (same field types as
+// LinkRef, but it carries NO `id` — it is slug-based, not a hydrated LinkRef; do not
+// "fix" this by extending LinkRefSchema). `points` holds >= 1 bullet, in display order.
+export const UsefulnessGroupSchema = z.object({
+  slug: z.string().min(1),
+  name: z.string().min(1),
+  points: z.array(z.string().min(1)).min(1),
+});
+
+export const ProductUsefulnessSchema = z.object({
+  audiences: z.array(UsefulnessGroupSchema),
+  phases: z.array(UsefulnessGroupSchema),
+});
+
 export const ProductDetailSchema = ProductListItemSchema.extend({
   description: z.string().nullable(),
   website: z.string().url().nullable(),
@@ -280,6 +297,10 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   categories: z.array(LinkRefSchema),
   audiences: z.array(LinkRefSchema),
   phases: z.array(LinkRefSchema),
+  // Narrative value grouped by audience/phase, distinct from the `audiences`/`phases`
+  // facet LinkRef[] above. `null` when the source has nothing for either facet;
+  // otherwise either facet array may be empty.
+  usefulness: ProductUsefulnessSchema.nullable(),
   integrations_as_source: z.array(IntegrationListItemSchema),
   integrations_as_target: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),
@@ -477,7 +498,7 @@ export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 
 ### 6.4 Taxonomy
 
-#### `GET /api/categories`
+#### `GET /api/categories`, `/api/audiences`, `/api/phases`
 
 ```typescript
 export const CategoriesListResponseSchema = z.object({

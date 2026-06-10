@@ -56,15 +56,24 @@ import {
   type PromoteVendor,
   type PromoteProduct,
   type PromoteIntegration,
+  type PromoteUsefulnessGroup,
+  type UsefulnessGroup,
 } from '@aeci/shared';
+import { type AlgoliaEnv } from '@aeci/shared/algolia';
 import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
+// Value import (not a generated model type): `Prisma.DbNull` is the only correct
+// way to set a nullable `Json?` column to SQL NULL — Prisma 6 rejects a literal
+// JS `null` for Json fields at runtime. Used to clear `products.usefulness`.
+import { Prisma } from '@prisma/client/edge';
 import type { Context } from 'hono';
 
-import { logToDatadog, submitCount } from '../datadog';
+import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
+import { syncPromoteTargets, type AlgoliaSyncPrisma } from '../lib/algolia-sync';
+import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import type { PrismaFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/product-counts';
 import { getPrisma } from '../prisma';
@@ -129,6 +138,21 @@ function compact(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
   return out;
+}
+
+/**
+ * Slugify for matching, never throwing. Usefulness resolution looks an input
+ * `slug`/`name` up against existing terms; an input that maps to a reserved or
+ * empty slug simply can't match anything, so we return `null` (→ unresolvable →
+ * `skipped`) rather than 500-ing the whole promote the way the facet path's bare
+ * `slugify` would.
+ */
+function safeSlugify(value: string): string | null {
+  try {
+    return slugify(value);
+  } catch {
+    return null;
+  }
 }
 
 /** Generate a slug or throw a typed 400 for the two expected failure modes. */
@@ -303,6 +327,69 @@ function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason:
   });
 }
 
+// ─── Algolia index sync (AECI-139) ───────────────────────────────────────────
+// Closes the "viewable on promote (purge) but not searchable until the daily sync" gap:
+// after the commit, push the just-promoted records to Algolia immediately so the
+// index matches the freshly-purged pages. Best-effort and post-commit — fired via
+// `waitUntil` (never blocks/fails the promote), gated on the Algolia secrets, and
+// each entity's outcome is recorded as `aeci.algolia.sync{trigger:promote,...}`
+// (the cron emits the same metric with `trigger:cron`). A promote only ever
+// writes `promotionStatus:'promoted'`, so this path upserts; the delete path
+// (retract/reject) is the daily cron's job. Index membership + transport live in
+// `lib/algolia-sync.ts`.
+
+/**
+ * Best-effort post-commit Algolia upsert for a promote. Re-queries the touched
+ * rows by id (the response carries ids, not full denormalized records) and pushes
+ * them to the env's indexes via the shared sync core. No-ops for an entity the
+ * promote didn't touch. Never throws (the sync core is never-throw; the outer
+ * try/catch is belt-and-suspenders so a bug can't reject the `waitUntil`).
+ */
+async function syncAlgoliaAfterPromote(
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+  prisma: AlgoliaSyncPrisma,
+): Promise<void> {
+  const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
+  const env: AlgoliaEnv = c.env.ENV ?? 'development';
+  const started = Date.now();
+  try {
+    const results = await syncPromoteTargets(prisma, fetch, creds, env, {
+      product: response.product ? { id: response.product.id } : null,
+      vendors: response.vendors.map((v) => ({ id: v.id })),
+      integrations: response.integrations.map((i) => ({ id: i.id })),
+    });
+    // Per-entity outcome + records counts and the run-level duration distribution
+    // (AECI-141), shared with the daily cron so the two writers can't drift.
+    const sink: SyncMetricSink = {
+      count: (metric, value, tags) =>
+        submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+      distribution: (metric, value, tags) =>
+        submitDistribution(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+    };
+    emitAlgoliaSyncMetrics(sink, 'promote', results, Date.now() - started);
+    for (const result of results) {
+      if (!result.ok) logAlgoliaSyncFailure(c, result.entity, result.error ?? 'unknown');
+    }
+  } catch (error) {
+    logAlgoliaSyncFailure(c, 'all', error instanceof Error ? error.message : String(error));
+  }
+}
+
+function logAlgoliaSyncFailure(
+  c: Context<{ Bindings: Env }>,
+  entity: string,
+  reason: string,
+): void {
+  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    level: 'warn',
+    message: 'aeci.api.promote.algolia_sync_failed',
+    source: 'review-app-promote',
+    entity,
+    reason,
+  });
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 export function createPromoteHandler(
   prismaFor: PrismaFactory = getPrisma,
@@ -435,6 +522,69 @@ export function createPromoteHandler(
           : emptyTax;
         const phases = p ? await resolveTaxonomy(p.phases, tx.taxonomyPhase, 'phase') : emptyTax;
 
+        // ── Usefulness (find-only resolution against existing terms) ──────────
+        // Unlike the facet arrays above, usefulness groups NEVER find-or-create:
+        // each group resolves against an EXISTING audience/phase term (by slug,
+        // then name, same normalization as the facet path) and is stored as the
+        // canonical `{ slug, name }` it resolved to, with the group's `points`.
+        // Groups resolving to the same term merge (points concatenated, source
+        // order kept); an unresolvable group is dropped and reported in
+        // `skipped[]`. Runs AFTER resolveTaxonomy so a term this same promote
+        // just created is resolvable. See `REVIEW_APP_PROMOTE_API.md` §3.3.
+        const resolveUsefulnessFacet = async (
+          groups: PromoteUsefulnessGroup[],
+          model: ModelDelegate,
+          productRef: string,
+        ): Promise<UsefulnessGroup[]> => {
+          const rows = await model.findMany({ select: { id: true, slug: true, name: true } });
+          const bySlug = new Map(
+            rows.map((r) => [r.slug as string, { slug: r.slug as string, name: r.name as string }]),
+          );
+          const resolveOne = (value?: string) => {
+            if (!value) return undefined;
+            const key = safeSlugify(value);
+            return key ? bySlug.get(key) : undefined;
+          };
+          const merged = new Map<string, UsefulnessGroup>();
+          for (const g of groups) {
+            const term = resolveOne(g.slug) ?? resolveOne(g.name);
+            if (!term) {
+              skipped.push({
+                ref: productRef,
+                kind: 'usefulness',
+                reason: `usefulness group "${g.slug ?? g.name}" did not resolve to an existing term`,
+              });
+              continue;
+            }
+            const existing = merged.get(term.slug);
+            if (existing) existing.points.push(...g.points);
+            else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...g.points] });
+          }
+          return [...merged.values()];
+        };
+
+        // `undefined` → column untouched (Prisma omits it); `Prisma.DbNull` →
+        // cleared to SQL NULL (a literal JS `null` is rejected for `Json?`);
+        // object → the resolved value.
+        let usefulnessData:
+          | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
+          | typeof Prisma.DbNull
+          | undefined;
+        if (p) {
+          if (p.usefulness === null) {
+            usefulnessData = Prisma.DbNull;
+          } else if (p.usefulness) {
+            usefulnessData = {
+              audiences: await resolveUsefulnessFacet(
+                p.usefulness.audiences,
+                tx.taxonomyAudience,
+                p.ref,
+              ),
+              phases: await resolveUsefulnessFacet(p.usefulness.phases, tx.taxonomyPhase, p.ref),
+            };
+          }
+        }
+
         // ── Resolvers (used by extensions + integrations) ─────────────────────
         // `productId` is filled in by the product block below; resolvers read it
         // via closure, so they must be called after that block runs.
@@ -468,7 +618,12 @@ export function createPromoteHandler(
           if (p.supabaseId) {
             const row = await tx.product.update({
               where: { id: p.supabaseId },
-              data: { name: p.name, promotionStatus: 'promoted', ...productEditableData(p) },
+              data: {
+                name: p.name,
+                promotionStatus: 'promoted',
+                usefulness: usefulnessData,
+                ...productEditableData(p),
+              },
             });
             productResult = {
               ref: p.ref,
@@ -485,7 +640,13 @@ export function createPromoteHandler(
           } else {
             const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
             const row = await tx.product.create({
-              data: { slug, name: p.name, promotionStatus: 'promoted', ...productEditableData(p) },
+              data: {
+                slug,
+                name: p.name,
+                promotionStatus: 'promoted',
+                usefulness: usefulnessData,
+                ...productEditableData(p),
+              },
             });
             productResult = { ref: p.ref, id: row.id, slug, operation: 'created' };
             await audit({
@@ -693,6 +854,16 @@ export function createPromoteHandler(
     // response. No-ops when `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` are unset.
     if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
       c.executionCtx.waitUntil(purgeAfterPromote(c, response));
+    }
+
+    // AECI-139: push the promoted records to Algolia immediately so they're
+    // searchable now, not at the next daily sync cron. Independent best-effort task
+    // (separate `waitUntil`, so it never blocks the purge or the response).
+    // No-ops when the Algolia secrets are unset (local / preview).
+    if (c.env.ALGOLIA_APP_ID && c.env.ALGOLIA_ADMIN_KEY) {
+      c.executionCtx.waitUntil(
+        syncAlgoliaAfterPromote(c, response, prisma as unknown as AlgoliaSyncPrisma),
+      );
     }
 
     return json(response);

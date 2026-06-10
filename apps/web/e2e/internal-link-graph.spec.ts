@@ -33,20 +33,47 @@
  *     a partially-seeded DB while still enforcing §10 once data exists.
  *
  * The AC's "discipline browse" is this codebase's AUDIENCE browse
- * (`/audiences/:slug`, kind="audience"). There are no audience/phase INDEX pages
- * (deferred — `app.routes.ts`), so discipline + phase browse are reachable only
- * at depth exactly 3, via the `TaxonomyBadge` links on a product detail page —
- * the tightest constraint and the most likely to regress.
+ * (`/audiences/:slug`, kind="audience"). Since AECI-157 the `/audiences` and
+ * `/phases` indexes exist and are linked from the primary nav + footer, so
+ * discipline + phase browse are now reachable at depth 2 (index → card), not
+ * only at depth 3 via a product-detail `TaxonomyBadge`.
+ *
+ * AECI-160 re-pointed the primary nav at the taxonomy and pulled Vendors /
+ * Integrations out of the nav AND footer (PO decision); AECI-165 then removed
+ * the `/vendors` and `/integrations` INDEX pages entirely (they now 301-redirect
+ * to `/products`). Only the vendor / integration DETAIL pages remain — reachable
+ * ≤ 3 via a product detail's vendor / integration links — so this crawler tracks
+ * `vendor-detail` / `integration-detail` reachability and no longer carries any
+ * index page type for them.
  *
  * Every run writes `e2e/internal-link-graph-report.md` (a seed-stable,
  * type-level snapshot) in `beforeAll`, before the assertions, so it is produced
  * even when an assertion later fails (CI uploads it as an `if: always()`
  * artifact).
+ *
+ * AECI-162 — because this crawl already navigates a real browser to every page
+ * type reachable from `/`, it doubles as the console-health gate for those types
+ * (Phase 2 Spec §15.15, "No new console warnings or errors on any page type").
+ * One `console`/`pageerror` listener is attached to the crawl page; each message
+ * is attributed (via `page.url()`) to the page current when it fired, and gated
+ * ONLY for pages that rendered 2xx — a non-2xx document (the intentional 404
+ * placeholders, redirects) makes the browser log a "Failed to load resource:
+ * ...404" for the navigation itself, which is the document status (already gated
+ * by the no-404 / no-5xx assertions), not an app defect. Console ERRORS +
+ * uncaught page errors FAIL; WARNINGS are reported, not gated (matching
+ * `smoke.spec.ts`'s posture — see `console-capture.ts` for the rationale and the
+ * shared `isIgnorableConsole` allowlist). The one page type this crawl can't
+ * reach — the `not-found` shell, only linked via the temporary pending-prefix
+ * placeholders — is console-checked by its own spec (`not-found.spec.ts`).
+ * (AECI-165 removed the `/vendors` and `/integrations` indexes, which this
+ * paragraph previously routed to their own specs; those pages now 301-redirect.)
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { chromium, expect, test, type APIRequestContext, type Page } from '@playwright/test';
+
+import { isIgnorableConsole, waitForHydrationSettle } from './console-capture';
 
 // Mirrors `playwright.config.ts`'s BASE_URL default. `beforeAll` hooks don't
 // receive the test-scoped fixtures, so we recompute it from the same env var
@@ -60,18 +87,20 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const MAX_DEPTH = 3;
 
 // ---------------------------------------------------------------------------
-// Page-type taxonomy (the 10 Phase 2 page types in the AC + non-required pages).
+// Page-type taxonomy (the Phase 2 page types in the AC + non-required pages).
+// AECI-165 removed the `vendor-index` / `integration-index` types — those index
+// pages no longer exist; only the vendor / integration DETAIL types remain.
 // ---------------------------------------------------------------------------
 
 type PageType =
   | 'product-index'
   | 'product-detail'
-  | 'vendor-index'
   | 'vendor-detail'
-  | 'integration-index'
   | 'integration-detail'
   | 'categories'
   | 'category-browse'
+  | 'audience-index'
+  | 'phase-index'
   | 'discipline-browse' // = /audiences/:slug (audience browse)
   | 'phase-browse'
   | 'home'
@@ -80,12 +109,12 @@ type PageType =
 const PATTERN_OF: Record<PageType, string> = {
   'product-index': '/products',
   'product-detail': '/products/:slug',
-  'vendor-index': '/vendors',
   'vendor-detail': '/vendors/:slug',
-  'integration-index': '/integrations',
   'integration-detail': '/integrations/:id',
   categories: '/categories',
   'category-browse': '/categories/:slug',
+  'audience-index': '/audiences',
+  'phase-index': '/phases',
   'discipline-browse': '/audiences/:slug',
   'phase-browse': '/phases/:slug',
   home: '/',
@@ -95,25 +124,28 @@ const PATTERN_OF: Record<PageType, string> = {
 const TYPE_LABEL: Record<PageType, string> = {
   'product-index': 'product index',
   'product-detail': 'product detail',
-  'vendor-index': 'vendor index',
   'vendor-detail': 'vendor detail',
-  'integration-index': 'integration index',
   'integration-detail': 'integration detail',
   categories: '/categories (flat list)',
   'category-browse': 'category browse',
+  'audience-index': '/audiences (flat list)',
+  'phase-index': '/phases (flat list)',
   'discipline-browse': 'discipline browse (audience)',
   'phase-browse': 'phase browse',
   home: 'home',
   other: 'other',
 };
 
-// Always asserted. Index shells render `200` from the header nav regardless of
-// data; `/categories` needs taxonomy seeded (CI seeds it).
+// Always asserted reachable ≤ 3. Index shells render `200` from the header nav /
+// footer regardless of data; the taxonomy indexes need taxonomy seeded (CI seeds
+// it). There are no longer vendor / integration index types — AECI-165 removed
+// those pages (they 301-redirect to `/products`); only their DETAIL pages remain
+// (asserted via `ENTITY_BROWSE_TYPES`).
 const STRUCTURAL_TYPES: PageType[] = [
   'product-index',
-  'vendor-index',
-  'integration-index',
   'categories',
+  'audience-index',
+  'phase-index',
 ];
 
 const ENTITY_BROWSE_TYPES: PageType[] = [
@@ -129,16 +161,17 @@ const ENTITY_BROWSE_TYPES: PageType[] = [
 // so an unreachable type names its candidate start/parent URLs (AC requirement).
 const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
   'product-index': 'site-header primary nav → /products',
-  'vendor-index': 'site-header primary nav → /vendors',
-  'integration-index': 'site-header primary nav → /integrations',
   categories: 'site-header primary nav → /categories',
+  'audience-index': 'site-header primary nav / footer → /audiences',
+  'phase-index': 'site-header primary nav / footer → /phases',
   'product-detail': 'a /products index row → /products/:slug',
-  'vendor-detail': 'a /vendors index row → /vendors/:slug',
-  'integration-detail': 'an /integrations index row → /integrations/:id',
+  'vendor-detail': 'a product-detail vendor link → /vendors/:slug',
+  'integration-detail': 'a product-detail integration link → /integrations/:id',
   'category-browse':
     'a /categories list entry or a product-detail category TaxonomyBadge → /categories/:slug',
-  'discipline-browse': 'a product-detail audience TaxonomyBadge → /audiences/:slug',
-  'phase-browse': 'a product-detail phase TaxonomyBadge → /phases/:slug',
+  'discipline-browse':
+    'an /audiences list entry or a product-detail audience badge → /audiences/:slug',
+  'phase-browse': 'a /phases list entry or a product-detail phase badge → /phases/:slug',
 };
 
 // ---------------------------------------------------------------------------
@@ -186,14 +219,17 @@ function classifyPath(pathname: string): PageType {
   if (/^\/(?:products|vendors)\/[^/]+\/(?:claim|correction)\/?$/.test(p)) return 'other';
   if (/^\/products\/[^/]+\/?$/.test(p)) return 'product-detail';
   if (/^\/products\/?$/.test(p)) return 'product-index';
+  // AECI-165 — `/vendors` and `/integrations` (bare index) no longer exist as
+  // pages (they 301-redirect to `/products`); only their `:slug` / `:id` detail
+  // routes are real page types, so there is no bare-index branch here.
   if (/^\/vendors\/[^/]+\/?$/.test(p)) return 'vendor-detail';
-  if (/^\/vendors\/?$/.test(p)) return 'vendor-index';
   if (/^\/integrations\/[^/]+\/?$/.test(p)) return 'integration-detail';
-  if (/^\/integrations\/?$/.test(p)) return 'integration-index';
   if (/^\/categories\/[^/]+\/?$/.test(p)) return 'category-browse';
   if (/^\/categories\/?$/.test(p)) return 'categories';
   if (/^\/audiences\/[^/]+\/?$/.test(p)) return 'discipline-browse';
+  if (/^\/audiences\/?$/.test(p)) return 'audience-index';
   if (/^\/phases\/[^/]+\/?$/.test(p)) return 'phase-browse';
+  if (/^\/phases\/?$/.test(p)) return 'phase-index';
   return 'other';
 }
 
@@ -295,8 +331,6 @@ async function probeSeed(req: APIRequestContext): Promise<SeedInfo> {
 function hasData(seed: SeedInfo, type: PageType): boolean {
   switch (type) {
     case 'product-index':
-    case 'vendor-index':
-    case 'integration-index':
     case 'categories':
       return true;
     case 'product-detail':
@@ -343,6 +377,10 @@ interface CrawlResult {
   serverErrors: (LinkRef & { status: number })[]; // 5xx or status 0 = nav failure
   redirects: (LinkRef & { status: number; location: string | null })[];
   externalSeen: Map<string, number>; // href -> times seen
+  // AECI-162 — console health, keyed by the page that emitted each message.
+  consoleErrors: { path: string; text: string }[]; // gated (fail)
+  consoleWarnings: { path: string; text: string }[]; // reported, not gated
+  pageErrors: { path: string; message: string }[]; // uncaught exceptions, gated
 }
 
 /**
@@ -388,6 +426,48 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
   const serverErrors: CrawlResult['serverErrors'] = [];
   const redirects: CrawlResult['redirects'] = [];
   const externalSeen = new Map<string, number>();
+  const consoleErrors: CrawlResult['consoleErrors'] = [];
+  const consoleWarnings: CrawlResult['consoleWarnings'] = [];
+  const pageErrors: CrawlResult['pageErrors'] = [];
+
+  // AECI-162 — console health. Attach ONCE on the reused crawl page; listeners
+  // persist across navigations and fire per message exactly once. Attribute via
+  // `page.url()` read INSIDE the handler (the committed URL when the message
+  // fired) rather than a mutable "current path" variable — non-racy by
+  // construction. Each reached (2xx) page is settled before the next `goto` (the
+  // harvest for depth < MAX_DEPTH, an explicit settle at MAX_DEPTH), so a page's
+  // async tail fires while it's still current. A message in the microtask gap
+  // right after the next commit can mis-attribute to the next page — rare,
+  // acceptable for a gate (still a real visited page; the text names the source).
+  //
+  // We gate ONLY pages that rendered 2xx (`reached.has(path)`). A non-2xx
+  // document (the intentional 404 placeholders, redirects) makes the browser log
+  // "Failed to load resource: ...404" for the navigation itself — that's the
+  // document status, not an app defect, and it's already gated by the no-404 /
+  // no-5xx link assertions. The not-found SHELL's own console health is covered
+  // by `not-found.spec.ts`.
+  const here = (): string => {
+    try {
+      return stripLocale(new URL(page.url()).pathname);
+    } catch {
+      return page.url();
+    }
+  };
+  page.on('console', (msg) => {
+    const type = msg.type();
+    if (type !== 'error' && type !== 'warning') return;
+    const path = here();
+    if (!reached.has(path)) return;
+    const text = msg.text();
+    if (isIgnorableConsole(text)) return;
+    (type === 'error' ? consoleErrors : consoleWarnings).push({ path, text });
+  });
+  page.on('pageerror', (err) => {
+    const path = here();
+    if (!reached.has(path)) return;
+    if (isIgnorableConsole(err.message)) return;
+    pageErrors.push({ path, message: err.message });
+  });
 
   const queue: { path: string; depth: number; parent: string | null }[] = [];
   const enqueue = (path: string, depth: number, parent: string | null) => {
@@ -431,7 +511,14 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
     }
 
     reached.set(path, { status, type: classifyPath(path) });
-    if (depth >= MAX_DEPTH) continue; // reached, but don't follow its links
+    if (depth >= MAX_DEPTH) {
+      // Reached but we don't follow its links. `harvestHydratedHrefs` (the
+      // per-page hydration settle) only runs on the depth < MAX_DEPTH branch
+      // below, so settle here too — otherwise console output on depth-3 pages
+      // wouldn't get a beat to fire before the next navigation.
+      await waitForHydrationSettle(page).catch(() => undefined);
+      continue;
+    }
 
     const hrefs = await harvestHydratedHrefs(page);
     for (const href of hrefs) {
@@ -454,6 +541,9 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
     serverErrors,
     redirects,
     externalSeen,
+    consoleErrors,
+    consoleWarnings,
+    pageErrors,
   };
 }
 
@@ -580,6 +670,19 @@ ${pendingLines}
 | Redirects (recorded, not followed) | ${result.redirects.length} |
 | Distinct external links seen (recorded, never counted toward reach) | ${result.externalSeen.size} |
 
+## Console health (AECI-162)
+
+Captured across every visited page (§15.15). **Errors + uncaught page errors fail
+the suite; warnings are reported, not gated** (matches the homepage smoke posture —
+see \`console-capture.ts\`). Counts only — per-message detail is in the test output,
+not this committed snapshot.
+
+| Metric | Count |
+|---|---|
+| Console errors (gated) | ${result.consoleErrors.length} |
+| Console warnings (reported, not gated) | ${result.consoleWarnings.length} |
+| Uncaught page errors (gated) | ${result.pageErrors.length} |
+
 _Counts are environment-dependent; the reachability tables above are the
 seed-stable contract._
 `;
@@ -614,8 +717,19 @@ test.describe('internal-link graph — ≤3-hop reachability (AECI-64)', () => {
   let result: CrawlResult;
 
   test.beforeAll(async () => {
-    // Browser crawl over dozens of URLs, each with a hydration settle.
-    test.setTimeout(180_000);
+    // Browser crawl over dozens of URLs, each with a hydration settle. The cap
+    // must absorb a slow CI runner, NOT just the crawl's nominal cost: this whole
+    // suite has been observed running ~2x its normal wall-time (7.9m vs a ~3.7m
+    // green baseline hours earlier) on GitHub's hosted runners, which pushed this
+    // crawl past a 180s budget on back-to-back runs across unrelated PRs. That was
+    // the hook timing out under runner-wide slowdown — not any assertion, so no
+    // internal link was actually broken. 360s gives >2x headroom over the nominal
+    // crawl; the job's `timeout-minutes: 20` (deploy.yml) is the real backstop
+    // against a genuine hang. Do NOT instead shrink the per-page settle waits in
+    // `harvestHydratedHrefs` — those exist to let client-rendered links
+    // materialise, and trimming them would make the crawl LESS reliable on the
+    // exact slow runners this guards against.
+    test.setTimeout(360_000);
     const browser = await chromium.launch();
     const context = await browser.newContext({ baseURL: BASE_URL });
     try {
@@ -647,6 +761,37 @@ test.describe('internal-link graph — ≤3-hop reachability (AECI-64)', () => {
     expect(
       result.serverErrors,
       `Internal links that 5xx'd / failed to load:\n${lines.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  test('no console errors or uncaught page errors on any visited page (§15.15)', () => {
+    // The crawl attached console/pageerror listeners for its whole run and
+    // settled every 200 page (and the 404 shell) before navigating on, so this
+    // gate covers every page type the crawl reached. Coverage narrows naturally
+    // on a sparse DB (fewer pages visited) and stays green — no `test.skip`
+    // needed (AC#4). Warnings are reported here, not gated (see file header).
+    const checked = result.reached.size;
+    console.log(
+      `[internal-link-graph] console-checked ${checked} reached page(s): ` +
+        `${result.consoleErrors.length} error(s), ${result.consoleWarnings.length} warning(s), ` +
+        `${result.pageErrors.length} uncaught page error(s)`,
+    );
+    if (result.consoleWarnings.length > 0) {
+      console.log(
+        '[internal-link-graph] console warnings (reported, not gated):\n' +
+          result.consoleWarnings.map((w) => `  ${w.path}  ${w.text}`).join('\n'),
+      );
+    }
+
+    const errorLines = result.consoleErrors.map((e) => `  ${e.path}  ${e.text}`);
+    const pageErrorLines = result.pageErrors.map((e) => `  ${e.path}  ${e.message}`);
+    expect(
+      result.pageErrors,
+      `Uncaught page errors on visited pages:\n${pageErrorLines.join('\n')}`,
+    ).toEqual([]);
+    expect(
+      result.consoleErrors,
+      `Console errors on visited pages:\n${errorLines.join('\n')}`,
     ).toEqual([]);
   });
 

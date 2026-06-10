@@ -63,16 +63,6 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             </a>
           </li>
           <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li>
-            <a
-              routerLink="/vendors"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@vendors.detail.breadcrumbs.vendors"
-            >
-              Vendors
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
           <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
             {{ v.company_name }}
           </li>
@@ -89,7 +79,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             />
             <div class="min-w-0 space-y-2">
               <p
-                class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
                 i18n="@@vendors.detail.eyebrow"
               >
                 Vendor
@@ -127,7 +117,9 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
                   text-(--text-secondary)"
                 [attr.aria-label]="hqAria()"
               >
-                <span class="font-bold text-(--text-tertiary) me-2" i18n="@@vendors.detail.hq.label"
+                <span
+                  class="font-bold text-(--text-secondary) me-2"
+                  i18n="@@vendors.detail.hq.label"
                   >HQ</span
                 >
                 <span class="min-w-0 break-words">{{ v.headquarters }}</span>
@@ -141,7 +133,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
                 [attr.aria-label]="foundedAria()"
               >
                 <span
-                  class="font-bold text-(--text-tertiary) me-2"
+                  class="font-bold text-(--text-secondary) me-2"
                   i18n="@@vendors.detail.founded.label"
                   >Founded</span
                 >
@@ -155,7 +147,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
           <section aria-labelledby="vendor-stats-title" class="space-y-3">
             <h2
               id="vendor-stats-title"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@vendors.detail.metadata.stats"
             >
               At a glance
@@ -166,7 +158,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
             >
               <div>
                 <dt
-                  class="text-xs text-(--text-tertiary)"
+                  class="text-xs text-(--text-secondary)"
                   i18n="@@vendors.detail.metadata.productCount"
                 >
                   Products
@@ -177,7 +169,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
               </div>
               <div>
                 <dt
-                  class="text-xs text-(--text-tertiary)"
+                  class="text-xs text-(--text-secondary)"
                   i18n="@@vendors.detail.metadata.integrationCount"
                 >
                   Integrations
@@ -192,7 +184,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
           <section aria-labelledby="vendor-actions-label" class="space-y-3">
             <h2
               id="vendor-actions-label"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@vendors.detail.metadata.actions"
             >
               Actions
@@ -253,7 +245,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
               >
                 Products
               </h2>
-              <span class="text-sm text-(--text-tertiary)">{{ productCountLabel() }}</span>
+              <span class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</span>
             </div>
 
             @if (v.products.length === 0) {

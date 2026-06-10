@@ -117,11 +117,15 @@ export async function resolveSitemapEntries(
   ]);
 
   const entries: SitemapEntry[] = [
-    // Index pages (AC: /products, /vendors, /integrations, /categories).
+    // Index pages. AECI-165 removed the `/vendors` and `/integrations` index
+    // pages (they now 301-redirect to `/products`), so they are no longer listed
+    // here — only their `:slug` / `:id` DETAIL URLs (added below) remain. The
+    // three taxonomy indexes (/categories, /audiences, /phases) all exist since
+    // AECI-157.
     { loc: `${base}/products`, changefreq: 'daily', priority: 0.8 },
-    { loc: `${base}/vendors`, changefreq: 'daily', priority: 0.8 },
-    { loc: `${base}/integrations`, changefreq: 'daily', priority: 0.8 },
     { loc: `${base}/categories`, changefreq: 'weekly', priority: 0.6 },
+    { loc: `${base}/audiences`, changefreq: 'weekly', priority: 0.6 },
+    { loc: `${base}/phases`, changefreq: 'weekly', priority: 0.6 },
   ];
 
   for (const product of products) {

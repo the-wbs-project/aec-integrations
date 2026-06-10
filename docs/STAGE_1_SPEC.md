@@ -114,8 +114,8 @@ All colors expressed as CSS custom properties bound to theme classes. Tailwind c
 | `--text-primary` | `#FAFAFA` | Body text |
 | `--text-secondary` | `#A1A1AA` | Supporting text |
 | `--text-tertiary` | `#71717A` | Hints, placeholders |
-| `--accent-primary` | `#4A8870` | Lighter Forest — CTAs, links (original too dark for dark mode) |
-| `--accent-primary-hover` | `#5DA088` | Hover state |
+| `--accent-primary` | `#5D916C` | Lighter Forest — CTAs, links (lifted in AECI-166 for AA on raised surfaces) |
+| `--accent-primary-hover` | `#6FAA80` | Hover state |
 | `--accent-secondary` | `#F0A887` | Lighter Clay — highlights, badges (large text / graphical only) |
 | `--accent-warm` | `#2A2520` | Warm-tinted dark sections |
 
@@ -195,12 +195,13 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/products/:slug/integrations` | Product detail — Integrations tab | 1 hr edge / 5 min browser |
 | `/products/:slug/reviews` | Product detail — Reviews tab | 1 hr edge / 5 min browser |
 | `/products/:slug/details` | Product detail — Details tab | 1 hr edge / 5 min browser |
-| `/vendors` | All vendors paginated | 30 min edge |
 | `/vendors/:slug` | Vendor detail page | 1 hr edge / 5 min browser |
-| `/integrations` | All integrations paginated | 30 min edge |
 | `/integrations/:id` | Integration detail page | 1 hr edge |
+| `/categories` | All categories (flat taxonomy index) | 5 min edge |
 | `/categories/:slug` | Browse by category | 30 min edge |
+| `/audiences` | All audiences (flat taxonomy index) | 5 min edge |
 | `/audiences/:slug` | Browse by audience | 30 min edge |
+| `/phases` | All project phases (flat taxonomy index) | 5 min edge |
 | `/phases/:slug` | Browse by project phase | 30 min edge |
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |
@@ -209,6 +210,8 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/legal/privacy` | Privacy Policy | 24 hr edge |
 | `/legal/review-guidelines` | Review Guidelines | 24 hr edge |
 | `/legal/listing-accuracy` | Listing Accuracy Policy | 24 hr edge |
+
+> **Removed index pages (AECI-165).** The `/vendors` and `/integrations` index/listing pages were removed after AECI-160 pulled Vendors / Integrations from the primary nav and footer (PO decision), which orphaned the two listings. Both paths now **301-redirect to `/products`** at the SSR Worker. The entity **detail** routes above (`/vendors/:slug`, `/vendors/:slug/{claim,correction}`, `/integrations/:id`) are unaffected — products link to vendors, and integrations are core.
 
 ### 3.2 Authenticated routes
 
@@ -591,11 +594,22 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 
 ### 7.4 Sync strategy
 
-- **Initial bulk import**: one-off script `scripts/algolia-bulk-sync.ts` reads from Supabase, transforms to Algolia record shape, batch uploads
-- **Ongoing sync**: scheduled Cloudflare Worker at 03:00 UTC daily reads Supabase changes since last sync, pushes incremental updates to Algolia
+- **Initial bulk import**: one-off script `apps/api/scripts/algolia-bulk-sync.ts` (Prisma-bound — it reuses the AECI-137 transform and the vanilla `@prisma/client` over `DIRECT_URL`, so it lives alongside the other `apps/api` Node CLIs rather than at the repo root; AECI-138) reads **promoted** rows from Supabase, transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
+- **Ongoing sync**: scheduled Cloudflare Worker at 08:00 UTC (= 03:00 EST, our US-East launch base; UTC is DST-unaware so 04:00 EDT in summer) daily reads Supabase changes since last sync, pushes incremental updates to Algolia
 - **Real-time sync (deferred)**: Supabase webhook → Worker → Algolia, planned for Stage 2 when vendors edit their data
 
 ### 7.5 InstantSearch integration
+
+> **Deviation (AECI-142 / Phase 3.9 — see `docs/adr/0014-instantsearch-js-over-angular-instantsearch.md`):**
+> `angular-instantsearch` (below) is **not used**. It caps its peer dep at `@angular/core <16`,
+> is deprecated, and is `NgModule`/zone-based — unusable on this Angular 22 zoneless/SSR stack.
+> `/search` instead uses **`instantsearch.js` + connectors**, rendered with Angular templates and
+> mapped into **signals** (Algolia's recommended modern-Angular path), SSR-safe via a dynamic
+> `import()` run only in `afterNextRender`. The `ais-*` widget vocabulary below is therefore
+> illustrative, not literal; the per-tab sort dropdown is deferred (needs Algolia replicas). All
+> other §4.6/§7.5 acceptance criteria (browser-side search-only key, facets, entity tabs, branded
+> hit cards, empty state, noindex, non-cacheable, both themes, axe-AA) are met. ADR 0014 has the
+> full rationale.
 
 - Use `angular-instantsearch` v4+
 - Standard widgets: `ais-instant-search`, `ais-search-box`, `ais-hits`, `ais-refinement-list`, `ais-range-input`, `ais-pagination`, `ais-stats`
@@ -1300,6 +1314,17 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Algolia index drift (record count mismatch with Supabase)
 
 Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage.
+
+> **Implementation note (AECI-140):** the "Algolia index drift" line item ships as the
+> API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 09:00
+> UTC (= 04:00 EST) cron registered per-env in `apps/api/wrangler.jsonc` (staging + production),
+> trailing the 08:00 UTC incremental sync by one hour so it reads a settled index. (Decoupled
+> from the 04:00 UTC slot of the broader §23.1 data-quality job, which remains unbuilt.) It compares
+> promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
+> gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`),
+> not the email summary (the full §23.1 email + the other nine checks remain to be built). A
+> report-only post-deploy check also runs in `deploy-staging` (CICD §3.2). Report-only — re-run
+> the AECI-138 bulk sync to repair.
 
 ### 23.2 Duplicate detection on submission
 

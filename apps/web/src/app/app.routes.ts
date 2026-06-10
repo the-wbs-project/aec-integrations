@@ -3,12 +3,16 @@ import { Routes } from '@angular/router';
 import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
-import { categoriesIndexResolver } from './taxonomy/categories-index.resolver';
 import {
   categoryBrowseResolver,
   audienceBrowseResolver,
   phaseBrowseResolver,
 } from './taxonomy/taxonomy-browse.resolver';
+import {
+  categoriesIndexResolver,
+  audiencesIndexResolver,
+  phasesIndexResolver,
+} from './taxonomy/taxonomy-index.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 export const routes: Routes = [
@@ -49,14 +53,14 @@ export const routes: Routes = [
     loadComponent: () => import('./products/product-detail').then((m) => m.ProductDetailPage),
     resolve: { product: productDetailResolver },
   },
-  // AECI-59 — Phase 2.13 vendor index + detail. Resolver runs SSR-side,
-  // hydration reads from TransferState. Claim/correction forms (AECI-128) use
-  // the shared `RequestForm` — see the product block above.
-  {
-    path: 'vendors',
-    pathMatch: 'full',
-    loadComponent: () => import('./vendors/vendors-index').then((m) => m.VendorsIndex),
-  },
+  // AECI-59 — Phase 2.13 vendor detail. Resolver runs SSR-side, hydration reads
+  // from TransferState. Claim/correction forms (AECI-128) use the shared
+  // `RequestForm` — see the product block above.
+  //
+  // AECI-165 removed the `/vendors` index/listing page (orphaned from the nav
+  // after AECI-160). `/vendors` now 301-redirects to `/products` at the SSR
+  // Worker (see `server-runtime.ts`), so there is no Angular index route here —
+  // only the detail + claim/correction routes below.
   {
     path: 'vendors/:slug/claim',
     loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
@@ -72,16 +76,17 @@ export const routes: Routes = [
     loadComponent: () => import('./vendors/vendor-detail').then((m) => m.VendorDetailPage),
     resolve: { vendor: vendorDetailResolver },
   },
-  // AECI-61 — Phase 2.15 taxonomy browse pages + `/categories` flat list. The
-  // three browse routes share one component + one resolver factory, keyed by
-  // the static `data.kind`; `/categories` is the only flat-list page in Stage 1
-  // (audience / phase indexes are deferred). Resolvers run SSR-side; hydration
-  // reads from TransferState.
+  // AECI-61 / AECI-157 — Phase 2.15 taxonomy index + browse pages. Both the
+  // three flat indexes and the three `:slug` browse pages each share one
+  // component + one resolver factory, keyed by the static `data.kind`. AECI-157
+  // lit up the `/audiences` + `/phases` indexes (originally deferred to Phase 3).
+  // Resolvers run SSR-side; hydration reads from TransferState.
   {
     path: 'categories',
     pathMatch: 'full',
-    loadComponent: () => import('./taxonomy/categories-index').then((m) => m.CategoriesIndex),
-    resolve: { categories: categoriesIndexResolver },
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'category' },
+    resolve: { terms: categoriesIndexResolver },
   },
   {
     path: 'categories/:slug',
@@ -90,10 +95,24 @@ export const routes: Routes = [
     resolve: { term: categoryBrowseResolver },
   },
   {
+    path: 'audiences',
+    pathMatch: 'full',
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'audience' },
+    resolve: { terms: audiencesIndexResolver },
+  },
+  {
     path: 'audiences/:slug',
     loadComponent: () => import('./taxonomy/taxonomy-browse').then((m) => m.TaxonomyBrowsePage),
     data: { kind: 'audience' },
     resolve: { term: audienceBrowseResolver },
+  },
+  {
+    path: 'phases',
+    pathMatch: 'full',
+    loadComponent: () => import('./taxonomy/taxonomy-index').then((m) => m.TaxonomyIndexPage),
+    data: { kind: 'phase' },
+    resolve: { terms: phasesIndexResolver },
   },
   {
     path: 'phases/:slug',
@@ -101,22 +120,33 @@ export const routes: Routes = [
     data: { kind: 'phase' },
     resolve: { term: phaseBrowseResolver },
   },
-  // AECI-60 — Phase 2.14 integration index + detail. Integrations are keyed by
-  // record ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side
-  // via the service binding; hydration reads from TransferState. A null result
-  // renders the global 404 shell. No claim/correction routes — explicitly out
-  // of scope for Stage 1 (Phase 6 covers product + vendor only).
-  {
-    path: 'integrations',
-    pathMatch: 'full',
-    loadComponent: () =>
-      import('./integrations/integrations-index').then((m) => m.IntegrationsIndex),
-  },
+  // AECI-60 — Phase 2.14 integration detail. Integrations are keyed by record
+  // ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side via the
+  // service binding; hydration reads from TransferState. A null result renders
+  // the global 404 shell. No claim/correction routes — explicitly out of scope
+  // for Stage 1 (Phase 6 covers product + vendor only).
+  //
+  // AECI-165 removed the `/integrations` index/listing page (orphaned from the
+  // nav after AECI-160). `/integrations` now 301-redirects to `/products` at the
+  // SSR Worker (see `server-runtime.ts`), so there is no Angular index route
+  // here — only the detail route below.
   {
     path: 'integrations/:id',
     loadComponent: () =>
       import('./integrations/integration-detail').then((m) => m.IntegrationDetailPage),
     resolve: { integration: integrationDetailResolver },
+  },
+  // AECI-142 — Phase 3.9 search page. Results are queried browser-side from
+  // Algolia with the search-only key (the API Worker is not in the read path,
+  // §7.5), so there is NO resolver — the SSR shell paints meta + search box +
+  // tabs + empty state, and the browser runs the search after hydration. The
+  // route is non-cacheable (`private, no-store`) by virtue of NOT being in
+  // `server-runtime.ts`'s `ROUTE_CACHE_PATTERNS` (fail-closed default), and the
+  // component sets `robots: noindex` (search-results pages aren't canonical,
+  // §4.6). Registered before the `**` wildcard so it matches.
+  {
+    path: 'search',
+    loadComponent: () => import('./search/search-page').then((m) => m.SearchPage),
   },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the

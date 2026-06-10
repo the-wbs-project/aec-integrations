@@ -3,9 +3,14 @@
  *
  * Anchor: Stripe (stripe.com) — structured footer with a brand-area column,
  * directory nav, legal nav, and company nav. Copyright lives on a bottom strip
- * separated by a thin border. The Directory column also keeps the four primary
- * section links in the server-rendered HTML, since the header's nav menu is a
- * click-mounted overlay that never reaches SSR (see `nav-menu.ts`).
+ * separated by a thin border. The Directory column carries the primary section
+ * links (Home, Products, and the three taxonomy facets) in server-rendered HTML,
+ * since the header's flyout values render client-side and its overlay is a
+ * click-mounted overlay that never reaches SSR (see `nav-menu.ts`). Vendors /
+ * Integrations were pulled from the nav and footer (AECI-160, PO decision);
+ * AECI-165 then removed the `/vendors` and `/integrations` index pages entirely
+ * (they now 301-redirect to `/products`). Their DETAIL pages stay reachable via
+ * product → vendor / integration links, `sitemap.xml`, and direct URL / search.
  *
  * Year is frozen at class init so SSR and client render the same value (no
  * `new Date()` in the template — see ANGULAR_STYLE_GUIDE.md §8, §16).
@@ -37,6 +42,15 @@ import { BrandLogo } from './brand-logo';
           <ul class="space-y-2">
             <li>
               <a
+                routerLink="/"
+                class="text-(--text-secondary) hover:text-(--text-primary)"
+                i18n="@@app.nav.home"
+              >
+                Home
+              </a>
+            </li>
+            <li>
+              <a
                 routerLink="/products"
                 class="text-(--text-secondary) hover:text-(--text-primary)"
                 i18n="@@app.nav.products"
@@ -46,29 +60,29 @@ import { BrandLogo } from './brand-logo';
             </li>
             <li>
               <a
-                routerLink="/vendors"
-                class="text-(--text-secondary) hover:text-(--text-primary)"
-                i18n="@@app.nav.vendors"
-              >
-                Vendors
-              </a>
-            </li>
-            <li>
-              <a
-                routerLink="/integrations"
-                class="text-(--text-secondary) hover:text-(--text-primary)"
-                i18n="@@app.nav.integrations"
-              >
-                Integrations
-              </a>
-            </li>
-            <li>
-              <a
                 routerLink="/categories"
                 class="text-(--text-secondary) hover:text-(--text-primary)"
                 i18n="@@app.nav.categories"
               >
                 Categories
+              </a>
+            </li>
+            <li>
+              <a
+                routerLink="/audiences"
+                class="text-(--text-secondary) hover:text-(--text-primary)"
+                i18n="@@app.nav.audiences"
+              >
+                Audiences
+              </a>
+            </li>
+            <li>
+              <a
+                routerLink="/phases"
+                class="text-(--text-secondary) hover:text-(--text-primary)"
+                i18n="@@app.nav.phases"
+              >
+                Phases
               </a>
             </li>
           </ul>

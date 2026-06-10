@@ -116,16 +116,21 @@ describe('resolveSitemapEntries', () => {
     expect(productLocs).toHaveLength(150);
   });
 
-  it('includes index pages, vendors, integrations, and all taxonomy types', () => {
+  it('includes index pages, vendor/integration details, and all taxonomy types', () => {
     return resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com').then(
       (entries) => {
         const locs = entries.map((e) => e.loc);
-        // Index pages
+        // Index pages — the products index plus the three taxonomy indexes.
         expect(locs).toContain('https://aecintegrations.com/products');
-        expect(locs).toContain('https://aecintegrations.com/vendors');
-        expect(locs).toContain('https://aecintegrations.com/integrations');
         expect(locs).toContain('https://aecintegrations.com/categories');
-        // Entities
+        expect(locs).toContain('https://aecintegrations.com/audiences');
+        expect(locs).toContain('https://aecintegrations.com/phases');
+        // AECI-165 — the `/vendors` and `/integrations` INDEX pages were removed
+        // (they 301-redirect to `/products`), so their bare index `<loc>`s are
+        // gone from the sitemap. Their DETAIL URLs still appear (below).
+        expect(locs).not.toContain('https://aecintegrations.com/vendors');
+        expect(locs).not.toContain('https://aecintegrations.com/integrations');
+        // Entities (detail pages stay)
         expect(locs).toContain('https://aecintegrations.com/vendors/autodesk');
         expect(locs).toContain('https://aecintegrations.com/integrations/int-uuid-1');
         expect(locs).toContain('https://aecintegrations.com/categories/cost');

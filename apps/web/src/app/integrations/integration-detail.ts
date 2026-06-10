@@ -58,16 +58,6 @@ import { NotFound } from '../not-found/not-found';
             </a>
           </li>
           <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
-          <li>
-            <a
-              routerLink="/integrations"
-              class="text-(--text-secondary) no-underline hover:text-(--accent-primary)"
-              i18n="@@integrations.detail.breadcrumbs.integrations"
-            >
-              Integrations
-            </a>
-          </li>
-          <li aria-hidden="true" class="text-(--text-tertiary)">›</li>
           <li class="min-w-0 break-words text-(--text-primary)" aria-current="page">
             {{ headline() }}
           </li>
@@ -75,7 +65,7 @@ import { NotFound } from '../not-found/not-found';
 
         <div slot="hero" class="space-y-5">
           <p
-            class="text-xs uppercase tracking-[0.14em] text-(--text-tertiary)"
+            class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
             i18n="@@integrations.detail.eyebrow"
           >
             Integration
@@ -146,7 +136,7 @@ import { NotFound } from '../not-found/not-found';
           <section aria-labelledby="integration-glance-title" class="space-y-3">
             <h2
               id="integration-glance-title"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
               i18n="@@integrations.detail.metadata.glance"
             >
               At a glance
@@ -156,7 +146,7 @@ import { NotFound } from '../not-found/not-found';
                 bg-(--surface-raised) p-4 text-sm"
             >
               <div class="flex items-baseline justify-between gap-4">
-                <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.mechanism">
+                <dt class="text-(--text-secondary)" i18n="@@integrations.detail.metadata.mechanism">
                   Mechanism
                 </dt>
                 <dd class="min-w-0 break-words text-end font-medium text-(--text-primary)">
@@ -164,7 +154,7 @@ import { NotFound } from '../not-found/not-found';
                     {{ mechanism }}
                   } @else {
                     <span
-                      class="text-(--text-tertiary)"
+                      class="text-(--text-secondary)"
                       i18n="@@integrations.detail.mechanism.none"
                       i18n-aria-label="@@integrations.detail.mechanism.none.aria"
                       aria-label="Mechanism not listed"
@@ -176,7 +166,7 @@ import { NotFound } from '../not-found/not-found';
               @if (i.direction) {
                 <div class="flex items-baseline justify-between gap-4">
                   <dt
-                    class="text-(--text-tertiary)"
+                    class="text-(--text-secondary)"
                     i18n="@@integrations.detail.metadata.direction"
                   >
                     Direction
@@ -188,7 +178,10 @@ import { NotFound } from '../not-found/not-found';
               }
               @if (i.maturity) {
                 <div class="flex items-baseline justify-between gap-4">
-                  <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.maturity">
+                  <dt
+                    class="text-(--text-secondary)"
+                    i18n="@@integrations.detail.metadata.maturity"
+                  >
                     Maturity
                   </dt>
                   <dd class="min-w-0 break-words text-end font-medium text-(--text-primary)">
@@ -198,7 +191,7 @@ import { NotFound } from '../not-found/not-found';
               }
               @if (i.pricing_model) {
                 <div class="flex items-baseline justify-between gap-4">
-                  <dt class="text-(--text-tertiary)" i18n="@@integrations.detail.metadata.pricing">
+                  <dt class="text-(--text-secondary)" i18n="@@integrations.detail.metadata.pricing">
                     Pricing
                   </dt>
                   <dd class="min-w-0 break-words text-end font-medium text-(--text-primary)">
@@ -213,7 +206,7 @@ import { NotFound } from '../not-found/not-found';
             <section aria-labelledby="integration-builtby-title" class="space-y-3">
               <h2
                 id="integration-builtby-title"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
                 i18n="@@integrations.detail.metadata.builtBy"
               >
                 Built by
@@ -235,7 +228,7 @@ import { NotFound } from '../not-found/not-found';
             <section aria-labelledby="integration-poweredby-title" class="space-y-3">
               <h2
                 id="integration-poweredby-title"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
                 i18n="@@integrations.detail.metadata.poweredBy"
               >
                 Powered by
@@ -257,7 +250,7 @@ import { NotFound } from '../not-found/not-found';
             <section aria-labelledby="integration-links-title" class="space-y-3">
               <h2
                 id="integration-links-title"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-tertiary)"
+                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
                 i18n="@@integrations.detail.metadata.links"
               >
                 Links
@@ -347,7 +340,7 @@ import { NotFound } from '../not-found/not-found';
                     hover:border-(--border-strong)"
                 >
                   <span
-                    class="text-xs uppercase tracking-[0.08em] text-(--text-tertiary)"
+                    class="text-xs uppercase tracking-[0.08em] text-(--text-secondary)"
                     i18n="@@integrations.detail.connects.source"
                     >Source</span
                   >
@@ -363,7 +356,7 @@ import { NotFound } from '../not-found/not-found';
                     hover:border-(--border-strong)"
                 >
                   <span
-                    class="text-xs uppercase tracking-[0.08em] text-(--text-tertiary)"
+                    class="text-xs uppercase tracking-[0.08em] text-(--text-secondary)"
                     i18n="@@integrations.detail.connects.target"
                     >Target</span
                   >

@@ -33,17 +33,11 @@ describe('buildRobotsTxt', () => {
   });
 
   it('does not Disallow any public surface path', () => {
-    // The AC requires /products, /vendors, /integrations, /categories,
-    // /audiences, /phases to remain crawlable — none may appear in a
-    // Disallow line.
-    for (const path of [
-      '/products',
-      '/vendors',
-      '/integrations',
-      '/categories',
-      '/audiences',
-      '/phases',
-    ]) {
+    // The AC requires /products, /categories, /audiences, /phases to remain
+    // crawlable — none may appear in a Disallow line. (AECI-165 removed the
+    // /vendors and /integrations index pages; they 301-redirect to /products and
+    // are not standalone public surfaces.)
+    for (const path of ['/products', '/categories', '/audiences', '/phases']) {
       expect(robots).not.toContain(`Disallow: ${path}`);
     }
   });

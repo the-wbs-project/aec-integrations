@@ -24,8 +24,8 @@ colors:
   dark-text-primary:      "oklch(98.43% 0 0)"
   dark-text-secondary:    "oklch(70.90% 0.0149 286.07)"
   dark-text-tertiary:     "oklch(55.21% 0.0163 285.94)"
-  dark-accent-primary:    "oklch(56.51% 0.0805 152.41)"
-  dark-accent-primary-hover: "oklch(64.02% 0.0867 152.69)"
+  dark-accent-primary:    "oklch(61% 0.0805 152.41)"
+  dark-accent-primary-hover: "oklch(68.5% 0.0867 152.69)"
   dark-accent-secondary:  "oklch(78.50% 0.1141 47.85)"
   dark-accent-warm:       "oklch(22.42% 0.0079 67.38)"
 typography:
@@ -212,7 +212,7 @@ Token parity with the light palette. Names mirror the light tokens with a `dark-
 - **Dark surface muted** (`#27272A` / `oklch(27.41% 0.0055 286.04)`): interactive row hover / `focus-within` highlight. Lifts clearly off the near-black base and stays distinct from dark surface raised (`#18181B`) so raised in-row chips (e.g. integration mechanism badges) remain legible on a hovered row. Shares the dark border-default value by design (a fill and a hairline border don't confuse).
 - **Dark border default** (`#27272A`); **Dark border strong** (`#3F3F46`).
 - **Dark text primary** (`#FAFAFA`); **Dark text secondary** (`#A1A1AA`); **Dark text tertiary** (`#71717A`).
-- **Dark Forest** (`#4A8870` / `oklch(56.51% 0.0805 152.41)`): primary accent in dark theme. **Dark Forest hover** (`#5DA088`).
+- **Dark Forest** (`#5D916C` / `oklch(61% 0.0805 152.41)`): primary accent in dark theme. **Dark Forest hover** (`#6FAA80` / `oklch(68.5% 0.0867 152.69)`). Lifted in AECI-166 so accent text and links clear WCAG AA (≥4.5:1) on raised dark surfaces (`#18181B`), not just the near-black base.
 - **Dark Clay** (`#F0A887` / `oklch(78.50% 0.1141 47.85)`): same usage restrictions as light Clay (brand policy, not contrast).
 - **Dark Bone** (`#2A2520` / `oklch(22.42% 0.0079 67.38)`): warm-tinted dark accent surface.
 

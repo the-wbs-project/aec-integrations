@@ -85,6 +85,40 @@ export const PromoteVendorSchema = z.object({
 export type PromoteVendor = z.infer<typeof PromoteVendorSchema>;
 
 /**
+ * A usefulness group on the promote INPUT — looser than the stored
+ * `UsefulnessGroup` (`./products`), which requires both `slug` AND `name`. The
+ * review app identifies the audience/phase term by `slug` OR `name` (it carries
+ * the Airtable name, not the AECi slug — the Disciplines/Project-Phases tables
+ * have no slug field), so exactly one is required here. The server resolves each
+ * group to an EXISTING term and stores the canonical `{ slug, name }` it
+ * resolved to — usefulness groups NEVER find-or-create (`REVIEW_APP_PROMOTE_API.md`
+ * §3.3). `points` holds ≥ 1 bullet, in display order.
+ */
+const PromoteUsefulnessGroupSchema = z
+  .object({
+    slug: z.string().min(1).optional(),
+    name: z.string().min(1).optional(),
+    points: z.array(z.string().min(1)).min(1),
+  })
+  .refine((g) => Boolean(g.slug ?? g.name), {
+    message: 'Provide `slug` or `name`',
+  });
+
+export type PromoteUsefulnessGroup = z.infer<typeof PromoteUsefulnessGroupSchema>;
+
+/**
+ * Promote-input usefulness: per-audience / per-phase narrative value. Each facet
+ * array defaults to empty so a partial block (`{ audiences: [...] }`) is valid;
+ * send `usefulness: null` (or omit it) when there is no value for either facet.
+ */
+export const PromoteUsefulnessSchema = z.object({
+  audiences: z.array(PromoteUsefulnessGroupSchema).default([]),
+  phases: z.array(PromoteUsefulnessGroupSchema).default([]),
+});
+
+export type PromoteUsefulness = z.infer<typeof PromoteUsefulnessSchema>;
+
+/**
  * The product being promoted. Taxonomy is sent as names or slugs (find-or-
  * created by canonical slug). `extensionOf` lists host products this product
  * extends — host products must already be promoted (use `supabaseId`).
@@ -109,6 +143,11 @@ export const PromoteProductSchema = z.object({
   searchVolumeMonthly: z.number().int().nullish(),
   redditMentions24mo: z.number().int().nullish(),
   adminNotes: z.string().nullish(),
+  // Per-audience / per-phase narrative value. Resolved server-side against
+  // existing terms (never find-or-created) and stored as slug-based jsonb;
+  // `null` clears the column, absent leaves it untouched. See the route's
+  // `resolveUsefulnessFacet` and `REVIEW_APP_PROMOTE_API.md` §3.3.
+  usefulness: PromoteUsefulnessSchema.nullish(),
   categories: z.array(z.string().min(1)).default([]),
   audiences: z.array(z.string().min(1)).default([]),
   phases: z.array(z.string().min(1)).default([]),
@@ -263,7 +302,7 @@ export interface PromoteTaxonomyResult {
 
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension';
+  kind: 'integration' | 'extension' | 'usefulness';
   reason: string;
 }
 
@@ -272,7 +311,8 @@ export interface PromoteSkipped {
  * integration-only push (no `product` was sent); otherwise it's the single
  * promoted product. `skipped` lists integrations/extensions that couldn't be
  * linked because an endpoint wasn't resolvable (e.g. the other product isn't
- * promoted yet) — surfaced rather than silently dropped.
+ * promoted yet), plus usefulness groups that didn't resolve to an existing
+ * audience/phase term — surfaced rather than silently dropped.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];

@@ -5,7 +5,7 @@ import { map } from 'rxjs';
 
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
-import type { TaxonomyTermDetail } from '../core/api/taxonomy';
+import { KIND_PATH_SEGMENT, type TaxonomyTermDetail } from '../core/api/taxonomy';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { NotFound } from '../not-found/not-found';
 import { ProductCard } from '../products/product-card';
@@ -169,12 +169,11 @@ export class TaxonomyBrowsePage {
   });
 
   /**
-   * Breadcrumb ancestor link. Only categories have an index page (`/categories`)
-   * in Stage 1; audience / phase ancestors render as plain text.
+   * Breadcrumb ancestor link. All three facets have a flat index page since
+   * AECI-157 (`/categories`, `/audiences`, `/phases`), so the ancestor always
+   * links.
    */
-  protected readonly parentLink = computed(() =>
-    this.kind() === 'category' ? '/categories' : null,
-  );
+  protected readonly parentLink = computed(() => `/${KIND_PATH_SEGMENT[this.kind()]}`);
 
   protected readonly productCountLabel = computed(() => {
     const count = this.term()?.product_count ?? 0;

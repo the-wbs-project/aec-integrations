@@ -119,9 +119,10 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
     return { route: 'detail', entity: { type: 'integration', id: m[1]! } };
 
   if (path === '/products') return { route: 'index', entity: { type: 'index', slug: 'products' } };
-  if (path === '/vendors') return { route: 'index', entity: { type: 'index', slug: 'vendors' } };
-  if (path === '/integrations')
-    return { route: 'index', entity: { type: 'index', slug: 'integrations' } };
+  // AECI-165 removed the `/vendors` and `/integrations` index pages — they now
+  // 301-redirect to `/products` at the SSR Worker (see `server-runtime.ts`) and
+  // never reach the SSR cache pipeline, so they have no `index:*` tag here. Their
+  // `:slug` / `:id` DETAIL pages are handled by the detail matchers above.
 
   // `/categories` is the flat index (AECI-61), not a browse facet: per
   // CACHE_STRATEGY.md §2 it carries `index:categories` + `taxonomy` (it renders
@@ -131,11 +132,16 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   if ((m = /^\/categories\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'category', slug: m[1]! } };
 
-  if (path === '/audiences') return { route: 'browse', entity: { type: 'audience', slug: '*' } };
+  // `/audiences` and `/phases` are flat indexes (AECI-157) — like `/categories`,
+  // they render the full taxonomy, so they carry `index:<segment>` + `taxonomy`,
+  // distinct from the per-slug browse pages below.
+  if (path === '/audiences')
+    return { route: 'index', entity: { type: 'index', slug: 'audiences' }, taxonomy: true };
   if ((m = /^\/audiences\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'audience', slug: m[1]! } };
 
-  if (path === '/phases') return { route: 'browse', entity: { type: 'phase', slug: '*' } };
+  if (path === '/phases')
+    return { route: 'index', entity: { type: 'index', slug: 'phases' }, taxonomy: true };
   if ((m = /^\/phases\/(.+)$/.exec(path)))
     return { route: 'browse', entity: { type: 'phase', slug: m[1]! } };
 

@@ -126,8 +126,6 @@ describe('cacheTagInputsForPath', () => {
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],
     ['/products', { route: 'index', entity: { type: 'index', slug: 'products' } }],
-    ['/vendors', { route: 'index', entity: { type: 'index', slug: 'vendors' } }],
-    ['/integrations', { route: 'index', entity: { type: 'index', slug: 'integrations' } }],
     ['/products/procore', { route: 'detail', entity: { type: 'product', slug: 'procore' } }],
     ['/vendors/autodesk', { route: 'detail', entity: { type: 'vendor', slug: 'autodesk' } }],
     ['/integrations/abc-123', { route: 'detail', entity: { type: 'integration', id: 'abc-123' } }],
@@ -139,12 +137,15 @@ describe('cacheTagInputsForPath', () => {
       '/categories/structural',
       { route: 'browse', entity: { type: 'category', slug: 'structural' } },
     ],
-    ['/audiences', { route: 'browse', entity: { type: 'audience', slug: '*' } }],
+    [
+      '/audiences',
+      { route: 'index', entity: { type: 'index', slug: 'audiences' }, taxonomy: true },
+    ],
     [
       '/audiences/architecture',
       { route: 'browse', entity: { type: 'audience', slug: 'architecture' } },
     ],
-    ['/phases', { route: 'browse', entity: { type: 'phase', slug: '*' } }],
+    ['/phases', { route: 'index', entity: { type: 'index', slug: 'phases' }, taxonomy: true }],
     [
       '/phases/preconstruction',
       { route: 'browse', entity: { type: 'phase', slug: 'preconstruction' } },
@@ -161,6 +162,11 @@ describe('cacheTagInputsForPath', () => {
     '/search',
     '/does-not-exist',
     '/products/procore/extra',
+    // AECI-165 — the `/vendors` and `/integrations` index pages were removed and
+    // now 301-redirect to `/products`, so the bare index paths are no longer
+    // cacheable here (their `:slug` / `:id` DETAIL paths still map — see above).
+    '/vendors',
+    '/integrations',
   ])('returns null for non-cacheable path %s', (path) => {
     expect(cacheTagInputsForPath(path)).toBeNull();
   });
@@ -171,8 +177,6 @@ describe('cacheTagInputsForPath', () => {
       '/about',
       '/legal/terms',
       '/products',
-      '/vendors',
-      '/integrations',
       '/products/procore',
       '/vendors/autodesk',
       '/integrations/abc',

@@ -283,6 +283,8 @@ Each detail response hydrates relations the page actually displays. **Detail pag
 
 Hydration rules per response shape are documented in `API_CONTRACTS.md` §3.
 
+Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUsefulness | null`) is embedded **narrative** content — value text grouped by audience and by project phase — and is **distinct from** the `audiences`/`phases` taxonomy facets, which are `LinkRef[]` join-table links answering "who is this for?" / "which lifecycle stage?". A usefulness group is keyed by the same taxonomy `slug` (so the display can link a group back to its facet browse page), but the group's `points` are free-form prose stored on the product, not a taxonomy relation. `usefulness` is `null` when the source has no value for either facet. The canonical shape lives in `API_CONTRACTS.md` §5.1; the stored column in `DATABASE_SCHEMA.md` §4.2; the promote payload in `REVIEW_APP_PROMOTE_API.md` §3.3. The product detail page renders this section under the heading **"How teams use it"** (sentence case per `PRODUCT.md`).
+
 ### 7.3 Pagination
 
 - Page-based (not cursor) for Phase 2. Catalog is small; simple is fine.
@@ -315,7 +317,7 @@ Cache-Tag values are comma-separated strings, ≤ 16 KB per response, no spaces.
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
 | `taxonomy` | Any page that displays the full taxonomy (nav, footer, /categories) |
-| `index:products` / `index:vendors` / `index:integrations` / `index:categories` | The respective index pages |
+| `index:products` / `index:categories` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages, so `index:vendors` / `index:integrations` are no longer emitted.) |
 | `sitemap` | sitemap.xml |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
 

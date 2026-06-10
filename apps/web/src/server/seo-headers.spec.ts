@@ -52,12 +52,17 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toContain('https://fonts.gstatic.com');
   });
 
-  it('allows the Datadog RUM intake host on connect-src', () => {
-    // The v7 browser SDK beacons to browser-intake-datadoghq.com, a separate
-    // registrable domain — a `*.datadoghq.com` wildcard would NOT match it.
+  it('allows the Datadog RUM intake hosts (US1 + US5) on connect-src', () => {
+    // The v7 browser SDK beacons to a per-DD_SITE browser-intake-* host, each a
+    // separate registrable domain — a `*.datadoghq.com` wildcard would NOT match.
+    // US1 (browser-intake-datadoghq.com) is the local .dev.vars default; US5
+    // (browser-intake-us5-datadoghq.com) is the deployed preview/staging/prod
+    // site (DD_SITE=us5.datadoghq.com in wrangler.jsonc). AECI-162 caught the
+    // missing US5 host — RUM was CSP-blocked in every deployed env.
     expect(CONTENT_SECURITY_POLICY).toContain(
       "connect-src 'self' https://browser-intake-datadoghq.com",
     );
+    expect(CONTENT_SECURITY_POLICY).toContain('https://browser-intake-us5-datadoghq.com');
     expect(CONTENT_SECURITY_POLICY).not.toContain('*.datadoghq.com');
   });
 
@@ -67,6 +72,17 @@ describe('CONTENT_SECURITY_POLICY', () => {
     // every search XHR. Without these, /search (Phase 3.9) would be CSP-blocked.
     expect(CONTENT_SECURITY_POLICY).toContain('https://*.algolia.net');
     expect(CONTENT_SECURITY_POLICY).toContain('https://*.algolianet.com');
+  });
+
+  it('allows the Cloudflare Web Analytics beacon (script + report hosts)', () => {
+    // Cloudflare auto-injects beacon.min.js from static.cloudflareinsights.com
+    // at the edge; it then POSTs RUM data to cloudflareinsights.com/cdn-cgi/rum.
+    // Both hosts must be allowlisted or the injected <script> is CSP-refused.
+    expect(CONTENT_SECURITY_POLICY).toContain('https://static.cloudflareinsights.com');
+    expect(CONTENT_SECURITY_POLICY).toMatch(
+      /script-src[^;]*https:\/\/static\.cloudflareinsights\.com/,
+    );
+    expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*https:\/\/cloudflareinsights\.com/);
   });
 
   it('locks down the hardening directives', () => {

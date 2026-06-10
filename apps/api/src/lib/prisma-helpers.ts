@@ -37,6 +37,7 @@
 
 import type { Prisma } from '@prisma/client/edge';
 
+import { ProductUsefulnessSchema } from '@aeci/shared';
 import type {
   IntegrationDetail,
   IntegrationListItem,
@@ -45,6 +46,7 @@ import type {
   ProductLink,
   ProductListItem,
   ProductRole,
+  ProductUsefulness,
   TaxonomyTermWithCount,
   VendorDetail,
   VendorLink,
@@ -167,6 +169,9 @@ export const productDetailSelect = {
   toolIntegrationsUrl: true,
   apiDocsUrl: true,
   hasApiDocs: true,
+  // Narrative "how teams use it" jsonb (§4.2 / API_CONTRACTS §5.1). Read whole
+  // with the row; shaped + validated by `toUsefulness` in the detail mapper.
+  usefulness: true,
   productAudiences: { select: { audience: { select: taxonomyLinkSelect } } },
   productPhases: { select: { phase: { select: taxonomyLinkSelect } } },
   sourceIntegrations: { select: integrationListSelect },
@@ -491,6 +496,22 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
   };
 }
 
+/**
+ * Coerce the raw `products.usefulness` jsonb (`Prisma.JsonValue | null`) into the
+ * public `ProductUsefulness | null` contract (API_CONTRACTS §5.1). The column is
+ * written by promote (AECI-172) already in canonical shape, but production skips
+ * response validation (`validateResponseInDev` is non-prod only), so we defensively
+ * `safeParse` here: a malformed or partial blob degrades to `null` (the section
+ * renders inert) rather than 500-ing the page or shipping a shape the SSR component
+ * — `input.required<ProductUsefulness>()` — would choke on. The parse also strips
+ * unknown keys and enforces the "slug present on each group" contract for free.
+ */
+export function toUsefulness(raw: Prisma.JsonValue | null | undefined): ProductUsefulness | null {
+  if (raw == null) return null;
+  const parsed = ProductUsefulnessSchema.safeParse(raw);
+  return parsed.success ? parsed.data : null;
+}
+
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
@@ -509,6 +530,9 @@ export function toProductDetail(
     })),
     audiences: raw.productAudiences.map((r) => r.audience),
     phases: raw.productPhases.map((r) => r.phase),
+    // Narrative "how teams use it" value (API_CONTRACTS §5.1), read off the
+    // `usefulness` jsonb column (AECI-171) and shaped/validated here (AECI-173).
+    usefulness: toUsefulness(raw.usefulness),
     integrations_as_source: raw.sourceIntegrations.map(toIntegrationListItem),
     integrations_as_target: raw.targetIntegrations.map(toIntegrationListItem),
     related_products: relatedProducts.map(toProductListItem),

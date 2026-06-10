@@ -1,11 +1,12 @@
 /**
  * `GET /robots.txt` body generation for the SSR Worker (AECI-63 / Phase 2.17).
  *
- * Allows the full public surface (`/products`, `/vendors`, `/integrations`,
- * `/categories`, `/audiences`, `/phases` are all covered by `Allow: /`) and
+ * Allows the full public surface (`/products`, `/categories`, `/audiences`,
+ * `/phases`, and every entity DETAIL page are all covered by `Allow: /`) and
  * disallows the non-cacheable / private routes (mirrors the non-cacheable list
  * in `server-runtime.ts` and `docs/CACHE_STRATEGY.md` §4). Points crawlers at
- * the sitemap.
+ * the sitemap. (AECI-165 removed the `/vendors` and `/integrations` index pages;
+ * `Allow: /` still lets crawlers follow their 301 → `/products` redirect.)
  *
  * `origin` is the absolute request origin so the `Sitemap:` line is
  * self-referential per environment (e.g. staging points at the staging

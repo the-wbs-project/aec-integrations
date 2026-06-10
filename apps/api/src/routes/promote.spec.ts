@@ -1,4 +1,5 @@
 import type { PromoteResponse } from '@aeci/shared';
+import { Prisma } from '@prisma/client/edge';
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -531,6 +532,198 @@ describe('createPromoteHandler', () => {
   });
 });
 
+describe('usefulness resolution on promote (AECI-172)', () => {
+  type UseGroup = { slug: string; name: string; points: string[] };
+  type Stored = { audiences: UseGroup[]; phases: UseGroup[] };
+
+  const seedAudience = (fake: Fake, id: string, slug: string, name: string) =>
+    fake.models.taxonomyAudience.rows.set(id, { id, slug, name });
+  const seedPhase = (fake: Fake, id: string, slug: string, name: string) =>
+    fake.models.taxonomyPhase.rows.set(id, { id, slug, name });
+
+  /** The `usefulness` value written to the (single) promoted product row. */
+  const storedUsefulness = (fake: Fake, productId: string) =>
+    fake.models.product.rows.get(productId)?.usefulness;
+
+  it('resolves groups by name and by slug, storing the canonical {slug,name}', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+    seedPhase(fake, 'ph-design', 'design', 'Design');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [{ name: 'Architecture', points: ['Coordinate models', 'Clash detection'] }],
+          phases: [{ slug: 'design', points: ['Author drawings'] }],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string }; skipped: unknown[] };
+    expect(b.skipped).toHaveLength(0);
+    expect(storedUsefulness(fake, b.product.id)).toEqual({
+      audiences: [
+        {
+          slug: 'architecture',
+          name: 'Architecture',
+          points: ['Coordinate models', 'Clash detection'],
+        },
+      ],
+      phases: [{ slug: 'design', name: 'Design', points: ['Author drawings'] }],
+    });
+  });
+
+  it('resolves usefulness against a term created in the same promote (runs after taxonomy)', async () => {
+    const fake = makeFake();
+    // No seeded audience: the facet array creates "Architecture", and the
+    // usefulness group must resolve against that just-created term.
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        audiences: ['Architecture'],
+        usefulness: { audiences: [{ name: 'Architecture', points: ['x'] }], phases: [] },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string }; skipped: unknown[] };
+    expect(b.skipped).toHaveLength(0);
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['x'] },
+    ]);
+  });
+
+  it('merges same-term groups, concatenating points in source order', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [
+            { slug: 'architecture', points: ['first'] },
+            { name: 'Architecture', points: ['second'] },
+          ],
+          phases: [],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string } };
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['first', 'second'] },
+    ]);
+  });
+
+  it('drops an unresolvable group and reports it in skipped[] with kind=usefulness', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [
+            { name: 'Architecture', points: ['kept'] },
+            { name: 'Nonexistent Discipline', points: ['dropped'] },
+          ],
+          phases: [],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      product: { id: string };
+      skipped: { ref: string; kind: string }[];
+    };
+    expect(b.skipped).toEqual([expect.objectContaining({ ref: 'p1', kind: 'usefulness' })]);
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['kept'] },
+    ]);
+  });
+
+  it('clears the column with Prisma.DbNull when usefulness is null', async () => {
+    const fake = makeFake();
+    const prodX = uuid(3);
+    fake.models.product.rows.set(prodX, {
+      id: prodX,
+      slug: 'revit',
+      name: 'Revit',
+      usefulness: {
+        audiences: [{ slug: 'architecture', name: 'Architecture', points: ['old'] }],
+        phases: [],
+      },
+    });
+
+    const res = await promote(fake, {
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit', usefulness: null },
+    });
+
+    expect(res.status).toBe(200);
+    // A literal JS `null` is rejected for `Json?`; the handler must use DbNull.
+    expect(storedUsefulness(fake, prodX)).toBe(Prisma.DbNull);
+  });
+
+  it('leaves the column untouched (undefined) when usefulness is absent', async () => {
+    const fake = makeFake();
+    const res = await promote(fake, { product: { ref: 'p1', name: 'Revit' } });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string } };
+    expect(storedUsefulness(fake, b.product.id)).toBeUndefined();
+  });
+
+  it('accepts and strips unknown keys inside a usefulness group (Zod passthrough off)', async () => {
+    const fake = makeFake();
+    seedAudience(fake, 'aud-arch', 'architecture', 'Architecture');
+
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: {
+          audiences: [{ slug: 'architecture', points: ['x'], bogusKey: 'ignored' }],
+          phases: [],
+        },
+      },
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { product: { id: string } };
+    const stored = storedUsefulness(fake, b.product.id) as Stored;
+    expect(stored.audiences).toEqual([
+      { slug: 'architecture', name: 'Architecture', points: ['x'] },
+    ]);
+  });
+
+  it('rejects a usefulness group with neither slug nor name', async () => {
+    const fake = makeFake();
+    const res = await promote(fake, {
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: { audiences: [{ points: ['x'] }], phases: [] },
+      },
+    });
+
+    expect(res.status).toBe(400);
+    const b = (await res.json()) as { error: { code: string } };
+    expect(b.error.code).toBe('VALIDATION_FAILED');
+  });
+});
+
 describe('cache purge after promote (AECI-105)', () => {
   // Option B: promote purges the edge cache by calling Cloudflare's purge-by-tag
   // API directly (no web↔api binding). The handler uses the global `fetch`, so
@@ -590,12 +783,12 @@ describe('cache purge after promote (AECI-105)', () => {
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer cf-token');
 
     const sent = JSON.parse(init.body as string) as { tags: string[] };
+    // AECI-165 — no `index:vendors`: the `/vendors` index page was removed.
     expect(new Set(sent.tags)).toEqual(
       new Set([
         'product:revit',
         'index:products',
         'vendor:autodesk',
-        'index:vendors',
         'category:bim',
         'audience:architecture',
         'taxonomy',
@@ -654,6 +847,121 @@ describe('cache purge after promote (AECI-105)', () => {
   });
 });
 
+describe('Algolia index sync after promote (AECI-139)', () => {
+  // The promote hook re-queries the touched rows and upserts them to Algolia via
+  // the global `fetch` (the same best-effort `waitUntil` pattern as the purge).
+  // These env vars have NO CF purge creds, so the only `waitUntil`/`fetch` is the
+  // Algolia sync — isolating it from the AECI-105 purge.
+  const algoliaEnv: Env = {
+    ...baseEnv,
+    ALGOLIA_APP_ID: 'APP',
+    ALGOLIA_ADMIN_KEY: 'write-key',
+  };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Seed a fully-shaped (transformable) product so the update path's re-query
+   *  yields a real Algolia record. The fake's `findMany` ignores `select`, so the
+   *  seeded relation arrays flow straight into `toAlgoliaProduct`. */
+  function seedPromotedProduct(fake: Fake, id: string) {
+    fake.models.product.rows.set(id, {
+      id,
+      slug: 'procore',
+      name: 'Procore',
+      description: null,
+      logoUrl: null,
+      hasApiDocs: false,
+      integrationCount: 0,
+      reviewCount: 0,
+      ratingOverallAvg: null,
+      promotionStatus: 'promoted',
+      updatedAt: new Date('2026-06-08T00:00:00.000Z'),
+      productVendors: [],
+      productCategories: [],
+      productAudiences: [],
+      productPhases: [],
+    });
+  }
+
+  async function promoteWith(
+    env: Env,
+    fake: Fake,
+    body: unknown,
+    fetchMock: ReturnType<typeof vi.fn>,
+  ) {
+    vi.stubGlobal('fetch', fetchMock);
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp(fake).request('/api/promote', post(body), env, execCtx);
+    const waitUntil = vi.mocked(execCtx.waitUntil);
+    // Settle every scheduled best-effort task before asserting.
+    await Promise.all(waitUntil.mock.calls.map((call) => call[0]));
+    return { res, execCtx };
+  }
+
+  it('upserts the promoted product to the env index when credentials are present', async () => {
+    const fake = makeFake();
+    const id = uuid(1);
+    seedPromotedProduct(fake, id);
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"taskID":1}', { status: 200 }));
+
+    const { res, execCtx } = await promoteWith(
+      algoliaEnv,
+      fake,
+      { product: { ref: 'p1', supabaseId: id, name: 'Procore' } },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+    expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    // ENV 'preview' → the preview index set.
+    expect(url).toBe('https://APP.algolia.net/1/indexes/preview_products/batch');
+    expect((init.headers as Record<string, string>)['x-algolia-api-key']).toBe('write-key');
+    const sent = JSON.parse(init.body as string) as {
+      requests: Array<{ action: string; body: { objectID: string } }>;
+    };
+    expect(sent.requests).toEqual([
+      { action: 'updateObject', body: expect.objectContaining({ objectID: id }) },
+    ]);
+  });
+
+  it('does not touch Algolia when credentials are absent (graceful no-op)', async () => {
+    const fake = makeFake();
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const execCtx = fakeExecutionContext();
+    // `baseEnv` has neither CF nor Algolia creds.
+    const res = await buildApp(fake).request(
+      '/api/promote',
+      post({ product: { ref: 'p1', name: 'Revit' } }),
+      baseEnv,
+      execCtx,
+    );
+    expect(res.status).toBe(200);
+    expect(execCtx.waitUntil).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 when the Algolia push throws (never fails the promote)', async () => {
+    const fake = makeFake();
+    const id = uuid(1);
+    seedPromotedProduct(fake, id);
+    const fetchMock = vi.fn().mockRejectedValue(new Error('algolia unreachable'));
+
+    const { res } = await promoteWith(
+      algoliaEnv,
+      fake,
+      { product: { ref: 'p1', supabaseId: id, name: 'Procore' } },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+  });
+});
+
 describe('cacheTagsForPromote (AECI-105)', () => {
   const entity = (slug: string, operation: 'created' | 'updated') => ({
     ref: `ref-${slug}`,
@@ -685,7 +993,6 @@ describe('cacheTagsForPromote (AECI-105)', () => {
         'product:revit',
         'index:products',
         'vendor:autodesk',
-        'index:vendors',
         'category:bim',
         'audience:architecture',
         'taxonomy', // an audience was newly created
@@ -703,17 +1010,11 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set([
-        'product:revit',
-        'index:products',
-        'vendor:autodesk',
-        'index:vendors',
-        'category:bim',
-      ]),
+      new Set(['product:revit', 'index:products', 'vendor:autodesk', 'category:bim']),
     );
   });
 
-  it('vendor-only update → vendor + index:vendors only (no product/taxonomy/sitemap)', () => {
+  it('vendor-only update → vendor tag only (no index:vendors/product/taxonomy/sitemap)', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'updated')],
       product: null,
@@ -721,10 +1022,11 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       taxonomy: emptyTaxonomy,
       skipped: [],
     };
-    expect(cacheTagsForPromote(response).sort()).toEqual(['index:vendors', 'vendor:autodesk']);
+    // AECI-165 — `index:vendors` is no longer emitted (the index page was removed).
+    expect(cacheTagsForPromote(response).sort()).toEqual(['vendor:autodesk']);
   });
 
-  it('created vendor (no product) → sitemap included', () => {
+  it('created vendor (no product) → vendor + sitemap (no index:vendors)', () => {
     const response: PromoteResponse = {
       vendors: [entity('autodesk', 'created')],
       product: null,
@@ -732,9 +1034,7 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       taxonomy: emptyTaxonomy,
       skipped: [],
     };
-    expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set(['vendor:autodesk', 'index:vendors', 'sitemap']),
-    );
+    expect(new Set(cacheTagsForPromote(response))).toEqual(new Set(['vendor:autodesk', 'sitemap']));
   });
 
   it('a newly created phase → phase tag + taxonomy', () => {

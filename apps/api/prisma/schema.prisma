@@ -90,6 +90,7 @@ model Vendor {
   @@index([companyName], map: "vendors_company_name_idx")
   @@index([promotionStatus], map: "vendors_promotion_status_idx")
   @@index([verified], map: "vendors_verified_idx")
+  @@index([updatedAt(sort: Desc)], map: "vendors_updated_at_idx")
   @@map("vendors")
   @@schema("public")
 }
@@ -105,6 +106,12 @@ model Product {
   apiDocsUrl                String? @map("api_docs_url")
   hasApiDocs                Boolean @default(false) @map("has_api_docs")
   toolIntegrationCheckNotes String? @map("tool_integration_check_notes")
+
+  // Narrative content (§4.2): per-audience / per-phase "how teams use it" value,
+  // slug-based {audiences,phases} blob; shape in API_CONTRACTS §5.1. Read whole,
+  // never queried by point. Written by promote (AECI-172), read by detail
+  // hydration (AECI-173); null-stubbed until then.
+  usefulness Json? @map("usefulness")
 
   productRole String  @default("application") @map("product_role")
   logoUrl     String? @map("logo_url")
@@ -196,6 +203,7 @@ model Integration {
   @@index([sourceProductId], map: "integrations_source_idx")
   @@index([targetProductId], map: "integrations_target_idx")
   @@index([mechanismKind], map: "integrations_mechanism_kind_idx")
+  @@index([updatedAt(sort: Desc)], map: "integrations_updated_at_idx")
   // Partial indexes added in raw SQL:
   //   integrations_built_by_idx    (built_by_vendor_id)    WHERE built_by_vendor_id    IS NOT NULL
   //   integrations_powered_by_idx  (powered_by_product_id) WHERE powered_by_product_id IS NOT NULL

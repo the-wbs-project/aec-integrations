@@ -240,6 +240,66 @@ describe('GET /api/products/:slug', () => {
     expect(parsed.audiences.map((d) => d.slug)).toContain('construction');
     expect(parsed.phases.map((p) => p.slug)).toContain('construction-phase');
     expect(parsed.related_products.map((p) => p.slug)).toEqual(['revizto']);
+    // `usefulness` is read off the jsonb column (AECI-173) and round-trips as the
+    // slug-based {audiences,phases} narrative shape, not a null stub (AECI-169).
+    expect(parsed.usefulness).not.toBeNull();
+    expect(parsed.usefulness?.audiences).toEqual([
+      {
+        slug: 'construction',
+        name: 'Construction',
+        points: ['Track RFIs and submittals across every job.', 'Standardize daily logs.'],
+      },
+    ]);
+    expect(parsed.usefulness?.phases).toEqual([
+      {
+        slug: 'construction-phase',
+        name: 'Construction',
+        points: ['Keep field and office on one schedule of record.'],
+      },
+    ]);
+  });
+
+  it('returns `usefulness: null` for a product whose column is null', async () => {
+    const prisma = makeMockAcceleratedPrisma({
+      product: {
+        findUnique: { ...procoreProductDetailRow, usefulness: null },
+        findMany: [reviztoProductRow],
+      },
+    });
+    const res = await detailApp(prisma).request(
+      '/api/products/procore',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    const parsed = ProductDetailSchema.parse(await res.json());
+    expect(parsed.usefulness).toBeNull();
+  });
+
+  it('degrades a malformed `usefulness` blob to null instead of leaking it', async () => {
+    // Production skips response validation, so the mapper itself must not pass a
+    // shape that violates the contract — a partial/garbage blob renders inert.
+    const prisma = makeMockAcceleratedPrisma({
+      product: {
+        findUnique: {
+          ...procoreProductDetailRow,
+          usefulness: { audiences: 'nope', phases: [{ name: 'No slug', points: [] }] },
+        },
+        findMany: [reviztoProductRow],
+      },
+    });
+    const res = await detailApp(prisma).request(
+      '/api/products/procore',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    const parsed = ProductDetailSchema.parse(await res.json());
+    expect(parsed.usefulness).toBeNull();
   });
 
   it('passes the row id to the related-products query (excludes self by id)', async () => {

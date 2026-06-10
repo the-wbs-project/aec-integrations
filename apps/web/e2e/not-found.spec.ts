@@ -10,6 +10,12 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
+import {
+  attachConsoleCapture,
+  expectConsoleClean,
+  waitForHydrationSettle,
+} from './console-capture';
+
 test.describe('global 404 — wildcard path', () => {
   test('GET /never-a-real-route returns a real HTTP 404 with NOT_FOUND_TTL + route:404 tag', async ({
     request,
@@ -36,13 +42,13 @@ test.describe('global 404 — wildcard path', () => {
       'href',
       /\/products$/,
     );
-    await expect(directory.getByRole('link', { name: /Vendors/ })).toHaveAttribute(
+    await expect(directory.getByRole('link', { name: /Audiences/ })).toHaveAttribute(
       'href',
-      /\/vendors$/,
+      /\/audiences$/,
     );
-    await expect(directory.getByRole('link', { name: /Integrations/ })).toHaveAttribute(
+    await expect(directory.getByRole('link', { name: /Phases/ })).toHaveAttribute(
       'href',
-      /\/integrations$/,
+      /\/phases$/,
     );
     await expect(directory.getByRole('link', { name: /Categories/ })).toHaveAttribute(
       'href',
@@ -70,5 +76,25 @@ test.describe('global 404 — wildcard path', () => {
       .analyze();
 
     expect(results.violations).toEqual([]);
+  });
+
+  // AECI-162 — §15.15 console gate for the not-found page type. The crawler can
+  // only reach this shell via the (temporary) pending-prefix placeholders, which
+  // get deleted as /auth, /legal, etc. ship — so guard it here unconditionally.
+  test('renders the 404 shell with no console errors or page errors (AECI-162)', async ({
+    page,
+  }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/never-a-real-route');
+    expect(res?.status()).toBe(404);
+    await expect(page.locator('app-root')).toBeAttached();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /never-a-real-route (404 shell)', {
+      // The document itself is a deliberate 404, so the browser logs a
+      // "Failed to load resource: ...404 (Not Found)" for the main navigation —
+      // inherent to loading any 404 page, not an app defect. The shell's real
+      // health (any OTHER console error + uncaught exceptions) is still gated.
+      ignore: (t) => /Failed to load resource: the server responded with a status of 404/.test(t),
+    });
   });
 });

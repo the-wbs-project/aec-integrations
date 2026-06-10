@@ -32,6 +32,11 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
+| `aeci.algolia.sync` | count | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/src/routes/promote.ts` (`syncAlgoliaAfterPromote`) | `trigger` (cron / promote), `entity` (products / vendors / integrations / all), `outcome` (ok / failed / skipped_no_creds) |
+| `aeci.algolia.index_drift` | gauge | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/scripts/reconcile-algolia-drift.ts` (CLI / deploy-staging hook) | `entity` (products/vendors/integrations), `index` (physical index name) |
+| `aeci.algolia.sync.records` | count | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `entity` (products / vendors / integrations), `op` (saved / deleted) |
+| `aeci.algolia.sync.duration_ms` | distribution | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
+| `aeci.search.query` _(planned, AECI-174)_ | RUM action | `apps/web` search UI — **not yet emitted** (deferred; see "Browser search RUM" below) | `index`, `status`, `results_bucket` + `duration_ms` context |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -50,15 +55,53 @@ instead of a fake `/vendors/unknown` link; the metric (plus a paired `warn` log 
 the product slug, `data_gap:missing_vendor`) makes the gap visible to operators. A
 gap-free DB emits nothing.
 
-### Two gotchas when querying
+`aeci.algolia.sync` (AECI-139) is one count per entity per run of the Algolia index
+sync — the daily cron (`trigger:cron`) and the post-promote hook (`trigger:promote`).
+`outcome:failed` means a batch push to Algolia failed (the watermark for that entity is
+held for the next cron to retry; a failure is also logged — `aeci.algolia.sync.*` /
+`aeci.api.promote.algolia_sync_failed`). `outcome:skipped_no_creds` is the graceful
+no-op when the Worker has no Algolia credentials (local/preview). The dashboard widget +
+the `outcome:failed` monitor (a daily cron that silently fails leaves a stale index with
+no page-level symptom) are owned by AECI-141 (search observability); this issue only
+emits the signal.
+
+`aeci.algolia.index_drift` (AECI-140) is the §23.1 daily data-quality check: the signed
+difference (`supabase − algolia`) between the promoted-row count per entity in Supabase
+and the object count of the matching Algolia index. It is **emitted every run, including
+when clean (value 0)** — one gauge point per `entity`/`index` — so the monitor below can
+tell "ran clean" from "didn't run". Positive = the index is missing rows; negative =
+orphans. Report-only: re-run the AECI-138 bulk sync to repair. Emitted as a **gauge** (a
+level, not a delta) via the shared transport's `submitGauge` (AECI-140 added it alongside
+`submitCount`); the daily 09:00 UTC (= 04:00 EST) run is the API Worker cron (`apps/api/src/scheduled.ts`),
+and the deploy-staging hook + manual triage reuse the same comparison via
+`apps/api/scripts/reconcile-algolia-drift.ts`.
+
+`aeci.algolia.sync.records` and `aeci.algolia.sync.duration_ms` (AECI-141) round out the
+sync-health picture the `aeci.algolia.sync` outcome count only hinted at. Both are emitted for
+a **completed** run by the shared `emitAlgoliaSyncMetrics` (`apps/api/src/lib/algolia-sync-metrics.ts`),
+called by both writers of the index — the daily cron and the post-promote hook — so the two
+can't drift. `…records` is the count of objects pushed, split `op:saved` (upserts) / `op:deleted`
+(removals), per `entity`; **its value is the record count, not 1, so query it with `sum:`, not
+`count:`** (see gotcha 3). `…duration_ms` is one distribution point per run (wall-clock of the push
+work), tagged only by `trigger`. The cron's pre-push early-returns (`outcome:skipped_no_creds`,
+and the `outcome:failed` when the watermark read/write throws) stay as inline single counts — they
+are not completed-run signals and don't flow through the helper.
+
+### Three gotchas when querying
 
 1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as
    `cache_status:hit`; `status_class:5xx` stays `5xx`. All dashboard/monitor queries
    use lowercase.
-2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms` and
-   `aeci.api.query.duration_ms` are distribution metrics — to query `p50/p95/p99` you
-   must enable percentile aggregations under **Metrics → Summary → (metric) → Manage
-   distribution metrics → Add percentile aggregations**. Done once per metric.
+2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms`,
+   `aeci.api.query.duration_ms`, and `aeci.algolia.sync.duration_ms` are distribution
+   metrics — to query `p50/p95/p99` you must enable percentile aggregations under
+   **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
+   aggregations**. Done once per metric.
+3. **Count metrics whose value isn't 1 need `sum:`, not `count:`.** `count:` counts the
+   number of submitted points; `sum:` sums their values. Most count metrics here submit
+   `value 1` (so the two coincide — e.g. `count:aeci.cache.purge`), but
+   `aeci.algolia.sync.records` submits the actual record count, so it must be queried as
+   `sum:aeci.algolia.sync.records` (and `sum:…{}.as_count()` in monitors).
 
 ### Known coverage limitation
 
@@ -88,15 +131,28 @@ prod heartbeat. No committed dashboard widget or monitor queries the `ssr.render
 change skews nothing — the only log-shaped monitor query targets `status:error` logs, which the
 gate keeps at full fidelity.
 
-## Dashboard
+## Dashboards
 
-- **Name:** `AECi Phase 2 — Traffic`
+### `AECi Phase 2 — Traffic`
+
 - **Definition (for record):** `observability/datadog/dashboard.json`
 - **Live URL:** _TBD — filled in after the live apply (AECI-66 verification step)._
 
 Widgets: top routes by request count · cache hit rate per `route_class` · p50/p95/p99
 render per `route_class` · p95 API query per endpoint · 4xx/5xx error rate over time ·
 purge events by source.
+
+### `AECi Phase 3 — Search`
+
+- **Definition (for record):** `observability/datadog/dashboard-search.json`
+- **Live URL:** _TBD — filled in after the live apply (AECI-141 verification step)._
+
+Widgets (Worker-side search/sync health): sync runs by `outcome` · sync runs by
+`entity`/`trigger` · sync duration p50/p95/p99 by `trigger` · records pushed per
+`entity` (`op:saved`/`deleted`, queried with `sum:`) · index drift per `index` (the
+AECI-140 `aeci.algolia.index_drift` gauge). The browser-side query-latency + error-rate
+widgets are **deferred** until there's a search UI to instrument — see "Browser search
+RUM" below.
 
 ## Monitors
 
@@ -109,9 +165,39 @@ at apply time).
 | Cache hit rate low | hit rate < 70% sustained 15m | `observability/datadog/monitor-cache-hit-rate.json` |
 | Detail render slow | p95 detail render (cache MISS) > 1.5s sustained 10m | `observability/datadog/monitor-detail-render-p95.json` |
 | Worker error rate high | combined SSR+API 5xx rate > 1% over 5m | `observability/datadog/monitor-error-rate.json` |
+| Algolia index drift | any index's \|drift\| > 0 (daily); or no data for 48h | `observability/datadog/monitor-algolia-index-drift.json` |
+| Algolia sync failed | any `outcome:failed` push in the last 1d | `observability/datadog/monitor-algolia-sync-failed.json` |
+| Algolia sync not running | no successful (`outcome:ok`) cron push for 48h | `observability/datadog/monitor-algolia-sync-no-data.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
+
+Algolia sync health is intentionally **two** monitors. "Sync failed" alerts on `outcome:failed`
+and must **not** use `notify_no_data` — that series is empty on a healthy run, so a no-data
+alert there fires constantly. The "sync not running" liveness monitor instead watches the
+`outcome:ok{trigger:cron}` series (which reports every healthy run) via `notify_no_data`, the
+same always-reports pattern that lets the index-drift monitor's no-data mean "the cron didn't
+run." Keep the failure and liveness concerns on separate metrics — don't fold them back together.
+
+## Browser search RUM (deferred — contract for the search UI)
+
+§14.3 lists "Algolia query latency and error rate" as a dashboard signal. Search is
+queried **client-side**, direct to Algolia with the search-only key injected as
+`window.__AECI_ALGOLIA__` (`apps/web/src/algolia-bootstrap-inject.ts`), so this latency is
+a **browser RUM** signal, not a Worker metric. As of AECI-141 there is no search-results UI
+to instrument (no `instantsearch`/`algoliasearch` dependency, no `/search` route — the header
+search box is a placeholder), so the emission and its two dashboard widgets are **deferred to
+AECI-174** (which lands with the search-results UI). This is the contract that issue must satisfy:
+
+- **Action:** `datadogRum.addAction('aeci.search.query', {...})` from the search component when
+  a query resolves or errors (pattern: `apps/web/src/app/datadog.provider.ts`).
+- **Context (low-cardinality only — no raw query text):**
+  - `index` — `products` | `vendors` | `integrations` | `federated`
+  - `status` — `ok` | `error`
+  - `duration_ms` — number (Algolia `processingTimeMS`, or the client round-trip)
+  - `results_bucket` — `none` | `1-5` | `6-20` | `21+`
+- **Widgets it then adds to `AECi Phase 3 — Search`:** query latency p50/p95/p99 over
+  `@context.duration_ms`; error rate = `status:error` count / all-queries count.
 
 ## Credentials
 

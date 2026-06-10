@@ -14,7 +14,7 @@ Search is the core discovery surface (`STAGE_1_SPEC.md` §7). A directory needs 
 
 ## Decision
 
-Use **Algolia + InstantSearch Angular**. One index per entity type at launch; per-locale parallel indexes (`products_es`, …) when locales are added. Bulk sync via `scripts/algolia-bulk-sync.ts`; a daily incremental-sync Worker at 03:00 UTC; real-time webhook sync deferred to Stage 2 (when vendors edit their own data).
+Use **Algolia + InstantSearch Angular**. One index per entity type at launch; per-locale parallel indexes (`products_es`, …) when locales are added. Bulk sync via `scripts/algolia-bulk-sync.ts`; a daily incremental-sync Worker at 08:00 UTC (= 03:00 EST); real-time webhook sync deferred to Stage 2 (when vendors edit their own data).
 
 ## Consequences
 

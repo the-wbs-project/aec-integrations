@@ -37,9 +37,12 @@ test.describe('GET /sitemap.xml', () => {
     expect(xml).toContain('<?xml version="1.0" encoding="UTF-8"?>');
     expect(xml).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
 
-    // Index pages (AC) — always present regardless of seed data.
+    // Index pages (AC) — always present regardless of seed data. All three
+    // taxonomy indexes are listed since AECI-157.
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/products<\/loc>/);
     expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/categories<\/loc>/);
+    expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/audiences<\/loc>/);
+    expect(xml).toMatch(/<loc>https?:\/\/[^<]+\/phases<\/loc>/);
 
     // Real seeded entity URLs — only asserted when the DB has seeds.
     if (productSlug) {

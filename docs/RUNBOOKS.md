@@ -77,3 +77,90 @@ API → investigate the SSR render path. Page on-call if user-facing.
 
 **Escalation:** > 1% sustained is page-worthy. Capture a `trace_id` from the logs before
 mitigating so the post-mortem can reconstruct the failure.
+
+---
+
+## Algolia index drift
+
+**Alert:** `AECi — Algolia index drift (Supabase ≠ Algolia)`
+**Metric:** `aeci.algolia.index_drift` — signed `supabase − algolia` count per `entity`/`index`
+(AECI-140, §23.1 daily data-quality check).
+
+**What it means:** An Algolia index's object count no longer matches the promoted Supabase
+rows it should mirror. **Positive** drift = the index is *missing* rows (a sync didn't run
+or half-failed). **Negative** = the index holds *orphans* (rows fell out of `promoted` but
+weren't pruned — the AECI-138 bulk sync upserts and does not delete). This is **report-only**;
+nothing auto-repairs.
+
+**First checks**
+
+1. Which index? The alert is split `by {index}` — note `<env>_products` / `_vendors` /
+   `_integrations` and the sign/magnitude (logged with the gauge).
+2. Recent promotes? Drift right after a `POST /api/promote` is expected until a sync runs.
+3. No-data variant: if the alert is "no data for 48h", the daily cron
+   (`apps/api/src/scheduled.ts`) didn't report — check the staging/production API Worker's
+   scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that
+   `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` are set on the Worker.
+
+**Repair:** re-run the AECI-138 bulk reindex for the affected env (idempotent upsert):
+
+```bash
+pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
+```
+
+To re-check on demand without waiting for the 09:00 UTC (= 04:00 EST) cron:
+
+```bash
+DIRECT_URL=<DIRECT_URL_{STAGING,PRODUCTION}> ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
+  pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env <staging|production>
+```
+
+**Escalation:** persistent negative drift after a re-sync means orphan objects the upsert
+can't remove — a deliberate prune is out of scope for AECI-140; open a follow-up.
+
+---
+
+## Algolia sync failed
+
+**Alerts:** `AECi — Algolia sync failed (daily cron)` (a failed push) and
+`AECi — Algolia sync not running (no successful cron push)` (the cron stopped firing).
+**Metric:** `aeci.algolia.sync{outcome:failed}` — count of failed entity pushes; the
+liveness alert watches `aeci.algolia.sync{outcome:ok,trigger:cron}` instead
+(AECI-139 sync; AECI-141 monitors). Companion signals: `aeci.algolia.sync.records`
+(`op:saved|deleted`) and `aeci.algolia.sync.duration_ms` per run.
+
+**What it means:** A push to one of the env's Algolia indexes failed — the daily 08:00 UTC
+(= 03:00 EST) incremental sync (`trigger:cron`) or the post-promote hook (`trigger:promote`). The affected
+index keeps serving stale results until the next successful run; there is **no page-level
+symptom**, which is why this monitor exists. On a cron failure the watermark for that entity
+is held so the next cron retries it.
+
+**First checks**
+
+1. Which entity / trigger? Pivot the "AECi Phase 3 — Search" dashboard (or the metric) by
+   `entity` (products/vendors/integrations) and `trigger`. A `trigger:promote` failure is a
+   single promote; a `trigger:cron` failure affects the whole daily window.
+2. Read the failure: Datadog logs `service:aeci-api` — `aeci.algolia.sync` (per-entity, with
+   `reason` when failed), `aeci.algolia.sync.crashed` (the run threw before/around the push),
+   or `aeci.api.promote.algolia_sync_failed` (promote hook). The `reason` field carries the
+   Algolia error.
+3. Credentials? Missing `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` show as `outcome:skipped_no_creds`
+   (a graceful no-op, not a failure) — expected on local/preview, never on staging/production.
+4. Algolia status? Check https://status.algolia.com — an Algolia outage surfaces as transient
+   push failures that self-heal on the next run.
+5. Liveness alert ("sync not running"): this is the no-data variant of the `outcome:ok`
+   cron series — the 08:00 UTC (= 03:00 EST) cron (`apps/api/src/scheduled.ts`) hasn't reported a successful
+   push for 48h, so it likely isn't firing. Check the staging/production API Worker's scheduled
+   invocation in the Cloudflare dashboard / `wrangler tail`. (The "sync failed" alert does not
+   use no-data — `outcome:failed` is absent on a healthy run.)
+
+**Repair:** a failed entity is retried by the next daily cron (the watermark wasn't advanced).
+To repair immediately, re-run the AECI-138 bulk reindex for the affected env (idempotent upsert):
+
+```bash
+pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
+```
+
+**Escalation:** failures across multiple consecutive runs with Algolia healthy point at a data
+shape / transform regression (`apps/api/src/lib/algolia-sync.ts`) or a rotated admin key — page
+on-call and capture a failing `reason` from the logs for the post-mortem.
