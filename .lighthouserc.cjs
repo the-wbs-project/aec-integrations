@@ -56,7 +56,7 @@
 
 // AECI_LHCI_URL (NOT `LHCI_URL`): lhci parses every `LHCI_*` env var as a CLI
 // flag (yargs env-prefix), so `LHCI_URL` used to become `--url=<base>` and
-// silently REPLACED this whole 14-URL collection list with the bare base URL.
+// silently REPLACED this whole 15-URL collection list with the bare base URL.
 // The AECI_ prefix keeps the local-override mechanism out of lhci's namespace.
 // (`LHCI_RUNS` below is intentionally NOT renamed: `runs` matches no lhci flag,
 // so it passes through harmlessly — and the CI workflow already sets it.)
@@ -86,6 +86,7 @@ module.exports = {
   ci: {
     collect: {
       url: [
+        `${baseUrl}/`, // home page (AECI-187) — indexable (class A): scores + CWV
         `${baseUrl}/products`, // product index
         `${baseUrl}/products/fixture-procore`, // product detail
         `${baseUrl}/vendors`, // vendor index
@@ -101,7 +102,7 @@ module.exports = {
         `${baseUrl}/search`, // Phase 3 search page (AECI-146) — noindex, SEO-exempt
         `${baseUrl}/${NOT_FOUND_SLUG}`, // 404
       ],
-      // Collection dominates this job — 14 URLs × N runs × ~12s each. N=3 takes
+      // Collection dominates this job — 15 URLs × N runs × ~12s each. N=3 takes
       // ~7m50s; a SINGLE run lands at ~2m40s. The DEFAULT stays 1 for quick
       // local passes; CI (lighthouse.yml) sets LHCI_RUNS=3 because the AECI-188
       // error gate asserts the median run — one noisy run must not redden main.
