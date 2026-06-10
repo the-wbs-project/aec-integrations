@@ -142,4 +142,56 @@ describe('SearchAutocomplete', () => {
     form.dispatchEvent(new SubmitEvent('submit', { cancelable: true }));
     expect(submitted).toEqual([]);
   });
+
+  it('navigates to /search on a real Enter keydown (Aria preventDefaults the native submit)', async () => {
+    // The exact regression AECI-191 fixes: Aria expands the combobox on input and
+    // preventDefaults Enter, so the native <form> submit never fires under JS. A
+    // real keydown Enter on the input must still emit the trimmed query. The old
+    // spec dispatched a synthetic `submit` straight at the <form>, bypassing the
+    // key handler entirely, so it never caught this.
+    setup(); // degraded path → no suggestions → no active option
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const emitted: string[] = [];
+    fixture.componentInstance.querySubmitted.subscribe((q) => emitted.push(q));
+
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('input')!;
+    input.value = '  revit  ';
+    input.dispatchEvent(new Event('input', { bubbles: true })); // Aria expands here
+    fixture.detectChanges();
+
+    const enter = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true });
+    input.dispatchEvent(enter);
+
+    expect(emitted).toEqual(['revit']);
+    expect(enter.defaultPrevented, 'native form submit must be suppressed').toBe(true);
+  });
+
+  it('yields Enter to a keyboard-highlighted suggestion (no /search navigation)', async () => {
+    // When a suggestion is active the combobox sets aria-activedescendant and Aria
+    // commits it on Enter (→ suggestionChosen). onEnterKey must NOT also emit
+    // querySubmitted, or the parent would double-navigate.
+    setup();
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    const emitted: string[] = [];
+    fixture.componentInstance.querySubmitted.subscribe((q) => emitted.push(q));
+
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('input')!;
+    input.value = 'revit';
+    // Simulate Aria having highlighted an option (the combobox binds this attr).
+    input.setAttribute('aria-activedescendant', 'aec-search-ac-option-0');
+
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+    );
+
+    expect(emitted).toEqual([]);
+  });
 });

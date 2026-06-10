@@ -74,6 +74,7 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
         [(value)]="queryModel"
         [(expanded)]="expanded"
         (input)="onInput($event)"
+        (keydown.enter)="onEnterKey($event)"
         (focus)="onFocus()"
         (blur)="focused.set(false)"
         [placeholder]="placeholderText()"
@@ -222,7 +223,31 @@ export class SearchAutocomplete {
 
   private suppressSubmit = false;
 
-  /** Native form submit (no-JS) / Enter with no active option → `/search?q=`. */
+  /**
+   * Enter inside the combobox → `/search?q=` (the JS path).
+   *
+   * Aria's `ComboboxPattern` `preventDefault`s Enter whenever the popup is
+   * expanded — and it expands on every keystroke — so the native `<form>` submit
+   * that `onSubmit` relies on never fires under JS (AECI-191). We re-create the
+   * submit here, but YIELD to a keyboard-highlighted suggestion: while one is
+   * active the combobox sets `aria-activedescendant`, and Aria commits that
+   * option on Enter (→ `onSelect` → `suggestionChosen`), so navigating to
+   * `/search` too would double-navigate. Reading the attribute is synchronous and
+   * avoids the relay/effect timing a microtask-based guard would race against.
+   *
+   * `preventDefault()` here also suppresses the native form submit, so `onSubmit`
+   * never double-fires for the same Enter — it stays purely the no-JS base layer.
+   */
+  protected onEnterKey(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.getAttribute('aria-activedescendant')) return;
+    event.preventDefault();
+    this.expanded.set(false);
+    this.querySubmitted.emit(input.value.trim());
+  }
+
+  /** Native form submit (no-JS base layer) → `/search?q=`. Under JS, Enter is
+   * owned by `onEnterKey`; this still guards the post-commit suppression. */
   protected onSubmit(event: Event): void {
     event.preventDefault();
     if (this.suppressSubmit) return; // a suggestion was just committed
