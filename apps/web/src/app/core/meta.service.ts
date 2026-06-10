@@ -118,6 +118,35 @@ export class MetaService {
     }
   }
 
+  /**
+   * Meta for the `/search` results page (AECI-142 / §4.6). Search-results pages
+   * aren't canonical content, so they carry `robots: noindex` — same noindex
+   * treatment as a 404, but with a real (200) page. Title/description are
+   * generic (the page has no entity); canonical self-references `/search`
+   * (query-stripped, so `?q=…` variants don't fork the canonical). Set from the
+   * component constructor so the noindex ships in the SSR HTML head AND is
+   * refreshed on an in-app client navigation onto `/search`.
+   *
+   * Mirrors `setNotFoundMeta`'s stale-JSON-LD cleanup so navigating from a
+   * product/vendor detail page into search doesn't leave structured data behind.
+   */
+  setSearchMeta(input: { canonical: string }): void {
+    const title = $localize`:@@meta.searchTitle:Search · AEC Integrations`;
+    const description = $localize`:@@meta.searchDescription:Search the AEC software integration directory by product, vendor, or integration.`;
+
+    this.title.setTitle(title);
+    this.meta.updateTag({ name: 'description', content: description });
+    this.meta.updateTag({ name: 'robots', content: 'noindex' });
+    this.upsertCanonical(stripQueryParams(input.canonical));
+
+    const head = this.document.head;
+    for (const script of head.querySelectorAll(
+      'script[type="application/ld+json"][data-aeci-jsonld]',
+    )) {
+      script.remove();
+    }
+  }
+
   setProductJsonLd(product: ProductDetail): void {
     this.upsertJsonLdScript('product', buildProductJsonLd(product));
   }

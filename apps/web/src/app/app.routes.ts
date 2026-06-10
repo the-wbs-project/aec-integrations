@@ -136,6 +136,18 @@ export const routes: Routes = [
       import('./integrations/integration-detail').then((m) => m.IntegrationDetailPage),
     resolve: { integration: integrationDetailResolver },
   },
+  // AECI-142 — Phase 3.9 search page. Results are queried browser-side from
+  // Algolia with the search-only key (the API Worker is not in the read path,
+  // §7.5), so there is NO resolver — the SSR shell paints meta + search box +
+  // tabs + empty state, and the browser runs the search after hydration. The
+  // route is non-cacheable (`private, no-store`) by virtue of NOT being in
+  // `server-runtime.ts`'s `ROUTE_CACHE_PATTERNS` (fail-closed default), and the
+  // component sets `robots: noindex` (search-results pages aren't canonical,
+  // §4.6). Registered before the `**` wildcard so it matches.
+  {
+    path: 'search',
+    loadComponent: () => import('./search/search-page').then((m) => m.SearchPage),
+  },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
   // SSR Worker for `ENV === 'production'`. See `apps/web/src/server-runtime.ts`
