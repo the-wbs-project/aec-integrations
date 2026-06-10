@@ -38,8 +38,9 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145)', (
     await expect(page).toHaveURL(FACET_PARAM);
     await expect(page).toHaveURL(PAGE_RESET);
 
-    // The products table still renders (now filtered).
-    await expect(page.locator('table[aria-label]')).toBeVisible();
+    // The filtered results still render. AECI-190 made the card grid the default
+    // /products view (the table is behind the ?view=table toggle).
+    await expect(page.locator('aec-product-card-grid')).toBeVisible();
 
     // The Clear-filters affordance appears whenever a filter is active (driven by
     // the URL via `hasActiveFilters`, not facet data), and clearing it drops the
@@ -68,11 +69,18 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145)', (
 
     // The refined term has product_count > 0, so the filtered grid has at least
     // one product card to click. Wait for the refetched grid to settle.
-    const firstCard = page.locator('tr[aec-product-card] a[href^="/products/"]').first();
+    // AECI-190: the default view is the card grid, so select the product link
+    // view-agnostically within #main rather than via the table-row selector.
+    const firstCard = page.locator('#main a[href^="/products/"]').first();
     await firstCard.waitFor({ timeout: 8000 }).catch(() => {});
     test.skip((await firstCard.count()) === 0, 'no product rows after refine in this environment');
 
-    const cardName = (await firstCard.textContent())?.trim() ?? '';
+    // The whole card is the link, so its textContent is the full tile (name +
+    // vendor + chips + count). The product name itself is the card's display
+    // heading — the only `p.font-display` in the tile (the integration-stat
+    // figure is a <span>) — so compare the detail <h1> against that.
+    const cardName =
+      (await firstCard.locator('p.font-display').first().textContent())?.trim() ?? '';
     await firstCard.click();
     await expect(page).toHaveURL(/\/products\/[^/?#]+$/);
 

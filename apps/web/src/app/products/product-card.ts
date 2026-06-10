@@ -3,6 +3,11 @@ import { RouterLink } from '@angular/router';
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
+
+import { IntegrationStat } from './integration-stat';
+
 /**
  * Row representation of a `ProductListItem`, slotted into `IndexLayout`'s
  * `table-body` slot. Uses an attribute selector on `<tr>` so the rendered
@@ -19,10 +24,13 @@ import type { ProductListItem } from '@aeci/shared';
  * until then per CLAUDE.md "Three similar lines is better than a
  * premature abstraction."
  *
- * Renders four cells: product name (linked), vendor (linked when present,
- * otherwise an em-dash empty state — `vendor` is nullable per AECI-115),
- * primary category (linked to the future `/categories/:slug` browse page when
- * available, otherwise plain text), integration count.
+ * Renders four cells: product (monogram via `LogoOrInitial` + name link),
+ * vendor (linked when present, otherwise an en-dash empty state — `vendor` is
+ * nullable per AECI-115), primary category (a `TaxonomyBadge` chip linking to
+ * `/categories/:slug`, otherwise an en-dash), and the integration count as an
+ * `IntegrationStat` (graceful "Not yet connected" at zero). AECI-190 folded the
+ * monogram / chip / stat treatment in here so the `/products` table view and the
+ * taxonomy browse-page tables share one upgraded row.
  */
 @Component({
   // Attribute selector is required so the rendered DOM is a literal `<tr>` —
@@ -32,18 +40,21 @@ import type { ProductListItem } from '@aeci/shared';
   // CDK uses for `tr[cdk-row]` / `tr[mat-row]`.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-card]',
-  imports: [RouterLink],
+  imports: [RouterLink, LogoOrInitial, TaxonomyBadge, IntegrationStat],
   host: {
     class:
       'text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },
   template: `
     <td class="px-4 py-3 font-medium">
-      <a
-        [routerLink]="['/products', product().slug]"
-        class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-        >{{ product().name }}</a
-      >
+      <span class="flex items-center gap-3">
+        <aec-logo-or-initial [src]="product().logo_url" [name]="product().name" size="sm" />
+        <a
+          [routerLink]="['/products', product().slug]"
+          class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          >{{ product().name }}</a
+        >
+      </span>
     </td>
     <td class="px-4 py-3 text-(--text-secondary)">
       @if (vendor(); as v) {
@@ -63,11 +74,7 @@ import type { ProductListItem } from '@aeci/shared';
     </td>
     <td class="px-4 py-3 text-(--text-secondary)">
       @if (primaryCategory(); as cat) {
-        <a
-          [routerLink]="['/categories', cat.slug]"
-          class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          >{{ cat.name }}</a
-        >
+        <aec-taxonomy-badge kind="category" [slug]="cat.slug" [name]="cat.name" />
       } @else {
         <span
           class="text-(--text-secondary)"
@@ -77,8 +84,8 @@ import type { ProductListItem } from '@aeci/shared';
         >
       }
     </td>
-    <td class="px-4 py-3 text-end text-(--text-secondary) tabular-nums">
-      {{ product().integration_count }}
+    <td class="px-4 py-3 text-end">
+      <aec-integration-stat [count]="product().integration_count" variant="inline" />
     </td>
   `,
 })

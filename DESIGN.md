@@ -296,7 +296,7 @@ Used for vendor profiles, integration cards, the `/search` result tiles (see Sea
 
 ### Entity cards (index rows)
 
-The three index pages render their rows through dedicated per-entity components — `ProductCard`, `VendorCard`, `IntegrationCard` (Phase 2 Spec §11.2, in `apps/web/src/app/{products,vendors,integrations}/`). Despite the "card" name they currently render as **table rows**: each uses an attribute selector on `<tr>` (`tr[aec-product-card]`, `tr[aec-vendor-card]`, `tr[aec-integration-card]`) so the rendered DOM stays a valid `<tbody>` child — a custom element placed directly inside `<tbody>` is foster-parented out by the HTML tree builder (the same pattern Angular CDK uses for `tr[cdk-row]`). The "card" vocabulary is shared with the eventual card-grid tile the Phase 3 browse pages will introduce; when that first grid consumer lands the component either gains a `variant: 'row' | 'card'` input or splits into a row + tile pair.
+The three index pages render their rows through dedicated per-entity components — `ProductCard`, `VendorCard`, `IntegrationCard` (Phase 2 Spec §11.2, in `apps/web/src/app/{products,vendors,integrations}/`). Despite the "card" name they render as **table rows**: each uses an attribute selector on `<tr>` (`tr[aec-product-card]`, `tr[aec-vendor-card]`, `tr[aec-integration-card]`) so the rendered DOM stays a valid `<tbody>` child — a custom element placed directly inside `<tbody>` is foster-parented out by the HTML tree builder (the same pattern Angular CDK uses for `tr[cdk-row]`). AECI-190 split the products catalog into two views: these `<tr>` components are the **table view** (shared by the `/products` table and the taxonomy browse-page tables), while a separate `ProductCardGrid` (below) is the **card-grid view** and the default for `/products`.
 
 Shared behavior across all three:
 
@@ -306,7 +306,7 @@ Shared behavior across all three:
 
 The three variants differ only in cell content:
 
-- **ProductCard** (`tr[aec-product-card]`) — name (→ `/products/:slug`), vendor (→ `/vendors/:slug`; nullable per AECI-115), primary category (→ `/categories/:slug`), integration count.
+- **ProductCard** (`tr[aec-product-card]`) — a monogram (`LogoOrInitial`, 32px) beside the name (→ `/products/:slug`), vendor (→ `/vendors/:slug`; nullable per AECI-115), primary category as a `TaxonomyBadge` chip (→ `/categories/:slug`), and the integration count as an `IntegrationStat` (graceful "Not yet connected" at zero). AECI-190 folded this richer treatment in so the `/products` table view and the taxonomy browse-page tables share one row.
 - **VendorCard** (`tr[aec-vendor-card]`) — company name (→ `/vendors/:slug`), headquarters, founded year, product count.
 - **IntegrationCard** (`tr[aec-integration-card]`) — the `"{source} → {target}"` headline (→ `/integrations/:id`; integrations are keyed by id, not slug, per §6.5), a `mechanism_kind` badge (reusing the chip treatment from Tags / Taxonomy chips), and the direction label. The `→` glyph is `aria-hidden` and RTL-mirrored (`rtl:-scale-x-100`).
 
@@ -331,6 +331,23 @@ The Phase 3 search surface (`/search`, the listing-page filters, and the header 
 - **Header search autocomplete** (`<aec-search-autocomplete>`, `search/search-autocomplete.ts`, AECI-144) — the search-as-you-type field in the site header (the home hero reuses it in Phase 4). This is the project's **first Angular Aria combobox** adoption (ADR 0010): `ngCombobox` + `ngListbox`/`ngOption` supply the `role=combobox/listbox/option` semantics, `aria-expanded`/`aria-controls`/`aria-activedescendant`, the Arrow/Home/End/Escape model, and the CDK-Overlay-positioned popup; we supply only token CSS (`data-[active=true]:` highlight on `surface-sunken`, popup on `surface-raised` with `border-default`). A real `<label for>` names the input (never placeholder-as-label). It **SSR-renders only the static `<form>`/`<label>`/`<input>`** (visitor-state-neutral, so it is safe inside the cached header) and is hydration-enhanced; when the Algolia config is absent it stays a plain submit-to-`/search` field with no error UI (correct for a header control). The listbox is rendered **only when there is ≥1 hit**, so a zero-hit query shows no empty floating panel (keeps it `role=option`-only and axe-clean); Enter with no selection routes to `/search?q=`, which owns the "no results" empty state.
 
 > **Deferred — per-tab sort dropdown (AECI-175 / ADR 0014).** Spec §4.6 lists a per-tab sort control, but no Algolia **replicas** exist yet, so a sort dropdown would have nothing to switch to. Phase 3 ships the §7.3 relevance default (`customRanking`) and marks the `connectSortBy` insertion point in `search-controller.ts`. The dropdown (a labelled, i18n'd, both-theme, axe-AA `<select>` or Aria listbox per tab) lands with the replicas in **AECI-175**. Recorded here so the design system matches the shipped surface.
+### Product card grid (AECI-190)
+
+`ProductCardGrid` (`aec-product-card-grid`, `apps/web/src/app/products/`) is the **default view** of `/products` — a buyer-facing catalog grid (anchor site: Faire). The table view above stays available via the toolbar toggle (`?view=table`). This is the card-grid variant the note above anticipated.
+
+- **Layout:** responsive `grid` — 1 / 2 / 3 columns (`sm:grid-cols-2 lg:grid-cols-3`). The grid is deliberately *broken* (per the anti-reference against identical SaaS grids): the lead product gets a wide featured card spanning two columns on a warm **Bone** (`accent-warm`) band. The host enables the lead only on page 1 at the newest sort, so its "Recently added" eyebrow stays truthful; otherwise the grid is uniform.
+- **Tile:** one whole-card `<a>` to `/products/:slug`, so category / role render as **non-link** chips (`CategoryChip` / `RoleBadge`, never the `<a>`-based `TaxonomyBadge` — nested anchors are invalid + an axe failure). Monogram (`LogoOrInitial`), name (Source Serif), vendor, and the integration count as an `IntegrationStat` badge. Borders not shadows; hover raises `border-default` → `border-strong`.
+
+### Integration stat
+
+`IntegrationStat` (`aec-integration-stat`) renders a product's `integration_count` as a deliberate metric — the directory's whole thesis is "which tools connect to what" — in three weights: `inline` (number over noun; table cells + grid), `badge` (a bordered pill with a Lucide "link" glyph), `headline` (a large Forest figure on the featured card). At zero it renders "Not yet connected" in `text-secondary`, never a bare `0`; it pluralizes the noun (1 → "integration"). The glyph is `aria-hidden` — the number + noun carry the meaning.
+
+### Role + category chips
+
+Two non-link chips for the card grid, sharing the Tags / Taxonomy-chip surface (bordered, `rounded.sm`, `text-secondary`):
+
+- **RoleBadge** (`aec-role-badge`) — the product's `product_role`, shown **only** for `connector` / `hybrid`; the default `application` renders nothing, so the chip earns attention by appearing selectively.
+- **CategoryChip** (`aec-category-chip`) — the primary category as plain styled text (not a link), for contexts where the whole card is already a link.
 
 ### Inputs / Fields
 

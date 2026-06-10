@@ -1,14 +1,16 @@
 /**
- * Shared table-driven harness for the product / vendor / integration
- * index-component specs (AECI-113). Products and vendors are case-for-case
- * identical; integration shares the four "common" cases (default-sort fetch,
- * unknown-sort fallback, error row, empty state) but defaults to `sort=name`
- * and adds its own source/target filter cases, so it opts out of the three
- * sort/nav cases that only make sense for the `created`-default lists.
+ * Shared harness for index-component specs (AECI-113). The `/vendors` and
+ * `/integrations` index pages were removed (AECI-165), so `/products` is now the
+ * sole consumer of the full suite — but the structure is kept generic.
  *
- *   - `registerIndexPageSuite`  → 4 common + 3 sort/nav cases (products, vendors)
- *   - `registerIndexCommonCases`→ 4 common cases (integrations; filter cases stay
- *                                  in the integration spec)
+ * AECI-190 redesigned the products index: it defaults to a card grid (not a
+ * table), sort moved from clickable column headers to a toolbar `<select>`, and
+ * the error / empty / loading states are paragraphs, not table rows. The cases
+ * below assert against that structure (DOM-agnostic text checks + the sort
+ * dropdown) rather than `tbody`/`th[aria-sort]`.
+ *
+ *   - `registerIndexPageSuite`  → 4 common + 3 sort/nav cases
+ *   - `registerIndexCommonCases`→ 4 common cases (filter cases stay in the spec)
  *
  * Test helper, not a spec — `*.harness.ts` so no runner collects it directly
  * and the app build excludes it (`tsconfig.app.json`). Entity-specific cases use
@@ -147,8 +149,7 @@ function registerCommonCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
-    expect(errorRow?.textContent).toContain(s.errorText);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(s.errorText);
     drainFacets(httpMock, s);
     httpMock.verify();
   });
@@ -165,16 +166,15 @@ function registerCommonCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    const emptyRow = (fixture.nativeElement as HTMLElement).querySelector('tbody td');
-    expect(emptyRow?.textContent).toContain(s.emptyText);
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(s.emptyText);
     drainFacets(httpMock, s);
     httpMock.verify();
   });
 }
 
-/** The three sort/header-navigation cases shared by the `created`-default lists. */
+/** The three sort/nav cases shared by the `created`-default lists. */
 function registerSortNavCases(s: IndexPageScenario): void {
-  it('reads ?sort=name from the URL and reflects it in the column header active state', async () => {
+  it('reads ?sort=name from the URL and reflects it in the sort dropdown', async () => {
     const { httpMock, router } = createIndexSetup(s.component, s.routePath);
     await router.navigateByUrl(`/${s.routePath}?sort=name`);
     const fixture = TestBed.createComponent(s.component);
@@ -185,14 +185,16 @@ function registerSortNavCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    // name sorts ascending (A→Z), so aria-sort must be "ascending".
-    const th = (fixture.nativeElement as HTMLElement).querySelector('th[aria-sort]');
-    expect(th?.getAttribute('aria-sort')).toBe('ascending');
+    // AECI-190: sort state is reflected by the toolbar <select>, not a th[aria-sort].
+    const select = (fixture.nativeElement as HTMLElement).querySelector(
+      'select',
+    ) as HTMLSelectElement;
+    expect(select.value).toBe('name');
     drainFacets(httpMock, s);
     httpMock.verify();
   });
 
-  it('navigates with ?sort=name&page=1 when a sortable header is activated', async () => {
+  it('navigates with ?sort=name&page=1 when the sort dropdown changes', async () => {
     const { httpMock, router } = createIndexSetup(s.component, s.routePath);
     await router.navigateByUrl(`/${s.routePath}?page=3`);
     const fixture = TestBed.createComponent(s.component);
@@ -202,10 +204,11 @@ function registerSortNavCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    const nameHeaderButton = (fixture.nativeElement as HTMLElement).querySelector(
-      'aec-sortable-column-header button',
-    ) as HTMLButtonElement;
-    nameHeaderButton.click();
+    const select = (fixture.nativeElement as HTMLElement).querySelector(
+      'select',
+    ) as HTMLSelectElement;
+    select.value = 'name';
+    select.dispatchEvent(new Event('change'));
     await settle();
 
     // Sort change resets to page 1.
@@ -245,9 +248,8 @@ function registerSortNavCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    // The error row must be visible; stale page-1 data must not be shown.
-    const errorRow = (fixture.nativeElement as HTMLElement).querySelector('tbody tr td');
-    expect(errorRow?.textContent).toContain(s.errorText);
+    // The error must be visible; stale page-1 data must not be shown.
+    expect((fixture.nativeElement as HTMLElement).textContent).toContain(s.errorText);
     drainFacets(httpMock, s);
     httpMock.verify();
   });
