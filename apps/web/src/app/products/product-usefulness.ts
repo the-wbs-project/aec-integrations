@@ -15,9 +15,15 @@ import type { ProductUsefulness } from '@aeci/shared';
  * via `@if (p.usefulness; as u)`. The `host [hidden]` binding handles the other
  * empty case — a non-null `usefulness` whose facets carry no usable points
  * (e.g. every group has zero `points`). `[hidden]` (preflight
- * `display:none !important`) collapses the host box so the parent's `space-y-12`
- * rhythm is undisturbed — Tailwind's `space-y` selector skips `[hidden]`
- * siblings, so no extra gap is left behind. Hence no `:host { display: block }`.
+ * `display:none !important`) collapses the host box entirely, so the parent's
+ * `space-y-12` rhythm is undisturbed: a `display:none` element generates no box
+ * and its margin is moot, leaving no extra gap behind.
+ *
+ * The host carries `class: 'block'` because a custom-element host defaults to
+ * `display:inline`, and Tailwind v4's `space-y-12` puts `margin-block-end` on
+ * `& > :not(:last-child)` — a block margin that inline boxes ignore. Without a
+ * block host the populated section would lose its 3rem gap above the following
+ * Integrations section (matches the `aec-*` host pattern, cf. logo-or-initial).
  *
  * Layout: two columns on `md+`; a single populated side goes full-width. Groups
  * with no points are dropped. Group names / points are data (interpolation, no
@@ -28,7 +34,7 @@ import type { ProductUsefulness } from '@aeci/shared';
 @Component({
   selector: 'aec-product-usefulness',
   imports: [NgTemplateOutlet],
-  host: { '[hidden]': '!hasContent()' },
+  host: { class: 'block', '[hidden]': '!hasContent()' },
   template: `
     @if (hasContent()) {
       <section aria-labelledby="usefulness-title" class="space-y-4">
