@@ -510,4 +510,12 @@ describe('runHomeStats', () => {
     const result = await runHomeStats(prisma, NOW);
     expect(result.keys).toHaveLength(7);
   });
+
+  it('records a non-negative per-key durationMs for every key (AECI-180)', async () => {
+    const { prisma } = makeFakePrisma(fullFixture());
+    const result = await runHomeStats(prisma, NOW);
+    expect(result.keys.every((k) => typeof k.durationMs === 'number' && k.durationMs >= 0)).toBe(
+      true,
+    );
+  });
 });

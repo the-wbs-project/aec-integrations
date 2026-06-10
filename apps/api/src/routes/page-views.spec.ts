@@ -1,11 +1,21 @@
 import { ApiErrorSchema } from '@aeci/shared';
 import { Hono } from 'hono';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// Mock the Datadog transport so the AECI-180 write-health metric
+// (`aeci.pageviews.write`) can be asserted without a live submission. The real
+// transport no-ops without `DD_API_KEY`, so mocking only changes observability.
+vi.mock('../datadog', () => ({ logToDatadog: vi.fn(), submitCount: vi.fn() }));
+
+import { submitCount } from '../datadog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { PrismaFactory } from '../lib/handler-utils';
 import { createPageViewsHandler } from './page-views';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 const TRACE_ID_RE = /^[0-9a-f-]{36}$/i;
 const SHA256_RE = /^[0-9a-f]{64}$/;
@@ -459,5 +469,67 @@ describe('createPageViewsHandler — bot-score sampling knob (AECI-177 / §14.2)
 
     await settle();
     expect(createdData(prisma).cfBotScore).toBe(5);
+  });
+});
+
+describe('createPageViewsHandler — write-health metric (AECI-180)', () => {
+  /** Find every `aeci.pageviews.write` submitCount call's outcome tag. */
+  function writeOutcomes(): string[] {
+    return vi
+      .mocked(submitCount)
+      .mock.calls.filter((c) => c[3] === 'aeci.pageviews.write')
+      .map((c) => (c[5] as string[])[0]!);
+  }
+
+  it('emits aeci.pageviews.write{outcome:ok} after a successful insert', async () => {
+    const prisma = makeCaptureMock();
+    const { ctx, settle } = capturingExecutionContext();
+
+    await buildCaptureApp(prisma).request(
+      '/api/page-views',
+      jsonRequest({ route: '/products/foo' }),
+      env,
+      ctx,
+    );
+    await settle();
+
+    expect(prisma.pageView.create).toHaveBeenCalledTimes(1);
+    expect(writeOutcomes()).toEqual(['outcome:ok']);
+  });
+
+  it('emits aeci.pageviews.write{outcome:failed} when the insert throws (still 204)', async () => {
+    const prisma = makeCaptureMock({
+      create: async () => {
+        throw new Error('db down');
+      },
+    });
+    const { ctx, settle } = capturingExecutionContext();
+
+    const res = await buildCaptureApp(prisma).request(
+      '/api/page-views',
+      jsonRequest({ route: '/products/foo' }),
+      env,
+      ctx,
+    );
+    expect(res.status).toBe(204);
+    await settle();
+
+    expect(writeOutcomes()).toEqual(['outcome:failed']);
+  });
+
+  it('emits NO write metric when the view is sampled out (not a write)', async () => {
+    const prisma = makeCaptureMock();
+    const { ctx, settle } = capturingExecutionContext();
+
+    await buildCaptureApp(prisma).request(
+      '/api/page-views',
+      jsonRequest({ route: '/products/foo' }, { 'x-aeci-cf-bot-score': '10' }),
+      { ...env, PAGE_VIEWS_MIN_BOT_SCORE: '30' },
+      ctx,
+    );
+    await settle();
+
+    expect(prisma.pageView.create).not.toHaveBeenCalled();
+    expect(writeOutcomes()).toEqual([]);
   });
 });
