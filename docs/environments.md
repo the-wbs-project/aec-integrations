@@ -325,12 +325,12 @@ The script:
 ## Local dev: Supabase auth (Phase 5)
 
 AECI-193 wired Supabase Auth into both Workers. To exercise it locally against
-the **shared dev project** (`lfqxneqihbejrkufvafw`):
+the **shared dev project** (`dmbygwupskttzsvfzluq`):
 
 1. **`.dev.vars` setup.**
-   - `apps/web/.dev.vars`: set `SUPABASE_URL=https://lfqxneqihbejrkufvafw.supabase.co`
+   - `apps/web/.dev.vars`: set `SUPABASE_URL=https://dmbygwupskttzsvfzluq.supabase.co`
      and `SUPABASE_ANON_KEY=<dev publishable key>` (fetch with
-     `supabase projects api-keys --project-ref lfqxneqihbejrkufvafw`). Also set
+     `supabase projects api-keys --project-ref dmbygwupskttzsvfzluq`). Also set
      `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` for the mint
      script (these are **never** Worker bindings).
    - `apps/api/.dev.vars`: set the same `SUPABASE_URL` (the API Worker reads it

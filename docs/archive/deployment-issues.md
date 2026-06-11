@@ -77,7 +77,7 @@ SUPABASE_ACCESS_TOKEN     ← added during this saga
 **Variables:**
 
 ```
-SUPABASE_DEV_PROJECT_REF = lfqxneqihbejrkufvafw   ← added during this saga
+SUPABASE_DEV_PROJECT_REF = dmbygwupskttzsvfzluq   ← added during this saga
 ```
 
 **Still missing per docs/environments.md but not blocking right now:**
@@ -185,7 +185,7 @@ the previously-disabled jobs are re-enabled. Walk-through:
 ### What we did
 
 1. Deployed `aeci-api-staging` + `aeci-web-staging` against the
-   `aeci-development` Supabase project (project ref `lfqxneqihbejrkufvafw`).
+   `aeci-development` Supabase project (project ref `dmbygwupskttzsvfzluq`).
    Reachable at `https://staging.aecintegrations.com`, gated by the existing
    "AECi Non-Prod" Cloudflare Access app (per `docs/access.md` §1).
 2. Built `scripts/measure-accelerate-lag.mjs` — a self-contained diagnostic
