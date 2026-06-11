@@ -1,8 +1,14 @@
-import { CategoryDetailSchema, AudienceDetailSchema, PhaseDetailSchema } from '@aeci/shared';
+import {
+  ApiErrorCode,
+  CategoryDetailSchema,
+  AudienceDetailSchema,
+  PhaseDetailSchema,
+} from '@aeci/shared';
 import { Hono } from 'hono';
 
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
+import { requireAuth, type AuthzVariables } from './lib/authz';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
@@ -19,6 +25,7 @@ import { createProductFacetsHandler } from './routes/product-facets';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
+import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
@@ -139,6 +146,21 @@ const authUser = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
 authUser.onError(errorHandler());
 authUser.post('/api/auth/profile/ensure', requireUserAuth(), createEnsureProfileHandler());
 app.route('/', authUser);
+
+// Phase 5.6 review-submit sub-router (AECI-197) — the first authenticated user
+// *write*. Own router because `requireAuth()` sets `c.get('auth')`
+// (`AuthzVariables`), a different shape from the `authUser`/`authSpike` routers
+// above (`requireUserAuth()` → `c.get('user')`). `bannedCode: REVIEW_BANNED`
+// makes the banned rejection a 403 `REVIEW_BANNED` per API_CONTRACTS.md §6.6.
+// Reached only over the service binding like every other route.
+const authReviews = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authReviews.onError(errorHandler());
+authReviews.post(
+  '/api/reviews',
+  requireAuth({ bannedCode: ApiErrorCode.REVIEW_BANNED }),
+  createSubmitReviewHandler(),
+);
+app.route('/', authReviews);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.
