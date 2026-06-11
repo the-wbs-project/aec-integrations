@@ -12,6 +12,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
 
 /**
@@ -50,6 +51,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     LogoOrInitial,
     NgTemplateOutlet,
     NotFound,
+    ProductReviews,
     ProductUsefulnessSection,
     RouterLink,
     SectionNav,
@@ -403,6 +405,16 @@ import { ProductUsefulnessSection } from './product-usefulness';
               }
             }
           </section>
+
+          <section id="reviews" aria-labelledby="reviews-title" class="scroll-mt-20">
+            <aec-product-reviews
+              [slug]="p.slug"
+              [reviewCount]="p.review_count"
+              [ratingOverallAvg]="p.rating_overall_avg"
+              [ratingOnboardingAvg]="p.rating_onboarding_avg"
+              [firstPage]="p.reviews"
+            />
+          </section>
         </div>
       </aec-detail-layout>
     }
@@ -491,6 +503,12 @@ export class ProductDetailPage {
     items.push({
       id: 'integrations',
       label: $localize`:@@products.detail.nav.integrations:Integrations`,
+    });
+    // Reviews always renders (its empty state still does), so it is always in
+    // the nav — same rule as Integrations above.
+    items.push({
+      id: 'reviews',
+      label: $localize`:@@products.detail.nav.reviews:Reviews`,
     });
     return items;
   });

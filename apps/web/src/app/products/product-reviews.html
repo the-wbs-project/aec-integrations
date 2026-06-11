@@ -1,0 +1,128 @@
+<div class="space-y-6">
+  <div class="flex flex-wrap items-baseline justify-between gap-4">
+    <h2
+      id="reviews-title"
+      class="font-display text-2xl font-semibold text-(--text-primary)"
+      i18n="@@products.detail.body.reviews"
+    >
+      Reviews
+    </h2>
+    <aec-review-cta [slug]="slug()" />
+  </div>
+
+  @if (isEmpty()) {
+  <p
+    class="rounded-(--radius-lg) border border-dashed border-(--border-default) bg-(--surface-sunken) p-6 text-sm text-(--text-secondary)"
+    i18n="@@products.detail.body.reviews.empty"
+  >
+    No reviews yet — be the first to review this product.
+  </p>
+  } @else { @if (showSummary()) {
+  <div
+    class="grid gap-5 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5 sm:grid-cols-2"
+  >
+    <div class="space-y-1">
+      <p
+        class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@products.detail.reviews.overall"
+      >
+        Overall
+      </p>
+      <div class="flex items-center gap-2">
+        <span class="font-display text-2xl font-semibold text-(--text-primary)"
+          >{{ overallDisplay() }}</span
+        >
+        <aec-review-stars [rating]="ratingOverallAvg()!" kind="overall" />
+      </div>
+    </div>
+    <div class="space-y-1">
+      <p
+        class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@products.detail.reviews.onboarding"
+      >
+        Onboarding
+      </p>
+      <div class="flex items-center gap-2">
+        <span class="font-display text-2xl font-semibold text-(--text-primary)"
+          >{{ onboardingDisplay() }}</span
+        >
+        <aec-review-stars [rating]="ratingOnboardingAvg()!" kind="onboarding" />
+      </div>
+    </div>
+    <p class="text-sm text-(--text-secondary) sm:col-span-2">{{ summaryCountLabel() }}</p>
+  </div>
+  } @else if (showThresholdNote()) {
+  <p class="text-sm text-(--text-secondary)" i18n="@@products.detail.body.reviews.threshold">
+    Ratings shown once this product has 5+ reviews.
+  </p>
+  }
+
+  <ul class="grid gap-4">
+    @for (r of reviews(); track r.id) {
+    <li
+      class="space-y-3 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+    >
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <h3 class="min-w-0 break-words font-semibold text-(--text-primary)">{{ r.title }}</h3>
+        <span class="shrink-0 text-xs text-(--text-secondary)"
+          >{{ r.created_at | date: 'mediumDate' }}</span
+        >
+      </div>
+
+      <div class="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-(--text-secondary)">
+        <span class="flex items-center gap-1.5">
+          <span i18n="@@products.detail.reviews.overall">Overall</span>
+          <aec-review-stars [rating]="r.rating_overall" kind="overall" />
+        </span>
+        <span class="flex items-center gap-1.5">
+          <span i18n="@@products.detail.reviews.onboarding">Onboarding</span>
+          <aec-review-stars [rating]="r.rating_onboarding" kind="onboarding" />
+        </span>
+      </div>
+
+      <p class="break-words text-sm leading-relaxed text-(--text-secondary)">{{ r.body }}</p>
+
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--text-secondary)">
+        @if (r.verified_work_email) {
+        <span class="inline-flex items-center gap-1 font-medium text-(--text-primary)">
+          <span aria-hidden="true">✓</span>
+          <span i18n="@@products.detail.reviews.verified">Verified reviewer</span>
+        </span>
+        } @if (r.role_at_company) {
+        <span>{{ roleLabel(r.role_at_company) }}</span>
+        } @if (r.years_using !== null) {
+        <span>{{ yearsLabel(r.years_using) }}</span>
+        } @if (r.would_recommend) {
+        <span>{{ recommendLabel(r.would_recommend) }}</span>
+        }
+      </div>
+    </li>
+    }
+  </ul>
+
+  @if (hasMore()) {
+  <div class="flex flex-col items-center gap-2">
+    <button
+      type="button"
+      class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) disabled:cursor-not-allowed disabled:text-(--text-tertiary) disabled:hover:border-(--border-default) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+      [disabled]="loadingMore()"
+      (click)="loadMore()"
+    >
+      @if (loadingMore()) {
+      <span i18n="@@products.detail.body.reviews.loading">Loading…</span>
+      } @else {
+      <span i18n="@@products.detail.body.reviews.loadMore">Load more reviews</span>
+      }
+    </button>
+    @if (loadError()) {
+    <p
+      class="text-xs font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@products.detail.body.reviews.loadError"
+    >
+      Couldn’t load more reviews. Please try again.
+    </p>
+    }
+  </div>
+  } }
+</div>
