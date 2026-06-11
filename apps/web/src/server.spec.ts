@@ -12,6 +12,7 @@ import {
   cacheKeyUrl,
   createApp,
   hasSessionCookie,
+  isAdminPath,
   isCacheableRoute,
   isPreviewPath,
   isReviewPath,
@@ -182,6 +183,9 @@ describe('cacheControlForRoute', () => {
     '/auth/login',
     '/account',
     '/account/settings',
+    // AECI-203 — the admin surface is non-cacheable (fail-closed classifier).
+    '/admin',
+    '/admin/reviews',
     '/search',
     '/does-not-exist',
     '/products/procore/extra',
@@ -1770,5 +1774,126 @@ describe('createApp review-route auth gate (AECI-200)', () => {
 
     expect(res.status).toBe(200);
     expect(await res.text()).toBe('SSR-OK');
+  });
+});
+
+describe('isAdminPath (AECI-203)', () => {
+  it('matches /admin and everything under it', () => {
+    expect(isAdminPath('/admin')).toBe(true);
+    expect(isAdminPath('/admin/reviews')).toBe(true);
+    expect(isAdminPath('/admin/reviews/anything/deep')).toBe(true);
+  });
+
+  it('does not match look-alike paths', () => {
+    expect(isAdminPath('/administrator')).toBe(false);
+    expect(isAdminPath('/admin-tools')).toBe(false);
+    expect(isAdminPath('/products/admin')).toBe(false);
+    expect(isAdminPath('/')).toBe(false);
+  });
+});
+
+describe('createApp admin-surface anon gate (AECI-203)', () => {
+  it('redirects a logged-out visitor to /auth/login with a sanitized return path', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
+    });
+
+    const req = new Request('https://aecintegrations.com/admin', {
+      headers: { cookie: 'theme=dark' }, // no session cookie
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/auth/login?return=%2Fadmin');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('redirects a logged-out visitor on a deep admin path too', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')),
+    });
+
+    const req = new Request('https://aecintegrations.com/admin/reviews', {
+      headers: { cookie: 'theme=light' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/auth/login?return=%2Fadmin%2Freviews');
+  });
+
+  it('falls through to SSR when a session cookie is present (role check happens in the resolver)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
+
+    const req = new Request('https://aecintegrations.com/admin', {
+      headers: { cookie: 'sb-proj-auth-token=session' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('SSR-OK');
+  });
+
+  it('is GET-only — a non-GET admin request is not redirected to login', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
+
+    // No real POST handler under /admin besides the earlier-registered
+    // /admin/purge, so this falls through to SSR rather than a login bounce.
+    const req = new Request('https://aecintegrations.com/admin/not-purge', {
+      method: 'POST',
+      headers: { cookie: 'theme=dark' }, // no session cookie
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).not.toBe(303);
+  });
+});
+
+describe('createApp authenticated-SSR cookie neutrality (AECI-203)', () => {
+  // A renderer that makes an authenticated API read through the request context,
+  // so we can assert WHICH branch's client (cookie-forwarding vs cookie-free) the
+  // resolver got. The recording binding captures the outbound `/api/probe` call.
+  function apiProbeRenderer(): SsrRenderer {
+    return async (_req, ctx) => {
+      await ctx.api.request('/api/probe').catch(() => undefined);
+      return new Response('SSR-OK', { status: 200, headers: { 'content-type': 'text/plain' } });
+    };
+  }
+
+  function probeCookie(calls: Request[]): string | null {
+    const probe = calls.find((r) => new URL(r.url).pathname === '/api/probe');
+    if (!probe) throw new Error('expected the renderer to call /api/probe');
+    return probe.headers.get('cookie');
+  }
+
+  it('forwards the session cookie to the API on a NON-cacheable route (/admin)', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: apiProbeRenderer() });
+
+    const req = new Request('https://aecintegrations.com/admin', {
+      headers: { cookie: 'sb-proj-auth-token=session; theme=dark' },
+    });
+    await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(probeCookie(calls)).toBe('sb-proj-auth-token=session; theme=dark');
+  });
+
+  it('does NOT forward the session cookie to the API on a CACHEABLE route (/)', async () => {
+    const { binding, calls } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: apiProbeRenderer() });
+
+    // The session cookie survives into the SSR render (it is not visitor-state),
+    // but the cacheable branch's API client must never carry it — else a
+    // per-user response could be written to the shared edge cache.
+    const req = new Request('https://aecintegrations.com/', {
+      headers: { cookie: 'sb-proj-auth-token=session' },
+    });
+    await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(probeCookie(calls)).toBeNull();
   });
 });

@@ -12,6 +12,7 @@ import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
+import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { metricsMiddleware } from './metrics-middleware';
@@ -167,13 +168,21 @@ authReviews.post(
 );
 app.route('/', authReviews);
 
-// Phase 5.13 admin moderation sub-router (AECI-204) — the functional review
-// read+write API. `requireAdmin()` sets `c.get('auth')` (`AuthzVariables`, same
-// shape as `authReviews`) AND enforces `role === 'admin'` before the handler, so
-// the moderate write can never run without an admin identity. Reached only over
-// the service binding like every other route.
+// Phase 5.12 + 5.13 admin sub-router (AECI-203 + AECI-204). Every route is
+// `requireAdmin()`-gated: it sets `c.get('auth')` (`AuthzVariables`, same shape
+// as `authReviews`) AND enforces `role === 'admin'` before the handler, so
+// neither the badge read nor the moderation write can run without an admin
+// identity (no `bannedCode` — a banned admin gets the default `403 FORBIDDEN`).
+// Registered before the `/api/*` 404 catch-all so they can match; reached only
+// over the service binding, no ingress.
+//   - GET   /api/admin/summary     (5.12) — admin shell badge feed (pending
+//     review count); also the SSR `/admin` gate signal (200 = admin, 401/403 →
+//     the resolver renders a 404).
+//   - GET   /api/admin/reviews     (5.13) — paginated moderation queue.
+//   - PATCH /api/admin/reviews/:id (5.13) — approve/reject a review.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
+authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
 authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandler());
 authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
 app.route('/', authAdmin);
