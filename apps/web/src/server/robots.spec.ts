@@ -41,4 +41,25 @@ describe('buildRobotsTxt', () => {
       expect(robots).not.toContain(`Disallow: ${path}`);
     }
   });
+
+  it('allows indexing by default (back-compat: no second arg)', () => {
+    expect(buildRobotsTxt('https://aecintegrations.com')).toContain('Allow: /');
+  });
+
+  describe('when indexing is disallowed (pre-launch / non-public envs)', () => {
+    const blocked = buildRobotsTxt('https://demo.aecintegrations.com', false);
+
+    it('still allows crawling so the X-Robots-Tag noindex header is honored', () => {
+      expect(blocked).toContain('User-agent: *');
+      expect(blocked).toContain('Allow: /');
+    });
+
+    it('does not Disallow the crawl (that would hide the noindex from crawlers)', () => {
+      expect(blocked).not.toContain('Disallow: /');
+    });
+
+    it('does not advertise the sitemap', () => {
+      expect(blocked).not.toContain('Sitemap:');
+    });
+  });
 });

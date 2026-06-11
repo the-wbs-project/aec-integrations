@@ -89,6 +89,17 @@ export type WebEnv = {
    */
   ENV?: 'development' | 'preview' | 'staging' | 'production';
   /**
+   * Crawler-indexing gate (`server/robots-policy.ts`). FAIL-CLOSED: indexing is
+   * blocked on every environment unless this is exactly the string `"true"`.
+   * Pre-launch, no env sets it — so `demo.aecintegrations.com` (public, the
+   * `production` env, NOT behind Cloudflare Access), staging, and PR previews
+   * all emit `X-Robots-Tag: noindex` (the authoritative block) plus a
+   * sitemap-less `robots.txt` that still allows crawling so the noindex is seen.
+   * Deliberately NOT derived from `ENV` — `production` is the pre-launch demo.
+   * Set to `"true"` on the env that should be indexed at public launch.
+   */
+  ALLOW_INDEXING?: string;
+  /**
    * Build metadata for `GET /_version` (AECI-92), injected via `wrangler --var`
    * at deploy/dev time. Optional so the handler returns sentinels (`unknown` /
    * epoch) rather than throwing when no `--var` flag is passed (bare

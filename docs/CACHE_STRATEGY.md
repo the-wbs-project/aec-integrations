@@ -193,6 +193,14 @@ In addition to `Cache-Control` and `Cache-Tag`, every cacheable response carries
 
 **Note on the `Vary` policy.** This updates the previous `STAGE_1_SPEC.md` §9.3 stance ("no `Vary` headers on cached SSR responses"). The reasoning behind the original ban — `Vary: Cookie` and `Vary: User-Agent` fragment the edge cache without a corresponding invalidation handle — still holds for *those* values. `Vary: Accept-Language` is safe because locale variance is already segmented at the URL-prefix layer, so there's no additional cache fragmentation beyond what the URL key already provides. Any *other* `Vary` value (`Cookie`, `User-Agent`, etc.) remains forbidden.
 
+### 7.1 Crawler-indexing gate (`X-Robots-Tag`)
+
+Indexing is **fail-closed and environment-gated**, independent of the SEO headers above. The SSR Worker stamps `X-Robots-Tag: noindex, nofollow` on **every** response (all routes except the raw `/api/*` proxy) **unless** the `ALLOW_INDEXING` Worker var is exactly `"true"`. Pre-launch, no env sets it, so `demo.aecintegrations.com` (the `production` env — public, **not** behind Cloudflare Access; see `access.md` §"Locked decisions"), `staging.aecintegrations.com`, and `*.workers.dev` PR previews all return `noindex` and a sitemap-less `robots.txt` that still permits crawling (`Allow: /`, no `Sitemap:` line).
+
+- **Why a header, not just `robots.txt` or `<meta robots>`.** `X-Robots-Tag` is the authoritative directive: it covers redirects, 404s, and non-HTML responses that can't carry a `<meta>` tag, and it governs URLs discovered via external links. For a compliant crawler to honor it the page must be crawlable, so `robots.txt` deliberately does **not** `Disallow: /` — blocking the crawl would stop the crawler from ever seeing the `noindex` and (per Google's docs) leave externally-linked URLs eligible to appear as URL-only results. robots.txt's only job in the blocked state is to withhold the sitemap.
+- **Cache-safe.** The header is stamped at egress, *after* `handleSsr` stores the cache entry, so the cached payload stays visitor- and env-neutral; each edge HIT (and each env) re-stamps from its own `ALLOW_INDEXING`. The response is rebuilt (not header-mutated) because cache-HIT responses carry immutable headers.
+- **Do not key off `ENV`.** `production` is the pre-launch demo. The gate is a dedicated var so the indexable env is an explicit, deliberate choice. At public launch, set `ALLOW_INDEXING=true` on that one env (`apps/web/wrangler.jsonc` `vars`); the helper is `indexingAllowed()` in `apps/web/src/server/robots-policy.ts`.
+
 ---
 
 ## 8. Cross-references

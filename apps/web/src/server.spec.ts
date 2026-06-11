@@ -378,6 +378,95 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
   });
 });
 
+describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => {
+  const htmlRenderer = (): SsrRenderer =>
+    fixedRenderer(
+      new Response('<!doctype html><title>x</title>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+  it('stamps noindex,nofollow on SSR pages when ALLOW_INDEXING is unset (fail-closed)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const req = new Request('https://demo.aecintegrations.com/products/acme');
+    const res = await app.fetch(
+      req,
+      { ...binding, ENV: 'production' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+  });
+
+  it('does NOT stamp when ALLOW_INDEXING is "true" (post-launch indexable env)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const req = new Request('https://aecintegrations.com/products/acme');
+    const res = await app.fetch(
+      req,
+      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.headers.get('X-Robots-Tag')).toBeNull();
+  });
+
+  it('stamps redirects too (301 → /products) so removed URLs drop from the index', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const req = new Request('https://demo.aecintegrations.com/vendors');
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+  });
+
+  it('does NOT stamp /api/* passthrough (raw proxy; JSON is never indexable)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const req = new Request('https://demo.aecintegrations.com/api/health');
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.headers.get('X-Robots-Tag')).toBeNull();
+  });
+
+  it('serves a crawl-allowed, sitemap-less robots.txt when blocked, sitemap when indexable', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const blocked = await app.fetch(
+      new Request('https://demo.aecintegrations.com/robots.txt'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    const blockedBody = await blocked.text();
+    // Crawling stays permitted (so the noindex header is seen); no Disallow:/,
+    // and the sitemap is withheld. The header is the authoritative block.
+    expect(blockedBody).toContain('Allow: /');
+    expect(blockedBody).not.toContain('Disallow: /');
+    expect(blockedBody).not.toContain('Sitemap:');
+    // The robots.txt body itself also carries the header.
+    expect(blocked.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+
+    const allowed = await app.fetch(
+      new Request('https://aecintegrations.com/robots.txt'),
+      { ...binding, ALLOW_INDEXING: 'true' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+    const allowedBody = await allowed.text();
+    expect(allowedBody).toContain('Allow: /');
+    expect(allowedBody).toContain('Sitemap: https://aecintegrations.com/sitemap.xml');
+    expect(allowed.headers.get('X-Robots-Tag')).toBeNull();
+  });
+});
+
 describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)', () => {
   it('returns the SSR Worker’s build metadata from env without calling the API binding', async () => {
     // Guards AECI-92: /_version must be served by the SSR Worker itself so CI
