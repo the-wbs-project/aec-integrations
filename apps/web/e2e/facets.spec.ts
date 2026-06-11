@@ -170,11 +170,28 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     const firstFacet = page.locator(FACET_CHECKBOX).first();
     test.skip((await firstFacet.count()) === 0, 'no facet data seeded in this environment');
 
+    // Register the refine refetch BEFORE the click (per the discipline note
+    // above): `httpResource` retains the stale grid value while the refetch is in
+    // flight, so the original "waitFor a link → read name → click" raced — the
+    // read landed on the pre-refine first card and the refetch then swapped the
+    // grid before the click navigated (read "Fixture Procore", landed on "ADP
+    // Workforce Now"). Awaiting the response means the grid is on its FINAL data
+    // before we snapshot it. The first client `/api/products` request only fires
+    // on this click (SSR satisfies the initial load — line 36), so the first
+    // response carrying any facet dimension param is ours.
+    const refine = apiResponse(
+      page,
+      '/api/products',
+      (sp) => sp.has('category_id') || sp.has('audience_id') || sp.has('phase_id'),
+    );
     await firstFacet.click();
     await expect(page).toHaveURL(FACET_PARAM);
+    await refine;
 
     // The refined term has product_count > 0, so the filtered grid has at least
-    // one product card to click. Wait for the refetched grid to settle.
+    // one product card to click. The refetch has resolved, so the grid no longer
+    // holds stale data and the first card's name and href belong to the same
+    // (final) product — closing the read-then-click race.
     // AECI-190: the default view is the card grid, so select the product link
     // view-agnostically within #main rather than via the table-row selector.
     const firstCard = page.locator('#main a[href^="/products/"]').first();
