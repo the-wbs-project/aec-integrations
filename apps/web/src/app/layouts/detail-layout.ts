@@ -31,7 +31,7 @@ import { Component } from '@angular/core';
   selector: 'aec-detail-layout',
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
+      <div class="mx-auto w-full max-w-7xl px-6 pt-4 pb-8 md:px-8 md:pt-6 md:pb-12">
         <nav
           class="mb-6"
           i18n-aria-label="@@app.layouts.detail.breadcrumbs.aria"
