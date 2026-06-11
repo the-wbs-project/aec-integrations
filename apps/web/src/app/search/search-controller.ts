@@ -13,13 +13,19 @@
  * 0014 records the rationale.
  *
  * ARCHITECTURE — one root `instantsearch()` whose root index is `products`, plus
- * two nested `index()` widgets (`vendors`, `integrations`), all driven by a
- * single shared `searchBox` on the root. That is exactly three index queries
- * batched into one multi-query request per keystroke. Each index owns its own
- * hits + stats + pagination + facets; the per-tab result count is just that
- * index's `connectStats.nbHits`. One `dispose()` tears it all down. Tabs in the
- * page are pure show/hide of already-materialized signal slices — switching tabs
- * never re-queries.
+ * one nested `index()` widget (`vendors`), all driven by a single shared
+ * `searchBox` on the root. That is exactly two index queries batched into one
+ * multi-query request per keystroke. Each index owns its own hits + stats +
+ * pagination + facets; the per-tab result count is just that index's
+ * `connectStats.nbHits`. One `dispose()` tears it all down. Tabs in the page are
+ * pure show/hide of already-materialized signal slices — switching tabs never
+ * re-queries.
+ *
+ * NOTE — integrations are intentionally NOT queried here (product decision,
+ * 2026-06-11): the `{prefix}_integrations` index is still maintained by the API
+ * sync, but `/search` does not surface it for now. Re-enable by wiring a third
+ * nested `index()` for `config.indexes.integrations` plus its `FACET_CONFIG`
+ * entry, and restoring the Integrations tab in `search-page.ts`.
  *
  * URL/facet policy (§9.2): this controller does NOT use instantsearch's history
  * router. Serializing every facet to the query string is the "query-string
@@ -38,11 +44,7 @@
  */
 import { type Signal, type WritableSignal, signal } from '@angular/core';
 
-import type {
-  AlgoliaIntegrationRecord,
-  AlgoliaProductRecord,
-  AlgoliaVendorRecord,
-} from '@aeci/shared/algolia-records';
+import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
@@ -93,7 +95,7 @@ export interface RangeView {
 
 /** Everything one entity tab binds to. `T` is the entity's denormalized record. */
 export interface IndexView<T> {
-  readonly entity: 'products' | 'vendors' | 'integrations';
+  readonly entity: 'products' | 'vendors';
   readonly hits: Signal<T[]>;
   readonly nbHits: Signal<number>;
   /** Zero-based current page (InstantSearch convention). */
@@ -213,7 +215,7 @@ interface FacetConfig {
  * a boolean refinement list; the page maps its `true`/`false` values to a
  * localized yes/no.
  */
-const FACET_CONFIG: Record<'products' | 'vendors' | 'integrations', FacetConfig> = {
+const FACET_CONFIG: Record<'products' | 'vendors', FacetConfig> = {
   products: {
     refinementLists: ['categories', 'audiences', 'phases', 'vendor_name', 'has_api_docs'],
     numericMenus: [{ attribute: 'integration_count', items: COUNT_BUCKETS }],
@@ -226,11 +228,6 @@ const FACET_CONFIG: Record<'products' | 'vendors' | 'integrations', FacetConfig>
       { attribute: 'integration_count', items: COUNT_BUCKETS },
     ],
     ranges: ['founded_year'],
-  },
-  integrations: {
-    refinementLists: ['mechanism_kind', 'direction', 'source_product_name', 'target_product_name'],
-    numericMenus: [],
-    ranges: [],
   },
 };
 
@@ -257,7 +254,6 @@ export class SearchController {
 
   readonly products: IndexView<AlgoliaProductRecord>;
   readonly vendors: IndexView<AlgoliaVendorRecord>;
-  readonly integrations: IndexView<AlgoliaIntegrationRecord>;
 
   private readonly search: InstantSearchInstance;
   private searchBoxRefine: ((value: string) => void) | null = null;
@@ -274,8 +270,8 @@ export class SearchController {
     this.query = signal(initialQuery);
 
     // Root index = products. The shared searchBox + the products widgets attach
-    // to the root; vendors/integrations attach as nested `index()` widgets. That
-    // is three index queries (no wasted 4th).
+    // to the root; vendors attaches as a nested `index()` widget. That is two
+    // index queries (integrations intentionally not queried — see file header).
     this.search = lib.instantsearch({
       indexName: config.indexes.products,
       searchClient,
@@ -299,12 +295,10 @@ export class SearchController {
     this.products = this.wireIndex<AlgoliaProductRecord>(this.search, 'products');
     const vendorsHost = lib.index({ indexName: config.indexes.vendors });
     this.vendors = this.wireIndex<AlgoliaVendorRecord>(vendorsHost, 'vendors');
-    const integrationsHost = lib.index({ indexName: config.indexes.integrations });
-    this.integrations = this.wireIndex<AlgoliaIntegrationRecord>(integrationsHost, 'integrations');
 
     // Root gets: the shared searchBox + products widgets (already attached to
-    // `this.search` by `wireIndex`) + the two nested index widgets.
-    this.search.addWidgets([searchBox, vendorsHost as IsWidget, integrationsHost as IsWidget]);
+    // `this.search` by `wireIndex`) + the one nested index widget.
+    this.search.addWidgets([searchBox, vendorsHost as IsWidget]);
   }
 
   /** Construct + run the initial search. Idempotent. */
@@ -339,10 +333,7 @@ export class SearchController {
    * attach them to `host` (the root instance for products; a nested `index()`
    * for vendors/integrations), and return the signal-backed view.
    */
-  private wireIndex<T>(
-    host: WidgetHost,
-    entity: 'products' | 'vendors' | 'integrations',
-  ): IndexView<T> {
+  private wireIndex<T>(host: WidgetHost, entity: 'products' | 'vendors'): IndexView<T> {
     const { lib } = this;
     const facets = FACET_CONFIG[entity];
 

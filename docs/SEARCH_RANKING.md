@@ -68,6 +68,10 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 
 ### 3.3 `integrations`
 
+> **Not surfaced on `/search` (product decision, 2026-06-11):** this index is still built and these
+> settings still apply, but the search page hides the Integrations tab for now (see STAGE_1_SPEC.md §7.5).
+> The ranking below stays maintained so the tab can be re-enabled without a reindex.
+
 - **Searchable attributes** (ordered):
   1. `source_product_name`
   2. `target_product_name`

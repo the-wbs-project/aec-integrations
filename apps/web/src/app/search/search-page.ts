@@ -44,7 +44,6 @@ import { MetaService } from '../core/meta.service';
 import { readAlgoliaConfig } from './algolia-config';
 import { SEARCH_ENGINE_FACTORY } from './search-controller.factory';
 import { SearchController } from './search-controller';
-import { SearchIntegrationCard } from './search-integration-card';
 import { SearchProductCard } from './search-product-card';
 import { SearchVendorCard } from './search-vendor-card';
 import { SearchNumericMenu } from './widgets/search-numeric-menu';
@@ -52,9 +51,14 @@ import { SearchPaginator } from './widgets/search-paginator';
 import { SearchRangeInput } from './widgets/search-range-input';
 import { SearchRefinementList } from './widgets/search-refinement-list';
 
-type EntityTab = 'products' | 'vendors' | 'integrations';
+// Integrations are intentionally excluded from `/search` for now (product
+// decision, 2026-06-11). The `{prefix}_integrations` Algolia index is still
+// maintained; to re-enable, add `'integrations'` back here, restore the
+// `@case ('integrations')` panel + `tabLabel` branch below, and re-wire the
+// integrations index in `search-controller.ts`. See STAGE_1_SPEC.md §7.5.
+type EntityTab = 'products' | 'vendors';
 
-const TABS: readonly EntityTab[] = ['products', 'vendors', 'integrations'];
+const TABS: readonly EntityTab[] = ['products', 'vendors'];
 
 /** Debounce for mirroring `?q=` into the URL (separate from the search debounce). */
 const URL_SYNC_DEBOUNCE_MS = 350;
@@ -66,7 +70,6 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     RouterLink,
     SearchProductCard,
     SearchVendorCard,
-    SearchIntegrationCard,
     SearchRefinementList,
     SearchNumericMenu,
     SearchRangeInput,
@@ -100,7 +103,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
               [value]="inputValue()"
               (input)="onQueryInput($event)"
               i18n-placeholder="@@search.input.placeholder"
-              placeholder="Search products, vendors, and integrations"
+              placeholder="Search products and vendors"
               class="h-12 w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 text-base text-(--text-primary) placeholder:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
             />
           </form>
@@ -228,24 +231,6 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                             [page]="ctrl.vendors.page()"
                             [nbPages]="ctrl.vendors.nbPages()"
                             (pageChange)="ctrl.vendors.refinePage($event)"
-                          />
-                        } @else {
-                          <ng-container [ngTemplateOutlet]="emptyState" />
-                        }
-                      }
-                    }
-                    @case ('integrations') {
-                      @if (ctrl.integrations.hits(); as hits) {
-                        @if (hits.length) {
-                          <ul class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                            @for (hit of hits; track hit.objectID) {
-                              <li><aec-search-integration-card [record]="hit" /></li>
-                            }
-                          </ul>
-                          <aec-search-paginator
-                            [page]="ctrl.integrations.page()"
-                            [nbPages]="ctrl.integrations.nbPages()"
-                            (pageChange)="ctrl.integrations.refinePage($event)"
                           />
                         } @else {
                           <ng-container [ngTemplateOutlet]="emptyState" />
@@ -419,8 +404,6 @@ export class SearchPage implements OnDestroy {
         return $localize`:@@search.tab.products:Products`;
       case 'vendors':
         return $localize`:@@search.tab.vendors:Vendors`;
-      case 'integrations':
-        return $localize`:@@search.tab.integrations:Integrations`;
     }
   }
 
@@ -466,7 +449,7 @@ export class SearchPage implements OnDestroy {
 
   private initialTab(): EntityTab {
     const raw = this.route.snapshot.queryParamMap.get('tab');
-    return raw === 'vendors' || raw === 'integrations' ? raw : 'products';
+    return raw === 'vendors' ? raw : 'products';
   }
 
   private scheduleUrlSync(value: string): void {

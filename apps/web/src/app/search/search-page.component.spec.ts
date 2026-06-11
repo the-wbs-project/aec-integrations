@@ -61,7 +61,7 @@ describe('SearchPage shell', () => {
     expect(input.value).toBe('revit');
   });
 
-  it('renders the three entity tabs (non-degraded shell)', async () => {
+  it('renders the two entity tabs (non-degraded shell; integrations excluded)', async () => {
     setConfigPresent();
     const router = setup();
     await router.navigateByUrl('/search');
@@ -69,11 +69,10 @@ describe('SearchPage shell', () => {
     fixture.detectChanges();
 
     const tabs = (fixture.nativeElement as HTMLElement).querySelectorAll('[role="tab"]');
-    expect(tabs.length).toBe(3);
+    expect(tabs.length).toBe(2);
     const labels = [...tabs].map((t) => t.textContent?.trim());
     expect(labels[0]).toContain('Products');
     expect(labels[1]).toContain('Vendors');
-    expect(labels[2]).toContain('Integrations');
   });
 
   it('sets robots noindex and a Search title', async () => {

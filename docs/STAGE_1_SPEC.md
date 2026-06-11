@@ -600,6 +600,12 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 
 ### 7.5 InstantSearch integration
 
+> **Integrations hidden from `/search` (product decision, 2026-06-11):** `/search` currently surfaces
+> only **Products** and **Vendors** tabs. The `{prefix}_integrations` Algolia index is still built and
+> maintained by the API sync; the search page simply does not query or display it for now. Re-enable by
+> restoring the Integrations tab in `apps/web/src/app/search/search-page.ts` and re-wiring the
+> integrations index in `search-controller.ts`. (Header autocomplete already excludes integrations.)
+
 > **Deviation (AECI-142 / Phase 3.9 — see `docs/adr/0014-instantsearch-js-over-angular-instantsearch.md`):**
 > `angular-instantsearch` (below) is **not used**. It caps its peer dep at `@angular/core <16`,
 > is deprecated, and is `NgModule`/zone-based — unusable on this Angular 22 zoneless/SSR stack.

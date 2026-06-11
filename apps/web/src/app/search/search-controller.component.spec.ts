@@ -105,18 +105,18 @@ describe('SearchController wiring', () => {
     expect(calls.instantsearch[0].future?.preserveSharedStateOnUnmount).toBe(true);
   });
 
-  it('adds exactly two nested indexes (vendors, integrations) — three queries total', () => {
+  it('adds exactly one nested index (vendors) — two queries total (integrations excluded)', () => {
     const { calls } = build();
-    expect(calls.index.map((i) => i.indexName)).toEqual(['v_idx', 'i_idx']);
+    expect(calls.index.map((i) => i.indexName)).toEqual(['v_idx']);
   });
 
   it('registers one shared searchBox and hits/stats/pagination/configure per index', () => {
     const { calls } = build();
     expect(calls.searchBox).toHaveLength(1);
-    expect(calls.hits).toHaveLength(3);
-    expect(calls.stats).toHaveLength(3);
-    expect(calls.pagination).toHaveLength(3);
-    expect(calls.configure).toHaveLength(3);
+    expect(calls.hits).toHaveLength(2);
+    expect(calls.stats).toHaveLength(2);
+    expect(calls.pagination).toHaveLength(2);
+    expect(calls.configure).toHaveLength(2);
     expect(calls.configure[0]).toEqual({ hitsPerPage: 12 });
   });
 
@@ -131,11 +131,7 @@ describe('SearchController wiring', () => {
       'has_api_docs',
       // vendors
       'headquarters',
-      // integrations
-      'mechanism_kind',
-      'direction',
-      'source_product_name',
-      'target_product_name',
+      // integrations intentionally excluded from /search (see search-controller.ts)
     ]);
     expect(calls.numericMenu.map((c) => c.params['attribute'])).toEqual([
       'integration_count', // products
@@ -152,7 +148,7 @@ describe('SearchController render-state → signal mapping', () => {
     const products = [{ objectID: 'a' }, { objectID: 'b' }];
     calls.hits[0].renderFn({ items: products }, true);
     expect(controller.products.hits()).toEqual(products);
-    // vendors/integrations stay empty until their own render fires.
+    // vendors stays empty until its own render fires.
     expect(controller.vendors.hits()).toEqual([]);
   });
 

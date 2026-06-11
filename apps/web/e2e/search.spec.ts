@@ -25,7 +25,7 @@ test.describe('/search — search page (AECI-142)', () => {
       /<input[^>]+name="q"[^>]+type="search"|<input[^>]+type="search"[^>]+name="q"/,
     );
     expect(html, 'an ARIA tablist must render').toMatch(/role="tablist"/);
-    expect((html.match(/role="tab"/g) ?? []).length, 'three entity tabs').toBeGreaterThanOrEqual(3);
+    expect((html.match(/role="tab"/g) ?? []).length, 'two entity tabs').toBe(2);
   });
 
   test('is non-cacheable (private, no-store) and noindex', async ({ request }) => {
