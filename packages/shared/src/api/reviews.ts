@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PageQuerySchema, paginatedResponseSchema } from './common';
+import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
  * Review-submission contract (AECI-197 / Phase 5.6): the body and response for
@@ -83,3 +83,87 @@ export type ProductReviewsQuery = z.infer<typeof ProductReviewsQuerySchema>;
  *  `ProductDetail`, not on this list (§5.4 / §5.5). */
 export const ProductReviewsResponseSchema = paginatedResponseSchema(PublicReviewSchema);
 export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema>;
+
+/**
+ * Admin moderation contract (AECI-204 / Phase 5.13): the query, item, and write
+ * shapes for the two admin endpoints
+ *
+ *   GET   /api/admin/reviews     — the moderation queue (any status)
+ *   PATCH /api/admin/reviews/:id — approve / reject a pending review
+ *
+ * Source of truth is `docs/API_CONTRACTS.md` §6.10 and `STAGE_1_PHASE_5_SPEC.md`
+ * §7.2 / §22.1. Both endpoints are admin-only (`requireAdmin()`); the item shape
+ * carries fields the public `PublicReview` contract deliberately hides —
+ * `status`, the `toxicity_score` Perspective triage signal, the moderation
+ * columns, and the author's `reviewer_email`.
+ *
+ * Contract note (deviates from `API_CONTRACTS.md` §6.10 as written):
+ * `reviewer_email` is `string | null`, NOT `string`. A review whose author has
+ * deleted their account is anonymized (`reviewer_id` → NULL via the `SetNull`
+ * FK), so there is no email to surface; the field is also null if the
+ * `auth.users` lookup fails (the queue degrades rather than 500-ing).
+ */
+
+/** Moderation queue filter (`API_CONTRACTS.md` §6.10). `PageQuerySchema`
+ *  (page/perPage), not the doc's stale `PaginationQuerySchema` — matches the
+ *  rest of Phase 5 (`product-reviews`). `queue_age` is oldest-first (work the
+ *  backlog), `created_at` is newest-first. */
+export const ListPendingReviewsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['pending', 'approved', 'rejected']).default('pending'),
+  sort: z.enum(['queue_age', 'created_at']).default('queue_age'),
+});
+export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySchema>;
+
+/** Admin-only review item (`API_CONTRACTS.md` §6.10). A superset of
+ *  `PublicReview`: adds the hydrated `product` ref, the moderation columns
+ *  (`status`, `rejection_reason`, `moderated_at`), and the admin-only
+ *  `toxicity_score` + `reviewer_email`. */
+export const AdminReviewSchema = z.object({
+  id: z.string().uuid(),
+  product: LinkRefSchema,
+  reviewer_email: z.string().nullable(),
+  rating_overall: z.number().int().min(1).max(5),
+  rating_onboarding: z.number().int().min(1).max(5),
+  title: z.string(),
+  body: z.string(),
+  role_at_company: z.string().nullable(),
+  years_using: z.number().int().nullable(),
+  would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
+  verified_work_email: z.boolean(),
+  locale: z.string(),
+  status: z.enum(['pending', 'approved', 'rejected']),
+  toxicity_score: z.number().nullable(),
+  rejection_reason: z.string().nullable(),
+  moderated_at: z.string().datetime().nullable(),
+  created_at: z.string().datetime(),
+});
+export type AdminReview = z.infer<typeof AdminReviewSchema>;
+
+/** Paginated envelope for `GET /api/admin/reviews`. */
+export const ListPendingReviewsResponseSchema = paginatedResponseSchema(AdminReviewSchema);
+export type ListPendingReviewsResponse = z.infer<typeof ListPendingReviewsResponseSchema>;
+
+/**
+ * Body for `PATCH /api/admin/reviews/:id`. `rejection_reason` is optional at the
+ * field level (approve never sends one) but REQUIRED, non-empty, when
+ * `action === 'reject'` — enforced by the cross-field refine, which surfaces as
+ * the canonical `VALIDATION_FAILED` envelope keyed to `rejection_reason`.
+ */
+export const ModerateReviewSchema = z
+  .object({
+    action: z.enum(['approve', 'reject']),
+    rejection_reason: z.string().max(500).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === 'reject' && (value.rejection_reason ?? '').trim().length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['rejection_reason'],
+        message: 'rejection_reason is required when rejecting a review',
+      });
+    }
+  });
+export type ModerateReviewInput = z.infer<typeof ModerateReviewSchema>;
+
+/** `PATCH /api/admin/reviews/:id` returns the moderated review (`AdminReview`). */
+export type ModerateReviewResponse = AdminReview;
