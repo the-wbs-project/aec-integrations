@@ -691,6 +691,18 @@ export type DeleteAccountResponse = {
 
 Errors: `UNAUTHENTICATED`.
 
+#### `POST /api/auth/profile/ensure`
+
+Defensive/idempotent profile-ensure called by the SSR `/auth/callback` handler after the PKCE code exchange (AECI-195, `STAGE_1_PHASE_5_SPEC.md` §4.2). Requires a verified Supabase user JWT (`Authorization: Bearer`); the profile id is always the token's `sub` — no request body. Inserts the `profiles` row only if the `handle_new_user` trigger somehow missed it (`INSERT … ON CONFLICT DO NOTHING`; all other columns take schema defaults, including `role='reviewer'`). Writes an audit row (`profile.created`) only when a row was actually created.
+
+```typescript
+export type EnsureProfileResponse = {
+  created: boolean; // false = row already existed (the normal case)
+};
+```
+
+Errors: `UNAUTHENTICATED`.
+
 ### 6.9 Tracking
 
 #### `POST /api/page-views`

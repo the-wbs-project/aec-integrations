@@ -69,6 +69,7 @@ import { createRequestContext, type AeciRequestContext } from './server/request-
 import { buildRobotsTxt } from './server/robots';
 import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
+import { createAuthCallbackHandler } from './server/routes/auth-callback';
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createVersionHandler } from './server/routes/version';
 import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
@@ -804,6 +805,14 @@ export function createApp(options: {
   // change accompanies it. 401 without a session cookie, 200 (with a
   // full-chain API-Worker verification payload) with one.
   app.get('/auth/whoami', createAuthWhoamiHandler());
+
+  // GET /auth/callback — Phase 5.4 (AECI-195) PKCE callback: code → session
+  // (cookies set via the @supabase/ssr Hono adapter), defensive
+  // profile-ensure over the service binding, 303 to the validated same-origin
+  // `return` path (errors → /auth/login?error=…). Registered before the SSR
+  // catch-all so it wins; `/auth/*` is already non-cacheable in the route
+  // classifier, so no classifier or `VISITOR_STATE_COOKIES` change.
+  app.get('/auth/callback', createAuthCallbackHandler());
 
   // AECI-121 — permanent redirects for the renamed taxonomy facet
   // (Discipline → Audience). Registered BEFORE the SSR catch-all so they win;

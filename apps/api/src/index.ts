@@ -6,6 +6,7 @@ import { ApiError, errorHandler } from './errors';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
+import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { metricsMiddleware } from './metrics-middleware';
 import { createHealthHandler } from './routes/health';
@@ -129,6 +130,15 @@ const authSpike = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
 authSpike.onError(errorHandler());
 authSpike.get('/api/auth/whoami', requireUserAuth(), createAuthWhoamiHandler());
 app.route('/', authSpike);
+
+// Phase 5.4 user-auth sub-router (AECI-195) — PERMANENT, unlike the spike
+// above. Same Variables-extended shape because `requireUserAuth()` sets
+// `c.get('user')`. `/api/auth/profile/ensure` is the defensive profile-ensure
+// the SSR `/auth/callback` handler calls after the PKCE code exchange.
+const authUser = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
+authUser.onError(errorHandler());
+authUser.post('/api/auth/profile/ensure', requireUserAuth(), createEnsureProfileHandler());
+app.route('/', authUser);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.
