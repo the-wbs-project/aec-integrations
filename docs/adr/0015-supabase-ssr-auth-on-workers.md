@@ -53,7 +53,7 @@ Two runtime risks made this a spike rather than a straight build:
 ## Observed outcomes (the spike actually ran)
 
 Validated end-to-end on the bound local stack against the shared dev project
-(`lfqxneqihbejrkufvafw`) with a real minted session:
+(`dmbygwupskttzsvfzluq`) with a real minted session:
 
 - **`@supabase/ssr` runs clean on `workerd`** — no import-side-effect friction.
   `createServerClient` + `auth.getClaims()` / `getSession()` work in the SSR

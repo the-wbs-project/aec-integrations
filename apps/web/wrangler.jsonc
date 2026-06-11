@@ -85,7 +85,7 @@
         // AECI-193: Supabase base URL (public; dev project for preview/staging,
         // prod project for production). Pairs with the CI-pushed
         // SUPABASE_ANON_KEY secret — see the header comment.
-        "SUPABASE_URL": "https://lfqxneqihbejrkufvafw.supabase.co",
+        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
       },
       "services": [{ "binding": "API", "service": "aeci-api-preview" }],
     },
@@ -96,7 +96,7 @@
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        "SUPABASE_URL": "https://lfqxneqihbejrkufvafw.supabase.co",
+        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
       },
       "observability": { "enabled": true },
       "routes": [

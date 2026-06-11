@@ -23,7 +23,7 @@ DIRECT_URL="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:65
 # SUPABASE_URL is now ALSO read by the Worker at runtime (AECI-193): it drives
 # JWKS user-JWT verification in `lib/user-auth.ts` (no DB round-trip). In
 # deployed envs it's a wrangler `vars` entry (see wrangler.jsonc); locally,
-# point it at the SHARED DEV project (https://lfqxneqihbejrkufvafw.supabase.co)
+# point it at the SHARED DEV project (https://dmbygwupskttzsvfzluq.supabase.co)
 # so `pnpm dev:bound` verifies real tokens minted by the web mint script
 # (apps/web/scripts/mint-dev-session.mjs).
 #

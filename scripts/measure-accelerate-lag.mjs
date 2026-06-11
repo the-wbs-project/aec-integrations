@@ -21,7 +21,7 @@ import { fileURLToPath } from 'node:url';
 // ──────────────────────────────────────────────────────────────────────────
 
 const REQUIRED_STAGING_HOSTNAME = 'staging.aecintegrations.com';
-const REQUIRED_DEV_PROJECT_REF = 'lfqxneqihbejrkufvafw';
+const REQUIRED_DEV_PROJECT_REF = 'dmbygwupskttzsvfzluq';
 const REQUIRED_WRANGLER_ENV = 'staging';
 const CONFIRMATION_PHRASE = 'proceed-staging-lag-probe';
 
