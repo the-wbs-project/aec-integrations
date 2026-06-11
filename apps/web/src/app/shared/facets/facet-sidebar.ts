@@ -1,5 +1,5 @@
 import { httpResource } from '@angular/common/http';
-import { Component, computed, inject, input } from '@angular/core';
+import { Component, computed, inject, input, linkedSignal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
@@ -112,11 +112,26 @@ export class FacetSidebar {
     return { url: '/api/products/facets', params };
   });
 
+  /**
+   * Retains the last resolved facet counts so the sidebar keeps rendering its
+   * terms while a filter change refetches them — without this the list blanks to
+   * `[]` mid-flight (the sidebar half of the "flash"). The clicked checkbox still
+   * toggles instantly because `isRefined` reads the URL, which updates
+   * synchronously on navigation; only the counts lag, then swap in.
+   */
+  private readonly retainedFacets = linkedSignal<
+    ProductFacetsResponse | undefined,
+    ProductFacetsResponse | null
+  >({
+    source: () => (this.facets.hasValue() ? this.facets.value() : undefined),
+    computation: (current, previous) => current ?? previous?.value ?? null,
+  });
+
   /** One render group per non-locked dimension, terms mapped to refinement items. */
   protected readonly groups = computed<
     { kind: TaxonomyKind; label: string; items: RefinementItem[] }[]
   >(() => {
-    const facets = this.facets.value();
+    const facets = this.retainedFacets();
     if (!facets) return [];
     const locked = this.lockedKind();
     const qp = this.queryParamMap();

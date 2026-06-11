@@ -147,7 +147,7 @@ describe('createPaginatedIndex', () => {
     httpMock.verify();
   });
 
-  it('resets data() to null on re-navigation so stale rows never show under a fresh request', async () => {
+  it('keeps the previous data() on screen while a re-navigation refetches (no blank flash) and toggles pending()', async () => {
     const { httpMock, router } = createIndexSetup(TestPaginatedIndexHost, 'test');
     await router.navigateByUrl('/test');
     const fixture = TestBed.createComponent(TestPaginatedIndexHost);
@@ -156,16 +156,50 @@ describe('createPaginatedIndex', () => {
     httpMock.expectOne((r) => r.url === '/api/test').flush(FIXTURE);
     await settle();
     fixture.detectChanges();
-    expect(fixture.componentInstance.idx.data()).not.toBeNull();
+    expect(fixture.componentInstance.idx.data()).toEqual(FIXTURE);
+    expect(fixture.componentInstance.idx.pending()).toBe(false);
 
-    // Navigate again. The new request is in flight, so data must reset to null.
+    // Navigate again. The new request is in flight: the prior rows stay on screen
+    // (keep-previous, the flash fix) and pending() flips true so the grid can dim
+    // instead of blanking to a loading state.
     await router.navigateByUrl('/test?page=2');
     await settle();
     fixture.detectChanges();
-    expect(fixture.componentInstance.idx.data()).toBeNull();
+    expect(fixture.componentInstance.idx.data()).toEqual(FIXTURE);
+    expect(fixture.componentInstance.idx.pending()).toBe(true);
 
-    httpMock.expectOne((r) => r.params.get('page') === '2').flush(FIXTURE);
+    // Once the new response lands it replaces the retained one and pending clears.
+    const NEXT: Resp = { data: [{ id: 'r2' }], page: 2, perPage: 24, total: 1 };
+    httpMock.expectOne((r) => r.params.get('page') === '2').flush(NEXT);
     await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.idx.data()).toEqual(NEXT);
+    expect(fixture.componentInstance.idx.pending()).toBe(false);
+    httpMock.verify();
+  });
+
+  it('clears the retained data() when a re-navigation fails (an error never shows stale rows)', async () => {
+    const { httpMock, router } = createIndexSetup(TestPaginatedIndexHost, 'test');
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestPaginatedIndexHost);
+    fixture.detectChanges();
+
+    httpMock.expectOne((r) => r.url === '/api/test').flush(FIXTURE);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.idx.data()).toEqual(FIXTURE);
+
+    // Re-navigate, then fail the new request. Keep-previous must yield to the
+    // error: data() goes null so the table shows its error row, not stale rows.
+    await router.navigateByUrl('/test?page=2');
+    await settle();
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.params.get('page') === '2').flush(ERROR_BODY, SERVER_ERROR);
+    await settle();
+    fixture.detectChanges();
+
+    expect(fixture.componentInstance.idx.error()).toBeTruthy();
+    expect(fixture.componentInstance.idx.data()).toBeNull();
     httpMock.verify();
   });
 

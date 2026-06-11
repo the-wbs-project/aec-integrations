@@ -30,9 +30,12 @@ import { MetaService, type SetEntityMetaInput } from '../../core/meta.service';
  * `perPage` defaults to 24 and is hard-clamped at 100 server-side.
  *
  * The resource cancels an in-flight request natively when the params change
- * (replacing the old RxJS `switchMap` race fix), and on every param change it
- * transitions to the loading state with no value — so `data()` resets to `null`
- * under a fresh request without any manual reset.
+ * (replacing the old RxJS `switchMap` race fix) and transitions to the loading
+ * state with no value. `data()` does not blank during that reload, though: a
+ * `retained` linkedSignal holds the previous response across the in-flight
+ * request (so filter/sort/page changes don't flash an empty grid), and only the
+ * `pending` signal reflects the in-flight state. `data()` falls back to `null`
+ * only on the first load (nothing retained yet) or when the fetch errors.
  *
  * SSR transfer cache: `httpResource()` issues a plain GET via `HttpClient`, so
  * the response is captured in the SSR→client HTTP transfer cache
@@ -88,8 +91,14 @@ export interface PaginatedIndexConfig {
 }
 
 export interface PaginatedIndex<TResponse> {
-  /** Latest response, or `null` while loading / after an error. */
+  /**
+   * Latest response. Retains the previously resolved response while a new
+   * request is in flight (so filter/sort/page changes don't blank the grid),
+   * and resets to `null` on error. Pair with `pending` for a busy affordance.
+   */
   readonly data: Signal<TResponse | null>;
+  /** True while a fetch is in flight. Drives a subtle busy/dim state in the grid. */
+  readonly pending: Signal<boolean>;
   /** Last fetch error, or `null`. Mutually exclusive with a fresh `data`. */
   readonly error: Signal<unknown>;
   /** Current sort key (for the sortable column header's active state). */
@@ -180,12 +189,25 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
     computation: () => null,
   });
 
-  // `data`/`error` are mutually exclusive: an override masks the resource value;
-  // otherwise `data` is the resolved value (or `null` while loading / in error,
-  // since `hasValue()` is false then), and `error` is the resource's error.
+  // Retains the last resolved response so the grid keeps rendering rows while a
+  // filter/sort/page change is in flight — no blank "loading" gap (the "flash"
+  // AECI users saw when clicking a facet). `source` is the resource value while
+  // it has one and `undefined` during a reload; the computation falls back to
+  // the prior retained value so loading never clears the rows. First load still
+  // shows the loading branch because `retained` is `null` until the first value.
+  const retained = linkedSignal<TResponse | undefined, TResponse | null>({
+    source: () => (resource.hasValue() ? resource.value() : undefined),
+    computation: (current, previous) => current ?? previous?.value ?? null,
+  });
+
+  // `data`/`error` are mutually exclusive: an override (or a real fetch error)
+  // masks the retained value so a failure clears stale rows; otherwise `data` is
+  // the retained response (kept across reloads), and `error` is the resource's
+  // error. `pending` is true whenever a request is in flight.
   const data = computed<TResponse | null>(() =>
-    overrideError() != null ? null : resource.hasValue() ? resource.value() : null,
+    overrideError() != null || resource.error() ? null : retained(),
   );
+  const pending = computed<boolean>(() => resource.isLoading());
   const error = computed<unknown>(() => overrideError() ?? resource.error() ?? null);
   const sort = computed<string>(() => parseSort(queryParamMap().get('sort')));
   const params = computed<Record<string, string>>(() => {
@@ -200,6 +222,7 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
 
   return {
     data,
+    pending,
     error,
     sort,
     params,

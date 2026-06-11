@@ -190,95 +190,108 @@ type ViewKey = 'cards' | 'table';
           </div>
         </div>
 
-        @if (idx.data(); as response) {
-          @if (response.data.length > 0) {
-            @switch (view()) {
-              @case ('table') {
-                <div class="overflow-x-auto">
-                  <table
-                    class="w-full min-w-[40rem] border-collapse text-start text-sm"
-                    i18n-aria-label="@@products.index.table.aria"
-                    aria-label="Products"
-                  >
-                    <thead class="border-b border-(--border-default)">
-                      <tr>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.name"
-                        >
-                          Name
-                        </th>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.vendor"
-                        >
-                          Vendor
-                        </th>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.category"
-                        >
-                          Primary category
-                        </th>
-                        <th
-                          scope="col"
-                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
-                          i18n="@@products.index.col.integrations"
-                        >
-                          Integrations
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody class="divide-y divide-(--border-default)">
-                      @for (product of response.data; track product.id) {
-                        <tr aec-product-card [product]="product"></tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
+        <!-- While a filter/sort/page change refetches, keep the current results
+             on screen and dim them (no blank flash). aria-busy announces the
+             in-flight state. -->
+        <div
+          class="transition-opacity duration-200"
+          [class.opacity-60]="idx.pending()"
+          [class.pointer-events-none]="idx.pending()"
+          [attr.aria-busy]="idx.pending() ? 'true' : null"
+        >
+          @if (idx.data(); as response) {
+            @if (response.data.length > 0) {
+              @switch (view()) {
+                @case ('table') {
+                  <div class="overflow-x-auto">
+                    <table
+                      class="w-full min-w-[40rem] border-collapse text-start text-sm"
+                      i18n-aria-label="@@products.index.table.aria"
+                      aria-label="Products"
+                    >
+                      <thead class="border-b border-(--border-default)">
+                        <tr>
+                          <th
+                            scope="col"
+                            class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                            i18n="@@products.index.col.name"
+                          >
+                            Name
+                          </th>
+                          <th
+                            scope="col"
+                            class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                            i18n="@@products.index.col.vendor"
+                          >
+                            Vendor
+                          </th>
+                          <th
+                            scope="col"
+                            class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                            i18n="@@products.index.col.category"
+                          >
+                            Primary category
+                          </th>
+                          <th
+                            scope="col"
+                            class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
+                            i18n="@@products.index.col.integrations"
+                          >
+                            Integrations
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody class="divide-y divide-(--border-default)">
+                        @for (product of response.data; track product.id) {
+                          <tr aec-product-card [product]="product"></tr>
+                        }
+                      </tbody>
+                    </table>
+                  </div>
+                }
+                @default {
+                  <aec-product-card-grid
+                    [products]="response.data"
+                    [featuredLead]="showFeatured()"
+                  />
+                }
               }
-              @default {
-                <aec-product-card-grid [products]="response.data" [featuredLead]="showFeatured()" />
-              }
-            }
 
-            <nav
-              class="flex items-center justify-between border-t border-(--border-default) pt-6"
-              i18n-aria-label="@@products.index.pagination.aria"
-              aria-label="Pagination"
-            >
-              <aec-paginator
-                [page]="response.page"
-                [perPage]="response.perPage"
-                [total]="response.total"
-                (pageChange)="idx.onPageChange($event)"
-              />
-            </nav>
+              <nav
+                class="flex items-center justify-between border-t border-(--border-default) pt-6"
+                i18n-aria-label="@@products.index.pagination.aria"
+                aria-label="Pagination"
+              >
+                <aec-paginator
+                  [page]="response.page"
+                  [perPage]="response.perPage"
+                  [total]="response.total"
+                  (pageChange)="idx.onPageChange($event)"
+                />
+              </nav>
+            } @else {
+              <p
+                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+                bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
+                i18n="@@products.index.empty"
+              >
+                No products match these filters.
+              </p>
+            }
+          } @else if (idx.error()) {
+            <p class="py-12 text-center text-(--text-secondary)" i18n="@@products.index.error">
+              Couldn't load products. Refresh to try again.
+            </p>
           } @else {
             <p
-              class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-                bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
-              i18n="@@products.index.empty"
+              class="py-12 text-center text-(--text-secondary)"
+              aria-busy="true"
+              i18n="@@products.index.loading"
             >
-              No products match these filters.
+              Loading products…
             </p>
           }
-        } @else if (idx.error()) {
-          <p class="py-12 text-center text-(--text-secondary)" i18n="@@products.index.error">
-            Couldn't load products. Refresh to try again.
-          </p>
-        } @else {
-          <p
-            class="py-12 text-center text-(--text-secondary)"
-            aria-busy="true"
-            i18n="@@products.index.loading"
-          >
-            Loading products…
-          </p>
-        }
+        </div>
       </div>
     </aec-browse-layout>
   `,

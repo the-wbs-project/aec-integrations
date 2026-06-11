@@ -184,6 +184,38 @@ describe('FacetSidebar (AECI-143)', () => {
     httpMock.verify();
   });
 
+  it('keeps the prior terms on screen while a toggle refetches scoped counts (no blank flash)', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(facets({ categories: [term('c1', 'Cat One', 3)] }));
+    await settle();
+    fixture.detectChanges();
+    expect((fixture.nativeElement as HTMLElement).textContent ?? '').toContain('Cat One');
+
+    // Toggle the term: the counts refetch (request now in flight, not flushed).
+    // The sidebar must keep rendering the prior terms instead of emptying to [].
+    const checkbox = (fixture.nativeElement as HTMLElement).querySelector(
+      'fieldset input[type="checkbox"]',
+    ) as HTMLInputElement;
+    checkbox.dispatchEvent(new Event('change'));
+    await settle();
+    fixture.detectChanges();
+
+    // The refetch is in flight; assert the prior term is still rendered, then
+    // resolve the in-flight request(s).
+    const inFlight = httpMock.match((r) => r.url === FACETS_URL);
+    expect(inFlight.length).toBeGreaterThan(0);
+    expect((fixture.nativeElement as HTMLElement).textContent ?? '').toContain('Cat One');
+
+    for (const req of inFlight) req.flush(facets({}));
+    httpMock.verify();
+  });
+
   it('locks (and hides) its own dimension and sends the locked id', async () => {
     const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
     await router.navigateByUrl('/products');
