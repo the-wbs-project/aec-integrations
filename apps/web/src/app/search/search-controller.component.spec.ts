@@ -140,6 +140,33 @@ describe('SearchController wiring', () => {
     ]);
     expect(calls.range.map((c) => c.params['attribute'])).toEqual(['founded_year']);
   });
+
+  it('leaves every refinement list on the connector default (no sortBy)', () => {
+    const { calls } = build();
+    // Only phases is reordered, and that happens post-render via orderFacetItems
+    // — no facet passes a sortBy to the connector.
+    for (const c of calls.refinementList) {
+      expect(c.params['sortBy']).toBeUndefined();
+    }
+  });
+
+  it('re-orders the phases facet into project-lifecycle order on render', () => {
+    const { calls, controller } = build();
+    const phasesIdx = calls.refinementList.findIndex((c) => c.params['attribute'] === 'phases');
+    // Count-shuffled items arrive; lifecycle order must win.
+    const items = [
+      { value: 'Construction', label: 'Construction', count: 50, isRefined: false },
+      { value: 'Concept & Planning', label: 'Concept & Planning', count: 1, isRefined: false },
+      { value: 'Design', label: 'Design', count: 9, isRefined: false },
+    ];
+    calls.refinementList[phasesIdx].renderFn({ items, canRefine: true, refine: vi.fn() }, true);
+    const phasesView = controller.products.refinementLists.find((r) => r.attribute === 'phases');
+    expect(phasesView?.items().map((i) => i.value)).toEqual([
+      'Concept & Planning',
+      'Design',
+      'Construction',
+    ]);
+  });
 });
 
 describe('SearchController render-state → signal mapping', () => {

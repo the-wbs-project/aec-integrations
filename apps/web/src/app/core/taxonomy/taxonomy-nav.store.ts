@@ -4,7 +4,7 @@ import { Injectable, PLATFORM_ID, computed, inject } from '@angular/core';
 
 import type { TaxonomyResponse } from '@aeci/shared';
 
-import { TOP_N, topByCount } from './taxonomy-rank';
+import { TOP_N, byDisplayOrder, topByCount } from './taxonomy-rank';
 
 /**
  * Supplies the primary-nav taxonomy flyouts (desktop bar + mobile overlay) with
@@ -45,8 +45,8 @@ export class TaxonomyNavStore {
   readonly categoriesTop10 = computed(() => topByCount(this.value()?.categories, TOP_N));
   /** Top 10 audiences by count (or fewer), descending. */
   readonly audiencesTop10 = computed(() => topByCount(this.value()?.audiences, TOP_N));
-  /** All phases, descending by count (the facet is small — ~6–8 terms). */
-  readonly phasesAll = computed(() => topByCount(this.value()?.phases, Infinity));
+  /** All phases, in project-lifecycle order (`display_order` asc), not by count. */
+  readonly phasesAll = computed(() => byDisplayOrder(this.value()?.phases));
 
   /** True while the client fetch is in flight; always false during SSR. */
   readonly loading = computed(() => this.resource.isLoading());
