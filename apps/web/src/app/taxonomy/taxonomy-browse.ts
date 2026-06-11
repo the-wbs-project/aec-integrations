@@ -95,7 +95,15 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
 
         <aec-facet-sidebar slot="filters" [lockedKind]="kind()" [lockedId]="t.id" />
 
-        <div slot="grid" class="space-y-8">
+        <!-- Keep current rows on screen and dim them while a filter/sort/page
+             change refetches, so there is no blank flash. -->
+        <div
+          slot="grid"
+          class="space-y-8 transition-opacity duration-200"
+          [class.opacity-60]="idx.pending()"
+          [class.pointer-events-none]="idx.pending()"
+          [attr.aria-busy]="idx.pending() ? 'true' : null"
+        >
           <div class="overflow-x-auto">
             <table
               class="w-full min-w-[40rem] border-collapse text-start text-sm"
