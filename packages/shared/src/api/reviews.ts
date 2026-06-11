@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { PageQuerySchema, paginatedResponseSchema } from './common';
+
 /**
  * Review-submission contract (AECI-197 / Phase 5.6): the body and response for
  * `POST /api/reviews`, the first authenticated user write in the product.
@@ -41,3 +43,43 @@ export type SubmitReviewResponse = {
   status: 'pending';
   message: string;
 };
+
+/**
+ * Public read contract for approved reviews (AECI-199 / Phase 5.8): the item
+ * shape for `GET /api/products/:slug/reviews` and the `ProductDetail.reviews`
+ * SSR embed. Source of truth is `docs/API_CONTRACTS.md` §6.6 /
+ * `STAGE_1_PHASE_5_SPEC.md` §5.4.
+ *
+ * No PII: `reviewer_id`, reviewer email, `status`, `toxicity_score`, moderation
+ * columns, and `updated_at` are deliberately ABSENT — only approved, public
+ * fields cross the wire. The endpoint returns approved reviews only, paginated,
+ * newest-first.
+ */
+export const PublicReviewSchema = z.object({
+  id: z.string().uuid(),
+  rating_overall: z.number().int().min(1).max(5),
+  rating_onboarding: z.number().int().min(1).max(5),
+  title: z.string(),
+  body: z.string(),
+  role_at_company: z.string().nullable(),
+  years_using: z.number().int().nullable(),
+  would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
+  verified_work_email: z.boolean(),
+  created_at: z.string().datetime(),
+});
+export type PublicReview = z.infer<typeof PublicReviewSchema>;
+
+/**
+ * Query params for `GET /api/products/:slug/reviews` — page-based pagination
+ * only. Order is fixed newest-first server-side (§5.4), so there is no `sort`
+ * param. New work uses `PageQuerySchema` (page/perPage), not the older
+ * `PaginationQuerySchema` the doc text still references (API_CONTRACTS §0 note).
+ */
+export const ProductReviewsQuerySchema = PageQuerySchema;
+export type ProductReviewsQuery = z.infer<typeof ProductReviewsQuerySchema>;
+
+/** Paginated envelope for `GET /api/products/:slug/reviews`. Plain
+ *  `PaginatedResponse<PublicReview>` — the ratings summary lives only on
+ *  `ProductDetail`, not on this list (§5.4 / §5.5). */
+export const ProductReviewsResponseSchema = paginatedResponseSchema(PublicReviewSchema);
+export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema>;

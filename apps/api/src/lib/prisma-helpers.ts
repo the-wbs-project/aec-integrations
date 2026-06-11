@@ -47,6 +47,7 @@ import type {
   ProductListItem,
   ProductRole,
   ProductUsefulness,
+  PublicReview,
   TaxonomyTermWithCount,
   VendorDetail,
   VendorLink,
@@ -178,6 +179,35 @@ export const productDetailSelect = {
   targetIntegrations: { select: integrationListSelect },
 } as const satisfies Prisma.ProductSelect;
 
+/**
+ * Public-review display fields (`PublicReview`, AECI-199 / §5.4). Deliberately
+ * omits all PII and moderation columns — `reviewerId`, the reviewer relation /
+ * email, `status`, `toxicityScore`, `moderatedAt/By`, `rejectionReason`,
+ * `locale`, `updatedAt` — so the approved-reviews list and the `ProductDetail`
+ * embed can never leak non-public data. Callers always pair this select with a
+ * `status: 'approved'` filter; the select itself carries no status guarantee.
+ */
+export const publicReviewSelect = {
+  id: true,
+  ratingOverall: true,
+  ratingOnboarding: true,
+  title: true,
+  body: true,
+  roleAtCompany: true,
+  yearsUsing: true,
+  wouldRecommend: true,
+  verifiedWorkEmail: true,
+  createdAt: true,
+} as const satisfies Prisma.ReviewSelect;
+
+/**
+ * First-page size for the approved-reviews list and the `ProductDetail.reviews`
+ * SSR embed. Mirrors `PageQuerySchema`'s default `perPage` (24) so the embedded
+ * array equals page 1 of `GET /api/products/:slug/reviews` — the client can
+ * paginate onward from page 2 seamlessly.
+ */
+export const EMBED_REVIEWS_PAGE_SIZE = 24;
+
 /** Fields needed for `VendorListItem`. Counts come from join tables/aggregations
  *  (denormalized columns on `vendors` are not present in this PR's schema).
  *  The mapper computes counts from the `_count` Prisma helper.
@@ -305,6 +335,8 @@ export type RawIntegrationDetailRow = Prisma.IntegrationGetPayload<{
 
 export type RawVendorListRow = Prisma.VendorGetPayload<{ select: typeof vendorListSelect }>;
 export type RawVendorDetailRow = Prisma.VendorGetPayload<{ select: typeof vendorDetailSelect }>;
+
+export type RawPublicReviewRow = Prisma.ReviewGetPayload<{ select: typeof publicReviewSelect }>;
 
 // Per-model term rows are inferred at the list-handler call sites straight from
 // the `*TermSelect` consts above (cast-free). The detail factory's dynamic
@@ -512,12 +544,49 @@ export function toUsefulness(raw: Prisma.JsonValue | null | undefined): ProductU
   return parsed.success ? parsed.data : null;
 }
 
+const VALID_WOULD_RECOMMEND = new Set<PublicReview['would_recommend']>(['yes', 'no', 'maybe']);
+
+/**
+ * Shape an approved `reviews` row (selected via `publicReviewSelect`) into the
+ * public `PublicReview` contract. `wouldRecommend` is a free `String?` column
+ * the enum is enforced on at write time (`SubmitReviewSchema`); any value
+ * outside the enum (legacy/manual rows) degrades to `null` rather than failing
+ * dev response-validation or leaking an off-contract string.
+ */
+export function toPublicReview(raw: RawPublicReviewRow): PublicReview {
+  const wouldRecommend = raw.wouldRecommend as PublicReview['would_recommend'] | null;
+  return {
+    id: raw.id,
+    rating_overall: raw.ratingOverall,
+    rating_onboarding: raw.ratingOnboarding,
+    title: raw.title,
+    body: raw.body,
+    role_at_company: raw.roleAtCompany,
+    years_using: raw.yearsUsing,
+    would_recommend: VALID_WOULD_RECOMMEND.has(wouldRecommend) ? wouldRecommend : null,
+    verified_work_email: raw.verifiedWorkEmail,
+    created_at: toIso(raw.createdAt),
+  };
+}
+
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
+  reviews: RawPublicReviewRow[] = [],
 ): ProductDetail {
+  const base = toProductListItem(raw);
+  // ≥5 gate (§5.5): a single-review average is statistically misleading, so the
+  // numeric averages are withheld until the product has ≥5 approved reviews.
+  // `review_count` is the denormalized approved count (recomputed on approval,
+  // §5.13), so it is the correct threshold. Nulling (vs a flag) keeps the
+  // contract field-stable; the UI infers state from `review_count` (0 = empty,
+  // 1–4 = hidden, 5+ = shown). Gate is ProductDetail-only — ProductListItem
+  // (cards/list) keeps raw averages.
+  const ratingsVisible = base.review_count >= 5;
   return {
-    ...toProductListItem(raw),
+    ...base,
+    rating_overall_avg: ratingsVisible ? base.rating_overall_avg : null,
+    rating_onboarding_avg: ratingsVisible ? base.rating_onboarding_avg : null,
     description: raw.description,
     website: raw.website,
     tool_integrations_url: raw.toolIntegrationsUrl,
@@ -536,6 +605,7 @@ export function toProductDetail(
     integrations_as_source: raw.sourceIntegrations.map(toIntegrationListItem),
     integrations_as_target: raw.targetIntegrations.map(toIntegrationListItem),
     related_products: relatedProducts.map(toProductListItem),
+    reviews: reviews.map(toPublicReview),
   };
 }
 

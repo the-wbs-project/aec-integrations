@@ -450,23 +450,17 @@ Errors: `NOT_FOUND` if no product matches the slug.
 
 #### `GET /api/products/:slug/reviews`
 
-List approved reviews for a product.
+List approved reviews for a product. The canonical shape lives in **§6.6** (the
+`PublicReview` / `ProductReviewsResponse` contract implemented by AECI-199). The
+ratings summary is **not** on this list — it is embedded in `ProductDetail`
+(§6.6), where the ≥5 averages gate applies.
 
-```typescript
-export const ListReviewsQuerySchema = PaginationQuerySchema.extend({
-  sort: z.enum(['created_at', 'rating_overall']).default('created_at'),
-  order: z.enum(['asc', 'desc']).default('desc'),
-});
-
-export type ListReviewsResponse = PaginatedResponse<Review> & {
-  aggregate: {
-    rating_overall_avg: number | null;
-    rating_onboarding_avg: number | null;
-    count: number;
-    score_visible: boolean;            // false until count >= 5
-  };
-};
-```
+> **Superseded shape.** An earlier draft of this section defined a
+> `ListReviewsQuerySchema` / `ListReviewsResponse` with an inline
+> `aggregate { … score_visible }`. That shape was never implemented and is
+> dropped: the standalone list returns a plain `PaginatedResponse<PublicReview>`
+> (no aggregate), and the summary + ≥5 gate live on `ProductDetail`. See
+> `STAGE_1_PHASE_5_SPEC.md` §5.4–§5.5.
 
 ### 6.2 Vendors
 
@@ -625,28 +619,37 @@ Errors:
 
 #### `GET /api/products/:slug/reviews`
 
-Public, paginated, **approved-only** review list for a product (added for Phase 5; see `STAGE_1_PHASE_5_SPEC.md` §5.4). No PII (no reviewer email). The `GET /api/products/:slug` (`ProductDetail`) payload additionally embeds the summary (`review_count`, `rating_overall_avg`, `rating_onboarding_avg` — denormalized) plus the first page for SSR.
+Public, paginated, **approved-only**, **newest-first** review list for a product (added for Phase 5; see `STAGE_1_PHASE_5_SPEC.md` §5.4). No PII (no reviewer id/email). Source of truth: `packages/shared/src/api/reviews.ts`; implemented in `apps/api/src/routes/product-reviews.ts` (AECI-199).
 
 ```typescript
-export const ProductReviewsQuerySchema = PaginationQuerySchema;
+// page/perPage only — order is fixed newest-first server-side, so no sort param.
+export const ProductReviewsQuerySchema = PageQuerySchema;
 
-export type PublicReview = {
-  id: string;
-  rating_overall: number;
-  rating_onboarding: number;
-  title: string;
-  body: string;
-  role_at_company: string | null;
-  years_using: number | null;
-  would_recommend: 'yes' | 'no' | 'maybe' | null;
-  verified_work_email: boolean;
-  created_at: string;
-};
+export const PublicReviewSchema = z.object({
+  id: z.string().uuid(),
+  rating_overall: z.number().int().min(1).max(5),
+  rating_onboarding: z.number().int().min(1).max(5),
+  title: z.string(),
+  body: z.string(),
+  role_at_company: z.string().nullable(),
+  years_using: z.number().int().nullable(),
+  would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
+  verified_work_email: z.boolean(),
+  created_at: z.string().datetime(),
+});
+export type PublicReview = z.infer<typeof PublicReviewSchema>;
 
+// Plain paginated list — NO aggregate block. The ratings summary lives on ProductDetail.
 export type ProductReviewsResponse = PaginatedResponse<PublicReview>;
 ```
 
-Cacheable (approved content is visitor-neutral). The endpoint always returns the list; the numeric rating **averages are withheld from the UI until ≥5 approved reviews** exist (`STAGE_1_PHASE_5_SPEC.md` §5.5). Errors: `NOT_FOUND` (product slug).
+Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with zero approved reviews, which is an empty page). API response is `Cache-Control: private, no-store` like its `GET /api/products/:slug` sibling; edge-cacheability + the `product:<slug>` Cache-Tag are an SSR-layer concern (the public product page bakes page 1 in), and review approval/rejection (Phase 5.13) purges that tag.
+
+**`ProductDetail` reviews embed (§5.4–§5.5).** `GET /api/products/:slug` additionally carries:
+
+- `review_count`, `rating_overall_avg`, `rating_onboarding_avg` — the denormalized summary columns (already on `ProductListItem`).
+- `reviews: PublicReview[]` — the **first page** of approved reviews (newest-first, same shape/order as page 1 of the list endpoint) so the product page renders reviews server-side without a client round-trip.
+- **≥5 averages gate:** when `review_count < 5`, both `rating_overall_avg` and `rating_onboarding_avg` are **`null`** on `ProductDetail` (a single-review average is statistically misleading — §5.5). The UI infers state from `review_count`: `0` → "Be the first to review", `1–4` → reviews shown / averages hidden, `5+` → averages shown. The gate is **`ProductDetail`-only**; `ProductListItem` (cards/lists) keeps its raw averages.
 
 ### 6.7 Vendor requests
 

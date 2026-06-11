@@ -22,6 +22,7 @@ import {
 } from './routes/integrations';
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
+import { createProductReviewsListHandler } from './routes/product-reviews';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
@@ -67,6 +68,9 @@ phase28.get('/api/products', createProductsListHandler());
 // the static `facets` segment is not captured as a `:slug`.
 phase28.get('/api/products/facets', createProductFacetsHandler());
 phase28.get('/api/products/:slug', createProductDetailHandler());
+// AECI-199 — public approved-reviews list. Longer literal path than `:slug`, so
+// Hono matching order vs the detail route is unambiguous.
+phase28.get('/api/products/:slug/reviews', createProductReviewsListHandler());
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());

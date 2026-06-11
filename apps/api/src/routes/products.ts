@@ -33,8 +33,10 @@ import {
 } from '../lib/handler-utils';
 import {
   buildProductsWhere,
+  EMBED_REVIEWS_PAGE_SIZE,
   productDetailSelect,
   productListSelect,
+  publicReviewSelect,
   toProductDetail,
   toProductListItem,
 } from '../lib/prisma-helpers';
@@ -105,10 +107,10 @@ export function createProductDetailHandler(
     // out of scope for AECI-54 — kept simple so the hydration contract is
     // satisfied without an external ML hop.
     const categoryIds = row.productCategories.map((r) => r.category.id);
-    const relatedProducts =
+    const [relatedProducts, reviews] = await Promise.all([
       categoryIds.length === 0
-        ? []
-        : await prisma.product.findMany({
+        ? Promise.resolve([])
+        : prisma.product.findMany({
             where: {
               id: { not: row.id },
               productCategories: { some: { categoryId: { in: categoryIds } } },
@@ -116,9 +118,18 @@ export function createProductDetailHandler(
             orderBy: { createdAt: 'desc' as const },
             take: 6,
             select: productListSelect,
-          });
+          }),
+      // First page of approved reviews, newest-first, for SSR. `id` tiebreaks a
+      // `created_at` collision deterministically (matches the list endpoint).
+      prisma.review.findMany({
+        where: { productId: row.id, status: 'approved' },
+        orderBy: [{ createdAt: 'desc' as const }, { id: 'asc' as const }],
+        take: EMBED_REVIEWS_PAGE_SIZE,
+        select: publicReviewSelect,
+      }),
+    ]);
 
-    const body: ProductDetail = toProductDetail(row, relatedProducts);
+    const body: ProductDetail = toProductDetail(row, relatedProducts, reviews);
 
     reportMissingVendors(c, [body, ...body.related_products]);
 

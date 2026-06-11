@@ -68,6 +68,7 @@ export type MockAcceleratedPrisma = {
   taxonomyAudience: ModelMock;
   taxonomyPhase: ModelMock;
   statsCache: ModelMock;
+  review: ModelMock;
   $queryRaw: Mock<QueryRawFn>;
 };
 
@@ -79,6 +80,7 @@ export type MockAcceleratedPrismaOverrides = Partial<{
   taxonomyAudience: ModelOverrides;
   taxonomyPhase: ModelOverrides;
   statsCache: ModelOverrides;
+  review: ModelOverrides;
   queryRaw: QueryRawFn;
 }>;
 
@@ -97,6 +99,10 @@ export function makeMockAcceleratedPrisma(
     // Phase 4.4 (AECI-179) — `prisma.statsCache.findMany` backs GET /api/stats/home.
     // Default empty array models a cold/sparse cache (pre-compute-job).
     statsCache: buildModelMock(overrides.statsCache, listDefaults),
+    // AECI-199 — `prisma.review.findMany`/`count` back GET /api/products/:slug/reviews
+    // and the ProductDetail first-page embed. Default empty array = "no approved
+    // reviews", so existing detail specs need no review override.
+    review: buildModelMock(overrides.review, listDefaults),
     $queryRaw: vi.fn(overrides.queryRaw ?? (async () => [{ '?column?': 1 }])),
   };
 }

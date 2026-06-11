@@ -8,6 +8,7 @@ import {
   procoreProductRow,
   reviztoProductRow,
 } from '../test/fixtures/products';
+import { approvedReviewRows } from '../test/fixtures/reviews';
 import {
   buildAppWithHandler,
   fakeExecutionContext,
@@ -358,5 +359,75 @@ describe('GET /api/products/:slug', () => {
     });
     await detailApp(prisma).request('/api/products/procore', {}, TEST_ENV, fakeExecutionContext());
     expect(prisma.product.findMany).not.toHaveBeenCalled();
+  });
+
+  // AECI-199 — reviews summary embed + ≥5 averages gate.
+  it('embeds the first page of approved reviews (newest-first, no PII)', async () => {
+    const prisma = makeMockAcceleratedPrisma({
+      product: { findUnique: procoreProductDetailRow, findMany: [reviztoProductRow] },
+      review: { findMany: approvedReviewRows, count: approvedReviewRows.length },
+    });
+    const res = await detailApp(prisma).request(
+      '/api/products/procore',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    const parsed = ProductDetailSchema.parse(await res.json());
+    expect(parsed.reviews.map((r) => r.title)).toEqual([
+      'Rolled out across two studios',
+      'Mixed bag',
+    ]);
+    expect(parsed.reviews[0]).not.toHaveProperty('reviewer_id');
+
+    // The embed query is approved-only, newest-first, scoped to the product id.
+    const reviewCall = prisma.review.findMany.mock.calls[0][0] as {
+      where: { productId: string; status: string };
+      orderBy: unknown;
+    };
+    expect(reviewCall.where).toEqual({ productId: PROCORE_PRODUCT_ID, status: 'approved' });
+    expect(reviewCall.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }]);
+  });
+
+  it('withholds (nulls) the rating averages when review_count < 5', async () => {
+    // procoreProductDetailRow has reviewCount 3 with non-null denormalized averages.
+    const prisma = makeMockAcceleratedPrisma({
+      product: { findUnique: procoreProductDetailRow, findMany: [] },
+      review: { findMany: [], count: 0 },
+    });
+    const res = await detailApp(prisma).request(
+      '/api/products/procore',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    const parsed = ProductDetailSchema.parse(await res.json());
+    expect(parsed.review_count).toBe(3);
+    expect(parsed.rating_overall_avg).toBeNull();
+    expect(parsed.rating_onboarding_avg).toBeNull();
+  });
+
+  it('exposes the rating averages once review_count >= 5', async () => {
+    const prisma = makeMockAcceleratedPrisma({
+      product: {
+        findUnique: { ...procoreProductDetailRow, reviewCount: 5 },
+        findMany: [],
+      },
+      review: { findMany: [], count: 0 },
+    });
+    const res = await detailApp(prisma).request(
+      '/api/products/procore',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    const parsed = ProductDetailSchema.parse(await res.json());
+    expect(parsed.review_count).toBe(5);
+    expect(parsed.rating_overall_avg).toBe(4.5);
+    expect(parsed.rating_onboarding_avg).toBe(4.2);
   });
 });

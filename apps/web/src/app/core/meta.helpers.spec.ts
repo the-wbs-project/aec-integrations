@@ -219,6 +219,7 @@ describe('buildProductJsonLd', () => {
       integrations_as_source: [],
       integrations_as_target: [],
       related_products: [],
+      reviews: [],
     };
     return { ...base, ...overrides };
   }
