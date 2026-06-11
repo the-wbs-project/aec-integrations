@@ -11,11 +11,18 @@
  * Covered by `tsconfig.app.json`'s `src` glob include. `export {}` keeps this a
  * module so the `declare global` augments rather than redeclares.
  */
-import type { AlgoliaPublicConfig } from './env';
+import type { AlgoliaPublicConfig, SupabasePublicConfig } from './env';
 
 declare global {
   interface Window {
     __AECI_ALGOLIA__?: AlgoliaPublicConfig;
+    /**
+     * Public Supabase auth config (`supabase-bootstrap-inject.ts`, AECI-194).
+     * Read at hydration by `app/auth/supabase-config.ts` to construct the
+     * browser Supabase client. Absent in local dev without Supabase config —
+     * the reader degrades gracefully on `undefined`.
+     */
+    __AECI_SUPABASE__?: SupabasePublicConfig;
   }
 }
 

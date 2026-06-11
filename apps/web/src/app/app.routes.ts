@@ -163,6 +163,16 @@ export const routes: Routes = [
     path: 'search',
     loadComponent: () => import('./search/search-page').then((m) => m.SearchPage),
   },
+  // AECI-194 — Phase 5.3 login page. Magic-link + Google OAuth, both
+  // redirecting through /auth/callback?return=<validated path> (AECI-195).
+  // Non-cacheable by the /auth/* rule in `server-runtime.ts`'s route
+  // classifier (no classifier change needed); the component sets
+  // `robots: noindex` (utility page). No resolver — the browser talks to
+  // Supabase directly with the SSR-injected public config.
+  {
+    path: 'auth/login',
+    loadComponent: () => import('./auth/login').then((m) => m.LoginPage),
+  },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
   // SSR Worker for `ENV === 'production'`. See `apps/web/src/server-runtime.ts`
