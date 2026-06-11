@@ -67,6 +67,7 @@ import { createServerApiClient } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
+import { NOINDEX_DIRECTIVE, indexingAllowed } from './server/robots-policy';
 import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
 import { createAuthCallbackHandler } from './server/routes/auth-callback';
@@ -728,6 +729,33 @@ export function createApp(options: {
   const transformResponse = options.transformResponse;
   const app = new Hono<{ Bindings: Bindings }>();
 
+  // Pre-launch crawler block (`server/robots-policy.ts`). FAIL-CLOSED: unless
+  // `ALLOW_INDEXING=true`, stamp `X-Robots-Tag: noindex, nofollow` on every
+  // response so demo (public, NOT behind Access), staging, and PR previews never
+  // enter a search index — even when a crawler ignores robots.txt or reaches a
+  // URL via an external link. Registered first so it wraps every route.
+  //
+  // `/api/*` is skipped: those are byte-for-byte proxied to the private API
+  // Worker (JSON, never indexable) and the passthrough contract keeps them
+  // untouched. The response is rebuilt rather than mutated in place because
+  // edge cache-HIT responses (returned by `handleSsr`) carry immutable headers.
+  // The stamp happens at egress, AFTER `handleSsr` stores the cache entry, so
+  // the cached payload stays visitor/-env-neutral and is re-stamped on each HIT.
+  app.use('*', async (c, next) => {
+    await next();
+    if (indexingAllowed(c.env)) return;
+    if (new URL(c.req.url).pathname.startsWith('/api/')) return;
+    const res = c.res;
+    if (res.headers.get('X-Robots-Tag')) return;
+    const headers = new Headers(res.headers);
+    headers.set('X-Robots-Tag', NOINDEX_DIRECTIVE);
+    c.res = new Response(res.body, {
+      status: res.status,
+      statusText: res.statusText,
+      headers,
+    });
+  });
+
   // /api/* — raw passthrough to the private API Worker via the service
   // binding. Cookies (Supabase session, anti-CSRF, anything else) MUST reach
   // the API Worker untouched. No envelope normalization on this path; SSR
@@ -777,12 +805,16 @@ export function createApp(options: {
     }
   });
 
-  // GET /robots.txt — allows the public surface, points at the sitemap. The
-  // `Sitemap:` line is derived from the request origin so it is correct per
-  // environment. Long-lived edge + browser TTL (CACHE_STRATEGY.md §4).
+  // GET /robots.txt — when indexing is allowed, allows the public surface and
+  // points at the sitemap (the `Sitemap:` line is derived from the request
+  // origin so it is correct per environment). When indexing is disallowed
+  // (pre-launch: demo/staging/previews), `Allow: /` with no sitemap line —
+  // crawling stays permitted so the `X-Robots-Tag: noindex` egress stamp above
+  // is actually seen and honored; a `Disallow: /` would hide the noindex from
+  // compliant crawlers. Long-lived edge + browser TTL (CACHE_STRATEGY.md §4).
   app.get('/robots.txt', (c) => {
     const origin = new URL(c.req.url).origin;
-    return new Response(buildRobotsTxt(origin), {
+    return new Response(buildRobotsTxt(origin, indexingAllowed(c.env)), {
       status: 200,
       headers: {
         'Content-Type': 'text/plain; charset=utf-8',

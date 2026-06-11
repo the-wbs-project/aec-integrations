@@ -259,11 +259,11 @@ describe('GET /sitemap.xml route', () => {
 });
 
 describe('GET /robots.txt route', () => {
-  it('returns 200 text/plain with allow rules and a Sitemap line', async () => {
+  it('returns 200 text/plain with allow rules and a Sitemap line when indexing is allowed', async () => {
     const app = createApp({ ssrRenderer: throwingRenderer() });
     const res = await app.fetch(
       new Request('https://aecintegrations.com/robots.txt'),
-      sitemapApiBinding() as unknown as Bindings,
+      { ...sitemapApiBinding(), ALLOW_INDEXING: 'true' } as unknown as Bindings,
       fakeExecutionContext(),
     );
 
@@ -274,5 +274,21 @@ describe('GET /robots.txt route', () => {
     const body = await res.text();
     expect(body).toContain('Allow: /');
     expect(body).toContain('Sitemap: https://aecintegrations.com/sitemap.xml');
+  });
+
+  it('returns a crawl-allowed, sitemap-less robots.txt when indexing is blocked (pre-launch default)', async () => {
+    const app = createApp({ ssrRenderer: throwingRenderer() });
+    const res = await app.fetch(
+      new Request('https://demo.aecintegrations.com/robots.txt'),
+      sitemapApiBinding() as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    // Crawling stays allowed so the X-Robots-Tag noindex header is honored.
+    expect(body).toContain('Allow: /');
+    expect(body).not.toContain('Disallow: /');
+    expect(body).not.toContain('Sitemap:');
   });
 });
