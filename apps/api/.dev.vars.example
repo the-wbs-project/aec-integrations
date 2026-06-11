@@ -133,3 +133,14 @@ DD_SITE=datadoghq.com
 # `wrangler secret put ALGOLIA_APP_ID/ALGOLIA_ADMIN_KEY --env <env>`.
 ALGOLIA_APP_ID=
 ALGOLIA_ADMIN_KEY=
+
+# ─── Perspective API toxicity scoring (AECI-198) ───────────────────────────
+# Google Perspective API key. The WORKER reads it at runtime to score review
+# bodies on POST /api/reviews, so set it as a Wrangler secret in deployed envs:
+#   wrangler secret put PERSPECTIVE_API_KEY --env staging|production
+# Optional and FAIL-OPEN: absent (local dev, PR previews) → scoring is a silent
+# no-op storing toxicity_score=null; an outage also stores null (logged warn).
+# The score only flags the moderation queue — it never blocks a submission.
+# Get one from https://developers.perspectiveapi.com (enable the Comment
+# Analyzer API on a Google Cloud project, then create an API key).
+PERSPECTIVE_API_KEY=

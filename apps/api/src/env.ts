@@ -138,4 +138,13 @@ export type Env = {
    * to drop. Parsed with `parseInt`; a non-numeric value is treated as unset.
    */
   PAGE_VIEWS_MIN_BOT_SCORE?: string;
+  /**
+   * Google Perspective API key for review toxicity scoring (AECI-198 / Phase
+   * 5.7). Set as a Wrangler secret per env. Optional and **fail-open**: absent →
+   * `scoreToxicity()` is a silent no-op that stores `null` (the expected state in
+   * local `dev:bound` / PR previews), and any outage also stores `null` (logged
+   * `warn`) — the score only ever *flags* the moderation queue, it never blocks a
+   * submission. See `lib/perspective.ts` and `STAGE_1_PHASE_5_SPEC.md` §5.3.
+   */
+  PERSPECTIVE_API_KEY?: string;
 };
