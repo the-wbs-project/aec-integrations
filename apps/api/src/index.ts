@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
-import { requireAuth, type AuthzVariables } from './lib/authz';
+import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
@@ -22,6 +22,7 @@ import {
 } from './routes/integrations';
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
+import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
@@ -165,6 +166,17 @@ authReviews.post(
   createSubmitReviewHandler(),
 );
 app.route('/', authReviews);
+
+// Phase 5.13 admin moderation sub-router (AECI-204) — the functional review
+// read+write API. `requireAdmin()` sets `c.get('auth')` (`AuthzVariables`, same
+// shape as `authReviews`) AND enforces `role === 'admin'` before the handler, so
+// the moderate write can never run without an admin identity. Reached only over
+// the service binding like every other route.
+const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authAdmin.onError(errorHandler());
+authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandler());
+authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
+app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.
