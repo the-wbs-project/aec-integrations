@@ -108,21 +108,53 @@ describe('VendorDetailSchema', () => {
       founded_year: null,
       description: null,
       website: null,
+      linkedin_url: null,
+      x_url: null,
+      facebook_url: null,
+      instagram_url: null,
+      youtube_url: null,
+      github_url: null,
       products: [],
     });
     expect(parsed.products).toEqual([]);
   });
 
-  it('parses a detail with hydrated products', () => {
+  it('parses a detail with hydrated products and social links', () => {
     const parsed = VendorDetailSchema.parse({
       ...validVendorListItem,
       description: 'Construction tech vendor.',
       website: 'https://procore.com',
+      linkedin_url: 'https://www.linkedin.com/company/procore-technologies',
+      x_url: 'https://x.com/procoretech',
+      facebook_url: 'https://www.facebook.com/procoretech',
+      instagram_url: 'https://www.instagram.com/procoretech',
+      youtube_url: 'https://www.youtube.com/@procoretechnologies',
+      github_url: 'https://github.com/procore',
       products: [validProductListItem],
     });
     expect(parsed.products).toHaveLength(1);
     expect(parsed.founded_year).toBe(2002);
     expect(parsed.headquarters).toBe('Carpinteria, CA');
+    expect(parsed.linkedin_url).toBe('https://www.linkedin.com/company/procore-technologies');
+    expect(parsed.x_url).toBe('https://x.com/procoretech');
+    expect(parsed.youtube_url).toBe('https://www.youtube.com/@procoretechnologies');
+    expect(parsed.github_url).toBe('https://github.com/procore');
+  });
+
+  it('rejects a non-URL social link', () => {
+    const result = VendorDetailSchema.safeParse({
+      ...validVendorListItem,
+      description: null,
+      website: null,
+      linkedin_url: 'not-a-url',
+      x_url: null,
+      facebook_url: null,
+      instagram_url: null,
+      youtube_url: null,
+      github_url: null,
+      products: [],
+    });
+    expect(result.success).toBe(false);
   });
 });
 

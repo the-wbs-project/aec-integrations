@@ -43,11 +43,25 @@ export type VendorListItem = z.infer<typeof VendorListItemSchema>;
  * vendor's products as `ProductListItem[]` (Phase 2 Spec §7.2) so the detail
  * page renders without chain-fetching. `headquarters` and `founded_year`
  * already live on `VendorListItem`; the detail shape adds the editorial
- * description and website.
+ * description and website, plus external/social links rendered in the hero.
+ *
+ * `linkedin_url` and the four B2 social platforms (`x_url`, `facebook_url`,
+ * `instagram_url`, `youtube_url`) mirror their stored columns verbatim — the
+ * review app curates and forwards full canonical URLs via `POST /api/promote`.
+ * `github_url` is the exception: derived server-side from the `github_org` handle
+ * (`https://github.com/{org}`) so the contract carries a uniform, URL-validatable
+ * field rather than a bare handle. All are nullable — a vendor without a given
+ * link renders no icon for it.
  */
 export const VendorDetailSchema = VendorListItemSchema.extend({
   description: z.string().nullable(),
   website: z.string().url().nullable(),
+  linkedin_url: z.string().url().nullable(),
+  x_url: z.string().url().nullable(),
+  facebook_url: z.string().url().nullable(),
+  instagram_url: z.string().url().nullable(),
+  youtube_url: z.string().url().nullable(),
+  github_url: z.string().url().nullable(),
   products: z.array(ProductListItemSchema),
 });
 
