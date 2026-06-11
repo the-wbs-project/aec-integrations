@@ -261,3 +261,58 @@ once writes resume and the next compute runs.
 schema regression — page on-call, capture a `reason` from the logs, and consider rolling back the
 correlated deploy. (The 10% threshold is a pre-launch starting point — see `docs/OBSERVABILITY.md`;
 retune once production traffic is known.)
+
+## page_views duplicate PK (prod data corruption)
+
+**Symptom:** the `refresh-staging` workflow fails at the **"Restore prod data into staging"** step
+with:
+
+```
+pg_restore: error: could not create unique index "page_views_pkey"
+DETAIL:  Key (id)=(N) is duplicated.
+```
+
+**What it means:** prod's `page_views` table physically contains rows with duplicate `id` values.
+`page_views.id` is a `BIGSERIAL PRIMARY KEY` (`page_views_pkey`), so this is only possible if that
+unique index is **not enforced in prod** (never created, dropped, or left `INVALID`). The `pg_dump`
+COPY stream carries the dups verbatim; on restore, pg_restore loads the rows and then can't rebuild
+the PK. (The app insert path — `apps/api/src/routes/page-views.ts` — never sets `id` explicitly; it
+relies on the sequence default, so the corruption is a DB-level constraint/sequence problem, not an
+application bug.)
+
+**Why `refresh-staging` no longer breaks on it:** the "Dump prod" step excludes `page_views` *data*
+(`--exclude-table-data='public.page_views'`) — the table structure still transfers and staging
+self-heals from its own captured views. This runbook covers cleaning up the **prod** corruption,
+which the exclusion only sidesteps.
+
+**Repair (one-off, against prod via `DIRECT_URL_PRODUCTION`):** confirm the damage, dedup keeping the
+newest row per id, re-sync the sequence, then (re)assert the PK so it can't recur.
+
+```sql
+-- 1. Confirm: which ids are duplicated, and is the PK actually enforced?
+SELECT id, count(*) FROM page_views GROUP BY id HAVING count(*) > 1 ORDER BY id;
+SELECT conname, convalidated FROM pg_constraint
+  WHERE conrelid = 'public.page_views'::regclass AND contype = 'p';
+
+-- 2. Dedup: keep one physical row per id (ctid is the physical row pointer).
+DELETE FROM page_views a
+  USING page_views b
+  WHERE a.id = b.id AND a.ctid < b.ctid;
+
+-- 3. Re-sync the BIGSERIAL sequence to max(id) so new inserts don't collide.
+SELECT setval(pg_get_serial_sequence('public.page_views', 'id'),
+              COALESCE((SELECT max(id) FROM page_views), 1));
+
+-- 4. If the PK was missing/invalid, (re)create it so dups can't return.
+--    (Skip if step 1 showed a valid page_views_pkey already present.)
+ALTER TABLE public.page_views
+  ADD CONSTRAINT page_views_pkey PRIMARY KEY (id);
+```
+
+**Verify:** re-run step 1 (no rows from the `HAVING` query; `convalidated = t`). After cleanup, the
+`--exclude-table-data` guard in `refresh-staging` is belt-and-suspenders and can stay — staging has no
+need for prod's eyeball-analytics rows regardless.
+
+**Escalation:** if the dedup count is large or the PK can't be created because dups remain, stop and
+investigate how unconstrained writes happened (a prod migration that didn't apply the baseline PK, or
+a manual/restore load that bypassed it) before forcing the constraint.
