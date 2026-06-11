@@ -9,6 +9,7 @@ import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shar
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
 import { ProductUsefulnessSection } from './product-usefulness';
@@ -51,6 +52,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     NotFound,
     ProductUsefulnessSection,
     RouterLink,
+    SectionNav,
     TaxonomyBadge,
   ],
   template: `
@@ -256,8 +258,12 @@ import { ProductUsefulnessSection } from './product-usefulness';
         </div>
 
         <div slot="body" class="space-y-12">
+          @if (sectionNav().length >= 2) {
+            <aec-section-nav [basePath]="'/products/' + p.slug" [sections]="sectionNav()" />
+          }
+
           @if (p.description) {
-            <section aria-labelledby="description-title" class="space-y-4">
+            <section id="about" aria-labelledby="description-title" class="scroll-mt-20 space-y-4">
               <h2
                 id="description-title"
                 class="font-display text-2xl font-semibold text-(--text-primary)"
@@ -272,10 +278,14 @@ import { ProductUsefulnessSection } from './product-usefulness';
           }
 
           @if (p.usefulness; as u) {
-            <aec-product-usefulness [data]="u" />
+            <aec-product-usefulness id="how-teams-use-it" class="scroll-mt-20" [data]="u" />
           }
 
-          <section aria-labelledby="integrations-title" class="space-y-4">
+          <section
+            id="integrations"
+            aria-labelledby="integrations-title"
+            class="scroll-mt-20 space-y-4"
+          >
             <div class="flex items-baseline justify-between gap-4">
               <h2
                 id="integrations-title"
@@ -414,5 +424,46 @@ export class ProductDetailPage {
   protected readonly integrationCountLabel = computed(() => {
     const count = this.integrations().length;
     return $localize`:@@products.detail.body.integrations.count:${count}:INTERPOLATION:`;
+  });
+
+  /**
+   * Whether the "How teams use it" section actually renders. Mirrors
+   * `ProductUsefulnessSection.hasContent` (product-usefulness.ts) — that child
+   * hides itself via `[hidden]` when a non-null `usefulness` carries no usable
+   * points, so the jump nav must apply the same test or it would link to a
+   * collapsed section.
+   */
+  protected readonly hasUsefulness = computed(() => {
+    const u = this.product()?.usefulness;
+    if (!u) return false;
+    return (
+      u.audiences.some((g) => g.points.length > 0) || u.phases.some((g) => g.points.length > 0)
+    );
+  });
+
+  /**
+   * Present body sections, in render order, for the sticky in-page nav. Only
+   * sections that are actually on the page are listed; Integrations always is
+   * (its empty state still renders). The parent owns the (localized) labels so
+   * `SectionNav` stays generic.
+   */
+  protected readonly sectionNav = computed<readonly SectionNavItem[]>(() => {
+    const p = this.product();
+    if (!p) return [];
+    const items: SectionNavItem[] = [];
+    if (p.description) {
+      items.push({ id: 'about', label: $localize`:@@products.detail.nav.about:About` });
+    }
+    if (this.hasUsefulness()) {
+      items.push({
+        id: 'how-teams-use-it',
+        label: $localize`:@@products.detail.nav.usefulness:How teams use it`,
+      });
+    }
+    items.push({
+      id: 'integrations',
+      label: $localize`:@@products.detail.nav.integrations:Integrations`,
+    });
+    return items;
   });
 }

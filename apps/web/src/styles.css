@@ -204,6 +204,16 @@ select {
   align-items: center;
 }
 
+/* Smooth same-document anchor jumps — the in-page section nav
+   (`aec-section-nav`) and the skip link rely on native fragment scrolling.
+   CSS-driven (never the silently-ignored `scrollIntoView({behavior:'smooth'})`
+   JS path), so it degrades to an instant jump where smooth scrolling is off.
+   The reduced-motion block below resets it to `auto`. No programmatic scrolls
+   exist in the app to disturb. */
+html {
+  scroll-behavior: smooth;
+}
+
 /* Honor the OS "reduce motion" preference globally. Neutralizes Tailwind's
    `animate-*` (e.g. the `animate-pulse` @defer skeletons on detail/index
    pages) and `transition-*` durations for visitors who request it, rather
