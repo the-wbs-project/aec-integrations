@@ -147,10 +147,23 @@ jobs:
           PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
         run: |
           set -euo pipefail
+          # Exclude page_views DATA (structure still transfers): page_views is a
+          # high-volume, append-only analytics log. Staging doesn't need prod's
+          # actual rows — it self-heals (trending_products recomputes from
+          # staging's own captured views), and copying eyeball-analytics into a
+          # lower environment is needless data movement. It is also fragile:
+          # prod's page_views currently holds duplicate `id` values (the
+          # BIGSERIAL PK is not enforced in prod), so a full restore aborts on
+          # `could not create unique index "page_views_pkey" ... Key (id) is
+          # duplicated`, which pg_restore counts as an ignored error and then
+          # exits 1, failing this step under `set -e`. Dropping the data sidesteps
+          # that entirely. The prod corruption itself is tracked separately for a
+          # one-off cleanup (see docs/RUNBOOKS.md → "page_views duplicate PK").
           pg_dump \
             --format=custom \
             --no-owner --no-privileges \
             --schema=public \
+            --exclude-table-data='public.page_views' \
             --file=/tmp/prod-public.dump \
             "$PGURL"
           # Exclude auth.schema_migrations: it's GoTrue's OWN migration-history
