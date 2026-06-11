@@ -1,0 +1,148 @@
+<section
+  class="mx-auto w-full max-w-md px-6 py-16 text-(--text-primary) md:py-24"
+  aria-labelledby="login-title"
+>
+  @if (emailSent(); as sentTo) {
+  <!-- ── Check your email ─────────────────────────────────────────────── -->
+  <p
+    class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+    i18n="@@auth.login.sent.eyebrow"
+  >
+    Magic link sent
+  </p>
+  <h1
+    id="login-title"
+    class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
+    i18n="@@auth.login.sent.title"
+  >
+    Check your email
+  </h1>
+  <p
+    class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)"
+    i18n="@@auth.login.sent.body"
+  >
+    We sent a sign-in link to <strong class="text-(--text-primary)">{{ sentTo }}</strong>. Open it
+    on this device to finish signing in. The link expires shortly, so use it soon.
+  </p>
+  <div class="mt-8">
+    <button
+      type="button"
+      (click)="useDifferentEmail()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+      i18n="@@auth.login.sent.differentEmail"
+    >
+      Use a different email
+    </button>
+  </div>
+  } @else {
+  <!-- ── Header ───────────────────────────────────────────────────────── -->
+  <p
+    class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+    i18n="@@auth.login.eyebrow"
+  >
+    Welcome back
+  </p>
+  <h1
+    id="login-title"
+    class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
+    i18n="@@auth.login.title"
+  >
+    Sign in
+  </h1>
+  <p
+    class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)"
+    i18n="@@auth.login.subtitle"
+  >
+    No password needed — we'll email you a sign-in link, or you can continue with Google.
+  </p>
+
+  @if (unavailable()) {
+  <!-- Graceful degrade: env has no Supabase config (mirrors the search page). -->
+  <p
+    class="mt-8 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-3 text-sm font-medium text-(--text-primary)"
+    role="status"
+    i18n="@@auth.login.unavailable"
+  >
+    Sign-in is temporarily unavailable. Please try again later.
+  </p>
+  }
+
+  <!-- ── Google ───────────────────────────────────────────────────────── -->
+  <div class="mt-10">
+    <button
+      type="button"
+      (click)="onGoogle()"
+      [disabled]="unavailable() || googlePending()"
+      class="inline-flex w-full items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      @if (googlePending()) {
+      <span i18n="@@auth.login.google.pending">Redirecting to Google…</span>
+      } @else {
+      <span i18n="@@auth.login.google">Continue with Google</span>
+      }
+    </button>
+  </div>
+
+  <!-- ── Divider ──────────────────────────────────────────────────────── -->
+  <div class="mt-8 flex items-center gap-4" aria-hidden="true">
+    <span class="h-px flex-1 bg-(--border-default)"></span>
+    <span
+      class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      i18n="@@auth.login.divider"
+      >or</span
+    >
+    <span class="h-px flex-1 bg-(--border-default)"></span>
+  </div>
+
+  <!-- ── Magic link ───────────────────────────────────────────────────── -->
+  <form class="mt-8 space-y-6" novalidate (submit)="$event.preventDefault(); onSubmit()">
+    <div class="space-y-1.5">
+      <label
+        for="login-email"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@auth.login.email.label"
+      >
+        Your email
+      </label>
+      <input
+        id="login-email"
+        type="email"
+        inputmode="email"
+        autocomplete="email"
+        [formField]="form.email"
+        [attr.aria-invalid]="form.email().touched() && form.email().invalid() ? 'true' : null"
+        [attr.aria-describedby]="form.email().touched() && form.email().getError('standardSchema') ? 'login-email-error' : null"
+        class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
+      @if (form.email().touched() && form.email().getError('standardSchema')) {
+      <p
+        id="login-email-error"
+        class="text-xs font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@auth.login.email.error"
+      >
+        Enter a valid email address.
+      </p>
+      }
+    </div>
+
+    @if (submitFailed()) {
+    <p class="text-sm font-medium text-(--text-primary)" role="alert" i18n="@@auth.login.failed">
+      Something went wrong. Please try again.
+    </p>
+    }
+
+    <button
+      type="submit"
+      [disabled]="unavailable() || form().invalid() || form().pending() || form().submitting()"
+      class="inline-flex w-full items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      @if (form().submitting()) {
+      <span i18n="@@auth.login.submitting">Sending…</span>
+      } @else {
+      <span i18n="@@auth.login.submit">Email me a sign-in link</span>
+      }
+    </button>
+  </form>
+  }
+</section>

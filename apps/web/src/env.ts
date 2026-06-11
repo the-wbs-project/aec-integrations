@@ -65,6 +65,19 @@ export type AlgoliaPublicConfig = {
   indexes: AlgoliaIndexNames;
 };
 
+/**
+ * Public Supabase config rendered into the SSR HTML for the browser
+ * (`window.__AECI_SUPABASE__`, AECI-194). Carries the project base URL and the
+ * publishable/anon key — both non-secret (the anon key only unlocks anon-RLS
+ * access + the auth endpoints; same security class as `ALGOLIA_SEARCH_KEY`).
+ * The service-role key is intentionally never part of `WebEnv` (review gate,
+ * AUTH_AND_RLS.md §3). Consumed by the login page's browser Supabase client.
+ */
+export type SupabasePublicConfig = {
+  url: string;
+  anonKey: string;
+};
+
 export type WebEnv = {
   ASSETS: Fetcher;
   API: Fetcher;
