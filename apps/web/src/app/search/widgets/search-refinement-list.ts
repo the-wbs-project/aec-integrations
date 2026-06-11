@@ -36,10 +36,10 @@ import type { RefinementItem } from '../../shared/facets/refinement-item';
                   [checked]="item.isRefined"
                   (change)="refine.emit(item.value)"
                 />
-                <span class="min-w-0 flex-1 truncate">{{ displayLabel(item) }}</span>
-                <span class="shrink-0 text-xs tabular-nums text-(--text-secondary)">{{
-                  item.count
-                }}</span>
+                <span class="min-w-0 truncate">{{ displayLabel(item) }}</span>
+                <span class="shrink-0 text-xs tabular-nums text-(--text-secondary)"
+                  >({{ item.count }})</span
+                >
               </label>
             </li>
           }
