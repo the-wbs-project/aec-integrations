@@ -7,8 +7,13 @@
  * table for the Phase 5 moderation pipeline to pick up. `reviewer_id` is the
  * verified token `sub` from `c.get('auth')` — server-set, never client-supplied
  * — and `locale` is resolved server-side (see `resolveLocale`); neither is a
- * body field. Public display, the form, and toxicity scoring are out of scope
- * (5.7 / 5.8 / 5.9 / 5.10).
+ * body field. Public display and the form are out of scope (5.8 / 5.9 / 5.10).
+ *
+ * The body is scored for toxicity via the Perspective API before the insert and
+ * the result stored in `toxicity_score` (AECI-198 / Phase 5.7, `lib/perspective.ts`).
+ * It is a moderation-queue triage signal only — **flag, never auto-reject** — and
+ * fail-open: an outage (or no key) stores `null` and the review still enters the
+ * queue. The score is admin-only and never appears in the submit response.
  *
  * Dedup is enforced two ways (`API_CONTRACTS.md` §6.6):
  *   1. an app-level pre-check (`review.findFirst` on a non-archived row), and
@@ -41,6 +46,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import type { PrismaFactory } from '../lib/handler-utils';
+import { scoreToxicity } from '../lib/perspective';
 import { getPrisma } from '../prisma';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -145,6 +151,7 @@ const reviewDuplicateError = (): ApiError =>
 
 export function createSubmitReviewHandler(
   prismaFor: PrismaFactory = getPrisma,
+  score: (c: AuthContext, body: string) => Promise<number | null> = scoreToxicity,
 ): (c: AuthContext) => Promise<Response> {
   return async (c) => {
     // `userId` is the verified token `sub` (AUTH_AND_RLS.md §4) — the server
@@ -172,6 +179,12 @@ export function createSubmitReviewHandler(
     });
     if (existing) throw reviewDuplicateError();
 
+    // Toxicity scoring (5.7): a moderation triage signal, never a gate. Run it
+    // BEFORE the transaction — an external HTTP call must not hold the DB
+    // transaction open. `score` never throws and fails open to `null` (outage or
+    // no key), so the review is always insertable; we never auto-reject on it.
+    const toxicityScore = await score(c, payload.body);
+
     const forward = makeForwarder(c);
 
     const created = await prisma
@@ -195,6 +208,9 @@ export function createSubmitReviewHandler(
             ...(payload.would_recommend !== undefined && {
               wouldRecommend: payload.would_recommend,
             }),
+            // Nullable scalar `smallint` — a plain `null` clears it (no
+            // `Prisma.DbNull`; that's only for `Json?` columns).
+            toxicityScore,
             locale,
           },
           select: { id: true },
@@ -207,7 +223,11 @@ export function createSubmitReviewHandler(
             action: 'review.submitted',
             entityType: 'review',
             entityId: row.id,
-            metadata: { source: 'review-form', product_id: payload.product_id },
+            metadata: {
+              source: 'review-form',
+              product_id: payload.product_id,
+              toxicity_score: toxicityScore,
+            },
           },
           forward,
         );

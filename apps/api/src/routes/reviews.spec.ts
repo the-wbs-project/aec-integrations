@@ -122,10 +122,13 @@ function uniqueConstraintError(target: string[]) {
   return e;
 }
 
-/** Mount the handler behind a middleware that injects a verified `auth`. */
+/** Mount the handler behind a middleware that injects a verified `auth`.
+ *  `score` stands in for the Perspective call (default: a no-op → `null`, as a
+ *  missing key would behave) so unit tests stay offline and deterministic. */
 function appWith(
   prisma: unknown,
   auth: AuthzVariables['auth'] = { userId: USER_ID, role: 'reviewer' },
+  score: (c: unknown, body: string) => Promise<number | null> = async () => null,
 ) {
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
@@ -135,7 +138,7 @@ function appWith(
   });
   app.post(
     '/api/reviews',
-    createSubmitReviewHandler(() => prisma as never),
+    createSubmitReviewHandler(() => prisma as never, score as never),
   );
   return app;
 }
@@ -314,6 +317,44 @@ describe('createSubmitReviewHandler', () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       ApiErrorCode.MALFORMED_REQUEST,
     );
+  });
+
+  // ─── Toxicity scoring (AECI-198 / Phase 5.7) ────────────────────────────────
+
+  it('persists the Perspective toxicity_score and records it in the audit metadata', async () => {
+    const { prisma, createCalls, auditCalls } = makeFakePrisma();
+    const score = async () => 92;
+    const res = await post(appWith(prisma, undefined, score), validBody());
+
+    expect(res.status).toBe(201);
+    expect(createCalls[0]?.data).toMatchObject({ toxicityScore: 92 });
+    expect(auditCalls[0]?.data).toMatchObject({
+      metadata: { source: 'review-form', product_id: PRODUCT_ID, toxicity_score: 92 },
+    });
+  });
+
+  it('stores toxicity_score=null and still saves the review when Perspective fails (outage)', async () => {
+    const { prisma, createCalls } = makeFakePrisma();
+    // Default `score` already resolves to null; assert the review is saved anyway.
+    const res = await post(appWith(prisma), validBody());
+
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({ status: 'pending' });
+    expect(createCalls).toHaveLength(1);
+    expect(createCalls[0]?.data).toMatchObject({ toxicityScore: null });
+  });
+
+  it('never auto-rejects: a max-toxicity score still yields a pending review with no score in the response', async () => {
+    const { prisma } = makeFakePrisma();
+    const score = async () => 100;
+    const res = await post(appWith(prisma, undefined, score), validBody());
+
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe('pending');
+    // Admin-only: the score is never echoed in the public submit response.
+    expect(body).not.toHaveProperty('toxicity_score');
+    expect(body).not.toHaveProperty('toxicityScore');
   });
 });
 
