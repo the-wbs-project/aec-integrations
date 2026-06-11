@@ -1,3 +1,4 @@
+export * from './admin';
 export * from './common';
 export * from './integrations';
 export * from './page-views';

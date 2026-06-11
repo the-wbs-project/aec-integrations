@@ -8,10 +8,11 @@ import { Hono } from 'hono';
 
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
-import { requireAuth, type AuthzVariables } from './lib/authz';
+import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
+import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { metricsMiddleware } from './metrics-middleware';
@@ -165,6 +166,18 @@ authReviews.post(
   createSubmitReviewHandler(),
 );
 app.route('/', authReviews);
+
+// Phase 5.12 admin sub-router (AECI-203). `requireAdmin()` sets `c.get('auth')`
+// (`AuthzVariables`), same shape as `authReviews`, and adds the `role === 'admin'`
+// check (no `bannedCode` — a banned admin gets the default `403 FORBIDDEN`).
+// `GET /api/admin/summary` is the admin shell's read-only badge feed (pending
+// review count); it doubles as the SSR `/admin` gate signal (200 = admin,
+// 401/403 → the resolver renders a 404). Registered before the `/api/*` 404
+// catch-all so it can match; reached only over the service binding, no ingress.
+const adminRouter = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+adminRouter.onError(errorHandler());
+adminRouter.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
+app.route('/', adminRouter);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.

@@ -109,3 +109,71 @@ describe('createServerApiClient', () => {
     await expect(client.request('api/health')).rejects.toBeInstanceOf(TypeError);
   });
 });
+
+/**
+ * AECI-203 — the cookie-forwarding option lets an authenticated SSR resolver
+ * read the visitor's `sb-…-auth-token` cookie on the API Worker. The SSR runtime
+ * builds a forwarding client ONLY on the non-cacheable branch; these tests pin
+ * the client's own contract (forward when asked, never when not, never clobber).
+ */
+describe('createServerApiClient — forwardCookieFrom', () => {
+  function capturingFetcher(): { env: { API: Fetcher }; sent: () => Request } {
+    let captured: Request | undefined;
+    const fetcher = {
+      fetch: vi.fn(async (input: Request) => {
+        captured = input;
+        return new Response('{}', { status: 200 });
+      }),
+    } as unknown as Fetcher;
+    return {
+      env: { API: fetcher },
+      sent: () => captured as Request,
+    };
+  }
+
+  it('forwards the inbound Cookie header onto the outbound API request', async () => {
+    const { env, sent } = capturingFetcher();
+    const inbound = new Request('https://aecintegrations.com/admin', {
+      headers: { cookie: 'sb-abc-auth-token=tok; theme=dark' },
+    });
+    const client = createServerApiClient(env, { forwardCookieFrom: inbound });
+
+    await client.request('/api/admin/summary');
+
+    expect(sent().headers.get('cookie')).toBe('sb-abc-auth-token=tok; theme=dark');
+  });
+
+  it('sends NO cookie when no forwarding request is provided (cacheable-branch default)', async () => {
+    const { env, sent } = capturingFetcher();
+    const client = createServerApiClient(env);
+
+    await client.request('/api/admin/summary');
+
+    expect(sent().headers.get('cookie')).toBeNull();
+  });
+
+  it('sends NO cookie when the forwarding request itself has none', async () => {
+    const { env, sent } = capturingFetcher();
+    const client = createServerApiClient(env, {
+      forwardCookieFrom: new Request('https://aecintegrations.com/admin'),
+    });
+
+    await client.request('/api/admin/summary');
+
+    expect(sent().headers.get('cookie')).toBeNull();
+  });
+
+  it('does not clobber a caller-supplied Cookie header', async () => {
+    const { env, sent } = capturingFetcher();
+    const inbound = new Request('https://aecintegrations.com/admin', {
+      headers: { cookie: 'sb-abc-auth-token=inbound' },
+    });
+    const client = createServerApiClient(env, { forwardCookieFrom: inbound });
+
+    await client.request('/api/admin/summary', {
+      headers: { cookie: 'sb-abc-auth-token=explicit' },
+    });
+
+    expect(sent().headers.get('cookie')).toBe('sb-abc-auth-token=explicit');
+  });
+});

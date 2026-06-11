@@ -745,7 +745,20 @@ The SSR Worker is the **sole writer** of these headers: on the `/api/page-views`
 
 ### 6.10 Admin endpoints
 
-All require `role === 'admin'` via Supabase RLS.
+All require `role === 'admin'`, enforced by the `requireAdmin()` Worker middleware (`apps/api/src/lib/authz.ts`, Phase 5.5) — verifies the JWT, loads `profiles.role`, rejects non-admins (`403`) and missing token/profile (`401`) before the handler. RLS is defense-in-depth for the PostgREST surface.
+
+#### `GET /api/admin/summary`
+
+The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 ships only the pending-review count (`STAGE_1_SPEC.md` §22.1); Phase 6 extends it with request counts. A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
+
+```typescript
+export const AdminSummaryResponseSchema = z.object({
+  pending_reviews: z.number().int().nonnegative(),
+});
+export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
+```
+
+Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (`prisma.review.count({ where: { status: 'pending' } })`). Read-only — no audit log.
 
 #### `GET /api/admin/reviews`
 
