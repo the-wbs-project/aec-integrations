@@ -68,11 +68,21 @@ export interface DetailResolverConfig<T extends { id: string }> {
   fetch: (api: ServerApiClient, param: string) => Promise<T | null>;
   /** Head metadata + JSON-LD for a resolved entity. Runs on BOTH platforms —
    *  SSR bakes it into the initial HTML; the client re-applies it on an in-app
-   *  navigation (idempotent upserts). MUST NOT touch server-only context. */
-  applyMeta: (meta: MetaService, entity: T, canonical: string) => void;
+   *  navigation (idempotent upserts). MUST NOT touch server-only context.
+   *  Optional: omit on a route that owns its own `<head>` and is NOT the
+   *  entity's canonical page (e.g. the review form, which sets its own title +
+   *  `robots: noindex`) — it must not emit the entity's canonical / JSON-LD. */
+  applyMeta?: (meta: MetaService, entity: T, canonical: string) => void;
   /** Server-only embedded `Cache-Tag` pushes onto `ctx.embedded`. Never runs on
-   *  the client (a SPA navigation produces no HTTP response to tag). */
-  pushEmbedded: (ctx: AeciRequestContext, entity: T) => void;
+   *  the client (a SPA navigation produces no HTTP response to tag). Optional:
+   *  omit on a non-cacheable route, which has no `Cache-Tag` to contribute. */
+  pushEmbedded?: (ctx: AeciRequestContext, entity: T) => void;
+  /** Whether a successful server-side resolve records a `POST /api/page-views`
+   *  for this entity. Defaults to `true`. Set `false` on a route that reuses an
+   *  entity fetch but is NOT that entity's canonical page (e.g. the review form
+   *  under `/products/:slug/review`), so its landings don't inflate the
+   *  entity's view count / trending signal (AECI-177/179). */
+  trackPageView?: boolean;
 }
 
 /**
@@ -106,7 +116,8 @@ export function createDetailResolver<T extends { id: string }>(
       // Re-apply head metadata client-side. Idempotent on hydration; on a client
       // navigation it is the ONLY thing that refreshes <title>/canonical/JSON-LD
       // (the server branch never ran). Page-views fire from `PageViewTracker`.
-      if (entity) config.applyMeta(meta, entity, canonical);
+      // A resolver without `applyMeta` owns its own head (e.g. the review form).
+      if (entity) config.applyMeta?.(meta, entity, canonical);
       else meta.setNotFoundMeta({ kind: config.entityKind, slug: param, canonical });
       return entity;
     }
@@ -134,14 +145,20 @@ export function createDetailResolver<T extends { id: string }>(
       return null;
     }
 
-    config.applyMeta(meta, entity, canonical);
-    config.pushEmbedded(ctx, entity);
+    config.applyMeta?.(meta, entity, canonical);
+    config.pushEmbedded?.(ctx, entity);
 
-    ctx.pageView = {
-      route: `/${config.pathSegment}/:${config.paramName}`,
-      entity_type: config.entityKind,
-      entity_id: entity.id,
-    };
+    // Record the page-view UNLESS the route opts out. A route that reuses an
+    // entity fetch but is not that entity's canonical page (e.g. the review
+    // form) sets `trackPageView: false` so its landings aren't miscounted as
+    // views of the entity.
+    if (config.trackPageView !== false) {
+      ctx.pageView = {
+        route: `/${config.pathSegment}/:${config.paramName}`,
+        entity_type: config.entityKind,
+        entity_id: entity.id,
+      };
+    }
 
     return entity;
   };

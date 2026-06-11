@@ -5,6 +5,7 @@ import { homeStatsResolver } from './home/home-stats.resolver';
 import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
+import { reviewProductResolver } from './reviews/review-product.resolver';
 import {
   categoryBrowseResolver,
   audienceBrowseResolver,
@@ -62,6 +63,23 @@ export const routes: Routes = [
     path: 'products/:slug/correction',
     loadComponent: () => import('./requests/request-form').then((m) => m.RequestForm),
     data: { entity: 'product', kind: 'correction' },
+  },
+  // AECI-200 — Phase 5.9 authenticated review-submission form. Uses the
+  // dedicated `reviewProductResolver` for `product.id` (the POST body) +
+  // `name`/`slug` (copy + back link); a null product renders the shared 404
+  // shell. It is the detail-resolver scaffold WITHOUT the product-detail side
+  // effects (no canonical/JSON-LD, no `Cache-Tag`, and `trackPageView: false`)
+  // — reusing `productDetailResolver` would fire a product page-view on every
+  // SSR landing here and miscount review visits as product views. The route is
+  // non-cacheable (no `ROUTE_CACHE_PATTERNS` match → fail-closed
+  // `private, no-store`), and the SSR Worker gates it: an unauthenticated
+  // visitor is 303-redirected to `/auth/login?return=<path>` before SSR (see
+  // `server-runtime.ts`'s review auth-gate). The API (`POST /api/reviews`,
+  // AECI-197) is the real enforcement point on submit.
+  {
+    path: 'products/:slug/review',
+    loadComponent: () => import('./reviews/review-form').then((m) => m.ReviewForm),
+    resolve: { product: reviewProductResolver },
   },
   {
     path: 'products/:slug',

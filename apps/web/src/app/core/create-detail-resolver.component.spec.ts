@@ -142,6 +142,40 @@ describe('createDetailResolver — server path', () => {
     expect(stateKeys['aeci.test-detail:widget']).toEqual(ENTITY);
   });
 
+  it('skips meta, embedded tags, and the page-view when the hooks are omitted and trackPageView is false', async () => {
+    const setEntityMeta = vi.fn();
+    // A resolver that reuses the fetch scaffold but is NOT the entity's canonical
+    // page (e.g. the review form): no applyMeta/pushEmbedded, page-view opted out.
+    const config = buildConfig({
+      applyMeta: undefined,
+      pushEmbedded: undefined,
+      trackPageView: false,
+    });
+    const ctx = createRequestContext(buildClient());
+    const responseInit = { status: 200 };
+
+    const { run, transferState } = setup({
+      platform: 'server',
+      config,
+      ctx,
+      responseInit,
+      request: new Request('https://example.test/tests/widget'),
+      meta: { setEntityMeta } as Partial<MetaService>,
+    });
+
+    const result = await run();
+
+    // The entity still resolves + hydrates — only the side effects are dropped.
+    expect(result).toEqual(ENTITY);
+    expect(responseInit.status).toBe(200);
+    expect(setEntityMeta).not.toHaveBeenCalled();
+    expect(ctx.embedded).toEqual([]);
+    // The load-bearing assertion: no page-view for a non-canonical route.
+    expect(ctx.pageView).toBeNull();
+    const stateKeys = JSON.parse(transferState.toJson());
+    expect(stateKeys['aeci.test-detail:widget']).toEqual(ENTITY);
+  });
+
   it('falls back to the serving origin (DOM location) when REQUEST is absent', async () => {
     const config = buildConfig();
     const ctx = createRequestContext(buildClient());
