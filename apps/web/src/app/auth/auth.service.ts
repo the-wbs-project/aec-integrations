@@ -67,6 +67,20 @@ export class AuthService {
   }
 
   /**
+   * Signs the browser session out (AECI-202 / Phase 5.11): clears the
+   * `sb-<ref>-auth-token` cookie via `@supabase/ssr` so the SSR auth-gate blocks
+   * re-entry to `/account` and the (now-stale) JWT can't be replayed. A no-op
+   * when the env is unconfigured. Throws on Supabase errors so the caller can
+   * surface a retryable notice. Used by the account page's sign-out + the
+   * post-deletion cleanup.
+   */
+  async signOut(): Promise<void> {
+    if (!this.isConfigured()) return;
+    const { error } = await this.requireClient().auth.signOut();
+    if (error) throw error;
+  }
+
+  /**
    * The absolute callback URL both flows redirect to. The return path is
    * re-validated here (defense in depth — the component already validates at
    * the route boundary) so no caller can thread an off-site value through.

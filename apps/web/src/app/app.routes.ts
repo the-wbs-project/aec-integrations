@@ -191,6 +191,17 @@ export const routes: Routes = [
     path: 'auth/login',
     loadComponent: () => import('./auth/login').then((m) => m.LoginPage),
   },
+  // AECI-202 / Phase 5.11 — the signed-in user's account page. Auth-gated +
+  // non-cacheable: the SSR Worker 303s an unauthenticated visitor to
+  // `/auth/login?return=/account` before SSR (`isAccountPath` gate in
+  // `server-runtime.ts`); `/account` is non-cacheable by the fail-closed default
+  // (no classifier change). No resolver — identity + actions are user-specific
+  // and fetched client-side over the `/api/*` proxy after hydration; the
+  // component sets `robots: noindex`.
+  {
+    path: 'account',
+    loadComponent: () => import('./account/account').then((m) => m.AccountPage),
+  },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
   // SSR Worker for `ENV === 'production'`. See `apps/web/src/server-runtime.ts`

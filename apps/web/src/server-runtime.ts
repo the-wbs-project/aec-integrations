@@ -168,6 +168,15 @@ export function isReviewPath(localePath: string): boolean {
 }
 
 /**
+ * Matches the authenticated account route `/account` (AECI-202, locale prefix
+ * already stripped). Auth-gated + non-cacheable, same as the review form. A
+ * trailing slash is tolerated; there are no `/account/*` subroutes today.
+ */
+export function isAccountPath(localePath: string): boolean {
+  return /^\/account\/?$/.test(localePath);
+}
+
+/**
  * Cheap presence check for a Supabase session cookie (`sb-<ref>-auth-token`,
  * possibly chunked `.0`/`.1`/…). This is deliberately NOT a `getClaims()`
  * verification — no network, no crypto: the API Worker is the real enforcement
@@ -940,18 +949,18 @@ export function createApp(options: {
       }
     }
 
-    // AECI-200 — auth-gate the review-submission form. The route is already
-    // non-cacheable (no `ROUTE_CACHE_PATTERNS` match), so this gate runs on a
-    // request that would otherwise SSR. A logged-out visitor (no session
-    // cookie) is 303-redirected to `/auth/login?return=<path>` so they bounce
-    // straight back to the form after signing in; the `return` value is
-    // narrowed by `sanitizeReturnPath` (same-origin only). The redirect is
-    // `no-store`. With a cookie present the request falls through to the normal
-    // SSR render (the API verifies the token on POST).
+    // AECI-200 / AECI-202 — auth-gate the review-submission form and the
+    // `/account` page. Both routes are already non-cacheable (no
+    // `ROUTE_CACHE_PATTERNS` match), so this gate runs on a request that would
+    // otherwise SSR. A logged-out visitor (no session cookie) is 303-redirected
+    // to `/auth/login?return=<path>` so they bounce straight back after signing
+    // in; the `return` value is narrowed by `sanitizeReturnPath` (same-origin
+    // only). The redirect is `no-store`. With a cookie present the request falls
+    // through to the normal SSR render (the API verifies the token on writes).
     {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
-      if (isReviewPath(path) && !hasSessionCookie(c.req.raw)) {
+      if ((isReviewPath(path) || isAccountPath(path)) && !hasSessionCookie(c.req.raw)) {
         const returnPath = sanitizeReturnPath(url.pathname);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {

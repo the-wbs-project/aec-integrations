@@ -306,19 +306,56 @@ The schema does most of the work via a mix of triggers and cascading FKs:
 - `public.profiles.id` is kept in sync with `auth.users.id` via the
   `on_auth_user_deleted` AFTER DELETE trigger on `auth.users` — not a
   cross-schema FK. See §8.1 for the trigger pattern.
-- `reviews.reviewer_id REFERENCES profiles(id) ON DELETE SET NULL`
-- `page_views.user_id` and `audit_log.actor_id` reference `profiles(id)` without ON DELETE — they retain a dangling UUID until a background sweep nulls them
+- `reviews.reviewer_id REFERENCES profiles(id) ON DELETE SET NULL` — the **only**
+  inbound FK to `profiles` that auto-nulls. This is the anonymization seam:
+  deleting the profile leaves the review content intact with no author.
 
-**Flow:**
+**The FK trap (AECI-202).** There are **seven** inbound FKs to `profiles(id)`.
+Six are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` — issued directly by
+the erasure handler **or** by the `on_auth_user_deleted` trigger — **FK-fails**
+unless every one of them is nulled first. A real reviewer always trips at least
+`audit_log.actor_id` (every `review.submitted` writes an `audit_log` row) and
+usually `page_views.user_id`. The full list:
 
-1. User clicks Delete in `/account`
-2. Worker calls Supabase Auth Admin API to delete the user
-3. `auth.users` row is deleted → `on_auth_user_deleted` trigger fires → `public.profiles` row is removed → `reviews.reviewer_id` set null via FK cascade
-4. Worker writes audit entry `account.deleted` with the now-gone user's ID as metadata
-5. Loops sends confirmation email
-6. Background sweep (or same Worker call) nulls `page_views.user_id` and `audit_log.actor_id`
+| FK | ON DELETE | Erasure action |
+| --- | --- | --- |
+| `reviews.reviewer_id` | SET NULL | nulled (anonymize; explicit too, for the test) |
+| `reviews.moderated_by` | NO ACTION | nulled |
+| `vendor_requests.resolved_by` | NO ACTION | nulled |
+| `workflow_instances.initiated_by` | NO ACTION | nulled |
+| `workflow_transitions.actor_id` | NO ACTION | nulled |
+| `audit_log.actor_id` | NO ACTION | nulled (severs the actor link; rows survive) |
+| `page_views.user_id` | NO ACTION | nulled |
 
-No client-side path exists to read or modify deleted users' data — GRANTs block the sensitive tables entirely, and the rows that remain on public tables have NULL where the user ID used to be.
+**Flow (`DELETE /api/account`, `requireAuth`, AECI-202).** The whole erasure is
+**one Prisma `$transaction`** in the API Worker:
+
+1. User confirms Delete in `/account` → `DELETE /api/account`.
+2. In the transaction the Worker, in order: nulls all seven inbound references
+   above; writes the `account.deleted` audit row; deletes the `profiles` row;
+   then deletes the `auth.users` row.
+3. The `account.deleted` audit row has **`actor_id = NULL`** — the profile is
+   deleted in the same transaction and `audit_log.actor_id` is `NO ACTION`, so a
+   non-null actor would either block the profile delete (written before) or
+   FK-reject (written after). The user id is recorded in `entity_id` +
+   PII-free `metadata` (no email / display name).
+4. The `auth.users` row is removed with a **raw `DELETE FROM auth.users` inside
+   the same transaction** — NOT the Supabase Auth Admin API. Rationale: it is the
+   only way to honour "one transaction" (an HTTP Admin-API call can't join a DB
+   transaction), and it avoids binding the service-role key to the Worker runtime
+   (`apps/api/src/env.ts` deliberately keeps it out). The privileged Accelerate
+   connection already bypasses RLS for every write; this reuses it. The
+   `on_auth_user_deleted` trigger still fires (its `DELETE FROM public.profiles`
+   matches 0 rows — already deleted), and gotrue's own child tables
+   (`sessions`/`refresh_tokens`/`identities`) cascade off `auth.users`.
+5. **Loops confirmation email is deferred to Phase 7** — a TODO stub; deletion
+   never blocks on email.
+
+The "background sweep" once imagined for `page_views`/`audit_log` is performed
+**synchronously, inside the erasure transaction, before the profile delete** —
+there is no separate async sweep. No client-side path exists to read or modify
+deleted users' data — GRANTs block the sensitive tables entirely, and the rows
+that remain on public tables have NULL where the user ID used to be.
 
 ### 8.1 Auth → public sync triggers
 
