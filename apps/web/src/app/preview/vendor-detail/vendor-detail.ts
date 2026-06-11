@@ -36,6 +36,12 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   website: VENDOR_FIXTURE.website,
   headquarters: VENDOR_FIXTURE.hq,
   founded_year: VENDOR_FIXTURE.founded,
+  linkedin_url: null,
+  x_url: null,
+  facebook_url: null,
+  instagram_url: null,
+  youtube_url: null,
+  github_url: null,
   products: [],
 };
 

@@ -59,6 +59,10 @@ model Vendor {
   parentCompany String? @map("parent_company")
 
   linkedinUrl   String? @map("linkedin_url")
+  xUrl          String? @map("x_url")
+  facebookUrl   String? @map("facebook_url")
+  instagramUrl  String? @map("instagram_url")
+  youtubeUrl    String? @map("youtube_url")
   crunchbaseUrl String? @map("crunchbase_url")
   wikiUrl       String? @map("wiki_url")
   sourceUrl     String? @map("source_url")

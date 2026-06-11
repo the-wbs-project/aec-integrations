@@ -183,6 +183,10 @@ create table vendors (
 
   -- Social and verification
   linkedin_url text,
+  x_url text,
+  facebook_url text,
+  instagram_url text,
+  youtube_url text,
   crunchbase_url text,
   wiki_url text,
   source_url text,
@@ -875,7 +879,7 @@ Updates to already-promoted records are handled the same way — Airtable is the
 
 When syncing from Airtable, certain fields on Supabase records must not be overwritten by automated processes:
 
-- `website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url` (vendor)
+- `website`, `headquarters`, `crunchbase_url`, `wiki_url`, `linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, `youtube_url` (vendor)
 - Any field a human curator has manually corrected
 
 The sync process flags discrepancies in `admin_notes` rather than overwriting curator-edited values.

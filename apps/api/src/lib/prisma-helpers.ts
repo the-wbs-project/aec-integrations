@@ -238,6 +238,16 @@ export const vendorDetailSelect = {
   ...vendorListSelect,
   description: true,
   website: true,
+  // External / social links surfaced in the detail hero. `linkedinUrl` + the
+  // four B2 platforms are stored as full URLs and exposed verbatim; `githubOrg`
+  // is a bare org handle (e.g. "Autodesk"), so the mapper derives a `github_url`
+  // from it rather than exposing the handle.
+  linkedinUrl: true,
+  xUrl: true,
+  facebookUrl: true,
+  instagramUrl: true,
+  youtubeUrl: true,
+  githubOrg: true,
   productVendors: {
     select: {
       product: { select: productListSelect },
@@ -631,6 +641,14 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
     ...toVendorListItem(raw),
     description: raw.description,
     website: raw.website,
+    linkedin_url: raw.linkedinUrl,
+    x_url: raw.xUrl,
+    facebook_url: raw.facebookUrl,
+    instagram_url: raw.instagramUrl,
+    youtube_url: raw.youtubeUrl,
+    // `github_org` is a bare handle in the DB; build the canonical org URL so the
+    // public contract carries a uniform `*_url` (validated as a URL downstream).
+    github_url: raw.githubOrg ? `https://github.com/${encodeURIComponent(raw.githubOrg)}` : null,
     products: raw.productVendors.map((r) => toProductListItem(r.product)),
   };
 }
