@@ -70,8 +70,39 @@ function remoteJwks(supabaseUrl: string): JWTVerifyGetKey {
   return keySet;
 }
 
-function unauthenticated(): ApiError {
+export function unauthenticated(): ApiError {
   return new ApiError(401, ApiErrorCode.UNAUTHENTICATED, 'Missing or invalid user credentials');
+}
+
+/**
+ * Verify a Supabase user JWT against the project's JWKS and resolve the
+ * authenticated user. Shared by `requireUserAuth()` (pure JWT guard) and the
+ * Phase 5.5 authz middleware (`lib/authz.ts`, JWT + role/ban). Throws
+ * `ApiError(401, UNAUTHENTICATED)` on any failure — signature, expiry, issuer,
+ * audience, malformed token, JWKS fetch, missing `sub` — so callers fail
+ * closed without an oracle.
+ */
+export async function verifySupabaseJwt(
+  token: string,
+  supabaseUrl: string,
+  getKey?: JWTVerifyGetKey,
+): Promise<AuthenticatedUser> {
+  let sub: string | undefined;
+  let email: string | undefined;
+  try {
+    const { payload } = await jwtVerify(token, getKey ?? remoteJwks(supabaseUrl), {
+      issuer: `${supabaseUrl}/auth/v1`,
+      audience: 'authenticated',
+    });
+    sub = payload.sub;
+    email = typeof payload['email'] === 'string' ? payload['email'] : undefined;
+  } catch {
+    // Signature, expiry, issuer, audience, malformed-token, and JWKS-fetch
+    // failures all collapse to the same 401 — fail closed, leak nothing.
+    throw unauthenticated();
+  }
+  if (!sub) throw unauthenticated();
+  return { userId: sub, email };
 }
 
 /**
@@ -89,23 +120,7 @@ export function requireUserAuth(
     const token = extractBearer(c.req.header('Authorization'));
     if (!supabaseUrl || !token) throw unauthenticated();
 
-    let sub: string | undefined;
-    let email: string | undefined;
-    try {
-      const { payload } = await jwtVerify(token, options.getKey ?? remoteJwks(supabaseUrl), {
-        issuer: `${supabaseUrl}/auth/v1`,
-        audience: 'authenticated',
-      });
-      sub = payload.sub;
-      email = typeof payload['email'] === 'string' ? payload['email'] : undefined;
-    } catch {
-      // Signature, expiry, issuer, audience, malformed-token, and JWKS-fetch
-      // failures all collapse to the same 401 — fail closed, leak nothing.
-      throw unauthenticated();
-    }
-
-    if (!sub) throw unauthenticated();
-    c.set('user', { userId: sub, email });
+    c.set('user', await verifySupabaseJwt(token, supabaseUrl, options.getKey));
 
     await next();
   };
