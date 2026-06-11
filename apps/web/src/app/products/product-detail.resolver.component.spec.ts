@@ -55,6 +55,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     integrations_as_source: [],
     integrations_as_target: [],
     related_products: [],
+    reviews: [],
     ...overrides,
   };
 }

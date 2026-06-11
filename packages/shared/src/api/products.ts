@@ -7,6 +7,7 @@ import {
   VendorLinkSchema,
 } from './common';
 import { IntegrationListItemSchema } from './integrations';
+import { PublicReviewSchema } from './reviews';
 
 /**
  * Product role enum. Mirrors the `product_role` column on the `products`
@@ -101,6 +102,13 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   integrations_as_source: z.array(IntegrationListItemSchema),
   integrations_as_target: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),
+  // First page of approved reviews, newest-first, SSR'd into the cached product
+  // page so the reviews section renders without a client round-trip (AECI-199 /
+  // §5.4). `review_count` (inherited from ProductListItem) is the approved total
+  // for paginating the rest via `GET /api/products/:slug/reviews`. The ≥5 gate
+  // (§5.5) nulls `rating_overall_avg` / `rating_onboarding_avg` (inherited) when
+  // `review_count < 5` — a single-review average is statistically misleading.
+  reviews: z.array(PublicReviewSchema),
 });
 
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;

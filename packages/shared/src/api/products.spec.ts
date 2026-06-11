@@ -125,10 +125,12 @@ describe('ProductDetailSchema', () => {
       integrations_as_source: [],
       integrations_as_target: [],
       related_products: [],
+      reviews: [],
     });
     expect(parsed.has_api_docs).toBe(false);
     expect(parsed.related_products).toEqual([]);
     expect(parsed.usefulness).toBeNull();
+    expect(parsed.reviews).toEqual([]);
   });
 
   it('parses a detail with hydrated taxonomy and related products', () => {
@@ -155,8 +157,23 @@ describe('ProductDetailSchema', () => {
       integrations_as_source: [],
       integrations_as_target: [],
       related_products: [validListItem],
+      reviews: [
+        {
+          id: uuid(6),
+          rating_overall: 5,
+          rating_onboarding: 4,
+          title: 'Solid rollout',
+          body: 'Onboarding took about a day. Stable since, and the field team uses it daily.',
+          role_at_company: 'practitioner',
+          years_using: 3,
+          would_recommend: 'yes',
+          verified_work_email: true,
+          created_at: '2024-06-10T00:00:00.000Z',
+        },
+      ],
     });
     expect(parsed.categories).toHaveLength(1);
+    expect(parsed.reviews).toHaveLength(1);
     expect(parsed.related_products).toHaveLength(1);
     expect(parsed.usefulness?.audiences[0]?.points).toEqual(['Track RFIs across the project.']);
     expect(parsed.usefulness?.phases).toEqual([]);

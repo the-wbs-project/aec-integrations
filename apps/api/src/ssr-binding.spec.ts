@@ -72,6 +72,12 @@ vi.mock('./prisma', () => {
         findUnique: vi.fn(async () => null),
         count: vi.fn(async () => 0),
       },
+      // AECI-199 — ProductDetail now embeds the first page of approved reviews.
+      review: {
+        findMany: vi.fn(async () => []),
+        findUnique: vi.fn(async () => null),
+        count: vi.fn(async () => 0),
+      },
     }),
   };
 });
