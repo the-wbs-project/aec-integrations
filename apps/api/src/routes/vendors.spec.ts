@@ -87,6 +87,14 @@ describe('GET /api/vendors/:slug', () => {
     expect(parsed.slug).toBe('procore');
     expect(parsed.headquarters).toBe('Carpinteria, CA');
     expect(parsed.founded_year).toBe(2002);
+    // `linkedin_url` + the four B2 platforms pass through verbatim; `github_url`
+    // is derived from the bare `github_org` handle in the fixture.
+    expect(parsed.linkedin_url).toBe('https://www.linkedin.com/company/procore-technologies');
+    expect(parsed.x_url).toBe('https://x.com/procoretech');
+    expect(parsed.facebook_url).toBe('https://www.facebook.com/procoretech');
+    expect(parsed.instagram_url).toBe('https://www.instagram.com/procoretech');
+    expect(parsed.youtube_url).toBe('https://www.youtube.com/@procoretechnologies');
+    expect(parsed.github_url).toBe('https://github.com/procore');
     // Detail row in the fixture has an empty productVendors list, so the
     // schema's `products: ProductListItem[]` shows up empty here — the spec
     // requires the field to exist as an array even when empty.

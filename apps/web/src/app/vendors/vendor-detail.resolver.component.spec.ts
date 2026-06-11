@@ -53,6 +53,12 @@ function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
     updated_at: '2024-06-01T00:00:00.000Z',
     description: 'Construction management vendor.',
     website: 'https://www.procore.com',
+    linkedin_url: null,
+    x_url: null,
+    facebook_url: null,
+    instagram_url: null,
+    youtube_url: null,
+    github_url: null,
     products: [],
     ...overrides,
   };

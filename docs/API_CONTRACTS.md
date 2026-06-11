@@ -328,11 +328,19 @@ export const VendorListItemSchema = z.object({
 export const VendorDetailSchema = VendorListItemSchema.extend({
   description: z.string().nullable(),
   website: z.string().url().nullable(),
+  linkedin_url: z.string().url().nullable(),
+  x_url: z.string().url().nullable(),
+  facebook_url: z.string().url().nullable(),
+  instagram_url: z.string().url().nullable(),
+  youtube_url: z.string().url().nullable(),
+  github_url: z.string().url().nullable(),
   products: z.array(ProductListItemSchema),
 });
 ```
 
 The public sort key `name` on `/api/vendors` maps to the `company_name` column server-side (vendors have no plain `name` column).
+
+`linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, and `youtube_url` are returned verbatim from their `vendors.*` columns (the review app curates full canonical URLs and forwards them via `POST /api/promote`). `github_url` is the exception — **derived** server-side from the `vendors.github_org` handle (`https://github.com/{org}`), since that column stores a bare org name, never a URL — so the public contract carries a uniform, URL-validatable field throughout. All are nullable; the detail hero renders an icon for each only when its value is present.
 
 ### 5.3 Integration
 

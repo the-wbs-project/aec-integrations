@@ -12,6 +12,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
 
 /**
@@ -50,6 +51,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     LogoOrInitial,
     NgTemplateOutlet,
     NotFound,
+    ProductReviews,
     ProductUsefulnessSection,
     RouterLink,
     SectionNav,
@@ -229,29 +231,57 @@ import { ProductUsefulnessSection } from './product-usefulness';
             <div class="flex flex-col gap-2">
               <a
                 [routerLink]="['/products', p.slug, 'claim']"
-                class="inline-flex items-center justify-center rounded-(--radius-md)
+                class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
-                  text-sm font-bold text-(--text-primary) no-underline transition-colors
+                  text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
-                i18n="@@products.detail.metadata.claim"
               >
-                Claim this listing
+                <svg
+                  aria-hidden="true"
+                  class="h-4 w-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                  <path d="M4 22v-7" />
+                </svg>
+                <ng-container i18n="@@products.detail.metadata.claim"
+                  >Claim this listing</ng-container
+                >
               </a>
               <a
                 [routerLink]="['/products', p.slug, 'correction']"
-                class="inline-flex items-center justify-center rounded-(--radius-md)
+                class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
-                  text-sm font-bold text-(--text-primary) no-underline transition-colors
+                  text-sm font-medium text-(--text-secondary) no-underline transition-colors
                   hover:border-(--border-strong) hover:text-(--accent-primary)
                   focus-visible:outline-none focus-visible:ring-2
                   focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
                   focus-visible:ring-offset-(--surface-base)"
-                i18n="@@products.detail.metadata.correction"
               >
-                Suggest a correction
+                <svg
+                  aria-hidden="true"
+                  class="h-4 w-4 shrink-0"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 20h9" />
+                  <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                </svg>
+                <ng-container i18n="@@products.detail.metadata.correction"
+                  >Suggest a correction</ng-container
+                >
               </a>
             </div>
           </section>
@@ -375,6 +405,16 @@ import { ProductUsefulnessSection } from './product-usefulness';
               }
             }
           </section>
+
+          <section id="reviews" aria-labelledby="reviews-title" class="scroll-mt-20">
+            <aec-product-reviews
+              [slug]="p.slug"
+              [reviewCount]="p.review_count"
+              [ratingOverallAvg]="p.rating_overall_avg"
+              [ratingOnboardingAvg]="p.rating_onboarding_avg"
+              [firstPage]="p.reviews"
+            />
+          </section>
         </div>
       </aec-detail-layout>
     }
@@ -463,6 +503,12 @@ export class ProductDetailPage {
     items.push({
       id: 'integrations',
       label: $localize`:@@products.detail.nav.integrations:Integrations`,
+    });
+    // Reviews always renders (its empty state still does), so it is always in
+    // the nav — same rule as Integrations above.
+    items.push({
+      id: 'reviews',
+      label: $localize`:@@products.detail.nav.reviews:Reviews`,
     });
     return items;
   });
