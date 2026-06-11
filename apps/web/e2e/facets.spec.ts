@@ -251,7 +251,7 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     const checkboxes = group.locator('input[type="checkbox"]');
     const itemsBefore = await checkboxes.count();
     const countText = (await group.locator('span.tabular-nums').first().textContent()) ?? '';
-    const n = Number(countText.trim());
+    const n = Number(countText.match(/\d+/)?.[0] ?? '');
     expect(n, `first facet count must be a positive number, got "${countText}"`).toBeGreaterThan(0);
 
     const gridWait = apiResponse(page, '/api/products', (sp) => sp.has(param));
