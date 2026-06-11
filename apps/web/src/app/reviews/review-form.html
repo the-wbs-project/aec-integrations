@@ -1,0 +1,347 @@
+@if (product === null) {
+<aec-not-found />
+} @else {
+<section
+  class="mx-auto w-full max-w-2xl px-6 py-16 text-(--text-primary) md:py-24"
+  aria-labelledby="review-title"
+>
+  @if (submitted()) {
+  <!-- ── Confirmation ──────────────────────────────────────────────────── -->
+  <p
+    class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+    i18n="@@reviews.success.eyebrow"
+  >
+    Thank you
+  </p>
+  <h1
+    id="review-title"
+    class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl"
+    i18n="@@reviews.success.title"
+  >
+    Review received
+  </h1>
+  <p
+    class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)"
+    i18n="@@reviews.success.body"
+  >
+    Thanks — your review will appear once moderated (usually within 24 hours).
+  </p>
+  <div class="mt-8">
+    <a
+      [routerLink]="backRouterLink()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+    >
+      <span aria-hidden="true" class="me-2 inline-block rtl:-scale-x-100">←</span>
+      <span i18n="@@reviews.back">Back to {{ product.name }}</span>
+    </a>
+  </div>
+  } @else {
+  <!-- ── Header ────────────────────────────────────────────────────────── -->
+  <p class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)" i18n="@@reviews.eyebrow">
+    Write a review
+  </p>
+  <h1 id="review-title" class="mt-3 font-display text-3xl font-semibold tracking-tight md:text-4xl">
+    {{ product.name }}
+  </h1>
+  <p
+    class="mt-4 max-w-prose text-base leading-relaxed text-(--text-secondary)"
+    i18n="@@reviews.subtitle"
+  >
+    Share your experience to help other AEC teams evaluate this product. We rate product quality and
+    onboarding separately.
+  </p>
+
+  <!-- ── Form ──────────────────────────────────────────────────────────── -->
+  <form class="mt-10 space-y-8" novalidate (submit)="$event.preventDefault(); onSubmit()">
+    <!-- Overall rating (required) -->
+    <div class="space-y-2">
+      <span
+        id="overall-label"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@reviews.rating.overall.label"
+      >
+        Overall rating
+      </span>
+      <ul
+        ngListbox
+        orientation="horizontal"
+        selectionMode="explicit"
+        [(value)]="overallSel"
+        (valueChange)="onOverallChange($event)"
+        aria-labelledby="overall-label"
+        [attr.aria-describedby]="form.rating_overall().touched() && form.rating_overall().getError('standardSchema') ? 'overall-error' : null"
+        class="m-0 flex list-none gap-1 p-0"
+      >
+        @for (n of stars; track n) {
+        <li
+          ngOption
+          [value]="n"
+          [attr.aria-label]="starLabel(n)"
+          class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [style.color]="n <= (overallSel()[0] ?? 0) ? 'var(--accent-primary)' : 'var(--text-tertiary)'"
+        >
+          <span aria-hidden="true">★</span>
+        </li>
+        }
+      </ul>
+      @if (form.rating_overall().touched() && form.rating_overall().getError('standardSchema')) {
+      <p
+        id="overall-error"
+        class="text-xs font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@reviews.rating.overall.error"
+      >
+        Select an overall rating.
+      </p>
+      }
+    </div>
+
+    <!-- Onboarding rating (required) -->
+    <div class="space-y-2">
+      <span
+        id="onboarding-label"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@reviews.rating.onboarding.label"
+      >
+        Onboarding experience
+      </span>
+      <ul
+        ngListbox
+        orientation="horizontal"
+        selectionMode="explicit"
+        [(value)]="onboardingSel"
+        (valueChange)="onOnboardingChange($event)"
+        aria-labelledby="onboarding-label"
+        [attr.aria-describedby]="form.rating_onboarding().touched() && form.rating_onboarding().getError('standardSchema') ? 'onboarding-error' : null"
+        class="m-0 flex list-none gap-1 p-0"
+      >
+        @for (n of stars; track n) {
+        <li
+          ngOption
+          [value]="n"
+          [attr.aria-label]="starLabel(n)"
+          class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          [style.color]="n <= (onboardingSel()[0] ?? 0) ? 'var(--accent-primary)' : 'var(--text-tertiary)'"
+        >
+          <span aria-hidden="true">★</span>
+        </li>
+        }
+      </ul>
+      @if (form.rating_onboarding().touched() &&
+      form.rating_onboarding().getError('standardSchema')) {
+      <p
+        id="onboarding-error"
+        class="text-xs font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@reviews.rating.onboarding.error"
+      >
+        Select an onboarding rating.
+      </p>
+      }
+    </div>
+
+    <!-- Title (required) -->
+    <div class="space-y-1.5">
+      <label
+        for="review-title-input"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@reviews.title.label"
+      >
+        Headline
+      </label>
+      <input
+        id="review-title-input"
+        type="text"
+        [formField]="form.title"
+        [attr.aria-invalid]="form.title().touched() && form.title().invalid() ? 'true' : null"
+        [attr.aria-describedby]="form.title().touched() && form.title().getError('standardSchema') ? 'review-title-error' : null"
+        class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
+      @if (form.title().touched() && form.title().getError('standardSchema')) {
+      <p
+        id="review-title-error"
+        class="text-xs font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@reviews.title.error"
+      >
+        Add a headline between 5 and 100 characters.
+      </p>
+      }
+    </div>
+
+    <!-- Body (required) -->
+    <div class="space-y-1.5">
+      <label
+        for="review-body"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@reviews.body.label"
+      >
+        Your review
+      </label>
+      <textarea
+        id="review-body"
+        rows="6"
+        [formField]="form.body"
+        [attr.aria-invalid]="form.body().touched() && form.body().invalid() ? 'true' : null"
+        [attr.aria-describedby]="form.body().touched() && form.body().getError('standardSchema') ? 'review-body-error' : null"
+        class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      ></textarea>
+      @if (form.body().touched() && form.body().getError('standardSchema')) {
+      <p
+        id="review-body-error"
+        class="text-xs font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@reviews.body.error"
+      >
+        Write at least 50 characters so your review is useful.
+      </p>
+      }
+    </div>
+
+    <!-- Role at company (optional) — non-editable Aria combobox -->
+    <div class="space-y-1.5">
+      <label
+        id="role-label"
+        for="role-trigger"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      >
+        <ng-container i18n="@@reviews.role.label">Your role</ng-container>
+        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+          >(optional)</span
+        >
+      </label>
+      <div class="relative">
+        <button
+          ngCombobox
+          #roleCb="ngCombobox"
+          id="role-trigger"
+          type="button"
+          [(expanded)]="roleExpanded"
+          aria-labelledby="role-label role-trigger"
+          class="flex w-full items-center justify-between rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-start text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        >
+          <span [style.color]="roleSel().length === 0 ? 'var(--text-secondary)' : null"
+            >{{ roleTriggerLabel() }}</span
+          >
+          <span aria-hidden="true" class="ms-2 text-(--text-tertiary)">▾</span>
+        </button>
+
+        <ng-template ngComboboxPopup [combobox]="roleCb" popupType="listbox">
+          <ul
+            ngComboboxWidget
+            ngListbox
+            #roleListbox="ngListbox"
+            [(value)]="roleSel"
+            (valueChange)="onRoleChange()"
+            [activeDescendant]="roleListbox.activeDescendant()"
+            focusMode="activedescendant"
+            selectionMode="explicit"
+            i18n-aria-label="@@reviews.role.listbox.aria"
+            aria-label="Roles"
+            class="absolute z-10 mt-1 flex max-h-72 w-full list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+          >
+            @for (opt of roleOptions; track opt.value) {
+            <li
+              ngOption
+              [value]="opt"
+              [label]="opt.label"
+              class="flex cursor-pointer items-center justify-between rounded-(--radius-sm) px-3 py-2 text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
+            >
+              <span>{{ opt.label }}</span>
+              @if (roleSel()[0]?.value === opt.value) {
+              <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+              }
+            </li>
+            }
+          </ul>
+        </ng-template>
+      </div>
+    </div>
+
+    <!-- Years using (optional) -->
+    <div class="space-y-1.5">
+      <label
+        for="years-using"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      >
+        <ng-container i18n="@@reviews.years.label">Years using this product</ng-container>
+        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+          >(optional)</span
+        >
+      </label>
+      <input
+        id="years-using"
+        type="number"
+        inputmode="numeric"
+        [value]="yearsUsing()"
+        (input)="onYearsInput($event)"
+        (blur)="yearsTouched.set(true)"
+        [attr.aria-invalid]="yearsTouched() && yearsInvalid() ? 'true' : null"
+        [attr.aria-describedby]="yearsTouched() && yearsInvalid() ? 'years-using-error' : null"
+        class="w-28 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
+      @if (yearsTouched() && yearsInvalid()) {
+      <p
+        id="years-using-error"
+        class="text-xs font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@reviews.years.error"
+      >
+        Enter a whole number between 0 and 50.
+      </p>
+      }
+    </div>
+
+    <!-- Would recommend (optional) — segmented Aria listbox -->
+    <div class="space-y-2">
+      <span
+        id="recommend-label"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      >
+        <ng-container i18n="@@reviews.recommend.label">Would you recommend it?</ng-container>
+        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+          >(optional)</span
+        >
+      </span>
+      <ul
+        ngListbox
+        orientation="horizontal"
+        selectionMode="explicit"
+        [(value)]="recommendSel"
+        aria-labelledby="recommend-label"
+        class="m-0 flex list-none flex-wrap gap-2 p-0"
+      >
+        @for (opt of recommendOptions; track opt.value) {
+        <li
+          ngOption
+          [value]="opt"
+          [label]="opt.label"
+          class="cursor-pointer rounded-(--radius-md) border border-(--border-default) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors data-[active=true]:border-(--border-strong) aria-selected:border-(--accent-primary) aria-selected:bg-(--accent-primary) aria-selected:text-(--surface-base) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        >
+          {{ opt.label }}
+        </li>
+        }
+      </ul>
+    </div>
+
+    @if (submitFailed()) {
+    <p class="text-sm font-medium text-(--text-primary)" role="alert" i18n="@@reviews.submitFailed">
+      Something went wrong submitting your review. Please try again.
+    </p>
+    }
+
+    <button
+      type="submit"
+      [disabled]="submitDisabled()"
+      class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2.5 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      @if (form().submitting()) {
+      <span i18n="@@reviews.submitting">Submitting…</span>
+      } @else {
+      <span i18n="@@reviews.submit">Submit review</span>
+      }
+    </button>
+  </form>
+  }
+</section>
+}

@@ -69,7 +69,7 @@ import { createRequestContext, type AeciRequestContext } from './server/request-
 import { buildRobotsTxt } from './server/robots';
 import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
-import { createAuthCallbackHandler } from './server/routes/auth-callback';
+import { createAuthCallbackHandler, sanitizeReturnPath } from './server/routes/auth-callback';
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
 import { createVersionHandler } from './server/routes/version';
 import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
@@ -153,6 +153,32 @@ export function localeAttrsForPath(
 export function isPreviewPath(pathname: string): boolean {
   const { path } = stripLocalePrefix(pathname);
   return path === '/preview' || path.startsWith('/preview/');
+}
+
+// ─── Review-route auth gate (AECI-200) ─────────────────────────────────────
+
+/**
+ * Matches the authenticated review-submission route `/products/:slug/review`
+ * (locale prefix already stripped by the caller). Distinct from
+ * `/products/:slug` (detail, cacheable) and the claim/correction forms.
+ */
+export function isReviewPath(localePath: string): boolean {
+  return /^\/products\/[^/]+\/review$/.test(localePath);
+}
+
+/**
+ * Cheap presence check for a Supabase session cookie (`sb-<ref>-auth-token`,
+ * possibly chunked `.0`/`.1`/…). This is deliberately NOT a `getClaims()`
+ * verification — no network, no crypto: the API Worker is the real enforcement
+ * point on `POST /api/reviews` (it verifies the JWT). The SSR gate only keeps a
+ * logged-out visitor from landing on a form they can't submit. An expired
+ * cookie still passes here; the form renders and the eventual POST 401s, which
+ * the form surfaces as a retryable notice.
+ */
+export function hasSessionCookie(request: Request): boolean {
+  const cookie = request.headers.get('cookie');
+  if (!cookie) return false;
+  return /(?:^|;)\s*sb-[^=;]*-auth-token[^=;]*=/.test(cookie);
 }
 
 // ─── Cookie hygiene ────────────────────────────────────────────────────────
@@ -881,6 +907,31 @@ export function createApp(options: {
         });
       }
     }
+
+    // AECI-200 — auth-gate the review-submission form. The route is already
+    // non-cacheable (no `ROUTE_CACHE_PATTERNS` match), so this gate runs on a
+    // request that would otherwise SSR. A logged-out visitor (no session
+    // cookie) is 303-redirected to `/auth/login?return=<path>` so they bounce
+    // straight back to the form after signing in; the `return` value is
+    // narrowed by `sanitizeReturnPath` (same-origin only). The redirect is
+    // `no-store`. With a cookie present the request falls through to the normal
+    // SSR render (the API verifies the token on POST).
+    {
+      const url = new URL(c.req.url);
+      const { path } = stripLocalePrefix(url.pathname);
+      if (isReviewPath(path) && !hasSessionCookie(c.req.raw)) {
+        const returnPath = sanitizeReturnPath(url.pathname);
+        const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
+        return new Response(null, {
+          status: 303,
+          headers: {
+            Location: `/auth/login${query}`,
+            'Cache-Control': 'private, no-store',
+          },
+        });
+      }
+    }
+
     return handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse);
   });
 

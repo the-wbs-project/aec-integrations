@@ -11,8 +11,10 @@ import {
   cacheControlForRoute,
   cacheKeyUrl,
   createApp,
+  hasSessionCookie,
   isCacheableRoute,
   isPreviewPath,
+  isReviewPath,
   stripLocalePrefix,
   stripVisitorStateCookies,
   type Bindings,
@@ -1594,5 +1596,90 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     // The passthrough hands the raw request straight to the binding.
     expect(calls).toHaveLength(1);
     expect(calls[0]).toBe(original);
+  });
+});
+
+// ─── AECI-200 review-route auth gate ───────────────────────────────────────
+
+describe('isReviewPath (AECI-200)', () => {
+  it('matches /products/:slug/review only', () => {
+    expect(isReviewPath('/products/acme-build/review')).toBe(true);
+    expect(isReviewPath('/products/x/review')).toBe(true);
+  });
+
+  it('does not match the detail page, listing, or other product sub-routes', () => {
+    expect(isReviewPath('/products/acme-build')).toBe(false);
+    expect(isReviewPath('/products')).toBe(false);
+    expect(isReviewPath('/products/acme-build/claim')).toBe(false);
+    expect(isReviewPath('/products/acme-build/review/extra')).toBe(false);
+    expect(isReviewPath('/reviews')).toBe(false);
+  });
+});
+
+describe('hasSessionCookie (AECI-200)', () => {
+  function req(cookie?: string): Request {
+    return new Request('https://aecintegrations.com/products/x/review', {
+      headers: cookie ? { cookie } : {},
+    });
+  }
+
+  it('detects a Supabase auth-token cookie (incl. chunked variants)', () => {
+    expect(hasSessionCookie(req('sb-abcdef-auth-token=base64-xyz'))).toBe(true);
+    expect(
+      hasSessionCookie(req('sb-abcdef-auth-token.0=part0; sb-abcdef-auth-token.1=part1')),
+    ).toBe(true);
+    expect(hasSessionCookie(req('theme=dark; sb-proj-auth-token=tok'))).toBe(true);
+  });
+
+  it('returns false when no auth-token cookie is present', () => {
+    expect(hasSessionCookie(req())).toBe(false);
+    expect(hasSessionCookie(req('theme=dark'))).toBe(false);
+    expect(hasSessionCookie(req('sb-proj-other=tok'))).toBe(false);
+  });
+});
+
+describe('createApp review-route auth gate (AECI-200)', () => {
+  it('redirects an unauthenticated visitor to /auth/login with a sanitized return path', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
+    });
+
+    const req = new Request('https://aecintegrations.com/products/acme-build/review', {
+      headers: { cookie: 'theme=dark' }, // no session cookie
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe(
+      '/auth/login?return=%2Fproducts%2Facme-build%2Freview',
+    );
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('falls through to SSR when a session cookie is present', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
+
+    const req = new Request('https://aecintegrations.com/products/acme-build/review', {
+      headers: { cookie: 'sb-proj-auth-token=session' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('SSR-OK');
+  });
+
+  it('does not gate the product detail page (cacheable, public)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
+
+    const req = new Request('https://aecintegrations.com/products/acme-build', {
+      headers: { cookie: 'theme=dark' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('SSR-OK');
   });
 });
