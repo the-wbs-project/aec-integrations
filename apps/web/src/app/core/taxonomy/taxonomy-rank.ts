@@ -32,3 +32,20 @@ export function topByCount(
   if (!list) return [];
   return [...list].sort((a, b) => b[SORT_KEY] - a[SORT_KEY]).slice(0, n);
 }
+
+/**
+ * Terms in editorial `display_order` (ascending), with `name` as a stable
+ * tiebreak — the project-lifecycle order for phases (Concept → Design →
+ * Pre-Construction → Construction → Closeout, set in
+ * `supabase/reference-data/taxonomy.sql`). Used instead of `topByCount` where a
+ * facet must read in its intended sequence rather than by popularity. Pure —
+ * never mutates the input.
+ */
+export function byDisplayOrder(
+  list: readonly TaxonomyTermWithCount[] | undefined,
+): TaxonomyTermWithCount[] {
+  if (!list) return [];
+  return [...list].sort(
+    (a, b) => a.display_order - b.display_order || a.name.localeCompare(b.name),
+  );
+}

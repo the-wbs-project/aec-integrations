@@ -47,6 +47,7 @@ import type {
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
+import { orderFacetItems } from './search-facet-order';
 
 // ─── Public signal-backed view models ───────────────────────────────────────
 
@@ -369,7 +370,7 @@ export class SearchController {
       let refineFn: ((value: string) => void) | null = null;
       widgets.push(
         lib.connectRefinementList((state) => {
-          items.set([...state.items]);
+          items.set(orderFacetItems(attribute, state.items));
           canRefine.set(state.canRefine);
           refineFn = state.refine;
         })({ attribute, limit: REFINEMENT_LIST_LIMIT, operator: 'or' }),

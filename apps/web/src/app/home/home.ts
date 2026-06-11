@@ -7,7 +7,7 @@ import type { HomeStatsResponse, TaxonomyResponse } from '@aeci/shared';
 
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
-import { TOP_N, topByCount } from '../core/taxonomy/taxonomy-rank';
+import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-rank';
 
 import { BrowseGrid } from './browse-grid';
 import { HomeHero } from './home-hero';
@@ -92,8 +92,8 @@ export class Home {
 
   protected readonly topCategories = computed(() => topByCount(this.browse()?.categories, TOP_N));
   protected readonly topAudiences = computed(() => topByCount(this.browse()?.audiences, TOP_N));
-  /** Phases is a small facet (~6–8 terms) — show every term, ranked. */
-  protected readonly allPhases = computed(() => topByCount(this.browse()?.phases, Infinity));
+  /** Phases is a small facet — show every term in project-lifecycle order (`display_order`). */
+  protected readonly allPhases = computed(() => byDisplayOrder(this.browse()?.phases));
 
   // Stats-section inputs. A null resolver result (a render mode without
   // REQUEST_CONTEXT, or a failed client fetch) collapses to each section's

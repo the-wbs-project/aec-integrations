@@ -10,23 +10,26 @@ import { settle } from '../testing/index-page.harness';
 
 import { TaxonomyNavStore } from './taxonomy-nav.store';
 
-function term(slug: string, productCount: number): TaxonomyTermWithCount {
+function term(slug: string, productCount: number, displayOrder = 0): TaxonomyTermWithCount {
   return {
     id: slug,
     slug,
     name: slug.toUpperCase(),
     description: null,
-    display_order: 0,
+    display_order: displayOrder,
     product_count: productCount,
   };
 }
 
 // 12 categories with shuffled counts so the top-10 cap and the descending sort
-// are both exercised; phases stay small so `phasesAll` returns every term.
+// are both exercised; phases stay small so `phasesAll` returns every term. The
+// phase fixture intentionally inverts count vs. display_order — `closeout` has
+// the higher count but the later lifecycle slot — so the assertion proves
+// `phasesAll` orders by `display_order`, not popularity.
 const RESPONSE: TaxonomyResponse = {
   categories: Array.from({ length: 12 }, (_, i) => term(`cat-${i}`, i)),
   audiences: [term('aud-a', 2), term('aud-b', 9), term('aud-c', 5)],
-  phases: [term('design', 3), term('closeout', 8)],
+  phases: [term('closeout', 8, 50), term('design', 3, 20)],
 };
 
 /**
@@ -44,7 +47,7 @@ class StoreHost {
 describe('TaxonomyNavStore', () => {
   beforeEach(() => TestBed.resetTestingModule());
 
-  it('fetches /api/taxonomy once and ranks each facet by product_count', async () => {
+  it('fetches /api/taxonomy once; ranks categories/audiences by count, phases by display_order', async () => {
     TestBed.configureTestingModule({
       providers: [provideHttpClient(withXhr()), provideHttpClientTesting()],
     });
@@ -65,8 +68,9 @@ describe('TaxonomyNavStore', () => {
     expect(store.categoriesTop10()[9]?.product_count).toBe(2);
     // Audiences sort descending.
     expect(store.audiencesTop10().map((t) => t.slug)).toEqual(['aud-b', 'aud-c', 'aud-a']);
-    // Phases return all terms, descending.
-    expect(store.phasesAll().map((t) => t.slug)).toEqual(['closeout', 'design']);
+    // Phases return all terms in lifecycle (display_order) order — `design` (20)
+    // before `closeout` (50), despite `closeout` having the higher count.
+    expect(store.phasesAll().map((t) => t.slug)).toEqual(['design', 'closeout']);
 
     httpMock.verify();
   });
