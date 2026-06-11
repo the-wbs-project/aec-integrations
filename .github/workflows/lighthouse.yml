@@ -108,10 +108,23 @@ jobs:
       # Wire the preview Algolia search key into the SSR Worker so `/search`
       # boots the REAL InstantSearch SDK (AECI-188): the JS budget + a11y
       # assertions on /search are meaningless against the degraded shell.
-      # `.dev.vars` overlays wrangler.jsonc vars PER-KEY, so writing only the
-      # ALGOLIA_* keys preserves `ENV=preview` (and with it the preview_* index
-      # names) from apps/web/wrangler.jsonc.
-      - name: Write apps/web/.dev.vars (Algolia search key for /search)
+      #
+      # Also overlay ALLOW_INDEXING=true. The `preview` env is fail-closed
+      # noindex (AECI-303: it stamps `X-Robots-Tag: noindex, nofollow` on every
+      # non-/api/* response), which fails Lighthouse's `is-crawlable` audit and
+      # drags `categories:seo` to ~0.63 on EVERY indexable URL — turning the
+      # AECI-188 error-level SEO gate permanently red by design. The SEO gate is
+      # meant to measure the LAUNCH posture (crawlable + titled + described), so
+      # we overlay the indexable state here exactly as we overlay the real
+      # Algolia key. This is CI-measurement-only and changes no deployed env
+      # (those keep ALLOW_INDEXING=false until public launch). `/search` and the
+      # 404 stay SEO-exempt either way: their noindex comes from in-page
+      # `<meta robots>`, not this egress header.
+      #
+      # `.dev.vars` overlays wrangler.jsonc vars PER-KEY, so writing only these
+      # keys preserves `ENV=preview` (and with it the preview_* index names)
+      # from apps/web/wrangler.jsonc.
+      - name: Write apps/web/.dev.vars (Algolia search key + indexing gate)
         env:
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_PREVIEW }}
@@ -123,6 +136,7 @@ jobs:
           {
             printf 'ALGOLIA_APP_ID="%s"\n' "$ALGOLIA_APP_ID_VALUE"
             printf 'ALGOLIA_SEARCH_KEY="%s"\n' "$ALGOLIA_SEARCH_KEY_VALUE"
+            printf 'ALLOW_INDEXING="true"\n'
           } > apps/web/.dev.vars
       - name: Boot dev:bound (API + SSR) and wait for /api/health
         run: |
