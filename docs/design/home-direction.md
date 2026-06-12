@@ -162,9 +162,9 @@ with the home `Cache-Tag` (AECI-56) and `WebSite`/`Organization` JSON-LD (the 4.
 
 ## Design-law guardrails honored
 
-Source Serif 4 + Atkinson Hyperlegible only · Forest anchor, Clay 0% on this surface · borders
+Source Serif 4 + Atkinson Hyperlegible Next only · Forest anchor, Clay 0% on this surface · borders
 not shadows · Bone only as accent band · sentence case everywhere · no em dashes · Lucide glyphs
-only (no emoji) · both themes at parity · empty states real.
+only (no emoji) · light only (Stage 1, AECI-226) · empty states real.
 
 ## Tokens
 

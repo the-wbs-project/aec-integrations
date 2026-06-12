@@ -42,6 +42,13 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
 | `aeci.stats.compute.key.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key) |
 | `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed) |
+| `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
+| `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found) |
+| `aeci.moderation.action` | count | `apps/api/src/routes/admin-reviews.ts` (`createModerateReviewHandler`, AECI-206) | `action` (approve / reject), `outcome` (ok / invalid_state) |
+| `aeci.perspective.api` | count | `apps/api/src/lib/perspective.ts` (`scoreToxicity`, AECI-206) | `outcome` (ok / failed), `reason` on failure (http_error / malformed / timeout / network) |
+| `aeci.perspective.api.duration_ms` | distribution | `apps/api/src/lib/perspective.ts` (`scoreToxicity`, AECI-206) | `outcome` (ok / failed) |
+| `aeci.moderation.queue_depth` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
+| `aeci.moderation.queue_oldest_age_hours` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -116,6 +123,40 @@ next daily compute. Note it is monitored on error-rate **only**, never liveness/
 is traffic-driven, so zero writes (no visitors) is normal at pre-launch and a no-data alert would
 fire constantly — unlike the fixed-cadence stats cron.
 
+`aeci.auth.signin` / `aeci.review.submit` / `aeci.moderation.action` / `aeci.perspective.api*` /
+`aeci.moderation.queue_*` (AECI-206, the Phase 5.15 auth + reviews analogue) cover the four new
+write surfaces:
+
+- **`aeci.auth.signin`** is emitted from the **SSR Worker** (`apps/web`, `service:aeci-web` — the only
+  Phase 5 metric not on `aeci-api`) at `/auth/callback`, one count per sign-in *completion*,
+  `method` (`google`/`magic_link`/`unknown`) × `outcome` (`success`/`failed`, with a failure `reason`
+  reusing the user-facing error codes). **"Attempts" = the sum over `outcome`** (success + failed); the
+  failure **rate** is the "auth error-rate spike" monitor. The `method` tag is plumbed as a `method`
+  query param on the callback URL by the browser auth service (`app/auth/auth.service.ts`). Browser-side
+  **initiation** attempts — the magic-link *send* and the OAuth *redirect-out* — happen direct
+  browser→Supabase with no Worker hop, so they're a **deferred RUM** signal, not a Worker metric (the
+  same deferral as the AECI-141 browser search-query metric → AECI-174). A user who requests a link but
+  never returns to the callback therefore isn't counted; the server-observable signal is the completion.
+- **`aeci.review.submit`** is one count per `POST /api/reviews` outcome (`ok` after the insert,
+  `duplicate` for either dedup path — the app pre-check and the unique-index race — and
+  `product_not_found`). `outcome:ok` is the AC's "review submit count". 5xx failures are already covered
+  by `aeci.api.query.duration_ms{status_class:5xx}`.
+- **`aeci.moderation.action`** is one count per `PATCH /api/admin/reviews/:id` attempt, `action`
+  (`approve`/`reject`) × `outcome` (`ok` on a committed transition, `invalid_state` at the preload guard
+  or the concurrent-race guard — both 422).
+- **`aeci.perspective.api`** + **`aeci.perspective.api.duration_ms`** are the toxicity-scoring health
+  pair (`lib/perspective.ts`, called once per review submit). Scoring is **fail-open** — an outage (or
+  no key) stores `toxicity_score = null` and the review still enters the queue — so the count is an
+  *outage/triage-loss* signal, never user-facing. The **absent-key** path is a silent no-op that emits
+  **nothing** (an intentional skip, like Algolia's `skipped_no_creds`), so it can't pollute the
+  error-rate denominator. `…duration_ms` is the latency distribution (enable percentile aggregations).
+- **`aeci.moderation.queue_depth`** + **`aeci.moderation.queue_oldest_age_hours`** are **gauges** from
+  the daily moderation cron (`scheduled.ts`, 06:00 UTC = 01:00 EST; `lib/moderation-metrics.ts`). The
+  queue's standing state has no request to ride on — if nobody moderates, no action fires — so the cron
+  snapshots `count(pending)` + the oldest pending review's age (0 when empty). Both report on **every**
+  run, so the always-emitted point doubles as the cron-liveness heartbeat (the same always-reports
+  pattern as the index-drift gauge). Runs **inline** (no ADR-0013 queue): a two-read gauge needs no retry.
+
 ### Three gotchas when querying
 
 1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as
@@ -123,7 +164,8 @@ fire constantly — unlike the fixed-cadence stats cron.
    use lowercase.
 2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms`,
    `aeci.api.query.duration_ms`, `aeci.algolia.sync.duration_ms`,
-   `aeci.stats.compute.duration_ms`, and `aeci.stats.compute.key.duration_ms` are
+   `aeci.stats.compute.duration_ms`, `aeci.stats.compute.key.duration_ms`, and
+   `aeci.perspective.api.duration_ms` are
    distribution metrics — to query `p50/p95/p99` you must enable percentile aggregations
    under **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
    aggregations**. Done once per metric.
@@ -194,6 +236,19 @@ Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute ru
 (which `home.*` key failed) · per-key compute duration p95 by `key` · page-view writes by
 `outcome` · page-view write error rate (`100 × failed / total`, with a 10% marker).
 
+### `AECi Phase 5 — Auth / Reviews`
+
+- **Definition (for record):** `observability/datadog/dashboard-auth-reviews.json`
+- **Live URL:** _TBD — filled in after the live apply (AECI-206 verification step)._
+
+Widgets (Phase 5.15 auth + reviews health, AECI-206): sign-ins by `outcome` · sign-ins by
+`method` · auth failure rate (`100 × failed / total`, with a 30% marker) · review submits by
+`outcome` · moderation actions by `action`/`outcome` · Perspective API latency p50/p95/p99 ·
+Perspective API error rate (`100 × failed / total`, with a 50% marker) · moderation queue
+oldest-pending age (h) + depth (with a 48h backlog marker). Note the sign-in widgets read
+`aeci.auth.signin`, which carries `service:aeci-web` (the SSR Worker), unlike the rest of the
+Phase 5 metrics on `aeci-api`.
+
 ## Monitors
 
 Each monitor's `message` links the matching runbook in `docs/RUNBOOKS.md` and routes to
@@ -211,6 +266,9 @@ at apply time).
 | Home stats compute failed | any `aeci.stats.compute.key{outcome:failed}` or job-level `aeci.stats.compute{outcome:failed}` (the latter covers a pre-compute crash) in the last 1d | `observability/datadog/monitor-stats-compute-failed.json` |
 | Home stats not running | no `aeci.stats.compute{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-stats-compute-no-data.json` |
 | page_views write errors | write error rate > 10% over 10m | `observability/datadog/monitor-pageviews-write-errors.json` |
+| Auth sign-in error rate | sign-in failure rate > 30% over 15m (`service:aeci-web`) | `observability/datadog/monitor-auth-error-rate.json` |
+| Perspective API outage | Perspective failure rate > 50% over 15m | `observability/datadog/monitor-perspective-outage.json` |
+| Moderation queue backlog | oldest pending review > 48h (daily); or no snapshot for ~26h | `observability/datadog/monitor-moderation-queue-age.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
@@ -245,6 +303,19 @@ visitors) is normal at pre-launch and a liveness/no-data alert would fire consta
 failure ratio is meaningful. The 10% threshold is a launch-tunable starting point (§14.3 cites 1%
 for request error rate; page_views runs at far lower volume, so the floor is higher to avoid
 single-failure noise) — retune once production traffic is known.
+
+The Phase 5 monitors (AECI-206) split the same way. **"Auth sign-in error rate"** and **"Perspective
+API outage"** are **traffic-driven error-rate** monitors — like page_views, no `notify_no_data` (zero
+sign-ins / zero review-submits is normal at pre-launch and a no-data alert would be constant noise);
+only the failure ratio matters, and both thresholds (30% / 50%) are launch-tunable starting points
+(at low volume a single failure can dominate the ratio). The auth monitor is the only one scoped to
+`service:aeci-web` (the SSR Worker emits `aeci.auth.signin`). **"Moderation queue backlog"** is the
+**fixed-cadence** one and behaves like the stats freshness monitor: the 06:00 UTC moderation cron emits
+`aeci.moderation.queue_oldest_age_hours` (and `…queue_depth`) on **every** run — 0 for an empty queue —
+so the same series carries both the threshold alert (oldest pending > 48h → backlog) **and**, via
+`notify_no_data` (`no_data_timeframe` 1560 ≈ 26h), the cron-liveness check (no snapshot → the cron
+stopped). Because the snapshot is **daily**, detection lags up to ~24h on top of the 48h threshold; the
+cron can move to hourly post-launch if a tighter moderation SLA is needed.
 
 ## Browser search RUM (deferred — contract for the search UI)
 

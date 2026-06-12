@@ -145,7 +145,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
           <section aria-labelledby="vendor-card-title" class="space-y-3">
             <h2
               id="vendor-card-title"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              class="aec-overline text-(--text-secondary)"
               i18n="@@products.detail.metadata.vendor"
             >
               Vendor
@@ -177,7 +177,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
             <section aria-labelledby="categories-label" class="space-y-3">
               <h2
                 id="categories-label"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@products.detail.metadata.categories"
               >
                 Categories
@@ -194,7 +194,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
             <section aria-labelledby="audiences-label" class="space-y-3">
               <h2
                 id="audiences-label"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@products.detail.metadata.audiences"
               >
                 Audiences
@@ -211,7 +211,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
             <section aria-labelledby="phases-label" class="space-y-3">
               <h2
                 id="phases-label"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@products.detail.metadata.phases"
               >
                 Project phases
@@ -227,7 +227,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
           <section aria-labelledby="actions-label" class="space-y-3">
             <h2
               id="actions-label"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              class="aec-overline text-(--text-secondary)"
               i18n="@@products.detail.metadata.actions"
             >
               Actions

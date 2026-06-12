@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
  * the whole class of bug.
  *
  * Scope: only the app's own design-token namespaces (`--surface-*`, `--text-*`,
- * `--border-*`, `--accent-*`, `--font-*`). Spartan/Tailwind preset internals
+ * `--border-*`, `--accent-*`, `--font-*`, `--status-*`). Spartan/Tailwind preset internals
  * (`--radius`, `--spacing`, `--color-*`, `--tw-*`, …) are deliberately excluded —
  * they are defined outside `styles.css` and are not the bug class this guards.
  */
@@ -30,7 +30,7 @@ const SCANNED_EXTENSIONS = ['.ts', '.html', '.css'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.angular']);
 
 /** App design-token namespaces this guard governs. */
-const GUARDED_PREFIXES = /^(surface|text|border|accent|font)-/;
+const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status)-/;
 
 /** Matches a CSS custom-property *declaration* — `--name:` on the left side. */
 const DECLARATION_RE = /--([\w-]+)\s*:/g;

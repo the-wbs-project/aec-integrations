@@ -1,0 +1,234 @@
+{
+  "title": "AECi Phase 5 — Auth / Reviews",
+  "description": "Phase 5.15 auth + reviews observability (AECI-206). Parity with the Phase 2/3/4 dashboards. Metrics: aeci.auth.signin (count, method + outcome — emitted from the SSR Worker aeci-web at /auth/callback, so these carry service:aeci-web, NOT aeci-api), aeci.review.submit (count, outcome), aeci.moderation.action (count, action + outcome), aeci.perspective.api (count, outcome — the toxicity-scoring outage signal) and aeci.perspective.api.duration_ms (distribution — enable percentile aggregations under Metrics > Summary), and the daily moderation-queue gauges aeci.moderation.queue_depth + aeci.moderation.queue_oldest_age_hours (AECI-206 cron, 06:00 UTC). NOTE: Datadog lowercases tag values (outcome queried as success/failed/ok/duplicate/invalid_state; method as google/magic_link/unknown; action as approve/reject). All counts submit value 1, so count: and sum: coincide. Auth 'attempts' = the sum over outcomes of aeci.auth.signin (one per sign-in completion at the callback); browser-side initiation attempts (magic-link send / OAuth start) are a deferred RUM concern — see docs/OBSERVABILITY.md. Committed for record (AECI-206); the live dashboard is the source of truth — re-export after edits. Live apply is the operator step in docs/OBSERVABILITY.md.",
+  "layout_type": "ordered",
+  "reflow_type": "fixed",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": ["staging", "production"],
+      "default": "production"
+    }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "title": "Sign-ins by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "signins",
+                "data_source": "metrics",
+                "query": "count:aeci.auth.signin{$env} by {outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "signins" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Sign-ins by method",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "signins",
+                "data_source": "metrics",
+                "query": "count:aeci.auth.signin{$env} by {method}"
+              }
+            ],
+            "formulas": [{ "formula": "signins" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Auth failure rate (%)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "failed",
+                "data_source": "metrics",
+                "query": "sum:aeci.auth.signin{$env,outcome:failed}.as_count()"
+              },
+              {
+                "name": "total",
+                "data_source": "metrics",
+                "query": "sum:aeci.auth.signin{$env}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "100 * failed / total", "alias": "failure_rate" }]
+          }
+        ],
+        "yaxis": { "label": "%" },
+        "markers": [
+          { "value": "y = 30", "display_type": "warning dashed", "label": "alert threshold" }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Review submits by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "submits",
+                "data_source": "metrics",
+                "query": "count:aeci.review.submit{$env} by {outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "submits" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Moderation actions by action / outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "actions",
+                "data_source": "metrics",
+                "query": "count:aeci.moderation.action{$env} by {action,outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "actions" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Perspective API latency — p50 / p95 / p99",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p50",
+                "data_source": "metrics",
+                "query": "p50:aeci.perspective.api.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p50", "alias": "p50" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p95",
+                "data_source": "metrics",
+                "query": "p95:aeci.perspective.api.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p95", "alias": "p95" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p99",
+                "data_source": "metrics",
+                "query": "p99:aeci.perspective.api.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p99", "alias": "p99" }]
+          }
+        ],
+        "yaxis": { "label": "ms" }
+      }
+    },
+    {
+      "definition": {
+        "title": "Perspective API error rate (%)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "failed",
+                "data_source": "metrics",
+                "query": "sum:aeci.perspective.api{$env,outcome:failed}.as_count()"
+              },
+              {
+                "name": "total",
+                "data_source": "metrics",
+                "query": "sum:aeci.perspective.api{$env}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "100 * failed / total", "alias": "error_rate" }]
+          }
+        ],
+        "yaxis": { "label": "%" },
+        "markers": [
+          { "value": "y = 50", "display_type": "warning dashed", "label": "alert threshold" }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Moderation queue — oldest pending age (h) + depth",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "oldest_age_hours",
+                "data_source": "metrics",
+                "query": "max:aeci.moderation.queue_oldest_age_hours{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "oldest_age_hours", "alias": "oldest_age_hours" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "depth",
+                "data_source": "metrics",
+                "query": "max:aeci.moderation.queue_depth{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "depth", "alias": "pending_depth" }]
+          }
+        ],
+        "markers": [
+          { "value": "y = 48", "display_type": "warning dashed", "label": "backlog threshold (h)" }
+        ]
+      }
+    }
+  ]
+}

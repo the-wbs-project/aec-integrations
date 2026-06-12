@@ -165,7 +165,9 @@ const URL_SYNC_DEBOUNCE_MS = 350;
           >
             <div class="grid gap-8 md:grid-cols-[16rem_1fr]">
               <aside i18n-aria-label="@@search.filters.aria" aria-label="Filters" class="space-y-6">
-                @if (currentFacets(); as facets) {
+                @if (showSkeleton()) {
+                  <ng-container [ngTemplateOutlet]="facetsSkeleton" />
+                } @else if (currentFacets(); as facets) {
                   @for (rl of facets.refinementLists; track rl.attribute) {
                     <aec-search-refinement-list
                       [label]="facetLabel(rl.attribute)"
@@ -200,52 +202,66 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                   <p class="sr-only" role="status" aria-live="polite">
                     {{ resultsStatus() }}
                   </p>
-                  @switch (activeTab()) {
-                    @case ('products') {
-                      @if (ctrl.products.hits(); as hits) {
-                        @if (hits.length) {
-                          <ul class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                            @for (hit of hits; track hit.objectID) {
-                              <li><aec-search-product-card [record]="hit" /></li>
-                            }
-                          </ul>
-                          <aec-search-paginator
-                            [page]="ctrl.products.page()"
-                            [nbPages]="ctrl.products.nbPages()"
-                            (pageChange)="ctrl.products.refinePage($event)"
-                          />
-                        } @else {
-                          <ng-container [ngTemplateOutlet]="emptyState" />
+                  @if (ctrl.ready()) {
+                    @switch (activeTab()) {
+                      @case ('products') {
+                        @if (ctrl.products.hits(); as hits) {
+                          @if (hits.length) {
+                            <ul
+                              class="grid gap-4 transition-opacity sm:grid-cols-2 xl:grid-cols-3"
+                              [class.opacity-60]="ctrl.stalled()"
+                              [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
+                            >
+                              @for (hit of hits; track hit.objectID) {
+                                <li><aec-search-product-card [record]="hit" /></li>
+                              }
+                            </ul>
+                            <aec-search-paginator
+                              [page]="ctrl.products.page()"
+                              [nbPages]="ctrl.products.nbPages()"
+                              (pageChange)="ctrl.products.refinePage($event)"
+                            />
+                          } @else {
+                            <ng-container [ngTemplateOutlet]="emptyState" />
+                          }
+                        }
+                      }
+                      @case ('vendors') {
+                        @if (ctrl.vendors.hits(); as hits) {
+                          @if (hits.length) {
+                            <ul
+                              class="grid gap-4 transition-opacity sm:grid-cols-2 xl:grid-cols-3"
+                              [class.opacity-60]="ctrl.stalled()"
+                              [attr.aria-busy]="ctrl.stalled() ? 'true' : null"
+                            >
+                              @for (hit of hits; track hit.objectID) {
+                                <li><aec-search-vendor-card [record]="hit" /></li>
+                              }
+                            </ul>
+                            <aec-search-paginator
+                              [page]="ctrl.vendors.page()"
+                              [nbPages]="ctrl.vendors.nbPages()"
+                              (pageChange)="ctrl.vendors.refinePage($event)"
+                            />
+                          } @else {
+                            <ng-container [ngTemplateOutlet]="emptyState" />
+                          }
                         }
                       }
                     }
-                    @case ('vendors') {
-                      @if (ctrl.vendors.hits(); as hits) {
-                        @if (hits.length) {
-                          <ul class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-                            @for (hit of hits; track hit.objectID) {
-                              <li><aec-search-vendor-card [record]="hit" /></li>
-                            }
-                          </ul>
-                          <aec-search-paginator
-                            [page]="ctrl.vendors.page()"
-                            [nbPages]="ctrl.vendors.nbPages()"
-                            (pageChange)="ctrl.vendors.refinePage($event)"
-                          />
-                        } @else {
-                          <ng-container [ngTemplateOutlet]="emptyState" />
-                        }
-                      }
-                    }
+                  } @else {
+                    <!-- Mounted, first response pending: reserve space (no aria-busy;
+                         the controller-null branch below owns the live-region). -->
+                    <ng-container [ngTemplateOutlet]="resultsSkeleton" />
                   }
                 } @else {
-                  <p
-                    class="px-4 py-12 text-center text-sm text-(--text-secondary)"
-                    aria-busy="true"
-                    i18n="@@search.loading"
-                  >
+                  <!-- SSR + pre-mount. Ships the skeleton in the initial HTML so the
+                       height is reserved from first paint and the page is already
+                       scrollable. sr-only status carries the busy state for AT. -->
+                  <p class="sr-only" role="status" aria-busy="true" i18n="@@search.loading">
                     Loading search…
                   </p>
+                  <ng-container [ngTemplateOutlet]="resultsSkeleton" />
                 }
               </div>
             </div>
@@ -264,6 +280,65 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             >browse by category</a
           >.
         </p>
+      </div>
+    </ng-template>
+
+    <!--
+      Loading skeletons (AECI-228). Purely decorative (aria-hidden); the sr-only
+      status region announces loading/result counts. Each card mirrors the real
+      product/vendor card's box (same radius, border, padding, surface) with a
+      min height so the skeleton≈real swap barely moves. The paginator slot and
+      the facet rail reserve their height too, so the first response settles in
+      place instead of shoving the page. animate-pulse is auto-neutralized under
+      prefers-reduced-motion (styles.css).
+    -->
+    <ng-template #resultsSkeleton>
+      <div aria-hidden="true">
+        <ul class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          @for (card of skeletonCards; track card) {
+            <li>
+              <div
+                class="flex min-h-40 flex-col gap-3 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-5"
+              >
+                <div class="flex items-center gap-3">
+                  <div
+                    class="h-9 w-9 shrink-0 animate-pulse rounded-(--radius-md) bg-(--surface-sunken)"
+                  ></div>
+                  <div class="h-4 w-1/2 animate-pulse rounded bg-(--surface-sunken)"></div>
+                </div>
+                <div class="h-3 w-full animate-pulse rounded bg-(--surface-sunken)"></div>
+                <div class="h-3 w-4/5 animate-pulse rounded bg-(--surface-sunken)"></div>
+                <div class="mt-auto flex gap-1.5 pt-1">
+                  <div
+                    class="h-5 w-16 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
+                  ></div>
+                  <div
+                    class="h-5 w-16 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
+                  ></div>
+                  <div
+                    class="h-5 w-16 animate-pulse rounded-(--radius-sm) bg-(--surface-sunken)"
+                  ></div>
+                </div>
+              </div>
+            </li>
+          }
+        </ul>
+        <div class="mt-8 flex justify-center">
+          <div class="h-9 w-48 animate-pulse rounded-(--radius-md) bg-(--surface-sunken)"></div>
+        </div>
+      </div>
+    </ng-template>
+
+    <ng-template #facetsSkeleton>
+      <div aria-hidden="true" class="space-y-6">
+        @for (group of skeletonFacetGroups; track group) {
+          <div class="space-y-2.5">
+            <div class="h-4 w-24 animate-pulse rounded bg-(--surface-sunken)"></div>
+            @for (row of skeletonFacetRows; track row) {
+              <div class="h-3 w-full animate-pulse rounded bg-(--surface-sunken)"></div>
+            }
+          </div>
+        }
       </div>
     </ng-template>
   `,
@@ -309,6 +384,23 @@ export class SearchPage implements OnDestroy {
     const ctrl = this.controller();
     return ctrl ? ctrl[this.activeTab()] : null;
   });
+
+  /**
+   * True while the results region should render skeletons rather than real
+   * facets/results — i.e. before the controller mounts (SSR + pre-mount) AND
+   * after it mounts but before the first response settles. Reserving the
+   * height across both windows is what keeps the first paint from shifting
+   * (AECI-228).
+   */
+  protected readonly showSkeleton = computed(() => {
+    const ctrl = this.controller();
+    return !ctrl || !ctrl.ready();
+  });
+
+  /** Fixed-length arrays driving the skeleton `@for` loops (index = track key). */
+  protected readonly skeletonCards = [0, 1, 2, 3, 4, 5];
+  protected readonly skeletonFacetGroups = [0, 1, 2, 3];
+  protected readonly skeletonFacetRows = [0, 1, 2, 3];
 
   protected readonly resultsStatus = computed(() => {
     const ctrl = this.controller();

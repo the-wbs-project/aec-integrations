@@ -84,7 +84,7 @@ export class AuthService {
     ).auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: this.callbackUrl(returnPath),
+        emailRedirectTo: this.callbackUrl(returnPath, 'magic_link'),
         shouldCreateUser: true,
       },
     });
@@ -101,7 +101,7 @@ export class AuthService {
       await this.requireClient()
     ).auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: this.callbackUrl(returnPath) },
+      options: { redirectTo: this.callbackUrl(returnPath, 'google') },
     });
     if (error) throw error;
   }
@@ -124,10 +124,13 @@ export class AuthService {
    * The absolute callback URL both flows redirect to. The return path is
    * re-validated here (defense in depth — the component already validates at
    * the route boundary) so no caller can thread an off-site value through.
+   * `method` is carried so the callback can tag the `aeci.auth.signin` metric
+   * by sign-in method (AECI-206) — it's observability only, never trusted.
    */
-  private callbackUrl(returnPath: string | null): string {
+  private callbackUrl(returnPath: string | null, method: 'magic_link' | 'google'): string {
     const url = new URL('/auth/callback', globalThis.location.origin);
     url.searchParams.set('return', safeReturnPath(returnPath));
+    url.searchParams.set('method', method);
     return url.toString();
   }
 

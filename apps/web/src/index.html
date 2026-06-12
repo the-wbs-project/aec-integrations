@@ -11,36 +11,10 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <!--
-      AECI-221 font loading. Load the Google Fonts CSS NON-render-blocking:
-      `media="print"` drops it off the critical path and `onload` promotes it to
-      all media once fetched (CSP allows the inline handler via
-      `script-src 'unsafe-inline'`; the attribute is static so it stays
-      byte-identical across edge-cache hits). A 3rd-party stylesheet in <head>
-      otherwise blocks first paint on a 2-hop round-trip (~1s of LCP on Slow-4G).
-      Safe because the bundled metric-matched fallback (styles.css) is
-      render-blocking and paints text immediately, and `display=optional` means
-      the brand face never swaps in late — no FOUT/CLS while the async CSS
-      resolves. We deliberately do NOT preload the woff2: under Slow-4G a
-      high-priority font preload competes with the LCP element AND can land the
-      face inside the ~100ms `optional` window, triggering a fallback→real swap
-      (CLS) — so it measurably hurt both LCP and CLS. With `optional` the
-      metric-matched fallback is the intended first-paint face anyway; the real
-      face arrives for subsequent navigations from cache. <noscript> keeps the
-      (blocking) link for JS-off clients.
-    -->
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=optional"
-      media="print"
-      onload="this.media = 'all'"
+      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
     />
-    <noscript>
-      <link
-        rel="stylesheet"
-        href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=optional"
-      />
-    </noscript>
   </head>
   <body>
     <app-root></app-root>

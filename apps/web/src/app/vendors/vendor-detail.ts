@@ -190,7 +190,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'github' | 'facebook' | 'instagr
           <section aria-labelledby="vendor-stats-title" class="space-y-3">
             <h2
               id="vendor-stats-title"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              class="aec-overline text-(--text-secondary)"
               i18n="@@vendors.detail.metadata.stats"
             >
               At a glance
@@ -227,7 +227,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'github' | 'facebook' | 'instagr
           <section aria-labelledby="vendor-actions-label" class="space-y-3">
             <h2
               id="vendor-actions-label"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              class="aec-overline text-(--text-secondary)"
               i18n="@@vendors.detail.metadata.actions"
             >
               Actions

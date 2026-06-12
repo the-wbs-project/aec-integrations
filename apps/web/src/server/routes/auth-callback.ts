@@ -30,7 +30,20 @@ import type { Context } from 'hono';
 
 import type { WebEnv } from '../../env';
 import { createServerApiClient } from '../../server-api-client';
+import { submitCount } from '../../server-datadog';
 import { createSupabaseServerClient } from '../auth/supabase-server-client';
+
+/**
+ * The sign-in `method` for the `aeci.auth.signin` metric (AECI-206 / Phase 5.15).
+ * Plumbed as a `method` query param on the callback URL by the browser auth
+ * service (`app/auth/auth.service.ts`); an absent/unknown value (e.g. a
+ * `missing_code` hit with no method hint) tags `unknown`.
+ */
+export type AuthMethod = 'google' | 'magic_link' | 'unknown';
+
+export function normalizeAuthMethod(raw: string | null | undefined): AuthMethod {
+  return raw === 'google' || raw === 'magic_link' ? raw : 'unknown';
+}
 
 /**
  * Validate a `return` query value down to a same-origin path (no open
@@ -45,6 +58,38 @@ export function sanitizeReturnPath(raw: string | null | undefined): string {
 }
 
 const NO_STORE = 'private, no-store';
+
+/**
+ * Emit the `aeci.auth.signin` count (AECI-206 / Phase 5.15) — one per sign-in
+ * *completion* reaching the callback. `attempts = sum over outcomes`; the
+ * `failed` slice's `reason` reuses the user-facing error-code vocabulary
+ * (`link_invalid` / `missing_code` / `auth_not_configured`). Browser-side
+ * *initiation* attempts (magic-link send, OAuth redirect-out) are direct
+ * browser→Supabase and are a deferred RUM concern (see docs/OBSERVABILITY.md).
+ * Fire-and-forget via the shared transport — no-op without `DD_API_KEY`.
+ */
+function emitSignin(
+  c: Context<{ Bindings: WebEnv }>,
+  method: AuthMethod,
+  outcome: 'success' | 'failed',
+  reason?: string,
+): void {
+  const tags = [`method:${method}`, `outcome:${outcome}`];
+  if (reason) tags.push(`reason:${reason}`);
+  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.auth.signin', 1, tags);
+}
+
+/** Emit the failure metric, then redirect to the login page with the error code
+ *  (which doubles as the metric `reason`). */
+function failSignin(
+  c: Context<{ Bindings: WebEnv }>,
+  errorCode: string,
+  returnPath: string,
+  method: AuthMethod,
+): Response {
+  emitSignin(c, method, 'failed', errorCode);
+  return loginRedirect(c, errorCode, returnPath);
+}
 
 function loginRedirect(
   c: Context<{ Bindings: WebEnv }>,
@@ -73,27 +118,34 @@ export function createAuthCallbackHandler(
   return async (c) => {
     const url = new URL(c.req.url);
     const returnPath = sanitizeReturnPath(url.searchParams.get('return'));
+    // `method` rides the callback URL (set by the browser auth service); it
+    // survives Supabase's error redirect, so it's available on every branch.
+    const method = normalizeAuthMethod(url.searchParams.get('method'));
 
     // Supabase reports link failures (expired, already used, user-denied
     // OAuth) as `error` / `error_description` params instead of a `code`.
     if (url.searchParams.get('error')) {
-      return loginRedirect(c, 'link_invalid', returnPath);
+      return failSignin(c, 'link_invalid', returnPath, method);
     }
 
     const code = url.searchParams.get('code');
     if (!code) {
-      return loginRedirect(c, 'missing_code', returnPath);
+      return failSignin(c, 'missing_code', returnPath, method);
     }
 
     const supabase = createClient(c);
     if (!supabase) {
-      return loginRedirect(c, 'auth_not_configured', returnPath);
+      return failSignin(c, 'auth_not_configured', returnPath, method);
     }
 
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
     if (error || !data.session) {
-      return loginRedirect(c, 'link_invalid', returnPath);
+      return failSignin(c, 'link_invalid', returnPath, method);
     }
+
+    // Sign-in succeeded (the session exists). Profile-ensure below is a
+    // non-fatal backstop and does not gate this outcome.
+    emitSignin(c, method, 'success');
 
     try {
       await apiFor(c.env).request<{ created: boolean }>('/api/auth/profile/ensure', {

@@ -95,11 +95,14 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--border-strong` | `#D4D4D8` | Emphasized borders |
 | `--text-primary` | `#0A0A0A` | Body text |
 | `--text-secondary` | `#52525B` | Supporting text |
-| `--text-tertiary` | `#A1A1AA` | Hints, placeholders |
+| `--text-tertiary` | `#71717A` | Hints, placeholders, metadata (4.83:1 on white; never on sunken/muted surfaces — re-pointed from `#A1A1AA` in AECI-230, which measured 2.56:1) |
 | `--accent-primary` | `#1E3A2F` | Forest — CTAs, links, primary brand |
 | `--accent-primary-hover` | `#2E5C45` | Hover state |
-| `--accent-secondary` | `#E89668` | Clay — highlights, badges, callouts (large text / graphical only) |
+| `--accent-primary-soft` | `#ECF1EE` | Forest wash — selected/active/verified-soft state fills; always paired with a border or selected affordance (AECI-230) |
+| `--accent-secondary` | `#E89668` | Clay — decorative/fill only, carrying `--text-primary` (2.33:1 on white: below even the 3:1 large-text floor — AECI-230) |
+| `--accent-secondary-deep` | `#A14D22` | Clay deep — text-capable clay: clay text, icons, star ratings (5.83:1 on white); doubles as the warning hue (AECI-230) |
 | `--accent-warm` | `#F5F2EA` | Bone — subtle warm-tinted sections, never primary surface |
+| `--status-error` | `#B3261E` | Form/validation errors (6.54:1 on white); success = Forest, warning = Clay deep (AECI-230) |
 
 > The Stage 1 dark token set was removed in AECI-226 (preserved in git history). It returns with the dark theme at Stage 2; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3.
 
@@ -112,7 +115,8 @@ Bone is reclassified from "the background" to "a warm-tinted accent surface." It
 ### 2a.4 Contrast validation
 
 - All text/background pairs verified for WCAG 2.1 AA contrast before launch
-- Clay does not pass AA for body text (Clay `#E89668` on white `#FFFFFF` is ~2.4:1), so it is restricted to badges, large text, and graphical elements — keeping the accent rare and on-brand. See `BRAND_GUIDELINES.md` §5 for permitted uses.
+- Clay `#E89668` measures ~2.3:1 on white — below AA body text (4.5:1) **and** below the 3:1 floor for large text and meaning-bearing graphics. It is therefore decorative/fill only (fills carry `--text-primary` at 8.48:1, never white). The former "large text allowed" clause was mathematically false and was struck in AECI-230. Clay-colored text, icons, and star ratings use `--accent-secondary-deep` `#A14D22` (5.83:1). See `BRAND_GUIDELINES.md` §5.
+- `--text-tertiary` was re-pointed `#A1A1AA` → `#71717A` in AECI-230 (the old value measured 2.56:1 on white). Tertiary text is never placed on sunken/muted surfaces (4.40:1 there).
 - Contrast verification is automated in CI via a token-pair check matrix
 
 ### 2a.5 Theme handling for vendor-supplied content

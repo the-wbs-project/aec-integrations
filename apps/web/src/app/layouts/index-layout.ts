@@ -49,7 +49,7 @@ import { Component } from '@angular/core';
             aria-label="Results table"
           >
             <thead
-              class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary) uppercase"
+              class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary)"
             >
               <ng-content select="[slot=table-header]" />
             </thead>

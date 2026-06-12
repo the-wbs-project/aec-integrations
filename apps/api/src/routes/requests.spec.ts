@@ -17,7 +17,10 @@ interface FakeOptions {
 function makeFake(opts: FakeOptions = {}) {
   const audit: Rec[] = [];
   const created: Rec[] = [];
+  const workflows: Rec[] = [];
+  const transitions: Rec[] = [];
   let counter = 0;
+  let workflowCounter = 0;
 
   const bySlug = (map: Record<string, string> = {}) => ({
     async findUnique({ where }: { where: Rec }) {
@@ -36,6 +39,19 @@ function makeFake(opts: FakeOptions = {}) {
         return { id };
       },
     },
+    workflowInstance: {
+      async create({ data }: { data: Rec }) {
+        const id = `wf_${(workflowCounter += 1)}`;
+        workflows.push({ ...data, id });
+        return { id };
+      },
+    },
+    workflowTransition: {
+      async create({ data }: { data: Rec }) {
+        transitions.push(data);
+        return data;
+      },
+    },
     auditLog: {
       async create({ data }: { data: Rec }) {
         audit.push(data);
@@ -47,7 +63,7 @@ function makeFake(opts: FakeOptions = {}) {
     },
   };
 
-  return { models, audit, created };
+  return { models, audit, created, workflows, transitions };
 }
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
@@ -117,6 +133,23 @@ describe('POST /api/requests/correction', () => {
       entityId: 'req_1',
     });
     expect((fake.audit[0].metadata as Rec).kind).toBe('correction');
+
+    // Phase 6.2: a workflow instance + genesis transition open on submit.
+    expect(fake.workflows).toHaveLength(1);
+    expect(fake.workflows[0]).toMatchObject({
+      workflowType: 'correction_request',
+      currentState: 'open',
+      entityId: 'req_1',
+    });
+    expect(fake.workflows[0].linearIssueId).toBeUndefined(); // slot left for Phase 6.4
+
+    expect(fake.transitions).toHaveLength(1);
+    expect(fake.transitions[0]).toMatchObject({
+      workflowId: 'wf_1',
+      fromState: null,
+      toState: 'open',
+    });
+    expect((fake.transitions[0].metadata as Rec).kind).toBe('correction');
   });
 
   it('stores a provided source URL', async () => {
@@ -145,6 +178,8 @@ describe('POST /api/requests/correction', () => {
     expect(body.error.field).toBe('body');
     expect(fake.created).toHaveLength(0);
     expect(fake.audit).toHaveLength(0);
+    expect(fake.workflows).toHaveLength(0);
+    expect(fake.transitions).toHaveLength(0);
   });
 
   it('404s when the target slug does not resolve', async () => {
@@ -189,6 +224,18 @@ describe('POST /api/requests/claim', () => {
       submitterRole: 'Head of Partnerships',
     });
     expect(fake.audit[0]).toMatchObject({ action: 'vendor_request.created' });
+
+    // Phase 6.2: claim submits open a `vendor_claim` workflow.
+    expect(fake.workflows[0]).toMatchObject({
+      workflowType: 'vendor_claim',
+      currentState: 'open',
+      entityId: 'req_1',
+    });
+    expect(fake.transitions[0]).toMatchObject({
+      workflowId: 'wf_1',
+      fromState: null,
+      toState: 'open',
+    });
   });
 
   it('rejects a missing name with VALIDATION_FAILED', async () => {

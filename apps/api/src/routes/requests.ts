@@ -8,16 +8,20 @@
  * Rows land in the existing `vendor_requests` table (Phase 2 Spec §5.1) with
  * `status:'open'`, `domain_match:'pending'`, `linear_issue_id:null`.
  *
- * Scope (AECI-128): this is the thin, real backend behind the first Signal Forms
- * forms. Duplicate detection and the rest of the Phase 6 moderation pipeline —
- * n8n webhook, Linear issue creation + bidirectional sync, `workflow_transitions`,
- * admin views, Slack alerts, rate limiting, domain-match logic — are **out of
- * scope**. Rows sit `open` for that pipeline to pick up and de-duplicate.
+ * Scope: AECI-128 added the thin, real backend behind the first Signal Forms
+ * forms. AECI-209 (Phase 6.2) adds **lean workflow tracking** — each submit now
+ * also opens a `workflow_instance` (`vendor_claim` | `correction_request`,
+ * `current_state:'open'`, `linear_issue_id` left null for Phase 6.4) and records
+ * its genesis `workflow_transitions` row (`null → open`). The rest of the Phase 6
+ * moderation pipeline — Linear issue creation + bidirectional sync (6.3/6.4/6.5),
+ * duplicate detection, admin views, rate limiting, domain-match logic — remains
+ * **out of scope**. Rows sit `open` for that pipeline to pick up.
  *
- * Every insert writes an `audit_log` row in the same transaction
- * (`appendAuditLog`, CLAUDE.md / Stage 1 Spec §26.1 — failure rolls back). The
- * write pattern mirrors `routes/promote.ts`; the loose structural client type
- * follows the same decoupling rationale documented there.
+ * Every insert writes an `audit_log` row AND opens its workflow instance +
+ * genesis transition in the same transaction (`appendAuditLog` /
+ * `appendWorkflowTransition`, CLAUDE.md / Stage 1 Spec §26.1, §26.2 — failure
+ * rolls back). The write pattern mirrors `routes/promote.ts`; the loose
+ * structural client type follows the same decoupling rationale documented there.
  */
 
 import {
@@ -28,6 +32,10 @@ import {
   type RequestTargetType,
 } from '@aeci/shared';
 import { appendAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import {
+  appendWorkflowTransition,
+  type WorkflowTransitionForwarder,
+} from '@aeci/shared/workflow-transition';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -49,6 +57,10 @@ type RequestsTx = {
   vendorRequest: {
     create(args: { data: Record<string, unknown>; select?: Record<string, boolean> }): Promise<Row>;
   };
+  workflowInstance: {
+    create(args: { data: Record<string, unknown>; select?: Record<string, boolean> }): Promise<Row>;
+  };
+  workflowTransition: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
   auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
 };
 
@@ -78,6 +90,24 @@ function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undef
       action: entry.action,
       entity_type: entry.entityType ?? undefined,
       entity_id: entry.entityId ?? undefined,
+      source: 'request-form',
+    });
+  };
+}
+
+/** Datadog forwarder for the workflow-transition write; no-op without
+ *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: request-form`. */
+function makeWorkflowForwarder(
+  c: Context<{ Bindings: Env }>,
+): WorkflowTransitionForwarder | undefined {
+  if (!c.env.DD_API_KEY) return undefined;
+  return (entry) => {
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'info',
+      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
+      from_state: entry.fromState ?? undefined,
+      to_state: entry.toState,
+      workflow_id: entry.workflowId,
       source: 'request-form',
     });
   };
@@ -125,7 +155,8 @@ interface RequestInsert {
   sourceUrl: string | null;
 }
 
-/** Insert the row + its audit entry in one transaction; return the 201 envelope. */
+/** Insert the row + open its workflow instance/genesis transition + write the
+ *  audit entry, all in one transaction; return the 201 envelope. */
 async function createRequest(
   c: Context<{ Bindings: Env }>,
   prisma: RequestsClient,
@@ -133,8 +164,17 @@ async function createRequest(
   insert: RequestInsert,
 ): Promise<Response> {
   const forward = makeForwarder(c);
+  const workflowForward = makeWorkflowForwarder(c);
 
   const { slug, ...row_data } = insert;
+  // Shared metadata for the audit row and the genesis workflow transition.
+  const metadata = {
+    source: 'request-form',
+    kind,
+    target_type: insert.targetType,
+    target_id: insert.targetId,
+    slug,
+  };
   const created = await prisma.$transaction(async (tx) => {
     // `status` ('open'), `domainMatch` ('pending'), `linearIssueId` (null) take
     // their column defaults — the Phase 6 pipeline owns them. `slug` is metadata
@@ -143,6 +183,31 @@ async function createRequest(
       data: { kind, ...row_data },
       select: { id: true },
     });
+
+    // Phase 6.2 (AECI-209): open the workflow instance whose `current_state`
+    // mirrors the request `status`, then record the genesis transition. Lean —
+    // no guarded FSM (Stage-1 §26.3 relaxation). `linearIssueId` stays null (the
+    // slot Phase 6.4 fills); `initiatedBy` null because submit is anonymous.
+    const workflow = await tx.workflowInstance.create({
+      data: {
+        workflowType: kind === 'claim' ? 'vendor_claim' : 'correction_request',
+        entityId: row.id,
+        currentState: 'open',
+      },
+      select: { id: true },
+    });
+    await appendWorkflowTransition(
+      tx,
+      {
+        workflowId: workflow.id,
+        fromState: null,
+        toState: 'open',
+        reason: 'request submitted',
+        metadata,
+      },
+      workflowForward,
+    );
+
     await appendAuditLog(
       tx,
       {
@@ -150,13 +215,7 @@ async function createRequest(
         action: 'vendor_request.created',
         entityType: 'vendor_request',
         entityId: row.id,
-        metadata: {
-          source: 'request-form',
-          kind,
-          target_type: insert.targetType,
-          target_id: insert.targetId,
-          slug,
-        },
+        metadata,
       },
       forward,
     );

@@ -26,7 +26,7 @@ vi.mock('./lib/algolia-drift', () => ({
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./prisma', () => ({ getPrisma: vi.fn(() => ({})) }));
 
-import { logToDatadog, submitCount, submitDistribution } from './datadog';
+import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runHomeStats } from './lib/home-stats';
@@ -34,6 +34,7 @@ import { getPrisma } from './prisma';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
 // Must stay byte-equal to the constants / `wrangler.jsonc` triggers.
+const MODERATION_CRON = '0 6 * * *';
 const STATS_CRON = '0 7 * * *';
 const SYNC_CRON = '0 8 * * *';
 const DRIFT_CRON = '0 9 * * *';
@@ -123,6 +124,32 @@ describe('scheduled (cron producer)', () => {
     await scheduled(cronController(STATS_CRON), makeEnv(), ctx);
 
     expect(runHomeStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('snapshots the moderation queue inline on the 06:00 cron (queue-less) and emits its gauges', async () => {
+    const count = vi.fn().mockResolvedValue(3);
+    const findFirst = vi
+      .fn()
+      .mockResolvedValue({ createdAt: new Date('2026-06-10T06:00:00.000Z') });
+    vi.mocked(getPrisma).mockReturnValue({ review: { count, findFirst } } as never);
+
+    // Even with every queue bound, moderation has no producer → always inline.
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({
+      ALGOLIA_SYNC_QUEUE: { send } as never,
+      ALGOLIA_DRIFT_QUEUE: { send } as never,
+      STATS_QUEUE: { send } as never,
+    });
+
+    await scheduled(cronController(MODERATION_CRON), env, ctx);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(count).toHaveBeenCalledTimes(1);
+    const gauges = vi.mocked(submitGauge).mock.calls.map((c) => c[3]);
+    expect(gauges).toEqual([
+      'aeci.moderation.queue_depth',
+      'aeci.moderation.queue_oldest_age_hours',
+    ]);
   });
 
   it('falls back to an inline run and logs to Datadog when queue.send rejects', async () => {
