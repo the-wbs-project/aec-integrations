@@ -54,9 +54,7 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
       <aec-browse-layout>
         <div slot="header" class="space-y-4">
           <nav i18n-aria-label="@@taxonomy.browse.breadcrumbs.aria" aria-label="Breadcrumb">
-            <ol
-              class="flex flex-wrap items-center gap-2 text-xs tracking-wide uppercase text-(--text-secondary)"
-            >
+            <ol class="flex flex-wrap items-center gap-2 text-sm text-(--text-secondary)">
               <li>
                 <a
                   routerLink="/"
@@ -111,7 +109,7 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
               aria-label="Products"
             >
               <thead
-                class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary) uppercase"
+                class="border-b border-(--border-default) text-xs font-medium tracking-wide text-(--text-secondary)"
               >
                 <tr>
                   <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.name">

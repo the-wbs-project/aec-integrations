@@ -11,11 +11,14 @@ colors:
   border-strong:          "oklch(87.20% 0.0055 286.32)"
   text-primary:           "oklch(14.48% 0 0)"
   text-secondary:         "oklch(43.86% 0.0145 285.94)"
-  text-tertiary:          "oklch(70.90% 0.0149 286.07)"
+  text-tertiary:          "oklch(55.17% 0.0138 285.94)"
   accent-primary:         "oklch(31.92% 0.0436 152.32)"
   accent-primary-hover:   "oklch(43.83% 0.0658 152.61)"
+  accent-primary-soft:    "oklch(95.35% 0.0066 160.07)"
   accent-secondary:       "oklch(76.10% 0.1144 47.10)"
+  accent-secondary-deep:  "oklch(51.86% 0.1245 45.13)"
   accent-warm:            "oklch(95.62% 0.0149 95.45)"
+  status-error:           "oklch(50.13% 0.1783 28.70)"
 typography:
   display:
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
@@ -36,17 +39,30 @@ typography:
     lineHeight: 1.25
     letterSpacing: "normal"
   body:
-    fontFamily: '"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
     fontSize: "1rem"
     fontWeight: 400
     lineHeight: 1.6
     letterSpacing: "normal"
   label:
-    fontFamily: '"Atkinson Hyperlegible", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
     fontSize: "0.8125rem"
-    fontWeight: 700
+    fontWeight: 600
     lineHeight: 1.4
     letterSpacing: "0.01em"
+  overline:
+    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontSize: "0.75rem"
+    fontWeight: 600
+    lineHeight: 1.4
+    letterSpacing: "0.08em"
+    textTransform: "uppercase"
+  caption:
+    fontFamily: '"Atkinson Hyperlegible Next", system-ui, -apple-system, "Segoe UI", sans-serif'
+    fontSize: "0.875rem"
+    fontWeight: 400
+    lineHeight: 1.5
+    letterSpacing: "normal"
 rounded:
   none: "0"
   sm: "0.25rem"
@@ -156,9 +172,9 @@ The system rejects the AI-startup visual cohort entirely: no purple-to-blue grad
 
 **Key Characteristics:**
 
-- Editorial restraint over commercial enthusiasm. Sentence case everywhere.
-- Pair a refined serif (Source Serif 4) with an a11y-first sans (Atkinson Hyperlegible). The pairing itself is the brand statement.
-- Forest is the anchor accent. Clay is rare (≤5% per screen, large-text or graphical only). Bone is a warm-tinted accent surface, never a page background.
+- Editorial restraint over commercial enthusiasm. Sentence case everywhere (one named exception: the overline role, §3).
+- Pair a refined serif (Source Serif 4) with an a11y-first sans (Atkinson Hyperlegible Next). The pairing itself is the brand statement.
+- Forest is the anchor accent. Clay is rare (≤5% per screen, decorative/fill only — Clay deep carries meaning-bearing clay). Bone is a warm-tinted accent surface, never a page background.
 - Borders separate surfaces. Shadows are reserved for modals, dropdowns, and focus rings.
 - Light only (Stage 1): a single light theme, no toggle and no system-preference detection (AECI-226). Dark is deferred to the Stage 2 vendor portal; design once, for light.
 
@@ -169,10 +185,12 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 ### Primary
 
 - **Forest** (`#1E3A2F` / `oklch(31.92% 0.0436 152.32)`): the primary brand color. CTAs, links, headings, the connector mark, primary badges. Hover state is **Forest Hover** (`#2E5C45` / `oklch(43.83% 0.0658 152.61)`) — measurably brighter, never a synthetic opacity reduction.
+- **Forest soft** (`#ECF1EE` / `oklch(95.35% 0.0066 160.07)`): the Forest *wash* — fills for selected facets, active chips, verified-soft and info states. It is how Forest registers at rest without recoloring text. A wash, not a boundary (1.14:1 against white): always paired with a border or another selected-state affordance. Forest text on it measures 10.80:1.
 
 ### Secondary
 
-- **Clay** (`#E89668` / `oklch(76.10% 0.1144 47.10)`): warm secondary accent. Connector mark, primary CTA fills where appropriate, "verified" / "featured" badges, high-emphasis highlights. Fails WCAG AA on white for body copy (~2.4:1) — see the Clay restriction below.
+- **Clay** (`#E89668` / `oklch(76.10% 0.1144 47.10)`): warm secondary accent — **decorative and fill only**. The connector mark, badge fills (carrying `text-primary` at 8.48:1 — never white text, which is 2.33:1), accent strokes. It measures ~2.3:1 on white, below even the 3:1 large-text/non-text floor, so it can never carry text or meaning-bearing graphics — see the Clay restriction below.
+- **Clay deep** (`#A14D22` / `oklch(51.86% 0.1245 45.13)`): the text-capable member of the Clay family — clay-colored text, icons, and meaning-bearing graphics (star ratings). 5.83:1 on white, 5.59:1 on raised, 5.21:1 on Bone. Doubles as the warning hue.
 
 ### Tertiary
 
@@ -188,7 +206,11 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 - **Border strong** (`#D4D4D8` / `oklch(87.20% 0.0055 286.32)`): emphasized borders (focus, featured states).
 - **Text primary** (`#0A0A0A` / `oklch(14.48% 0 0)`): body and headings. Near-black, not pure black — gentler against bright surfaces, lower halation.
 - **Text secondary** (`#52525B` / `oklch(43.86% 0.0145 285.94)`): supporting prose, captions.
-- **Text tertiary** (`#A1A1AA` / `oklch(70.90% 0.0149 286.07)`): hints, placeholders, metadata.
+- **Text tertiary** (`#71717A` / `oklch(55.17% 0.0138 285.94)`): hints, placeholders, metadata. Re-pointed from `#A1A1AA` in AECI-230 — the old value measured 2.56:1 on white, failing even the 3:1 large-text floor. Now 4.83:1 on white, 4.63:1 on raised. **Never on sunken/muted surfaces** (4.40:1 there) — step up to text secondary.
+
+### Status
+
+- **Error** (`#B3261E` / `oklch(50.13% 0.1783 28.70)`): form/validation error text and icons (6.54:1 on white). Always paired with an inline message or icon — color is never the sole signal. Success states use Forest; warning states use Clay deep. No additional status hues exist.
 
 ### Dark theme — deferred to Stage 2 (not shipped in Stage 1)
 
@@ -200,7 +222,7 @@ The dark palette was removed from the active design system in **AECI-226**: Stag
 
 **The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest. No alternative primary color exists — proposals for "a second primary" are rejected.
 
-**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Large-text (≥18pt regular or ≥14pt bold per WCAG) or graphical (icons, dividers, the connector mark) only. **Never as body text** — Clay on white is ~2.4:1, which fails AA — and keeping it rare preserves its meaning as the high-emphasis accent. (The brand policy carries forward to Dark Clay when the dark theme returns at Stage 2.)
+**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Clay `#E89668` is **decorative and fill only**: the connector mark, accent strokes, and badge fills carrying `text-primary` (8.48:1) — never white text (2.33:1). It measures ~2.3:1 on white, which fails not just AA body text but the 3:1 floor for large text and meaning-bearing graphics — the former "large-text allowed" clause was mathematically false and was struck in AECI-230. Anything clay-colored that *carries meaning* — text, icons, star ratings — uses **Clay deep** `#A14D22` (5.83:1). Clay never fills a CTA: the Forest-Anchor Rule owns every CTA. Keeping Clay rare preserves its meaning as the high-emphasis accent. (The brand policy carries forward to Dark Clay when the dark theme returns at Stage 2.)
 
 **The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (a near-black) on a `#FFFFFF` surface base. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation. (The same principle governs the dark variants documented in `BRAND_GUIDELINES.md` §3 when dark returns at Stage 2.)
 
@@ -209,24 +231,30 @@ The dark palette was removed from the active design system in **AECI-226**: Stag
 ## 3. Typography
 
 **Display Font:** Source Serif 4 (with Georgia, "Times New Roman", serif fallback)
-**Body Font:** Atkinson Hyperlegible (with system-ui, -apple-system, "Segoe UI", sans-serif fallback)
-**Label Font:** Atkinson Hyperlegible (same family as body, distinct role via size + weight)
+**Body Font:** Atkinson Hyperlegible Next (with system-ui, -apple-system, "Segoe UI", sans-serif fallback)
+**Label Font:** Atkinson Hyperlegible Next (same family as body, distinct role via size + weight)
 
-**Character:** Source Serif 4 carries the editorial / industry-publication posture of a printed reference — calmer and more grounded than the SaaS-default sans cohort, but without the stylized affectation of the reflex-reject serifs (Fraunces, Playfair Display, Cormorant, DM Serif, Instrument Serif). Atkinson Hyperlegible is an a11y-first sans designed by the Braille Institute for low-vision readers; pairing it with a serif display face makes the trust/transparency principle visible in the typography itself. The pairing is the brand statement: a system that treats the reader's vision as a constraint to engineer for, not an afterthought to "support."
+**Character:** Source Serif 4 carries the editorial / industry-publication posture of a printed reference — calmer and more grounded than the SaaS-default sans cohort, but without the stylized affectation of the reflex-reject serifs (Fraunces, Playfair Display, Cormorant, DM Serif, Instrument Serif). Atkinson Hyperlegible Next is an a11y-first sans designed by the Braille Institute for low-vision readers; pairing it with a serif display face makes the trust/transparency principle visible in the typography itself. The pairing is the brand statement: a system that treats the reader's vision as a constraint to engineer for, not an afterthought to "support."
+
+> **Why Next (AECI-230):** the classic Atkinson Hyperlegible ships only 400/700, so this system's 500 (chips) and 600 (labels) weights could not actually render — CSS font matching silently resolved 500 to 400. Atkinson Hyperlegible Next is the Braille Institute's expanded release (loaded as a 400–700 variable font), making every specified weight real. Same lineage, same a11y story.
 
 ### Hierarchy
 
 - **Display** (Source Serif 4, 400, `clamp(2.25rem, 4.5vw + 1rem, 4rem)`, line-height 1.05, tracking -0.01em): hero headlines on About, Home, vendor profile mastheads. Used at most once per page.
 - **Headline** (Source Serif 4, 600, `clamp(1.75rem, 2.5vw + 0.75rem, 2.5rem)`, line-height 1.15, tracking -0.005em): page H1 on content pages and product surfaces.
 - **Title** (Source Serif 4, 600, 1.5rem / 24px, line-height 1.25): section H2 within long-form content; product surface card titles where editorial weight is wanted.
-- **Body** (Atkinson Hyperlegible, 400, 1rem / 16px, line-height 1.6): default body and reading text. Cap measure at 70ch on long-form pages; product surfaces use container constraints instead. **Use 700 (Bold) only for inline emphasis or product-surface affordances** — never for headings (those are Source Serif 4).
-- **Label** (Atkinson Hyperlegible, 700, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): button text, table headers, status badges (verified / pending), form field labels. Sentence case (not uppercase — see the rule below). **Navigational taxonomy chips/tags use the same family and size at medium (500), not 700** — they are content links, not button affordances (see §5 → Tags / taxonomy chips).
+- **Body** (Atkinson Hyperlegible Next, 400, 1rem / 16px, line-height 1.6): default body and reading text. Cap measure at 70ch on long-form pages; product surfaces use container constraints instead. **Use 700 (Bold) only for inline emphasis or product-surface affordances** — never for headings (those are Source Serif 4).
+- **Label** (Atkinson Hyperlegible Next, 600, 0.8125rem / 13px, line-height 1.4, tracking +0.01em): button text, table headers, status badges (verified / pending), form field labels. Sentence case (not uppercase — see the rule below). Moved 700 → 600 in AECI-230: with a real 600 cut available, the calmer weight is the premium read at 13px. **Navigational taxonomy chips/tags use the same family and size at medium (500), not 600** — they are content links, not button affordances (see §5 → Tags / taxonomy chips).
+- **Overline** (Atkinson Hyperlegible Next, 600, 0.75rem / 12px, line-height 1.4, tracking +0.08em, **uppercase**): eyebrows, kickers, and sidebar microheadings ("Vendor", "Categories", "Filters", "At a glance") — the print-kicker role and the *only* sanctioned uppercase in the system (see the Sentence-Case Rule). Shipped as the `.aec-overline` class in `styles.css`; apply it on whatever element carries the right semantics (often `h2`/`h3` — the class beats the global heading serif rule, which is the point). Default color text secondary; Forest for emphasis.
+- **Caption** (Atkinson Hyperlegible Next, 400, 0.875rem / 14px, line-height 1.5): metadata, hints, timestamps, helper text. Maps to `text-sm` + text secondary; defined as a role so components stop improvising this size.
 
 ### Named Rules
 
-**The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule is absolute and applies to both registers.
+**The Sentence-Case Rule.** Headings, buttons, labels, navigation, table headers, page titles, section titles — all sentence case. Title Case reads as marketing copy; sentence case reads as editorial copy. This rule has exactly **one named exception: the overline role** (above) — uppercase via CSS `text-transform`, never in source strings. Eyebrows, kickers, and sidebar microheadings are overlines; *nothing else* is uppercase. Table headers and breadcrumbs are explicitly **not** overlines — they are sentence case (the former IndexLayout uppercase-header treatment contradicted this rule and was struck in AECI-230).
 
-**The Two-Family Rule.** Source Serif 4 for display, headline, title. Atkinson Hyperlegible for body and label. No third typeface enters the system. Monospace appears only when rendering literal code (in `<code>` and `<pre>`) and uses the system monospace stack — it is not a brand face.
+**The Serif-Floor Rule.** Source Serif 4 never renders below 1.125rem / 18px. Anything smaller is by definition a label, overline, or caption — Atkinson territory. (The global `h1,h2,h3` serif rule in `styles.css` makes small serif easy to leak; the `.aec-overline` class on small headings is the standing fix — AECI-230.)
+
+**The Two-Family Rule.** Source Serif 4 for display, headline, title. Atkinson Hyperlegible Next for body, label, overline, and caption. No third typeface enters the system. Monospace appears only when rendering literal code (in `<code>` and `<pre>`) and uses the system monospace stack — it is not a brand face.
 
 **The Reflex-Reject Rule.** This system explicitly does not use, and will reject any proposal to introduce: Inter, DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Roboto, Open Sans, Arial, Fraunces, Newsreader, Lora, Crimson, Crimson Pro, Crimson Text, Playfair Display, Cormorant, Cormorant Garamond, DM Serif Display, DM Serif Text, Instrument Sans, Instrument Serif, Syne. The chosen pair (Source Serif 4 + Atkinson Hyperlegible) is the answer; the reflex list is the question that has already been refused.
 
@@ -347,7 +375,7 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, 
 
 - **Style:** 1px solid `border-default`, `surface-base` background, `rounded.md` corner. Padding `spacing.3 spacing.4` (12px / 16px). Body typography role.
 - **Focus:** border shifts to 1px solid `accent-primary`, paired with the focus-ring elevation. No glow halo, no underline animation — clean border swap.
-- **Error:** border shifts to 1px solid Clay-derived warning token (TBD as an extension on first error pattern); accompanied by an inline label and an icon (color is never the sole error signal).
+- **Error:** border shifts to 1px solid `status-error` (`#B3261E`, 6.54:1 on white — see §2 → Status); accompanied by an inline label and an icon (color is never the sole error signal).
 - **Disabled:** background fades to `surface-sunken`, text-secondary text. Pointer events disabled.
 
 ### Badges
@@ -360,7 +388,7 @@ Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, 
 Chip-style links to category / audience / phase browse pages (the `TaxonomyBadge` component). Distinct from the status badges above — these are navigational, not state indicators.
 
 - **Surface:** `surface-raised` fill, 0.5px solid `border-default` raising to 1px `border-strong` on hover. `rounded.sm` (4px) — chips, not pills (the pill shape is reserved for vendor-verified badges).
-- **Typography:** Atkinson Hyperlegible **medium (500)**, 0.8125rem / 13px, tracking +0.01em. Deliberately lighter than the `label` role (700): the chip reads as a content tag, not a button. `text-primary` shifts to `accent-primary` on hover.
+- **Typography:** Atkinson Hyperlegible Next **medium (500)**, 0.8125rem / 13px, tracking +0.01em. Deliberately lighter than the `label` role (600): the chip reads as a content tag, not a button. (500 is a real cut since the Next upgrade, AECI-230 — the classic family silently rendered it as 400.) `text-primary` shifts to `accent-primary` on hover.
 - **Case:** sentence case, per the Sentence-Case Rule.
 
 ### Score Display
@@ -396,7 +424,7 @@ All three share the same outer container: `max-w-7xl` centered, `surface-base` b
 
 - **IndexLayout** (`<aec-index-layout>`) — for sortable, paginated table listings.
   - **Slots:** `header` (required), `table-header` (rendered into `<thead>`), `table-body` (rendered into `<tbody>`), `pagination`.
-  - **Table:** semantic `<table>` with `min-w-[40rem]`; wrapped in a horizontally scrollable container on phones. Row dividers from `border-default`. Header typography uses the `label` role in uppercase.
+  - **Table:** semantic `<table>` with `min-w-[40rem]`; wrapped in a horizontally scrollable container on phones. Row dividers from `border-default`. Header typography uses the `label` role in **sentence case** (per the Sentence-Case Rule — table headers are not overlines; the former uppercase treatment was struck in AECI-230).
   - **Pagination:** bordered above, flex row with summary copy left + button group right.
 
 Every visible string and every ARIA label is i18n-wrapped (`@@app.layouts.{detail|browse|index}.{slot}.aria`). Concrete pages add their own i18n keys for projected content.
@@ -410,10 +438,10 @@ The strategic anti-references in `PRODUCT.md` carry through here as concrete vis
 ### Do:
 
 - **Do** use OKLCH in CSS (`oklch(...)`) for color tokens. Hex values are documented as fallbacks but the canonical source is OKLCH (the front matter, plus `apps/web/src/styles.css`).
-- **Do** pair Source Serif 4 (display) with Atkinson Hyperlegible (body) — the chosen system pair. Use them in their assigned roles (display for headings, body for prose, label for buttons / badges / table headers).
-- **Do** use sentence case everywhere. Headings, buttons, labels, navigation, table headers, page titles, section titles.
+- **Do** pair Source Serif 4 (display) with Atkinson Hyperlegible Next (body) — the chosen system pair. Use them in their assigned roles (display for headings, body for prose, label for buttons / badges / table headers, overline for eyebrows / kickers / sidebar microheadings).
+- **Do** use sentence case everywhere. Headings, buttons, labels, navigation, table headers, page titles, section titles. The overline role is the single uppercase exception (§3).
 - **Do** use 0.5px borders to separate surfaces (`border-default`); 1px for emphasis; 2px for featured states.
-- **Do** keep Clay rare (≤5% per screen, large-text or graphical only). The connector mark, verified/featured badges, primary CTA fills where appropriate.
+- **Do** keep Clay rare (≤5% per screen, decorative/fill only — fills carry `text-primary`, never white). Clay-colored text, icons, and star ratings use Clay deep (`#A14D22`). CTAs are always Forest (the Forest-Anchor Rule).
 - **Do** use Bone as a *warm-tinted accent surface* — hero bands, callout sections — never as a page background.
 - **Do** vary spacing for visual rhythm (4pt scale: 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96). Tight groupings, generous separations.
 - **Do** use container queries (`@container`) for component-level responsiveness; viewport queries for page layout.

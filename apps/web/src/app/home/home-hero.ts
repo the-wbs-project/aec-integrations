@@ -44,10 +44,7 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
     <section class="border-b border-(--border-default) bg-(--accent-warm)">
       <div class="mx-auto max-w-7xl px-6 py-16 md:px-8 md:py-24">
         <div class="max-w-3xl">
-          <p
-            class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@home.hero.eyebrow"
-          >
+          <p class="aec-overline text-(--text-secondary)" i18n="@@home.hero.eyebrow">
             The specifier's reference for AEC software
           </p>
           <h1

@@ -13,8 +13,10 @@
  * equivalent in the comment so designers can cross-reference with
  * docs/BRAND_GUIDELINES.md and DESIGN.md without a converter.
  *
- * Typography: Source Serif 4 (display / headline / title) + Atkinson Hyperlegible
- * (body / label). Loaded via Google Fonts in apps/web/src/index.html. The font
+ * Typography: Source Serif 4 (display / headline / title) + Atkinson
+ * Hyperlegible Next (body / label / overline; variable 400..700 — the classic
+ * Atkinson cut only shipped 400/700, so the 500/600 roles could not render,
+ * AECI-230). Loaded via Google Fonts in apps/web/src/index.html. The font
  * pairing is the brand statement; see DESIGN.md §3 for the full type scale.
  *
  * Hex equivalents mirror docs/STAGE_1_SPEC.md §2a.2 byte-for-byte. Do not edit
@@ -36,15 +38,33 @@
   --border-strong: oklch(87.2% 0.0055 286.32); /* #D4D4D8 */
   --text-primary: oklch(14.48% 0 0); /* #0A0A0A */
   --text-secondary: oklch(43.86% 0.0145 285.94); /* #52525B */
-  --text-tertiary: oklch(70.9% 0.0149 286.07); /* #A1A1AA */
+  /* 4.83:1 on white, 4.63:1 on raised (AECI-230; the prior #A1A1AA measured
+     2.56:1 — failed even the 3:1 large-text floor). Never use tertiary on
+     sunken/muted surfaces (4.40:1 there, below AA-normal) — step up to
+     --text-secondary. */
+  --text-tertiary: oklch(55.17% 0.0138 285.94); /* #71717A */
   --accent-primary: oklch(31.92% 0.0436 152.32); /* #1E3A2F (Forest) */
   --accent-primary-hover: oklch(43.83% 0.0658 152.61); /* #2E5C45 (Forest hover) */
+  /* Forest wash for selected/active/verified-soft state fills. A wash, not a
+     boundary (1.14:1 vs white) — always pair with a border or another selected
+     affordance. Forest text on it: 10.80:1. */
+  --accent-primary-soft: oklch(95.35% 0.0066 160.07); /* #ECF1EE (Forest soft) */
+  /* Clay #E89668 is decorative/fill-only (2.33:1 on white — fails even the
+     3:1 large-text/non-text floor; fills carry --text-primary at 8.48:1,
+     never white). Meaning-bearing clay (star ratings, text, icons) uses
+     --accent-secondary-deep. */
   --accent-secondary: oklch(76.1% 0.1144 47.1); /* #E89668 (Clay) */
+  /* Text-capable Clay: 5.83:1 on white, 5.59:1 on raised, 5.21:1 on Bone.
+     Doubles as the warning hue. */
+  --accent-secondary-deep: oklch(51.86% 0.1245 45.13); /* #A14D22 (Clay deep) */
   --accent-warm: oklch(95.62% 0.0149 95.45); /* #F5F2EA (Bone) */
+  /* Form/validation error text + icons (6.54:1 on white). Success maps to
+     Forest, warning to Clay deep — no separate tokens. */
+  --status-error: oklch(50.13% 0.1783 28.7); /* #B3261E */
 
   /* Typography (DESIGN.md §3 source of truth) */
   --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
-  --font-body: 'Atkinson Hyperlegible', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
   /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
   --radius: 0.5rem;
@@ -62,8 +82,11 @@
   --color-text-tertiary: var(--text-tertiary);
   --color-accent-primary: var(--accent-primary);
   --color-accent-primary-hover: var(--accent-primary-hover);
+  --color-accent-primary-soft: var(--accent-primary-soft);
   --color-accent-secondary: var(--accent-secondary);
+  --color-accent-secondary-deep: var(--accent-secondary-deep);
   --color-accent-warm: var(--accent-warm);
+  --color-status-error: var(--status-error);
   --font-display: var(--font-display);
   --font-body: var(--font-body);
   /* Safety alias (AECI-95): the Tailwind `font-serif` utility otherwise resolves
@@ -117,6 +140,21 @@ h3 {
   font-size: 1.25rem;
   line-height: 1.3;
   letter-spacing: normal;
+}
+
+/* The overline role (DESIGN.md §3, AECI-230): eyebrows, kickers, and sidebar
+   microheadings — the one sanctioned uppercase in the system. Components apply
+   this class (plus a text color utility) on whatever element carries the right
+   semantics; on h1–h3 the class wins over the element rule above, which is the
+   point — it enforces the serif floor (Source Serif never below 18px) without
+   giving up heading semantics. */
+.aec-overline {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
 }
 
 *,

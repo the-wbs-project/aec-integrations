@@ -39,12 +39,7 @@ import type { RefinementItem } from './refinement-item';
   imports: [SearchRefinementList],
   template: `
     <div class="space-y-6">
-      <h2
-        class="text-xs font-semibold tracking-[0.08em] text-(--text-primary) uppercase"
-        i18n="@@listing.filters.title"
-      >
-        Filters
-      </h2>
+      <h2 class="aec-overline text-(--text-primary)" i18n="@@listing.filters.title">Filters</h2>
 
       @for (group of groups(); track group.kind) {
         <aec-search-refinement-list
