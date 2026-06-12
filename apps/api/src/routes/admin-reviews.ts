@@ -201,6 +201,22 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
   return schema.parse(raw);
 }
 
+/** Emit the `aeci.moderation.action` count (AECI-206 / Phase 5.15) — one per
+ *  moderation attempt: `outcome:ok` on a committed approve/reject,
+ *  `outcome:invalid_state` when the target isn't pending (the preload guard or
+ *  the concurrent-race guard, both 422). Fire-and-forget; no-op without
+ *  `DD_API_KEY`. */
+function emitModeration(
+  c: AdminContext,
+  action: 'approve' | 'reject',
+  outcome: 'ok' | 'invalid_state',
+): void {
+  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.moderation.action', 1, [
+    `action:${action}`,
+    `outcome:${outcome}`,
+  ]);
+}
+
 /** Best-effort, post-commit Cache-Tag purge for an approved review's product.
  *  No-op without CF creds; never throws (telemetry is wrapped). */
 async function purgeProductTag(c: AdminContext, slug: string): Promise<void> {
@@ -301,6 +317,7 @@ export function createModerateReviewHandler(
     const existing = await db.review.findUnique({ where: { id }, select: adminReviewSelect });
     if (!existing) throw notFoundError('review', { id });
     if (existing.status !== 'pending') {
+      emitModeration(c, payload.action, 'invalid_state');
       throw new ApiError(
         422,
         ApiErrorCode.INVALID_STATE_TRANSITION,
@@ -328,6 +345,7 @@ export function createModerateReviewHandler(
         },
       });
       if (updated.count !== 1) {
+        emitModeration(c, payload.action, 'invalid_state');
         throw new ApiError(
           422,
           ApiErrorCode.INVALID_STATE_TRANSITION,
@@ -358,6 +376,9 @@ export function createModerateReviewHandler(
         forward,
       );
     });
+
+    // Committed: one `aeci.moderation.action{outcome:ok}` per approve/reject.
+    emitModeration(c, payload.action, 'ok');
 
     // Post-commit, approve-only: purge the product Cache-Tag so the public
     // list/summary refresh. Best-effort via `waitUntil`; no-op without CF creds.

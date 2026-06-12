@@ -25,12 +25,36 @@ import {
   type JWK,
   type JWTVerifyGetKey,
 } from 'jose';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { submitCount } from '../datadog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAuth, type AuthzProfileClient, type AuthzVariables } from '../lib/authz';
 import { createSubmitReviewHandler } from './reviews';
+
+// `aeci.review.submit` (AECI-206) rides the shared transport; mock it so we can
+// assert the per-outcome metric. The handler also imports `logToDatadog` (audit
+// forwarder, no-op without DD_API_KEY here).
+vi.mock('../datadog', () => ({
+  logToDatadog: vi.fn(),
+  submitCount: vi.fn(),
+  submitDistribution: vi.fn(),
+  submitGauge: vi.fn(),
+}));
+
+const submitCountMock = vi.mocked(submitCount);
+
+/** The `outcome:*` values recorded for `aeci.review.submit` this test. */
+function submitOutcomes(): string[] {
+  return submitCountMock.mock.calls
+    .filter((call) => call[3] === 'aeci.review.submit')
+    .flatMap((call) => call[5] as string[]);
+}
+
+beforeEach(() => {
+  submitCountMock.mockClear();
+});
 
 const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
 const USER_ID = 'user-uuid-1';
@@ -207,6 +231,9 @@ describe('createSubmitReviewHandler', () => {
 
     // Submit must NOT recompute the product's denormalized counters (5.13).
     expect(productUpdateCalls).toHaveLength(0);
+
+    // AECI-206: one `aeci.review.submit{outcome:ok}` on the happy path.
+    expect(submitOutcomes()).toEqual(['outcome:ok']);
   });
 
   it('falls back to en-US when the x-aeci-locale header is absent', async () => {
@@ -256,6 +283,7 @@ describe('createSubmitReviewHandler', () => {
       status: { not: 'archived' },
     });
     expect(createCalls).toHaveLength(0);
+    expect(submitOutcomes()).toEqual(['outcome:duplicate']);
   });
 
   it('maps a unique-index race (P2002) to 409 REVIEW_DUPLICATE, not 500', async () => {
@@ -268,6 +296,8 @@ describe('createSubmitReviewHandler', () => {
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
       ApiErrorCode.REVIEW_DUPLICATE,
     );
+    // The race path also reports a duplicate (no `ok`, never a silent miss).
+    expect(submitOutcomes()).toEqual(['outcome:duplicate']);
   });
 
   it('rethrows an unrelated P2002 as a 500 (never mislabeled REVIEW_DUPLICATE)', async () => {
@@ -291,6 +321,7 @@ describe('createSubmitReviewHandler', () => {
     expect(body.error.code).toBe(ApiErrorCode.NOT_FOUND);
     expect(body.error.details?.resource).toBe('product');
     expect(createCalls).toHaveLength(0);
+    expect(submitOutcomes()).toEqual(['outcome:product_not_found']);
   });
 
   it('returns 400 VALIDATION_FAILED for an out-of-range rating', async () => {
@@ -426,6 +457,7 @@ describe('POST /api/reviews (with requireAuth middleware)', () => {
         body: JSON.stringify(validBody()),
       },
       ENV,
+      executionCtxStub(),
     );
 
     expect(res.status).toBe(403);
@@ -450,6 +482,7 @@ describe('POST /api/reviews (with requireAuth middleware)', () => {
         body: JSON.stringify(validBody()),
       },
       ENV,
+      executionCtxStub(),
     );
 
     expect(res.status).toBe(201);
@@ -470,6 +503,7 @@ describe('POST /api/reviews (with requireAuth middleware)', () => {
         body: JSON.stringify(validBody()),
       },
       ENV,
+      executionCtxStub(),
     );
     expect(res.status).toBe(401);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe(

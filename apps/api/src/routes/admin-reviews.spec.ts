@@ -27,8 +27,9 @@ import {
   type JWK,
   type JWTVerifyGetKey,
 } from 'jose';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { submitCount } from '../datadog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import { requireAdmin, type AuthzProfileClient, type AuthzVariables } from '../lib/authz';
@@ -37,6 +38,28 @@ import {
   createModerateReviewHandler,
   type FetchReviewerEmails,
 } from './admin-reviews';
+
+// AECI-206: `aeci.moderation.action` (and the existing `aeci.cache.purge`) ride
+// the shared transport; mock it so we can assert the per-action metric. The
+// handler also imports `logToDatadog` (audit forwarder / purge warn).
+vi.mock('../datadog', () => ({
+  logToDatadog: vi.fn(),
+  submitCount: vi.fn(),
+  submitDistribution: vi.fn(),
+  submitGauge: vi.fn(),
+}));
+
+/** The tag arrays recorded for `aeci.moderation.action` this test. */
+function moderationActions(): string[][] {
+  return vi
+    .mocked(submitCount)
+    .mock.calls.filter((call) => call[3] === 'aeci.moderation.action')
+    .map((call) => call[5] as string[]);
+}
+
+beforeEach(() => {
+  vi.mocked(submitCount).mockClear();
+});
 
 const ADMIN_ID = 'admin-uuid-1';
 const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
@@ -312,6 +335,9 @@ describe('PATCH /api/admin/reviews/:id', () => {
       entityId: REVIEW_ID,
       metadata: { source: 'admin-moderation', product_id: PRODUCT_ID },
     });
+
+    // AECI-206: one committed approve.
+    expect(moderationActions()).toEqual([['action:approve', 'outcome:ok']]);
   });
 
   it('purges the product Cache-Tag on approve (creds present)', async () => {
@@ -357,6 +383,8 @@ describe('PATCH /api/admin/reviews/:id', () => {
       action: 'review.rejected',
       metadata: { source: 'admin-moderation', product_id: PRODUCT_ID, rejection_reason: 'Spam' },
     });
+
+    expect(moderationActions()).toEqual([['action:reject', 'outcome:ok']]);
   });
 
   it('rejects with 400 VALIDATION_FAILED when rejection_reason is missing', async () => {
@@ -396,6 +424,8 @@ describe('PATCH /api/admin/reviews/:id', () => {
       ApiErrorCode.INVALID_STATE_TRANSITION,
     );
     expect(updateMany).not.toHaveBeenCalled();
+    // The non-pending guard reports an invalid-state attempt (tagged by action).
+    expect(moderationActions()).toEqual([['action:approve', 'outcome:invalid_state']]);
   });
 
   it('returns the canonical 404 envelope for an unknown review id', async () => {
@@ -427,6 +457,8 @@ describe('PATCH /api/admin/reviews/:id', () => {
     // The transition rolled back before recompute / audit.
     expect(recompute).not.toHaveBeenCalled();
     expect(auditCreate).not.toHaveBeenCalled();
+    // The concurrent-race guard also reports an invalid-state attempt.
+    expect(moderationActions()).toEqual([['action:approve', 'outcome:invalid_state']]);
   });
 });
 
