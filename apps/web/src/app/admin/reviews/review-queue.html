@@ -1,0 +1,278 @@
+<section aria-labelledby="admin-reviews-heading">
+  <div class="flex flex-wrap items-end justify-between gap-4">
+    <h2
+      id="admin-reviews-heading"
+      class="text-lg font-bold text-(--text-primary)"
+      i18n="@@admin.reviews.heading"
+    >
+      Pending reviews
+    </h2>
+
+    @if (!loading() && !loadFailed() && sortedReviews().length > 0) {
+    <div class="flex flex-wrap items-center gap-2">
+      <span
+        id="admin-reviews-sort-label"
+        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.reviews.sort.label"
+        >Sort by</span
+      >
+      <div
+        role="group"
+        aria-labelledby="admin-reviews-sort-label"
+        class="inline-flex flex-wrap gap-1 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1"
+      >
+        @for (opt of sortOptions; track opt.key) {
+        <button
+          type="button"
+          (click)="setSort(opt.key)"
+          [attr.aria-pressed]="sortKey() === opt.key"
+          class="rounded-(--radius-sm) px-3 py-1 text-xs font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) aria-pressed:bg-(--accent-primary) aria-pressed:text-(--surface-base) text-(--text-secondary) hover:text-(--text-primary)"
+        >
+          {{ opt.label }}
+        </button>
+        }
+      </div>
+    </div>
+    }
+  </div>
+
+  <!-- Polite announcements: rows vanish on success, so announce the outcome. -->
+  <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
+
+  @if (loading()) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.loading">
+    Loading the moderation queue…
+  </p>
+  } @else if (loadFailed()) {
+  <div class="mt-8 space-y-3">
+    <p
+      class="text-sm font-medium text-(--text-primary)"
+      role="alert"
+      i18n="@@admin.reviews.loadFailed"
+    >
+      We couldn't load the moderation queue. Your session may have expired.
+    </p>
+    <button
+      type="button"
+      (click)="retry()"
+      class="inline-flex items-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-raised) px-5 py-2.5 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      i18n="@@admin.reviews.retry"
+    >
+      Try again
+    </button>
+  </div>
+  } @else if (sortedReviews().length === 0) {
+  <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.empty">
+    No reviews are waiting for moderation.
+  </p>
+  } @else { @if (truncated()) {
+  <p class="mt-6 text-xs text-(--text-secondary)" i18n="@@admin.reviews.cappedNote">
+    Showing the first {{ loadedCount() }} of {{ total() }} pending reviews. Moderate these to see
+    the rest.
+  </p>
+  }
+
+  <ul role="list" class="mt-6 space-y-5">
+    @for (r of sortedReviews(); track r.id) {
+    <li>
+      <article
+        [attr.aria-labelledby]="'review-' + r.id + '-product'"
+        class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+      >
+        <!-- Header: product + toxicity flag -->
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <h3
+            [id]="'review-' + r.id + '-product'"
+            class="text-base font-bold text-(--text-primary)"
+          >
+            <a
+              [routerLink]="['/products', r.product.slug]"
+              class="text-(--text-primary) no-underline transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              >{{ r.product.name }}</a
+            >
+          </h3>
+
+          @if (isHighToxicity(r.toxicity_score)) {
+          <span
+            class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
+          >
+            <span
+              class="text-[0.625rem] uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@admin.reviews.toxicity.label"
+              >Toxicity</span
+            >
+            <span>{{ r.toxicity_score }}</span>
+            <span i18n="@@admin.reviews.toxicity.high">· High</span>
+          </span>
+          } @else {
+          <span
+            class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+          >
+            <span
+              class="text-[0.625rem] uppercase tracking-[0.08em] text-(--text-secondary)"
+              i18n="@@admin.reviews.toxicity.label"
+              >Toxicity</span
+            >
+            @if (r.toxicity_score === null) {
+            <span i18n="@@admin.reviews.toxicity.notScored">Not scored</span>
+            } @else {
+            <span>{{ r.toxicity_score }}</span>
+            }
+          </span>
+          }
+        </div>
+
+        <!-- Identity + timing -->
+        <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
+          <div class="flex gap-1.5">
+            <dt class="font-bold" i18n="@@admin.reviews.meta.reviewer">Reviewer</dt>
+            <dd>
+              @if (r.reviewer_email) { {{ r.reviewer_email }} } @else {
+              <span i18n="@@admin.reviews.meta.anonymized">Anonymized</span>
+              }
+            </dd>
+          </div>
+          <div class="flex gap-1.5">
+            <dt class="font-bold" i18n="@@admin.reviews.meta.submitted">Submitted</dt>
+            <dd>{{ r.created_at | date: 'medium' }}</dd>
+          </div>
+          <div class="flex gap-1.5">
+            <dt class="font-bold" i18n="@@admin.reviews.meta.queueAge">In queue</dt>
+            <dd>{{ queueAge(r.created_at) }}</dd>
+          </div>
+        </dl>
+
+        <!-- Ratings -->
+        <div class="mt-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-(--text-primary)">
+          <span i18n="@@admin.reviews.rating.overall">Overall {{ r.rating_overall }}/5</span>
+          <span i18n="@@admin.reviews.rating.onboarding"
+            >Onboarding {{ r.rating_onboarding }}/5</span
+          >
+        </div>
+
+        <!-- Content -->
+        <h4 class="mt-4 text-sm font-bold text-(--text-primary)">{{ r.title }}</h4>
+        <p class="mt-1.5 whitespace-pre-line text-sm leading-relaxed text-(--text-secondary)">
+          {{ r.body }}
+        </p>
+
+        <!-- Secondary meta -->
+        <div
+          class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-(--text-secondary)"
+        >
+          @if (r.verified_work_email) {
+          <span i18n="@@admin.reviews.meta.verified">Verified work email</span>
+          } @if (r.role_at_company) {
+          <span>{{ roleLabel(r.role_at_company) }}</span>
+          } @if (r.years_using !== null) {
+          <span i18n="@@admin.reviews.meta.years">{{ r.years_using }} yrs using</span>
+          } @if (r.would_recommend) {
+          <span>{{ recommendLabel(r.would_recommend) }}</span>
+          }
+        </div>
+
+        <!-- Actions -->
+        <div class="mt-5 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            (click)="approve(r.id)"
+            [disabled]="pendingActionId() === r.id"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            @if (pendingActionId() === r.id) {
+            <span i18n="@@admin.reviews.approving">Working…</span>
+            } @else {
+            <span i18n="@@admin.reviews.approve">Approve</span>
+            }
+          </button>
+          <button
+            type="button"
+            (click)="openReject(r.id)"
+            [disabled]="pendingActionId() === r.id || rejectingId() === r.id"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            i18n="@@admin.reviews.reject"
+          >
+            Reject
+          </button>
+        </div>
+
+        <!-- Reject form (required reason) -->
+        @if (rejectingId() === r.id) {
+        <form
+          novalidate
+          (submit)="$event.preventDefault(); confirmReject(r.id)"
+          class="mt-4 space-y-2 border-t border-(--border-default) pt-4"
+        >
+          <label
+            [attr.for]="'reject-reason-' + r.id"
+            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.reviews.reject.label"
+          >
+            Reason for rejection
+          </label>
+          <textarea
+            [id]="'reject-reason-' + r.id"
+            rows="3"
+            [formField]="rejectForm.rejection_reason"
+            [attr.aria-invalid]="
+                    rejectForm.rejection_reason().touched() && rejectForm.rejection_reason().invalid()
+                      ? 'true'
+                      : null
+                  "
+            [attr.aria-describedby]="
+                    rejectForm.rejection_reason().touched() &&
+                    rejectForm.rejection_reason().getError('standardSchema')
+                      ? 'reject-reason-' + r.id + '-error'
+                      : null
+                  "
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
+          @if ( rejectForm.rejection_reason().touched() &&
+          rejectForm.rejection_reason().getError('standardSchema') ) {
+          <p
+            [id]="'reject-reason-' + r.id + '-error'"
+            class="text-xs font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@admin.reviews.reject.error"
+          >
+            Enter a reason between 1 and 500 characters so the reviewer understands the decision.
+          </p>
+          }
+          <div class="flex flex-wrap gap-3 pt-1">
+            <button
+              type="submit"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              @if (pendingActionId() === r.id) {
+              <span i18n="@@admin.reviews.rejecting">Rejecting…</span>
+              } @else {
+              <span i18n="@@admin.reviews.reject.confirm">Confirm rejection</span>
+              }
+            </button>
+            <button
+              type="button"
+              (click)="cancelReject()"
+              [disabled]="pendingActionId() === r.id"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.reviews.reject.cancel"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+        } @if (failedAction()?.id === r.id) {
+        <p
+          class="mt-3 text-sm font-medium text-(--text-primary)"
+          role="alert"
+          i18n="@@admin.reviews.action.failed"
+        >
+          Something went wrong. Please try again.
+        </p>
+        }
+      </article>
+    </li>
+    }
+  </ul>
+  }
+</section>
