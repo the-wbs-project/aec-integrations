@@ -211,17 +211,26 @@ export const routes: Routes = [
     path: 'preview',
     loadChildren: () => import('./preview/preview.routes').then((m) => m.previewRoutes),
   },
-  // AECI-203 — Phase 5.12 admin surface gate + shell. Non-cacheable (fail-closed
-  // classifier — no change needed) and RenderMode.Server (the `**` catch-all in
-  // app.routes.server.ts). `adminSummaryResolver` calls `GET /api/admin/summary`
-  // (gated by `requireAdmin()`): a 401/403 → 404 render (don't reveal the
-  // surface); a 200 → the shell + pending-count badge. A logged-out visitor is
-  // bounced to login by the worker-level `isAdminPath` gate before SSR. Flat
-  // route for 5.12; 5.14 refactors this into a parent shell + `/admin/reviews`.
+  // AECI-203 — Phase 5.12 admin surface gate + shell, extended to a layout in
+  // AECI-205 / Phase 5.14. Non-cacheable (fail-closed classifier — no change
+  // needed) and RenderMode.Server (the `**` catch-all in app.routes.server.ts).
+  // `adminSummaryResolver` calls `GET /api/admin/summary` (gated by
+  // `requireAdmin()`): a 401/403 → 404 render (don't reveal the surface); a 200 →
+  // the shell + pending-count badge. A logged-out visitor is bounced to login by
+  // the worker-level `isAdminPath` gate before SSR. `AdminShell` is the layout
+  // (gate + nav + badge + <router-outlet/>); the children render in the outlet,
+  // and `/admin` redirects to the review queue.
   {
     path: 'admin',
     loadComponent: () => import('./admin/admin-shell').then((m) => m.AdminShell),
     resolve: { summary: adminSummaryResolver },
+    children: [
+      { path: '', pathMatch: 'full', redirectTo: 'reviews' },
+      {
+        path: 'reviews',
+        loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),
+      },
+    ],
   },
   // AECI-62 — Phase 2.16 global 404. Must be the last entry so every other
   // route gets a chance to match first. The resolver sets RESPONSE_INIT.status

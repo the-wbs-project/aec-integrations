@@ -1,0 +1,297 @@
+import { DatePipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
+import { RouterLink } from '@angular/router';
+
+import { z } from 'zod';
+
+import type { AdminReview } from '@aeci/shared';
+
+import { AdminSummaryStore } from '../admin-summary.store';
+import { AdminReviewsApi } from './admin-reviews-api';
+
+/** Score at/above which a review is flagged "high toxicity" and styled with a
+ *  warning. 70/100 == Perspective's common 0.7 attribute threshold; the default
+ *  sort already floats the worst content to the top (§22.2), this just labels it. */
+const HIGH_TOXICITY_THRESHOLD = 70;
+
+/** One request covers a launch-scale moderation backlog. The API caps `perPage`
+ *  at 100; client-side sorting (toxicity/product/reviewer) only reorders what's
+ *  loaded, so we load the max and surface a note if the server reports more. */
+const QUEUE_PAGE_SIZE = 100;
+
+type SortKey = 'toxicity' | 'queue_age' | 'product' | 'reviewer';
+
+/** Reject-reason rule (local — there's no separate `@aeci/shared` schema for the
+ *  field alone; the wire body is `ModerateReviewSchema`). `.trim().min(1)` makes a
+ *  whitespace-only reason invalid; the API enforces the same on its side. */
+const RejectReasonSchema = z.object({
+  rejection_reason: z.string().trim().min(1).max(500),
+});
+
+/**
+ * AECI-205 / Phase 5.14 — the admin review moderation queue, rendered in the
+ * `AdminShell` layout's outlet at `/admin/reviews`.
+ *
+ * Like `/account`, the gate + badge SSR via `adminSummaryResolver` (the parent
+ * route), so the queue itself paints its shell during SSR and fetches the list
+ * client-side in `afterNextRender` — the same-origin `GET /api/admin/reviews`
+ * carries the session cookie, which the API Worker's `requireAdmin()` verifies.
+ * It never reads cookies or session state directly.
+ *
+ * Ordering: the 5.13 API only sorts `queue_age|created_at` server-side, but the
+ * AC asks for toxicity-first plus product/reviewer sorts, so ordering is applied
+ * client-side over the loaded page. Default = toxicity high→low (nulls last) to
+ * "surface the worst content first" (§22.2); the user can re-sort by queue age,
+ * product, or reviewer.
+ *
+ * Each approve/reject is a `PATCH` that, on success, removes the row and
+ * decrements `AdminSummaryStore` so the nav badge ticks down immediately. Reject
+ * requires a non-empty reason (Signal Forms + Aria), mirroring the review form.
+ */
+@Component({
+  selector: 'aec-review-queue',
+  imports: [DatePipe, RouterLink, FormField],
+  templateUrl: './review-queue.html',
+})
+export class ReviewQueue {
+  private readonly api = inject(AdminReviewsApi);
+  private readonly summaryStore = inject(AdminSummaryStore);
+
+  /** The loaded pending reviews (server order; the view applies the sort). */
+  private readonly reviews = signal<readonly AdminReview[]>([]);
+  /** Total pending reported by the server (may exceed what we loaded). */
+  protected readonly total = signal(0);
+
+  protected readonly loading = signal(true);
+  protected readonly loadFailed = signal(false);
+
+  /** Id of the review whose action is in flight (disables its buttons). */
+  protected readonly pendingActionId = signal<string | null>(null);
+  /** Id of the review whose reject form is open (one at a time). */
+  protected readonly rejectingId = signal<string | null>(null);
+  /** Last failed action, keyed to a row so the alert renders inline. */
+  protected readonly failedAction = signal<{ id: string; reason: 'generic' | 'already' } | null>(
+    null,
+  );
+  /** Polite live-region message — the row vanishes on success, so announce it. */
+  protected readonly liveMessage = signal('');
+
+  protected readonly sortKey = signal<SortKey>('toxicity');
+
+  protected readonly sortOptions: ReadonlyArray<{ key: SortKey; label: string }> = [
+    { key: 'toxicity', label: $localize`:@@admin.reviews.sort.toxicity:Toxicity` },
+    { key: 'queue_age', label: $localize`:@@admin.reviews.sort.queueAge:Queue age` },
+    { key: 'product', label: $localize`:@@admin.reviews.sort.product:Product` },
+    { key: 'reviewer', label: $localize`:@@admin.reviews.sort.reviewer:Reviewer` },
+  ];
+
+  /** Reviews in display order. Recomputes when the list or sort key changes. */
+  protected readonly sortedReviews = computed<readonly AdminReview[]>(() => {
+    const list = [...this.reviews()];
+    switch (this.sortKey()) {
+      case 'toxicity':
+        return list.sort(byToxicityDescNullsLast);
+      case 'queue_age':
+        return list.sort(byCreatedAtAsc);
+      case 'product':
+        return list.sort(
+          (a, b) => a.product.name.localeCompare(b.product.name) || byCreatedAtAsc(a, b),
+        );
+      case 'reviewer':
+        return list.sort(byReviewerNullsLast);
+    }
+  });
+
+  protected readonly loadedCount = computed(() => this.reviews().length);
+  /** True when the server has more pending than we loaded (note shown). */
+  protected readonly truncated = computed(() => this.total() > this.reviews().length);
+
+  /** Reject-form model + Signal Form (shared by whichever row's reject is open). */
+  private readonly rejectionModel = signal<{ rejection_reason: string }>({ rejection_reason: '' });
+  protected readonly rejectForm = form(this.rejectionModel, (p) => {
+    validateStandardSchema(p, RejectReasonSchema);
+  });
+
+  constructor() {
+    afterNextRender(() => {
+      void this.load();
+    });
+  }
+
+  private async load(): Promise<void> {
+    this.loadFailed.set(false);
+    this.loading.set(true);
+    try {
+      const res = await this.api.listPending({
+        status: 'pending',
+        sort: 'queue_age',
+        page: 1,
+        perPage: QUEUE_PAGE_SIZE,
+      });
+      this.reviews.set(res.data);
+      this.total.set(res.total);
+    } catch {
+      this.loadFailed.set(true);
+    } finally {
+      this.loading.set(false);
+    }
+  }
+
+  protected retry(): void {
+    void this.load();
+  }
+
+  protected setSort(key: SortKey): void {
+    this.sortKey.set(key);
+  }
+
+  protected isHighToxicity(score: number | null): boolean {
+    return score !== null && score >= HIGH_TOXICITY_THRESHOLD;
+  }
+
+  /** Relative queue age (e.g. "3 d", "5 h", "12 min"). Browser-only — the list
+   *  is empty during SSR, so `Date.now()` is never read server-side. */
+  protected queueAge(createdAt: string): string {
+    const minutes = Math.max(0, Math.floor((Date.now() - new Date(createdAt).getTime()) / 60_000));
+    if (minutes < 60) return $localize`:@@admin.reviews.age.minutes:${minutes}:COUNT: min`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return $localize`:@@admin.reviews.age.hours:${hours}:COUNT: h`;
+    const days = Math.floor(hours / 24);
+    return $localize`:@@admin.reviews.age.days:${days}:COUNT: d`;
+  }
+
+  protected roleLabel(role: string): string {
+    switch (role) {
+      case 'practitioner':
+        return $localize`:@@admin.reviews.role.practitioner:Practitioner`;
+      case 'manager':
+        return $localize`:@@admin.reviews.role.manager:Manager`;
+      case 'IT':
+        return $localize`:@@admin.reviews.role.it:IT`;
+      case 'exec':
+        return $localize`:@@admin.reviews.role.exec:Executive`;
+      case 'other':
+        return $localize`:@@admin.reviews.role.other:Other`;
+      default:
+        return role;
+    }
+  }
+
+  protected recommendLabel(recommend: 'yes' | 'no' | 'maybe'): string {
+    switch (recommend) {
+      case 'yes':
+        return $localize`:@@admin.reviews.recommend.yes:Would recommend`;
+      case 'no':
+        return $localize`:@@admin.reviews.recommend.no:Would not recommend`;
+      case 'maybe':
+        return $localize`:@@admin.reviews.recommend.maybe:Might recommend`;
+    }
+  }
+
+  // ── Moderation actions ─────────────────────────────────────────────────────
+
+  protected async approve(id: string): Promise<void> {
+    if (this.pendingActionId()) return;
+    this.failedAction.set(null);
+    this.pendingActionId.set(id);
+    try {
+      await this.api.moderate(id, { action: 'approve' });
+      this.onModerated(id, $localize`:@@admin.reviews.announce.approved:Review approved.`);
+    } catch (err) {
+      this.onModerateError(id, err);
+    } finally {
+      this.pendingActionId.set(null);
+    }
+  }
+
+  /** Open the inline reject form for a row (resets the shared field + its
+   *  touched/invalid state, so a prior failed submit doesn't show a stale error
+   *  on the freshly opened, empty form). */
+  protected openReject(id: string): void {
+    this.failedAction.set(null);
+    this.rejectionModel.set({ rejection_reason: '' });
+    this.rejectForm.rejection_reason().reset();
+    this.rejectingId.set(id);
+  }
+
+  protected cancelReject(): void {
+    this.rejectingId.set(null);
+    this.rejectionModel.set({ rejection_reason: '' });
+    this.rejectForm.rejection_reason().reset();
+  }
+
+  protected async confirmReject(id: string): Promise<void> {
+    if (this.pendingActionId()) return;
+    this.failedAction.set(null);
+    await submit(this.rejectForm, async (f) => {
+      const reason = f().value().rejection_reason.trim();
+      this.pendingActionId.set(id);
+      try {
+        await this.api.moderate(id, { action: 'reject', rejection_reason: reason });
+        this.rejectingId.set(null);
+        this.rejectionModel.set({ rejection_reason: '' });
+        this.onModerated(id, $localize`:@@admin.reviews.announce.rejected:Review rejected.`);
+      } catch (err) {
+        this.onModerateError(id, err);
+      } finally {
+        this.pendingActionId.set(null);
+      }
+      return undefined;
+    });
+  }
+
+  /** Drop the moderated row, decrement the badge, and announce the result. */
+  private onModerated(id: string, announcement: string): void {
+    this.removeRow(id);
+    this.summaryStore.decrement();
+    this.liveMessage.set(announcement);
+  }
+
+  /** A 422 means the row is no longer pending (raced by another admin): drop it
+   *  without decrementing (the count resyncs on the next full visit). Anything
+   *  else is a retryable failure surfaced inline on the row. */
+  private onModerateError(id: string, err: unknown): void {
+    if (err instanceof HttpErrorResponse && err.status === 422) {
+      this.removeRow(id);
+      this.rejectingId.set(null);
+      this.failedAction.set(null);
+      this.liveMessage.set(
+        $localize`:@@admin.reviews.announce.alreadyModerated:That review was already moderated.`,
+      );
+      return;
+    }
+    this.failedAction.set({ id, reason: 'generic' });
+  }
+
+  private removeRow(id: string): void {
+    this.reviews.update((list) => list.filter((r) => r.id !== id));
+    this.total.update((n) => Math.max(0, n - 1));
+  }
+}
+
+/** created_at ascending (oldest first) — the queue-age order. */
+function byCreatedAtAsc(a: AdminReview, b: AdminReview): number {
+  return a.created_at.localeCompare(b.created_at);
+}
+
+/** toxicity_score descending, nulls last, oldest-first tiebreak. */
+function byToxicityDescNullsLast(a: AdminReview, b: AdminReview): number {
+  const sa = a.toxicity_score;
+  const sb = b.toxicity_score;
+  if (sa === null && sb === null) return byCreatedAtAsc(a, b);
+  if (sa === null) return 1;
+  if (sb === null) return -1;
+  return sb - sa || byCreatedAtAsc(a, b);
+}
+
+/** reviewer_email locale-compare, nulls last, oldest-first tiebreak. */
+function byReviewerNullsLast(a: AdminReview, b: AdminReview): number {
+  const ea = a.reviewer_email;
+  const eb = b.reviewer_email;
+  if (ea === null && eb === null) return byCreatedAtAsc(a, b);
+  if (ea === null) return 1;
+  if (eb === null) return -1;
+  return ea.localeCompare(eb) || byCreatedAtAsc(a, b);
+}
