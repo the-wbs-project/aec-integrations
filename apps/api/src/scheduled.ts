@@ -52,6 +52,11 @@ import { runDailySync, type AlgoliaSyncPrisma } from './lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsPrisma, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics } from './lib/home-stats-metrics';
+import {
+  emitModerationQueueMetrics,
+  oldestPendingAgeHours,
+  type ModerationMetricSink,
+} from './lib/moderation-metrics';
 import { getPrisma } from './prisma';
 
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
@@ -73,6 +78,13 @@ const ALGOLIA_DRIFT_CRON = '0 9 * * *';
  *  byte-equal to `wrangler.jsonc` (see sync note). */
 const STATS_CRON = '0 7 * * *';
 
+/** Cron expression for the daily moderation-queue health snapshot (`wrangler.jsonc`,
+ *  AECI-206). 06:00 UTC (= 01:00 EST) — one hour before the home-stats cron, in the
+ *  same dead-of-night daily window. A cheap read-only gauge (no queue / ADR 0013
+ *  consumer — `queueForJob` returns `undefined`, so it always runs inline). MUST
+ *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
+const MODERATION_CRON = '0 6 * * *';
+
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
 
@@ -90,13 +102,19 @@ function algoliaEnvFor(env: Env): AlgoliaEnv {
 }
 
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
- *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` stay free of `ctx`/`env`/
- *  `Request` plumbing. The `SyncMetricSink` shape (count + distribution) also
- *  satisfies `StatsMetricSink`, so both helpers take it. */
-function metricSink(ctx: ExecutionContext, env: Env, req: Request): SyncMetricSink {
+ *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
+ *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
+ *  shape satisfies `SyncMetricSink` / `StatsMetricSink` (count + distribution) and
+ *  `ModerationMetricSink` (gauge) alike. */
+function metricSink(
+  ctx: ExecutionContext,
+  env: Env,
+  req: Request,
+): SyncMetricSink & ModerationMetricSink {
   return {
     count: (metric, value, tags) => submitCount(ctx, env, req, metric, value, tags),
     distribution: (metric, value, tags) => submitDistribution(ctx, env, req, metric, value, tags),
+    gauge: (metric, value, tags) => submitGauge(ctx, env, req, metric, value, tags),
   };
 }
 
@@ -271,6 +289,63 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
   });
 }
 
+/** Loose structural Prisma surface for the moderation-queue snapshot — a count
+ *  plus the oldest pending row's `created_at`. A real accelerated client
+ *  satisfies it (cf. the loose surfaces in `routes/admin-reviews.ts`). */
+type ModerationQueuePrisma = {
+  review: {
+    count(args: { where: { status: string } }): Promise<number>;
+    findFirst(args: {
+      where: { status: string };
+      orderBy: { createdAt: 'asc' };
+      select: { createdAt: true };
+    }): Promise<{ createdAt: Date } | null>;
+  };
+};
+
+/** Snapshot the pending-review moderation queue and emit its health gauges
+ *  (AECI-206 / Phase 5.15): depth + oldest-pending age. Report-only — like the
+ *  index-drift check it never mutates; the alert is the Datadog "moderation
+ *  backlog" monitor. Two cheap indexed reads, so it runs inline (no queue). */
+async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/moderation-queue');
+  const prisma = getPrisma(env) as unknown as ModerationQueuePrisma;
+
+  try {
+    const [pendingCount, oldest] = await Promise.all([
+      prisma.review.count({ where: { status: 'pending' } }),
+      prisma.review.findFirst({
+        where: { status: 'pending' },
+        orderBy: { createdAt: 'asc' },
+        select: { createdAt: true },
+      }),
+    ]);
+    const ageHours = oldestPendingAgeHours(
+      pendingCount,
+      oldest ? oldest.createdAt.getTime() : null,
+      Date.now(),
+    );
+    emitModerationQueueMetrics(metricSink(ctx, env, req), {
+      pendingCount,
+      oldestPendingAgeHours: ageHours,
+    });
+    logToDatadog(ctx, env, req, {
+      level: 'info',
+      message: `aeci.moderation.queue depth=${pendingCount} oldest_age_hours=${ageHours.toFixed(2)}`,
+      source: 'moderation-cron',
+    });
+  } catch (error) {
+    // Mirror the drift/stats crash path: log loudly, never throw (a failed cron
+    // must not tear down the invocation).
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.moderation.queue.crashed',
+      source: 'moderation-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /** The producer queue binding for a job (absent on local/preview → inline run). */
 function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | undefined {
   switch (job) {
@@ -280,6 +355,10 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.ALGOLIA_DRIFT_QUEUE;
     case 'stats':
       return env.STATS_QUEUE;
+    case 'moderation':
+      // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
+      // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
+      return undefined;
   }
 }
 
@@ -288,6 +367,15 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
 function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; source: string } {
   if (job === 'stats') {
     return { path: '/cron/stats', message: 'aeci.stats.enqueue_failed', source: 'stats-cron' };
+  }
+  if (job === 'moderation') {
+    // Unreachable in practice (moderation is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/moderation-queue',
+      message: 'aeci.moderation.queue.enqueue_failed',
+      source: 'moderation-cron',
+    };
   }
   return {
     path: `/cron/algolia-${job}`,
@@ -344,6 +432,9 @@ async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJo
     case 'stats':
       await runHomeStatsJob(env, ctx);
       return;
+    case 'moderation':
+      await runModerationQueueMetrics(env, ctx);
+      return;
   }
 }
 
@@ -363,6 +454,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case ALGOLIA_DRIFT_CRON:
       await enqueueOrRun(env, ctx, 'drift');
+      return;
+    case MODERATION_CRON:
+      await enqueueOrRun(env, ctx, 'moderation');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently

@@ -2,9 +2,13 @@
  * Which daily scheduled job a queue message asks the consumer to run. `sync` /
  * `drift` are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats
  * compute job (AECI-178 / Phase 4.3) that upserts the `home.*` `stats_cache`
- * keys. Named generically because the union now spans more than Algolia.
+ * keys; `moderation` snapshots the pending-review queue for its health gauges
+ * (AECI-206 / Phase 5.15). Named generically because the union now spans more
+ * than Algolia. `moderation` is queue-less (a cheap read-only gauge) — it always
+ * runs inline (`queueForJob` returns `undefined`), so it never appears on the
+ * wire as a `ScheduledJobMessage`.
  */
-export type ScheduledJob = 'sync' | 'drift' | 'stats';
+export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`

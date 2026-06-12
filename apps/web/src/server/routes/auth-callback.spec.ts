@@ -9,15 +9,57 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { Hono } from 'hono';
 import { setCookie } from 'hono/cookie';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { WebEnv } from '../../env';
 import type { ServerApiClient } from '../../server-api-client';
+import { submitCount } from '../../server-datadog';
 import {
   createAuthCallbackHandler,
+  normalizeAuthMethod,
   sanitizeReturnPath,
   type AuthCallbackDeps,
 } from './auth-callback';
+
+// The callback emits the `aeci.auth.signin` count (AECI-206) via the shared
+// transport; mock it so we can assert the per-branch metric/tags directly.
+vi.mock('../../server-datadog', () => ({ submitCount: vi.fn() }));
+
+const submitCountMock = vi.mocked(submitCount);
+
+/** Fire-and-forget metrics ride `ctx.waitUntil`; the handler reads
+ *  `c.executionCtx`, so the test app must provide one (matches admin-purge.spec). */
+function fakeExecutionContext(): ExecutionContext {
+  return {
+    waitUntil: vi.fn(),
+    passThroughOnException: vi.fn(),
+    props: {},
+    exports: {},
+  } as unknown as ExecutionContext;
+}
+
+/** The `aeci.auth.signin` calls recorded this test, as `{ value, tags }`. */
+function signinMetrics(): Array<{ value: number; tags: string[] }> {
+  return submitCountMock.mock.calls
+    .filter((call) => call[3] === 'aeci.auth.signin')
+    .map((call) => ({ value: call[4] as number, tags: call[5] as string[] }));
+}
+
+beforeEach(() => {
+  submitCountMock.mockClear();
+});
+
+describe('normalizeAuthMethod', () => {
+  it.each([
+    ['google', 'google'],
+    ['magic_link', 'magic_link'],
+    [null, 'unknown'],
+    ['', 'unknown'],
+    ['facebook', 'unknown'],
+  ])('maps %s → %s', (raw, expected) => {
+    expect(normalizeAuthMethod(raw)).toBe(expected);
+  });
+});
 
 describe('sanitizeReturnPath', () => {
   it('keeps plain same-origin paths', () => {
@@ -83,7 +125,7 @@ function makeHarness(options: {
   const app = new Hono<{ Bindings: WebEnv }>();
   app.get('/auth/callback', createAuthCallbackHandler(deps));
   const request = (query: string) =>
-    app.request(`/auth/callback${query}`, {}, {} as unknown as WebEnv);
+    app.request(`/auth/callback${query}`, {}, {} as unknown as WebEnv, fakeExecutionContext());
   return { request, exchangeCalls, ensure };
 }
 
@@ -160,5 +202,47 @@ describe('createAuthCallbackHandler', () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe('aeci.auth.signin metric (AECI-206)', () => {
+  it('emits outcome:success tagged by method on a successful exchange', async () => {
+    const { request } = makeHarness({});
+    await request('?code=pkce-123&method=google&return=%2Faccount');
+    expect(signinMetrics()).toEqual([{ value: 1, tags: ['method:google', 'outcome:success'] }]);
+  });
+
+  it('emits outcome:failed reason:link_invalid (method preserved) on a failed exchange', async () => {
+    const { request } = makeHarness({
+      exchange: () => ({ data: { session: null }, error: { message: 'expired' } }),
+    });
+    await request('?code=stale&method=magic_link');
+    expect(signinMetrics()).toEqual([
+      { value: 1, tags: ['method:magic_link', 'outcome:failed', 'reason:link_invalid'] },
+    ]);
+  });
+
+  it('emits reason:link_invalid on a provider error param', async () => {
+    const { request } = makeHarness({});
+    await request('?error=access_denied&method=google');
+    expect(signinMetrics()).toEqual([
+      { value: 1, tags: ['method:google', 'outcome:failed', 'reason:link_invalid'] },
+    ]);
+  });
+
+  it('emits reason:missing_code with method:unknown when no method hint is present', async () => {
+    const { request } = makeHarness({});
+    await request('');
+    expect(signinMetrics()).toEqual([
+      { value: 1, tags: ['method:unknown', 'outcome:failed', 'reason:missing_code'] },
+    ]);
+  });
+
+  it('emits reason:auth_not_configured when the env is unprovisioned', async () => {
+    const { request } = makeHarness({ configured: false });
+    await request('?code=pkce-123&method=magic_link');
+    expect(signinMetrics()).toEqual([
+      { value: 1, tags: ['method:magic_link', 'outcome:failed', 'reason:auth_not_configured'] },
+    ]);
   });
 });

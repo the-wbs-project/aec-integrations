@@ -22,7 +22,7 @@
  * never appears in the submit response or any public payload.
  */
 
-import { logToDatadog } from '../datadog';
+import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
 
 /**
@@ -60,9 +60,12 @@ type PerspectiveResponse = {
  */
 export async function scoreToxicity(c: ScoreContext, body: string): Promise<number | null> {
   const apiKey = c.env.PERSPECTIVE_API_KEY;
-  // Absent key is the expected dev/preview state — silent no-op, no warning.
+  // Absent key is the expected dev/preview state — silent no-op, no warning and
+  // no metric (an intentional skip, like Algolia's `skipped_no_creds` — it must
+  // not pollute the `aeci.perspective.api` error-rate denominator).
   if (!apiKey) return null;
 
+  const started = Date.now();
   try {
     const res = await fetch(`${PERSPECTIVE_URL}?key=${encodeURIComponent(apiKey)}`, {
       method: 'POST',
@@ -84,6 +87,7 @@ export async function scoreToxicity(c: ScoreContext, body: string): Promise<numb
 
     if (!res.ok) {
       warn(c, `Perspective API returned ${res.status}`);
+      emitPerspective(c, 'failed', Date.now() - started, 'http_error');
       return null;
     }
 
@@ -91,15 +95,56 @@ export async function scoreToxicity(c: ScoreContext, body: string): Promise<numb
     const value = data.attributeScores?.TOXICITY?.summaryScore?.value;
     if (typeof value !== 'number' || !Number.isFinite(value)) {
       warn(c, 'Perspective API returned no TOXICITY summaryScore');
+      emitPerspective(c, 'failed', Date.now() - started, 'malformed');
       return null;
     }
 
+    emitPerspective(c, 'ok', Date.now() - started);
     // 0.0–1.0 float → 0–100 smallint, clamped defensively.
     return Math.min(100, Math.max(0, Math.round(value * 100)));
   } catch (err) {
     // Timeout (AbortError), network failure, or malformed JSON — all non-fatal.
     warn(c, `Perspective API call failed: ${err instanceof Error ? err.message : String(err)}`);
+    emitPerspective(c, 'failed', Date.now() - started, isTimeoutError(err) ? 'timeout' : 'network');
     return null;
+  }
+}
+
+/** True for an `AbortSignal.timeout` abort — a `DOMException` named `AbortError`
+ *  (or `TimeoutError`, per spec, across runtimes). Duck-typed on `.name` because
+ *  `DOMException` is not always an `Error` subclass. */
+function isTimeoutError(err: unknown): boolean {
+  const name = (err as { name?: unknown } | null | undefined)?.name;
+  return name === 'AbortError' || name === 'TimeoutError';
+}
+
+/**
+ * Emit the Perspective observability pair (AECI-206 / Phase 5.15): the
+ * `aeci.perspective.api` outcome count (the error-rate / outage signal) and the
+ * `aeci.perspective.api.duration_ms` latency distribution. Wrapped so a missing
+ * `DD_API_KEY` / ExecutionContext can never turn a graceful `null` into a throw
+ * (same ethos as `warn`). `reason` tags the failure cause; success omits it.
+ */
+function emitPerspective(
+  c: ScoreContext,
+  outcome: 'ok' | 'failed',
+  durationMs: number,
+  reason?: 'http_error' | 'malformed' | 'timeout' | 'network',
+): void {
+  try {
+    const tags = [`outcome:${outcome}`];
+    if (reason) tags.push(`reason:${reason}`);
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.perspective.api', 1, tags);
+    submitDistribution(
+      c.executionCtx,
+      c.env,
+      c.req.raw,
+      'aeci.perspective.api.duration_ms',
+      durationMs,
+      [`outcome:${outcome}`],
+    );
+  } catch {
+    // Telemetry must never break scoring; swallow like `warn`.
   }
 }
 

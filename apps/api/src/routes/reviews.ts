@@ -40,7 +40,7 @@ import { appendAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
-import { logToDatadog } from '../datadog';
+import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
@@ -147,6 +147,15 @@ function isReviewDuplicateViolation(err: unknown): boolean {
 const reviewDuplicateError = (): ApiError =>
   new ApiError(409, ApiErrorCode.REVIEW_DUPLICATE, 'You have already reviewed this product.');
 
+/** Emit the `aeci.review.submit` count (AECI-206 / Phase 5.15) — one per submit
+ *  outcome (`ok` after insert, `duplicate` for either dedup path, `product_not_found`).
+ *  `outcome:ok` is the AC's "review submit count". Fire-and-forget via the shared
+ *  transport; no-op without `DD_API_KEY`. 5xx failures are already covered by the
+ *  `aeci.api.query.duration_ms{status_class:5xx}` middleware metric. */
+function emitSubmit(c: AuthContext, outcome: 'ok' | 'duplicate' | 'product_not_found'): void {
+  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.review.submit', 1, [`outcome:${outcome}`]);
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export function createSubmitReviewHandler(
@@ -169,7 +178,10 @@ export function createSubmitReviewHandler(
       where: { id: payload.product_id },
       select: { id: true },
     });
-    if (!product) throw notFoundError('product', { id: payload.product_id });
+    if (!product) {
+      emitSubmit(c, 'product_not_found');
+      throw notFoundError('product', { id: payload.product_id });
+    }
 
     // App-level dup pre-check: one non-archived review per (product, reviewer).
     // The DB partial unique index is the backstop for the race (handled below).
@@ -177,7 +189,10 @@ export function createSubmitReviewHandler(
       where: { productId: payload.product_id, reviewerId: userId, status: { not: 'archived' } },
       select: { id: true },
     });
-    if (existing) throw reviewDuplicateError();
+    if (existing) {
+      emitSubmit(c, 'duplicate');
+      throw reviewDuplicateError();
+    }
 
     // Toxicity scoring (5.7): a moderation triage signal, never a gate. Run it
     // BEFORE the transaction — an external HTTP call must not hold the DB
@@ -237,9 +252,14 @@ export function createSubmitReviewHandler(
       // (Prisma P2002). Map it to the documented 409, not a generic 500; any
       // other failure rethrows and surfaces as 500.
       .catch((err: unknown): never => {
-        if (isReviewDuplicateViolation(err)) throw reviewDuplicateError();
+        if (isReviewDuplicateViolation(err)) {
+          emitSubmit(c, 'duplicate');
+          throw reviewDuplicateError();
+        }
         throw err;
       });
+
+    emitSubmit(c, 'ok');
 
     const body: SubmitReviewResponse = {
       id: created.id,

@@ -160,13 +160,14 @@
       ],
       // Daily scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
       // Staging + production only (base config / preview have no `triggers`, so PR
-      // previews don't run them). 07:00 UTC (= 02:00 EST) — home-stats compute
+      // previews don't run them). 06:00 UTC (= 01:00 EST) — moderation-queue health
+      // snapshot (AECI-206, inline gauge); 07:00 UTC (= 02:00 EST) — home-stats compute
       // (AECI-178, §10); 08:00 UTC (= 03:00 EST, US-East launch base) — incremental
       // Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
-      // reconciliation (AECI-140, §23.1). UTC is DST-unaware → 03:00/04:00/05:00 EDT
+      // reconciliation (AECI-140, §23.1). UTC is DST-unaware → 02:00/03:00/04:00/05:00 EDT
       // in summer (accepted). Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
-        "crons": ["0 7 * * *", "0 8 * * *", "0 9 * * *"],
+        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *"],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
       // `queue` consumer (same Worker) runs the job. `binding` is the producer
@@ -233,12 +234,12 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
-      // Daily scheduled crons (see staging note): 07:00 UTC (= 02:00 EST) home-stats
-      // compute (AECI-178); 08:00 UTC (= 03:00 EST) incremental Algolia sync
-      // (AECI-139); 09:00 UTC (= 04:00 EST) index-drift reconciliation (AECI-140).
-      // Dispatched by `controller.cron`.
+      // Daily scheduled crons (see staging note): 06:00 UTC (= 01:00 EST) moderation-queue
+      // health snapshot (AECI-206); 07:00 UTC (= 02:00 EST) home-stats compute (AECI-178);
+      // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
+      // index-drift reconciliation (AECI-140). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 7 * * *", "0 8 * * *", "0 9 * * *"],
+        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *"],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {

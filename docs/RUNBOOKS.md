@@ -316,3 +316,115 @@ need for prod's eyeball-analytics rows regardless.
 **Escalation:** if the dedup count is large or the PK can't be created because dups remain, stop and
 investigate how unconstrained writes happened (a prod migration that didn't apply the baseline PK, or
 a manual/restore load that bypassed it) before forcing the constraint.
+
+---
+
+## Auth sign-in error-rate spike
+
+**Alert:** `AECi — Auth sign-in error rate > 30% (15m)`.
+**Metric:** `aeci.auth.signin{outcome:failed}` / `aeci.auth.signin` (all) — the failed-completion ratio
+over 15m, `service:aeci-web` (AECI-206). `attempts = sum over outcomes`; failure `reason` ∈
+`link_invalid` / `missing_code` / `auth_not_configured`.
+
+**What it means:** A high share of sign-in *completions* at `/auth/callback` are failing. This is the
+**SSR Worker** (`apps/web`), not the API. It is usually a config/provider problem, not user error:
+a broken callback/redirect URL, a misconfigured or paused Supabase project, or a Google OAuth outage.
+(Browser-side *initiation* — the magic-link send and the OAuth redirect-out — is a deferred RUM signal,
+so a user who never returns to the callback isn't counted here.)
+
+**First checks**
+
+1. Which method / reason? Pivot the "AECi Phase 5 — Auth/Reviews" dashboard sign-in widgets by `method`
+   (`google` / `magic_link`) and `reason`. A `google`-only spike points at OAuth (provider / client-id /
+   redirect-URI); a both-methods spike points at the callback handler or Supabase project itself.
+2. Read the failures: Datadog logs `service:aeci-web` around `/auth/callback`.
+   - `reason:auth_not_configured` → the env has no Supabase config (`window.__AECI_SUPABASE__` / the
+     server client). Check the SSR Worker's Supabase vars/secrets for that env.
+   - `reason:link_invalid` → expired/reused magic link, user-denied OAuth, or a failed PKCE
+     `exchangeCodeForSession` (clock skew, a rotated Supabase anon key, a redirect-URI mismatch).
+   - `reason:missing_code` → callers hitting `/auth/callback` with no `code` (a broken redirect URL or a
+     crawler) — confirm the configured Supabase redirect URLs match the deployed origin.
+3. Recent deploy? Correlate with `GET /_version` on the SSR Worker — an `apps/web` auth change
+   (`auth.service.ts` / `auth-callback.ts`) or a changed redirect URL lines up with the step-change.
+4. Provider/platform: check Google Cloud OAuth consent/credentials and https://status.supabase.com.
+
+**Escalation:** a sustained spike not explained by a single expired-link burst is page-worthy — sign-in
+is the gate to every authenticated write (reviews, account, admin). Capture a failing `reason` from the
+logs. (The 30% threshold is a pre-launch starting point — see `docs/OBSERVABILITY.md`; at low volume a
+single failure can dominate the ratio. Retune once production traffic is known.)
+
+---
+
+## Perspective API outage
+
+**Alert:** `AECi — Perspective API outage (>50% errors, 15m)`.
+**Metric:** `aeci.perspective.api{outcome:failed}` / `aeci.perspective.api` (all) over 15m; failure
+`reason` ∈ `http_error` / `malformed` / `timeout` / `network`. Companion: `aeci.perspective.api.duration_ms`
+(latency) and the `service:aeci-api source:perspective` warn logs.
+
+**What it means:** Google's Perspective API (review toxicity scoring, `lib/perspective.ts`, AECI-198) is
+failing for most calls. Scoring is **fail-open and flag-never-block**: a failed score stores
+`toxicity_score = null` and the review **still enters the moderation queue** — so this is **not
+user-facing** and does **not** block submissions. The cost is that the moderation queue temporarily loses
+its triage signal (the worst content no longer floats to the top of `/admin/reviews`).
+
+**First checks**
+
+1. Which reason? Pivot the "AECi Phase 5 — Auth/Reviews" dashboard Perspective widgets / the metric by
+   `reason`. `timeout`-dominated → Perspective is slow (the client caps at 2s); `http_error` → non-2xx
+   (quota/`429`, auth/`403`); `network` → connectivity or a body that won't parse; `malformed` → a 200
+   with no TOXICITY summaryScore (an API contract change).
+2. Read the failures: Datadog logs `service:aeci-api source:perspective` carry the message + status.
+3. Credentials/quota? A **missing** `PERSPECTIVE_API_KEY` is a silent no-op that emits **no** metric (so
+   it can't trip this alert) — but a *revoked/over-quota* key shows as `http_error` `403`/`429`. Check the
+   key and the Perspective quota in Google Cloud.
+4. Provider status: an upstream Perspective outage self-heals; confirm via Google Cloud status.
+
+**Repair:** none required for correctness — submissions keep working with `toxicity_score = null`. Once
+Perspective recovers, **new** submissions score normally; reviews submitted during the outage keep their
+null score (there is no backfill — they're triaged manually in the queue). If the cause is a bad/revoked
+key or exhausted quota, rotate the key / raise the quota and redeploy the secret.
+
+**Escalation:** a prolonged outage isn't urgent (fail-open), but flag it so moderators know the queue's
+toxicity ordering is degraded until it clears. A persistent `malformed` reason with Perspective healthy
+points at an API contract change — open a follow-up against `lib/perspective.ts`. (The 50% threshold is a
+launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
+
+---
+
+## Moderation queue backlog
+
+**Alert:** `AECi — Moderation queue backlog (oldest pending > 48h)` (the threshold), which **also**
+fires `notify_no_data` if the daily snapshot stops (the cron-liveness check).
+**Metric:** `aeci.moderation.queue_oldest_age_hours` (gauge) — age of the oldest `status='pending'`
+review; companion `aeci.moderation.queue_depth`. Snapshotted daily by the API Worker cron at 06:00 UTC
+(= 01:00 EST), `lib/moderation-metrics.ts` (AECI-206). 0 for an empty queue.
+
+**What it means:** A review has been waiting for moderation longer than the SLA threshold (48h) — the
+backlog isn't being worked. Unlike the per-action `aeci.moderation.action` count, this gauge is a
+**standing-state** signal: it exists precisely so a forgotten queue surfaces even when **no admin is
+moderating** (when nothing fires the action metric). The reviews are invisible to the public until
+approved, so there's no page-level symptom — just submitters waiting.
+
+**First checks**
+
+1. Which alert? **Threshold** (`> 48h`) → the queue is backing up; work it. **No-data** → the 06:00
+   snapshot cron stopped (see check 3) — the age signal is stale, which is itself a problem.
+2. Work the queue: open `/admin/reviews` (default = pending, oldest-first / `queue_age`) and
+   approve/reject the oldest items. The gauge drops at the next 06:00 snapshot (or immediately reflects
+   on the dashboard's `queue_depth` once you reload, but the **alert** clears on the next daily point).
+   Pivot the dashboard "Moderation queue" widget for the depth + age trend.
+3. No-data variant: confirm the 06:00 UTC cron fired — check the staging/production API Worker's
+   scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that the `0 6 * * *` trigger is
+   present (`apps/api/wrangler.jsonc`, staging + production only). The moderation job runs **inline** (no
+   queue), so there's no `MODERATION_QUEUE` binding to check — only the trigger and the Worker's
+   `DATABASE_URL` (a Prisma/Supabase failure logs `aeci.moderation.queue.crashed`, `source:moderation-cron`).
+
+**Repair:** there is no auto-remediation — moderators clear the backlog via `/admin/reviews`. The gauge
+self-resolves to 0 once the queue is empty. A persistent no-data with a healthy Worker is a cron/trigger
+wiring problem (check 3).
+
+**Escalation:** a chronic backlog is a **staffing/process** issue, not an engineering one — route it to
+whoever owns moderation rather than on-call. (The 48h threshold and the daily snapshot cadence — which
+adds up to ~24h detection lag — are pre-launch starting points; see `docs/OBSERVABILITY.md`. Move the
+cron to hourly if a tighter SLA is needed.)
