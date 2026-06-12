@@ -5,7 +5,6 @@ import { PageViewTracker } from './core/page-view-tracker';
 import { SiteFooter } from './layout/site-footer';
 import { SiteHeader } from './layout/site-header';
 import { SkipLink } from './layout/skip-link';
-import { ThemeService } from './theme.service';
 
 @Component({
   selector: 'app-root',
@@ -23,9 +22,6 @@ import { ThemeService } from './theme.service';
   styles: [':host { display: block; min-height: 100vh; }'],
 })
 export class App {
-  // Ensures ThemeService instantiates at bootstrap so SSR resolves theme from
-  // request headers before the first render.
-  protected readonly theme = inject(ThemeService);
   private readonly pageViews = inject(PageViewTracker);
 
   constructor() {

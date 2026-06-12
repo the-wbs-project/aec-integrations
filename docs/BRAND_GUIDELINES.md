@@ -7,13 +7,13 @@
 
 This is the canonical brand guide for AEC Integrations. The Markdown here is the editable source; the DOCX export at `branding/AEC-Integrations-Brand-Guidelines.docx` is generated from this file for stakeholders who need a portable artifact. If the two diverge, this file wins.
 
-For implementation-level tokens (CSS custom properties, Tailwind config, theme switching mechanics), see `docs/STAGE_1_SPEC.md` §2a.
+For implementation-level tokens (CSS custom properties, Tailwind config, the theming model), see `docs/STAGE_1_SPEC.md` §2a.
 
 ---
 
 ## 1. Surfaces are neutral
 
-The site uses neutral surfaces in both themes. Brand colors are accents that layer on top — they are never the page background.
+The site uses neutral surfaces in the light theme. Brand colors are accents that layer on top — they are never the page background.
 
 | Theme | Page background | Raised (cards/panels) | Sunken (insets) | Muted (row hover) |
 |---|---|---|---|---|
@@ -38,6 +38,8 @@ Near-black `#0A0A0A` (rather than pure `#000000`) is intentional in dark mode: m
 ---
 
 ## 3. Brand colors — dark theme
+
+> **Not shipped in Stage 1.** The dark theme was deferred to Stage 2 in **AECI-226** (the launch site is light-only — see `STAGE_1_SPEC.md` §2a.1). These variants stay documented here as approved brand assets so dark is ready to re-introduce with the Stage 2 vendor portal — they are brand policy, not an active Stage 1 surface.
 
 The dark theme uses lighter variants of Forest and Clay because the originals lack contrast against near-black surfaces. These are **approved brand variants**, not ad-hoc lightening — use these exact hexes.
 
@@ -72,7 +74,7 @@ Clay is the rarest color in the system. Use it sparingly — the connector mark,
 - In **light theme**, this is a contrast rule: Clay `#E89668` on white `#FFFFFF` is ~2.4:1, which fails WCAG 2.1 AA (4.5:1 minimum for normal body text).
 - In **dark theme**, Clay dark `#F0A887` on `#0A0A0A` is ~10.3:1 and technically passes AAA. The restriction in dark theme is **brand policy, not contrast** — keeping Clay rare preserves its meaning as a high-emphasis accent.
 
-Permitted Clay uses in both themes: badges, large text (≥18pt regular or ≥14pt bold per WCAG), graphical elements (icons, dividers, the connector mark), and small accent strokes. See `docs/STAGE_1_SPEC.md` §2a.4 for the contrast-validation rule this maps to.
+Permitted Clay uses: badges, large text (≥18pt regular or ≥14pt bold per WCAG), graphical elements (icons, dividers, the connector mark), and small accent strokes. See `docs/STAGE_1_SPEC.md` §2a.4 for the contrast-validation rule this maps to.
 
 ---
 

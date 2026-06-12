@@ -8,7 +8,7 @@
  *     303-redirected to `/auth/login?return=<path>` (`private, no-store`). This
  *     case needs NO fixture — the gate fires before the SSR resolver.
  *   - Authenticated render + a11y: with a session cookie present the form
- *     renders; axe (WCAG-AA) is clean in BOTH themes.
+ *     renders; axe (WCAG-AA) is clean.
  *   - Keyboard-only: the star-rating Aria listbox is roving-focus + arrow-key
  *     navigable and selects on Space (`aria-selected`).
  *   - Happy path: keyboard/pointer fill + a stubbed `POST /api/reviews` (201)
@@ -74,33 +74,8 @@ async function addAuthCookie(context: BrowserContext): Promise<void> {
   ]);
 }
 
-/** Add the persisted dark theme (cookie + localStorage), mirroring phase2-a11y. */
-async function applyDarkTheme(context: BrowserContext): Promise<void> {
-  const url = new URL(BASE_URL);
-  await context.addCookies([
-    {
-      name: 'theme',
-      value: 'dark',
-      domain: url.hostname,
-      path: '/',
-      secure: url.protocol === 'https:',
-      sameSite: 'Lax',
-    },
-  ]);
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.setItem('theme', 'dark');
-    } catch {
-      /* storage blocked — ignore */
-    }
-  });
-}
-
 async function aaViolations(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(WCAG_AA_TAGS)
-    .exclude('aec-site-footer')
-    .analyze();
+  const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
   return results.violations;
 }
 
@@ -140,19 +115,9 @@ test.describe('/products/:slug/review — authenticated form (AECI-200)', () => 
     await expect(page.locator('#review-body')).toBeVisible();
   });
 
-  test('has zero axe (WCAG-AA) violations — light', async ({ page, context }) => {
+  test('has zero axe (WCAG-AA) violations', async ({ page, context }) => {
     await addAuthCookie(context);
     await page.goto(REVIEW_PATH);
-    await expect(page.locator('form[novalidate]')).toBeVisible();
-    const violations = await aaViolations(page);
-    expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
-  });
-
-  test('has zero axe (WCAG-AA) violations — dark', async ({ page, context }) => {
-    await addAuthCookie(context);
-    await applyDarkTheme(context);
-    await page.goto(REVIEW_PATH);
-    await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
     await expect(page.locator('form[novalidate]')).toBeVisible();
     const violations = await aaViolations(page);
     expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);

@@ -1,8 +1,9 @@
 ---
 name: AEC Integrations
-description: Editorial directory and review platform for AEC software integrations. Light-theme default, dark-theme parity, Tailwind v4 + Spartan brain.
+description: Editorial directory and review platform for AEC software integrations. Light-only (Stage 1; dark deferred to Stage 2 — AECI-226), Tailwind v4 + Spartan brain.
 colors:
-  # Light theme (default)
+  # Light theme (the only theme in Stage 1; dark token set removed in AECI-226,
+  # documented in docs/BRAND_GUIDELINES.md §3, returns at Stage 2).
   surface-base:           "oklch(100% 0 0)"
   surface-raised:         "oklch(98.43% 0 0)"
   surface-sunken:         "oklch(96.78% 0.0019 286.38)"
@@ -15,19 +16,6 @@ colors:
   accent-primary-hover:   "oklch(43.83% 0.0658 152.61)"
   accent-secondary:       "oklch(76.10% 0.1144 47.10)"
   accent-warm:            "oklch(95.62% 0.0149 95.45)"
-  # Dark theme
-  dark-surface-base:      "oklch(14.48% 0 0)"
-  dark-surface-raised:    "oklch(21.78% 0.006 285.88)"
-  dark-surface-sunken:    "oklch(13.71% 0.0036 286.10)"
-  dark-border-default:    "oklch(27.41% 0.0055 286.04)"
-  dark-border-strong:     "oklch(37.07% 0.0119 285.81)"
-  dark-text-primary:      "oklch(98.43% 0 0)"
-  dark-text-secondary:    "oklch(70.90% 0.0149 286.07)"
-  dark-text-tertiary:     "oklch(55.21% 0.0163 285.94)"
-  dark-accent-primary:    "oklch(61% 0.0805 152.41)"
-  dark-accent-primary-hover: "oklch(68.5% 0.0867 152.69)"
-  dark-accent-secondary:  "oklch(78.50% 0.1141 47.85)"
-  dark-accent-warm:       "oklch(22.42% 0.0079 67.38)"
 typography:
   display:
     fontFamily: '"Source Serif 4", Georgia, "Times New Roman", serif'
@@ -172,7 +160,7 @@ The system rejects the AI-startup visual cohort entirely: no purple-to-blue grad
 - Pair a refined serif (Source Serif 4) with an a11y-first sans (Atkinson Hyperlegible). The pairing itself is the brand statement.
 - Forest is the anchor accent. Clay is rare (≤5% per screen, large-text or graphical only). Bone is a warm-tinted accent surface, never a page background.
 - Borders separate surfaces. Shadows are reserved for modals, dropdowns, and focus rings.
-- Both themes always: light theme is the marketing default, dark theme has full token parity for app surfaces and reader preference.
+- Light only (Stage 1): a single light theme, no toggle and no system-preference detection (AECI-226). Dark is deferred to the Stage 2 vendor portal; design once, for light.
 
 ## 2. Colors
 
@@ -192,7 +180,7 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 
 ### Neutral
 
-- **Surface base** (`#FFFFFF` / `oklch(100% 0 0)`): default page background, light theme.
+- **Surface base** (`#FFFFFF` / `oklch(100% 0 0)`): default page background.
 - **Surface raised** (`#FAFAFA` / `oklch(98.43% 0 0)`): cards, panels.
 - **Surface sunken** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): inset wells, code blocks, secondary states.
 - **Surface muted** (`#F4F4F5` / `oklch(96.78% 0.0019 286.38)`): interactive row hover / `focus-within` highlight on index tables. Shares the surface-sunken value by design — the two never co-occur inside a row, and a hover wants the same one-step lift sunken gives on white.
@@ -202,29 +190,19 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 - **Text secondary** (`#52525B` / `oklch(43.86% 0.0145 285.94)`): supporting prose, captions.
 - **Text tertiary** (`#A1A1AA` / `oklch(70.90% 0.0149 286.07)`): hints, placeholders, metadata.
 
-### Dark theme
+### Dark theme — deferred to Stage 2 (not shipped in Stage 1)
 
-Token parity with the light palette. Names mirror the light tokens with a `dark-` prefix. Forest and Clay use the brand-approved dark variants (not synthetic lightening). Cross-checked against `docs/BRAND_GUIDELINES.md` §3.
-
-- **Dark surface base** (`#0A0A0A` / `oklch(14.48% 0 0)`): page background. Near-black, intentionally — matches Material 3, Linear, Vercel, Tailwind `zinc-950`; reduces OLED smearing and halation.
-- **Dark surface raised** (`#18181B` / `oklch(21.78% 0.006 285.88)`).
-- **Dark surface sunken** (`#09090B` / `oklch(13.71% 0.0036 286.10)`).
-- **Dark surface muted** (`#27272A` / `oklch(27.41% 0.0055 286.04)`): interactive row hover / `focus-within` highlight. Lifts clearly off the near-black base and stays distinct from dark surface raised (`#18181B`) so raised in-row chips (e.g. integration mechanism badges) remain legible on a hovered row. Shares the dark border-default value by design (a fill and a hairline border don't confuse).
-- **Dark border default** (`#27272A`); **Dark border strong** (`#3F3F46`).
-- **Dark text primary** (`#FAFAFA`); **Dark text secondary** (`#A1A1AA`); **Dark text tertiary** (`#71717A`).
-- **Dark Forest** (`#5D916C` / `oklch(61% 0.0805 152.41)`): primary accent in dark theme. **Dark Forest hover** (`#6FAA80` / `oklch(68.5% 0.0867 152.69)`). Lifted in AECI-166 so accent text and links clear WCAG AA (≥4.5:1) on raised dark surfaces (`#18181B`), not just the near-black base.
-- **Dark Clay** (`#F0A887` / `oklch(78.50% 0.1141 47.85)`): same usage restrictions as light Clay (brand policy, not contrast).
-- **Dark Bone** (`#2A2520` / `oklch(22.42% 0.0079 67.38)`): warm-tinted dark accent surface.
+The dark palette was removed from the active design system in **AECI-226**: Stage 1 ships light only (see the "Light only" rule below). The brand-approved dark Forest / Clay / Bone variants stay documented in `docs/BRAND_GUIDELINES.md` §3, and the prior OKLCH dark token set is preserved in git history. Because every component consumes the semantic tokens (`--surface-*`, `--text-*`, `--accent-*`), re-introducing dark at the Stage 2 vendor portal is a token-block + toggle change, not a per-component rework.
 
 ### Named Rules
 
-**The Surfaces-Are-Neutral Rule.** Brand colors are accents that layer on top of neutral surfaces. They are never the page background. Light theme `<body>` is `#FFFFFF`; dark theme `<body>` is `#0A0A0A`. Bone is *not* a page background — it is a warm-tinted accent surface used in callout bands and hero sections only.
+**The Surfaces-Are-Neutral Rule.** Brand colors are accents that layer on top of neutral surfaces. They are never the page background. The `<body>` is `#FFFFFF`. Bone is *not* a page background — it is a warm-tinted accent surface used in callout bands and hero sections only.
 
-**The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest in light theme, Dark Forest in dark theme. No alternative primary color exists — proposals for "a second primary" are rejected.
+**The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest. No alternative primary color exists — proposals for "a second primary" are rejected.
 
-**The Clay-Restriction Rule.** Clay (and Dark Clay) is the rarest color in the system. ≤5% of any screen. Large-text (≥18pt regular or ≥14pt bold per WCAG) or graphical (icons, dividers, the connector mark) only. **Never as body text in either theme.** In light theme this is contrast-driven (Clay on white is ~2.4:1, fails AA). In dark theme it is brand policy: keeping Clay rare preserves its meaning as the high-emphasis accent.
+**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Large-text (≥18pt regular or ≥14pt bold per WCAG) or graphical (icons, dividers, the connector mark) only. **Never as body text** — Clay on white is ~2.4:1, which fails AA — and keeping it rare preserves its meaning as the high-emphasis accent. (The brand policy carries forward to Dark Clay when the dark theme returns at Stage 2.)
 
-**The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (light theme), the dark surface-base is `#0A0A0A`, the dark text-primary is `#FAFAFA`. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation.
+**The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (a near-black) on a `#FFFFFF` surface base. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation. (The same principle governs the dark variants documented in `BRAND_GUIDELINES.md` §3 when dark returns at Stage 2.)
 
 **The Anchor-Site Rule.** When a surface uses a Mobbin reference site as its theme, components for that surface come from the *same* Mobbin site. Pulling components from a second site is a deliberate exception, not a default — and the originating theme site remains the visual anchor for composition, hierarchy, density, and atmosphere. This protects editorial coherence: AECi reads as one publication, not a mashup of unrelated apps. Record the anchor site with the surface (Linear issue or commit message) so future iterations stay aligned. Access Mobbin via the `mcp__mobbin__*` MCP server — see `CLAUDE.md` §"MCP usage rules" for auth flow and the matching design-checklist step.
 
@@ -272,7 +250,7 @@ The system is flat by default. Depth is conveyed through color (Bone callouts, s
 
 Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.
 
-> **Behavior providers (proposed — ADR 0010).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the proposed provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically (Tailwind utilities targeting the `aria-*` attributes the directives toggle, both themes). The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
+> **Behavior providers (proposed — ADR 0010).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the proposed provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically (Tailwind utilities targeting the `aria-*` attributes the directives toggle). The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
 
 ### Buttons
 
@@ -289,7 +267,7 @@ Spartan `BrnButton` directive provides the headless behavior; Tailwind utility c
 Used for vendor profiles, integration cards, the `/search` result tiles (see Search & discovery below — they are the canonical instantiation of this primitive), and content modules. Distinct from the **Entity cards (index rows)** below, which despite the shared "card" name render as `<tr>` table rows and do _not_ use this primitive.
 
 - **Corner Style:** `rounded.lg` (12px).
-- **Background:** `surface-raised` (light) / `dark-surface-raised` (dark).
+- **Background:** `surface-raised`.
 - **Shadow Strategy:** **None.** Borders separate surfaces. (See the Borders-Not-Shadows Rule above.)
 - **Border:** 0.5px solid `border-default`. Hover (when interactive) raises to 1px solid `border-strong` — no fill change, no shadow, no scale.
 - **Internal Padding:** `spacing.5` (24px). Dense list contexts may use `spacing.4` (16px).
@@ -312,7 +290,7 @@ The three variants differ only in cell content:
 
 ### Search & discovery (Phase 3)
 
-The Phase 3 search surface (`/search`, the listing-page filters, and the header autocomplete) adds one page shell and several small headless-behavior components. Search itself runs **browser-side against Algolia** with the search-only key (Spec §7.5) — the admin key is never shipped (see the CSP / key handling note in §6). Every component renders correctly in both themes via tokens and i18n-wraps (or is passed) every visible string. Components live in `apps/web/src/app/search/` (search experience) and `apps/web/src/app/shared/facets/` (listing-page filters).
+The Phase 3 search surface (`/search`, the listing-page filters, and the header autocomplete) adds one page shell and several small headless-behavior components. Search itself runs **browser-side against Algolia** with the search-only key (Spec §7.5) — the admin key is never shipped (see the CSP / key handling note in §6). Every component renders correctly via tokens and i18n-wraps (or is passed) every visible string. Components live in `apps/web/src/app/search/` (search experience) and `apps/web/src/app/shared/facets/` (listing-page filters).
 
 - **Search page shell** (`<app-search-page>`, `search/search-page.ts`) — the `/search` experience: a `role="search"` query box (seeded from `?q=`), the **entity tablist**, a `md:` two-column body (`16rem` facet rail / results grid), and an empty state. Uses `surface-base` / `text-primary`; the query input follows the **Inputs / Fields** style. Unlike the other shells this page is **non-cacheable** (`private, no-store` — it is deliberately absent from `ROUTE_CACHE_PATTERNS`) and **`noindex`** (`MetaService.setSearchMeta`, §4.6 — search results aren't canonical content). **Graceful degradation:** when the public Algolia config is absent (local dev / an unprovisioned env / CI) the shell renders a `role="status"` "temporarily unavailable" notice and never constructs the controller — this is also the path the bound e2e exercises. Search/connector logic lives in `search-controller.ts` (the `instantsearch.js` + connectors → signals deviation, ADR 0014); the shell only binds the resulting signals.
 
@@ -330,7 +308,7 @@ The Phase 3 search surface (`/search`, the listing-page filters, and the header 
 
 - **Header search autocomplete** (`<aec-search-autocomplete>`, `search/search-autocomplete.ts`, AECI-144) — the search-as-you-type field in the site header (the home hero reuses it in Phase 4). This is the project's **first Angular Aria combobox** adoption (ADR 0010): `ngCombobox` + `ngListbox`/`ngOption` supply the `role=combobox/listbox/option` semantics, `aria-expanded`/`aria-controls`/`aria-activedescendant`, the Arrow/Home/End/Escape model, and the CDK-Overlay-positioned popup; we supply only token CSS (`data-[active=true]:` highlight on `surface-sunken`, popup on `surface-raised` with `border-default`). A real `<label for>` names the input (never placeholder-as-label). It **SSR-renders only the static `<form>`/`<label>`/`<input>`** (visitor-state-neutral, so it is safe inside the cached header) and is hydration-enhanced; when the Algolia config is absent it stays a plain submit-to-`/search` field with no error UI (correct for a header control). The listbox is rendered **only when there is ≥1 hit**, so a zero-hit query shows no empty floating panel (keeps it `role=option`-only and axe-clean); Enter with no selection routes to `/search?q=`, which owns the "no results" empty state.
 
-> **Deferred — per-tab sort dropdown (AECI-175 / ADR 0014).** Spec §4.6 lists a per-tab sort control, but no Algolia **replicas** exist yet, so a sort dropdown would have nothing to switch to. Phase 3 ships the §7.3 relevance default (`customRanking`) and marks the `connectSortBy` insertion point in `search-controller.ts`. The dropdown (a labelled, i18n'd, both-theme, axe-AA `<select>` or Aria listbox per tab) lands with the replicas in **AECI-175**. Recorded here so the design system matches the shipped surface.
+> **Deferred — per-tab sort dropdown (AECI-175 / ADR 0014).** Spec §4.6 lists a per-tab sort control, but no Algolia **replicas** exist yet, so a sort dropdown would have nothing to switch to. Phase 3 ships the §7.3 relevance default (`customRanking`) and marks the `connectSortBy` insertion point in `search-controller.ts`. The dropdown (a labelled, i18n'd, axe-AA `<select>` or Aria listbox per tab) lands with the replicas in **AECI-175**. Recorded here so the design system matches the shipped surface.
 ### Product card grid (AECI-190)
 
 `ProductCardGrid` (`aec-product-card-grid`, `apps/web/src/app/products/`) is the **default view** of `/products` — a buyer-facing catalog grid (anchor site: Faire). The table view above stays available via the toolbar toggle (`?view=table`). This is the card-grid variant the note above anticipated.
@@ -351,7 +329,7 @@ Two non-link chips for the card grid, sharing the Tags / Taxonomy-chip surface (
 
 ### Home (Phase 4)
 
-The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface from new home-only components plus reused catalog vocabulary. Anchor site: **Faire** (recorded in `docs/design/home-direction.md`, AECI-181) — the home reuses the AECI-190 `ProductCardGrid` / `IntegrationStat` so the front door and the catalog read as **one publication**, not a mashup (the Anchor-Site Rule). Every component renders correctly in both themes via tokens and i18n-wraps every visible string. Stats data is SSR-resolved from `GET /api/stats/home` (`home-stats.resolver.ts`); the "Browse by" counts come from the **live** `GET /api/taxonomy` (`home-browse.resolver.ts`), never the stats_cache.
+The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface from new home-only components plus reused catalog vocabulary. Anchor site: **Faire** (recorded in `docs/design/home-direction.md`, AECI-181) — the home reuses the AECI-190 `ProductCardGrid` / `IntegrationStat` so the front door and the catalog read as **one publication**, not a mashup (the Anchor-Site Rule). Every component renders correctly via tokens and i18n-wraps every visible string. Stats data is SSR-resolved from `GET /api/stats/home` (`home-stats.resolver.ts`); the "Browse by" counts come from the **live** `GET /api/taxonomy` (`home-browse.resolver.ts`), never the stats_cache.
 
 - **Home hero** (`<aec-home-hero>`, `home/home-hero.ts`) — a warm **Bone** (`accent-warm`) band with a 1px bottom border (the §"Surfaces-Are-Neutral" accent-band treatment, not a page background): an i18n eyebrow, a **Display**-face (Source Serif) tagline used at most once on the page, a lede, then the **reused header search autocomplete** (`<aec-search-autocomplete>`, AECI-144) mounted as the hero search field, and a browser-only "popular" quick-links row sourced from the `TaxonomyNavStore` (progressive enhancement — absent from the SSR/no-JS base, so it never poisons the cached shell).
 
@@ -451,7 +429,7 @@ The strategic anti-references in `PRODUCT.md` carry through here as concrete vis
 - **Don't** nest cards inside cards. Visual noise; flatten the hierarchy.
 - **Don't** use identical card grids (3×3 or 4-up cards each with icon + heading + 8 words). Vary the layout, vary card sizes, break the grid intentionally for emphasis.
 - **Don't** use any of the reflex-reject fonts: Inter, DM Sans, Plus Jakarta Sans, Geist, Mona Sans, Space Grotesk, IBM Plex Sans, Outfit, Roboto, Open Sans, Arial, Fraunces, Newsreader, Lora, Crimson Pro, Playfair Display, Cormorant, Cormorant Garamond, DM Serif Display, DM Serif Text, Instrument Sans, Instrument Serif, Syne. The chosen pair is Source Serif 4 + Atkinson Hyperlegible.
-- **Don't** use `#000` or `#fff` directly. Use `text-primary` (`#0A0A0A`) and `surface-base` (`#FFFFFF` for light, `#0A0A0A` for dark) tokens.
+- **Don't** use `#000` or `#fff` directly. Use `text-primary` (`#0A0A0A`) and `surface-base` (`#FFFFFF`) tokens.
 - **Don't** use bounce or elastic easing on motion. Use exponential ease-out (`ease-out-quart` / `quint` / `expo`). Real objects decelerate smoothly.
 - **Don't** use glassmorphism (blur, glass cards, glow borders) decoratively. Rare and purposeful, or nothing.
 - **Don't** put box-shadows on cards or buttons. Borders separate surfaces; shadows are for modals, dropdowns, popovers, and focus rings.

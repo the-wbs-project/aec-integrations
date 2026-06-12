@@ -81,7 +81,7 @@ These appear repeatedly in tasks and Claude Code may be tempted to violate them.
 - **Cached SSR routes must render visitor-state-neutral HTML.** Edge cache is keyed by URL. If SSR reads a cookie (e.g., `theme`) and bakes it into the response, the first visitor poisons the cache for everyone. The Worker strips visitor-state cookies before forwarding to SSR for cacheable routes; the client reconciles after hydration. Validated pattern: `apps/web/src/server-runtime.ts:131-153`.
 - **No pay-for-placement.** Search rankings are purely algorithmic. Paid vendor tiers (Stage 4+) affect profile richness, never ranking position.
 - **i18n from day one.** No hardcoded English strings in templates. Wrap everything in `i18n` attributes or `$localize` tags. Even though we launch English-only, retrofitting i18n is painful.
-- **Both themes always.** Every component must render correctly in light and dark themes. Verify both before submitting.
+- **Light only (Stage 1).** AECi ships a single light theme — no theme toggle, no system-preference detection (AECI-226, supersedes the former "Both themes always" rule). Do not add `dark:` Tailwind variants, a `.theme-dark` block, or a theme toggle. Dark returns with the Stage 2 vendor portal; the semantic tokens (`--surface-*`/`--text-*`/`--accent-*`) keep it a token-block + toggle re-introduction.
 - **Accessibility is built-in, not bolted on.** Spartan + Angular CDK give you a11y by default — don't break it. Run axe-core locally before pushing.
 
 ## Design checklist (UI-touching issues only)
@@ -95,7 +95,7 @@ For any issue that touches rendered UI in `apps/web/`, run this checklist before
 3. **Build / refine via the matching skill.** For new features: `/impeccable craft <feature>`. For targeted refinement: `/impeccable typeset`, `/impeccable layout`, `/impeccable colorize`, `/impeccable distill`, `/impeccable normalize`. The shared design laws and the PRODUCT.md/DESIGN.md context are loaded automatically.
 4. **Polish before submitting.** Run `/impeccable polish` for the final pass on spacing, alignment, micro-detail.
 5. **Detect anti-patterns.** `npx impeccable detect <file-or-dir>` must report zero P0 findings. If P0s remain, fix or open a follow-up issue with the exact line references before merging.
-6. **Verify both themes.** Per the "Both themes always" constraint above. The theme switcher (`apps/web/src/app/theme.service.ts`) toggles `.theme-dark` on `<html>` — render in each.
+6. **Light theme only.** Per the "Light only (Stage 1)" constraint above — there is one theme; do not add `dark:` variants or a toggle. (No dark-theme verification step in Stage 1.)
 7. **Run a11y locally.** axe-core pass on the changed surface; resolve every error and `serious` violation before push.
 
 ## API contracts approach

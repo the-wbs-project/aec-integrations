@@ -43,7 +43,6 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 import { NavFlyoutList } from './nav-flyout-list';
 import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
-import { ThemeToggleGroup } from './theme-toggle-group';
 
 @Component({
   selector: 'aec-nav-menu',
@@ -58,7 +57,6 @@ import { ThemeToggleGroup } from './theme-toggle-group';
     BrnPopoverContent,
     BrnPopoverTrigger,
     NavFlyoutList,
-    ThemeToggleGroup,
     SearchAutocomplete,
   ],
   template: `
@@ -158,7 +156,6 @@ import { ThemeToggleGroup } from './theme-toggle-group';
             (suggestionChosen)="onSuggestion($event); menu.close()"
           />
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
-            <aec-theme-toggle-group class="self-start" />
             <a
               routerLink="/auth/login"
               (click)="menu.close()"

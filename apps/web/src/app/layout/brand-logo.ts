@@ -7,22 +7,17 @@ import { RouterLink } from '@angular/router';
  * and "Integrations" in light, joined by the clay "integration" mark
  * (dot–link–dot). Acts as the home link.
  *
- * Theme-aware *and* cache-neutral by construction. The wordmark is a single
- * inline SVG whose ink comes from design tokens, not from baked-in hex or a
- * per-theme asset:
- *   - text → `var(--accent-primary)`   (Forest in light, lighter Forest in dark)
- *   - mark → `var(--accent-secondary)` (Clay, both themes)
+ * Token-driven *and* cache-neutral by construction. The wordmark is a single
+ * inline SVG whose ink comes from design tokens, not from baked-in hex:
+ *   - text → `var(--accent-primary)`   (Forest)
+ *   - mark → `var(--accent-secondary)` (Clay)
  * Both are applied via `currentColor`: the link sets `text-(--accent-primary)`
  * so the glyphs inherit Forest, and the mark elements override `color` to Clay.
  *
- * `--accent-primary` flips when `.theme-dark` is toggled on `<html>`, so the
- * logo follows the user's *explicit* in-app theme — never the OS
- * `prefers-color-scheme`, never the never-set Spartan `.dark` class. The
- * AECI-94 failure mode (a `dark:` utility keyed off the wrong class) is
- * structurally impossible here because no `dark:` variant is used. And because
- * the SSR HTML is identical for every visitor — the colour resolves client-side
- * from the CSS custom properties — the URL-keyed edge cache stays free of
- * per-visitor theme state (§9.1a, CLAUDE.md non-negotiable #6).
+ * Stage 1 ships a single (light) theme — dark was removed in AECI-226 — so the
+ * tokens resolve identically for every visitor. The SSR HTML is the same for
+ * all, so the URL-keyed edge cache stays free of per-visitor state (§9.1a,
+ * CLAUDE.md non-negotiable #6).
  *
  * The glyphs live inside the SVG as artwork (a logo is a proper noun, not
  * localised); the link carries the accessible, translatable name. The system

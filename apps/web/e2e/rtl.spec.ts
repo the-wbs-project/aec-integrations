@@ -20,11 +20,8 @@ import { expect, test, type Page } from '@playwright/test';
  *      Tailwind variant — it is the CSS logical property doing the work.
  *   2. The directional `↗` glyph (mirrored via `rtl:-scale-x-100`) carries no
  *      transform under LTR and a horizontal-flip transform under RTL.
- *
- * Both run in light AND dark themes, per the AC ("…in both themes").
  */
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const PATH = '/preview/vendor-detail';
 
 /** Computed inline-margin + transform for the two probe elements. */
@@ -56,13 +53,10 @@ function parseScaleX(scale: string | null): number | null {
   return Number(scale.trim().split(/\s+/)[0]);
 }
 
-async function assertFlips(page: Page, expectDark = false) {
+async function assertFlips(page: Page) {
   await page.goto(PATH);
   // The preview fixture renders without a DB; the tab list proves it mounted.
   await expect(page.locator('[role="tablist"]')).toBeVisible();
-  if (expectDark) {
-    await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
-  }
 
   const ltr = await probe(page);
   expect(ltr.foundCount, 'ms-1.5 count span must be present').toBe(true);
@@ -87,30 +81,7 @@ async function assertFlips(page: Page, expectDark = false) {
 }
 
 test.describe('RTL readiness (AECI-153)', () => {
-  test('logical utilities flip under dir="rtl" — light theme', async ({ page }) => {
+  test('logical utilities flip under dir="rtl"', async ({ page }) => {
     await assertFlips(page);
-  });
-
-  test('logical utilities flip under dir="rtl" — dark theme', async ({ page, context }) => {
-    const url = new URL(BASE_URL);
-    await context.addCookies([
-      {
-        name: 'theme',
-        value: 'dark',
-        domain: url.hostname,
-        path: '/',
-        secure: url.protocol === 'https:',
-        sameSite: 'Lax',
-      },
-    ]);
-    await context.addInitScript(() => {
-      try {
-        window.localStorage.setItem('theme', 'dark');
-      } catch {
-        /* private mode / storage blocked — ignore */
-      }
-    });
-
-    await assertFlips(page, true);
   });
 });

@@ -3,10 +3,10 @@
  *
  * Responsive: below `md` it is a minimal `[☰ wordmark]` bar — the hamburger
  * `aec-nav-menu` (its own `md:hidden` host) opens an overlay that holds the
- * links, search, theme toggle, and Sign-in. At `md+` the hamburger drops out and
- * those affordances render inline: a centered primary `<nav>` with the directory
- * links, plus a right-side cluster (search at `lg+`, theme toggle, Sign-in CTA),
- * over a warm Bone "shelf" that reads as editorial structure rather than chrome.
+ * links, search, and Sign-in. At `md+` the hamburger drops out and those
+ * affordances render inline: a centered primary `<nav>` with the directory
+ * links, plus a right-side cluster (search at `lg+`, Sign-in CTA), over a warm
+ * Bone "shelf" that reads as editorial structure rather than chrome.
  *
  * AECI-158 re-points the directory at the taxonomy: Home · Products ·
  * Categories▾ · Audiences▾ · Phases▾. Vendors / Integrations were removed from
@@ -32,19 +32,10 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { BrandLogo } from './brand-logo';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
-import { ThemeToggle } from './theme-toggle';
 
 @Component({
   selector: 'aec-site-header',
-  imports: [
-    RouterLink,
-    RouterLinkActive,
-    BrandLogo,
-    NavMenu,
-    NavFlyoutTrigger,
-    ThemeToggle,
-    SearchAutocomplete,
-  ],
+  imports: [RouterLink, RouterLinkActive, BrandLogo, NavMenu, NavFlyoutTrigger, SearchAutocomplete],
   template: `
     <header class="bg-(--surface-base)">
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
@@ -83,7 +74,6 @@ import { ThemeToggle } from './theme-toggle';
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
           />
-          <aec-theme-toggle />
           <a
             routerLink="/auth/login"
             class="inline-flex items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"

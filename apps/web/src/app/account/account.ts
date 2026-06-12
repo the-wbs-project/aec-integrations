@@ -14,14 +14,13 @@ import {
 import { UpdateAccountSchema, type AccountProfileResponse } from '@aeci/shared';
 
 import { AuthService } from '../auth/auth.service';
-import { ThemeToggleGroup } from '../layout/theme-toggle-group';
 import { AccountApi } from './account-api';
 
 /**
  * `/account` (AECI-202 / Phase 5.11) — the signed-in user's account surface:
- * identity (email read-only from the session, editable display name), theme
- * preference (the already-wired toggle group), a deferred reviews section,
- * sign-out, and the GDPR **delete account** flow (a confirmation dialog).
+ * identity (email read-only from the session, editable display name), a
+ * deferred reviews section, sign-out, and the GDPR **delete account** flow (a
+ * confirmation dialog).
  *
  * Auth + cacheability: the SSR Worker 303s an unauthenticated visitor to
  * `/auth/login?return=/account` before this ever renders, and `/account` is
@@ -34,14 +33,13 @@ import { AccountApi } from './account-api';
  * endpoint yet) — the reviews section renders a placeholder; see AECI-225.
  *
  * i18n / a11y: all copy is `i18n`/`$localize`; the delete confirmation uses
- * Spartan `BrnDialog` (focus trap + Escape + focus return). Both themes verified.
+ * Spartan `BrnDialog` (focus trap + Escape + focus return).
  */
 @Component({
   selector: 'aec-account-page',
   imports: [
     FormField,
     RouterLink,
-    ThemeToggleGroup,
     BrnDialog,
     BrnDialogClose,
     BrnDialogContent,

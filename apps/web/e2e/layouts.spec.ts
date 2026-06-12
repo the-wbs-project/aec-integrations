@@ -3,10 +3,8 @@ import { expect, test } from '@playwright/test';
 
 // Phase 2.6 (AECI-52). Smoke for the three reusable layout shells via their
 // preview routes. Validates: SSR returns 200, slots render, axe-core finds no
-// violations in light AND dark, and the responsive breakpoint behaviour kicks
-// in at the small viewport.
-
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
+// violations, and the responsive breakpoint behaviour kicks in at the small
+// viewport.
 
 const LAYOUTS = [
   {
@@ -49,53 +47,16 @@ test.describe('layout shells (preview routes)', () => {
       }
     });
 
-    test(`${layout.name} layout has zero axe violations in light theme`, async ({ page }) => {
+    test(`${layout.name} layout has zero axe violations`, async ({ page }) => {
       await page.goto(layout.path);
       await expect(page.locator('app-root')).toBeAttached();
-      // Exclude site chrome (header / footer) — owned by AECI-32, not this
-      // issue. Pre-existing dark-mode contrast issues in the footer are
-      // tracked separately; re-test the chrome there.
+      // Exclude the site header — its nav chrome is owned by AECI-32 and fully
+      // covered by nav-menu.spec.ts, so re-testing it here is redundant. The
+      // footer IS in scope: its former carve-out was for dark-theme contrast
+      // debt, which went away with the dark theme in AECI-226.
       const results = await new AxeBuilder({ page })
         .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
         .exclude('aec-site-header')
-        .exclude('aec-site-footer')
-        .analyze();
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
-    });
-
-    test(`${layout.name} layout has zero axe violations in dark theme`, async ({
-      page,
-      context,
-    }) => {
-      const url = new URL(BASE_URL);
-      await context.addCookies([
-        {
-          name: 'theme',
-          value: 'dark',
-          domain: url.hostname,
-          path: '/',
-          secure: url.protocol === 'https:',
-          sameSite: 'Lax',
-        },
-      ]);
-      await context.addInitScript(() => {
-        try {
-          window.localStorage.setItem('theme', 'dark');
-        } catch {
-          /* private mode / storage blocked — ignore */
-        }
-      });
-
-      await page.goto(layout.path);
-      // Wait for the client-side theme service to apply .theme-dark from
-      // localStorage. No explicit timeout — inherits the test-level default
-      // so CI machines with slower hydration don't produce false failures.
-      await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
-
-      const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-        .exclude('aec-site-header')
-        .exclude('aec-site-footer')
         .analyze();
       expect(results.violations, formatViolations(results.violations)).toEqual([]);
     });

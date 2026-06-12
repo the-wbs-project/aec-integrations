@@ -22,7 +22,7 @@ type CtaState = 'neutral' | 'anon' | 'authed';
  * (the route the SSR Worker 303-redirects anonymous visitors to login from, so
  * it is correct for everyone and works without JS) — and only **after
  * hydration** (`afterNextRender`, browser-only) reconciles to a personalized
- * label, exactly like the theme reconciles post-paint (`theme.service.ts`).
+ * label.
  *
  * Two personalized states ship now:
  *   - `anon`   → "Sign in to review" → `/auth/login?return=/products/:slug/review`
