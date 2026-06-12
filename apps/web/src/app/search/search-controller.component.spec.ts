@@ -179,6 +179,21 @@ describe('SearchController render-state → signal mapping', () => {
     expect(controller.vendors.hits()).toEqual([]);
   });
 
+  it('flips `ready` only on the first non-initial connectHits render (AECI-228)', () => {
+    const { calls, controller } = build();
+    // Starts false: pre-search, `hits()` is `[]` — indistinguishable from a real
+    // zero-result search, so the page must keep showing skeletons.
+    expect(controller.ready()).toBe(false);
+    // The synchronous init render (isFirstRender=true, empty items) must NOT flip
+    // it — the first response hasn't landed yet.
+    calls.hits[0].renderFn({ items: [] }, true);
+    expect(controller.ready()).toBe(false);
+    // The first response render (isFirstRender=false) flips it — even with zero
+    // hits, the search has now settled.
+    calls.hits[0].renderFn({ items: [] }, false);
+    expect(controller.ready()).toBe(true);
+  });
+
   it('maps connectStats nbHits onto the per-index count signal', () => {
     const { calls, controller } = build();
     calls.stats[1].renderFn({ nbHits: 42 }, true);

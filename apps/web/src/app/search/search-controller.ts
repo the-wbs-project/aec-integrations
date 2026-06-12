@@ -252,6 +252,15 @@ export class SearchController {
   readonly query: WritableSignal<string>;
   /** True while a search is taking long enough to be flagged stalled. */
   readonly stalled = signal(false);
+  /**
+   * Flips `true` once the first search RESPONSE has landed (the first
+   * non-initial `connectHits` render). Until then `hits()` is `[]` — which is
+   * indistinguishable from a genuine zero-result search — so the page would
+   * otherwise flash the empty-state before results arrive. The page gates its
+   * skeletons on this so it reserves space until results actually settle
+   * (AECI-228).
+   */
+  readonly ready = signal(false);
 
   readonly products: IndexView<AlgoliaProductRecord>;
   readonly vendors: IndexView<AlgoliaVendorRecord>;
@@ -346,7 +355,13 @@ export class SearchController {
 
     const widgets: IsWidget[] = [
       lib.configure({ hitsPerPage: HITS_PER_PAGE }),
-      lib.connectHits((state) => hits.set(state.items as T[]))({}),
+      lib.connectHits((state, isFirstRender) => {
+        hits.set(state.items as T[]);
+        // The init render (isFirstRender) fires synchronously on start() with
+        // empty items, before any network. The first response is the first
+        // non-initial render — that's when results have actually settled.
+        if (!isFirstRender) this.ready.set(true);
+      })({}),
       lib.connectStats((state) => nbHits.set(state.nbHits))({}),
       lib.connectPagination((state) => {
         page.set(state.currentRefinement);

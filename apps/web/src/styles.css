@@ -76,6 +76,12 @@ html {
   background-color: var(--surface-base);
   color: var(--text-primary);
   font-family: var(--font-body);
+  /* Reserve the scrollbar gutter on every route so a vertical scrollbar
+     appearing (e.g. /search growing tall once results land) never narrows the
+     viewport and shifts the horizontally-centered layout — a horizontal CLS
+     source (AECI-228). No-op under macOS overlay scrollbars; effective on the
+     classic, space-taking scrollbars headless Chrome (Lighthouse CI) uses. */
+  scrollbar-gutter: stable;
 }
 
 body {
