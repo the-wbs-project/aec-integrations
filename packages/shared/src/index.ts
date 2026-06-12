@@ -5,3 +5,4 @@ export * from './datadog';
 export * from './errors';
 export * from './slug';
 export * from './timing-safe-equal';
+export * from './workflow-transition';
