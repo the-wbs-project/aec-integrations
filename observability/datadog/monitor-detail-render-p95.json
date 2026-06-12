@@ -1,7 +1,7 @@
 {
   "name": "AECi — p95 detail page render > 1.5s (10m)",
   "type": "query alert",
-  "query": "p95(last_10m):aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production} > 1500",
+  "query": "avg(last_10m):p95:aeci.page.render.duration_ms{route_class:detail,cache_status:miss,env:production} > 1500",
   "message": "p95 server render time for detail pages on a cache MISS has exceeded 1.5s (sustained 10m). Scoped to cache_status:miss because HITs are served from the edge and would mask slow real renders.\n\nLikely causes: slow API query (check p95 aeci.api.query.duration_ms by endpoint), Supabase latency, or an Angular SSR regression.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#high-p95-detail-render\n\n@NOTIFICATION_CHANNEL_TBD",
   "tags": ["app:aeci", "service:aeci-web", "phase:2", "managed-by:aeci-66"],
   "options": {
