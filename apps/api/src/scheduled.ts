@@ -41,7 +41,7 @@
 import type { AlgoliaEnv } from '@aeci/shared/algolia';
 
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
-import type { ScheduledJob, ScheduledJobMessage, Env } from './env';
+import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
   createAlgoliaCounter,
   reportAlgoliaDrift,
@@ -372,29 +372,51 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
 };
 
 /**
+ * Fill in the properties an out-of-band queue message can omit. The cron
+ * producer (`enqueueOrRun`) always stamps `trigger` + `enqueuedAt`, but an
+ * operator force-run — a Cloudflare Queues REST push of just `{ "job": "stats" }`
+ * (ADR 0013) — does not. The consumer implies them after the fact: a body with
+ * no `trigger` was not enqueued by the cron, so it's `'manual'`; `enqueuedAt`
+ * falls back to when the queue received the message. Pure + exported so the
+ * contract is unit-tested directly.
+ */
+export function normalizeJobMessage(
+  body: ScheduledJobMessageInput,
+  receivedAt: string,
+): ScheduledJobMessage {
+  return {
+    job: body.job,
+    trigger: body.trigger ?? 'manual',
+    enqueuedAt: body.enqueuedAt ?? receivedAt,
+  };
+}
+
+/**
  * Worker `queue` consumer — runs the actual scheduled job for each message the
  * cron `scheduled` handler enqueued (ADR 0013). Bound to every job queue in
  * `wrangler.jsonc`; `batch.queue` would distinguish them, but the message body's
- * `job` is authoritative. Batches are size-1 (each job is a singleton), so this
+ * `job` is authoritative. Messages may also be pushed out-of-band (an operator
+ * force-run sending just `{ job }`); `normalizeJobMessage` implies the missing
+ * `trigger` / `enqueuedAt`. Batches are size-1 (each job is a singleton), so this
  * loops at most once per invocation. The job impls (`runAlgoliaSync`,
  * `runAlgoliaDrift`, `runHomeStatsJob`) swallow their own operational errors
  * (logging to Datadog), so reaching the `catch` means an unexpected throw (e.g.
  * Prisma client init) — `retry()` it per the consumer's `max_retries`; everything
  * else `ack()`s.
  */
-export const queue: ExportedHandlerQueueHandler<Env, ScheduledJobMessage> = async (
+export const queue: ExportedHandlerQueueHandler<Env, ScheduledJobMessageInput> = async (
   batch,
   env,
   ctx,
 ) => {
   for (const message of batch.messages) {
-    const { job } = message.body;
+    const { job, trigger } = normalizeJobMessage(message.body, message.timestamp.toISOString());
     try {
       await runScheduledJob(env, ctx, job);
       message.ack();
     } catch (error) {
       console.error(
-        `queue: scheduled job "${job}" threw on ${batch.queue} (retrying):`,
+        `queue: scheduled job "${job}" (trigger=${trigger}) threw on ${batch.queue} (retrying):`,
         error instanceof Error ? error.message : String(error),
       );
       message.retry();

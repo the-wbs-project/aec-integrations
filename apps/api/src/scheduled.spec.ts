@@ -10,7 +10,7 @@
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ScheduledJob, Env } from './env';
+import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 
 vi.mock('./datadog', () => ({
   logToDatadog: vi.fn(),
@@ -31,7 +31,7 @@ import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runHomeStats } from './lib/home-stats';
 import { getPrisma } from './prisma';
-import { queue, scheduled } from './scheduled';
+import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
 // Must stay byte-equal to the constants / `wrangler.jsonc` triggers.
 const STATS_CRON = '0 7 * * *';
@@ -53,16 +53,23 @@ function cronController(cron: string) {
   return { cron, scheduledTime: 0, noRetry: vi.fn() } as unknown as Parameters<typeof scheduled>[0];
 }
 
-function makeBatch(job: ScheduledJob, queueName: string) {
+// A real Cloudflare queue message always carries a `timestamp` (queue receive
+// time) — the consumer reads it as the `enqueuedAt` fallback, so the fakes must
+// have one too.
+const MSG_TIMESTAMP = new Date('2026-06-12T07:00:00.000Z');
+
+function makeBatchFromBody(body: ScheduledJobMessageInput, queueName: string) {
   const ack = vi.fn();
   const retry = vi.fn();
   const batch = {
     queue: queueName,
-    messages: [
-      { id: '1', attempts: 1, body: { job, trigger: 'cron', enqueuedAt: 'x' }, ack, retry },
-    ],
+    messages: [{ id: '1', timestamp: MSG_TIMESTAMP, attempts: 1, body, ack, retry }],
   } as unknown as Parameters<typeof queue>[0];
   return { batch, ack, retry };
+}
+
+function makeBatch(job: ScheduledJob, queueName: string) {
+  return makeBatchFromBody({ job, trigger: 'cron', enqueuedAt: 'x' }, queueName);
 }
 
 beforeEach(() => {
@@ -135,6 +142,25 @@ describe('scheduled (cron producer)', () => {
   });
 });
 
+describe('normalizeJobMessage', () => {
+  it('implies trigger=manual and enqueuedAt=receivedAt when a body omits them', () => {
+    expect(normalizeJobMessage({ job: 'stats' }, '2026-06-12T07:00:00.000Z')).toEqual({
+      job: 'stats',
+      trigger: 'manual',
+      enqueuedAt: '2026-06-12T07:00:00.000Z',
+    });
+  });
+
+  it('preserves the trigger + enqueuedAt the cron producer already stamped', () => {
+    expect(
+      normalizeJobMessage(
+        { job: 'sync', trigger: 'cron', enqueuedAt: '2026-01-01T00:00:00.000Z' },
+        'ignored',
+      ),
+    ).toEqual({ job: 'sync', trigger: 'cron', enqueuedAt: '2026-01-01T00:00:00.000Z' });
+  });
+});
+
 describe('queue (consumer)', () => {
   it('ack()s a message whose job runs successfully', async () => {
     const { batch, ack, retry } = makeBatch('sync', 'aeci-algolia-sync-staging');
@@ -160,6 +186,18 @@ describe('queue (consumer)', () => {
 
   it('ack()s a stats job message and runs the home-stats compute (AECI-178)', async () => {
     const { batch, ack, retry } = makeBatch('stats', 'aeci-stats-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(runHomeStats).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('runs + ack()s a minimal { job } operator push (trigger/enqueuedAt implied)', async () => {
+    // An out-of-band Cloudflare Queues REST push of just `{ "job": "stats" }`:
+    // the consumer implies `trigger`/`enqueuedAt` rather than choking on them.
+    const { batch, ack, retry } = makeBatchFromBody({ job: 'stats' }, 'aeci-stats-production');
 
     await queue(batch, makeEnv(), ctx);
 
