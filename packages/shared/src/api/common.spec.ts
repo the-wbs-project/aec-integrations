@@ -8,10 +8,12 @@ import {
   paginatedResponseSchema,
   ProductLinkSchema,
   SortOrderSchema,
+  uuidList,
   VendorLinkSchema,
 } from './common';
 
 const validUuid = '11111111-2222-4333-8444-555555555555';
+const uuidB = '22222222-3333-4444-8555-666666666666';
 
 describe('ApiErrorSchema', () => {
   it('parses a minimal valid envelope', () => {
@@ -213,5 +215,40 @@ describe('SortOrderSchema', () => {
 
   it('rejects uppercase variants', () => {
     expect(SortOrderSchema.safeParse('DESC').success).toBe(false);
+  });
+});
+
+describe('uuidList (AECI-223)', () => {
+  it('decodes a single UUID to a one-element array', () => {
+    expect(uuidList.parse(validUuid)).toEqual([validUuid]);
+  });
+
+  it('decodes a comma-separated list, preserving order', () => {
+    expect(uuidList.parse(`${validUuid},${uuidB}`)).toEqual([validUuid, uuidB]);
+  });
+
+  it('trims surrounding whitespace and drops empty segments', () => {
+    expect(uuidList.parse(` ${validUuid} , ${uuidB} ,`)).toEqual([validUuid, uuidB]);
+  });
+
+  it('rejects when any element is not a UUID', () => {
+    expect(uuidList.safeParse(`${validUuid},not-a-uuid`).success).toBe(false);
+    expect(uuidList.safeParse('not-a-uuid').success).toBe(false);
+  });
+
+  it('rejects an empty / all-separator value (no ids)', () => {
+    expect(uuidList.safeParse('').success).toBe(false);
+    expect(uuidList.safeParse(',').success).toBe(false);
+  });
+
+  it('reports the issue at the param key, not a nested array index', () => {
+    // The transform raises issues on the input, so when nested under a key the
+    // ZodError path stays at that key — `errors.ts` reports a clean `field`.
+    const schema = z.object({ category_id: uuidList });
+    const result = schema.safeParse({ category_id: `${validUuid},nope` });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error.issues[0]?.path).toEqual(['category_id']);
+    }
   });
 });

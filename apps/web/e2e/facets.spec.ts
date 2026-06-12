@@ -20,8 +20,10 @@ import { expect, test, type APIRequestContext, type Page, type Response } from '
 //   - AC2 — the grid actually filters to the selected term (the term's facet
 //     count IS the filtered grid total) and sibling-dimension counts rescope
 //     disjunctively.
-//   - AC3 — single-select semantics: re-clicking the active term clears it;
-//     clicking a sibling replaces it (never appends).
+//   - AC3 — facet toggle semantics. SUPERSEDED by AECI-223: the dimensions are
+//     now MULTI-select, so a sibling click APPENDS (both stay selected) rather
+//     than replacing, and re-clicking a term removes just that one. The ids are
+//     emitted as one sorted CSV `{kind}_id` param (cache-stable).
 //   - AC4 — "Clear filters" is absent on an unfiltered load, and Clear restores
 //     the unfiltered total.
 //   - AC5 — a browse page's locked dimension rides the API requests as
@@ -315,7 +317,7 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     await expect(checkboxes).toHaveCount(itemsBefore);
   });
 
-  test('single-select semantics: re-clicking the active term clears it; a sibling click replaces it (AECI-189 AC3)', async ({
+  test('multi-select semantics: a sibling click APPENDS (both stay selected); re-clicking a term removes just it (AECI-223)', async ({
     page,
   }) => {
     await page.goto('/products');
@@ -349,25 +351,38 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     await expect.poll(() => qp(page).get(param)).toBeNull();
     await expect(checkboxes.first()).not.toBeChecked();
 
-    // Re-select the first term (with barrier), then click a sibling — REPLACE
-    // semantics: one value, swapped, never appended.
+    // Re-select the first term (with barrier), then click a sibling — APPEND
+    // semantics (AECI-223): the dimension now holds BOTH ids as one sorted CSV
+    // param, and BOTH checkboxes stay checked.
     facetsWait = apiResponse(page, '/api/products/facets', (sp) => sp.get(param) === v1);
     await checkboxes.first().click();
     expect((await facetsWait).status()).toBe(200);
     await expect(checkboxes.first()).toBeChecked();
 
-    facetsWait = apiResponse(
-      page,
-      '/api/products/facets',
-      (sp) => sp.has(param) && sp.get(param) !== v1,
+    // The sibling click fires a multi-value request — the param value carries a
+    // comma — and the grid refetches with the same CSV (OR within the dimension).
+    facetsWait = apiResponse(page, '/api/products/facets', (sp) =>
+      (sp.get(param) ?? '').includes(','),
+    );
+    const gridWait = apiResponse(page, '/api/products', (sp) =>
+      (sp.get(param) ?? '').includes(','),
     );
     await checkboxes.nth(1).click();
     expect((await facetsWait).status()).toBe(200);
-    await expect.poll(() => qp(page).get(param)).not.toBe(v1);
-    expect(qp(page).get(param), 'sibling click must keep the dimension refined').toBeTruthy();
-    expect(qp(page).getAll(param), 'replace — never append a second value').toHaveLength(1);
+    expect((await gridWait).status()).toBe(200);
+
+    // Still ONE param (CSV-encoded, not repeated), holding both ids, SORTED, and
+    // including the original v1 — proving append (not replace) and cache-stable
+    // ordering.
+    await expect.poll(() => (qp(page).get(param) ?? '').includes(',')).toBe(true);
+    expect(qp(page).getAll(param), 'multi-select is one CSV param, never repeated').toHaveLength(1);
+    const ids = qp(page).get(param)!.split(',');
+    expect(ids, 'append keeps the first term').toContain(v1);
+    expect(ids, 'two distinct terms selected').toHaveLength(2);
+    expect(ids, 'ids emitted in sorted order (cache-stable)').toEqual([...ids].sort());
+    await expect(checkboxes.first()).toBeChecked();
     await expect(checkboxes.nth(1)).toBeChecked();
-    await expect(checkboxes.first()).not.toBeChecked();
+    expect(qp(page).get('page')).toBe('1');
   });
 });
 

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   CONSTRUCTION_AUDIENCE_ID,
+  FIELD_MGMT_CATEGORY_ID,
   PROJECT_MGMT_CATEGORY_ID,
   allAudienceRows,
   allCategoryRows,
@@ -92,20 +93,48 @@ describe('GET /api/products/facets', () => {
     expect(
       countWhere(prisma.taxonomyCategory.findMany.mock.calls[0][0], 'productCategories'),
     ).toEqual({
-      productAudiences: { some: { audienceId: CONSTRUCTION_AUDIENCE_ID } },
+      productAudiences: { some: { audienceId: { in: [CONSTRUCTION_AUDIENCE_ID] } } },
     });
 
     // audiences group: own (audience) clause dropped; category clause applies.
     expect(
       countWhere(prisma.taxonomyAudience.findMany.mock.calls[0][0], 'productAudiences'),
     ).toEqual({
-      productCategories: { some: { categoryId: PROJECT_MGMT_CATEGORY_ID } },
+      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
     });
 
     // phases group: neither own — both category + audience clauses apply.
     expect(countWhere(prisma.taxonomyPhase.findMany.mock.calls[0][0], 'productPhases')).toEqual({
-      productCategories: { some: { categoryId: PROJECT_MGMT_CATEGORY_ID } },
-      productAudiences: { some: { audienceId: CONSTRUCTION_AUDIENCE_ID } },
+      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
+      productAudiences: { some: { audienceId: { in: [CONSTRUCTION_AUDIENCE_ID] } } },
+    });
+  });
+
+  it("excludes a dimension's own multi-selection from its own counts, ORs it into the others (AECI-223)", async () => {
+    const prisma = allTermsPrisma();
+    const catA = PROJECT_MGMT_CATEGORY_ID;
+    const catB = FIELD_MGMT_CATEGORY_ID;
+    await facetsApp(prisma).request(
+      `/api/products/facets?category_id=${catA},${catB}`,
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    // categories group: its own (multi) clause is dropped entirely — each term's
+    // count reflects what it would add, not the already-selected pair.
+    expect(
+      countWhere(prisma.taxonomyCategory.findMany.mock.calls[0][0], 'productCategories'),
+    ).toEqual({});
+
+    // sibling dimensions: the full multi-select rides in as a single `in` clause.
+    expect(
+      countWhere(prisma.taxonomyAudience.findMany.mock.calls[0][0], 'productAudiences'),
+    ).toEqual({
+      productCategories: { some: { categoryId: { in: [catA, catB] } } },
+    });
+    expect(countWhere(prisma.taxonomyPhase.findMany.mock.calls[0][0], 'productPhases')).toEqual({
+      productCategories: { some: { categoryId: { in: [catA, catB] } } },
     });
   });
 
@@ -127,10 +156,10 @@ describe('GET /api/products/facets', () => {
     expect(
       countWhere(prisma.taxonomyAudience.findMany.mock.calls[0][0], 'productAudiences'),
     ).toEqual({
-      productCategories: { some: { categoryId: PROJECT_MGMT_CATEGORY_ID } },
+      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
     });
     expect(countWhere(prisma.taxonomyPhase.findMany.mock.calls[0][0], 'productPhases')).toEqual({
-      productCategories: { some: { categoryId: PROJECT_MGMT_CATEGORY_ID } },
+      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
     });
   });
 

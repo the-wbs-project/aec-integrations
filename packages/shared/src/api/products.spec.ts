@@ -263,9 +263,40 @@ describe('ProductsListQuerySchema', () => {
     expect(parsed.has_api_docs).toBe(true);
   });
 
-  it('rejects a non-UUID vendor_id', () => {
-    const result = ProductsListQuerySchema.safeParse({ vendor_id: 'not-a-uuid' });
+  it('decodes a single taxonomy id to a one-element list (AECI-223)', () => {
+    const parsed = ProductsListQuerySchema.parse({ category_id: uuid(6) });
+    expect(parsed.category_id).toEqual([uuid(6)]);
+  });
+
+  it('decodes a comma-separated taxonomy id list to an array, preserving order', () => {
+    const parsed = ProductsListQuerySchema.parse({
+      category_id: `${uuid(2)},${uuid(1)}`,
+      audience_id: `${uuid(7)},${uuid(8)},${uuid(9)}`,
+    });
+    expect(parsed.category_id).toEqual([uuid(2), uuid(1)]);
+    expect(parsed.audience_id).toEqual([uuid(7), uuid(8), uuid(9)]);
+  });
+
+  it('trims whitespace and drops empty segments in a taxonomy id list', () => {
+    const parsed = ProductsListQuerySchema.parse({ category_id: ` ${uuid(1)} , ${uuid(2)} ,` });
+    expect(parsed.category_id).toEqual([uuid(1), uuid(2)]);
+  });
+
+  it('rejects a taxonomy id list with any non-UUID element', () => {
+    const result = ProductsListQuerySchema.safeParse({ category_id: `${uuid(1)},not-a-uuid` });
     expect(result.success).toBe(false);
+  });
+
+  it('rejects an empty taxonomy id param (no valid ids)', () => {
+    expect(ProductsListQuerySchema.safeParse({ category_id: '' }).success).toBe(false);
+    expect(ProductsListQuerySchema.safeParse({ category_id: ',' }).success).toBe(false);
+  });
+
+  it('keeps vendor_id single — rejects a non-UUID, and does not split a CSV', () => {
+    expect(ProductsListQuerySchema.safeParse({ vendor_id: 'not-a-uuid' }).success).toBe(false);
+    expect(ProductsListQuerySchema.safeParse({ vendor_id: `${uuid(1)},${uuid(2)}` }).success).toBe(
+      false,
+    );
   });
 });
 

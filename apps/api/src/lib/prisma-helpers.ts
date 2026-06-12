@@ -746,12 +746,14 @@ export type ProductFacetDimension = 'category' | 'audience' | 'phase';
 
 /** Filter params accepted by `GET /api/products` (and `GET /api/products/facets`).
  *  Structural subset shared by `ProductsListQuery` and `ProductFacetsQuery` —
- *  the where builder reads only these, ignoring page/perPage/sort. */
+ *  the where builder reads only these, ignoring page/perPage/sort. The three
+ *  taxonomy dimensions are `string[]` (AECI-223 multi-select: OR within a
+ *  dimension); `vendor_id` stays a single non-faceted scope. */
 export type ProductFilterParams = {
   search?: string;
-  category_id?: string;
-  audience_id?: string;
-  phase_id?: string;
+  category_id?: string[];
+  audience_id?: string[];
+  phase_id?: string[];
   vendor_id?: string;
   product_role?: string;
   has_api_docs?: boolean;
@@ -763,10 +765,15 @@ export type ProductFilterParams = {
  * `GET /api/products/facets` handler shares one source of truth for filter
  * semantics.
  *
+ * Multi-select (AECI-223): each taxonomy dimension takes an id **list** and
+ * matches **OR within the dimension** via `{ some: { <fk>: { in: ids } } }`;
+ * separate dimensions stay separate `where` keys, so they **AND across
+ * dimensions**. An empty/absent list contributes no clause.
+ *
  * `excludeDimension` powers **disjunctive faceting**: when computing a taxonomy
  * dimension's own facet counts, that dimension's clause is omitted so each term
  * shows how many products it *would* add to the current selection rather than
- * collapsing to the already-selected term. The list endpoint passes no
+ * collapsing to the already-selected terms. The list endpoint passes no
  * `excludeDimension` (every active filter applies); the facets endpoint calls it
  * once per dimension. `vendor_id` / `product_role` / `has_api_docs` / `search`
  * are non-faceted scopes here, so they always apply.
@@ -777,14 +784,14 @@ export function buildProductsWhere(
 ): Prisma.ProductWhereInput {
   const where: Prisma.ProductWhereInput = {};
   if (query.search) where.name = { contains: query.search, mode: 'insensitive' };
-  if (query.category_id && excludeDimension !== 'category') {
-    where.productCategories = { some: { categoryId: query.category_id } };
+  if (query.category_id?.length && excludeDimension !== 'category') {
+    where.productCategories = { some: { categoryId: { in: query.category_id } } };
   }
-  if (query.audience_id && excludeDimension !== 'audience') {
-    where.productAudiences = { some: { audienceId: query.audience_id } };
+  if (query.audience_id?.length && excludeDimension !== 'audience') {
+    where.productAudiences = { some: { audienceId: { in: query.audience_id } } };
   }
-  if (query.phase_id && excludeDimension !== 'phase') {
-    where.productPhases = { some: { phaseId: query.phase_id } };
+  if (query.phase_id?.length && excludeDimension !== 'phase') {
+    where.productPhases = { some: { phaseId: { in: query.phase_id } } };
   }
   if (query.vendor_id) where.productVendors = { some: { vendorId: query.vendor_id } };
   if (query.product_role) where.productRole = query.product_role;
