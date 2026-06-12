@@ -19,11 +19,21 @@
  */
 import { Injectable } from '@angular/core';
 
-import { createBrowserClient } from '@supabase/ssr';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 import { safeReturnPath } from './return-path';
 import { readSupabaseConfig } from './supabase-config';
+
+/**
+ * True when a Supabase auth-token cookie is present (`sb-<ref>-auth-token`,
+ * possibly chunked `…-auth-token.0`). Lets `isSignedIn()` answer "no" for
+ * anonymous visitors WITHOUT loading the ~58 kB browser SDK — see
+ * `requireClient()` (AECI-221). Browser-only; returns false during SSR.
+ */
+function hasSupabaseAuthCookie(): boolean {
+  if (typeof document === 'undefined') return false;
+  return /(?:^|;\s*)sb-[^=;]*-auth-token(?:\.\d+)?=/.test(document.cookie);
+}
 
 @Injectable({ providedIn: 'root' })
 export class AuthService {
@@ -48,9 +58,16 @@ export class AuthService {
    */
   async isSignedIn(): Promise<boolean> {
     if (!this.isConfigured()) return false;
+    // Anonymous fast-path: no auth cookie → not signed in, and the browser SDK
+    // never loads. This is the cacheable detail-page case (and the Lighthouse
+    // measurement) where `ReviewCta` probes every load — so `@supabase/ssr`
+    // stays out of the detail-page JS budget (AECI-221). A logged-in visitor
+    // (cookie present) falls through and loads the SDK to verify the session.
+    if (!hasSupabaseAuthCookie()) return false;
+    const client = await this.requireClient();
     const {
       data: { session },
-    } = await this.requireClient().auth.getSession();
+    } = await client.auth.getSession();
     return session !== null;
   }
 
@@ -62,7 +79,9 @@ export class AuthService {
    * error notice.
    */
   async sendMagicLink(email: string, returnPath: string | null): Promise<void> {
-    const { error } = await this.requireClient().auth.signInWithOtp({
+    const { error } = await (
+      await this.requireClient()
+    ).auth.signInWithOtp({
       email,
       options: {
         emailRedirectTo: this.callbackUrl(returnPath, 'magic_link'),
@@ -78,7 +97,9 @@ export class AuthService {
    * the redirect; throws on errors raised before navigation.
    */
   async signInWithGoogle(returnPath: string | null): Promise<void> {
-    const { error } = await this.requireClient().auth.signInWithOAuth({
+    const { error } = await (
+      await this.requireClient()
+    ).auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo: this.callbackUrl(returnPath, 'google') },
     });
@@ -95,7 +116,7 @@ export class AuthService {
    */
   async signOut(): Promise<void> {
     if (!this.isConfigured()) return;
-    const { error } = await this.requireClient().auth.signOut();
+    const { error } = await (await this.requireClient()).auth.signOut();
     if (error) throw error;
   }
 
@@ -113,11 +134,22 @@ export class AuthService {
     return url.toString();
   }
 
-  /** Lazily constructs the browser client; throws when env is unconfigured. */
-  private requireClient(): SupabaseClient {
+  /**
+   * Lazily constructs the browser client; throws when env is unconfigured.
+   * `@supabase/ssr` is loaded via a dynamic `import()` (not a static top-level
+   * import) so the ~58 kB auth SDK ships in its own chunk that loads only when a
+   * client is actually needed — a signed-in session probe, or the login/account
+   * flows — never on an anonymous detail-page render (AECI-221).
+   */
+  private async requireClient(): Promise<SupabaseClient> {
     if (this.client === undefined) {
       const cfg = readSupabaseConfig();
-      this.client = cfg ? createBrowserClient(cfg.url, cfg.anonKey) : null;
+      if (cfg) {
+        const { createBrowserClient } = await import('@supabase/ssr');
+        this.client = createBrowserClient(cfg.url, cfg.anonKey);
+      } else {
+        this.client = null;
+      }
     }
     if (this.client === null) throw new Error('Supabase auth is not configured');
     return this.client;

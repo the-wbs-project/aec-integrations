@@ -11,7 +11,7 @@
  * keyed off the shared package. The current shape is deliberately minimal:
  * one `request<T>()` method, structured error mapping, no path registry.
  */
-import { ApiErrorSchema, type ApiError } from '@aeci/shared';
+import type { ApiError } from '@aeci/shared';
 
 export class ServerApiError extends Error {
   readonly status: number;
@@ -122,9 +122,9 @@ async function toServerApiError(response: Response): Promise<ServerApiError> {
     });
   }
 
-  const envelope = ApiErrorSchema.safeParse(parsedJson);
-  if (envelope.success) {
-    const { error, trace_id } = envelope.data as ApiError;
+  const envelope = parseApiErrorEnvelope(parsedJson);
+  if (envelope) {
+    const { error, trace_id } = envelope;
     return new ServerApiError({
       status: response.status,
       code: error.code,
@@ -143,4 +143,33 @@ async function toServerApiError(response: Response): Promise<ServerApiError> {
         ? JSON.stringify(parsedJson).slice(0, 500)
         : String(parsedJson).slice(0, 500),
   });
+}
+
+/**
+ * Structural read of the shared `ApiErrorSchema` envelope (api/common.ts):
+ * `{ error: { code, message, field?, details? }, trace_id }`.
+ *
+ * Deliberately zod-free (AECI-221). This module's `isServerApiError` guard is
+ * imported by the Angular browser resolvers (`core/api/fetch-or-null.ts`); when
+ * the envelope read used `ApiErrorSchema.safeParse`, that one value import
+ * dragged the whole `@aeci/shared` api barrel + the 327 kB `zod` chunk into the
+ * browser's INITIAL graph — shipping ~54 kB of zod on every detail/browse page.
+ * The canonical schema still lives in `@aeci/shared`; this is the SSR client's
+ * defensive read of an already-received error response, where a lenient
+ * structural check is equivalent (and never throws). `ApiError` is imported
+ * type-only, so it erases.
+ */
+function parseApiErrorEnvelope(value: unknown): ApiError | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { error, trace_id } = value as { error?: unknown; trace_id?: unknown };
+  if (typeof trace_id !== 'string') return null;
+  if (typeof error !== 'object' || error === null) return null;
+  const { code, message, field } = error as {
+    code?: unknown;
+    message?: unknown;
+    field?: unknown;
+  };
+  if (typeof code !== 'string' || typeof message !== 'string') return null;
+  if (field !== undefined && typeof field !== 'string') return null;
+  return value as ApiError;
 }
