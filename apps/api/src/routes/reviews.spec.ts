@@ -90,6 +90,8 @@ function makeFakePrisma(
 ) {
   const createCalls: CreateArgs[] = [];
   const auditCalls: { data: Record<string, unknown> }[] = [];
+  const workflowCalls: { data: Record<string, unknown> }[] = [];
+  const transitionCalls: { data: Record<string, unknown> }[] = [];
   const findFirstCalls: FindFirstArgs[] = [];
   const productFindCalls: FindUniqueArgs[] = [];
   const productUpdateCalls: unknown[] = [];
@@ -100,6 +102,21 @@ function makeFakePrisma(
         createCalls.push(args);
         if (opts.createError) throw opts.createError;
         return { id: 'review-1' };
+      },
+    },
+    // Phase 6.3 (AECI-210): submit opens a `review_moderation` instance +
+    // genesis transition. Created AFTER `review.create`, so the `createError`
+    // race path never reaches these — proving the rollback.
+    workflowInstance: {
+      create: async (args: { data: Record<string, unknown> }): Promise<Row> => {
+        workflowCalls.push(args);
+        return { id: 'wf-1' };
+      },
+    },
+    workflowTransition: {
+      create: async (args: { data: Record<string, unknown> }) => {
+        transitionCalls.push(args);
+        return {};
       },
     },
     auditLog: {
@@ -131,7 +148,16 @@ function makeFakePrisma(
     $transaction: async <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
   };
 
-  return { prisma, createCalls, auditCalls, findFirstCalls, productFindCalls, productUpdateCalls };
+  return {
+    prisma,
+    createCalls,
+    auditCalls,
+    workflowCalls,
+    transitionCalls,
+    findFirstCalls,
+    productFindCalls,
+    productUpdateCalls,
+  };
 }
 
 /** Duck-typed Prisma `P2002` for the per-user-per-product unique index — the
@@ -192,7 +218,8 @@ function executionCtxStub(): ExecutionContext {
 
 describe('createSubmitReviewHandler', () => {
   it('inserts a pending review with the server-set reviewer_id and audit-logs it', async () => {
-    const { prisma, createCalls, auditCalls, productUpdateCalls } = makeFakePrisma();
+    const { prisma, createCalls, auditCalls, workflowCalls, transitionCalls, productUpdateCalls } =
+      makeFakePrisma();
     const res = await post(appWith(prisma), validBody(), { 'x-aeci-locale': 'en-US' });
 
     expect(res.status).toBe(201);
@@ -226,6 +253,29 @@ describe('createSubmitReviewHandler', () => {
       action: 'review.submitted',
       entityType: 'review',
       entityId: 'review-1',
+      metadata: { source: 'review-form', product_id: PRODUCT_ID },
+    });
+
+    // Phase 6.3 (AECI-210): a `review_moderation` instance opens, mirroring the
+    // review's pending status, with the authenticated reviewer as initiator and
+    // no Linear issue (queue-only).
+    expect(workflowCalls).toHaveLength(1);
+    expect(workflowCalls[0]?.data).toMatchObject({
+      workflowType: 'review_moderation',
+      entityId: 'review-1',
+      currentState: 'pending',
+      initiatedBy: USER_ID,
+    });
+    expect(workflowCalls[0]?.data).not.toHaveProperty('linearIssueId');
+
+    // ...and its genesis transition (null → pending) is recorded.
+    expect(transitionCalls).toHaveLength(1);
+    expect(transitionCalls[0]?.data).toMatchObject({
+      workflowId: 'wf-1',
+      fromState: null,
+      toState: 'pending',
+      actorId: USER_ID,
+      reason: 'review submitted',
       metadata: { source: 'review-form', product_id: PRODUCT_ID },
     });
 
@@ -287,7 +337,7 @@ describe('createSubmitReviewHandler', () => {
   });
 
   it('maps a unique-index race (P2002) to 409 REVIEW_DUPLICATE, not 500', async () => {
-    const { prisma } = makeFakePrisma({
+    const { prisma, workflowCalls, transitionCalls } = makeFakePrisma({
       createError: uniqueConstraintError(['product_id', 'reviewer_id']),
     });
     const res = await post(appWith(prisma), validBody());
@@ -298,6 +348,9 @@ describe('createSubmitReviewHandler', () => {
     );
     // The race path also reports a duplicate (no `ok`, never a silent miss).
     expect(submitOutcomes()).toEqual(['outcome:duplicate']);
+    // The insert throws before the workflow writes — no orphan instance/transition.
+    expect(workflowCalls).toHaveLength(0);
+    expect(transitionCalls).toHaveLength(0);
   });
 
   it('rethrows an unrelated P2002 as a 500 (never mislabeled REVIEW_DUPLICATE)', async () => {

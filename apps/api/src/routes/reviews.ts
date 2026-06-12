@@ -27,6 +27,13 @@
  * write pattern + loose structural client type mirror `routes/requests.ts` /
  * `routes/auth-profile.ts`.
  *
+ * AECI-210 (Phase 6.3) folds reviews into the shared workflow history: each
+ * submit also opens a `workflow_instance` (`review_moderation`,
+ * `current_state:'pending'` mirroring `review.status`, `linear_issue_id` null —
+ * reviews are queue-only) and records its genesis `workflow_transitions` row
+ * (`null → pending`) via `appendWorkflowTransition`, both in the same
+ * transaction. The approve/reject transitions land in `routes/admin-reviews.ts`.
+ *
  * Crucially, this does NOT recompute the product's denormalized `review_count`
  * / rating averages — that happens on approval only (5.13).
  */
@@ -37,6 +44,10 @@ import type { SubmitReviewResponse } from '@aeci/shared';
 // re-exported from the main barrel). The module has no I/O or runtime deps.
 import { DEFAULT_LOCALE } from '@aeci/shared/algolia';
 import { appendAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import {
+  appendWorkflowTransition,
+  type WorkflowTransitionForwarder,
+} from '@aeci/shared/workflow-transition';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -62,6 +73,10 @@ type ReviewsTx = {
   review: {
     create(args: { data: Record<string, unknown>; select: { id: true } }): Promise<Row>;
   };
+  workflowInstance: {
+    create(args: { data: Record<string, unknown>; select?: Record<string, boolean> }): Promise<Row>;
+  };
+  workflowTransition: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
   auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
 };
 
@@ -107,6 +122,23 @@ function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
       action: entry.action,
       entity_type: entry.entityType ?? undefined,
       entity_id: entry.entityId ?? undefined,
+      source: 'review-form',
+    });
+  };
+}
+
+/** Datadog forwarder for the workflow-transition write; no-op without
+ *  `DD_API_KEY`. Mirrors `makeForwarder` / `routes/requests.ts`, tagged
+ *  `source: review-form`. */
+function makeWorkflowForwarder(c: AuthContext): WorkflowTransitionForwarder | undefined {
+  if (!c.env.DD_API_KEY) return undefined;
+  return (entry) => {
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'info',
+      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
+      from_state: entry.fromState ?? undefined,
+      to_state: entry.toState,
+      workflow_id: entry.workflowId,
       source: 'review-form',
     });
   };
@@ -201,6 +233,7 @@ export function createSubmitReviewHandler(
     const toxicityScore = await score(c, payload.body);
 
     const forward = makeForwarder(c);
+    const workflowForward = makeWorkflowForwarder(c);
 
     const created = await prisma
       .$transaction(async (tx) => {
@@ -230,6 +263,36 @@ export function createSubmitReviewHandler(
           },
           select: { id: true },
         });
+
+        // Phase 6.3 (AECI-210): open the `review_moderation` workflow instance
+        // whose `current_state` mirrors the review `status` ('pending'), then
+        // record the genesis transition (null → pending). Lean — no guarded FSM
+        // (Stage-1 §26.3 relaxation). `linearIssueId` stays null (reviews are
+        // queue-only, not on the Vendor Requests board); `initiatedBy` is the
+        // authenticated reviewer. Same transaction → a workflow-write failure
+        // rolls back the review insert (§26.1).
+        const workflow = await tx.workflowInstance.create({
+          data: {
+            workflowType: 'review_moderation',
+            entityId: row.id,
+            currentState: 'pending',
+            initiatedBy: userId,
+          },
+          select: { id: true },
+        });
+        await appendWorkflowTransition(
+          tx,
+          {
+            workflowId: workflow.id,
+            fromState: null,
+            toState: 'pending',
+            actorId: userId,
+            reason: 'review submitted',
+            metadata: { source: 'review-form', product_id: payload.product_id },
+          },
+          workflowForward,
+        );
+
         await appendAuditLog(
           tx,
           {

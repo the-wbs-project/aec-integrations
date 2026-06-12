@@ -7,9 +7,15 @@
  *   PATCH /api/admin/reviews/:id — approve / reject a *pending* review.
  *
  * Source of truth: `docs/API_CONTRACTS.md` §6.10, `STAGE_1_PHASE_5_SPEC.md` §7.2
- * / §22.1. The FSM (`workflow_instances`/`workflow_transitions`), Slack alerts,
- * Linear sync, and the queue UI are all out of scope (Phase 6 / 5.14). Phase 5
- * drives moderation directly off `review.status` + the audit log.
+ * / §22.1. Moderation is driven directly off `review.status` + the audit log;
+ * the guarded FSM (enforced/throwing transitions), Slack alerts, Linear sync,
+ * and the queue UI remain out of scope (Phase 6 / 5.14). AECI-210 (Phase 6.3)
+ * additionally folds each approve/reject into the **lean** shared workflow
+ * history (Phase 6 Spec §5 / Stage-1 §26.3 relaxation): it find-or-creates the
+ * review's `review_moderation` `workflow_instance`, appends a
+ * `workflow_transitions` row (`pending → approved|rejected`), and updates the
+ * instance's `current_state` / `completed_at` / `final_outcome` — all in the
+ * same transaction (`appendWorkflowTransition`, failure rolls back).
  *
  * On **approve**: `status='approved'`, `moderated_by/at`, recompute the
  * product's denormalized `review_count` + rating averages (only approved reviews
@@ -44,6 +50,11 @@ import {
   type AuditLogClient,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
+import {
+  appendWorkflowTransition,
+  type WorkflowTransitionClient,
+  type WorkflowTransitionForwarder,
+} from '@aeci/shared/workflow-transition';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -83,7 +94,10 @@ type AdminReviewsClient = {
 };
 
 /** Transaction surface for the moderate write: the guarded `updateMany`, plus
- *  the recompute (`RecomputeClient`) and audit (`AuditLogClient`) surfaces. */
+ *  the recompute (`RecomputeClient`), audit (`AuditLogClient`), and workflow
+ *  (`WorkflowTransitionClient` + the `workflowInstance` find-or-create/update)
+ *  surfaces. */
+type WorkflowRow = { id: string };
 type ModerateTx = {
   review: {
     updateMany(args: {
@@ -91,8 +105,23 @@ type ModerateTx = {
       data: Record<string, unknown>;
     }): Promise<{ count: number }>;
   };
+  workflowInstance: {
+    findFirst(args: {
+      where: Record<string, unknown>;
+      select?: Record<string, boolean>;
+    }): Promise<WorkflowRow | null>;
+    create(args: {
+      data: Record<string, unknown>;
+      select?: Record<string, boolean>;
+    }): Promise<WorkflowRow>;
+    update(args: {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    }): Promise<unknown>;
+  };
 } & RecomputeClient &
-  AuditLogClient;
+  AuditLogClient &
+  WorkflowTransitionClient;
 
 /** Read + transaction surface for `PATCH /api/admin/reviews/:id`. The single
  *  `findUnique` selects the full `adminReviewSelect`, so the preloaded row both
@@ -184,6 +213,23 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
       action: entry.action,
       entity_type: entry.entityType ?? undefined,
       entity_id: entry.entityId ?? undefined,
+      source: 'admin-moderation',
+    });
+  };
+}
+
+/** Datadog forwarder for the workflow-transition write; no-op without
+ *  `DD_API_KEY`. Mirrors `makeForwarder` / `routes/requests.ts`, tagged
+ *  `source: admin-moderation`. */
+function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
+  if (!c.env.DD_API_KEY) return undefined;
+  return (entry) => {
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'info',
+      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
+      from_state: entry.fromState ?? undefined,
+      to_state: entry.toState,
+      workflow_id: entry.workflowId,
       source: 'admin-moderation',
     });
   };
@@ -330,6 +376,7 @@ export function createModerateReviewHandler(
     const rejectionReason = approve ? null : (payload.rejection_reason as string);
     const moderatedAt = new Date();
     const forward = makeForwarder(c);
+    const workflowForward = makeWorkflowForwarder(c);
 
     await db.$transaction(async (tx) => {
       // Atomic guard: only transition a still-pending row. If a concurrent
@@ -375,6 +422,50 @@ export function createModerateReviewHandler(
         },
         forward,
       );
+
+      // Phase 6.3 (AECI-210): record the moderation in the shared workflow
+      // history. Find-or-create the `review_moderation` instance — reviews
+      // submitted before this retrofit landed have none — then append the
+      // `pending → approved|rejected` transition and update the instance so
+      // `current_state` keeps mirroring `review.status` and the workflow is
+      // marked complete (`completed_at` + `final_outcome`). Lean, no guarded FSM
+      // (Stage-1 §26.3 relaxation). Same tx → rolls back with the moderation.
+      let workflow = await tx.workflowInstance.findFirst({
+        where: { workflowType: 'review_moderation', entityId: id },
+        select: { id: true },
+      });
+      workflow ??= await tx.workflowInstance.create({
+        data: {
+          workflowType: 'review_moderation',
+          entityId: id,
+          currentState: 'pending',
+        },
+        select: { id: true },
+      });
+      await appendWorkflowTransition(
+        tx,
+        {
+          workflowId: workflow.id,
+          fromState: 'pending',
+          toState: newStatus,
+          actorId: userId,
+          reason: rejectionReason,
+          metadata: {
+            source: 'admin-moderation',
+            product_id: existing.product.id,
+            ...(approve ? {} : { rejection_reason: rejectionReason }),
+          },
+        },
+        workflowForward,
+      );
+      await tx.workflowInstance.update({
+        where: { id: workflow.id },
+        data: {
+          currentState: newStatus,
+          completedAt: moderatedAt,
+          finalOutcome: newStatus,
+        },
+      });
     });
 
     // Committed: one `aeci.moderation.action{outcome:ok}` per approve/reject.
