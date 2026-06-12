@@ -204,6 +204,31 @@ select {
   align-items: center;
 }
 
+/* In-place claim/correction drawer (AECI-128). The panel positions itself
+   (`position: fixed`, bottom-right card / mobile bottom sheet), so it keeps the
+   detail page visible behind a *transparent* backdrop — overriding the 50%-dim
+   default above. closeOnBackdropClick still dismisses; reposition scroll strategy
+   keeps the page scrollable. */
+.cdk-overlay-backdrop.cdk-overlay-backdrop-showing.aeci-drawer-backdrop {
+  background-color: transparent;
+}
+
+@keyframes aeci-drawer-in {
+  from {
+    opacity: 0;
+    transform: translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Slide-up reveal; the reduced-motion block below neutralizes the duration. */
+.aeci-drawer-panel {
+  animation: aeci-drawer-in 200ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 /* Smooth same-document anchor jumps — the in-page section nav
    (`aec-section-nav`) and the skip link rely on native fragment scrolling.
    CSS-driven (never the silently-ignored `scrollIntoView({behavior:'smooth'})`

@@ -8,6 +8,8 @@ import type { ProductListItem, VendorDetail } from '@aeci/shared';
 
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
+import { RequestDrawer } from '../requests/request-drawer';
+import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
@@ -45,7 +47,15 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'github' | 'facebook' | 'instagr
  */
 @Component({
   selector: 'aec-vendor-detail',
-  imports: [DetailLayout, LogoOrInitial, NgTemplateOutlet, NotFound, RouterLink],
+  imports: [
+    DetailLayout,
+    LogoOrInitial,
+    NgTemplateOutlet,
+    NotFound,
+    RequestDrawer,
+    RequestTrigger,
+    RouterLink,
+  ],
   template: `
     @let v = vendor();
     @if (v === null) {
@@ -224,7 +234,11 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'github' | 'facebook' | 'instagr
             </h2>
             <div class="flex flex-col gap-2">
               <a
-                [routerLink]="['/vendors', v.slug, 'claim']"
+                aecRequestTrigger
+                [entity]="'vendor'"
+                [kind]="'claim'"
+                [slug]="v.slug"
+                [href]="'/vendors/' + v.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
@@ -251,7 +265,11 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'github' | 'facebook' | 'instagr
                 >
               </a>
               <a
-                [routerLink]="['/vendors', v.slug, 'correction']"
+                aecRequestTrigger
+                [entity]="'vendor'"
+                [kind]="'correction'"
+                [slug]="v.slug"
+                [href]="'/vendors/' + v.slug + '/correction'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
@@ -319,7 +337,11 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'github' | 'facebook' | 'instagr
               >
                 No products listed yet. Vendor data is curated; if you know of one,
                 <a
-                  [routerLink]="['/vendors', v.slug, 'correction']"
+                  aecRequestTrigger
+                  [entity]="'vendor'"
+                  [kind]="'correction'"
+                  [slug]="v.slug"
+                  [href]="'/vendors/' + v.slug + '/correction'"
                   class="text-(--accent-primary) underline underline-offset-2"
                   >suggest a correction</a
                 >.
@@ -388,6 +410,10 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'github' | 'facebook' | 'instagr
           </section>
         </div>
       </aec-detail-layout>
+
+      <!-- In-place claim/correction drawer (AECI-128); opened by the
+           aecRequestTrigger anchors above. Renders nothing until opened. -->
+      <aec-request-drawer />
     }
   `,
 })

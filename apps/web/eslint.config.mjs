@@ -17,7 +17,7 @@ export default tseslint.config(
     rules: {
       '@angular-eslint/directive-selector': [
         'error',
-        { type: 'attribute', prefix: 'app', style: 'camelCase' },
+        { type: 'attribute', prefix: ['app', 'aec'], style: 'camelCase' },
       ],
       '@angular-eslint/component-selector': [
         'error',
