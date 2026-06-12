@@ -16,11 +16,27 @@ export type ScheduledJob = 'sync' | 'drift' | 'stats';
 export type ScheduledJobMessage = {
   job: ScheduledJob;
   /** What caused the enqueue: `cron` = the daily scheduled trigger; `manual` =
-   *  an operator force-run (a future admin/REST producer). */
+   *  an operator force-run (e.g. a Cloudflare Queues REST push — the consumer
+   *  implies this when a message arrives without a `trigger`; see
+   *  `ScheduledJobMessageInput`). */
   trigger: 'cron' | 'manual';
   /** ISO 8601 enqueue timestamp, for staleness / observability. */
   enqueuedAt: string;
 };
+
+/**
+ * What can actually *arrive* on a job queue. The cron producer (`enqueueOrRun`)
+ * always sends a full {@link ScheduledJobMessage}, but a message may also be
+ * pushed out-of-band — e.g. an operator force-run via the Cloudflare Queues REST
+ * API sending just `{ "job": "stats" }`. In that case `trigger` and `enqueuedAt`
+ * are absent on the wire, and the consumer implies them after the fact
+ * (`normalizeJobMessage` in `src/scheduled.ts`): `trigger` → `'manual'`,
+ * `enqueuedAt` → the queue's receive time. Only `job` is required — it selects
+ * the handler. See `docs/adr/0013-algolia-jobs-via-queue.md`.
+ */
+export type ScheduledJobMessageInput = { job: ScheduledJob } & Partial<
+  Omit<ScheduledJobMessage, 'job'>
+>;
 
 export type Env = {
   /** Prisma Accelerate URL (`prisma://...`) used by the Worker at runtime. */
