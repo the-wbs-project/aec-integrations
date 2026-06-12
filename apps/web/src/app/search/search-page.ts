@@ -284,6 +284,15 @@ export class SearchPage implements OnDestroy {
   /** Seeded once from `?q=` for the SSR `[value]` and the controller's first query. */
   private readonly initialQuery = this.route.snapshot.queryParamMap.get('q')?.trim() ?? '';
 
+  /**
+   * Buffers keystrokes typed before the controller mounts. The search SDK loads
+   * asynchronously (`afterNextRender` → dynamic `import()`), so for a beat after
+   * hydration there is no controller to drive. Seeded equal to `initialQuery`;
+   * `onQueryInput` writes here while the controller is null, and the controller
+   * replays it on mount so early input is never silently dropped (AECI-227).
+   */
+  private readonly pendingQuery = signal(this.initialQuery);
+
   protected readonly controller = signal<SearchController | null>(null);
   /** True once we know the public Algolia config is absent (browser-only). */
   protected readonly degraded = signal(false);
@@ -292,8 +301,8 @@ export class SearchPage implements OnDestroy {
   private urlSyncTimer: ReturnType<typeof setTimeout> | null = null;
   private destroyed = false;
 
-  /** Input value: the controller's live query once started, else the seed. */
-  protected readonly inputValue = computed(() => this.controller()?.query() ?? this.initialQuery);
+  /** Input value: the controller's live query once started, else the buffered input. */
+  protected readonly inputValue = computed(() => this.controller()?.query() ?? this.pendingQuery());
 
   /** The active tab's facet views (same shape across entities). */
   protected readonly currentFacets = computed(() => {
@@ -325,6 +334,12 @@ export class SearchPage implements OnDestroy {
           if (this.destroyed) return;
           const controller = new SearchController(lib, searchClient, config, this.initialQuery);
           controller.start();
+          // Replay anything typed while the SDK was loading. `onQueryInput`
+          // buffered it in `pendingQuery` because there was no controller yet.
+          // Replay BEFORE exposing the controller signal so `inputValue` reads
+          // the controller's query as `pending` (no flicker back to the seed).
+          const pending = this.pendingQuery();
+          if (pending !== this.initialQuery) controller.setQuery(pending);
           this.controller.set(controller);
         })
         .catch((error: unknown) => {
@@ -343,7 +358,13 @@ export class SearchPage implements OnDestroy {
 
   protected onQueryInput(event: Event): void {
     const value = (event.target as HTMLInputElement).value;
-    this.controller()?.setQuery(value);
+    const controller = this.controller();
+    if (controller) {
+      controller.setQuery(value);
+    } else {
+      // SDK still loading — buffer the input; the controller replays it on mount.
+      this.pendingQuery.set(value);
+    }
     this.scheduleUrlSync(value);
   }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildAlgoliaBootstrapScript,
+  buildAlgoliaPreconnectLink,
   buildAlgoliaPublicConfig,
   injectAlgoliaBootstrap,
 } from './algolia-bootstrap-inject';
@@ -68,6 +69,24 @@ describe('buildAlgoliaBootstrapScript', () => {
   });
 });
 
+describe('buildAlgoliaPreconnectLink', () => {
+  it('emits a crossorigin preconnect to the Algolia read host (AECI-227)', () => {
+    expect(buildAlgoliaPreconnectLink(makeEnv({ ALGOLIA_APP_ID: 'APPABC123' }))).toBe(
+      '<link rel="preconnect" href="https://APPABC123-dsn.algolia.net" crossorigin>',
+    );
+  });
+
+  it('returns null when public config is incomplete', () => {
+    expect(buildAlgoliaPreconnectLink(makeEnv({ ALGOLIA_SEARCH_KEY: '' }))).toBeNull();
+  });
+
+  it('returns null when the app id is not plain alphanumeric (href-breakout guard)', () => {
+    // The default test env uses `app-abc` (a hyphen) — rejected by the guard.
+    expect(buildAlgoliaPreconnectLink(makeEnv())).toBeNull();
+    expect(buildAlgoliaPreconnectLink(makeEnv({ ALGOLIA_APP_ID: 'a"></head>x' }))).toBeNull();
+  });
+});
+
 describe('injectAlgoliaBootstrap', () => {
   function htmlResponse(body: string, status = 200): Response {
     return new Response(body, {
@@ -85,6 +104,19 @@ describe('injectAlgoliaBootstrap', () => {
         '"indexes":{"products":"staging_products","vendors":"staging_vendors","integrations":"staging_integrations"}};</script>' +
         '</head><body>hi</body></html>',
     );
+  });
+
+  it('injects the preconnect link before the config script when the app id is alphanumeric', async () => {
+    const res = htmlResponse('<html><head><title>x</title></head><body>hi</body></html>');
+    const out = await injectAlgoliaBootstrap(res, makeEnv({ ALGOLIA_APP_ID: 'APPABC123' }));
+    const text = await out.text();
+    expect(text).toContain(
+      '<title>x</title>' +
+        '<link rel="preconnect" href="https://APPABC123-dsn.algolia.net" crossorigin>' +
+        '<script>window.__AECI_ALGOLIA__=',
+    );
+    // Hint precedes the script it warms the connection for.
+    expect(text.indexOf('rel="preconnect"')).toBeLessThan(text.indexOf('<script>'));
   });
 
   // ── Review gate (AECI-134 acceptance criterion) ──────────────────────────
