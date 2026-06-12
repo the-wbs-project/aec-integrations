@@ -58,6 +58,10 @@
     "./timing-safe-equal": {
       "types": "./src/timing-safe-equal.ts",
       "default": "./src/timing-safe-equal.ts"
+    },
+    "./workflow-transition": {
+      "types": "./src/workflow-transition.ts",
+      "default": "./src/workflow-transition.ts"
     }
   },
   "scripts": {
