@@ -8,6 +8,8 @@ import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shar
 
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
+import { RequestDrawer } from '../requests/request-drawer';
+import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
@@ -53,6 +55,8 @@ import { ProductUsefulnessSection } from './product-usefulness';
     NotFound,
     ProductReviews,
     ProductUsefulnessSection,
+    RequestDrawer,
+    RequestTrigger,
     RouterLink,
     SectionNav,
     TaxonomyBadge,
@@ -230,7 +234,11 @@ import { ProductUsefulnessSection } from './product-usefulness';
             </h2>
             <div class="flex flex-col gap-2">
               <a
-                [routerLink]="['/products', p.slug, 'claim']"
+                aecRequestTrigger
+                [entity]="'product'"
+                [kind]="'claim'"
+                [slug]="p.slug"
+                [href]="'/products/' + p.slug + '/claim'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
@@ -257,7 +265,11 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 >
               </a>
               <a
-                [routerLink]="['/products', p.slug, 'correction']"
+                aecRequestTrigger
+                [entity]="'product'"
+                [kind]="'correction'"
+                [slug]="p.slug"
+                [href]="'/products/' + p.slug + '/correction'"
                 class="inline-flex items-center justify-center gap-2 rounded-(--radius-md)
                   border border-(--border-default) bg-(--surface-raised) px-4 py-2.5
                   text-sm font-medium text-(--text-secondary) no-underline transition-colors
@@ -335,7 +347,11 @@ import { ProductUsefulnessSection } from './product-usefulness';
               >
                 No integrations recorded yet. Vendor data is curated; if you know of one,
                 <a
-                  [routerLink]="['/products', p.slug, 'correction']"
+                  aecRequestTrigger
+                  [entity]="'product'"
+                  [kind]="'correction'"
+                  [slug]="p.slug"
+                  [href]="'/products/' + p.slug + '/correction'"
                   class="text-(--accent-primary) underline underline-offset-2"
                   >suggest a correction</a
                 >.
@@ -417,6 +433,10 @@ import { ProductUsefulnessSection } from './product-usefulness';
           </section>
         </div>
       </aec-detail-layout>
+
+      <!-- In-place claim/correction drawer (AECI-128); opened by the
+           aecRequestTrigger anchors above. Renders nothing until opened. -->
+      <aec-request-drawer />
     }
   `,
 })
