@@ -105,7 +105,7 @@ describe('FacetSidebar (AECI-143)', () => {
     httpMock.verify();
   });
 
-  it('single-selects a term: navigates ?category_id and resets page', async () => {
+  it('adds the first term to a dimension: navigates ?category_id and resets page', async () => {
     const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
     await router.navigateByUrl('/products?page=3');
     const fixture = TestBed.createComponent(FacetSidebarHost);
@@ -129,7 +129,76 @@ describe('FacetSidebar (AECI-143)', () => {
     httpMock.verify();
   });
 
-  it('toggles the active term off when clicked again', async () => {
+  it('multi-selects: a second term in the same dimension appends a sorted CSV (AECI-223)', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    // `c-m` already active; clicking sibling `c-a` must produce a SORTED list —
+    // proving click order never forks the cache key.
+    await router.navigateByUrl('/products?category_id=c-m');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({
+          categories: [term('c-m', 'Cat M', 3), term('c-a', 'Cat A', 4)],
+        }),
+      );
+    await settle();
+    fixture.detectChanges();
+
+    const boxes = [
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>(
+        'fieldset input[type="checkbox"]',
+      ),
+    ];
+    expect(boxes[0]!.checked).toBe(true); // c-m active
+    expect(boxes[1]!.checked).toBe(false); // c-a not yet
+    boxes[1]!.dispatchEvent(new Event('change')); // add c-a
+    await settle();
+
+    // Sorted ('c-a,c-m'), not insertion order ('c-m,c-a'). Query-param ORDER in
+    // the URL is incidental (the cache key sorts params); the CSV value is what
+    // must be sorted.
+    expect(router.url).toBe('/products?category_id=c-a,c-m&page=1');
+    fixture.detectChanges();
+    drain(httpMock);
+    httpMock.verify();
+  });
+
+  it('removes one term from a multi-selection, keeping the rest (AECI-223)', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products?category_id=c-a,c-m');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({
+          categories: [term('c-m', 'Cat M', 3), term('c-a', 'Cat A', 4)],
+        }),
+      );
+    await settle();
+    fixture.detectChanges();
+
+    const boxes = [
+      ...(fixture.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>(
+        'fieldset input[type="checkbox"]',
+      ),
+    ];
+    // Both active (set membership, order-independent).
+    expect(boxes.every((b) => b.checked)).toBe(true);
+    boxes[0]!.dispatchEvent(new Event('change')); // remove c-m
+    await settle();
+
+    expect(router.url).toBe('/products?category_id=c-a&page=1');
+    fixture.detectChanges();
+    drain(httpMock);
+    httpMock.verify();
+  });
+
+  it('toggles the last active term off, dropping the param entirely', async () => {
     const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
     await router.navigateByUrl('/products?category_id=c1');
     const fixture = TestBed.createComponent(FacetSidebarHost);

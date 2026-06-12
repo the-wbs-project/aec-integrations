@@ -119,9 +119,36 @@ describe('GET /api/products', () => {
     );
 
     const call = prisma.product.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    // AECI-223 — taxonomy dimensions match via `in (...)`; a single id is a
+    // one-element list. `vendor_id` stays a single non-faceted scope.
     expect(call.where).toMatchObject({
-      productCategories: { some: { categoryId: '00000000-0000-4000-8000-000000030001' } },
+      productCategories: { some: { categoryId: { in: ['00000000-0000-4000-8000-000000030001'] } } },
       productVendors: { some: { vendorId: '00000000-0000-4000-8000-000000010001' } },
+    });
+  });
+
+  it('multi-selects a dimension: a comma-separated category_id list becomes an `in` clause (AECI-223)', async () => {
+    const prisma = makeMockAcceleratedPrisma({
+      product: { findMany: [], count: 0 },
+    });
+    await listApp(prisma).request(
+      '/api/products?category_id=00000000-0000-4000-8000-000000030001,00000000-0000-4000-8000-000000030002&audience_id=00000000-0000-4000-8000-000000040001',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+
+    const call = prisma.product.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    // OR within the category dimension; AND across to the audience dimension.
+    expect(call.where).toMatchObject({
+      productCategories: {
+        some: {
+          categoryId: {
+            in: ['00000000-0000-4000-8000-000000030001', '00000000-0000-4000-8000-000000030002'],
+          },
+        },
+      },
+      productAudiences: { some: { audienceId: { in: ['00000000-0000-4000-8000-000000040001'] } } },
     });
   });
 

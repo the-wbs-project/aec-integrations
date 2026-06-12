@@ -104,3 +104,41 @@ export const paginatedResponseSchema = <T extends ZodType>(itemSchema: T) =>
  */
 export const SortOrderSchema = z.enum(['asc', 'desc']);
 export type SortOrder = z.infer<typeof SortOrderSchema>;
+
+const UUID_SCHEMA = z.string().uuid();
+
+/**
+ * A comma-separated list of UUIDs in a single query param, decoded to a
+ * `string[]` (AECI-223). Powers true multi-select facets — **OR within a
+ * dimension** — while keeping the existing param names (`category_id` /
+ * `audience_id` / `phase_id`) so the edge cache-key allowlist and the
+ * detail-page chip links keep working with a single id.
+ *
+ * Semantics: split on `,`, trim, drop empties; require ≥1 element; every
+ * element must be a UUID. A single id is just a one-element list, so existing
+ * one-id callers (chip links, a browse page's locked `{kind}_id`) are
+ * unaffected.
+ *
+ * Implemented as one `transform` that raises issues via `ctx` (rather than a
+ * `.pipe()` into `z.array(...)`) so a bad/empty value reports its ZodError at
+ * the *param key* (`category_id`), not a nested array index (`category_id.0`).
+ * `errors.ts`'s `firstFieldFromZodError` joins the issue path, so this keeps
+ * the `VALIDATION_FAILED` `field` clean for the SSR client.
+ */
+export const uuidList = z.string().transform((raw, ctx) => {
+  const ids = raw
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0);
+  if (ids.length === 0) {
+    ctx.addIssue({ code: 'custom', message: 'Expected at least one UUID' });
+    return z.NEVER;
+  }
+  for (const id of ids) {
+    if (!UUID_SCHEMA.safeParse(id).success) {
+      ctx.addIssue({ code: 'custom', message: `Invalid UUID: ${id}` });
+      return z.NEVER;
+    }
+  }
+  return ids;
+});

@@ -4,6 +4,7 @@ import {
   LinkRefSchema,
   paginatedResponseSchema,
   PageQuerySchema,
+  uuidList,
   VendorLinkSchema,
 } from './common';
 import { IntegrationListItemSchema } from './integrations';
@@ -114,17 +115,20 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
 export type ProductDetail = z.infer<typeof ProductDetailSchema>;
 
 /**
- * Query for `GET /api/products`. `category_id` / `audience_id` / `phase_id`
- * / `vendor_id` accept the taxonomy / vendor UUIDs; the values come from the
- * taxonomy hydration on detail pages, so the page can link to itself filtered
- * by chip.
+ * Query for `GET /api/products`. The three taxonomy dimensions
+ * (`category_id` / `audience_id` / `phase_id`) accept a **comma-separated UUID
+ * list** for multi-select faceting (AECI-223) — **OR within a dimension, AND
+ * across dimensions** — decoded to `string[]` by `uuidList`. The param names are
+ * unchanged, so a single id (a detail-page taxonomy chip link, or a browse
+ * page's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a
+ * single UUID (a non-faceted scope, out of scope for AECI-223).
  */
 export const ProductsListQuerySchema = PageQuerySchema.extend({
   sort: ProductSortSchema,
   search: z.string().optional(),
-  category_id: z.string().uuid().optional(),
-  audience_id: z.string().uuid().optional(),
-  phase_id: z.string().uuid().optional(),
+  category_id: uuidList.optional(),
+  audience_id: uuidList.optional(),
+  phase_id: uuidList.optional(),
   vendor_id: z.string().uuid().optional(),
   product_role: ProductRoleSchema.optional(),
   has_api_docs: z.coerce.boolean().optional(),

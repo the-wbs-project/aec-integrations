@@ -23,9 +23,13 @@ import type { RefinementItem } from './refinement-item';
  * `{kind}_id`, so each group's counts reflect the *other* active filters
  * (disjunctive faceting, computed server-side).
  *
- * Interaction (§9.2 — facets in the URL, not Algolia history): single-select per
- * dimension because the API takes one `{kind}_id` per dimension. Clicking the
- * active term clears it; clicking another replaces it; `page` resets to 1.
+ * Interaction (facets in the URL, not Algolia history): **multi-select** per
+ * dimension (AECI-223) — clicking a term toggles it in/out of that dimension's
+ * set. The set is encoded as a **sorted** comma-separated `{kind}_id` param
+ * (e.g. `category_id=a,b`): the API reads it as an `in (...)` clause (OR within
+ * the dimension; AND across dimensions), and the *sorted* order keeps the edge
+ * cache key + SSR transfer-cache key stable regardless of click order. `page`
+ * resets to 1; emptying the set drops the param.
  *
  * Browse pages pass `lockedKind` + `lockedId` to scope to (and hide) their own
  * taxonomy; `/products` passes neither and shows all three groups.
@@ -137,13 +141,13 @@ export class FacetSidebar {
     const qp = this.queryParamMap();
 
     return DIMENSIONS.filter((d) => d.kind !== locked).map((d) => {
-      const activeId = qp.get(d.param);
+      const activeIds = parseIds(qp.get(d.param));
       const items: RefinementItem[] = facets[d.responseKey]
         .map((term) => ({
           value: term.id,
           label: term.name,
           count: term.product_count,
-          isRefined: term.id === activeId,
+          isRefined: activeIds.has(term.id),
         }))
         // Hide terms with no matches under the current filters (mirrors
         // Algolia's count>0 default on `/search`), but always keep the active
@@ -160,13 +164,20 @@ export class FacetSidebar {
     return DIMENSIONS.some((d) => d.kind !== locked && !!qp.get(d.param));
   });
 
-  /** Single-select toggle: clear if already active, else replace. Resets to page 1. */
+  /**
+   * Multi-select toggle (AECI-223): add the term to (or remove it from) the
+   * dimension's set, then re-encode as a **sorted** CSV so click order never
+   * forks the cache. An empty set drops the param. Resets to page 1.
+   */
   protected onRefine(kind: TaxonomyKind, value: string): void {
     const param = `${kind}_id`;
-    const current = this.queryParamMap().get(param);
+    const ids = parseIds(this.queryParamMap().get(param));
+    if (ids.has(value)) ids.delete(value);
+    else ids.add(value);
+    const next = [...ids].sort().join(',');
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { [param]: current === value ? null : value, page: 1 },
+      queryParams: { [param]: next.length > 0 ? next : null, page: 1 },
       queryParamsHandling: 'merge',
     });
   }
@@ -195,6 +206,11 @@ export class FacetSidebar {
         return $localize`:@@listing.filters.phases:Phases`;
     }
   }
+}
+
+/** Decode a (possibly null) `{kind}_id` CSV param into its set of selected ids. */
+function parseIds(raw: string | null): Set<string> {
+  return new Set((raw ?? '').split(',').filter((id) => id.length > 0));
 }
 
 /** Shallow record equality — lets `facetParams` ignore `page`/`sort`-only navs. */
