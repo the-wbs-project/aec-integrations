@@ -124,7 +124,7 @@ describe('SearchPage shell', () => {
     expect(TestBed.inject(Title).getTitle()).toContain('Search');
   });
 
-  it('shows the loading state while the controller is still null', async () => {
+  it('shows the loading skeleton while the controller is still null (AECI-228)', async () => {
     setConfigPresent();
     const router = setup();
     await router.navigateByUrl('/search');
@@ -132,7 +132,12 @@ describe('SearchPage shell', () => {
     fixture.detectChanges();
 
     const el = fixture.nativeElement as HTMLElement;
+    // The sr-only status region carries the busy state for assistive tech…
     expect(el.querySelector('[aria-busy="true"]')).not.toBeNull();
+    // …and decorative skeleton placeholders reserve the results-region height
+    // (results grid + facet rail) so the first paint doesn't shift.
+    expect(el.querySelectorAll('[aria-hidden="true"]').length).toBeGreaterThan(0);
+    expect(el.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
     expect(el.textContent).not.toContain('temporarily unavailable');
   });
 
@@ -175,6 +180,9 @@ describe('SearchPage shell', () => {
     expect(engine.refine).toHaveBeenCalledWith('pay');
     expect(input.value).toBe('pay'); // preserved across mount (no flicker to the seed)
     expect(el.querySelector('[aria-busy="true"]')).toBeNull(); // controller is live
+    // Mounted but the first response hasn't landed (ready=false), so the skeleton
+    // still reserves height — without the aria-busy live region (AECI-228).
+    expect(el.querySelectorAll('.animate-pulse').length).toBeGreaterThan(0);
   });
 
   it('degrades to the unavailable notice when the public config is absent', async () => {
