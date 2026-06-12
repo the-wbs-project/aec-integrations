@@ -268,6 +268,161 @@ describe('createPaginatedIndex', () => {
 });
 
 /**
+ * Append-mode host: exercises the opt-in `mode: 'append'` accumulation path that
+ * powers the infinite-scroll listings (`/products`, taxonomy browse). It renders
+ * `idx.items()` (the flattened, accumulated buffer) plus the derived
+ * `loadedCount` / `hasMore`, so the tests can assert pages fold together as
+ * `loadMore()` advances — none of which the replace-mode host above touches.
+ */
+@Component({
+  template: `
+    @for (row of idx.items(); track row.id) {
+      <span class="row">{{ row.id }}</span>
+    }
+    <span class="count">{{ idx.loadedCount() }}</span>
+    <span class="more">{{ idx.hasMore() }}</span>
+  `,
+})
+class TestAppendHost {
+  readonly idx: PaginatedIndex<Resp> = createPaginatedIndex<Resp>({
+    apiPath: '/api/test',
+    validSorts: new Set(['created', 'name']),
+    defaultSort: 'created',
+    mode: 'append',
+  });
+}
+
+describe('createPaginatedIndex append mode', () => {
+  // Two pages of a 25-item result set (perPage 24 ⇒ ceil(25/24) = 2 pages).
+  const PAGE1: Resp = { data: [{ id: 'p1' }], page: 1, perPage: 24, total: 25 };
+  const PAGE2: Resp = { data: [{ id: 'p2' }], page: 2, perPage: 24, total: 25 };
+
+  const rowIds = (fixture: { nativeElement: unknown }): string[] =>
+    [...(fixture.nativeElement as HTMLElement).querySelectorAll('.row')].map(
+      (n) => n.textContent ?? '',
+    );
+
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+  });
+
+  it('accumulates the next page on loadMore() and keeps the page out of the URL', async () => {
+    const { httpMock, router } = createIndexSetup(TestAppendHost, 'test');
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestAppendHost);
+    fixture.detectChanges();
+
+    httpMock.expectOne((r) => r.params.get('page') === '1').flush(PAGE1);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.idx.loadedCount()).toBe(1);
+    expect(fixture.componentInstance.idx.hasMore()).toBe(true);
+
+    fixture.componentInstance.idx.loadMore();
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.params.get('page') === '2').flush(PAGE2);
+    await settle();
+    fixture.detectChanges();
+
+    // Both pages are folded into the rendered list, ascending.
+    expect(rowIds(fixture)).toEqual(['p1', 'p2']);
+    expect(fixture.componentInstance.idx.loadedCount()).toBe(2);
+    // Paging is internal: the page number never enters the address bar.
+    expect(router.url).toBe('/test');
+    httpMock.verify();
+  });
+
+  it('stops at the final page: hasMore() flips false and loadMore() no-ops past the end', async () => {
+    const { httpMock, router } = createIndexSetup(TestAppendHost, 'test');
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestAppendHost);
+    fixture.detectChanges();
+
+    httpMock.expectOne((r) => r.params.get('page') === '1').flush(PAGE1);
+    await settle();
+    fixture.detectChanges();
+
+    fixture.componentInstance.idx.loadMore();
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.params.get('page') === '2').flush(PAGE2);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.idx.hasMore()).toBe(false);
+
+    // Past the last page loadMore() is inert — no request fires.
+    fixture.componentInstance.idx.loadMore();
+    fixture.detectChanges();
+    httpMock.expectNone((r) => r.url === '/api/test');
+    httpMock.verify();
+  });
+
+  it('retries the same page (no skip) when a loadMore() fetch fails, then the next one', async () => {
+    const { httpMock, router } = createIndexSetup(TestAppendHost, 'test');
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestAppendHost);
+    fixture.detectChanges();
+
+    httpMock.expectOne((r) => r.params.get('page') === '1').flush(PAGE1);
+    await settle();
+    fixture.detectChanges();
+
+    // First loadMore → page 2 request FAILS. Items are retained (page 1 stays),
+    // and the buffer's highest page is still 1.
+    fixture.componentInstance.idx.loadMore();
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.params.get('page') === '2').flush(ERROR_BODY, SERVER_ERROR);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.idx.loadedCount()).toBe(1);
+
+    // The next loadMore() must RETRY page 2 — not skip ahead to page 3 — so the
+    // failed page's items are not lost. (A blind `targetPage + 1` would request
+    // page 3 here and drop page 2 forever.)
+    fixture.componentInstance.idx.loadMore();
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.params.get('page') === '2').flush(PAGE2);
+    await settle();
+    fixture.detectChanges();
+
+    expect(rowIds(fixture)).toEqual(['p1', 'p2']);
+    httpMock.verify();
+  });
+
+  it('resets the buffer to page 1 on a sort change (accumulated pages clear)', async () => {
+    const { httpMock, router } = createIndexSetup(TestAppendHost, 'test');
+    await router.navigateByUrl('/test');
+    const fixture = TestBed.createComponent(TestAppendHost);
+    fixture.detectChanges();
+
+    httpMock.expectOne((r) => r.params.get('page') === '1').flush(PAGE1);
+    await settle();
+    fixture.detectChanges();
+    fixture.componentInstance.idx.loadMore();
+    fixture.detectChanges();
+    httpMock.expectOne((r) => r.params.get('page') === '2').flush(PAGE2);
+    await settle();
+    fixture.detectChanges();
+    expect(fixture.componentInstance.idx.loadedCount()).toBe(2);
+
+    // A sort change resets the buffer and refetches page 1 (and keeps ?page= out
+    // of the URL in append mode).
+    fixture.componentInstance.idx.onSortChange('name');
+    await settle();
+    fixture.detectChanges();
+    expect(router.url).toBe('/test?sort=name');
+    const SORTED_PAGE1: Resp = { data: [{ id: 's1' }], page: 1, perPage: 24, total: 25 };
+    httpMock.expectOne((r) => r.params.get('sort') === 'name').flush(SORTED_PAGE1);
+    await settle();
+    fixture.detectChanges();
+
+    // Only the fresh page 1 remains — the previously accumulated page 2 is gone.
+    expect(rowIds(fixture)).toEqual(['s1']);
+    expect(fixture.componentInstance.idx.loadedCount()).toBe(1);
+    httpMock.verify();
+  });
+});
+
+/**
  * AECI-143 host: exercises the `baseParams` (fixed, non-URL filter params) and
  * `enabled` (fetch gate) config options, and the now-optional `meta` (omitted —
  * the taxonomy browse page lets its resolver own meta). Mirrors how the browse

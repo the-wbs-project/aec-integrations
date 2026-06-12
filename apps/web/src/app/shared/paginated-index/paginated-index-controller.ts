@@ -88,9 +88,25 @@ export interface PaginatedIndexConfig {
    * resolved term meta with a generic index title.
    */
   meta?: SetEntityMetaInput;
+  /**
+   * Pagination model.
+   *
+   * - `'replace'` (default) — each `?page=` navigation swaps in that single page;
+   *   the consumer reads `data()` and renders `data().data`. This is the classic
+   *   prev/next paginator behaviour; existing consumers are untouched.
+   * - `'append'` — pages **accumulate** for the scroll-based listing UX. The
+   *   consumer reads `items()` (the flattened, accumulated list) plus
+   *   `total()` / `loadedCount()` / `hasMore()` and advances with `loadMore()`.
+   *
+   * The underlying per-page `httpResource` fetch is **identical** in both modes
+   * (same URL, same stable param order), so SSR transfer-cache keying and the
+   * per-`?page=` edge cache are unchanged — append just folds each resolved page
+   * into a client-side buffer on top of that same fetch.
+   */
+  mode?: 'replace' | 'append';
 }
 
-export interface PaginatedIndex<TResponse> {
+export interface PaginatedIndex<TResponse extends PaginatedResponse<unknown>> {
   /**
    * Latest response. Retains the previously resolved response while a new
    * request is in flight (so filter/sort/page changes don't blank the grid),
@@ -105,6 +121,34 @@ export interface PaginatedIndex<TResponse> {
   readonly sort: Signal<string>;
   /** Registered passthrough params currently set in the URL (present values only). */
   readonly params: Signal<Record<string, string>>;
+  /**
+   * Append-mode only. The flattened, **accumulated** list across every loaded
+   * page, retained (not blanked) while a filter/sort reset refetches. In
+   * `'replace'` mode this is unused — read `data()` instead.
+   */
+  readonly items: Signal<TResponse['data']>;
+  /** Append-mode only. Total result count from the latest loaded page, or `null` before the first load. */
+  readonly total: Signal<number | null>;
+  /** Append-mode only. How many items are currently rendered (the accumulated length). */
+  readonly loadedCount: Signal<number>;
+  /** Append-mode only. The page number of the first item in the buffer (1 on normal entry; drives a truthful "featured lead"). */
+  readonly firstPage: Signal<number>;
+  /** Append-mode only. The highest page number loaded so far (the next `loadMore` fetches `highestPage + 1`). */
+  readonly highestPage: Signal<number>;
+  /** Append-mode only. True while more pages remain. */
+  readonly hasMore: Signal<boolean>;
+  /**
+   * Append-mode only. True only while a RESET refetch (sort/filter change) is in
+   * flight — false while appending a later page. Drives a dim-on-reset affordance
+   * that keeps the accumulated rows bright as the list grows.
+   */
+  readonly reloading: Signal<boolean>;
+  /**
+   * Append-mode only. Fetch and append the next page. Paging is internal, so this
+   * does NOT navigate — the page number never enters the URL. No-ops while a
+   * request is in flight or when `hasMore` is false.
+   */
+  loadMore(): void;
   /** Activate a sort key: validates, then navigates `?sort=&page=1` (merge). */
   onSortChange(key: string): void;
   /** Navigate to a page: `?page=` (merge). */
@@ -151,15 +195,52 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
   // router seeds the current value), so `requireSync` holds.
   const queryParamMap = toSignal(route.queryParamMap, { requireSync: true });
 
-  // URL-driven fetch. The request object is rebuilt whenever `queryParamMap`
-  // changes; the resource cancels any in-flight request and reloads. Params are
-  // emitted in a stable order (page, perPage, sort, then passthroughs) so the
-  // SSR transfer-cache key stays byte-identical across server and client.
+  const mode = config.mode ?? 'replace';
+
+  // Everything that must WIPE the append buffer when it changes: sort + the
+  // non-`page` filters (baseParams + passthrough). NOT `page` — advancing the
+  // page appends rather than resets.
+  const resetKey = computed<string>(() => {
+    const qp = queryParamMap();
+    const parts: string[] = [`sort=${parseSort(qp.get('sort'))}`];
+    const base = config.baseParams?.();
+    if (base) {
+      for (const key of Object.keys(base).sort()) parts.push(`${key}=${base[key] ?? ''}`);
+    }
+    for (const key of passthroughParams) parts.push(`${key}=${qp.get(key) ?? ''}`);
+    return parts.join('&');
+  });
+
+  // Append mode drives paging from this internal signal, NOT the URL — so loading
+  // more never writes `?page=` to the address bar. It is seeded from `?page=` on
+  // the first evaluation (so SSR of `/products?page=N` — reached by a crawler or
+  // a no-JS visitor following the footer's fallback anchor — still renders page N
+  // and keeps the crawl trail intact), then advances via `loadMore()` and resets
+  // to page 1 whenever `resetKey` changes (a sort/filter change). Replace mode
+  // reads `?page=` straight from the URL (the classic prev/next paginator), so
+  // this signal is inert there.
+  const targetPage = linkedSignal<string, number>({
+    source: resetKey,
+    // Seed from the URL via the NON-reactive snapshot: reading the
+    // `queryParamMap()` signal here would make it a tracked dependency, so an
+    // unrelated nav (e.g. the `?view=` cards/table toggle) would reset the buffer
+    // to page 1. The snapshot is correct on both the server and the first client
+    // evaluation, and the reset is driven solely by `resetKey`.
+    computation: (_key, previous) =>
+      previous == null ? parsePage(route.snapshot.queryParamMap.get('page')) : 1,
+  });
+
+  // Per-page fetch. The request object is rebuilt whenever its inputs change; the
+  // resource cancels any in-flight request and reloads. Params are emitted in a
+  // stable order (page, perPage, sort, then passthroughs) so the SSR
+  // transfer-cache key stays byte-identical across server and client.
   const resource = httpResource<TResponse>(() => {
     if (config.enabled && !config.enabled()) return undefined;
     const qp = queryParamMap();
     const params: Record<string, string | number> = {
-      page: parsePage(qp.get('page')),
+      // Append mode advances via the internal `targetPage` signal (URL stays
+      // clean); replace mode reads the page straight from `?page=`.
+      page: mode === 'append' ? targetPage() : parsePage(qp.get('page')),
       perPage,
       sort: parseSort(qp.get('sort')),
     };
@@ -220,17 +301,112 @@ export function createPaginatedIndex<TResponse extends PaginatedResponse<unknown
     return next;
   });
 
+  // --- Append mode -----------------------------------------------------------
+  // Opt-in accumulation for the scroll-based listing UX. The single-page
+  // `resource` above fetches one page (the `targetPage` signal in append mode);
+  // this layer folds each resolved page into a buffer. `mode`, `resetKey`, and
+  // `targetPage` are defined above the resource (which reads `targetPage`).
+
+  // The accumulated pages, ascending and de-duped by page number. A pure
+  // `linkedSignal` (no `effect`) so it folds correctly during SSR too: read in
+  // the template on the server, it computes `[page1]` from the SSR-resolved
+  // resource value. Resets to the fresh first page whenever `resetKey` changes.
+  const pages = linkedSignal<{ key: string; value: TResponse | undefined }, TResponse[]>({
+    source: () => ({
+      key: resetKey(),
+      value: resource.hasValue() ? resource.value() : undefined,
+    }),
+    computation: (source, previous) => {
+      const value = source.value;
+      // Replace mode never accumulates — latest page only (it's unused there, but
+      // keep the signal well-defined so reads from either mode are safe).
+      if (mode !== 'append') return value ? [value] : (previous?.value ?? []);
+      const isReset = previous != null && previous.source.key !== source.key;
+      const prior = isReset ? [] : (previous?.value ?? []);
+      if (!value) return prior; // reload in flight — keep what we have
+      if (prior.some((p) => p.page === value.page)) return prior; // dedupe (hydration double-resolve)
+      return [...prior, value].sort((a, b) => a.page - b.page);
+    },
+  });
+
+  const pagesFlat = computed<TResponse['data']>(
+    () => pages().flatMap((p) => p.data) as TResponse['data'],
+  );
+
+  // Retains the last non-empty list while a filter/sort reset refetches, so the
+  // grid dims rather than blanks — the append-mode analogue of `retained`. The
+  // `loading` flag distinguishes "transiently empty mid-reload" (retain previous)
+  // from "loaded an empty result set" (show the empty state).
+  const displayItems = linkedSignal<
+    { flat: TResponse['data']; loading: boolean },
+    TResponse['data']
+  >({
+    source: () => ({ flat: pagesFlat(), loading: resource.isLoading() }),
+    computation: (source, previous) => {
+      if (source.flat.length > 0) return source.flat;
+      if (source.loading) return previous?.value ?? ([] as unknown as TResponse['data']);
+      return [] as unknown as TResponse['data'];
+    },
+  });
+
+  const total = computed<number | null>(() => pages().at(-1)?.total ?? null);
+  const loadedCount = computed<number>(() => displayItems().length);
+  const firstPage = computed<number>(() => pages()[0]?.page ?? 1);
+  const highestPage = computed<number>(() => pages().at(-1)?.page ?? 1);
+  // More remains when the highest loaded page is below the last page. Keyed on
+  // page index (not buffered item count) so a deep-link to `?page=K` — whose
+  // buffer is missing pages 1..K-1 — correctly stops at the last page instead of
+  // chasing phantom pages past the end.
+  const hasMore = computed<boolean>(() => {
+    const totalCount = total();
+    if (totalCount == null) return false;
+    const totalPages = Math.max(1, Math.ceil(totalCount / perPage));
+    return highestPage() < totalPages;
+  });
+
+  // Append-mode dim signal: true only while a RESET refetch (sort/filter change,
+  // which restarts at page 1) is in flight — NOT while appending a later page.
+  // Lets the page dim on reset but keep the accumulated rows bright as it grows.
+  const reloading = computed<boolean>(() => resource.isLoading() && targetPage() <= 1);
+
   return {
     data,
     pending,
     error,
     sort,
     params,
+    items: displayItems,
+    total,
+    loadedCount,
+    firstPage,
+    highestPage,
+    hasMore,
+    reloading,
+    loadMore(): void {
+      if (resource.isLoading() || !hasMore()) return;
+      // Advance from the highest BUFFERED page, not the last ATTEMPTED one — no
+      // router navigation, so the page number never enters the URL. If a prior
+      // fetch failed, `targetPage` is already one past the buffer; a blind
+      // increment would skip that page forever. Targeting `highestPage() + 1`
+      // instead re-requests the gap.
+      const next = highestPage() + 1;
+      if (targetPage() === next) {
+        // The previous attempt at `next` failed (the buffer never advanced).
+        // Re-`set`ting an unchanged signal wouldn't re-fire the resource, so
+        // retry the same page via an explicit reload.
+        resource.reload();
+      } else {
+        targetPage.set(next);
+      }
+    },
     onSortChange(key: string): void {
       if (!config.validSorts.has(key)) return;
       void router.navigate([], {
         relativeTo: route,
-        queryParams: { sort: key, page: 1 },
+        // Append mode keeps the page out of the URL (paging is internal, and a
+        // sort change resets the buffer to page 1 anyway); replace mode resets
+        // `?page=` to 1.
+        queryParams: { sort: key, page: mode === 'append' ? null : 1 },
         queryParamsHandling: 'merge',
       });
     },
