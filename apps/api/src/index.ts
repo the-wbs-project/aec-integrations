@@ -12,6 +12,11 @@ import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
+import {
+  createDeleteAccountHandler,
+  createGetAccountHandler,
+  createUpdateAccountHandler,
+} from './routes/account';
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
@@ -167,6 +172,21 @@ authReviews.post(
   createSubmitReviewHandler(),
 );
 app.route('/', authReviews);
+
+// Phase 5.11 account sub-router (AECI-202) — the signed-in user's own account
+// surface (read identity, edit display name, GDPR delete). Same `AuthzVariables`
+// shape as `authReviews`, so its own router + `onError`. Plain `requireAuth()`
+// (no `bannedCode`): there is no review-specific banned semantics here, so the
+// default `FORBIDDEN` applies. NOTE: `requireAuth()` 403s a banned user before
+// the handler, so erasure-for-banned-users is NOT reachable here — accepted for
+// AECI-202 (the AC scopes errors to UNAUTHENTICATED); revisit if right-to-
+// erasure must bypass a ban (would need an `allowBanned` middleware seam).
+const authAccount = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authAccount.onError(errorHandler());
+authAccount.get('/api/account', requireAuth(), createGetAccountHandler());
+authAccount.patch('/api/account', requireAuth(), createUpdateAccountHandler());
+authAccount.delete('/api/account', requireAuth(), createDeleteAccountHandler());
+app.route('/', authAccount);
 
 // Phase 5.12 + 5.13 admin sub-router (AECI-203 + AECI-204). Every route is
 // `requireAdmin()`-gated: it sets `c.get('auth')` (`AuthzVariables`, same shape

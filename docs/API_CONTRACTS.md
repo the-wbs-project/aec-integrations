@@ -690,17 +690,61 @@ Both return `RequestSubmitResponse` (`{ request_id: string; message: string }`) 
 
 ### 6.8 Account
 
-#### `DELETE /api/account`
+All three are auth-gated (`requireAuth`, AUTH_AND_RLS §4). `GET`/`PATCH` are an
+AECI-202 / Phase 5.11 addition to this section; shapes live in
+`packages/shared/src/api/account.ts`.
 
-Delete the authenticated user's account. Anonymizes reviews (sets `reviewer_id = null`), deletes profile, deletes Supabase auth user.
+#### `GET /api/account`
+
+Read the authenticated user's identity for `/account`. `email` is read-only —
+sourced from the verified session JWT, never stored as a request field.
 
 ```typescript
-export type DeleteAccountResponse = {
-  message: string;
-};
+export interface AccountProfileResponse {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+}
 ```
 
 Errors: `UNAUTHENTICATED`.
+
+#### `PATCH /api/account`
+
+Update the editable profile fields (today: `display_name`). Audited
+(`profile.updated`). Returns the updated `AccountProfileResponse`.
+
+```typescript
+export const UpdateAccountSchema = z.object({
+  display_name: z.string().trim().min(1).max(80).nullable(),
+});
+```
+
+Errors: `UNAUTHENTICATED`, `VALIDATION_FAILED`.
+
+#### `DELETE /api/account`
+
+Delete the authenticated user's account (GDPR right-to-erasure, `AUTH_AND_RLS.md`
+§8). In one transaction: anonymizes reviews (sets `reviewer_id = null`), nulls
+every other inbound reference to the profile, deletes the profile, then deletes
+the Supabase `auth.users` row (raw SQL, same transaction — see AUTH_AND_RLS §8 for
+why not the Admin API). Audited `account.deleted` (no PII). The Loops confirmation
+email is deferred to Phase 7.
+
+```typescript
+export interface DeleteAccountResponse {
+  message: string;
+}
+```
+
+Errors: `UNAUTHENTICATED`.
+
+> **Deferred — `GET /api/account/reviews`.** `/account` is specced to list the
+> user's own submitted reviews + statuses (pending/approved/rejected), but no
+> endpoint returns the caller's own reviews yet (the public
+> `GET /api/products/:slug/reviews` is approved-only / no PII). AECI-202 ships the
+> account page with a placeholder for this section; the auth-gated, reviewer-
+> scoped endpoint is a follow-up (**AECI-225**).
 
 #### `POST /api/auth/profile/ensure`
 
