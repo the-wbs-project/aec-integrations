@@ -369,6 +369,26 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface from n
 
 - **Trending products this week** (`<aec-trending-products-section>`, `home/trending-products-section.ts`) — the top 5 products by 7-day `page_views`, rendered through the reused **`ProductCardGrid`** (Faire vocabulary). When trending is empty it **falls back to recently-added products** (the heading swaps, both i18n'd); when both are empty it shows a bordered empty state — keeping the §4.1 "trending" slot honest while `page_views` is still sparse at pre-launch.
 
+### Auth & Reviews (Phase 5)
+
+Phase 5 adds the authenticated surfaces — sign-in, review submission + display, account, and the admin moderation queue (`apps/web/src/app/{auth,reviews,account,admin}/`, plus the reviews section on the product page). They were built through the v0 → Angular workflow and reuse the established catalog token + type vocabulary so the signed-in experience reads as the **same publication** as the public directory (the Anchor-Site Rule). Every component is token-only (zero hardcoded color), i18n-wraps every visible string, and ships **light-only** (AECI-226 — no `dark:` variants). New form controls follow **ADR 0009** (Signal Forms) and the proposed **Angular Aria** ADR (overlay primitives stay Spartan); the cacheable product page stays visitor-state-neutral (see the cache-neutrality constraint in CLAUDE.md).
+
+- **Login** (`<aec-login-page>`, `auth/login.ts`) — the `/auth/login` page: a magic-link email field (a real `<label for>`, never placeholder-as-label) and a Google OAuth button, driven by Signal Forms with a validated `return` path. Non-cacheable, `noindex`. Degrades gracefully when Supabase is unconfigured (the field still renders; no console error).
+
+- **Review form** (`<aec-review-form>`, `reviews/review-form.ts`) — the `/products/:slug/review` submission form and the project's **first Angular Aria form** (satisfies AECI-133). The two 1–5 **star-rating controls** (overall + onboarding) are horizontal Aria **listboxes** (`role=listbox`/`option`, roving tabindex, `aria-selected` highlight); role-at-company is a non-editable Aria **combobox**; optional fields (years-using, would-recommend) are held as signals and merged at submit. Signal Forms own validation (`SubmitReviewSchema` from `@aeci/shared`); a confirmation replaces the form on success, errors are retryable inline.
+
+- **Star display** (`<aec-review-stars>`, `reviews/review-stars.ts`) — the **read-only** rating display used by the summary averages (decimals, e.g. 4.3) and per-review rows. Glyphs are decorative (`aria-hidden`); the precise value is announced via `aria-label`, so shape/color is never the sole signal.
+
+- **Product reviews section** (`<aec-product-reviews>`, `products/product-reviews.ts`) — the reviews block on the product detail page. Enforces the **≥5 summary gate** (§5.5): `reviewCount === 0` → a "Be the first to review" empty state; `0 < count < 5` → the list + an overline threshold note, no averages; `count ≥ 5` → the list + the bordered averages summary. "Load more" paginates client-side. Section labels use the AECI-230 **overline** role (`aec-overline`).
+
+- **Review CTA** (`<aec-review-cta>`, `reviews/review-cta.ts`) — the **cache-neutral** call-to-action embedded in the (cacheable) product page. SSR / pre-hydration renders a neutral "Write a review"; **client-side hydration** (`afterNextRender`) reconciles to `anon` ("Sign in to review" → `/auth/login?return=…`) or `authed` ("Submit a review"), so the cached HTML never carries session state.
+
+- **Account** (`<aec-account-page>`, `account/account.ts`) — the `/account` page (non-cacheable): a read-only email, an editable display name (Signal Forms `PATCH`), sign-out, and a **delete-account** flow gated behind a Spartan dialog confirmation that calls the GDPR `DELETE /api/account` (anonymizes the user's reviews).
+
+- **Admin shell** (`<aec-admin-shell>`, `admin/admin-shell.ts`) — the `/admin` layout + role gate. A non-admin resolver result renders the global 404 surface (the admin area is never *revealed* to non-admins); an admin sees the header, nav, and a **live pending-review badge** seeded from `GET /api/admin/summary` and decremented in-place by the queue via `AdminSummaryStore` (no round-trip).
+
+- **Moderation queue** (`<aec-review-queue>`, `admin/reviews/review-queue.ts`) — the `/admin/reviews` child route. Lists pending reviews with product, reviewer email, queue age, body, and toxicity score; **client-side sortable** (default: toxicity high→low, nulls last — worst content first). One-click **approve**; **reject** opens a Signal-Forms reason field (required, Aria textbox). On success the row leaves, a live region announces it, and the shell badge ticks down. A toxicity score ≥ 70 gets a warning highlight — flag, never auto-block.
+
 ### Inputs / Fields
 
 Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, combobox, radio) use Angular Aria per the proposed provider note above (ADR 0010). Styling binds to tokens.
