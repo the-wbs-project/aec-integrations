@@ -1,6 +1,6 @@
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import type { ProductsListResponse } from '@aeci/shared';
@@ -10,10 +10,10 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 import { KIND_PATH_SEGMENT, type TaxonomyTermDetail } from '../core/api/taxonomy';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { NotFound } from '../not-found/not-found';
-import { Paginator } from '../products/paginator';
 import { ProductCard } from '../products/product-card';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
+import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
 /**
  * AECI-61 — shared browse page for `/categories/:slug`, `/audiences/:slug`,
@@ -45,7 +45,7 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
  */
 @Component({
   selector: 'aec-taxonomy-browse',
-  imports: [BrowseLayout, FacetSidebar, NotFound, Paginator, ProductCard, RouterLink],
+  imports: [BrowseLayout, FacetSidebar, NotFound, PaginationFooter, ProductCard, RouterLink],
   template: `
     @let t = term();
     @if (t === null) {
@@ -91,16 +91,22 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
           <p class="text-sm text-(--text-secondary)">{{ productCountLabel() }}</p>
         </div>
 
-        <aec-facet-sidebar slot="filters" [lockedKind]="kind()" [lockedId]="t.id" />
+        <aec-facet-sidebar
+          slot="filters"
+          [lockedKind]="kind()"
+          [lockedId]="t.id"
+          [resetsPage]="false"
+        />
 
-        <!-- Keep current rows on screen and dim them while a filter/sort/page
-             change refetches, so there is no blank flash. -->
+        <!-- Append mode: dim only while a filter/sort RESET refetches (page 1),
+             keeping the current rows on screen (no blank flash). Loading MORE
+             pages never dims; the footer shows its own spinner. -->
         <div
           slot="grid"
           class="space-y-8 transition-opacity duration-200"
-          [class.opacity-60]="idx.pending()"
-          [class.pointer-events-none]="idx.pending()"
-          [attr.aria-busy]="idx.pending() ? 'true' : null"
+          [class.opacity-60]="idx.reloading()"
+          [class.pointer-events-none]="idx.reloading()"
+          [attr.aria-busy]="idx.reloading() ? 'true' : null"
         >
           <div class="overflow-x-auto">
             <table
@@ -135,8 +141,28 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
                 </tr>
               </thead>
               <tbody class="divide-y divide-(--border-default)">
-                @if (idx.data(); as response) {
-                  @for (product of response.data; track product.id) {
+                @if (idx.items().length === 0 && idx.pending()) {
+                  <tr aria-busy="true">
+                    <td
+                      colspan="4"
+                      class="px-4 py-12 text-center text-(--text-secondary)"
+                      i18n="@@taxonomy.browse.loading"
+                    >
+                      Loading products…
+                    </td>
+                  </tr>
+                } @else if (idx.items().length === 0 && idx.error()) {
+                  <tr>
+                    <td
+                      colspan="4"
+                      class="px-4 py-12 text-center text-(--text-secondary)"
+                      i18n="@@taxonomy.browse.error"
+                    >
+                      Couldn't load products. Refresh to try again.
+                    </td>
+                  </tr>
+                } @else {
+                  @for (product of idx.items(); track product.id) {
                     <tr aec-product-card [product]="product"></tr>
                   } @empty {
                     <tr>
@@ -149,44 +175,21 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
                       </td>
                     </tr>
                   }
-                } @else if (idx.error()) {
-                  <tr>
-                    <td
-                      colspan="4"
-                      class="px-4 py-12 text-center text-(--text-secondary)"
-                      i18n="@@taxonomy.browse.error"
-                    >
-                      Couldn't load products. Refresh to try again.
-                    </td>
-                  </tr>
-                } @else {
-                  <tr aria-busy="true">
-                    <td
-                      colspan="4"
-                      class="px-4 py-12 text-center text-(--text-secondary)"
-                      i18n="@@taxonomy.browse.loading"
-                    >
-                      Loading products…
-                    </td>
-                  </tr>
                 }
               </tbody>
             </table>
           </div>
 
-          @if (idx.data(); as response) {
-            <nav
-              class="flex items-center justify-between border-t border-(--border-default) pt-6"
-              i18n-aria-label="@@taxonomy.browse.pagination.aria"
-              aria-label="Pagination"
-            >
-              <aec-paginator
-                [page]="response.page"
-                [perPage]="response.perPage"
-                [total]="response.total"
-                (pageChange)="idx.onPageChange($event)"
-              />
-            </nav>
+          @if (idx.items().length > 0) {
+            <aec-pagination-footer
+              class="block border-t border-(--border-default) pt-6"
+              [loadedCount]="idx.loadedCount()"
+              [total]="idx.total()"
+              [hasMore]="idx.hasMore()"
+              [pending]="idx.pending()"
+              [nextHref]="nextHref()"
+              (loadMore)="idx.loadMore()"
+            />
           }
         </div>
       </aec-browse-layout>
@@ -195,6 +198,7 @@ import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-
 })
 export class TaxonomyBrowsePage {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   /** Taxonomy kind for this route — static `data: { kind }` in `app.routes.ts`. */
   protected readonly kind = computed<TaxonomyKind>(
@@ -222,11 +226,25 @@ export class TaxonomyBrowsePage {
     apiPath: '/api/products',
     validSorts: new Set(['created', 'name', 'updated']),
     defaultSort: 'created',
+    // Infinite-scroll list: page 1 SSRs + edge-caches, later pages append
+    // client-side (the page number stays out of the URL). See createPaginatedIndex.
+    mode: 'append',
     baseParams: () => ({ [`${this.kind()}_id`]: this.term()?.id }),
     passthroughParams: (['category_id', 'audience_id', 'phase_id'] as const).filter(
       (param) => param !== `${this.kind()}_id`,
     ),
     enabled: () => this.term() !== null,
+  });
+
+  /** Absolute `?page=N+1` URL (current params merged) for the footer's real anchor / no-JS path. */
+  protected readonly nextHref = computed<string | null>(() => {
+    if (!this.idx.hasMore()) return null;
+    const tree = this.router.createUrlTree([], {
+      relativeTo: this.route,
+      queryParams: { page: this.idx.highestPage() + 1 },
+      queryParamsHandling: 'merge',
+    });
+    return this.router.serializeUrl(tree);
   });
 
   /** Breadcrumb ancestor label per kind (e.g. "Categories"). */

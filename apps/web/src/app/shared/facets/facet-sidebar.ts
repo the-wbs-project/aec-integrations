@@ -70,6 +70,14 @@ export class FacetSidebar {
   readonly lockedKind = input<TaxonomyKind>();
   /** The locked term's UUID, sent as `{lockedKind}_id`. Required when `lockedKind` is set. */
   readonly lockedId = input<string>();
+  /**
+   * Whether a filter change resets `?page=1` in the URL. True for the classic
+   * prev/next (replace-mode) browse pages. The append-mode listing (`/products`)
+   * passes `false`: it drives paging internally and keeps the page out of the
+   * URL, so a filter change must not reintroduce a `?page=` param (the engine
+   * resets the buffer to page 1 on its own).
+   */
+  readonly resetsPage = input<boolean>(true);
 
   /** Active query params as a signal (router seeds the current value synchronously). */
   private readonly queryParamMap = toSignal(this.route.queryParamMap, { requireSync: true });
@@ -172,7 +180,7 @@ export class FacetSidebar {
     const next = [...ids].sort().join(',');
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { [param]: next.length > 0 ? next : null, page: 1 },
+      queryParams: { [param]: next.length > 0 ? next : null, page: this.resetsPage() ? 1 : null },
       queryParamsHandling: 'merge',
     });
   }
@@ -180,7 +188,9 @@ export class FacetSidebar {
   /** Clear every non-locked dimension filter (keeps the locked scope + sort). */
   protected clearFilters(): void {
     const locked = this.lockedKind();
-    const queryParams: Record<string, string | number | null> = { page: 1 };
+    const queryParams: Record<string, string | number | null> = {
+      page: this.resetsPage() ? 1 : null,
+    };
     for (const d of DIMENSIONS) {
       if (d.kind !== locked) queryParams[d.param] = null;
     }

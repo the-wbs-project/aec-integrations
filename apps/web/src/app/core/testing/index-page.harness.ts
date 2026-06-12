@@ -194,7 +194,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
     httpMock.verify();
   });
 
-  it('navigates with ?sort=name&page=1 when the sort dropdown changes', async () => {
+  it('navigates with ?sort=name (and drops ?page=) when the sort dropdown changes', async () => {
     const { httpMock, router } = createIndexSetup(s.component, s.routePath);
     await router.navigateByUrl(`/${s.routePath}?page=3`);
     const fixture = TestBed.createComponent(s.component);
@@ -211,8 +211,9 @@ function registerSortNavCases(s: IndexPageScenario): void {
     select.dispatchEvent(new Event('change'));
     await settle();
 
-    // Sort change resets to page 1.
-    expect(router.url).toBe(`/${s.routePath}?page=1&sort=name`);
+    // Append mode: a sort change resets the buffer internally and keeps the page
+    // OUT of the URL (paging is internal), so `?page=` is dropped, not reset to 1.
+    expect(router.url).toBe(`/${s.routePath}?sort=name`);
     // The param change re-dispatches the resource on the next change detection;
     // drain the resulting request so the controller verifies clean.
     fixture.detectChanges();
@@ -222,25 +223,31 @@ function registerSortNavCases(s: IndexPageScenario): void {
     httpMock.verify();
   });
 
-  it('shows the error row when a subsequent request fails after an initial success', async () => {
+  it('surfaces the error (clearing stale rows) when a sort-change refetch fails', async () => {
     const { httpMock, router } = createIndexSetup(s.component, s.routePath);
     await router.navigateByUrl(`/${s.routePath}`);
     const fixture = TestBed.createComponent(s.component);
     fixture.detectChanges();
 
-    // First request succeeds — data is now non-null.
+    // First request succeeds — items are shown.
     httpMock.expectOne((r) => r.url === s.apiUrl).flush(s.fixtureResponse);
     await settle();
     fixture.detectChanges();
+    drainFacets(httpMock, s);
 
-    // Navigate to page 2.
-    await router.navigateByUrl(`/${s.routePath}?page=2`);
+    // Change the sort. In append mode this RESETS the buffer (a fresh page-1
+    // fetch), unlike a "load more" (which retains items on failure). The reset
+    // refetch then fails, so stale rows clear and the error surfaces.
+    const select = (fixture.nativeElement as HTMLElement).querySelector(
+      'select',
+    ) as HTMLSelectElement;
+    select.value = 'name';
+    select.dispatchEvent(new Event('change'));
     await settle();
     fixture.detectChanges();
 
-    // Second request fails.
     httpMock
-      .expectOne((r) => r.url === s.apiUrl)
+      .expectOne((r) => r.url === s.apiUrl && r.params.get('sort') === 'name')
       .flush(
         { error: { code: 'BOOM', message: 'fail' }, trace_id: 'x' },
         { status: 500, statusText: 'Server Error' },
@@ -248,7 +255,7 @@ function registerSortNavCases(s: IndexPageScenario): void {
     await settle();
     fixture.detectChanges();
 
-    // The error must be visible; stale page-1 data must not be shown.
+    // The error must be visible; the buffer reset so no stale rows remain.
     expect((fixture.nativeElement as HTMLElement).textContent).toContain(s.errorText);
     drainFacets(httpMock, s);
     httpMock.verify();

@@ -8,8 +8,8 @@ import { canonicalUrl } from '../core/canonical';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
+import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
-import { Paginator } from './paginator';
 import { ProductCard } from './product-card';
 import { ProductCardGrid } from './product-card-grid';
 
@@ -29,14 +29,17 @@ type ViewKey = 'cards' | 'table';
  *   toggle, with sort moved from clickable column headers to a `<select>`.
  *
  * The fetch/sort/pagination/error pipeline lives in the shared
- * `createPaginatedIndex` controller (AECI-107). State lives entirely in the URL
- * (cache-safe, shareable, SSR-correct): `?sort=` / `?page=` and the facet params
- * are owned by the controller; `?view=` is owned here. Every navigation merges,
- * so they coexist. `view` is deliberately NOT a cookie — `/products` is
- * edge-cached and SSR must stay visitor-state-neutral — and is kept out of the
- * fetch params so it never forks the data cache (the rows are identical in both
- * views). Default sort: `created DESC` (Phase 2 §7.4); `perPage` fixed at 24
- * (§7.1), hard-clamped at 100 server-side.
+ * `createPaginatedIndex` controller (AECI-107), here in **append mode**: the
+ * catalog is an infinite-scroll list (`aec-pagination-footer`) that accumulates
+ * pages as the reader nears the end. Page 1 still SSRs + edge-caches; later pages
+ * append client-side and the page number is driven internally, so it never
+ * enters the URL. `?sort=` and the facet params stay URL-owned (cache-safe,
+ * shareable, SSR-correct); `?view=` is owned here. Every navigation merges, so
+ * they coexist. `view` is deliberately NOT a cookie — `/products` is edge-cached
+ * and SSR must stay visitor-state-neutral — and is kept out of the fetch params
+ * so it never forks the data cache (the rows are identical in both views).
+ * Default sort: `created DESC` (Phase 2 §7.4); `perPage` fixed at 24 (§7.1),
+ * hard-clamped at 100 server-side.
  *
  * SSR: cached 5 min at the edge with `Cache-Tag: route:index, index:products`
  * (set by the SSR Worker via `cacheTagInputsForPath`); `withHttpTransferCache`
@@ -49,7 +52,7 @@ type ViewKey = 'cards' | 'table';
  */
 @Component({
   selector: 'app-products-index',
-  imports: [RouterLink, BrowseLayout, FacetSidebar, Paginator, ProductCard, ProductCardGrid],
+  imports: [RouterLink, BrowseLayout, FacetSidebar, ProductCard, ProductCardGrid, PaginationFooter],
   template: `
     <aec-browse-layout>
       <div slot="header" class="space-y-3">
@@ -79,9 +82,9 @@ type ViewKey = 'cards' | 'table';
         >
           Products
         </h1>
-        @if (idx.data(); as response) {
+        @if (idx.total() !== null) {
           <p class="text-(--text-secondary)" i18n="@@products.index.lede">
-            Every AEC software product indexed on AEC Integrations ({{ response.total }} in total).
+            Every AEC software product indexed on AEC Integrations ({{ idx.total() }} in total).
           </p>
         } @else {
           <p class="text-(--text-secondary)" i18n="@@products.index.lede.loading">
@@ -90,7 +93,7 @@ type ViewKey = 'cards' | 'table';
         }
       </div>
 
-      <aec-facet-sidebar slot="filters" />
+      <aec-facet-sidebar slot="filters" [resetsPage]="false" />
 
       <div slot="grid" class="space-y-6">
         <div class="flex flex-wrap items-center justify-between gap-3">
@@ -188,105 +191,98 @@ type ViewKey = 'cards' | 'table';
           </div>
         </div>
 
-        <!-- While a filter/sort/page change refetches, keep the current results
-             on screen and dim them (no blank flash). aria-busy announces the
-             in-flight state. -->
+        <!-- Append mode: dim only while a filter/sort RESET refetches (page 1),
+             keeping the current results on screen (no blank flash). Loading MORE
+             pages never dims; the accumulated cards stay bright and only the
+             footer shows a spinner. aria-busy announces the in-flight reset. -->
         <div
           class="transition-opacity duration-200"
-          [class.opacity-60]="idx.pending()"
-          [class.pointer-events-none]="idx.pending()"
-          [attr.aria-busy]="idx.pending() ? 'true' : null"
+          [class.opacity-60]="idx.reloading()"
+          [class.pointer-events-none]="idx.reloading()"
+          [attr.aria-busy]="idx.reloading() ? 'true' : null"
         >
-          @if (idx.data(); as response) {
-            @if (response.data.length > 0) {
-              @switch (view()) {
-                @case ('table') {
-                  <div class="overflow-x-auto">
-                    <table
-                      class="w-full min-w-[40rem] border-collapse text-start text-sm"
-                      i18n-aria-label="@@products.index.table.aria"
-                      aria-label="Products"
-                    >
-                      <thead class="border-b border-(--border-default)">
-                        <tr>
-                          <th
-                            scope="col"
-                            class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                            i18n="@@products.index.col.name"
-                          >
-                            Name
-                          </th>
-                          <th
-                            scope="col"
-                            class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                            i18n="@@products.index.col.vendor"
-                          >
-                            Vendor
-                          </th>
-                          <th
-                            scope="col"
-                            class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
-                            i18n="@@products.index.col.category"
-                          >
-                            Primary category
-                          </th>
-                          <th
-                            scope="col"
-                            class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
-                            i18n="@@products.index.col.integrations"
-                          >
-                            Integrations
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody class="divide-y divide-(--border-default)">
-                        @for (product of response.data; track product.id) {
-                          <tr aec-product-card [product]="product"></tr>
-                        }
-                      </tbody>
-                    </table>
-                  </div>
-                }
-                @default {
-                  <aec-product-card-grid
-                    [products]="response.data"
-                    [featuredLead]="showFeatured()"
-                  />
-                }
+          @if (idx.items().length > 0) {
+            @switch (view()) {
+              @case ('table') {
+                <div class="overflow-x-auto">
+                  <table
+                    class="w-full min-w-[40rem] border-collapse text-start text-sm"
+                    i18n-aria-label="@@products.index.table.aria"
+                    aria-label="Products"
+                  >
+                    <thead class="border-b border-(--border-default)">
+                      <tr>
+                        <th
+                          scope="col"
+                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                          i18n="@@products.index.col.name"
+                        >
+                          Name
+                        </th>
+                        <th
+                          scope="col"
+                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                          i18n="@@products.index.col.vendor"
+                        >
+                          Vendor
+                        </th>
+                        <th
+                          scope="col"
+                          class="px-4 py-3 text-start text-xs font-medium tracking-wide text-(--text-secondary)"
+                          i18n="@@products.index.col.category"
+                        >
+                          Primary category
+                        </th>
+                        <th
+                          scope="col"
+                          class="px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary)"
+                          i18n="@@products.index.col.integrations"
+                        >
+                          Integrations
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody class="divide-y divide-(--border-default)">
+                      @for (product of idx.items(); track product.id) {
+                        <tr aec-product-card [product]="product"></tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
               }
-
-              <nav
-                class="flex items-center justify-between border-t border-(--border-default) pt-6"
-                i18n-aria-label="@@products.index.pagination.aria"
-                aria-label="Pagination"
-              >
-                <aec-paginator
-                  [page]="response.page"
-                  [perPage]="response.perPage"
-                  [total]="response.total"
-                  (pageChange)="idx.onPageChange($event)"
-                />
-              </nav>
-            } @else {
-              <p
-                class="rounded-(--radius-lg) border border-dashed border-(--border-default)
-                bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
-                i18n="@@products.index.empty"
-              >
-                No products match these filters.
-              </p>
+              @default {
+                <aec-product-card-grid [products]="idx.items()" [featuredLead]="showFeatured()" />
+              }
             }
-          } @else if (idx.error()) {
-            <p class="py-12 text-center text-(--text-secondary)" i18n="@@products.index.error">
-              Couldn't load products. Refresh to try again.
-            </p>
-          } @else {
+
+            <aec-pagination-footer
+              class="mt-6 block border-t border-(--border-default) pt-6"
+              [loadedCount]="idx.loadedCount()"
+              [total]="idx.total()"
+              [hasMore]="idx.hasMore()"
+              [pending]="idx.pending()"
+              [nextHref]="nextHref()"
+              (loadMore)="idx.loadMore()"
+            />
+          } @else if (idx.pending()) {
             <p
               class="py-12 text-center text-(--text-secondary)"
               aria-busy="true"
               i18n="@@products.index.loading"
             >
               Loading products…
+            </p>
+          } @else if (idx.error()) {
+            <p class="py-12 text-center text-(--text-secondary)" i18n="@@products.index.error">
+              Couldn't load products. Refresh to try again.
+            </p>
+          } @else {
+            <p
+              class="rounded-(--radius-lg) border border-dashed border-(--border-default)
+              bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
+              i18n="@@products.index.empty"
+            >
+              No products match these filters.
             </p>
           }
         </div>
@@ -304,6 +300,9 @@ export class ProductsIndex {
     apiPath: '/api/products',
     validSorts: new Set(['created', 'name', 'updated']),
     defaultSort: 'created',
+    // Accumulate pages for the scroll-based listing UX (page 1 still SSRs +
+    // edge-caches; pages 2..N append client-side). See createPaginatedIndex.
+    mode: 'append',
     // AECI-143 — taxonomy cross-filters set by the facet sidebar ride the URL.
     passthroughParams: ['category_id', 'audience_id', 'phase_id'],
     meta: {
@@ -324,10 +323,21 @@ export class ProductsIndex {
     this.queryParamMap().get('view') === 'table' ? 'table' : 'cards',
   );
 
-  /** Featured lead only when truthful: page 1 at the newest sort. */
+  /** Featured lead only when truthful: the buffer starts at page 1 at the newest sort. */
   protected readonly showFeatured = computed(
-    () => this.idx.sort() === 'created' && (this.idx.data()?.page ?? 1) === 1,
+    () => this.idx.sort() === 'created' && this.idx.firstPage() === 1,
   );
+
+  /** Absolute `?page=N+1` URL (current params merged) for the footer's real anchor / no-JS path. */
+  protected readonly nextHref = computed<string | null>(() => {
+    if (!this.idx.hasMore()) return null;
+    const tree = this.router.createUrlTree([], {
+      relativeTo: this.route,
+      queryParams: { page: this.idx.highestPage() + 1 },
+      queryParamsHandling: 'merge',
+    });
+    return this.router.serializeUrl(tree);
+  });
 
   protected setView(value: ViewKey): void {
     void this.router.navigate([], {
