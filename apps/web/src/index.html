@@ -11,10 +11,55 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!--
+      AECI-221 font loading: `display=optional` (below) + preload the latin
+      subset of the two above-the-fold faces (Atkinson 400 body, Source Serif 4
+      variable display). With `optional` the font is never render-blocking and
+      never swaps: it renders only if ready inside a ~100ms window, otherwise the
+      metric-matched fallback in styles.css paints for the page's life — so
+      font-swap CLS is 0 either way. The preload races that window so warm/fast
+      loads still get the brand face. The gstatic URL hashes can rotate on a
+      Google font-version bump; a stale preload is a harmless console warning,
+      not a breakage (re-capture from the css2 response if it ever 404s).
+    -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+      href="https://fonts.gstatic.com/s/atkinsonhyperlegible/v12/9Bt23C1KxNDXMspQ1lPyU89-1h6ONRlW45G04pIo.woff2"
+    />
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      crossorigin
+      href="https://fonts.gstatic.com/s/sourceserif4/v14/vEFI2_tTDB4M7-auWDN0ahZJW1gb8tc.woff2"
+    />
+    <!--
+      Load the font CSS NON-render-blocking (AECI-221): a 3rd-party stylesheet
+      in <head> blocks first paint until it arrives (a 2-hop DNS+CSS round-trip
+      that cost ~1s of LCP on Slow-4G). `media="print"` drops it off the render
+      path; `onload` promotes it to all media once fetched (CSP allows the inline
+      handler via `script-src 'unsafe-inline'`; the attribute is static so it
+      stays byte-identical across edge-cache hits). Safe because the bundled
+      metric-matched fallback (styles.css) is render-blocking and paints text
+      immediately, and `display=optional` means the real face never swaps in
+      late — so there is no FOUT/CLS while the async CSS resolves. <noscript>
+      keeps the (blocking) link for JS-off clients.
+    -->
     <link
       rel="stylesheet"
-      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=optional"
+      media="print"
+      onload="this.media = 'all'"
     />
+    <noscript>
+      <link
+        rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400;1,700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=optional"
+      />
+    </noscript>
   </head>
   <body>
     <app-root></app-root>

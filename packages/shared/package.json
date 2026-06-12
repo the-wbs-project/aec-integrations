@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "description": "Shared API contracts (TypeScript types + Zod schemas) for the AEC Integrations Workers. Workspace-only — not published.",
+  "//sideEffects": "AECI-221: every module here is a pure declaration (Zod schemas, types, const tables, pure fns) with no import-time side effects. Marking the package side-effect-free lets the Angular/esbuild browser build tree-shake the `export *` barrel — without it, one value import (e.g. a form schema on a lazy route) dragged the ENTIRE api/* schema set + the 327 kB zod chunk into the initial graph, so it shipped on every detail/browse page. Keep false; if a side-effectful module is ever added, list the exceptions instead.",
+  "sideEffects": false,
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {

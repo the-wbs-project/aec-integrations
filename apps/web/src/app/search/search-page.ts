@@ -192,6 +192,21 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                       (refine)="rg.refine($event)"
                     />
                   }
+                } @else {
+                  <!-- AECI-221: reserve the facet column so it doesn't appear from
+                       nothing after the SDK mounts (CLS). -->
+                  @for (g of skeletonFacetGroups; track g) {
+                    <div aria-hidden="true">
+                      <div class="h-4 w-24 rounded-(--radius-sm) bg-(--surface-sunken)"></div>
+                      <div class="mt-3 space-y-2.5">
+                        @for (r of skeletonFacetRows; track r) {
+                          <div
+                            class="h-3.5 w-full rounded-(--radius-sm) bg-(--surface-sunken)"
+                          ></div>
+                        }
+                      </div>
+                    </div>
+                  }
                 }
               </aside>
 
@@ -239,13 +254,20 @@ const URL_SYNC_DEBOUNCE_MS = 350;
                     }
                   }
                 } @else {
-                  <p
-                    class="px-4 py-12 text-center text-sm text-(--text-secondary)"
-                    aria-busy="true"
-                    i18n="@@search.loading"
-                  >
+                  <!-- AECI-221: reserve the results grid at ~card height so the
+                       post-hydration SDK mount swaps in place instead of shoving
+                       the page down (CLS 0.426 → ≤0.1). The live status carries
+                       the busy semantics; the skeleton is decorative. -->
+                  <p class="sr-only" role="status" aria-busy="true" i18n="@@search.loading">
                     Loading search…
                   </p>
+                  <ul class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3" aria-hidden="true">
+                    @for (c of skeletonCards; track c) {
+                      <li
+                        class="h-40 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised)"
+                      ></li>
+                    }
+                  </ul>
                 }
               </div>
             </div>
@@ -276,6 +298,19 @@ export class SearchPage implements OnDestroy {
 
   protected readonly tabs = TABS;
   protected readonly panelId = 'search-tabpanel';
+  /**
+   * Reserved-space skeleton counts (AECI-221). The facet sidebar + results grid
+   * render only after the InstantSearch SDK loads (`afterNextRender` → dynamic
+   * `import()`), so the SSR shell used to paint a one-line "Loading…" that the
+   * full grid then shoved down — the page's CLS was 0.426. These skeletons fill
+   * the same grid/aside at ~the eventual height so the post-hydration mount
+   * swaps in place. `aria-hidden` (the live `role=status` carries the real busy
+   * semantics); paired with `display:optional` fonts (index.html) which remove
+   * the font-swap share of the shift.
+   */
+  protected readonly skeletonCards = [0, 1, 2, 3, 4, 5, 6, 7, 8];
+  protected readonly skeletonFacetGroups = [0, 1, 2, 3, 4];
+  protected readonly skeletonFacetRows = [0, 1, 2, 3];
   /** Localized "all / no filter" label shared by every numeric menu. */
   protected readonly allLabel = $localize`:@@search.facet.all:All`;
 

@@ -60,7 +60,16 @@
         } }
       </p>
 
+      <!--
+        AECI-221: the form body pulls @angular/forms + the Claim/Correction Zod
+        schemas (~80 kB transfer). The drawer is closed on load (SSR renders it
+        drawer-neutral), so we @defer the body until it opens — that chunk then
+        loads on the claim/correction interaction, never on initial detail-page
+        load, keeping the detail/browse JS budget green. No `prefetch` (idle
+        prefetch would pull the chunk back into the page-load window).
+      -->
       <div class="mt-6">
+        @defer (when drawer.isOpen()) {
         <aec-request-form-body
           [entity]="t.entity"
           [kind]="t.kind"
@@ -68,6 +77,14 @@
           variant="drawer"
           (done)="drawer.close()"
         />
+        } @placeholder {
+        <p
+          class="py-8 text-center text-sm text-(--text-secondary)"
+          i18n="@@requests.drawer.loading"
+        >
+          Loading form…
+        </p>
+        }
       </div>
     </div>
     }
