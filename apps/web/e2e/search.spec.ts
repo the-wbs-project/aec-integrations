@@ -1,15 +1,14 @@
 import AxeBuilder from '@axe-core/playwright';
-import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 // AECI-142 / Phase 3.9 — the /search page. Search runs browser-side against
 // Algolia with the search-only key; CI / local-bound has no provisioned Algolia
 // key, so the page naturally exercises the GRACEFUL-DEGRADATION path (the
 // `window.__AECI_ALGOLIA__` bootstrap is absent → "temporarily unavailable"
 // notice after hydration). We therefore assert the SSR shell, the non-cacheable
-// + noindex headers/meta, accessibility in both themes, and the header search
-// entry point — but NOT live results.
+// + noindex headers/meta, accessibility, and the header search entry point —
+// but NOT live results.
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 test.describe('/search — search page (AECI-142)', () => {
@@ -46,16 +45,9 @@ test.describe('/search — search page (AECI-142)', () => {
     );
   });
 
-  test('has zero axe AA violations (light)', async ({ page }) => {
+  test('has zero axe AA violations', async ({ page }) => {
     await page.goto('/search');
     await expect(page.locator('app-search-page')).toBeAttached();
-
-    const violations = await aaViolations(page);
-    expect(violations, formatViolations(violations)).toEqual([]);
-  });
-
-  test('has zero axe AA violations (dark)', async ({ page, context }) => {
-    await gotoDark(page, context, '/search');
 
     const violations = await aaViolations(page);
     expect(violations, formatViolations(violations)).toEqual([]);
@@ -105,36 +97,8 @@ test.describe('/search — live results (requires Algolia; local/preview only)',
 });
 
 async function aaViolations(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(WCAG_AA_TAGS)
-    // The footer carries separately-tracked dark-theme contrast debt (same
-    // carve-out as phase2-a11y.spec.ts). The header IS scanned.
-    .exclude('aec-site-footer')
-    .analyze();
+  const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
   return results.violations;
-}
-
-async function gotoDark(page: Page, context: BrowserContext, path: string): Promise<void> {
-  const url = new URL(BASE_URL);
-  await context.addCookies([
-    {
-      name: 'theme',
-      value: 'dark',
-      domain: url.hostname,
-      path: '/',
-      secure: url.protocol === 'https:',
-      sameSite: 'Lax',
-    },
-  ]);
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.setItem('theme', 'dark');
-    } catch {
-      /* storage blocked — ignore */
-    }
-  });
-  await page.goto(path);
-  await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
 }
 
 function formatViolations(

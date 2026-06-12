@@ -2,29 +2,16 @@
 @import '@spartan-ng/brain/hlm-tailwind-preset.css';
 
 /*
- * Bind Tailwind's `dark:` variant to the app's `.theme-dark` class (toggled on
- * <html> by index.html's inline script + theme.service.ts) so every `dark:`
- * utility follows the user's explicit theme choice.
- *
- * This declaration MUST stay after the `@spartan-ng/brain` import above. That
- * preset ships its own `@custom-variant dark (&:is(.dark *))`, keyed off a
- * `.dark` class this app never sets — so without this override `dark:` utilities
- * silently never match in dark mode (and Tailwind's bare default would instead
- * key off the OS `prefers-color-scheme` media query, ignoring the in-app theme).
- * Re-declaring it here, last, wins. See AECI-94.
- */
-@custom-variant dark (&:where(.theme-dark, .theme-dark *));
-
-/*
  * Global styles for apps/web.
  *
  * Wires Tailwind v4 to the §2a.2 theme tokens (see docs/STAGE_1_SPEC.md) and to
  * the canonical visual system in DESIGN.md (the source of truth for tokens).
  *
- * Color tokens are declared in OKLCH on :root (light, default) and overridden under
- * .theme-dark (added to <html> by apps/web/src/app/theme.service.ts). Each value
- * carries an inline hex equivalent in the comment so designers can cross-reference
- * with docs/BRAND_GUIDELINES.md and DESIGN.md without a converter.
+ * Color tokens are declared in OKLCH on :root. Light is the only theme in
+ * Stage 1 — the dark token set + theme toggle were removed in AECI-226 (dark is
+ * restorable for the Stage 2 vendor portal). Each value carries an inline hex
+ * equivalent in the comment so designers can cross-reference with
+ * docs/BRAND_GUIDELINES.md and DESIGN.md without a converter.
  *
  * Typography: Source Serif 4 (display / headline / title) + Atkinson Hyperlegible
  * (body / label). Loaded via Google Fonts in apps/web/src/index.html. The font
@@ -61,29 +48,6 @@
 
   /* Spartan hlm preset derives --radius-{sm,md,lg,xl,2xl,3xl,4xl} from --radius. */
   --radius: 0.5rem;
-}
-
-.theme-dark {
-  color-scheme: dark;
-
-  --surface-base: oklch(14.48% 0 0); /* #0A0A0A */
-  --surface-raised: oklch(21.78% 0.006 285.88); /* #18181B */
-  --surface-sunken: oklch(13.71% 0.0036 286.1); /* #09090B */
-  /* Interactive row hover / focus-within surface. Lifts clearly off the
-     near-black base and stays distinct from --surface-raised (#18181B) so
-     raised in-row chips (e.g. integration mechanism badges) remain legible on a
-     hovered row. Shares --border-default's value by design (fills vs hairline
-     borders don't confuse). */
-  --surface-muted: oklch(27.41% 0.0055 286.04); /* #27272A */
-  --border-default: oklch(27.41% 0.0055 286.04); /* #27272A */
-  --border-strong: oklch(37.07% 0.0119 285.81); /* #3F3F46 */
-  --text-primary: oklch(98.43% 0 0); /* #FAFAFA */
-  --text-secondary: oklch(70.9% 0.0149 286.07); /* #A1A1AA */
-  --text-tertiary: oklch(55.21% 0.0163 285.94); /* #71717A */
-  --accent-primary: oklch(61% 0.0805 152.41); /* #5D916C (Forest dark) */
-  --accent-primary-hover: oklch(68.5% 0.0867 152.69); /* #6FAA80 (Forest dark hover) */
-  --accent-secondary: oklch(78.5% 0.1141 47.85); /* #F0A887 (Clay dark) */
-  --accent-warm: oklch(22.42% 0.0079 67.38); /* #2A2520 (Bone dark) */
 }
 
 @theme inline {

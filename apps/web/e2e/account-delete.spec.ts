@@ -8,8 +8,7 @@
  *     303-redirected to `/auth/login?return=/account` (`private, no-store`).
  *     Needs no fixture — the gate fires before SSR.
  *   - Authenticated render + a11y: with a session cookie present and a stubbed
- *     `GET /api/account`, the page renders identity; axe (WCAG-AA) is clean in
- *     both themes.
+ *     `GET /api/account`, the page renders identity; axe (WCAG-AA) is clean.
  *   - Delete flow: opening the confirmation dialog and confirming calls the
  *     stubbed `DELETE /api/account` and redirects home.
  *
@@ -43,27 +42,6 @@ async function addAuthCookie(context: BrowserContext): Promise<void> {
   ]);
 }
 
-async function applyDarkTheme(context: BrowserContext): Promise<void> {
-  const url = new URL(BASE_URL);
-  await context.addCookies([
-    {
-      name: 'theme',
-      value: 'dark',
-      domain: url.hostname,
-      path: '/',
-      secure: url.protocol === 'https:',
-      sameSite: 'Lax',
-    },
-  ]);
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.setItem('theme', 'dark');
-    } catch {
-      /* storage blocked — ignore */
-    }
-  });
-}
-
 /** Stub the auth-enforced account endpoints (GET identity + DELETE erasure). */
 async function stubAccountApi(page: Page, onDelete?: () => void): Promise<void> {
   await page.route('**/api/account', async (route) => {
@@ -85,10 +63,7 @@ async function stubAccountApi(page: Page, onDelete?: () => void): Promise<void> 
 }
 
 async function aaViolations(page: Page) {
-  const results = await new AxeBuilder({ page })
-    .withTags(WCAG_AA_TAGS)
-    .exclude('aec-site-footer')
-    .analyze();
+  const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
   return results.violations;
 }
 
@@ -116,21 +91,10 @@ test.describe('/account — authenticated (AECI-202)', () => {
     await expect(page.getByRole('button', { name: 'Delete account' })).toBeVisible();
   });
 
-  test('has zero axe (WCAG-AA) violations — light', async ({ page, context }) => {
+  test('has zero axe (WCAG-AA) violations', async ({ page, context }) => {
     await addAuthCookie(context);
     await stubAccountApi(page);
     await page.goto(ACCOUNT_PATH);
-    await expect(page.locator('#account-display-name')).toBeVisible();
-    const violations = await aaViolations(page);
-    expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
-  });
-
-  test('has zero axe (WCAG-AA) violations — dark', async ({ page, context }) => {
-    await addAuthCookie(context);
-    await applyDarkTheme(context);
-    await stubAccountApi(page);
-    await page.goto(ACCOUNT_PATH);
-    await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
     await expect(page.locator('#account-display-name')).toBeVisible();
     const violations = await aaViolations(page);
     expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);

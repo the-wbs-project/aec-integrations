@@ -85,8 +85,8 @@ describe('AccountPage', () => {
   beforeEach(() => {
     TestBed.resetTestingModule();
     // The page runs in the BROWSER platform (it must — identity loads in
-    // `afterNextRender`), so the embedded ThemeService reaches for
-    // `window.matchMedia`, which this environment doesn't implement. Stub it.
+    // `afterNextRender`). Stub `window.matchMedia` defensively for any CDK /
+    // overlay code that probes it; this environment doesn't implement it.
     if (typeof window.matchMedia !== 'function') {
       window.matchMedia = ((query: string) => ({
         matches: false,

@@ -4,12 +4,9 @@ import { expect, test } from '@playwright/test';
 // Smoke spec for AECI-33 / Phase 1.19, extended for AECI-36 Phase 1.21
 // (validate SSR + cache plumbing end-to-end on apps/web/).
 // Guards: the SSR Worker boots, the Angular shell mounts at `/`, axe-core
-// reports zero violations, hydration is console-clean, and the persisted
-// theme is reconciled client-side after a visitor-state-neutral SSR render
-// (§9.1a). New routes should add their own spec files; this one stays
-// focused on `/`.
+// reports zero violations, and hydration is console-clean. New routes should
+// add their own spec files; this one stays focused on `/`.
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const IS_DEPLOYED = !!process.env['PLAYWRIGHT_BASE_URL'];
 
 test.describe('home page (smoke)', () => {
@@ -65,66 +62,26 @@ test.describe('home page (smoke)', () => {
     expect(consoleErrors, `console errors: ${consoleErrors.join(' | ')}`).toEqual([]);
   });
 
-  test('SSR is theme-neutral; client reconciles persisted theme (AECI-36 AC #4, #6)', async ({
-    page,
-    context,
+  test('SSR <html> advertises the locale dir/lang and stays visitor-state-neutral (AECI-153, §9.1a)', async ({
+    request,
   }) => {
-    // Pre-seed both cookie and localStorage so the client has a persisted
-    // theme to reconcile. The cookie is what SSR would see (and what the
-    // Worker strips per §9.1a); localStorage is what the client reads in
-    // `theme.service.ts` afterNextRender().
-    const url = new URL(BASE_URL);
-    await context.addCookies([
-      {
-        name: 'theme',
-        value: 'dark',
-        domain: url.hostname,
-        path: '/',
-        // BASE_URL is http://localhost in dev and https://... when deployed;
-        // mirror the scheme so the cookie is sent on the first navigation.
-        secure: url.protocol === 'https:',
-        sameSite: 'Lax',
-      },
-    ]);
-    await context.addInitScript(() => {
-      try {
-        window.localStorage.setItem('theme', 'dark');
-      } catch {
-        /* private mode / storage blocked — ignore */
-      }
-    });
-
-    // (a) Raw SSR fetch with the cookie — `<html>` must NOT carry a theme
-    // class/attr. Uses context.request so the cookie is sent without JS
-    // executing on the response.
-    const ssr = await context.request.get('/');
+    // Raw SSR fetch (no JS executes). AECI-153 — the <html> tag carries the
+    // locale-derived dir/lang; en-US ships LTR, so the dormant dir-injection
+    // wiring + index.html default must produce `lang="en-US" dir="ltr"`. This
+    // regression-protects the wiring without a real RTL locale build. The tag
+    // must also stay visitor-state-neutral on this cacheable route (§9.1a).
+    const ssr = await request.get('/');
     expect(ssr.status()).toBe(200);
-    const ssrHtml = await ssr.text();
-    const htmlTag = ssrHtml.match(/<html[^>]*>/i)?.[0] ?? '';
+    const htmlTag = (await ssr.text()).match(/<html[^>]*>/i)?.[0] ?? '';
     expect(htmlTag, 'could not find <html> tag in SSR response').not.toBe('');
-    expect(
-      htmlTag,
-      `SSR <html> must be visitor-state-neutral (§9.1a); got: ${htmlTag}`,
-    ).not.toMatch(/theme-(dark|light)|data-theme=/);
-
-    // AECI-153 — the <html> tag carries the locale-derived dir/lang. en-US
-    // ships LTR, so the dormant dir-injection wiring + index.html default must
-    // produce `lang="en-US" dir="ltr"`. Regression-protects the wiring without
-    // a real RTL locale build.
     expect(htmlTag, `SSR <html> must advertise dir="ltr"; got: ${htmlTag}`).toMatch(/dir="ltr"/);
     expect(htmlTag, `SSR <html> must advertise lang="en-US"; got: ${htmlTag}`).toMatch(
       /lang="en-US"/,
     );
-
-    // (b) Full navigation — client reconciles. AC says "within one frame";
-    // we give 1s of slack so the test isn't flaky on slow CI runners, but
-    // still tight enough to catch a missing reconciliation entirely.
-    await page.goto('/');
-    await page.waitForFunction(
-      () => document.documentElement.classList.contains('theme-dark'),
-      null,
-      { timeout: 1000 },
-    );
+    expect(
+      htmlTag,
+      `SSR <html> must be visitor-state-neutral (§9.1a); got: ${htmlTag}`,
+    ).not.toMatch(/data-theme=|theme-(dark|light)/);
   });
 
   test('second request to / hits the edge cache (AECI-36 AC #3, deployed only)', async ({

@@ -1,13 +1,13 @@
 /**
  * AECI-65 / Phase 2.19 — accessibility (axe) success-path coverage for every
- * live Phase 2 page type, in BOTH light and dark themes, against the committed
- * seed fixtures (`supabase/fixtures/phase2-fixtures.sql`).
+ * live Phase 2 page type, against the committed seed fixtures
+ * (`supabase/fixtures/phase2-fixtures.sql`).
  *
  * This is the spec the per-entity detail specs deliberately defer their
  * success-path coverage to (see `products-detail.spec.ts` header). The 404 and
  * empty-state paths stay in those seed-free specs; this one needs data.
  *
- * COVERAGE — 13 representative URLs × {light, dark} = zero WCAG-AA violations:
+ * COVERAGE — 13 representative URLs = zero WCAG-AA violations:
  *   product index/detail, vendor index/detail, integration index/detail,
  *   category/audience/phase browse, the three flat taxonomy indexes
  *   (/categories, /audiences, /phases — AECI-157), and the 404 page.
@@ -21,27 +21,20 @@
  *   "lights up" automatically once the fixtures are present. Index / browse /
  *   flat-index / 404 pages need no fixtures and always run.
  *
- * SITE CHROME — the footer is excluded from the page-level scan: it carries
- *   pre-existing dark-theme contrast debt that is tracked separately (same
- *   carve-out `layouts.spec.ts` documents). The site HEADER is intentionally
- *   INCLUDED so the AECI-155 taxonomy-driven flyout nav — a new interactive a11y
- *   surface present on every page — is validated here. If the footer debt is
- *   resolved, drop the `.exclude('aec-site-footer')` below.
+ * SITE CHROME — both the HEADER (incl. the AECI-155 taxonomy-driven flyout nav,
+ *   a new interactive a11y surface present on every page) and the FOOTER are in
+ *   scope. The footer's former `.exclude('aec-site-footer')` carve-out was for
+ *   dark-theme contrast debt only; AECI-226 removed the dark theme and verified
+ *   the footer is WCAG-AA clean in the (now sole) light theme, so the carve-out
+ *   was dropped.
  *
  * CONTRAST — AECI-166 fixed the detail-page design-token contrast debt
- *   (`--text-tertiary` labels → `--text-secondary`; dark `--accent-primary`
- *   lifted for AA on raised surfaces) at the source and removed the former
- *   foreground-color allowlist. The suite now enforces zero AA violations
- *   everywhere except the separately-tracked footer (excluded above).
+ *   (`--text-tertiary` labels → `--text-secondary`) at the source and removed
+ *   the former foreground-color allowlist. The suite enforces zero AA violations
+ *   across the whole page.
  */
 import AxeBuilder from '@axe-core/playwright';
-import {
-  expect,
-  request as playwrightRequest,
-  test,
-  type Page,
-  type BrowserContext,
-} from '@playwright/test';
+import { expect, request as playwrightRequest, test, type Page } from '@playwright/test';
 
 const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 
@@ -113,58 +106,23 @@ test.beforeAll(async () => {
 type AxeViolations = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'];
 
 /**
- * Run axe at WCAG-AA on the current page and return all violations. The footer
- * is excluded (separately-tracked dark-theme contrast debt — see file header);
- * everything else enforces zero AA violations. AECI-166 removed the former
- * known-contrast-debt foreground allowlist by fixing the tokens at the source.
+ * Run axe at WCAG-AA on the current page and return all violations. The whole
+ * page — header and footer included — enforces zero AA violations (the footer's
+ * former dark-only carve-out went away with the dark theme in AECI-226).
+ * AECI-166 removed the former known-contrast-debt foreground allowlist by fixing
+ * the tokens at the source.
  */
 async function aaViolations(page: Page): Promise<AxeViolations> {
-  const results = await new AxeBuilder({ page })
-    .withTags(WCAG_AA_TAGS)
-    .exclude('aec-site-footer')
-    .analyze();
+  const results = await new AxeBuilder({ page }).withTags(WCAG_AA_TAGS).analyze();
   return results.violations;
-}
-
-/** Navigate with the persisted dark theme applied (cookie + localStorage). */
-async function gotoDark(page: Page, context: BrowserContext, path: string): Promise<void> {
-  const url = new URL(BASE_URL);
-  await context.addCookies([
-    {
-      name: 'theme',
-      value: 'dark',
-      domain: url.hostname,
-      path: '/',
-      secure: url.protocol === 'https:',
-      sameSite: 'Lax',
-    },
-  ]);
-  await context.addInitScript(() => {
-    try {
-      window.localStorage.setItem('theme', 'dark');
-    } catch {
-      /* private mode / storage blocked — ignore */
-    }
-  });
-  await page.goto(path);
-  // Wait for the client theme service to apply .theme-dark from localStorage.
-  await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
 }
 
 test.describe('Phase 2 page types — axe (WCAG AA)', () => {
   for (const p of PAGES) {
-    test(`${p.name} has zero AA violations (light)`, async ({ page }) => {
+    test(`${p.name} has zero AA violations`, async ({ page }) => {
       test.skip(p.needsFixture && !fixturesPresent, 'fixtures not seeded — see beforeAll warning');
       await page.goto(p.path);
       await expect(page.locator('app-root')).toBeAttached();
-
-      const violations = await aaViolations(page);
-      expect(violations, formatViolations(violations)).toEqual([]);
-    });
-
-    test(`${p.name} has zero AA violations (dark)`, async ({ page, context }) => {
-      test.skip(p.needsFixture && !fixturesPresent, 'fixtures not seeded — see beforeAll warning');
-      await gotoDark(page, context, p.path);
 
       const violations = await aaViolations(page);
       expect(violations, formatViolations(violations)).toEqual([]);

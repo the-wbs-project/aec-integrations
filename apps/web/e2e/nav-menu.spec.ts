@@ -5,17 +5,16 @@ import { expect, test, type Page } from '@playwright/test';
 // responsive AND taxonomy-driven. Below `md` it is a labelled hamburger to the
 // left of the wordmark that opens a CDK-overlay dropdown holding all site chrome
 // — Home + Products links, the Categories / Audiences / Phases facets as
-// tap-to-expand disclosure sections, search, the theme group, and Sign-in. At
-// `md+` the hamburger drops out and the same set renders inline: Home + Products
-// links and three facet flyout triggers (label links to the index, an adjacent
-// disclosure button reveals the top values). Vendors / Integrations no longer
-// live in the nav (they moved to the footer).
+// tap-to-expand disclosure sections, search, and Sign-in. At `md+` the hamburger
+// drops out and the same set renders inline: Home + Products links and three
+// facet flyout triggers (label links to the index, an adjacent disclosure button
+// reveals the top values). Vendors / Integrations no longer live in the nav
+// (they moved to the footer).
 //
 // Unlike layouts.spec.ts (which EXCLUDES the header from axe), this spec is
 // specifically about the header/menu, so axe INCLUDES `aec-site-header` and the
-// open overlay panel. We exclude only `aec-site-footer`.
+// open overlay panel.
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 // Any route renders the global header; browse is a known-200 preview route.
 const ROUTE = '/preview/layouts/browse';
 const MOBILE = { width: 375, height: 667 } as const;
@@ -60,9 +59,7 @@ test.describe('primary navigation menu (375px)', () => {
     expect(overflow, 'document must not overflow horizontally on mobile').toBeLessThanOrEqual(1);
   });
 
-  test('opening the menu exposes links, facet sections, search, theme group, and sign-in', async ({
-    page,
-  }) => {
+  test('opening the menu exposes links, facet sections, search, and sign-in', async ({ page }) => {
     await page.goto(ROUTE);
     await toggle(page).click();
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'true');
@@ -84,11 +81,6 @@ test.describe('primary navigation menu (375px)', () => {
     // The search box is the `aec-search-autocomplete` combobox (AECI-144); Angular
     // Aria sets role="combobox" on the input (was a plain searchbox placeholder).
     await expect(overlay(page).getByRole('combobox', { name: 'Search' })).toBeVisible();
-    const themeGroup = overlay(page).getByRole('group', { name: 'Theme' });
-    await expect(themeGroup.getByRole('button', { name: 'System' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
     await expect(overlay(page).getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 
@@ -112,24 +104,6 @@ test.describe('primary navigation menu (375px)', () => {
     await categories.click();
     await expect(categories).toHaveAttribute('aria-expanded', 'false');
     await expect(viewAll).toBeHidden();
-  });
-
-  test('the theme button group selects a mode and drives the theme', async ({ page }) => {
-    await page.goto(ROUTE);
-    await toggle(page).click();
-
-    const themeGroup = overlay(page).getByRole('group', { name: 'Theme' });
-    const system = themeGroup.getByRole('button', { name: 'System' });
-    const dark = themeGroup.getByRole('button', { name: 'Dark' });
-    await expect(system).toHaveAttribute('aria-pressed', 'true');
-
-    await dark.click();
-
-    await expect(dark).toHaveAttribute('aria-pressed', 'true');
-    await expect(system).toHaveAttribute('aria-pressed', 'false');
-    await expect
-      .poll(() => page.evaluate(() => document.documentElement.classList.contains('theme-dark')))
-      .toBe(true);
   });
 
   test('Escape closes the menu and returns focus to the toggle', async ({ page }) => {
@@ -181,39 +155,8 @@ test.describe('primary navigation menu (375px)', () => {
     await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false');
   });
 
-  test('header + menu are axe-clean (closed and open) in light theme', async ({ page }) => {
+  test('header + menu are axe-clean (closed and open)', async ({ page }) => {
     await page.goto(ROUTE);
-    await expect(toggle(page)).toBeVisible();
-    expect(await analyzeHeader(page), 'closed state').toEqual([]);
-
-    await toggle(page).click();
-    await overlay(page).getByRole('button', { name: 'Categories' }).click();
-    await expect(overlay(page).getByRole('link', { name: 'View all categories' })).toBeVisible();
-    expect(await analyzeHeaderAndOverlay(page), 'open state').toEqual([]);
-  });
-
-  test('header + menu are axe-clean (closed and open) in dark theme', async ({ page, context }) => {
-    const url = new URL(BASE_URL);
-    await context.addCookies([
-      {
-        name: 'theme',
-        value: 'dark',
-        domain: url.hostname,
-        path: '/',
-        secure: url.protocol === 'https:',
-        sameSite: 'Lax',
-      },
-    ]);
-    await context.addInitScript(() => {
-      try {
-        window.localStorage.setItem('theme', 'dark');
-      } catch {
-        /* private mode / storage blocked — ignore */
-      }
-    });
-
-    await page.goto(ROUTE);
-    await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
     await expect(toggle(page)).toBeVisible();
     expect(await analyzeHeader(page), 'closed state').toEqual([]);
 
@@ -251,7 +194,6 @@ test.describe('primary navigation menu (1280px)', () => {
     }
 
     const header = page.locator('aec-site-header');
-    await expect(header.getByRole('button', { name: 'Cycle theme' })).toBeVisible();
     await expect(header.getByRole('link', { name: 'Sign in' })).toBeVisible();
   });
 
@@ -281,9 +223,7 @@ test.describe('primary navigation menu (1280px)', () => {
     await expect(button).toBeFocused();
   });
 
-  test('desktop header is axe-clean (closed and with a flyout open) in light theme', async ({
-    page,
-  }) => {
+  test('desktop header is axe-clean (closed and with a flyout open)', async ({ page }) => {
     await page.goto(ROUTE);
     await expect(primaryNav(page).getByRole('link', { name: 'Products' })).toBeVisible();
     expect(await analyzeHeader(page), 'closed').toEqual([]);

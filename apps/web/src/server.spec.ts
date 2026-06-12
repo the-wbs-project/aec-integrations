@@ -113,26 +113,22 @@ describe('stripVisitorStateCookies', () => {
     expect(stripVisitorStateCookies(req)).toBe(req);
   });
 
-  it('removes the theme cookie and preserves the rest', () => {
+  it('is a no-op in Stage 1 — VISITOR_STATE_COOKIES is empty (AECI-226 removed `theme`)', () => {
+    // `theme` was the only visitor-state cookie; it was removed with the dark
+    // theme. With an empty list nothing is stripped — arbitrary prefs and auth
+    // cookies alike pass through. The mechanism is retained (see the next test).
+    expect(VISITOR_STATE_COOKIES).toEqual([]);
     const req = new Request('https://x/', {
-      headers: { cookie: 'sb-access-token=abc; theme=dark; csrf=xyz' },
+      headers: { cookie: 'sb-access-token=abc; ui-pref=compact; csrf=xyz' },
     });
-    const stripped = stripVisitorStateCookies(req);
-    expect(stripped).not.toBe(req);
-    expect(stripped.headers.get('cookie')).toBe('sb-access-token=abc; csrf=xyz');
+    expect(stripVisitorStateCookies(req)).toBe(req);
   });
 
-  it('deletes the cookie header entirely when only visitor-state cookies were present', () => {
-    const req = new Request('https://x/', {
-      headers: { cookie: 'theme=light' },
-    });
-    const stripped = stripVisitorStateCookies(req);
-    expect(stripped.headers.get('cookie')).toBeNull();
-  });
-
-  it('strips every cookie listed in VISITOR_STATE_COOKIES', () => {
-    // Defensive: if a future change adds a name, the strip behavior must
-    // extend automatically. Builds a synthetic cookie header from the list.
+  it('strips every cookie listed in VISITOR_STATE_COOKIES (extends automatically)', () => {
+    // Defensive: if a future change repopulates the list (e.g. the Stage 2
+    // vendor-portal theme), the strip behavior must extend automatically.
+    // Builds a synthetic cookie header from the list; with it empty this is the
+    // pass-through (no-op) case.
     const cookieHeader = [
       'session=keep-me',
       ...VISITOR_STATE_COOKIES.map((name) => `${name}=v`),
@@ -315,7 +311,7 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
 
     const req = new Request('https://aecintegrations.com/api/health', {
       method: 'GET',
-      headers: { cookie: 'sb-access-token=abc.def.ghi; theme=dark' },
+      headers: { cookie: 'sb-access-token=abc.def.ghi; ui-pref=compact' },
     });
 
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -323,10 +319,10 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
 
     expect(calls).toHaveLength(1);
     const forwarded = calls[0]!;
-    // The theme cookie must NOT be stripped on the /api/* path — the AECI-35
-    // contract is that cookie stripping only runs on the cacheable branch.
-    // Auth cookies obviously must survive too.
-    expect(forwarded.headers.get('cookie')).toBe('sb-access-token=abc.def.ghi; theme=dark');
+    // Cookies pass through the /api/* path untouched — the AECI-35 contract is
+    // that visitor-state cookie stripping only ever runs on the cacheable SSR
+    // branch, never on the API proxy. Auth cookies obviously must survive too.
+    expect(forwarded.headers.get('cookie')).toBe('sb-access-token=abc.def.ghi; ui-pref=compact');
     expect(forwarded.method).toBe('GET');
     expect(new URL(forwarded.url).pathname).toBe('/api/health');
   });
@@ -527,34 +523,30 @@ describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)
 });
 
 describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
-  it('strips the theme cookie before invoking SSR on /', async () => {
+  it('applies the visitor-state cookie-strip before SSR on the cacheable branch (§9.1a)', async () => {
+    // The cacheable branch strips VISITOR_STATE_COOKIES before SSR so a
+    // per-visitor cookie can't poison the URL-keyed edge cache. The list is
+    // empty in Stage 1 (AECI-226 removed `theme`), so this is currently a
+    // pass-through; the expectation is driven off stripVisitorStateCookies so
+    // the test stays correct if a name is re-added (e.g. the Stage 2 vendor
+    // portal). The renderer echoes back the cookie header SSR saw.
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: cookieEchoRenderer() });
 
-    const withTheme = await app.fetch(
-      new Request('https://aecintegrations.com/', {
-        headers: { cookie: 'theme=dark; sb-access-token=abc' },
-      }),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-    const withoutTheme = await app.fetch(
-      new Request('https://aecintegrations.com/', {
-        headers: { cookie: 'sb-access-token=abc' },
-      }),
+    const cookie = 'ui-pref=compact; sb-access-token=abc';
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/', { headers: { cookie } }),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
 
-    const withBody = await withTheme.text();
-    const withoutBody = await withoutTheme.text();
-
-    // The renderer echoes back the cookie header it saw. Both calls must see
-    // the same cookies — i.e. `theme` was stripped before SSR ran. (Other
-    // cookies pass through, which is why both bodies include sb-access-token.)
-    expect(withBody).toBe(withoutBody);
-    expect(withBody).toContain('sb-access-token=abc');
-    expect(withBody).not.toContain('theme=dark');
+    const seen = await res.text();
+    const expected =
+      stripVisitorStateCookies(new Request('https://x/', { headers: { cookie } })).headers.get(
+        'cookie',
+      ) ?? '';
+    expect(seen).toContain(expected);
+    expect(seen).toContain('sb-access-token=abc');
   });
 
   it('sets Cache-Control + the SEO/security header set on the cacheable branch (AECI-89)', async () => {

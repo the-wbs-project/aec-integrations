@@ -3,9 +3,9 @@ import { expect, test } from '@playwright/test';
 
 // AECI-132. Pilot of Angular Aria (`@angular/aria`) tabs on the demo/preview
 // vendor-detail surface (preview routes are 404'd in production — zero
-// user-facing risk). Validates the ADR 0010 acceptance: axe-clean in BOTH
-// themes, plus keyboard navigation (arrow keys, Home/End, activation) driving
-// selection and panel visibility.
+// user-facing risk). Validates the ADR 0010 acceptance: axe-clean, plus
+// keyboard navigation (arrow keys, Home/End, activation) driving selection and
+// panel visibility.
 //
 // `ngTabList` runs in its default `selectionMode="follow"` (automatic
 // activation), so arrow/Home/End keys both move focus AND activate the tab —
@@ -13,7 +13,6 @@ import { expect, test } from '@playwright/test';
 // inactive panel renders no content (asserted via `toBeHidden`, which is true
 // for detached nodes too).
 
-const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const PATH = '/preview/vendor-detail';
 
 // Panel-specific, stable content markers.
@@ -92,43 +91,12 @@ test.describe('preview vendor-detail tabs (Angular Aria pilot)', () => {
   // labels) — unrelated to the Aria port and not introduced by it. Scoping keeps
   // this pilot's a11y assertion honest (it validates what AECI-132 changed); the
   // page-wide token debt is tracked separately. The tab controls themselves use
-  // `--text-secondary`/`--text-primary`, which pass AA in both themes.
+  // `--text-secondary`/`--text-primary`, which pass AA.
   const TABLIST = '[role="tablist"]';
 
-  test('tab controls have zero axe violations in light theme', async ({ page }) => {
+  test('tab controls have zero axe violations', async ({ page }) => {
     await page.goto(PATH);
     await expect(page.locator(TABLIST)).toBeVisible();
-    const results = await new AxeBuilder({ page })
-      .include(TABLIST)
-      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-      .analyze();
-    expect(results.violations, formatViolations(results.violations)).toEqual([]);
-  });
-
-  test('tab controls have zero axe violations in dark theme', async ({ page, context }) => {
-    const url = new URL(BASE_URL);
-    await context.addCookies([
-      {
-        name: 'theme',
-        value: 'dark',
-        domain: url.hostname,
-        path: '/',
-        secure: url.protocol === 'https:',
-        sameSite: 'Lax',
-      },
-    ]);
-    await context.addInitScript(() => {
-      try {
-        window.localStorage.setItem('theme', 'dark');
-      } catch {
-        /* private mode / storage blocked — ignore */
-      }
-    });
-
-    await page.goto(PATH);
-    await page.waitForFunction(() => document.documentElement.classList.contains('theme-dark'));
-    await expect(page.locator(TABLIST)).toBeVisible();
-
     const results = await new AxeBuilder({ page })
       .include(TABLIST)
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])

@@ -112,30 +112,23 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
     await expect(page).toHaveURL(/\/categories\/[^/]+$/);
   });
 
-  // Both themes (the page is token-driven, no `dark:` markup): axe reads computed
-  // styles, so toggling `.theme-dark` genuinely re-checks dark-theme contrast.
-  for (const theme of ['light', 'dark'] as const) {
-    test(`has zero axe AA violations (${theme} theme)`, async ({ page }) => {
-      await page.goto('/');
-      await expect(page.locator('app-root')).toBeAttached();
-      if (theme === 'dark') {
-        await page.evaluate(() => document.documentElement.classList.add('theme-dark'));
-      }
+  test('has zero axe AA violations', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('app-root')).toBeAttached();
 
-      const results = await new AxeBuilder({ page })
-        .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
-        .analyze();
+    const results = await new AxeBuilder({ page })
+      .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'])
+      .analyze();
 
-      expect(results.violations, formatViolations(results.violations)).toEqual([]);
-    });
-  }
+    expect(results.violations, formatViolations(results.violations)).toEqual([]);
+  });
 });
 
 // AECI-186 — Phase 4.11 home assembly. The six section components (hero / stats
 // cards / browse grids / recently-added / trending) are stacked in §4.1 order and
 // the home SEO (meta + OG/Twitter + WebSite/Organization JSON-LD + canonical) is
-// emitted. The both-theme axe coverage above runs against `/`, so it now also
-// validates these added sections — no duplicate axe pass is needed here.
+// emitted. The axe coverage above runs against `/`, so it now also validates
+// these added sections — no duplicate axe pass is needed here.
 //
 // Resilient to a populated or empty stats_cache: assertions key off the labels /
 // headings that render in BOTH the data and empty states, never the data itself.

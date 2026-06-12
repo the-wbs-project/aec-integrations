@@ -147,7 +147,6 @@ Component tests render a single Angular component in isolation, with mocked depe
 - Components with conditional rendering based on inputs or state
 - Components with output emission (event handlers, signals)
 - Auth-gated components (verify they redirect or hide content when unauthenticated)
-- Theme-aware components (verify they render correctly in both themes)
 
 ### 4.3 What to skip
 
@@ -276,7 +275,7 @@ Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise th
 
 Keep a small bash- or Playwright-driven suite for these multi-request, edge-stateful scenarios — modeled on `apps/web/scripts/run-extra-tests.sh` (T1–T12). The scenarios that earned their keep there:
 
-- **Cookie × cache pollution** — verify visitor-state cookies (theme, etc.) are stripped before SSR for cacheable routes; otherwise the first visitor's render poisons everyone else's response.
+- **Cookie × cache pollution** — verify the visitor-state cookie-strip runs before SSR for cacheable routes, so a per-visitor cookie can't poison the shared edge cache. The strip list (`VISITOR_STATE_COOKIES`) is empty as of AECI-226 — `theme` was removed with the dark theme — but the mechanism is retained as infrastructure and `server.spec.ts` still exercises it.
 - **`Vary` audit** — confirm no cached SSR response emits `Vary`; one variant per URL.
 - **404 / KV-miss path** — assert HTTP 404 with TTL ≤60s, not 200 with a long TTL (the "pinned 404" trap).
 - **MISS → HIT progression** — assert `X-*-Cache: MISS` then `HIT` for the same URL.
@@ -409,11 +408,11 @@ Run axe on:
 - Review submission form
 - Legal pages
 
-Run in both light and dark themes.
+Run in the light theme (Stage 1 is light-only — AECI-226).
 
-**Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in **both themes** (13 URLs × 2), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`supabase/fixtures/phase2-fixtures.sql`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. The site **footer** is carved out (`.exclude('aec-site-footer')`) for pre-existing dark-mode contrast debt tracked separately; the header (incl. the new flyout nav) is in scope.
+**Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (13 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`supabase/fixtures/phase2-fixtures.sql`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 
-**Phase 3.12 implementation (AECI-145).** `/search` axe coverage (both themes, zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
+**Phase 3.12 implementation (AECI-145).** `/search` axe coverage (zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
 
 ### 8.3 Severity threshold
 
@@ -433,8 +432,8 @@ Playwright takes screenshots of key pages and components. Chromatic hosts them a
 
 ### 9.2 What to snapshot
 
-- Home page (light and dark)
-- Product page hero (light and dark)
+- Home page
+- Product page hero
 - All Spartan UI components in the design system (button, card, input, dialog states)
 - Empty states ("be the first to review", no search results)
 - Error states (404, validation error)

@@ -37,7 +37,7 @@ This spec is the master document. Detailed content for the following areas lives
 | `TESTING_STRATEGY.md` | Test tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy | Complete |
 | `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
 | `CODE_REVIEW_CHECKLIST.md` | Pre-merge review categories and severity rubric for humans and LLMs | Complete |
-| `BRAND_GUIDELINES.md` | Canonical brand colors (light + dark variants), Bone reclassification, Clay restriction, visual principles | Complete |
+| `BRAND_GUIDELINES.md` | Canonical brand colors (light; dark variants documented but not shipped in Stage 1 — AECI-226), Bone reclassification, Clay restriction, visual principles | Complete |
 | `SEARCH_RANKING.md` | Algolia ranking customization, tuning, feedback loops | Pending |
 | `OPERATIONAL_RUNBOOKS.md` | Incident response, vendor dispute handling, recovery procedures | Pending (closer to launch) |
 | `STACK_VALIDATION_TEST.md` | Foundation stack test plan and results | Complete |
@@ -75,13 +75,13 @@ When a section of this spec references one of these documents, the companion doc
 
 ### 2a.1 Theming model
 
-The site supports light and dark themes via system preference detection with a manual override toggle. Authenticated users have their preference persisted via `profiles.theme_preference` (Stage 2+).
+Stage 1 ships a single, **light-only** presentation — no theme toggle and no system-preference detection (AECI-226; this supersedes the earlier light/dark/system model). The dark theme is deferred to the Stage 2 vendor portal, where the semantic-token architecture (below) makes re-introduction a token-block + toggle change. The `profiles.theme_preference` column stays in the schema but is dormant in Stage 1 — its persistence was already scoped to Stage 2+.
 
 **Principle: brand colors are accents, not surfaces.** Surfaces are neutral (white/near-black). Brand colors (Forest, Clay, Bone) layer on top as accents, badges, callouts, and highlights. This matches the modern product design pattern used by many leading product companies, while preserving brand identity through accent placement.
 
 ### 2a.2 Token system
 
-All colors expressed as CSS custom properties bound to theme classes. Tailwind config reads from these tokens.
+All colors expressed as CSS custom properties on `:root`. Tailwind config reads from these tokens. (Stage 1 is light-only — see §2a.1; the semantic token names below are theme-agnostic, so a dark set can layer back on at Stage 2 without touching consumers.)
 
 **Light theme:**
 
@@ -101,37 +101,23 @@ All colors expressed as CSS custom properties bound to theme classes. Tailwind c
 | `--accent-secondary` | `#E89668` | Clay — highlights, badges, callouts (large text / graphical only) |
 | `--accent-warm` | `#F5F2EA` | Bone — subtle warm-tinted sections, never primary surface |
 
-**Dark theme:**
-
-| Token | Value | Use |
-|---|---|---|
-| `--surface-base` | `#0A0A0A` | Page background |
-| `--surface-raised` | `#18181B` | Cards, panels |
-| `--surface-sunken` | `#09090B` | Inset areas |
-| `--surface-muted` | `#27272A` | Interactive row hover / `focus-within` (index tables); distinct from raised so in-row chips stay legible; shares the border-default value in dark by design |
-| `--border-default` | `#27272A` | Standard borders |
-| `--border-strong` | `#3F3F46` | Emphasized borders |
-| `--text-primary` | `#FAFAFA` | Body text |
-| `--text-secondary` | `#A1A1AA` | Supporting text |
-| `--text-tertiary` | `#71717A` | Hints, placeholders |
-| `--accent-primary` | `#5D916C` | Lighter Forest — CTAs, links (lifted in AECI-166 for AA on raised surfaces) |
-| `--accent-primary-hover` | `#6FAA80` | Hover state |
-| `--accent-secondary` | `#F0A887` | Lighter Clay — highlights, badges (large text / graphical only) |
-| `--accent-warm` | `#2A2520` | Warm-tinted dark sections |
+> The Stage 1 dark token set was removed in AECI-226 (preserved in git history). It returns with the dark theme at Stage 2; the brand-approved dark Forest/Clay/Bone variants remain documented in `BRAND_GUIDELINES.md` §3.
 
 ### 2a.3 Brand identity preserved
 
-Forest and Clay remain the brand colors. Dark mode uses lighter variants because the original Forest `#1E3A2F` and Clay `#E89668` lack contrast against near-black surfaces. These shifted variants must be added to the official brand guidelines DOCX as approved dark-mode variants — not treated as ad-hoc lightening.
+Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped in Stage 1**; they return with the dark theme at Stage 2.
 
 Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero band — anywhere warmth and identity are desired. It is no longer the default page background.
 
 ### 2a.4 Contrast validation
 
 - All text/background pairs verified for WCAG 2.1 AA contrast before launch
-- Clay does not pass AA for body text in the light theme (Clay `#E89668` on white `#FFFFFF` is ~2.4:1). In the dark theme Clay technically passes (~10:1 on `#0A0A0A`), but is restricted to badges, large text, and graphical elements in both themes to keep the accent rare and on-brand. See `BRAND_GUIDELINES.md` §5 for permitted uses.
+- Clay does not pass AA for body text (Clay `#E89668` on white `#FFFFFF` is ~2.4:1), so it is restricted to badges, large text, and graphical elements — keeping the accent rare and on-brand. See `BRAND_GUIDELINES.md` §5 for permitted uses.
 - Contrast verification is automated in CI via a token-pair check matrix
 
 ### 2a.5 Theme handling for vendor-supplied content
+
+> Forward-looking (Stage 2+): vendor uploads ship with the vendor portal, by which point the dark theme has returned (§2a.1). The "both themes" requirements below apply from that point — they do not affect the light-only Stage 1 surface.
 
 Vendor-uploaded content (logos, screenshots, embedded videos, custom brand presence) needs explicit theme strategy because user-uploaded content cannot be assumed to work in both themes.
 
@@ -614,7 +600,7 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 > `import()` run only in `afterNextRender`. The `ais-*` widget vocabulary below is therefore
 > illustrative, not literal; the per-tab sort dropdown is deferred (needs Algolia replicas). All
 > other §4.6/§7.5 acceptance criteria (browser-side search-only key, facets, entity tabs, branded
-> hit cards, empty state, noindex, non-cacheable, both themes, axe-AA) are met. ADR 0014 has the
+> hit cards, empty state, noindex, non-cacheable, axe-AA) are met. ADR 0014 has the
 > full rationale.
 
 - Use `angular-instantsearch` v4+
@@ -746,9 +732,9 @@ Reference implementation: `apps/web/src/server-runtime.ts` — `stripVisitorStat
 
 ### 9.1a Cached SSR routes must render visitor-state-neutral HTML
 
-Edge cache is keyed by URL. If SSR reads a request cookie (e.g., `theme=dark`) and bakes it into the rendered HTML (e.g., `<html data-theme="dark">`), the first visitor primes the cache for everyone — a dark-mode visitor's render is served to a light-mode visitor, and vice versa.
+Edge cache is keyed by URL. If SSR reads a per-visitor request cookie and bakes it into the rendered HTML (e.g., `<html data-theme="…">`), the first visitor primes the cache for everyone — their personalized render is served to every subsequent visitor.
 
-**Rule:** for any cacheable route, the Worker must strip visitor-state cookies (`theme`, future analytics cookies, etc.) before forwarding the request to the Angular SSR handler. The client reconciles state post-hydration from `localStorage` + `matchMedia` and repaints. Server-rendered HTML is neutral by design.
+**Rule:** for any cacheable route, the Worker must strip visitor-state cookies before forwarding the request to the Angular SSR handler; the client reconciles any such state post-hydration and repaints. Server-rendered HTML is neutral by design. The strip list (`VISITOR_STATE_COOKIES`) is **empty as of AECI-226** — `theme`, its original and only entry, was removed with the dark theme — but the mechanism is retained as general cache-pollution infrastructure for future visitor-state cookies.
 
 This is not solvable with `Vary: Cookie` — see §7a.3 (and §9.3 below).
 
@@ -1013,12 +999,12 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Linear ↔ GitHub integration enabled and validated (branch linking, PR auto-close)
 - [ ] n8n configured with native Linear node and API token
 - [ ] Figma Design System file created with theme tokens from Section 2a.2
-- [ ] Brand guidelines DOCX updated with dark-mode accent variants
+- [ ] Brand guidelines DOCX documents dark-mode accent variants (kept as Stage 2 brand assets; not shipped in Stage 1 — AECI-226)
 - [ ] Angular 21+ SSR project scaffolded in `apps/web/`, **zoneless** (`provideZonelessChangeDetection()`, no `zone.js`)
 - [ ] Hydration providers wired: `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is the default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130) — mirror `apps/web/src/app/app.config.ts`
 - [ ] `@angular/localize` configured with `en-US` as default locale; `angular.json` `i18n.locales` block ready for `es-ES` and others (URL-prefix dispatch, no `Vary` headers — §7a.3)
-- [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to CSS custom property tokens for both themes; `@spartan-ng/brain/hlm-tailwind-preset.css` imported
-- [ ] Theme switcher (system / light / dark) implemented in root layout — SSR reads theme from cookie + `Sec-CH-Prefers-Color-Scheme`; client reconciles from `localStorage` + `matchMedia` (mirror `apps/web/src/app/theme.service.ts`)
+- [ ] Tailwind **v4** (`@tailwindcss/postcss`) config bound to the light-theme CSS custom property tokens (Stage 1 is light-only — AECI-226; dark tokens return at Stage 2); `@spartan-ng/brain/hlm-tailwind-preset.css` imported
+- [ ] Light-only presentation — no theme switcher or system-preference detection in Stage 1 (AECI-226). The dark theme + toggle return with the Stage 2 vendor portal; the semantic tokens make that a token-block + toggle re-introduction
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
 - [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
@@ -1026,7 +1012,7 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] PostgREST GRANTs + RLS policies + `public.is_admin()`/`is_active_user()` helpers ship as numbered migrations in `supabase/migrations/` (applied to every env by `supabase db push`; PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1, AECI-87)
 - [ ] Service binding between SSR Worker and API Worker
 - [ ] Datadog Browser RUM and Worker SDK installed and reporting
-- [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped, both themes verified)
+- [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped)
 - [ ] Validate SSR + cache plumbing with a "Hello World" page (mirror the frozen probe `spikes/stack-test`)
 - [ ] Test infrastructure scaffolded per `TESTING_STRATEGY.md`: Vitest unit harness, Playwright e2e against `wrangler dev`, axe-core hook, Lighthouse CI, and a bash integration runner modeled on `apps/web/scripts/run-extra-tests.sh` for cache/cookie/`Vary` regressions
 - [ ] Run first Claude Code task end-to-end against a Linear issue to calibrate the workflow
@@ -1437,7 +1423,7 @@ Whether work is done by Claude Code or by hand, every Linear issue should have:
 
 - **Clear scope** — one capability, not a phase (e.g. "Implement product page header component" not "Build product page")
 - **Spec reference** — which section of `STAGE_1_SPEC.md` governs the work
-- **Acceptance criteria** — testable, specific (e.g. "Component renders product name, logo, vendor link, category badges; matches Figma frame X; passes axe-core; works in both themes")
+- **Acceptance criteria** — testable, specific (e.g. "Component renders product name, logo, vendor link, category badges; matches Figma frame X; passes axe-core")
 - **Dependencies** — explicit links to prerequisite issues
 - **Test expectations** — what unit/integration tests the PR should include
 
@@ -1471,7 +1457,7 @@ This prevents drift between human decisions and AI-generated code.
 Three files, all under the AEC Integrations team in Figma:
 
 - **`AEC Integrations — Design System`** — single source of truth for visual design
-  - Color styles (light + dark theme tokens from Section 2a.2)
+  - Color styles (light theme tokens from Section 2a.2; dark tokens deferred to Stage 2 — AECI-226)
   - Text styles (heading sizes, body sizes, weights)
   - Spacing tokens (matching Tailwind's spacing scale)
   - Component library (buttons, cards, forms, badges, inputs — mirrors Spartan UI primitives)

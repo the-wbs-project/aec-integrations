@@ -13,12 +13,12 @@
  *      `Vary` or `Cache-Tag` headers into the cache key. We emit both (a
  *      `Vary: Accept-Language` advertisement and per-route tags), but the key
  *      stays URL-only, so the locale Vary can't fragment it (see §7 and
- *      `server/seo-headers.ts`). If SSR reads a per-visitor cookie (e.g.
- *      `theme=dark`) and bakes the result into HTML, the first visitor's
- *      render is served to everyone. So: on the cacheable branch, strip
- *      visitor-state cookies
- *      *before* invoking SSR; the client reconciles theme post-hydration from
- *      `localStorage` + `matchMedia`.
+ *      `server/seo-headers.ts`). If SSR were to read a per-visitor cookie and
+ *      bake the result into HTML, the first visitor's render would be served to
+ *      everyone. So: on the cacheable branch, strip visitor-state cookies
+ *      *before* invoking SSR. `VISITOR_STATE_COOKIES` is empty as of AECI-226
+ *      (`theme` — the original entry — was removed with the dark theme), but the
+ *      stripping mechanism is retained as general cache-pollution infrastructure.
  *
  *   2. Returning HTTP 200 with a "not found" body and a normal TTL causes the
  *      edge to pin the not-found response. New entities stay invisible until
@@ -207,8 +207,13 @@ export function hasSessionCookie(request: Request): boolean {
 /**
  * Per-visitor cookies that influence rendered HTML. The Worker strips these
  * before invoking SSR on the cacheable branch — see §9.1a.
+ *
+ * Empty as of AECI-226: `theme` (the original entry) was removed with the dark
+ * theme. The list + `stripVisitorStateCookies()` are retained as general
+ * cache-pollution infrastructure — add a cookie name here the moment SSR begins
+ * reading any per-visitor cookie on a cacheable route.
  */
-export const VISITOR_STATE_COOKIES: readonly string[] = ['theme'];
+export const VISITOR_STATE_COOKIES: readonly string[] = [];
 
 /**
  * Returns a new Request with every cookie name in `VISITOR_STATE_COOKIES`
@@ -219,6 +224,10 @@ export const VISITOR_STATE_COOKIES: readonly string[] = ['theme'];
  * allocating when no work is needed.
  */
 export function stripVisitorStateCookies(request: Request): Request {
+  // No visitor-state cookies to strip (see VISITOR_STATE_COOKIES) — skip the
+  // work and avoid building a degenerate, never-matching regex.
+  if (VISITOR_STATE_COOKIES.length === 0) return request;
+
   const cookie = request.headers.get('cookie');
   if (!cookie) return request;
 

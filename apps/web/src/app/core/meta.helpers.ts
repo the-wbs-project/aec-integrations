@@ -1,8 +1,7 @@
 /**
  * Angular-free helpers backing `MetaService`. Kept in a separate module so the
  * Vitest spec can import them under plain Node without dragging Angular's
- * partial-compiled platform packages into the test process — same pattern as
- * `theme.helpers.ts`.
+ * partial-compiled platform packages into the test process.
  *
  * Spec anchor: docs/STAGE_1_PHASE_2_SPEC.md §9 (§9.1 metadata, §9.2 JSON-LD).
  */
