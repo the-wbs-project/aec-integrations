@@ -22,7 +22,12 @@
  *
  * No-op contract: when `ALGOLIA_APP_ID` or `ALGOLIA_SEARCH_KEY` is absent (local
  * dev without secrets, or any env where search is not yet provisioned), the
- * helper returns the response unchanged and emits no `window.__AECI_ALGOLIA__`.
+ * helper returns the response unchanged and emits neither `window.__AECI_ALGOLIA__`
+ * nor the Algolia preconnect hint.
+ *
+ * Latency hint (AECI-227): alongside the config script, the helper also injects a
+ * `<link rel="preconnect">` to the Algolia read host so DNS/TLS is warm before the
+ * first browser-side search query.
  */
 
 import { indexNamesFor } from '@aeci/shared/algolia';
@@ -30,6 +35,9 @@ import { indexNamesFor } from '@aeci/shared/algolia';
 import type { AlgoliaPublicConfig, WebEnv } from './env';
 
 const HEAD_CLOSE = '</head>';
+
+/** Algolia app IDs are alphanumeric; guard before interpolating into an `href`. */
+const ALGOLIA_APP_ID_RE = /^[A-Za-z0-9]+$/;
 
 /**
  * Builds the value assigned to `window.__AECI_ALGOLIA__`, or `null` when either
@@ -62,6 +70,20 @@ export function buildAlgoliaBootstrapScript(env: WebEnv): string | null {
 }
 
 /**
+ * Builds a `<link rel="preconnect">` to the Algolia read host so the browser
+ * warms DNS/TLS before the first search query fires (the lite client queries
+ * `{appId}-dsn.algolia.net`), shaving the connection setup off the first
+ * keystroke's round-trip (AECI-227). Returns `null` on the same no-op contract
+ * as the bootstrap script (public config absent), or when the app id isn't a
+ * plain alphanumeric token — a defensive guard against `href` attribute breakout.
+ */
+export function buildAlgoliaPreconnectLink(env: WebEnv): string | null {
+  const cfg = buildAlgoliaPublicConfig(env);
+  if (!cfg || !ALGOLIA_APP_ID_RE.test(cfg.appId)) return null;
+  return `<link rel="preconnect" href="https://${cfg.appId}-dsn.algolia.net" crossorigin>`;
+}
+
+/**
  * Splices the bootstrap `<script>` into a rendered HTML response just before
  * `</head>`. Returns the original response untouched when:
  *
@@ -82,7 +104,10 @@ export async function injectAlgoliaBootstrap(response: Response, env: WebEnv): P
   const idx = html.indexOf(HEAD_CLOSE);
   if (idx === -1) return response;
 
-  const next = html.slice(0, idx) + script + html.slice(idx);
+  // Resource hint before the config script: same env-only inputs, so it's
+  // equally safe to inject before the edge-cache write (§9.1a).
+  const preconnect = buildAlgoliaPreconnectLink(env) ?? '';
+  const next = html.slice(0, idx) + preconnect + script + html.slice(idx);
   const headers = new Headers(response.headers);
   // The body length changed — drop any cached content-length so the runtime
   // recomputes it instead of truncating/padding to the original size.

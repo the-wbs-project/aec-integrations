@@ -1,10 +1,11 @@
 import { TestBed } from '@angular/core/testing';
 import { Meta, Title } from '@angular/platform-browser';
 import { Router, provideRouter } from '@angular/router';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { type InstantSearchLib, type IsWidget } from './search-controller';
 import { SearchPage } from './search-page';
-import { SEARCH_ENGINE_FACTORY } from './search-controller.factory';
+import { type SearchEngine, SEARCH_ENGINE_FACTORY } from './search-controller.factory';
 
 /**
  * `ng test` shell coverage for `SearchPage`.
@@ -42,6 +43,43 @@ function setup() {
     ],
   });
   return TestBed.inject(Router);
+}
+
+/**
+ * A minimal fake `SearchEngine` for the buffer-replay test (AECI-227). The real
+ * `SearchController` runs against it; only `connectSearchBox`'s `refine` is
+ * observed. `instance.start()` fires the searchBox render (as real InstantSearch
+ * does on start) so the controller captures `refine` — then a replayed
+ * `setQuery` shows up as a `refine` call.
+ */
+function makeFakeEngine(): SearchEngine & { refine: ReturnType<typeof vi.fn> } {
+  const refine = vi.fn();
+  let searchBoxRender: ((state: unknown, first: boolean) => void) | null = null;
+  const instance = {
+    addWidgets: () => instance,
+    start: () => searchBoxRender?.({ query: '', refine, isSearchStalled: false }, true),
+    dispose: () => {},
+  };
+  const passthrough =
+    (_render: (state: unknown, first: boolean) => void) =>
+    (_params: Record<string, unknown> = {}): IsWidget =>
+      ({}) as IsWidget;
+  const lib: InstantSearchLib = {
+    instantsearch: () => instance,
+    index: () => ({ addWidgets: () => ({}) }),
+    configure: () => ({}) as IsWidget,
+    connectSearchBox: ((render: (state: unknown, first: boolean) => void) => {
+      searchBoxRender = render;
+      return (_params: Record<string, unknown> = {}): IsWidget => ({}) as IsWidget;
+    }) as unknown as InstantSearchLib['connectSearchBox'],
+    connectHits: passthrough as unknown as InstantSearchLib['connectHits'],
+    connectStats: passthrough as unknown as InstantSearchLib['connectStats'],
+    connectPagination: passthrough as unknown as InstantSearchLib['connectPagination'],
+    connectRefinementList: passthrough as unknown as InstantSearchLib['connectRefinementList'],
+    connectNumericMenu: passthrough as unknown as InstantSearchLib['connectNumericMenu'],
+    connectRange: passthrough as unknown as InstantSearchLib['connectRange'],
+  };
+  return { lib, searchClient: {}, refine };
 }
 
 describe('SearchPage shell', () => {
@@ -96,6 +134,47 @@ describe('SearchPage shell', () => {
     const el = fixture.nativeElement as HTMLElement;
     expect(el.querySelector('[aria-busy="true"]')).not.toBeNull();
     expect(el.textContent).not.toContain('temporarily unavailable');
+  });
+
+  it('replays keystrokes typed before the engine loads (AECI-227)', async () => {
+    setConfigPresent();
+    const engine = makeFakeEngine();
+    // Deferred factory: stays pending so we can type while the controller is null,
+    // then resolve and assert the buffered query is replayed as a real search.
+    let resolveEngine!: (e: SearchEngine) => void;
+    const enginePromise = new Promise<SearchEngine>((resolve) => {
+      resolveEngine = resolve;
+    });
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([{ path: 'search', component: SearchPage }]),
+        { provide: SEARCH_ENGINE_FACTORY, useValue: () => enginePromise },
+      ],
+    });
+    const router = TestBed.inject(Router);
+    await router.navigateByUrl('/search');
+
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+    await tick(); // afterNextRender fired → engineFactory called → still pending
+    const el = fixture.nativeElement as HTMLElement;
+    const input = el.querySelector('#search-input') as HTMLInputElement;
+
+    // Type before the controller exists: buffered, shown in the input, NOT searched.
+    input.value = 'pay';
+    input.dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+    expect(input.value).toBe('pay');
+    expect(engine.refine).not.toHaveBeenCalled();
+
+    // Engine resolves → controller mounts → buffered "pay" replays as a search.
+    resolveEngine(engine);
+    await tick();
+    fixture.detectChanges();
+
+    expect(engine.refine).toHaveBeenCalledWith('pay');
+    expect(input.value).toBe('pay'); // preserved across mount (no flicker to the seed)
+    expect(el.querySelector('[aria-busy="true"]')).toBeNull(); // controller is live
   });
 
   it('degrades to the unavailable notice when the public config is absent', async () => {
