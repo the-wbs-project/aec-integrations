@@ -2,7 +2,7 @@
   "title": "AECi Phase 4 — Home / Stats",
   "description": "Phase 4.5 home-page observability (AECI-180). Worker-side health of the two silent-failure surfaces behind the home page, from the API Worker (aeci-api): the daily home-stats compute cron (AECI-178) and the page_views write (AECI-177). Metrics: aeci.stats.compute (count, outcome — one per run), aeci.stats.compute.duration_ms (distribution — enable percentile aggregations under Metrics > Summary), aeci.stats.compute.key (count, per-key outcome), aeci.stats.compute.key.duration_ms (distribution, per key), and aeci.pageviews.write (count, outcome:ok|failed). NOTE: Datadog lowercases tag values (outcome queried as ok/failed/success/partial). All these counts submit value 1, so count: and sum: coincide. Committed for record (AECI-180); the live dashboard is the source of truth — re-export after edits. Live apply is the operator step in docs/OBSERVABILITY.md (coordinate with AECI-161).",
   "layout_type": "ordered",
-  "reflow_type": "fixed",
+  "reflow_type": "auto",
   "template_variables": [
     {
       "name": "env",

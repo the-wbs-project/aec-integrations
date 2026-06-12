@@ -166,7 +166,7 @@ gate keeps at full fidelity.
 ### `AECi Phase 2 — Traffic`
 
 - **Definition (for record):** `observability/datadog/dashboard.json`
-- **Live URL:** _TBD — filled in after the live apply (AECI-66 verification step)._
+- **Live URL:** https://us5.datadoghq.com/dashboard/b5b-edd-gva/aeci-phase-2--traffic _(applied 2026-06-12 — AECI-222, the AECI-66/AECI-161 live-apply)._
 
 Widgets: top routes by request count · cache hit rate per `route_class` · p50/p95/p99
 render per `route_class` · p95 API query per endpoint · 4xx/5xx error rate over time ·
@@ -175,7 +175,7 @@ purge events by source.
 ### `AECi Phase 3 — Search`
 
 - **Definition (for record):** `observability/datadog/dashboard-search.json`
-- **Live URL:** _TBD — filled in after the live apply (AECI-141 verification step)._
+- **Live URL:** https://us5.datadoghq.com/dashboard/fci-6sf-yvn/aeci-phase-3--search _(applied 2026-06-12 — AECI-222, the AECI-141 live-apply)._
 
 Widgets (Worker-side search/sync health): sync runs by `outcome` · sync runs by
 `entity`/`trigger` · sync duration p50/p95/p99 by `trigger` · records pushed per
@@ -187,7 +187,7 @@ RUM" below.
 ### `AECi Phase 4 — Home / Stats`
 
 - **Definition (for record):** `observability/datadog/dashboard-home-stats.json`
-- **Live URL:** _TBD — filled in after the live apply (AECI-180 verification step; coordinate with AECI-161 to avoid duplicate scaffolding)._
+- **Live URL:** https://us5.datadoghq.com/dashboard/3bi-9a9-6hz/aeci-phase-4--home--stats _(applied 2026-06-12 — AECI-222)._
 
 Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute runs by
 `outcome` · stats compute duration p50/p95/p99 · per-key compute outcome by `key`/`outcome`
@@ -197,8 +197,10 @@ Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute ru
 ## Monitors
 
 Each monitor's `message` links the matching runbook in `docs/RUNBOOKS.md` and routes to
-the team notification channel (replace `@NOTIFICATION_CHANNEL_TBD` with the real handle
-at apply time).
+the team notification channel. The committed JSON keeps the `@NOTIFICATION_CHANNEL_TBD`
+placeholder (env-agnostic for record); substitute the real handle **at apply time**. The
+resolved handle is `@chrisw@thewbsproject.com` (Datadog email notification; AECI-222) — all
+nine monitors were applied 2026-06-12 with that substitution.
 
 | Monitor | Condition | Definition |
 |---|---|---|
