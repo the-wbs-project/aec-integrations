@@ -235,18 +235,47 @@ describe('GET /api/admin/reviews', () => {
 
 // ─── PATCH /api/admin/reviews/:id ────────────────────────────────────────────
 
-function moderatePrisma(opts: { existing?: unknown; updateCount?: number } = {}) {
+function moderatePrisma(
+  opts: { existing?: unknown; updateCount?: number; workflowMissing?: boolean } = {},
+) {
   const findUnique = vi.fn(async (_args: unknown) =>
     opts.existing === undefined ? adminRow() : opts.existing,
   );
   const updateMany = vi.fn(async (_args: unknown) => ({ count: opts.updateCount ?? 1 }));
   const auditCreate = vi.fn(async (_args: unknown) => ({}));
-  const tx = { review: { updateMany }, auditLog: { create: auditCreate } };
+  // Phase 6.3 (AECI-210): the `review_moderation` workflow surfaces. `findFirst`
+  // returns null when `workflowMissing` (the retrofit branch: a review submitted
+  // before AECI-210 has no instance), forcing the on-the-fly create.
+  const workflowFindFirst = vi.fn(async (_args: unknown) =>
+    opts.workflowMissing ? null : { id: 'wf-1' },
+  );
+  const workflowCreate = vi.fn(async (_args: unknown) => ({ id: 'wf-1' }));
+  const workflowUpdate = vi.fn(async (_args: unknown) => ({}));
+  const transitionCreate = vi.fn(async (_args: unknown) => ({}));
+  const tx = {
+    review: { updateMany },
+    auditLog: { create: auditCreate },
+    workflowInstance: {
+      findFirst: workflowFindFirst,
+      create: workflowCreate,
+      update: workflowUpdate,
+    },
+    workflowTransition: { create: transitionCreate },
+  };
   const prisma = {
     review: { findUnique },
     $transaction: async <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
   };
-  return { prisma, findUnique, updateMany, auditCreate };
+  return {
+    prisma,
+    findUnique,
+    updateMany,
+    auditCreate,
+    workflowFindFirst,
+    workflowCreate,
+    workflowUpdate,
+    transitionCreate,
+  };
 }
 
 function moderateApp(
@@ -302,7 +331,8 @@ describe('PATCH /api/admin/reviews/:id', () => {
   });
 
   it('approves a pending review: status, moderator, recompute, audit', async () => {
-    const { prisma, updateMany, auditCreate } = moderatePrisma();
+    const { prisma, updateMany, auditCreate, workflowFindFirst, workflowUpdate, transitionCreate } =
+      moderatePrisma();
     const { app, recompute } = moderateApp(prisma);
     const { res } = patchReq(app, { action: 'approve' });
     const response = await res;
@@ -336,6 +366,33 @@ describe('PATCH /api/admin/reviews/:id', () => {
       metadata: { source: 'admin-moderation', product_id: PRODUCT_ID },
     });
 
+    // Phase 6.3 (AECI-210): the existing instance is found (not created), the
+    // pending → approved transition is recorded with no reason, and the instance
+    // is marked complete with `current_state` mirroring the new status.
+    expect(workflowFindFirst).toHaveBeenCalledTimes(1);
+    expect((workflowFindFirst.mock.calls[0][0] as { where: unknown }).where).toEqual({
+      workflowType: 'review_moderation',
+      entityId: REVIEW_ID,
+    });
+    expect(transitionCreate).toHaveBeenCalledTimes(1);
+    expect(
+      (transitionCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
+    ).toMatchObject({
+      workflowId: 'wf-1',
+      fromState: 'pending',
+      toState: 'approved',
+      actorId: ADMIN_ID,
+      reason: null,
+      metadata: { source: 'admin-moderation', product_id: PRODUCT_ID },
+    });
+    const wfUpdate = workflowUpdate.mock.calls[0][0] as {
+      where: Record<string, unknown>;
+      data: Record<string, unknown>;
+    };
+    expect(wfUpdate.where).toEqual({ id: 'wf-1' });
+    expect(wfUpdate.data).toMatchObject({ currentState: 'approved', finalOutcome: 'approved' });
+    expect(wfUpdate.data.completedAt).toBeInstanceOf(Date);
+
     // AECI-206: one committed approve.
     expect(moderationActions()).toEqual([['action:approve', 'outcome:ok']]);
   });
@@ -360,7 +417,7 @@ describe('PATCH /api/admin/reviews/:id', () => {
   });
 
   it('rejects a pending review: required reason stored, no recompute, no purge', async () => {
-    const { prisma, updateMany, auditCreate } = moderatePrisma();
+    const { prisma, updateMany, auditCreate, transitionCreate, workflowUpdate } = moderatePrisma();
     const env = { DD_API_KEY: undefined, CF_PURGE_API_TOKEN: 'tok', CF_ZONE_ID: 'zone-1' } as Env;
     const { app, recompute } = moderateApp(prisma, { env });
     const { res, waitUntil } = patchReq(app, { action: 'reject', rejection_reason: 'Spam' }, env);
@@ -384,7 +441,57 @@ describe('PATCH /api/admin/reviews/:id', () => {
       metadata: { source: 'admin-moderation', product_id: PRODUCT_ID, rejection_reason: 'Spam' },
     });
 
+    // Phase 6.3 (AECI-210): the pending → rejected transition carries the reason,
+    // and the instance is closed out as `rejected`.
+    expect(
+      (transitionCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
+    ).toMatchObject({
+      workflowId: 'wf-1',
+      fromState: 'pending',
+      toState: 'rejected',
+      actorId: ADMIN_ID,
+      reason: 'Spam',
+      metadata: { source: 'admin-moderation', product_id: PRODUCT_ID, rejection_reason: 'Spam' },
+    });
+    expect(
+      (workflowUpdate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
+    ).toMatchObject({
+      currentState: 'rejected',
+      finalOutcome: 'rejected',
+    });
+
     expect(moderationActions()).toEqual([['action:reject', 'outcome:ok']]);
+  });
+
+  it('retrofit: creates the workflow instance on the fly when a legacy review has none', async () => {
+    // A review submitted before AECI-210 has no `review_moderation` instance →
+    // `findFirst` returns null → the handler creates one, then transitions it.
+    const { prisma, workflowCreate, transitionCreate, workflowUpdate } = moderatePrisma({
+      workflowMissing: true,
+    });
+    const { app } = moderateApp(prisma);
+    const { res } = patchReq(app, { action: 'approve' });
+    const response = await res;
+
+    expect(response.status).toBe(200);
+    expect(workflowCreate).toHaveBeenCalledTimes(1);
+    expect(
+      (workflowCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
+    ).toMatchObject({
+      workflowType: 'review_moderation',
+      entityId: REVIEW_ID,
+      currentState: 'pending',
+    });
+    // The transition + instance close-out still run against the freshly created row.
+    expect(
+      (transitionCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
+    ).toMatchObject({ workflowId: 'wf-1', fromState: 'pending', toState: 'approved' });
+    expect(
+      (workflowUpdate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
+    ).toMatchObject({
+      currentState: 'approved',
+      finalOutcome: 'approved',
+    });
   });
 
   it('rejects with 400 VALIDATION_FAILED when rejection_reason is missing', async () => {
@@ -445,7 +552,10 @@ describe('PATCH /api/admin/reviews/:id', () => {
 
   it('returns 422 when the row is no longer pending at update time (concurrent race)', async () => {
     // Preload sees pending, but the guarded updateMany matches 0 rows.
-    const { prisma, auditCreate } = moderatePrisma({ updateCount: 0 });
+    const { prisma, auditCreate, transitionCreate, workflowCreate, workflowUpdate } =
+      moderatePrisma({
+        updateCount: 0,
+      });
     const { app, recompute } = moderateApp(prisma);
     const { res } = patchReq(app, { action: 'approve' });
     const response = await res;
@@ -454,9 +564,12 @@ describe('PATCH /api/admin/reviews/:id', () => {
     expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
       ApiErrorCode.INVALID_STATE_TRANSITION,
     );
-    // The transition rolled back before recompute / audit.
+    // The transition rolled back before recompute / audit / workflow writes.
     expect(recompute).not.toHaveBeenCalled();
     expect(auditCreate).not.toHaveBeenCalled();
+    expect(transitionCreate).not.toHaveBeenCalled();
+    expect(workflowCreate).not.toHaveBeenCalled();
+    expect(workflowUpdate).not.toHaveBeenCalled();
     // The concurrent-race guard also reports an invalid-state attempt.
     expect(moderationActions()).toEqual([['action:approve', 'outcome:invalid_state']]);
   });
