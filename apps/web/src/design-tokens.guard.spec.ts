@@ -17,7 +17,7 @@ import { describe, expect, it } from 'vitest';
  * the whole class of bug.
  *
  * Scope: only the app's own design-token namespaces (`--surface-*`, `--text-*`,
- * `--border-*`, `--accent-*`, `--font-*`). Spartan/Tailwind preset internals
+ * `--border-*`, `--accent-*`, `--font-*`, `--status-*`). Spartan/Tailwind preset internals
  * (`--radius`, `--spacing`, `--color-*`, `--tw-*`, …) are deliberately excluded —
  * they are defined outside `styles.css` and are not the bug class this guards.
  */
