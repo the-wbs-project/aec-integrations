@@ -54,9 +54,7 @@ type ViewKey = 'cards' | 'table';
     <aec-browse-layout>
       <div slot="header" class="space-y-3">
         <nav i18n-aria-label="@@products.index.breadcrumbs.aria" aria-label="Breadcrumb">
-          <ol
-            class="flex items-center gap-2 text-xs tracking-wide uppercase text-(--text-secondary)"
-          >
+          <ol class="flex items-center gap-2 text-sm text-(--text-secondary)">
             <li>
               <a
                 routerLink="/"

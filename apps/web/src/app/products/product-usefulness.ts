@@ -65,7 +65,7 @@ import type { ProductUsefulness } from '@aeci/shared';
           @if (audienceGroups().length > 0) {
             <div class="space-y-4">
               <h3
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@products.detail.usefulness.byAudience"
               >
                 By audience
@@ -79,7 +79,7 @@ import type { ProductUsefulness } from '@aeci/shared';
           @if (phaseGroups().length > 0) {
             <div class="space-y-4">
               <h3
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@products.detail.usefulness.byPhase"
               >
                 By phase

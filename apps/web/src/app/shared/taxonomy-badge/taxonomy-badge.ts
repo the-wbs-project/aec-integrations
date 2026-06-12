@@ -13,7 +13,7 @@ import { RouterLink } from '@angular/router';
  *   - Text: `text-primary`, shifts to `accent-primary` on hover (Forest in
  *     light, Dark Forest in dark) — matches the link-color contract from
  *     `DESIGN.md` §"Forest-Anchor Rule"
- *   - Typography: Atkinson Hyperlegible medium (500) / 13px — a lighter weight
+ *   - Typography: Atkinson Hyperlegible Next medium (500) / 13px — a lighter weight
  *     than the `label` role (700); taxonomy chips are navigational tags, not
  *     button affordances. See `DESIGN.md` §5 → "Tags / taxonomy chips".
  *   - Shape: `rounded.sm` (4px) — chips, not pills (the pill shape is

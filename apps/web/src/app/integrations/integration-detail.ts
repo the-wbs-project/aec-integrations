@@ -136,7 +136,7 @@ import { NotFound } from '../not-found/not-found';
           <section aria-labelledby="integration-glance-title" class="space-y-3">
             <h2
               id="integration-glance-title"
-              class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+              class="aec-overline text-(--text-secondary)"
               i18n="@@integrations.detail.metadata.glance"
             >
               At a glance
@@ -206,7 +206,7 @@ import { NotFound } from '../not-found/not-found';
             <section aria-labelledby="integration-builtby-title" class="space-y-3">
               <h2
                 id="integration-builtby-title"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@integrations.detail.metadata.builtBy"
               >
                 Built by
@@ -228,7 +228,7 @@ import { NotFound } from '../not-found/not-found';
             <section aria-labelledby="integration-poweredby-title" class="space-y-3">
               <h2
                 id="integration-poweredby-title"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@integrations.detail.metadata.poweredBy"
               >
                 Powered by
@@ -250,7 +250,7 @@ import { NotFound } from '../not-found/not-found';
             <section aria-labelledby="integration-links-title" class="space-y-3">
               <h2
                 id="integration-links-title"
-                class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+                class="aec-overline text-(--text-secondary)"
                 i18n="@@integrations.detail.metadata.links"
               >
                 Links

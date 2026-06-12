@@ -32,7 +32,8 @@ Near-black `#0A0A0A` (rather than pure `#000000`) is intentional in dark mode: m
 |---|---|---|
 | Forest | `#1E3A2F` | Primary brand. CTAs, links, headings, primary accent. |
 | Forest hover | `#2E5C45` | Hover state for Forest interactive elements. |
-| Clay | `#E89668` | Highlights, badges, callouts. **Large text or graphical only** — see §5. |
+| Clay | `#E89668` | Decorative/fill only (badge fills carry near-black text, never white). **Cannot carry text or meaning-bearing graphics** — see §5. |
+| Clay deep | `#A14D22` | Text-capable Clay (AECI-230): clay-colored text, icons, star ratings. 5.83:1 on white. Doubles as the warning hue. |
 | Bone | `#F5F2EA` | Warm-tinted accent surface (callout sections, marketing hero bands, About page hero). **Not a page background** — see §4. |
 
 ---
@@ -67,14 +68,16 @@ It does **not** appear as the default `<body>` background in either theme. The p
 
 ## 5. Clay restriction
 
-Clay is the rarest color in the system. Use it sparingly — the connector mark, primary CTAs, "verified" or "featured" markers, and high-emphasis highlights. If Clay appears in more than ~5% of any given screen, it's losing its meaning.
+Clay is the rarest color in the system. Use it sparingly — the connector mark, "verified" or "featured" badge fills, and high-emphasis highlights. If Clay appears in more than ~5% of any given screen, it's losing its meaning. (Clay never fills a CTA — every CTA is Forest, per DESIGN.md's Forest-Anchor Rule.)
 
-**Clay is not allowed for body text in either theme.**
+**Clay `#E89668` cannot carry text or meaning-bearing graphics — in any size.**
 
-- In **light theme**, this is a contrast rule: Clay `#E89668` on white `#FFFFFF` is ~2.4:1, which fails WCAG 2.1 AA (4.5:1 minimum for normal body text).
-- In **dark theme**, Clay dark `#F0A887` on `#0A0A0A` is ~10.3:1 and technically passes AAA. The restriction in dark theme is **brand policy, not contrast** — keeping Clay rare preserves its meaning as a high-emphasis accent.
+- This is stricter than the previous "large text allowed" wording, which was mathematically false and was struck in **AECI-230**: Clay on white measures ~2.3:1, below WCAG 2.1 AA for body text (4.5:1) *and* below the 3:1 floor for large text and non-text UI components (WCAG 1.4.11).
+- Permitted Clay `#E89668` uses: decorative graphics (the connector mark, accent strokes) and fills that carry near-black `text-primary` on top (8.48:1). White text on Clay (2.33:1) is forbidden.
+- Anything clay-colored that carries meaning — text, icons, star ratings — uses **Clay deep `#A14D22`** (5.83:1 on white, 5.21:1 on Bone), added in AECI-230.
+- In **dark theme** (Stage 2), Clay dark `#F0A887` on `#0A0A0A` is ~10.3:1 and technically passes AAA. The restriction there is **brand policy, not contrast** — keeping Clay rare preserves its meaning as a high-emphasis accent.
 
-Permitted Clay uses: badges, large text (≥18pt regular or ≥14pt bold per WCAG), graphical elements (icons, dividers, the connector mark), and small accent strokes. See `docs/STAGE_1_SPEC.md` §2a.4 for the contrast-validation rule this maps to.
+See `docs/STAGE_1_SPEC.md` §2a.4 for the contrast-validation rule this maps to.
 
 ---
 
@@ -86,7 +89,13 @@ Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for norma
 |---|---|---|---|
 | Forest `#1E3A2F` | White `#FFFFFF` | ~12.0 : 1 | AAA |
 | Forest hover `#2E5C45` | White `#FFFFFF` | ~7.7 : 1 | AAA |
-| Clay `#E89668` | White `#FFFFFF` | ~2.4 : 1 | Fails AA body — **large/graphical only** |
+| Clay `#E89668` | White `#FFFFFF` | ~2.3 : 1 | Fails AA body **and** the 3:1 large-text/non-text floor — **decorative/fill only** (AECI-230) |
+| Near-black `#0A0A0A` | Clay `#E89668` | ~8.5 : 1 | AAA — the only sanctioned text-on-Clay pairing |
+| Clay deep `#A14D22` | White `#FFFFFF` | ~5.8 : 1 | AA normal (text-capable Clay, AECI-230) |
+| Clay deep `#A14D22` | Bone `#F5F2EA` | ~5.2 : 1 | AA normal |
+| Text tertiary `#71717A` | White `#FFFFFF` | ~4.8 : 1 | AA normal (re-pointed from `#A1A1AA` ≈ 2.6:1, AECI-230) |
+| Forest `#1E3A2F` | Forest soft `#ECF1EE` | ~10.8 : 1 | AAA (selected/active wash, AECI-230) |
+| Error `#B3261E` | White `#FFFFFF` | ~6.5 : 1 | AA normal (status token, AECI-230) |
 | Ink `#0F1419` | Bone `#F5F2EA` | ~17 : 1 | AAA (Bone accent surface) |
 | Forest dark `#5D916C` | Near-black `#0A0A0A` | ~5.4 : 1 | AA normal, AAA large |
 | Forest dark `#5D916C` | Raised dark `#18181B` | ~4.8 : 1 | AA normal — binding case for links (AECI-166) |
@@ -102,8 +111,8 @@ Contrast verification is automated in CI via a token-pair check matrix (see `doc
 
 A small set of cross-cutting principles. Component-level implementation lives in the Angular + Spartan UI component library, not here.
 
-- **Sentence case everywhere.** Headings, buttons, labels, navigation items, table headers. Title Case reads as marketing; sentence case reads as editorial.
-- **Typography: Source Serif 4 (display) + Atkinson Hyperlegible (body and label).** Source Serif 4 is the editorial / industry-publication anchor — used for display, headline, and title roles (weights 400 and 600). Atkinson Hyperlegible is the a11y-first body face (Braille Institute) — used for body prose and labels (weights 400 and 700). The pairing makes the trust/transparency principle visible in the typography itself. The full type scale, role definitions, and named rules live in `DESIGN.md` §3 (source of truth). The previous Inter-only / 400-and-500-only doctrine was retired in May 2026; the rationale is documented in §7a below.
+- **Sentence case everywhere.** Headings, buttons, labels, navigation items, table headers. Title Case reads as marketing; sentence case reads as editorial. The one named exception is the overline role (eyebrows, kickers, sidebar microheadings — `DESIGN.md` §3, AECI-230), uppercase via CSS only.
+- **Typography: Source Serif 4 (display) + Atkinson Hyperlegible Next (body and label).** Source Serif 4 is the editorial / industry-publication anchor — used for display, headline, and title roles (weights 400 and 600). Atkinson Hyperlegible Next is the a11y-first body face (Braille Institute) — used for body prose, labels, overlines, and captions (variable 400–700; AECI-230 upgraded from the classic two-weight cut so the system's 500/600 roles render as real cuts). The pairing makes the trust/transparency principle visible in the typography itself. The full type scale, role definitions, and named rules live in `DESIGN.md` §3 (source of truth). The previous Inter-only / 400-and-500-only doctrine was retired in May 2026; the rationale is documented in §7a below.
 - **Borders separate surfaces; shadows don't.** Default border `0.5px`; `1px` for emphasis (inputs, focused elements); `2px` reserved for featured states. Box-shadows are for modals, dropdowns, and focus rings only — never on cards or buttons.
 - **Motion has a purpose.** Animate for feedback, transition, or focus. Decorative animation is noise. Default durations: 120ms (hover), 180ms (default), 280ms (page transitions).
 - **No pure black for text.** Use Ink `#0F1419` (light theme) or the theme's `--text-primary` token. Pure black plus pure white is harsher than the near-black/near-white pairings the design system already provides.

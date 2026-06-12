@@ -41,12 +41,7 @@ import { AdminSummaryStore } from './admin-summary.store';
       @let count = pendingCount();
       <section class="mx-auto w-full max-w-7xl px-6 py-10 md:px-8">
         <header class="mb-8 border-b border-(--border-default) pb-6">
-          <p
-            class="text-[0.8125rem] font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
-            i18n="@@admin.shell.eyebrow"
-          >
-            Admin
-          </p>
+          <p class="aec-overline text-(--text-secondary)" i18n="@@admin.shell.eyebrow">Admin</p>
           <h1 class="mt-2 text-2xl font-bold text-(--text-primary)" i18n="@@admin.shell.title">
             Moderation
           </h1>

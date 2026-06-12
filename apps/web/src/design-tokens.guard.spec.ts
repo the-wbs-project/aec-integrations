@@ -30,7 +30,7 @@ const SCANNED_EXTENSIONS = ['.ts', '.html', '.css'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', '.angular']);
 
 /** App design-token namespaces this guard governs. */
-const GUARDED_PREFIXES = /^(surface|text|border|accent|font)-/;
+const GUARDED_PREFIXES = /^(surface|text|border|accent|font|status)-/;
 
 /** Matches a CSS custom-property *declaration* — `--name:` on the left side. */
 const DECLARATION_RE = /--([\w-]+)\s*:/g;
