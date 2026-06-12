@@ -319,7 +319,17 @@ describe('createPromoteHandler', () => {
 
     const res = await promote(fake, {
       vendors: [
-        { ref: 'v1', supabaseId: vendX, companyName: 'Autodesk', website: 'https://new.example' },
+        {
+          ref: 'v1',
+          supabaseId: vendX,
+          companyName: 'Autodesk',
+          website: 'https://new.example',
+          // B2 social URLs — must flow through PromoteVendorSchema → vendorEditableData.
+          xUrl: 'https://x.com/autodesk',
+          facebookUrl: 'https://www.facebook.com/autodesk',
+          instagramUrl: 'https://www.instagram.com/autodesk',
+          youtubeUrl: 'https://www.youtube.com/@autodesk',
+        },
       ],
     });
 
@@ -332,8 +342,14 @@ describe('createPromoteHandler', () => {
     expect(b.vendors[0]).toMatchObject({ id: vendX, slug: 'autodesk', operation: 'updated' });
     expect(b.product).toBeNull();
     expect(b.taxonomy.categories).toHaveLength(0);
-    // The vendor edit persisted; no product row was created.
-    expect(fake.models.vendor.rows.get(vendX)).toMatchObject({ website: 'https://new.example' });
+    // The vendor edit persisted (website + the four B2 social URLs); no product row created.
+    expect(fake.models.vendor.rows.get(vendX)).toMatchObject({
+      website: 'https://new.example',
+      xUrl: 'https://x.com/autodesk',
+      facebookUrl: 'https://www.facebook.com/autodesk',
+      instagramUrl: 'https://www.instagram.com/autodesk',
+      youtubeUrl: 'https://www.youtube.com/@autodesk',
+    });
     expect(fake.models.product.rows.size).toBe(0);
     expect(auditActions(fake)).toEqual(['vendor.updated']);
   });

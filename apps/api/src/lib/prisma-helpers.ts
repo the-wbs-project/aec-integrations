@@ -39,6 +39,7 @@ import type { Prisma } from '@prisma/client/edge';
 
 import { ProductUsefulnessSchema } from '@aeci/shared';
 import type {
+  AdminReview,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
@@ -201,6 +202,37 @@ export const publicReviewSelect = {
 } as const satisfies Prisma.ReviewSelect;
 
 /**
+ * Admin moderation select (`AdminReview`, AECI-204 / Phase 5.13). The INVERSE of
+ * `publicReviewSelect`: an admin working the queue needs exactly the columns the
+ * public path hides — `status`, `toxicityScore` (triage), `rejectionReason`,
+ * `moderatedAt`, `locale`, and `reviewerId` (to look the author's email up
+ * out-of-band) — plus the hydrated `product` ref for the queue's product column.
+ * `reviewer_email` is NOT a column here: it lives in `auth.users` and is joined
+ * in by the handler (`routes/admin-reviews.ts`), keyed by `reviewerId`.
+ */
+export const adminReviewSelect = {
+  id: true,
+  reviewerId: true,
+  ratingOverall: true,
+  ratingOnboarding: true,
+  title: true,
+  body: true,
+  roleAtCompany: true,
+  yearsUsing: true,
+  wouldRecommend: true,
+  verifiedWorkEmail: true,
+  locale: true,
+  status: true,
+  toxicityScore: true,
+  rejectionReason: true,
+  moderatedAt: true,
+  createdAt: true,
+  product: { select: { id: true, name: true, slug: true } },
+} as const satisfies Prisma.ReviewSelect;
+
+export type RawAdminReviewRow = Prisma.ReviewGetPayload<{ select: typeof adminReviewSelect }>;
+
+/**
  * First-page size for the approved-reviews list and the `ProductDetail.reviews`
  * SSR embed. Mirrors `PageQuerySchema`'s default `perPage` (24) so the embedded
  * array equals page 1 of `GET /api/products/:slug/reviews` — the client can
@@ -238,6 +270,16 @@ export const vendorDetailSelect = {
   ...vendorListSelect,
   description: true,
   website: true,
+  // External / social links surfaced in the detail hero. `linkedinUrl` + the
+  // four B2 platforms are stored as full URLs and exposed verbatim; `githubOrg`
+  // is a bare org handle (e.g. "Autodesk"), so the mapper derives a `github_url`
+  // from it rather than exposing the handle.
+  linkedinUrl: true,
+  xUrl: true,
+  facebookUrl: true,
+  instagramUrl: true,
+  youtubeUrl: true,
+  githubOrg: true,
   productVendors: {
     select: {
       product: { select: productListSelect },
@@ -569,6 +611,42 @@ export function toPublicReview(raw: RawPublicReviewRow): PublicReview {
   };
 }
 
+/**
+ * Shape an admin `reviews` row (selected via `adminReviewSelect`) into the
+ * `AdminReview` wire contract (AECI-204 / Phase 5.13). `emailByReviewerId`
+ * carries the out-of-band `auth.users.email` lookup keyed by `reviewer_id`; a
+ * row with no reviewer (anonymized) or no map entry resolves to
+ * `reviewer_email: null` (see the contract note in `@aeci/shared`'s reviews.ts).
+ * `would_recommend` / `status` degrade off-contract values to a safe value the
+ * same way `toPublicReview` does, so a legacy/manual row can't fail dev
+ * response-validation.
+ */
+export function toAdminReview(
+  raw: RawAdminReviewRow,
+  emailByReviewerId: ReadonlyMap<string, string>,
+): AdminReview {
+  const wouldRecommend = raw.wouldRecommend as AdminReview['would_recommend'] | null;
+  return {
+    id: raw.id,
+    product: { id: raw.product.id, name: raw.product.name, slug: raw.product.slug },
+    reviewer_email: raw.reviewerId ? (emailByReviewerId.get(raw.reviewerId) ?? null) : null,
+    rating_overall: raw.ratingOverall,
+    rating_onboarding: raw.ratingOnboarding,
+    title: raw.title,
+    body: raw.body,
+    role_at_company: raw.roleAtCompany,
+    years_using: raw.yearsUsing,
+    would_recommend: VALID_WOULD_RECOMMEND.has(wouldRecommend) ? wouldRecommend : null,
+    verified_work_email: raw.verifiedWorkEmail,
+    locale: raw.locale,
+    status: raw.status as AdminReview['status'],
+    toxicity_score: raw.toxicityScore,
+    rejection_reason: raw.rejectionReason,
+    moderated_at: raw.moderatedAt ? toIso(raw.moderatedAt) : null,
+    created_at: toIso(raw.createdAt),
+  };
+}
+
 export function toProductDetail(
   raw: RawProductDetailRow,
   relatedProducts: RawProductListRow[],
@@ -631,6 +709,14 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
     ...toVendorListItem(raw),
     description: raw.description,
     website: raw.website,
+    linkedin_url: raw.linkedinUrl,
+    x_url: raw.xUrl,
+    facebook_url: raw.facebookUrl,
+    instagram_url: raw.instagramUrl,
+    youtube_url: raw.youtubeUrl,
+    // `github_org` is a bare handle in the DB; build the canonical org URL so the
+    // public contract carries a uniform `*_url` (validated as a URL downstream).
+    github_url: raw.githubOrg ? `https://github.com/${encodeURIComponent(raw.githubOrg)}` : null,
     products: raw.productVendors.map((r) => toProductListItem(r.product)),
   };
 }

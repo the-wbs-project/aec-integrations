@@ -36,6 +36,25 @@ export class AuthService {
   }
 
   /**
+   * Browser-only probe for "is there a signed-in session right now?", used by
+   * the cache-neutral review CTA (AECI-201) to flip from its neutral SSR
+   * default to a personalized label *after* hydration — never during SSR (that
+   * would bake visitor state into the URL-keyed edge cache; §8). Reads the
+   * cookie-derived session via `getSession()` (no Auth-server round-trip) — a
+   * UI hint only; the real gate is the server-side route guard on
+   * `/products/:slug/review` and `POST /api/reviews`. Returns `false` (not a
+   * throw) when auth is unconfigured so the caller simply stays neutral. Call
+   * only from `afterNextRender`/user events, never from SSR.
+   */
+  async isSignedIn(): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    const {
+      data: { session },
+    } = await this.requireClient().auth.getSession();
+    return session !== null;
+  }
+
+  /**
    * Sends the magic-link email. The link lands on
    * `/auth/callback?return=<validated path>`; `shouldCreateUser` keeps the
    * passwordless flow signup-capable (Phase 5 has no separate register page).

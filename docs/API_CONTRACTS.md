@@ -328,11 +328,19 @@ export const VendorListItemSchema = z.object({
 export const VendorDetailSchema = VendorListItemSchema.extend({
   description: z.string().nullable(),
   website: z.string().url().nullable(),
+  linkedin_url: z.string().url().nullable(),
+  x_url: z.string().url().nullable(),
+  facebook_url: z.string().url().nullable(),
+  instagram_url: z.string().url().nullable(),
+  youtube_url: z.string().url().nullable(),
+  github_url: z.string().url().nullable(),
   products: z.array(ProductListItemSchema),
 });
 ```
 
 The public sort key `name` on `/api/vendors` maps to the `company_name` column server-side (vendors have no plain `name` column).
+
+`linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, and `youtube_url` are returned verbatim from their `vendors.*` columns (the review app curates full canonical URLs and forwards them via `POST /api/promote`). `github_url` is the exception — **derived** server-side from the `vendors.github_org` handle (`https://github.com/{org}`), since that column stores a bare org name, never a URL — so the public contract carries a uniform, URL-validatable field throughout. All are nullable; the detail hero renders an icon for each only when its value is present.
 
 ### 5.3 Integration
 
@@ -789,7 +797,20 @@ The SSR Worker is the **sole writer** of these headers: on the `/api/page-views`
 
 ### 6.10 Admin endpoints
 
-All require `role === 'admin'` via Supabase RLS.
+All require `role === 'admin'`, enforced by the `requireAdmin()` Worker middleware (`apps/api/src/lib/authz.ts`, Phase 5.5) — verifies the JWT, loads `profiles.role`, rejects non-admins (`403`) and missing token/profile (`401`) before the handler. RLS is defense-in-depth for the PostgREST surface.
+
+#### `GET /api/admin/summary`
+
+The admin shell's badge feed (AECI-203 / Phase 5.12). Read-only aggregate counts; a bare object (no pagination envelope). Phase 5.12 ships only the pending-review count (`STAGE_1_SPEC.md` §22.1); Phase 6 extends it with request counts. A 200 also serves as the SSR `/admin` gate signal — the resolver maps a `401`/`403` to a `404` render (don't reveal the surface).
+
+```typescript
+export const AdminSummaryResponseSchema = z.object({
+  pending_reviews: z.number().int().nonnegative(),
+});
+export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
+```
+
+Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (`prisma.review.count({ where: { status: 'pending' } })`). Read-only — no audit log.
 
 #### `GET /api/admin/reviews`
 

@@ -177,6 +177,17 @@ export function isAccountPath(localePath: string): boolean {
 }
 
 /**
+ * Matches the admin surface `/admin` and everything under it (locale prefix
+ * already stripped by the caller). Used by the worker-level anon gate (AECI-203):
+ * a logged-out visitor is bounced to login rather than shown a bare 404. NOTE
+ * this is the SSR catch-all's concern only — the API Worker's `POST /admin/purge`
+ * is a separate, earlier-registered route and is never reached through here.
+ */
+export function isAdminPath(localePath: string): boolean {
+  return localePath === '/admin' || localePath.startsWith('/admin/');
+}
+
+/**
  * Cheap presence check for a Supabase session cookie (`sb-<ref>-auth-token`,
  * possibly chunked `.0`/`.1`/…). This is deliberately NOT a `getClaims()`
  * verification — no network, no crypto: the API Worker is the real enforcement
@@ -633,7 +644,11 @@ async function handleSsr(
   const start = Date.now();
   const url = new URL(request.url);
   const ttl = request.method === 'GET' ? cacheControlForRoute(url) : null;
-  const reqCtx = createRequestContext(createServerApiClient(env));
+  // The API client is built per-branch (below) so cache-neutrality is structural:
+  // the cookie-FORWARDING client (which lets an authenticated SSR resolver read
+  // the visitor's `sb-…-auth-token` cookie — AECI-203) is constructed ONLY in the
+  // non-cacheable branch and can never reach the response written to the shared
+  // edge cache. The cacheable branch keeps the cookie-free client.
 
   // AECI-103 — bounded per-render *count* covering EVERY branch: cache HIT
   // (which `transformResponse` / the `ssr.render` log never see, since the HIT
@@ -654,7 +669,12 @@ async function handleSsr(
   };
 
   if (ttl === null) {
-    // Non-cacheable branch: pass cookies through, never cache.
+    // Non-cacheable branch: pass cookies through, never cache. Forward the
+    // inbound `Cookie` onto the SSR→API service-binding calls so an
+    // authenticated resolver (e.g. the `/admin` gate) can read the session
+    // cookie. Safe here precisely because this branch never writes the response
+    // to the shared edge cache.
+    const reqCtx = createRequestContext(createServerApiClient(env, { forwardCookieFrom: request }));
     const rendered = await renderer(request, reqCtx);
     const transformed = transformResponse
       ? await transformResponse(rendered, env, request, execCtx)
@@ -717,6 +737,11 @@ async function handleSsr(
   }
 
   const sanitized = stripVisitorStateCookies(request);
+  // Cookie-FREE API client on the cacheable branch: this render can be written to
+  // the shared edge cache, so it must never forward a visitor's session cookie
+  // (cache-neutrality). The cookie-stripped `sanitized` request goes to SSR; the
+  // client below carries no inbound auth.
+  const reqCtx = createRequestContext(createServerApiClient(env));
   const rendered = await renderer(sanitized, reqCtx);
   // Transform BEFORE cache write so the cached payload carries any
   // deployment-scoped inserts (e.g. Datadog public tokens).
@@ -961,6 +986,30 @@ export function createApp(options: {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);
       if ((isReviewPath(path) || isAccountPath(path)) && !hasSessionCookie(c.req.raw)) {
+        const returnPath = sanitizeReturnPath(url.pathname);
+        const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
+        return new Response(null, {
+          status: 303,
+          headers: {
+            Location: `/auth/login${query}`,
+            'Cache-Control': 'private, no-store',
+          },
+        });
+      }
+    }
+
+    // AECI-203 — anon gate for the admin surface. `/admin/*` is non-cacheable
+    // (fail-closed classifier). A logged-out GET (no session cookie) is
+    // 303-redirected to `/auth/login?return=<path>` — friendlier than a bare 404
+    // for an admin whose session expired, and the same bounce as the review gate.
+    // An AUTHENTICATED non-admin is NOT handled here: the request falls through to
+    // SSR, the `/admin` resolver calls `GET /api/admin/summary`, and a 403 is
+    // mapped to a 404 render (don't reveal the surface). GET-only so it can't
+    // intercept the API Worker's earlier-registered `POST /admin/purge`.
+    if (c.req.method === 'GET') {
+      const url = new URL(c.req.url);
+      const { path } = stripLocalePrefix(url.pathname);
+      if (isAdminPath(path) && !hasSessionCookie(c.req.raw)) {
         const returnPath = sanitizeReturnPath(url.pathname);
         const query = returnPath === '/' ? '' : `?return=${encodeURIComponent(returnPath)}`;
         return new Response(null, {

@@ -8,7 +8,7 @@ import { Hono } from 'hono';
 
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
-import { requireAuth, type AuthzVariables } from './lib/authz';
+import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
@@ -17,6 +17,7 @@ import {
   createGetAccountHandler,
   createUpdateAccountHandler,
 } from './routes/account';
+import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
 import { metricsMiddleware } from './metrics-middleware';
@@ -27,6 +28,7 @@ import {
 } from './routes/integrations';
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
+import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
 import { createProductReviewsListHandler } from './routes/product-reviews';
 import { createProductDetailHandler, createProductsListHandler } from './routes/products';
 import { createPromoteHandler } from './routes/promote';
@@ -185,6 +187,25 @@ authAccount.get('/api/account', requireAuth(), createGetAccountHandler());
 authAccount.patch('/api/account', requireAuth(), createUpdateAccountHandler());
 authAccount.delete('/api/account', requireAuth(), createDeleteAccountHandler());
 app.route('/', authAccount);
+
+// Phase 5.12 + 5.13 admin sub-router (AECI-203 + AECI-204). Every route is
+// `requireAdmin()`-gated: it sets `c.get('auth')` (`AuthzVariables`, same shape
+// as `authReviews`) AND enforces `role === 'admin'` before the handler, so
+// neither the badge read nor the moderation write can run without an admin
+// identity (no `bannedCode` — a banned admin gets the default `403 FORBIDDEN`).
+// Registered before the `/api/*` 404 catch-all so they can match; reached only
+// over the service binding, no ingress.
+//   - GET   /api/admin/summary     (5.12) — admin shell badge feed (pending
+//     review count); also the SSR `/admin` gate signal (200 = admin, 401/403 →
+//     the resolver renders a 404).
+//   - GET   /api/admin/reviews     (5.13) — paginated moderation queue.
+//   - PATCH /api/admin/reviews/:id (5.13) — approve/reject a review.
+const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authAdmin.onError(errorHandler());
+authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
+authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandler());
+authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
+app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.

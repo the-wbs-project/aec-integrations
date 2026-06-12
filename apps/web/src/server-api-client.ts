@@ -66,7 +66,25 @@ export interface ServerApiClient {
   request<TResponse>(path: string, init?: RequestInit): Promise<TResponse>;
 }
 
-export function createServerApiClient(env: { API: Fetcher }): ServerApiClient {
+export interface ServerApiClientOptions {
+  /**
+   * Forward the inbound eyeball request's `Cookie` header onto every outbound
+   * API call, so the API Worker's `requireAdmin()`/`requireAuth()` can read the
+   * `sb-…-auth-token` session cookie (AECI-203 / Phase 5.12). ONLY the SSR
+   * Worker's non-cacheable branch builds a client with this set — a cacheable
+   * render must never forward visitor cookies into a response written to the
+   * shared edge cache (cache-neutrality; `server-runtime.ts`). A caller-supplied
+   * `Cookie` in `init.headers` wins (never clobbered).
+   */
+  forwardCookieFrom?: Request;
+}
+
+export function createServerApiClient(
+  env: { API: Fetcher },
+  options: ServerApiClientOptions = {},
+): ServerApiClient {
+  const inboundCookie = options.forwardCookieFrom?.headers.get('cookie') ?? null;
+
   return {
     async request<TResponse>(path: string, init?: RequestInit): Promise<TResponse> {
       if (!path.startsWith('/')) {
@@ -74,6 +92,11 @@ export function createServerApiClient(env: { API: Fetcher }): ServerApiClient {
       }
 
       const request = new Request(`https://api${path}`, init);
+      // Merge the forwarded session cookie WITHOUT clobbering a caller-supplied
+      // one (e.g. a handler that sets its own `Authorization`/`Cookie`).
+      if (inboundCookie && !request.headers.has('cookie')) {
+        request.headers.set('cookie', inboundCookie);
+      }
       const response = await env.API.fetch(request);
 
       if (response.ok) {

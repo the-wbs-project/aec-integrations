@@ -60,14 +60,34 @@ test.describe('GET /sitemap.xml', () => {
 });
 
 test.describe('GET /robots.txt', () => {
-  test('allows the public surface and points at the sitemap', async ({ request }) => {
+  test('allows the public surface, matching the env crawler-indexing gate', async ({ request }) => {
     const res = await request.get('/robots.txt', { maxRedirects: 0 });
 
     expect(res.status()).toBe(200);
     expect(res.headers()['content-type']).toContain('text/plain');
 
     const body = await res.text();
+    // Crawling is permitted in BOTH gate states — the noindex is carried by the
+    // X-Robots-Tag header, not by Disallow (see server/robots-policy.ts).
     expect(body).toContain('Allow: /');
-    expect(body).toMatch(/^Sitemap: https?:\/\/[^\s]+\/sitemap\.xml$/m);
+
+    // The crawler-indexing gate (server/robots-policy.ts) is fail-closed: every
+    // pre-launch env (preview/staging/production) sets ALLOW_INDEXING="false",
+    // which stamps `X-Robots-Tag: noindex` and emits a sitemap-less robots.txt.
+    // The E2E stack boots the preview env, so this run is normally the blocked
+    // shape — but assert against the env's actual gate so the test stays correct
+    // if ALLOW_INDEXING flips to "true" at launch. (Pre-AECI-303 this always
+    // expected the Sitemap line, which is why this failed after the gate landed.)
+    const indexingBlocked = (res.headers()['x-robots-tag'] ?? '').includes('noindex');
+    if (indexingBlocked) {
+      // Fail-closed: crawl allowed (so the noindex header is seen), no sitemap,
+      // and no Disallow that would hide the noindex from compliant crawlers.
+      expect(body).not.toContain('Sitemap:');
+      expect(body).not.toContain('Disallow: /');
+    } else {
+      // Indexable: advertises the per-env sitemap and disallows private routes.
+      expect(body).toMatch(/^Sitemap: https?:\/\/[^\s]+\/sitemap\.xml$/m);
+      expect(body).toContain('Disallow: /api/');
+    }
   });
 });
