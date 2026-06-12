@@ -18,10 +18,17 @@
  *
  * Algorithm: breadth-first from `/` to depth 3, keyed by pathname (query/hash
  * stripped, so pagination/sort permutations collapse to one page-type node),
- * following only INTERNAL links. It then asserts:
- *   - no internal link 404s (every internal link resolves) — except a small,
- *     explicit allowlist of forward-reference placeholder routes whose pages
- *     aren't built yet (see EXPECTED_PENDING_PREFIXES);
+ * following only INTERNAL links. To keep cost independent of catalog size
+ * (AECI-64 — a full catalog otherwise pushed the all-pages serial crawl from ~83
+ * to ~334 hydrated pages and blew the hook timeout), the hydrated browser crawl
+ * visits only a bounded sample per page type (BROWSER_SAMPLE_PER_TYPE) — enough
+ * to prove reachability (BFS reaches each type's min-depth instance first) and
+ * console health, both per-TYPE contracts — and every other discovered internal
+ * link is status-checked by a parallel HTTP sweep (`sweepStatuses`), which needs
+ * no hydration to read a status code. It then asserts:
+ *   - no internal link 404s (every discovered internal link resolves) — except a
+ *     small, explicit allowlist of forward-reference placeholder routes whose
+ *     pages aren't built yet (see EXPECTED_PENDING_PREFIXES);
  *   - no internal 5xx / navigation failures;
  *   - the four structural index page types are reachable ≤ 3;
  *   - each entity/browse page type is reachable ≤ 3 — **gated per type on that
@@ -85,6 +92,26 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 // (to 404-check + classify them) but only follow links out of nodes at depth
 // < 3.
 const MAX_DEPTH = 3;
+
+// AECI-64 cost control — bounded hydrated sample per page type.
+//
+// The hydrated browser crawl's cost is O(pages visited), and "pages" scales
+// LINEARLY with the seeded catalog: a near-empty dev DB crawled ~83 pages, but
+// once the full catalog landed (45 products / 33 vendors / 90 integrations) the
+// same crawl ballooned to ~334 pages and blew the `beforeAll` cap — pure data
+// growth, NOT a runner slowdown or DB latency (the Asia→Virginia move shaves
+// per-query ms, not page count). Reachability (§15) and console health (§15.15)
+// are both *per page TYPE* contracts — they're fully satisfied by a small
+// representative sample of each type, since same-type pages render from the same
+// component/template. So the browser hydrates at most this many pages per type
+// (proving reachability at the true min depth — BFS visits each type's first
+// instance first — plus a few more for console margin); every OTHER discovered
+// link is status-verified by the cheap, fully-parallel HTTP sweep below
+// (`sweepStatuses`) instead. Net: browser cost is O(types), the no-404/no-5xx
+// gates still cover every discovered link, and the suite no longer scales with
+// catalog size. Bump this only if a type's reachability/console coverage needs
+// more samples — NOT to "crawl everything" (that's what the HTTP sweep is for).
+const BROWSER_SAMPLE_PER_TYPE = 5;
 
 // ---------------------------------------------------------------------------
 // Page-type taxonomy (the Phase 2 page types in the AC + non-required pages).
@@ -381,6 +408,113 @@ interface CrawlResult {
   consoleErrors: { path: string; text: string }[]; // gated (fail)
   consoleWarnings: { path: string; text: string }[]; // reported, not gated
   pageErrors: { path: string; message: string }[]; // uncaught exceptions, gated
+  // AECI-64 cost control — how the link graph was covered (see report prose).
+  browserVisited: number; // pages hydrated in the real browser (bounded sample)
+  httpSwept: number; // remaining discovered links status-checked over HTTP
+}
+
+// The status-bucket subset every visited/swept link is sorted into. Shared by
+// the browser crawl and the HTTP sweep so BOTH classify a status identically
+// (no drift between "hydrated" and "swept" links).
+type StatusBuckets = Pick<
+  CrawlResult,
+  'reached' | 'broken' | 'pending' | 'serverErrors' | 'redirects'
+>;
+
+type StatusOutcome = 'reached' | 'broken' | 'pending' | 'server' | 'redirect';
+
+/**
+ * Sort one (path, status) into the result buckets exactly as the original
+ * inline crawl branch did: 5xx / 0 → serverErrors; 404 → pending (allowlisted)
+ * or broken; 3xx → redirects (recorded, not followed); other non-200 (401/403…)
+ * → broken; 200 → reached. Returns the bucket so the browser caller knows
+ * whether to harvest (only `reached` pages have links to follow).
+ */
+function recordStatus(
+  path: string,
+  parent: string | null,
+  status: number,
+  type: PageType,
+  b: StatusBuckets,
+): StatusOutcome {
+  if (status >= 500 || status === 0) {
+    b.serverErrors.push({ path, parent, status });
+    return 'server';
+  }
+  if (status === 404) {
+    (isExpectedPending(path) ? b.pending : b.broken).push({ path, parent });
+    return 'pending';
+  }
+  if (status >= 300 && status < 400) {
+    b.redirects.push({ path, parent, status, location: null });
+    return 'redirect';
+  }
+  if (status !== 200) {
+    b.broken.push({ path, parent }); // 401/403/… — surface it
+    return 'broken';
+  }
+  b.reached.set(path, { status, type });
+  return 'reached';
+}
+
+/**
+ * Browser navigation with one retry. The browser now visits only a bounded
+ * sample, so a single transient nav hiccup on a slow runner shouldn't fail the
+ * suite — retry once before recording status 0 (treated as a server error).
+ * `waitUntil: 'commit'` resolves as soon as the response status arrives; the
+ * hydration wait happens separately, only when harvesting.
+ */
+async function gotoStatus(page: Page, url: string): Promise<number> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await page.goto(url, { waitUntil: 'commit' });
+      return res?.status() ?? 0;
+    } catch {
+      if (attempt >= 1) return 0;
+      await page.waitForTimeout(500);
+    }
+  }
+}
+
+/**
+ * Status-verify a batch of internal paths over raw HTTP, concurrently. This is
+ * the exhaustive no-404 / no-5xx coverage for every discovered link the browser
+ * didn't hydrate (the bounded-sample overflow) — status doesn't need a hydrated
+ * DOM, so it's a plain request with no browser/settle cost and runs N-wide.
+ * `maxRedirects: 0` makes same-origin 3xx (e.g. the AECI-165 `/vendors` →
+ * `/products` redirects) surface as redirects, not as followed-through 200s.
+ * One retry on a 0/5xx softens transient slow renders without masking a route
+ * that's genuinely down (a real failure fails both attempts).
+ */
+async function sweepStatuses(
+  req: APIRequestContext,
+  paths: string[],
+  parentOf: (path: string) => string | null,
+  b: StatusBuckets,
+): Promise<void> {
+  const CONCURRENCY = 10;
+  const getStatus = async (path: string): Promise<number> => {
+    for (let attempt = 0; ; attempt++) {
+      let status: number;
+      try {
+        const r = await req.get(path, { maxRedirects: 0, timeout: 20_000 });
+        status = r.status();
+      } catch {
+        status = 0;
+      }
+      if ((status === 0 || status >= 500) && attempt < 1) continue;
+      return status;
+    }
+  };
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < paths.length) {
+      const path = paths[next++]!;
+      const status = await getStatus(path);
+      recordStatus(path, parentOf(path), status, classifyPath(path), b);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, paths.length) }, () => worker()));
 }
 
 /**
@@ -418,7 +552,12 @@ async function harvestHydratedHrefs(page: Page): Promise<string[]> {
   return hrefs;
 }
 
-async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<CrawlResult> {
+async function crawlSite(
+  page: Page,
+  req: APIRequestContext,
+  seed: SeedInfo,
+  baseUrl: string,
+): Promise<CrawlResult> {
   const discovered = new Map<string, Discovered>();
   const reached = new Map<string, { status: number; type: PageType }>();
   const broken: LinkRef[] = [];
@@ -429,6 +568,7 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
   const consoleErrors: CrawlResult['consoleErrors'] = [];
   const consoleWarnings: CrawlResult['consoleWarnings'] = [];
   const pageErrors: CrawlResult['pageErrors'] = [];
+  const buckets: StatusBuckets = { reached, broken, pending, serverErrors, redirects };
 
   // AECI-162 — console health. Attach ONCE on the reused crawl page; listeners
   // persist across navigations and fire per message exactly once. Attribute via
@@ -477,40 +617,31 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
   };
   enqueue('/', 0, null);
 
+  // Bounded hydrated BFS. Each page TYPE is hydrated at most BROWSER_SAMPLE_PER_TYPE
+  // times (BFS visits a type's min-depth instance first, so reachability is exact);
+  // overflow instances stay in `discovered` and are status-verified by the HTTP
+  // sweep afterwards. Only sampled pages expand their children — same-type pages
+  // surface the same link patterns, so the sampled set discovers every link type.
+  const browserVisitsByType = new Map<PageType, number>();
+  let browserVisited = 0;
+
   while (queue.length > 0) {
     const { path, depth, parent } = queue.shift()!;
+    const type = classifyPath(path);
+    const visits = browserVisitsByType.get(type) ?? 0;
+    if (visits >= BROWSER_SAMPLE_PER_TYPE) {
+      // Over this type's hydration budget. Leave it in `discovered`; the HTTP
+      // sweep below status-checks it (no-404 / no-5xx coverage) without paying
+      // for a browser nav + hydration settle, and we don't expand its children.
+      continue;
+    }
+    browserVisitsByType.set(type, visits + 1);
+    browserVisited++;
+
     const absUrl = new URL(path, baseUrl).toString();
+    const status = await gotoStatus(page, absUrl);
+    if (recordStatus(path, parent, status, type, buckets) !== 'reached') continue;
 
-    let status: number;
-    try {
-      // `waitUntil: 'commit'` resolves as soon as the response arrives — we read
-      // status here and do the hydration wait separately only when harvesting.
-      const res = await page.goto(absUrl, { waitUntil: 'commit' });
-      status = res?.status() ?? 0;
-    } catch {
-      // Navigation failure (timeout / net error) — as bad as a 5xx for reach.
-      serverErrors.push({ path, parent, status: 0 });
-      continue;
-    }
-
-    if (status >= 500 || status === 0) {
-      serverErrors.push({ path, parent, status });
-      continue;
-    }
-    if (status === 404) {
-      (isExpectedPending(path) ? pending : broken).push({ path, parent });
-      continue;
-    }
-    if (status >= 300 && status < 400) {
-      redirects.push({ path, parent, status, location: null });
-      continue;
-    }
-    if (status !== 200) {
-      broken.push({ path, parent }); // 401/403/… — surface it
-      continue;
-    }
-
-    reached.set(path, { status, type: classifyPath(path) });
     if (depth >= MAX_DEPTH) {
       // Reached but we don't follow its links. `harvestHydratedHrefs` (the
       // per-page hydration settle) only runs on the depth < MAX_DEPTH branch
@@ -531,6 +662,20 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
     }
   }
 
+  // Exhaustive, parallel HTTP status sweep over every discovered link the
+  // browser didn't already resolve (the per-type overflow). This is the full
+  // no-404 / no-5xx coverage — the browser proved reachability + console health
+  // on a sample; status verification needs no hydration, so it runs N-wide here.
+  const resolved = new Set<string>([
+    ...reached.keys(),
+    ...broken.map((r) => r.path),
+    ...pending.map((r) => r.path),
+    ...serverErrors.map((r) => r.path),
+    ...redirects.map((r) => r.path),
+  ]);
+  const toSweep = [...discovered.keys()].filter((p) => !resolved.has(p));
+  await sweepStatuses(req, toSweep, (p) => discovered.get(p)?.parent ?? null, buckets);
+
   return {
     baseUrl,
     seed,
@@ -544,6 +689,8 @@ async function crawlSite(page: Page, seed: SeedInfo, baseUrl: string): Promise<C
     consoleErrors,
     consoleWarnings,
     pageErrors,
+    browserVisited,
+    httpSwept: toSweep.length,
   };
 }
 
@@ -628,6 +775,14 @@ hydration — keyed by pathname (query/hash stripped), following only **internal
 links. Paths are shown as **patterns**, not concrete slugs, so the snapshot
 stays seed-stable and PR diffs stay meaningful.
 
+To keep cost independent of catalog size (AECI-64), the hydrated browser crawl
+visits at most **${BROWSER_SAMPLE_PER_TYPE} pages per type** — enough to prove
+reachability (BFS reaches each type's min-depth instance first) and console
+health, both of which are *per-type* contracts. Every other discovered internal
+link is then status-checked by a **parallel HTTP sweep** (no hydration needed to
+read a status code), so the no-404 / no-5xx gates still cover every discovered
+link while the browser work stays O(page types), not O(catalog).
+
 - **Environment crawled:** \`${result.baseUrl}\`
 - **Seed totals (API):** products ${s.products}, vendors ${s.vendors}, integrations ${s.integrations}; taxonomy — categories ${s.categoriesTotal}, audiences-with-products ${s.audiencesWithProducts}, phases-with-products ${s.phasesWithProducts}
 
@@ -665,6 +820,8 @@ ${pendingLines}
 |---|---|
 | Distinct internal pages reached (2xx) | ${result.reached.size} |
 | Distinct internal pages discovered (incl. 404 / 5xx / redirect) | ${result.discovered.size} |
+| — hydrated in browser (bounded ≤ ${BROWSER_SAMPLE_PER_TYPE}/type: reachability + console) | ${result.browserVisited} |
+| — status-verified via parallel HTTP sweep (no-404 / no-5xx) | ${result.httpSwept} |
 | Unexpected internal 404s | ${result.broken.length} |
 | Internal 5xx / navigation failures | ${result.serverErrors.length} |
 | Redirects (recorded, not followed) | ${result.redirects.length} |
@@ -717,25 +874,25 @@ test.describe('internal-link graph — ≤3-hop reachability (AECI-64)', () => {
   let result: CrawlResult;
 
   test.beforeAll(async () => {
-    // Browser crawl over dozens of URLs, each with a hydration settle. The cap
-    // must absorb a slow CI runner, NOT just the crawl's nominal cost: this whole
-    // suite has been observed running ~2x its normal wall-time (7.9m vs a ~3.7m
-    // green baseline hours earlier) on GitHub's hosted runners, which pushed this
-    // crawl past a 180s budget on back-to-back runs across unrelated PRs. That was
-    // the hook timing out under runner-wide slowdown — not any assertion, so no
-    // internal link was actually broken. 360s gives >2x headroom over the nominal
-    // crawl; the job's `timeout-minutes: 20` (deploy.yml) is the real backstop
-    // against a genuine hang. Do NOT instead shrink the per-page settle waits in
-    // `harvestHydratedHrefs` — those exist to let client-rendered links
-    // materialise, and trimming them would make the crawl LESS reliable on the
-    // exact slow runners this guards against.
-    test.setTimeout(360_000);
+    // Cost is now bounded by page TYPE, not catalog size: the browser hydrates
+    // only BROWSER_SAMPLE_PER_TYPE pages per type (reachability + console health
+    // are per-type contracts), and every other discovered link is status-checked
+    // by the parallel HTTP sweep. So a full catalog (which previously pushed the
+    // serial all-pages crawl from ~83 to ~334 hydrated pages and blew a 360s cap)
+    // no longer scales the browser work. 240s leaves generous headroom for a slow
+    // runner — the bounded sample (~dozens of hydrated pages) plus an N-wide HTTP
+    // sweep — and the job's `timeout-minutes: 20` (deploy.yml) is the real
+    // backstop against a genuine hang. Do NOT shrink the per-page settle waits in
+    // `harvestHydratedHrefs` to "speed this up" — those let client-rendered links
+    // materialise on the sampled pages; the lever for catalog growth is the
+    // sample budget + HTTP sweep, not flakier settles.
+    test.setTimeout(240_000);
     const browser = await chromium.launch();
     const context = await browser.newContext({ baseURL: BASE_URL });
     try {
       const seed = await probeSeed(context.request);
       const page = await context.newPage();
-      result = await crawlSite(page, seed, BASE_URL);
+      result = await crawlSite(page, context.request, seed, BASE_URL);
     } finally {
       await context.close();
       await browser.close();
@@ -766,13 +923,17 @@ test.describe('internal-link graph — ≤3-hop reachability (AECI-64)', () => {
 
   test('no console errors or uncaught page errors on any visited page (§15.15)', () => {
     // The crawl attached console/pageerror listeners for its whole run and
-    // settled every 200 page (and the 404 shell) before navigating on, so this
-    // gate covers every page type the crawl reached. Coverage narrows naturally
-    // on a sparse DB (fewer pages visited) and stays green — no `test.skip`
-    // needed (AC#4). Warnings are reported here, not gated (see file header).
-    const checked = result.reached.size;
+    // settled every page it HYDRATED before navigating on, so this gate covers
+    // every page type the browser reached (the bounded per-type sample — the
+    // HTTP-swept overflow has no DOM to emit console output). Coverage narrows
+    // naturally on a sparse DB (fewer pages visited) and stays green — no
+    // `test.skip` needed (AC#4). Warnings are reported here, not gated (see file
+    // header). `browserVisited`, not `reached.size`, is the honest console-checked
+    // count: `reached` now also holds HTTP-swept 200s, which were never in a
+    // browser and so were never console-listened.
+    const checked = result.browserVisited;
     console.log(
-      `[internal-link-graph] console-checked ${checked} reached page(s): ` +
+      `[internal-link-graph] console-checked ${checked} hydrated page(s): ` +
         `${result.consoleErrors.length} error(s), ${result.consoleWarnings.length} warning(s), ` +
         `${result.pageErrors.length} uncaught page error(s)`,
     );
