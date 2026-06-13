@@ -450,8 +450,10 @@ model VendorRequest {
   linearIssueId String? @map("linear_issue_id")
 
   // AECI-215 (Phase 6.8): points at the earliest matching `open` request when this
-  // submit looks like a duplicate (§7.2). Informational only. DB has a self-FK
-  // (ON DELETE SET NULL); modelled as a plain scalar here — Prisma needs no relation.
+  // submit looks like a duplicate (§7.2). Informational only. The DB has a self-FK
+  // (ON DELETE SET NULL ON UPDATE NO ACTION) so the relation MUST be modelled here —
+  // the drift check (prisma migrate diff) introspects the FK and would otherwise
+  // report drift. Same onDelete/onUpdate pattern as `resolvedBy` below.
   duplicateOfRequestId String? @map("duplicate_of_request_id") @db.Uuid
 
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -459,6 +461,11 @@ model VendorRequest {
   resolvedById String?   @map("resolved_by") @db.Uuid
 
   resolvedBy Profile? @relation("VendorRequestResolver", fields: [resolvedById], references: [id], onUpdate: NoAction)
+
+  // Self-referential FK from `duplicateOfRequestId` (AECI-215). onDelete defaults to
+  // SetNull for an optional relation; onUpdate pinned to NoAction to mirror the DB.
+  duplicateOfRequest VendorRequest?  @relation("VendorRequestDuplicate", fields: [duplicateOfRequestId], references: [id], onUpdate: NoAction)
+  duplicateRequests  VendorRequest[] @relation("VendorRequestDuplicate")
 
   @@index([status], map: "vendor_requests_status_idx")
   @@index([targetType, targetId], map: "vendor_requests_target_idx")
