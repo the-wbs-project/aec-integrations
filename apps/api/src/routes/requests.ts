@@ -6,15 +6,19 @@
  *
  * Contracts: `CorrectionRequestSchema` / `ClaimRequestSchema` from `@aeci/shared`.
  * Rows land in the existing `vendor_requests` table (Phase 2 Spec §5.1) with
- * `status:'open'`, `domain_match:'pending'`, `linear_issue_id:null`.
+ * `status:'open'` and `linear_issue_id:null`.
  *
  * Scope: AECI-128 added the thin, real backend behind the first Signal Forms
  * forms. AECI-209 (Phase 6.2) adds **lean workflow tracking** — each submit now
  * also opens a `workflow_instance` (`vendor_claim` | `correction_request`,
  * `current_state:'open'`, `linear_issue_id` left null for Phase 6.4) and records
- * its genesis `workflow_transitions` row (`null → open`). The rest of the Phase 6
- * moderation pipeline — Linear issue creation + bidirectional sync (6.3/6.4/6.5),
- * duplicate detection, admin views, rate limiting, domain-match logic — remains
+ * its genesis `workflow_transitions` row (`null → open`). AECI-215 (Phase 6.8)
+ * computes two **informational** signals at submit time (never automating
+ * approval): `domain_match` — submitter-email vs target-vendor-website registrable
+ * domain (`lib/domain-match.ts`) — and a duplicate pointer (`duplicate_of_request_id`,
+ * §7.2). Both persist on the row and feed the Linear issue (`domain-check-pending`
+ * label on a mismatch; a note on a duplicate). The rest of the Phase 6 moderation
+ * pipeline — bidirectional sync (6.3/6.5), admin views, rate limiting — remains
  * **out of scope**. Rows sit `open` for that pipeline to pick up.
  *
  * Every insert writes an `audit_log` row AND opens its workflow instance +
@@ -43,6 +47,7 @@ import { logToDatadog } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { computeDomainMatch } from '../lib/domain-match';
 import { createLinearIssueForRequest, type LinearPersistClient } from '../lib/linear';
 import type { PrismaFactory } from '../lib/handler-utils';
 import { getPrisma } from '../prisma';
@@ -68,13 +73,22 @@ type RequestsTx = {
 type FindUniqueDelegate = {
   findUnique(args: {
     where: Record<string, unknown>;
-    select?: Record<string, boolean>;
+    // `unknown` (not `boolean`) so a product's nested `productVendors` select fits.
+    select?: Record<string, unknown>;
   }): Promise<Row | null>;
 };
 
 type RequestsClient = {
   product: FindUniqueDelegate;
   vendor: FindUniqueDelegate;
+  // Top-level (outside the tx) read for the §7.2 duplicate probe.
+  vendorRequest: {
+    findFirst(args: {
+      where: Record<string, unknown>;
+      orderBy?: Record<string, unknown>;
+      select?: Record<string, unknown>;
+    }): Promise<Row | null>;
+  };
   $transaction<T>(fn: (tx: RequestsTx) => Promise<T>): Promise<T>;
 };
 
@@ -138,14 +152,72 @@ async function resolveTarget(
   prisma: RequestsClient,
   targetType: RequestTargetType,
   slug: string,
-): Promise<{ id: string; name: string }> {
-  const delegate = targetType === 'product' ? prisma.product : prisma.vendor;
-  const select: Record<string, boolean> =
-    targetType === 'product' ? { id: true, name: true } : { id: true, companyName: true };
-  const row = await delegate.findUnique({ where: { slug }, select });
-  if (!row) throw notFoundError(targetType, { slug });
-  const name = (targetType === 'product' ? row.name : row.companyName) as string;
-  return { id: row.id, name };
+): Promise<{ id: string; name: string; websiteUrl: string | null }> {
+  // The domain-match check (§7.1) compares against the *target vendor's* website.
+  // For a vendor target that's the vendor's own `website`; for a product target it's
+  // the product's PRIMARY vendor (via `product_vendors.is_primary`) — not the
+  // product's own `website` field. A product with no primary vendor → null → the
+  // caller resolves `manual_review`.
+  if (targetType === 'product') {
+    const row = await prisma.product.findUnique({
+      where: { slug },
+      select: {
+        id: true,
+        name: true,
+        productVendors: {
+          where: { isPrimary: true },
+          take: 1,
+          select: { vendor: { select: { website: true } } },
+        },
+      },
+    });
+    if (!row) throw notFoundError('product', { slug });
+    const primary = (
+      row.productVendors as Array<{ vendor: { website: string | null } | null }> | undefined
+    )?.[0];
+    return { id: row.id, name: row.name as string, websiteUrl: primary?.vendor?.website ?? null };
+  }
+
+  const row = await prisma.vendor.findUnique({
+    where: { slug },
+    select: { id: true, companyName: true, website: true },
+  });
+  if (!row) throw notFoundError('vendor', { slug });
+  return {
+    id: row.id,
+    name: row.companyName as string,
+    websiteUrl: (row.website as string | null) ?? null,
+  };
+}
+
+/**
+ * Duplicate probe (§7.2 / §23.2): an existing `open` request for the same target
+ * (`target_type`+`target_id`) that shares this submit's `kind` OR `submitter_email`.
+ * Returns the EARLIEST match (the "original") — the row we point `duplicate_of_request_id`
+ * at and reference in the Linear note — or `null`. **Informational only**; vendor
+ * requests flag duplicates (they're sometimes legitimate), they never block.
+ */
+async function detectDuplicate(
+  prisma: RequestsClient,
+  args: {
+    kind: RequestKind;
+    targetType: RequestTargetType;
+    targetId: string;
+    submitterEmail: string;
+  },
+): Promise<{ id: string; linearIssueId: string | null } | null> {
+  const row = await prisma.vendorRequest.findFirst({
+    where: {
+      status: 'open',
+      targetType: args.targetType,
+      targetId: args.targetId,
+      OR: [{ kind: args.kind }, { submitterEmail: args.submitterEmail }],
+    },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, linearIssueId: true },
+  });
+  if (!row) return null;
+  return { id: row.id, linearIssueId: (row.linearIssueId as string | null) ?? null };
 }
 
 interface RequestInsert {
@@ -156,6 +228,8 @@ interface RequestInsert {
   targetName: string;
   /** Carried into the audit metadata for traceability. */
   slug: string;
+  /** Target vendor's website — input to the domain-match check; never stored. */
+  websiteUrl: string | null;
   submitterEmail: string;
   submitterName: string | null;
   submitterRole: string | null;
@@ -174,7 +248,21 @@ async function createRequest(
   const forward = makeForwarder(c);
   const workflowForward = makeWorkflowForwarder(c);
 
-  const { slug, targetName, ...row_data } = insert;
+  // Phase 6.8 (AECI-215): compute the two informational signals BEFORE the insert —
+  // so the row persists the real `domain_match` (not the `'pending'` default) and the
+  // duplicate probe never self-matches the row we're about to create. Both are hints
+  // for the admin; neither gates the submit.
+  const domainMatch = computeDomainMatch(insert.submitterEmail, insert.websiteUrl);
+  const duplicate = await detectDuplicate(prisma, {
+    kind,
+    targetType: insert.targetType,
+    targetId: insert.targetId,
+    submitterEmail: insert.submitterEmail,
+  });
+
+  // `slug`/`targetName` are metadata/title only; `websiteUrl` is a domain-match input.
+  // None are columns, so they're stripped before the insert.
+  const { slug, targetName, websiteUrl: _websiteUrl, ...row_data } = insert;
   // Shared metadata for the audit row and the genesis workflow transition.
   const metadata = {
     source: 'request-form',
@@ -182,14 +270,15 @@ async function createRequest(
     target_type: insert.targetType,
     target_id: insert.targetId,
     slug,
+    domain_match: domainMatch,
+    duplicate_of_request_id: duplicate?.id ?? null,
   };
   const created = await prisma.$transaction(async (tx) => {
-    // `status` ('open'), `domainMatch` ('pending'), `linearIssueId` (null) take
-    // their column defaults — the Phase 6 pipeline owns them. `slug`/`targetName`
-    // are metadata/title only (the row stores `targetId`), so they're excluded
-    // from the insert above.
+    // `status` ('open') / `linearIssueId` (null) take their column defaults; the
+    // Phase 6 pipeline owns the latter. `domainMatch` + `duplicateOfRequestId` carry
+    // the just-computed signals.
     const row = await tx.vendorRequest.create({
-      data: { kind, ...row_data },
+      data: { kind, ...row_data, domainMatch, duplicateOfRequestId: duplicate?.id ?? null },
       select: { id: true },
     });
 
@@ -250,8 +339,11 @@ async function createRequest(
       submitterRole: insert.submitterRole,
       body: insert.body,
       sourceUrl: insert.sourceUrl,
-      // domainMatch omitted — 6.8 computes it; until then the row default
-      // ('pending') means no `domain-check-pending` label fires.
+      // Phase 6.8 signals: `domainMatch:'no_match'` adds the `domain-check-pending`
+      // label; a duplicate adds an informational note on the issue (§7.1/§7.2).
+      domainMatch,
+      duplicateOfRequestId: duplicate?.id ?? null,
+      duplicateLinearIssueId: duplicate?.linearIssueId ?? null,
     }),
   );
 
@@ -280,6 +372,7 @@ export function createCorrectionSubmitHandler(
       targetId: target.id,
       targetName: target.name,
       slug: payload.slug,
+      websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: null,
       submitterRole: null,
@@ -302,6 +395,7 @@ export function createClaimSubmitHandler(
       targetId: target.id,
       targetName: target.name,
       slug: payload.slug,
+      websiteUrl: target.websiteUrl,
       submitterEmail: payload.submitter_email,
       submitterName: payload.submitter_name,
       submitterRole: payload.submitter_role,

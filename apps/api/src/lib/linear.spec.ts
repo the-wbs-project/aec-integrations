@@ -19,8 +19,12 @@ import {
   labelIdsFor,
   type LinearIssueInput,
   type LinearPersistClient,
+  type LinearResolutionInput,
+  type LinearSyncPersistClient,
   pickAssignee,
+  pushRequestResolutionToLinear,
   VENDOR_REQUESTS_PROJECT_ID,
+  WORKFLOW_STATE_IDS,
 } from './linear';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -112,6 +116,12 @@ function attachOk(): Response {
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 }
+function commentOk(): Response {
+  return new Response(
+    JSON.stringify({ data: { commentCreate: { success: true, comment: { id: 'cmt_1' } } } }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
 function graphqlErrors(): Response {
   return new Response(JSON.stringify({ errors: [{ message: 'unknown label id' }] }), {
     status: 200,
@@ -119,7 +129,9 @@ function graphqlErrors(): Response {
   });
 }
 
-function mockFetch(handlers: { issue?: FetchHandler; attach?: FetchHandler } = {}) {
+function mockFetch(
+  handlers: { issue?: FetchHandler; attach?: FetchHandler; comment?: FetchHandler } = {},
+) {
   return vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
     const parsed = JSON.parse(String(init?.body)) as {
       query: string;
@@ -127,6 +139,7 @@ function mockFetch(handlers: { issue?: FetchHandler; attach?: FetchHandler } = {
     };
     if (parsed.query.includes('issueCreate')) return (handlers.issue ?? issueOk)();
     if (parsed.query.includes('attachmentCreate')) return (handlers.attach ?? attachOk)();
+    if (parsed.query.includes('commentCreate')) return (handlers.comment ?? commentOk)();
     throw new Error(`unexpected query: ${parsed.query.slice(0, 40)}`);
   }) as unknown as typeof fetch;
 }
@@ -194,6 +207,26 @@ describe('createLinearIssueForRequest — issue creation', () => {
     );
   });
 
+  it('adds the domain-check-pending label when domainMatch is no_match (§7.1)', async () => {
+    const fetchImpl = mockFetch();
+    const { client } = makePrisma();
+
+    await createLinearIssueForRequest(
+      ctx(),
+      client,
+      { ...INPUT, domainMatch: 'no_match' },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: { labelIds: string[] } };
+    };
+    expect(sent.variables.input.labelIds).toEqual([
+      LABEL_IDS.correction,
+      LABEL_IDS.domainCheckPending,
+    ]);
+  });
+
   it('attaches the Source URL when present', async () => {
     const fetchImpl = mockFetch();
     const { client } = makePrisma();
@@ -232,6 +265,65 @@ describe('createLinearIssueForRequest — issue creation', () => {
     );
 
     expect(updates).toHaveLength(2); // persisted despite attach failure
+    expect(lastOutcome()).toBe('outcome:ok');
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'warn' }),
+    );
+  });
+});
+
+// ─── Duplicate note (§7.2) ────────────────────────────────────────────────────
+
+describe('createLinearIssueForRequest — duplicate note', () => {
+  const DUP_INPUT: LinearIssueInput = {
+    ...INPUT,
+    duplicateOfRequestId: 'req_orig',
+    duplicateLinearIssueId: 'iss_orig',
+  };
+
+  it('posts an informational comment referencing the original, and still links the issue', async () => {
+    const fetchImpl = mockFetch();
+    const { client, updates } = makePrisma();
+
+    await createLinearIssueForRequest(ctx(), client, DUP_INPUT, fetchImpl);
+
+    const commentCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find((call) => String(call[1]?.body).includes('commentCreate'));
+    expect(commentCall).toBeDefined();
+    const sent = JSON.parse(String(commentCall![1]!.body)) as {
+      variables: { input: { issueId: string; body: string } };
+    };
+    expect(sent.variables.input.issueId).toBe('iss_123');
+    expect(sent.variables.input.body).toContain('req_orig');
+    expect(sent.variables.input.body).toContain('iss_orig');
+
+    expect(updates).toHaveLength(2); // issue still linked despite the extra call
+    expect(lastOutcome()).toBe('outcome:ok');
+  });
+
+  it('posts no comment when there is no duplicate', async () => {
+    const fetchImpl = mockFetch();
+    const { client } = makePrisma();
+
+    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+
+    const commentCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find((call) => String(call[1]?.body).includes('commentCreate'));
+    expect(commentCall).toBeUndefined();
+  });
+
+  it('still links the issue when the duplicate comment fails (best-effort)', async () => {
+    const fetchImpl = mockFetch({ comment: graphqlErrors });
+    const { client, updates } = makePrisma();
+
+    await createLinearIssueForRequest(ctx(), client, DUP_INPUT, fetchImpl);
+
+    expect(updates).toHaveLength(2);
     expect(lastOutcome()).toBe('outcome:ok');
     expect(logToDatadog).toHaveBeenCalledWith(
       expect.anything(),
@@ -401,5 +493,269 @@ describe('labelIdsFor', () => {
       LABEL_IDS.claim,
       LABEL_IDS.domainCheckPending,
     ]);
+  });
+});
+
+// ─── Site → Linear sync (AECI-213 / Phase 6.6) ───────────────────────────────
+
+const STATE_DONE = { id: WORKFLOW_STATE_IDS.resolved, name: 'Done', type: 'completed' };
+const STATE_CANCELED = { id: WORKFLOW_STATE_IDS.rejected, name: 'Canceled', type: 'canceled' };
+
+const RESOLUTION_INPUT: LinearResolutionInput = {
+  requestId: REQUEST_ID,
+  workflowId: 'wf_1',
+  linearIssueId: 'iss_1',
+  kind: 'claim',
+  toStatus: 'resolved',
+};
+
+function issueUpdateOk(state: { id: string; name: string; type: string } = STATE_DONE): Response {
+  return new Response(
+    JSON.stringify({
+      data: {
+        issueUpdate: { success: true, issue: { id: 'iss_1', identifier: 'AECI-901', state } },
+      },
+    }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
+
+function mockSyncFetch(handlers: { update?: FetchHandler; comment?: FetchHandler } = {}) {
+  return vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+    const parsed = JSON.parse(String(init?.body)) as { query: string };
+    if (parsed.query.includes('issueUpdate')) return (handlers.update ?? (() => issueUpdateOk()))();
+    if (parsed.query.includes('commentCreate')) return (handlers.comment ?? commentOk)();
+    throw new Error(`unexpected query: ${parsed.query.slice(0, 40)}`);
+  }) as unknown as typeof fetch;
+}
+
+/** In-memory persist client; records every workflow_transitions insert. */
+function makeSyncPrisma(opts: { throwOnTransition?: boolean } = {}) {
+  const transitions: Array<Record<string, unknown>> = [];
+  const client = {
+    workflowTransition: {
+      async create({ data }: { data: Record<string, unknown> }) {
+        if (opts.throwOnTransition) throw new Error('db write failed');
+        transitions.push(data);
+        return data;
+      },
+    },
+  } as unknown as LinearSyncPersistClient;
+  return { client, transitions };
+}
+
+function findCall(fetchImpl: typeof fetch, op: string) {
+  return vi.mocked(fetchImpl).mock.calls.find((c) => String(c[1]?.body).includes(op));
+}
+function sentVars(init: RequestInit | undefined): {
+  id?: string;
+  input: Record<string, unknown>;
+} {
+  return (
+    JSON.parse(String(init!.body)) as {
+      variables: { id?: string; input: Record<string, unknown> };
+    }
+  ).variables;
+}
+
+describe('pushRequestResolutionToLinear — resolve', () => {
+  it('transitions the issue to Done, comments, and records the open→resolved transition', async () => {
+    const fetchImpl = mockSyncFetch();
+    const { client, transitions } = makeSyncPrisma();
+
+    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+
+    // issueUpdate hit the Linear endpoint with the resolved (Done) state id.
+    const updateCall = findCall(fetchImpl, 'issueUpdate')!;
+    expect(String(updateCall[0])).toBe('https://api.linear.app/graphql');
+    expect((updateCall[1]!.headers as Record<string, string>).authorization).toBe('lin_test');
+    const update = sentVars(updateCall[1]);
+    expect(update.id).toBe('iss_1');
+    expect(update.input).toEqual({ stateId: WORKFLOW_STATE_IDS.resolved });
+
+    // a comment was posted to the same issue, mentioning the resolution.
+    const comment = sentVars(findCall(fetchImpl, 'commentCreate')![1]);
+    expect(comment.input.issueId).toBe('iss_1');
+    expect(String(comment.input.body)).toContain('resolved');
+
+    // exactly one transition, carrying the site-linear-sync provenance.
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]).toMatchObject({
+      workflowId: 'wf_1',
+      fromState: 'open',
+      toState: 'resolved',
+      actorId: null,
+    });
+    expect(transitions[0]!.metadata).toMatchObject({
+      source: 'site-linear-sync',
+      actor_type: 'admin',
+      linear_issue_id: 'iss_1',
+      linear_state_id: WORKFLOW_STATE_IDS.resolved,
+      linear_state_name: 'Done',
+      linear_state_type: 'completed',
+    });
+
+    expect(lastTags()).toEqual(
+      expect.arrayContaining(['outcome:ok', 'kind:claim', 'to_status:resolved']),
+    );
+    expect(submitDistribution).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'aeci.linear.sync.duration_ms',
+      expect.any(Number),
+      ['outcome:ok'],
+    );
+  });
+});
+
+describe('pushRequestResolutionToLinear — reject', () => {
+  it('transitions to Canceled and threads the actor + reason into the comment and transition', async () => {
+    const fetchImpl = mockSyncFetch({ update: () => issueUpdateOk(STATE_CANCELED) });
+    const { client, transitions } = makeSyncPrisma();
+
+    await pushRequestResolutionToLinear(
+      ctx(),
+      client,
+      {
+        ...RESOLUTION_INPUT,
+        toStatus: 'rejected',
+        fromStatus: 'in_review',
+        reason: 'Duplicate of an existing claim.',
+        actorId: 'admin_1',
+        actorLabel: 'chris@aeci.test',
+      },
+      fetchImpl,
+    );
+
+    expect(sentVars(findCall(fetchImpl, 'issueUpdate')![1]).input).toEqual({
+      stateId: WORKFLOW_STATE_IDS.rejected,
+    });
+
+    const body = String(sentVars(findCall(fetchImpl, 'commentCreate')![1]).input.body);
+    expect(body).toContain('rejected');
+    expect(body).toContain('chris@aeci.test');
+    expect(body).toContain('Duplicate of an existing claim.');
+
+    expect(transitions[0]).toMatchObject({
+      fromState: 'in_review',
+      toState: 'rejected',
+      actorId: 'admin_1',
+      reason: 'Duplicate of an existing claim.',
+    });
+    expect(transitions[0]!.metadata).toMatchObject({
+      linear_state_name: 'Canceled',
+      linear_state_type: 'canceled',
+    });
+    expect(lastTags()).toEqual(expect.arrayContaining(['outcome:ok', 'to_status:rejected']));
+  });
+});
+
+describe('pushRequestResolutionToLinear — tolerance & failure', () => {
+  it('skips (skip + info-log, no error, no transition) when linear_issue_id is null', async () => {
+    const fetchImpl = mockSyncFetch();
+    const { client, transitions } = makeSyncPrisma();
+
+    await pushRequestResolutionToLinear(
+      ctx(),
+      client,
+      { ...RESOLUTION_INPUT, linearIssueId: null },
+      fetchImpl,
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(transitions).toHaveLength(0);
+    expect(lastTags()).toEqual(
+      expect.arrayContaining(['outcome:skipped_no_issue', 'kind:claim', 'to_status:resolved']),
+    );
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'info' }),
+    );
+  });
+
+  it('is a silent no-op (no fetch, no metric, no transition) when LINEAR_API_KEY is absent', async () => {
+    const fetchImpl = mockSyncFetch();
+    const { client, transitions } = makeSyncPrisma();
+
+    await pushRequestResolutionToLinear(
+      ctx({ LINEAR_API_KEY: undefined }),
+      client,
+      RESOLUTION_INPUT,
+      fetchImpl,
+    );
+
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(submitCount).not.toHaveBeenCalled();
+    expect(transitions).toHaveLength(0);
+  });
+
+  it('treats a 200-with-errors issueUpdate as failed: no comment, no transition', async () => {
+    const fetchImpl = mockSyncFetch({ update: graphqlErrors });
+    const { client, transitions } = makeSyncPrisma();
+
+    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+
+    expect(transitions).toHaveLength(0);
+    expect(findCall(fetchImpl, 'commentCreate')).toBeUndefined();
+    expect(lastTags()).toEqual(
+      expect.arrayContaining(['outcome:failed', 'reason:graphql_error', 'to_status:resolved']),
+    );
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'error' }),
+    );
+  });
+
+  it('treats issueUpdate success:false as failed', async () => {
+    const fetchImpl = mockSyncFetch({
+      update: () =>
+        new Response(JSON.stringify({ data: { issueUpdate: { success: false, issue: null } } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    });
+    const { client, transitions } = makeSyncPrisma();
+
+    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+
+    expect(transitions).toHaveLength(0);
+    expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:graphql_error']));
+  });
+
+  it('still records the transition when the comment fails (best-effort)', async () => {
+    const fetchImpl = mockSyncFetch({ comment: graphqlErrors });
+    const { client, transitions } = makeSyncPrisma();
+
+    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+
+    expect(transitions).toHaveLength(1); // recorded despite the comment failure
+    expect(lastOutcome()).toBe('outcome:ok');
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'warn' }),
+    );
+  });
+
+  it('fails as db_error (no throw) when the transition write throws', async () => {
+    const fetchImpl = mockSyncFetch();
+    const { client, transitions } = makeSyncPrisma({ throwOnTransition: true });
+
+    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+
+    expect(transitions).toHaveLength(0);
+    expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:db_error']));
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'error' }),
+    );
   });
 });

@@ -739,12 +739,42 @@ export interface DeleteAccountResponse {
 
 Errors: `UNAUTHENTICATED`.
 
-> **Deferred — `GET /api/account/reviews`.** `/account` is specced to list the
-> user's own submitted reviews + statuses (pending/approved/rejected), but no
-> endpoint returns the caller's own reviews yet (the public
-> `GET /api/products/:slug/reviews` is approved-only / no PII). AECI-202 ships the
-> account page with a placeholder for this section; the auth-gated, reviewer-
-> scoped endpoint is a follow-up (**AECI-225**).
+#### `GET /api/account/reviews`
+
+List the authenticated user's **own** reviews for the `/account` page (AECI-225 /
+Phase 5.11). Scope is server-set to `reviewer_id = session.userId` (the verified
+token `sub`) — never a client-supplied id. Unlike the public
+`GET /api/products/:slug/reviews` (approved-only, no PII), this returns the
+caller's reviews in **every** status (`pending` / `approved` / `rejected`) plus
+`rejection_reason`, so the author can see where each one stands. It carries no
+admin-only signals (`reviewer_email`, `toxicity_score`, `locale`, moderation
+columns). Shapes live in `packages/shared/src/api/account.ts`.
+
+Query is `AccountReviewsQuerySchema` (page-based: `page` / `perPage`); order is
+fixed newest-first (`created_at desc`, `id asc` tiebreak), so there is no `sort`
+param. `Cache-Control: private, no-store`.
+
+```typescript
+export const AccountReviewSchema = z.object({
+  id: z.string().uuid(),
+  product: LinkRefSchema,                       // { id, name, slug }
+  rating_overall: z.number().int().min(1).max(5),
+  rating_onboarding: z.number().int().min(1).max(5),
+  title: z.string(),
+  status: ReviewStatusSchema,                   // 'pending' | 'approved' | 'rejected'
+  rejection_reason: z.string().nullable(),      // non-null only when rejected
+  created_at: z.string().datetime(),
+});
+// Response: PaginatedResponse<AccountReview> ({ data, page, perPage, total }).
+```
+
+Errors: `UNAUTHENTICATED`.
+
+> **Pagination note.** AECI-225's issue text said "cursor pagination", but this
+> endpoint is **page-based** to stay consistent with every other list endpoint
+> (Phase 2 Spec §7.3) — the codebase has no cursor infrastructure and a user's
+> own-reviews list is inherently small. Documented here as the intentional
+> deviation from the issue wording.
 
 #### `POST /api/auth/profile/ensure`
 

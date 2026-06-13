@@ -17,6 +17,7 @@ import {
   createGetAccountHandler,
   createUpdateAccountHandler,
 } from './routes/account';
+import { createGetAccountReviewsHandler } from './routes/account-reviews';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -197,6 +198,7 @@ app.route('/', authReviews);
 const authAccount = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAccount.onError(errorHandler());
 authAccount.get('/api/account', requireAuth(), createGetAccountHandler());
+authAccount.get('/api/account/reviews', requireAuth(), createGetAccountReviewsHandler());
 authAccount.patch('/api/account', requireAuth(), createUpdateAccountHandler());
 authAccount.delete('/api/account', requireAuth(), createDeleteAccountHandler());
 app.route('/', authAccount);

@@ -30,6 +30,12 @@
  * Report-only — no auto-remediation; the alert is the Datadog monitor
  * (`observability/datadog/monitor-algolia-index-drift.json`). Re-run the AECI-138
  * bulk sync to repair.
+ * Every 15 minutes (the one sub-hourly trigger; see `RECONCILE_CRON`) —
+ * request→Linear reconciliation sweep (`./lib/reconciliation-sweep`, AECI-214 /
+ * Phase 6.7 / §6.2/§6.4): retry `vendor_requests` stuck
+ * `open`/`linear_issue_id=null` (their §6.4 on-submit issue creation failed), and
+ * on a persistent failure raise the §6.2 admin alert. A tight backstop, not a
+ * daily batch.
  *
  * Best-effort + observable: the work is **awaited** in the consumer (so a failure
  * is logged and the run isn't torn down mid-batch), while metric/log emission
@@ -57,6 +63,7 @@ import {
   oldestPendingAgeHours,
   type ModerationMetricSink,
 } from './lib/moderation-metrics';
+import { runReconciliationSweep, type ReconcilePrisma } from './lib/reconciliation-sweep';
 import { getPrisma } from './prisma';
 
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
@@ -84,6 +91,13 @@ const STATS_CRON = '0 7 * * *';
  *  consumer — `queueForJob` returns `undefined`, so it always runs inline). MUST
  *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
 const MODERATION_CRON = '0 6 * * *';
+
+/** Cron expression for the request→Linear reconciliation sweep (`wrangler.jsonc`,
+ *  AECI-214 / Phase 6.7). **Every 15 minutes** — unlike the daily batch jobs, this
+ *  is a tight backstop: a request whose §6.4 on-submit issue creation failed is
+ *  retried within ~15 min. Queue-backed (ADR 0013) so it gets native retries. MUST
+ *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
+const RECONCILE_CRON = '*/15 * * * *';
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
@@ -346,6 +360,18 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
   }
 }
 
+/** Run the request→Linear reconciliation sweep (AECI-214 / Phase 6.7): retry
+ *  `vendor_requests` stuck `open`/`linear_issue_id=null` and alert on persistent
+ *  failures. `getPrisma()` is outside any try (a client-init throw propagates to
+ *  the consumer's `retry()`, mirroring `runAlgoliaSync`); the sweep's own
+ *  unexpected read failures likewise propagate so the queue re-runs it (idempotent
+ *  via `createLinearIssueForRequest`). */
+async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/reconcile');
+  const prisma = getPrisma(env) as unknown as ReconcilePrisma;
+  await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, prisma);
+}
+
 /** The producer queue binding for a job (absent on local/preview → inline run). */
 function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | undefined {
   switch (job) {
@@ -355,6 +381,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.ALGOLIA_DRIFT_QUEUE;
     case 'stats':
       return env.STATS_QUEUE;
+    case 'reconcile':
+      return env.RECONCILE_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -375,6 +403,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/moderation-queue',
       message: 'aeci.moderation.queue.enqueue_failed',
       source: 'moderation-cron',
+    };
+  }
+  if (job === 'reconcile') {
+    return {
+      path: '/cron/reconcile',
+      message: 'aeci.linear.reconcile.enqueue_failed',
+      source: 'reconcile',
     };
   }
   return {
@@ -435,6 +470,9 @@ async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJo
     case 'moderation':
       await runModerationQueueMetrics(env, ctx);
       return;
+    case 'reconcile':
+      await runReconcileJob(env, ctx);
+      return;
   }
 }
 
@@ -457,6 +495,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case MODERATION_CRON:
       await enqueueOrRun(env, ctx, 'moderation');
+      return;
+    case RECONCILE_CRON:
+      await enqueueOrRun(env, ctx, 'reconcile');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently

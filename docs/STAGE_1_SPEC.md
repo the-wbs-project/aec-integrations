@@ -1089,30 +1089,27 @@ Governed by `docs/STAGE_1_PHASE_6_SPEC.md` (decomposed into AECI Phase 6.1–6.1
 - [ ] Reviewer ban management (admin sets `banned_at`; enforcement-on-submit is Phase 5)
 - [ ] Phase 6 observability + completion checkpoint
 
-### Phase 7: SEO, accessibility, legal, polish (Week 9–10)
-- [ ] Dynamic XML sitemap (root + per-entity sub-sitemaps)
-- [ ] IndexNow integration on write-event pipeline
-- [ ] Schema.org JSON-LD on product, vendor, integration, home pages
-- [ ] OpenGraph and Twitter Card meta tags on all entity pages
-- [ ] Canonical URL tags on all pages
-- [ ] Useful 404 page
-- [ ] Robots.txt
-- [ ] Legal pages drafted and counsel-reviewed
-- [ ] About and Contact pages
-- [ ] axe-core integrated into e2e tests
-- [ ] Manual screen reader testing pass
-- [ ] Color contrast validation against brand palette
-- [ ] Lighthouse Accessibility score ≥95 in CI
-- [ ] PostHog integration with locale dimension
-- [ ] Datadog dashboards and Slack alerts configured
-- [ ] Loops transactional email setup
-- [ ] Daily data quality job Worker
-- [ ] Waitlist launch campaign prepared
-- [ ] Welcome banner for waitlist subscribers
-- [ ] WAF rate limits configured
-- [ ] Cross-browser and mobile QA
-- [ ] Performance audit (Lighthouse, Core Web Vitals)
-- [ ] DNS cutover from coming-soon page
+### Phase 7: SEO, accessibility, legal, launch polish (Week 9–10)
+
+Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec — straight to issues**). Much of §16's original Phase 7 list **already shipped in Phases 2–4** (verified on `main` 2026-06-10) and is struck below; Phase 7 is the genuine launch-readiness remainder.
+
+**Already shipped:** ~~XML sitemap~~ (AECI-63) · ~~OG/Twitter meta~~ + ~~product/vendor JSON-LD~~ (AECI-51) + ~~home JSON-LD~~ (AECI-186) · ~~canonical tags~~ (AECI-147) · ~~404 page~~ (AECI-62) · ~~robots.txt~~ (AECI-63) · ~~axe-core in e2e~~ + ~~Lighthouse a11y ≥95 in CI~~ (AECI-65) · ~~CSP/security headers~~ (AECI-89) · ~~color-contrast validation~~ (AECI-148/150/166/230) · ~~Datadog dashboards~~ (per-phase: AECI-66/141/180/206) — **no Slack** (Phase 6 decision).
+**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs).
+
+**Phase 7.1–7.13 (the remainder):**
+- [ ] 7.1 — IndexNow on the write-event pipeline (§20.2)
+- [ ] 7.2 — Legal pages: Terms, Privacy, Review Guidelines, Listing Accuracy (§13, §27); counsel-reviewed
+- [ ] 7.3 — About + Contact pages
+- [ ] 7.4 — PostHog integration (event set + locale/theme dimensions; §14.1)
+- [ ] 7.5 — Loops transactional email (review + account-deletion + magic-link sender; §11.1) — home for the Phase 5/6 deferred emails
+- [ ] 7.6 — Daily data-quality job (full §23.1 suite + email summary; Algolia-drift line already shipped in AECI-140)
+- [ ] 7.7 — WAF rate limits on the public endpoints (§15.1)
+- [ ] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154)
+- [ ] 7.9 — Waitlist welcome banner + token attribution (§11.2)
+- [ ] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3)
+- [ ] 7.11 — Performance / Core Web Vitals audit
+- [ ] 7.12 — Phase 7 completion checkpoint (launch-readiness gate)
+- [ ] 7.13 — DNS cutover from the coming-soon page (§11.2)
 
 ### Phase 8: Post-launch (Week 11+)
 - [ ] Monitor errors, performance, search quality

@@ -520,6 +520,7 @@ jobs:
           create_queue aeci-algolia-sync-production
           create_queue aeci-algolia-drift-production
           create_queue aeci-stats-production
+          create_queue aeci-reconcile-production
 
       # API deploys FIRST. The SSR Worker's `services.API` binding talks to
       # `aeci-api-production`; deploying API ahead of SSR means any brief

@@ -108,14 +108,100 @@
       </form>
     </div>
 
-    <!-- ── Your reviews (deferred) ─────────────────────────────────────────── -->
+    <!-- ── Your reviews ────────────────────────────────────────────────────── -->
     <div class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6">
       <h2 class="text-lg font-semibold tracking-tight" i18n="@@account.reviews.heading">
         Your reviews
       </h2>
-      <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.placeholder">
-        The reviews you've submitted and their status will appear here soon.
+
+      @if (reviewsLoading()) {
+      <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.loading">
+        Loading your reviews…
       </p>
+      } @else if (reviewsFailed()) {
+      <p
+        class="mt-3 text-sm font-medium text-(--text-primary)"
+        role="alert"
+        i18n="@@account.reviews.failed"
+      >
+        We couldn't load your reviews. Please try again.
+      </p>
+      } @else if (reviewsEmpty()) {
+      <p class="mt-3 text-sm text-(--text-secondary)" i18n="@@account.reviews.empty">
+        You haven't submitted any reviews yet.
+      </p>
+      } @else {
+      <ul class="mt-4 grid gap-3">
+        @for (r of reviews(); track r.id) {
+        <li class="rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) p-4">
+          <div class="flex flex-wrap items-start justify-between gap-2">
+            <div class="min-w-0 space-y-1">
+              <a
+                [routerLink]="['/products', r.product.slug]"
+                class="text-sm font-medium text-(--text-primary) underline-offset-2 hover:text-(--accent-primary) hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >{{ r.product.name }}</a
+              >
+              <p class="text-sm text-(--text-secondary)">{{ r.title }}</p>
+            </div>
+            <aec-review-status-badge [status]="r.status" />
+          </div>
+
+          <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-(--text-secondary)">
+            <div class="flex items-center gap-1.5">
+              <dt i18n="@@account.reviews.rating.overall">Overall</dt>
+              <dd class="font-semibold text-(--text-primary)">{{ r.rating_overall }}/5</dd>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <dt i18n="@@account.reviews.rating.onboarding">Onboarding</dt>
+              <dd class="font-semibold text-(--text-primary)">{{ r.rating_onboarding }}/5</dd>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <dt class="sr-only" i18n="@@account.reviews.submitted">Submitted</dt>
+              <dd>{{ r.created_at | date: 'mediumDate' }}</dd>
+            </div>
+          </dl>
+
+          @if (r.status === 'rejected' && r.rejection_reason) {
+          <p
+            class="mt-3 rounded-(--radius-sm) border border-(--border-default) bg-(--surface-sunken) p-3 text-xs text-(--text-secondary)"
+          >
+            <span
+              class="font-semibold text-(--text-primary)"
+              i18n="@@account.reviews.rejectionReason"
+              >Reason:</span
+            >
+            {{ r.rejection_reason }}
+          </p>
+          }
+        </li>
+        }
+      </ul>
+
+      @if (hasMoreReviews()) {
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          (click)="loadMoreReviews()"
+          [disabled]="loadingMoreReviews()"
+          class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-bold text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          @if (loadingMoreReviews()) {
+          <span i18n="@@account.reviews.loadingMore">Loading…</span>
+          } @else {
+          <span i18n="@@account.reviews.loadMore">Load more</span>
+          }
+        </button>
+        @if (loadMoreFailed()) {
+        <p
+          class="text-sm font-medium text-(--text-primary)"
+          role="alert"
+          i18n="@@account.reviews.loadMoreFailed"
+        >
+          Couldn't load more. Please try again.
+        </p>
+        }
+      </div>
+      } }
     </div>
 
     <!-- ── Sign out ────────────────────────────────────────────────────────── -->

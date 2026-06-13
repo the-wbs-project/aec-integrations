@@ -24,12 +24,14 @@ vi.mock('./lib/algolia-drift', () => ({
   reportAlgoliaDrift: vi.fn(),
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
+vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
 vi.mock('./prisma', () => ({ getPrisma: vi.fn(() => ({})) }));
 
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runHomeStats } from './lib/home-stats';
+import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { getPrisma } from './prisma';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
@@ -38,6 +40,7 @@ const MODERATION_CRON = '0 6 * * *';
 const STATS_CRON = '0 7 * * *';
 const SYNC_CRON = '0 8 * * *';
 const DRIFT_CRON = '0 9 * * *';
+const RECONCILE_CRON = '*/15 * * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -112,6 +115,24 @@ describe('scheduled (cron producer)', () => {
 
     expect(send).toHaveBeenCalledWith(expect.objectContaining({ job: 'stats', trigger: 'cron' }));
     expect(runHomeStats).not.toHaveBeenCalled();
+  });
+
+  it('enqueues the reconcile job onto its own queue every 15 min (AECI-214)', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(RECONCILE_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'reconcile', trigger: 'cron' }),
+    );
+    expect(runReconciliationSweep).not.toHaveBeenCalled();
+  });
+
+  it('runs the reconcile sweep inline when no RECONCILE_QUEUE binding is present', async () => {
+    await scheduled(cronController(RECONCILE_CRON), makeEnv(), ctx);
+
+    expect(runReconciliationSweep).toHaveBeenCalledTimes(1);
   });
 
   it('runs the job inline when no queue binding is present (local/preview)', async () => {
@@ -217,6 +238,16 @@ describe('queue (consumer)', () => {
     await queue(batch, makeEnv(), ctx);
 
     expect(runHomeStats).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('ack()s a reconcile job message and runs the reconciliation sweep (AECI-214)', async () => {
+    const { batch, ack, retry } = makeBatch('reconcile', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(runReconciliationSweep).toHaveBeenCalledTimes(1);
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
   });
