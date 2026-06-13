@@ -116,6 +116,12 @@ function attachOk(): Response {
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 }
+function commentOk(): Response {
+  return new Response(
+    JSON.stringify({ data: { commentCreate: { success: true, comment: { id: 'cmt_1' } } } }),
+    { status: 200, headers: { 'content-type': 'application/json' } },
+  );
+}
 function graphqlErrors(): Response {
   return new Response(JSON.stringify({ errors: [{ message: 'unknown label id' }] }), {
     status: 200,
@@ -123,7 +129,9 @@ function graphqlErrors(): Response {
   });
 }
 
-function mockFetch(handlers: { issue?: FetchHandler; attach?: FetchHandler } = {}) {
+function mockFetch(
+  handlers: { issue?: FetchHandler; attach?: FetchHandler; comment?: FetchHandler } = {},
+) {
   return vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
     const parsed = JSON.parse(String(init?.body)) as {
       query: string;
@@ -131,6 +139,7 @@ function mockFetch(handlers: { issue?: FetchHandler; attach?: FetchHandler } = {
     };
     if (parsed.query.includes('issueCreate')) return (handlers.issue ?? issueOk)();
     if (parsed.query.includes('attachmentCreate')) return (handlers.attach ?? attachOk)();
+    if (parsed.query.includes('commentCreate')) return (handlers.comment ?? commentOk)();
     throw new Error(`unexpected query: ${parsed.query.slice(0, 40)}`);
   }) as unknown as typeof fetch;
 }
@@ -198,6 +207,26 @@ describe('createLinearIssueForRequest — issue creation', () => {
     );
   });
 
+  it('adds the domain-check-pending label when domainMatch is no_match (§7.1)', async () => {
+    const fetchImpl = mockFetch();
+    const { client } = makePrisma();
+
+    await createLinearIssueForRequest(
+      ctx(),
+      client,
+      { ...INPUT, domainMatch: 'no_match' },
+      fetchImpl,
+    );
+
+    const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
+      variables: { input: { labelIds: string[] } };
+    };
+    expect(sent.variables.input.labelIds).toEqual([
+      LABEL_IDS.correction,
+      LABEL_IDS.domainCheckPending,
+    ]);
+  });
+
   it('attaches the Source URL when present', async () => {
     const fetchImpl = mockFetch();
     const { client } = makePrisma();
@@ -236,6 +265,65 @@ describe('createLinearIssueForRequest — issue creation', () => {
     );
 
     expect(updates).toHaveLength(2); // persisted despite attach failure
+    expect(lastOutcome()).toBe('outcome:ok');
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'warn' }),
+    );
+  });
+});
+
+// ─── Duplicate note (§7.2) ────────────────────────────────────────────────────
+
+describe('createLinearIssueForRequest — duplicate note', () => {
+  const DUP_INPUT: LinearIssueInput = {
+    ...INPUT,
+    duplicateOfRequestId: 'req_orig',
+    duplicateLinearIssueId: 'iss_orig',
+  };
+
+  it('posts an informational comment referencing the original, and still links the issue', async () => {
+    const fetchImpl = mockFetch();
+    const { client, updates } = makePrisma();
+
+    await createLinearIssueForRequest(ctx(), client, DUP_INPUT, fetchImpl);
+
+    const commentCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find((call) => String(call[1]?.body).includes('commentCreate'));
+    expect(commentCall).toBeDefined();
+    const sent = JSON.parse(String(commentCall![1]!.body)) as {
+      variables: { input: { issueId: string; body: string } };
+    };
+    expect(sent.variables.input.issueId).toBe('iss_123');
+    expect(sent.variables.input.body).toContain('req_orig');
+    expect(sent.variables.input.body).toContain('iss_orig');
+
+    expect(updates).toHaveLength(2); // issue still linked despite the extra call
+    expect(lastOutcome()).toBe('outcome:ok');
+  });
+
+  it('posts no comment when there is no duplicate', async () => {
+    const fetchImpl = mockFetch();
+    const { client } = makePrisma();
+
+    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+
+    const commentCall = vi
+      .mocked(fetchImpl)
+      .mock.calls.find((call) => String(call[1]?.body).includes('commentCreate'));
+    expect(commentCall).toBeUndefined();
+  });
+
+  it('still links the issue when the duplicate comment fails (best-effort)', async () => {
+    const fetchImpl = mockFetch({ comment: graphqlErrors });
+    const { client, updates } = makePrisma();
+
+    await createLinearIssueForRequest(ctx(), client, DUP_INPUT, fetchImpl);
+
+    expect(updates).toHaveLength(2);
     expect(lastOutcome()).toBe('outcome:ok');
     expect(logToDatadog).toHaveBeenCalledWith(
       expect.anything(),
@@ -428,12 +516,6 @@ function issueUpdateOk(state: { id: string; name: string; type: string } = STATE
         issueUpdate: { success: true, issue: { id: 'iss_1', identifier: 'AECI-901', state } },
       },
     }),
-    { status: 200, headers: { 'content-type': 'application/json' } },
-  );
-}
-function commentOk(): Response {
-  return new Response(
-    JSON.stringify({ data: { commentCreate: { success: true, comment: { id: 'cmt_1' } } } }),
     { status: 200, headers: { 'content-type': 'application/json' } },
   );
 }

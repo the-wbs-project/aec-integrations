@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { LABEL_IDS } from '../lib/linear';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './requests';
 
@@ -12,6 +13,12 @@ type Rec = Record<string, unknown>;
 interface FakeOptions {
   productSlugToId?: Record<string, string>;
   vendorSlugToId?: Record<string, string>;
+  /** slug → the product's PRIMARY vendor website (domain-match input, §7.1). */
+  productWebsites?: Record<string, string | null>;
+  /** slug → the vendor's own website (domain-match input, §7.1). */
+  vendorWebsites?: Record<string, string | null>;
+  /** Pre-seeded `open` requests the §7.2 duplicate probe matches against. */
+  existingRequests?: Rec[];
 }
 
 function makeFake(opts: FakeOptions = {}) {
@@ -19,15 +26,36 @@ function makeFake(opts: FakeOptions = {}) {
   const created: Rec[] = [];
   const workflows: Rec[] = [];
   const transitions: Rec[] = [];
+  const existing = opts.existingRequests ?? [];
   let counter = 0;
   let workflowCounter = 0;
 
-  const bySlug = (map: Record<string, string> = {}) => ({
+  // resolveTarget reads different shapes per type: a product needs `name` + its
+  // primary vendor's website (nested `productVendors`); a vendor needs `companyName`
+  // + `website`. Two builders so each returns exactly its branch's select.
+  const productBySlug = (
+    ids: Record<string, string> = {},
+    sites: Record<string, string | null> = {},
+  ) => ({
     async findUnique({ where }: { where: Rec }) {
-      const id = map[where.slug as string];
-      // Resolve also reads `name` (product) / `companyName` (vendor) for the
-      // Linear issue title; return both so either branch is populated.
-      return id ? { id, name: `name-${where.slug}`, companyName: `co-${where.slug}` } : null;
+      const id = ids[where.slug as string];
+      if (!id) return null;
+      const website = sites[where.slug as string] ?? null;
+      return {
+        id,
+        name: `name-${where.slug}`,
+        productVendors: website === null ? [] : [{ vendor: { website } }],
+      };
+    },
+  });
+  const vendorBySlug = (
+    ids: Record<string, string> = {},
+    sites: Record<string, string | null> = {},
+  ) => ({
+    async findUnique({ where }: { where: Rec }) {
+      const id = ids[where.slug as string];
+      if (!id) return null;
+      return { id, companyName: `co-${where.slug}`, website: sites[where.slug as string] ?? null };
     },
   });
 
@@ -39,13 +67,31 @@ function makeFake(opts: FakeOptions = {}) {
     );
 
   const models = {
-    product: bySlug(opts.productSlugToId),
-    vendor: bySlug(opts.vendorSlugToId),
+    product: productBySlug(opts.productSlugToId, opts.productWebsites),
+    vendor: vendorBySlug(opts.vendorSlugToId, opts.vendorWebsites),
     vendorRequest: {
       async create({ data }: { data: Rec }) {
         const id = `req_${(counter += 1)}`;
         created.push({ ...data, id });
         return { id };
+      },
+      // Phase 6.8 (AECI-215) duplicate probe (top-level, before the tx). Matches the
+      // earliest pre-seeded `open` request for the same target sharing kind OR submitter.
+      async findFirst({ where }: { where: Rec }) {
+        const ors = (where.OR as Rec[] | undefined) ?? [];
+        const pool = existing.filter(
+          (r) =>
+            r.status === where.status &&
+            r.targetType === where.targetType &&
+            r.targetId === where.targetId &&
+            (ors.length === 0 ||
+              ors.some((cond) => Object.entries(cond).every(([k, v]) => r[k] === v))),
+        );
+        pool.sort((a, b) => String(a.createdAt ?? '').localeCompare(String(b.createdAt ?? '')));
+        const row = pool[0];
+        return row
+          ? { id: row.id, linearIssueId: (row.linearIssueId as string | undefined) ?? null }
+          : null;
       },
       // Phase 6.4 (AECI-211) Linear-persist surface (top-level, outside the tx).
       async findUnique({ where }: { where: Rec }) {
@@ -281,6 +327,161 @@ describe('POST /api/requests/claim', () => {
   });
 });
 
+// ─── Phase 6.8 (AECI-215): domain-match + duplicate signals ─────────────────────
+describe('POST /api/requests/* → Phase 6.8 signals', () => {
+  const correctionBody = (over: Record<string, unknown> = {}) => ({
+    target_type: 'product',
+    slug: 'acme-build',
+    body: 'The founding year on this listing is wrong; it should read 2009 not 2019.',
+    source_url: '',
+    submitter_email: 'reporter@example.com',
+    ...over,
+  });
+
+  async function submitCorrection(
+    fake: ReturnType<typeof makeFake>,
+    body: Record<string, unknown>,
+  ): Promise<void> {
+    const res = await correctionApp(fake.models).request(
+      '/api/requests/correction',
+      postInit(body),
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(201);
+  }
+
+  describe('domain-match (§7.1)', () => {
+    it("matches the product's primary vendor website", async () => {
+      const fake = makeFake({
+        productSlugToId: { 'acme-build': PRODUCT_ID },
+        productWebsites: { 'acme-build': 'https://www.acme.com' },
+      });
+      await submitCorrection(fake, correctionBody({ submitter_email: 'eng@acme.com' }));
+      expect(fake.created[0].domainMatch).toBe('match');
+      expect((fake.audit[0].metadata as Rec).domain_match).toBe('match');
+      expect((fake.transitions[0].metadata as Rec).domain_match).toBe('match');
+    });
+
+    it('flags a mismatch (gmail vs the vendor domain)', async () => {
+      const fake = makeFake({
+        productSlugToId: { 'acme-build': PRODUCT_ID },
+        productWebsites: { 'acme-build': 'https://www.acme.com' },
+      });
+      await submitCorrection(fake, correctionBody({ submitter_email: 'someone@gmail.com' }));
+      expect(fake.created[0].domainMatch).toBe('no_match');
+    });
+
+    it('falls back to manual_review when the product has no primary vendor website', async () => {
+      const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
+      await submitCorrection(fake, correctionBody({ submitter_email: 'eng@acme.com' }));
+      expect(fake.created[0].domainMatch).toBe('manual_review');
+    });
+
+    it("a vendor target uses the vendor's own website", async () => {
+      const fake = makeFake({
+        vendorSlugToId: { 'acme-co': VENDOR_ID },
+        vendorWebsites: { 'acme-co': 'https://acme.com' },
+      });
+      const res = await claimApp(fake.models).request(
+        '/api/requests/claim',
+        postInit({
+          target_type: 'vendor',
+          slug: 'acme-co',
+          submitter_name: 'Dana Reyes',
+          submitter_email: 'dana@acme.com',
+          submitter_role: 'Head of Partnerships',
+          body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
+        }),
+        TEST_ENV,
+        fakeExecutionContext(),
+      );
+      expect(res.status).toBe(201);
+      expect(fake.created[0].domainMatch).toBe('match');
+    });
+  });
+
+  describe('duplicate detection (§7.2)', () => {
+    const seedOpen = (over: Rec = {}): Rec => ({
+      id: 'req_existing',
+      status: 'open',
+      targetType: 'product',
+      targetId: PRODUCT_ID,
+      kind: 'correction',
+      submitterEmail: 'first@unrelated.com',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      linearIssueId: 'iss_old',
+      ...over,
+    });
+
+    it('flags an existing open request of the same kind + target', async () => {
+      const fake = makeFake({
+        productSlugToId: { 'acme-build': PRODUCT_ID },
+        existingRequests: [seedOpen()],
+      });
+      await submitCorrection(fake, correctionBody());
+      expect(fake.created[0].duplicateOfRequestId).toBe('req_existing');
+      expect((fake.audit[0].metadata as Rec).duplicate_of_request_id).toBe('req_existing');
+    });
+
+    it('flags on the same submitter even when the kind differs', async () => {
+      // Existing CORRECTION by dana@acme.com; new CLAIM by dana@acme.com, same vendor.
+      const fake = makeFake({
+        vendorSlugToId: { 'acme-co': VENDOR_ID },
+        existingRequests: [
+          seedOpen({
+            id: 'req_dup',
+            targetType: 'vendor',
+            targetId: VENDOR_ID,
+            kind: 'correction',
+            submitterEmail: 'dana@acme.com',
+          }),
+        ],
+      });
+      const res = await claimApp(fake.models).request(
+        '/api/requests/claim',
+        postInit({
+          target_type: 'vendor',
+          slug: 'acme-co',
+          submitter_name: 'Dana Reyes',
+          submitter_email: 'dana@acme.com',
+          submitter_role: 'Head of Partnerships',
+          body: 'I lead partnerships at Acme and would like to manage this listing.',
+        }),
+        TEST_ENV,
+        fakeExecutionContext(),
+      );
+      expect(res.status).toBe(201);
+      expect(fake.created[0].duplicateOfRequestId).toBe('req_dup');
+    });
+
+    it('does not flag a resolved request or a different target', async () => {
+      const fake = makeFake({
+        productSlugToId: { 'acme-build': PRODUCT_ID },
+        existingRequests: [
+          seedOpen({ id: 'req_resolved', status: 'resolved' }),
+          seedOpen({ id: 'req_other_target', targetId: VENDOR_ID }),
+        ],
+      });
+      await submitCorrection(fake, correctionBody());
+      expect(fake.created[0].duplicateOfRequestId).toBeNull();
+      expect((fake.audit[0].metadata as Rec).duplicate_of_request_id).toBeNull();
+    });
+
+    it('points at the EARLIEST matching open request', async () => {
+      const fake = makeFake({
+        productSlugToId: { 'acme-build': PRODUCT_ID },
+        existingRequests: [
+          seedOpen({ id: 'req_newer', createdAt: '2026-03-01T00:00:00.000Z' }),
+          seedOpen({ id: 'req_older', createdAt: '2026-01-01T00:00:00.000Z' }),
+        ],
+      });
+      await submitCorrection(fake, correctionBody());
+      expect(fake.created[0].duplicateOfRequestId).toBe('req_older');
+    });
+  });
+});
+
 // ─── Phase 6.4 (AECI-211): Linear issue creation via ctx.waitUntil ──────────────
 // The handler fires `createLinearIssueForRequest` in the background. With no
 // LINEAR_API_KEY it is a silent no-op (the existing tests above prove the 201 path
@@ -299,8 +500,10 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   function issueOkFetch() {
+    // Typed with the fetch signature so `mock.calls[n][1]` (the RequestInit) is
+    // inspectable — the label assertion below reads the issueCreate request body.
     const fetchMock = vi.fn(
-      async () =>
+      async (_url: string | URL | Request, _init?: RequestInit) =>
         new Response(
           JSON.stringify({
             data: {
@@ -362,5 +565,29 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
 
     expect(fake.created[0].linearIssueId).toBeUndefined();
     expect(fake.workflows[0].linearIssueId).toBeUndefined();
+  });
+
+  it('adds the domain-check-pending label to the issue on a domain mismatch', async () => {
+    const fetchMock = issueOkFetch();
+    const fake = makeFake({
+      productSlugToId: { 'acme-build': PRODUCT_ID },
+      productWebsites: { 'acme-build': 'https://www.acme.com' },
+    });
+    const execCtx = fakeExecutionContext();
+
+    const res = await correctionApp(fake.models).request(
+      '/api/requests/correction',
+      postInit({ ...validBody, submitter_email: 'someone@gmail.com' }),
+      ENV_WITH_LINEAR,
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+
+    await vi.mocked(execCtx.waitUntil).mock.calls[0]![0];
+
+    const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+      variables: { input: { labelIds: string[] } };
+    };
+    expect(sent.variables.input.labelIds).toContain(LABEL_IDS.domainCheckPending);
   });
 });
