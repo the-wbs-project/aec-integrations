@@ -428,3 +428,54 @@ wiring problem (check 3).
 whoever owns moderation rather than on-call. (The 48h threshold and the daily snapshot cadence — which
 adds up to ~24h detection lag — are pre-launch starting points; see `docs/OBSERVABILITY.md`. Move the
 cron to hourly if a tighter SLA is needed.)
+
+---
+
+## Linear reconciliation — stuck requests
+
+**Alert:** `AECi — Linear reconciliation: persistent stuck requests` (the persistent-failure signal).
+Deliberately **no** `notify_no_data` — the count is emitted only when the failure condition holds, so
+zero points is healthy (sweep-liveness — a no-data check on the always-emitted
+`aeci.linear.reconcile.stuck` gauge — lands with the Phase-6 dashboard, 6.12).
+**Metric:** `aeci.linear.reconcile.persistent_failure` (count) — requests stuck past the persistent
+threshold (~60m) AND still failing after a retry; companion `aeci.linear.reconcile.stuck` (backlog
+gauge) and `aeci.linear.reconcile.attempt` (`outcome:cleared|still_failing`). Emitted by the
+reconciliation sweep, `lib/reconciliation-sweep.ts` (AECI-214 / Phase 6.7), every 15 min. The
+`level:error` `source:reconcile` log carries the stuck `request_ids`.
+
+**What it means:** A claim/correction was submitted but its Linear issue was never created — the §6.4
+on-submit `createLinearIssueForRequest()` failed, and the §6.7 sweep has retried it for >~1h without
+success. The `vendor_requests` row is sitting `open` / `linear_issue_id = null`. It is **not lost** —
+it is visible in `/admin/requests` and being retried every 15 min — but the assignee (Chris/Bill) was
+never notified by Linear, so it needs a human. **Not user-facing:** the submitter got their `201` and
+"we'll follow up" message; the gap is internal routing.
+
+**First checks**
+
+1. Confirm the sweep is running: a persistent failure means a request is genuinely stuck. If the
+   backlog gauge `aeci.linear.reconcile.stuck` has flat-lined / stopped reporting, the every-15-min
+   sweep itself stalled — check the API Worker's scheduled invocations / `wrangler tail`, confirm the
+   `*/15 * * * *` trigger is present in `apps/api/wrangler.jsonc` (staging + production only) and the
+   `aeci-reconcile-<env>` queue exists. A stalled sweep means stuck rows aren't being retried.
+2. Why is creation failing? Read the `service:aeci-api source:reconcile` error log for the
+   `request_ids`, then pivot `aeci.linear.issue{outcome:failed}` by `reason`: `http_error 401/403` →
+   the `LINEAR_API_KEY` is missing/revoked/over-scope (a **missing** key is a silent no-op that emits
+   no `aeci.linear.issue` metric, but the sweep still counts the row as stuck — confirm the secret is
+   set on the Worker); `graphql_error` → a bad label/assignee/project id (the board constants in
+   `lib/linear.ts` drifted from Linear); `timeout`/`network` → Linear is slow/down; `db_error` → the
+   issue was created but the link-back write failed (re-running links it).
+3. How many / how old? `aeci.linear.reconcile.stuck` is the backlog size; the log's `request_ids` and
+   `/admin/requests` (age column) show which.
+
+**Repair:** fix the root cause and the next 15-min sweep self-heals (the retry is idempotent — it never
+double-creates). For a bad/revoked `LINEAR_API_KEY`, rotate it and re-push the secret. For drifted
+board ids (`graphql_error`), correct the constants in `lib/linear.ts` and redeploy. For a Linear
+outage, no action — it clears when Linear recovers. If a single row is un-rebuildable (its target
+product/vendor was deleted, or it has no workflow instance — logged `cannot rebuild request <id>`),
+resolve it manually in `/admin/requests`.
+
+**Escalation:** until Loops lands (Phase 7 — §14), the admin "email" seam (`lib/admin-alert.ts`) is a
+fail-open no-op (`aeci.linear.reconcile.email{outcome:skipped}`), so **this Datadog alert + the
+`/admin/requests` queue ARE the notification** (§6.2). Make sure on-call routes a persistent failure to
+whoever owns the Linear pipeline. (The 15-min cadence + ~60m persistent threshold are launch-tunable —
+see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)

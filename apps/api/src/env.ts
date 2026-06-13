@@ -1,14 +1,18 @@
 /**
- * Which daily scheduled job a queue message asks the consumer to run. `sync` /
- * `drift` are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats
- * compute job (AECI-178 / Phase 4.3) that upserts the `home.*` `stats_cache`
- * keys; `moderation` snapshots the pending-review queue for its health gauges
- * (AECI-206 / Phase 5.15). Named generically because the union now spans more
- * than Algolia. `moderation` is queue-less (a cheap read-only gauge) — it always
- * runs inline (`queueForJob` returns `undefined`), so it never appears on the
- * wire as a `ScheduledJobMessage`.
+ * Which scheduled job a queue message asks the consumer to run. `sync` / `drift`
+ * are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats compute
+ * job (AECI-178 / Phase 4.3) that upserts the `home.*` `stats_cache` keys;
+ * `moderation` snapshots the pending-review queue for its health gauges (AECI-206
+ * / Phase 5.15); `reconcile` is the request→Linear reconciliation sweep
+ * (AECI-214 / Phase 6.7) that retries stuck `vendor_requests` whose §6.4 issue
+ * creation failed. Named generically because the union now spans more than
+ * Algolia. `moderation` is queue-less (a cheap read-only gauge) — it always runs
+ * inline (`queueForJob` returns `undefined`), so it never appears on the wire as
+ * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
+ * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
+ * daily batch.
  */
-export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation';
+export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation' | 'reconcile';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -137,12 +141,15 @@ export type Env = {
    *
    * `ALGOLIA_SYNC_QUEUE` / `ALGOLIA_DRIFT_QUEUE` carry the Algolia sync (AECI-139)
    * and index-drift (AECI-140) jobs; `STATS_QUEUE` carries the home-stats compute
-   * job (AECI-178 / Phase 4.3). The Algolia bindings keep their names — they *are*
-   * Algolia queues — but now carry the generic `ScheduledJobMessage`.
+   * job (AECI-178 / Phase 4.3); `RECONCILE_QUEUE` carries the request→Linear
+   * reconciliation sweep (AECI-214 / Phase 6.7). The Algolia bindings keep their
+   * names — they *are* Algolia queues — but now carry the generic
+   * `ScheduledJobMessage`.
    */
   ALGOLIA_SYNC_QUEUE?: Queue<ScheduledJobMessage>;
   ALGOLIA_DRIFT_QUEUE?: Queue<ScheduledJobMessage>;
   STATS_QUEUE?: Queue<ScheduledJobMessage>;
+  RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
@@ -185,4 +192,14 @@ export type Env = {
    * convention). See `lib/linear.ts` and `STAGE_1_PHASE_6_SPEC.md` §6.1/§6.2.
    */
   LINEAR_API_KEY?: string;
+  /**
+   * Recipient for the persistent-failure admin alert raised by the reconciliation
+   * sweep (AECI-214 / Phase 6.7). Reserved slot: until Phase 7 wires Loops
+   * transactional email (§14), the sweep's `sendAdminAlert()` seam is a fail-open
+   * no-op and the **Datadog alert** (`aeci.linear.reconcile.persistent_failure` +
+   * the `source:reconcile` error log) is the guaranteed backstop (§6.2). Absent →
+   * the seam logs `outcome:skipped` and relies on that alert. When Phase 7 fills
+   * the transport, this is the `To:` address. Set as a plain wrangler var per env.
+   */
+  ADMIN_ALERT_EMAIL?: string;
 };

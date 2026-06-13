@@ -51,13 +51,14 @@
   // consumer runs it (ADR 0013: cron→queue→consumer). Cron triggers AND the queue
   // producer/consumer bindings are registered ONLY on staging + production (see
   // each env's `triggers` + `queues` blocks) — NOT on the base config or preview,
-  // so ephemeral PR-preview Workers carry no queues and run no daily jobs. The six
-  // queues (`aeci-algolia-{sync,drift}-{staging,production}` for AECI-139/140 +
-  // `aeci-stats-{staging,production}` for the AECI-178 home-stats job) are
-  // provisioned by an idempotent `wrangler queues create` step in deploy.yml /
-  // promote-to-prod.yml before the Worker deploy. PREREQS: Workers Paid plan, and
-  // the CI CLOUDFLARE_API_TOKEN must carry the Queues edit permission. See ADR 0013
-  // and docs/environments.md.
+  // so ephemeral PR-preview Workers carry no queues and run no daily jobs. The eight
+  // queues (`aeci-algolia-{sync,drift}-{staging,production}` for AECI-139/140,
+  // `aeci-stats-{staging,production}` for the AECI-178 home-stats job, and
+  // `aeci-reconcile-{staging,production}` for the AECI-214 request→Linear
+  // reconciliation sweep) are provisioned by an idempotent `wrangler queues create`
+  // step in deploy.yml / promote-to-prod.yml before the Worker deploy. PREREQS:
+  // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
+  // permission. See ADR 0013 and docs/environments.md.
   //
   // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
   // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the
@@ -164,16 +165,18 @@
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
         },
       ],
-      // Daily scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
+      // Scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
       // Staging + production only (base config / preview have no `triggers`, so PR
       // previews don't run them). 06:00 UTC (= 01:00 EST) — moderation-queue health
       // snapshot (AECI-206, inline gauge); 07:00 UTC (= 02:00 EST) — home-stats compute
       // (AECI-178, §10); 08:00 UTC (= 03:00 EST, US-East launch base) — incremental
       // Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
-      // reconciliation (AECI-140, §23.1). UTC is DST-unaware → 02:00/03:00/04:00/05:00 EDT
-      // in summer (accepted). Strings MUST match the constants in `src/scheduled.ts`.
+      // reconciliation (AECI-140, §23.1). The five-field "*/15 * * * *" runs every
+      // 15 min — the request→Linear reconciliation sweep (AECI-214 / Phase 6.7), a
+      // tight backstop that retries stuck vendor_requests. UTC is DST-unaware
+      // (accepted). Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
-        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *"],
+        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
       // `queue` consumer (same Worker) runs the job. `binding` is the producer
@@ -187,6 +190,7 @@
           { "queue": "aeci-algolia-sync-staging", "binding": "ALGOLIA_SYNC_QUEUE" },
           { "queue": "aeci-algolia-drift-staging", "binding": "ALGOLIA_DRIFT_QUEUE" },
           { "queue": "aeci-stats-staging", "binding": "STATS_QUEUE" },
+          { "queue": "aeci-reconcile-staging", "binding": "RECONCILE_QUEUE" },
         ],
         "consumers": [
           {
@@ -203,6 +207,12 @@
           },
           {
             "queue": "aeci-stats-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-reconcile-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -240,12 +250,13 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
-      // Daily scheduled crons (see staging note): 06:00 UTC (= 01:00 EST) moderation-queue
+      // Scheduled crons (see staging note): 06:00 UTC (= 01:00 EST) moderation-queue
       // health snapshot (AECI-206); 07:00 UTC (= 02:00 EST) home-stats compute (AECI-178);
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
-      // index-drift reconciliation (AECI-140). Dispatched by `controller.cron`.
+      // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
+      // reconciliation sweep (AECI-214 / Phase 6.7). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *"],
+        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {
@@ -253,6 +264,7 @@
           { "queue": "aeci-algolia-sync-production", "binding": "ALGOLIA_SYNC_QUEUE" },
           { "queue": "aeci-algolia-drift-production", "binding": "ALGOLIA_DRIFT_QUEUE" },
           { "queue": "aeci-stats-production", "binding": "STATS_QUEUE" },
+          { "queue": "aeci-reconcile-production", "binding": "RECONCILE_QUEUE" },
         ],
         "consumers": [
           {
@@ -269,6 +281,12 @@
           },
           {
             "queue": "aeci-stats-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-reconcile-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

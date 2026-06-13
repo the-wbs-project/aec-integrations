@@ -613,6 +613,7 @@ jobs:
           create_queue aeci-algolia-sync-staging
           create_queue aeci-algolia-drift-staging
           create_queue aeci-stats-staging
+          create_queue aeci-reconcile-staging
 
       # API deploys FIRST. The SSR Worker's `services.API` binding talks to
       # `aeci-api-staging`; deploying API ahead of web means any brief
