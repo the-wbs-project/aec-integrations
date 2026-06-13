@@ -50,6 +50,7 @@ import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
 import { orderFacetItems } from './search-facet-order';
+import { emitSearchQuery, resultsBucket, type SearchQueryEmitter } from './search-rum';
 
 // ─── Public signal-backed view models ───────────────────────────────────────
 
@@ -121,6 +122,13 @@ export interface WidgetHost {
 export interface InstantSearchInstance extends WidgetHost {
   start(): void;
   dispose(): void;
+  /**
+   * Subscribe to the instance error event (AECI-174). A failed search surfaces
+   * here, not through any connector render, so this is the only hook for the
+   * `status: 'error'` RUM emit. `instantsearch.js` emits `'error'` with the
+   * thrown error on the payload.
+   */
+  on(event: 'error', handler: (payload: { error: Error }) => void): void;
 }
 
 /** Render-state shapes (the subset of each connector's output we consume). */
@@ -134,6 +142,8 @@ export interface HitsRenderState {
 }
 export interface StatsRenderState {
   nbHits: number;
+  /** Algolia server-side processing time, ms — the `aeci.search.query` duration. */
+  processingTimeMS: number;
 }
 export interface PaginationRenderState {
   currentRefinement: number;
@@ -276,6 +286,8 @@ export class SearchController {
     searchClient: unknown,
     config: AlgoliaPublicConfig,
     initialQuery = '',
+    /** RUM emit seam (AECI-174); injectable so tests assert without the SDK. */
+    private readonly emit: SearchQueryEmitter = emitSearchQuery,
   ) {
     this.query = signal(initialQuery);
 
@@ -309,6 +321,20 @@ export class SearchController {
     // Root gets: the shared searchBox + products widgets (already attached to
     // `this.search` by `wireIndex`) + the one nested index widget.
     this.search.addWidgets([searchBox, vendorsHost as IsWidget]);
+
+    // AECI-174 — a failed search never reaches a connector render, so the
+    // `status:'error'` RUM signal is emitted from the instance error event. The
+    // batched products+vendors multi-query fails as a unit ⇒ one `federated`
+    // emit. `duration_ms` isn't meaningful for a failure (the latency widget
+    // filters `status:ok`), so it is 0.
+    this.search.on('error', () => {
+      this.emit({
+        index: 'federated',
+        status: 'error',
+        duration_ms: 0,
+        results_bucket: 'none',
+      });
+    });
   }
 
   /** Construct + run the initial search. Idempotent. */
@@ -362,7 +388,21 @@ export class SearchController {
         // non-initial render — that's when results have actually settled.
         if (!isFirstRender) this.ready.set(true);
       })({}),
-      lib.connectStats((state) => nbHits.set(state.nbHits))({}),
+      lib.connectStats((state, isFirstRender) => {
+        nbHits.set(state.nbHits);
+        // AECI-174 — emit the per-index `aeci.search.query` RUM action once a
+        // search RESPONSE has settled. Like `connectHits` above, the init render
+        // (isFirstRender) fires synchronously on start() before any network, so
+        // it is skipped; every later render corresponds to a real Algolia query.
+        if (!isFirstRender) {
+          this.emit({
+            index: entity,
+            status: 'ok',
+            duration_ms: Math.round(state.processingTimeMS),
+            results_bucket: resultsBucket(state.nbHits),
+          });
+        }
+      })({}),
       lib.connectPagination((state) => {
         page.set(state.currentRefinement);
         nbPages.set(state.nbPages);

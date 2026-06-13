@@ -59,6 +59,7 @@ function makeFakeEngine(): SearchEngine & { refine: ReturnType<typeof vi.fn> } {
     addWidgets: () => instance,
     start: () => searchBoxRender?.({ query: '', refine, isSearchStalled: false }, true),
     dispose: () => {},
+    on: () => {},
   };
   const passthrough =
     (_render: (state: unknown, first: boolean) => void) =>

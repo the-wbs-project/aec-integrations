@@ -36,12 +36,21 @@ function makeFakeLib() {
   const instance = {
     started: 0,
     disposed: 0,
+    /** Captured `on('error', …)` handlers (AECI-174). */
+    errorHandlers: [] as ((payload: { error: Error }) => void)[],
     addWidgets: (_w: IsWidget[]) => instance,
     start: () => {
       instance.started++;
     },
     dispose: () => {
       instance.disposed++;
+    },
+    on: (_event: 'error', handler: (payload: { error: Error }) => void) => {
+      instance.errorHandlers.push(handler);
+    },
+    /** Test helper: fire the captured error handlers. */
+    triggerError: () => {
+      for (const h of instance.errorHandlers) h({ error: new Error('search failed') });
     },
   };
   const connector =
@@ -91,8 +100,9 @@ const CONFIG: AlgoliaPublicConfig = {
 
 function build(initialQuery = '') {
   const fake = makeFakeLib();
-  const controller = new SearchController(fake.lib, {}, CONFIG, initialQuery);
-  return { ...fake, controller };
+  const emit = vi.fn();
+  const controller = new SearchController(fake.lib, {}, CONFIG, initialQuery, emit);
+  return { ...fake, controller, emit };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -282,5 +292,43 @@ describe('SearchController query + lifecycle', () => {
     controller.dispose();
     controller.dispose();
     expect(instance.disposed).toBe(1);
+  });
+});
+
+describe('SearchController — AECI-174 RUM emit', () => {
+  it('emits a per-index ok action on a non-initial stats render (products)', () => {
+    const { calls, emit } = build();
+    calls.stats[0].renderFn({ nbHits: 3, processingTimeMS: 12.7 }, false);
+    expect(emit).toHaveBeenCalledExactlyOnceWith({
+      index: 'products',
+      status: 'ok',
+      duration_ms: 13, // rounded
+      results_bucket: '1-5',
+    });
+  });
+
+  it('tags the emit with the vendors index for the nested stats connector', () => {
+    const { calls, emit } = build();
+    calls.stats[1].renderFn({ nbHits: 0, processingTimeMS: 5 }, false);
+    expect(emit).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ index: 'vendors', status: 'ok', results_bucket: 'none' }),
+    );
+  });
+
+  it('does NOT emit on the synchronous init (isFirstRender) stats render', () => {
+    const { calls, emit } = build();
+    calls.stats[0].renderFn({ nbHits: 0, processingTimeMS: 0 }, true);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('emits one federated error action from the instance error event', () => {
+    const { instance, emit } = build();
+    instance.triggerError();
+    expect(emit).toHaveBeenCalledExactlyOnceWith({
+      index: 'federated',
+      status: 'error',
+      duration_ms: 0,
+      results_bucket: 'none',
+    });
   });
 });
