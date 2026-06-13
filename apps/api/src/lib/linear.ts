@@ -34,6 +34,11 @@
  */
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
+import {
+  appendWorkflowTransition,
+  type WorkflowTransitionClient,
+  type WorkflowTransitionForwarder,
+} from '@aeci/shared/workflow-transition';
 
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
@@ -65,6 +70,19 @@ export const LABEL_IDS = {
  */
 export const ASSIGNEE_IDS: readonly string[] = ['4580c38b-84de-4eca-b043-7d26b5b65416'];
 
+/**
+ * AECi-team workflow-state ids for the outbound site→Linear sync (§6.5, AECI-213).
+ * Queried live 2026-06-13. This is the **inverse** of the §6.3 webhook's
+ * `state.type`→status map: a site `resolve`→ the `completed`-type "Done" state, a
+ * `reject`→ the `canceled`-type "Canceled" state — so the two directions agree on
+ * the same terminal Linear states. Hardcoded for the same reason as the board
+ * constants above (fixed board structure, not secret).
+ */
+export const WORKFLOW_STATE_IDS = {
+  resolved: 'd1ccafd9-f13a-4210-b735-4def79b9aa00', // "Done"     (type: completed)
+  rejected: 'd3d59ae8-63b6-41b4-9b87-8d62bfcc753a', // "Canceled" (type: canceled)
+} as const;
+
 /** Cap on each Linear call so a slow API never holds the `waitUntil` open. */
 const TIMEOUT_MS = 5000;
 
@@ -86,11 +104,37 @@ mutation AttachSource($input: AttachmentCreateInput!) {
   }
 }`;
 
+const ISSUE_UPDATE_MUTATION = `
+mutation TransitionRequestIssue($id: String!, $input: IssueUpdateInput!) {
+  issueUpdate(id: $id, input: $input) {
+    success
+    issue { id identifier state { id name type } }
+  }
+}`;
+
+const COMMENT_CREATE_MUTATION = `
+mutation CommentOnRequestIssue($input: CommentCreateInput!) {
+  commentCreate(input: $input) {
+    success
+    comment { id }
+  }
+}`;
+
 type IssueCreatePayload = {
   issueCreate: { success: boolean; issue: { id: string; identifier: string; url: string } | null };
 };
 type AttachmentCreatePayload = {
   attachmentCreate: { success: boolean; attachment: { id: string } | null };
+};
+type IssueState = { id: string; name: string; type: string };
+type IssueUpdatePayload = {
+  issueUpdate: {
+    success: boolean;
+    issue: { id: string; identifier: string; state: IssueState | null } | null;
+  };
+};
+type CommentCreatePayload = {
+  commentCreate: { success: boolean; comment: { id: string } | null };
 };
 
 // ─── Transport ───────────────────────────────────────────────────────────────
@@ -236,6 +280,30 @@ export interface LinearIssueInput {
   domainMatch?: string | null;
 }
 
+/** Prisma surface the resolution sync needs: just the append-only transition write
+ *  (post-commit, top-level — no `$transaction`). The accelerated client and the
+ *  test fake both satisfy it. */
+export type LinearSyncPersistClient = WorkflowTransitionClient;
+
+export interface LinearResolutionInput {
+  requestId: string;
+  /** The request's `workflow_instance.id` — the transition's parent. */
+  workflowId: string;
+  /** The linked Linear issue node id, or null if one was never created (§6.2). */
+  linearIssueId: string | null;
+  kind: RequestKind;
+  /** The resolution the admin chose: `resolved`→"Done", `rejected`→"Canceled". */
+  toStatus: keyof typeof WORKFLOW_STATE_IDS;
+  /** Prior status, for the transition's `from_state` (defaults to `'open'`). */
+  fromStatus?: string | null;
+  /** Resolution note / rejection reason → the Linear comment + `transition.reason`. */
+  reason?: string | null;
+  /** Admin profile id → `transition.actor_id`. */
+  actorId?: string | null;
+  /** Admin email/name for the comment body (display only; never required). */
+  actorLabel?: string | null;
+}
+
 /**
  * Create the Linear issue for a just-submitted request and link it back. Runs in
  * `ctx.waitUntil()`; never throws (see file header). On any failure the row is
@@ -338,6 +406,110 @@ export async function createLinearIssueForRequest(
   emit(c, 'ok', input.kind, undefined, Date.now() - started);
 }
 
+/**
+ * Site → Linear sync on an admin resolve/reject (`STAGE_1_PHASE_6_SPEC.md` §6.5;
+ * `STAGE_1_SPEC.md` §26.4 — the outbound half of the bidirectional sync). After
+ * an admin resolves/rejects a vendor request on the site, this transitions the
+ * linked Linear issue to the matching terminal state ("Done"/"Canceled"), posts a
+ * comment, and records the site-originated `workflow_transition`.
+ *
+ * Designed to be called from the §8.1 resolve/reject handler's `ctx.waitUntil()`
+ * (AECI-217, not yet built) — the handler owns the local `status`/`resolved_*`
+ * write + `audit_log`; this owns the Linear push + the sync transition. It upholds
+ * the same contract as `createLinearIssueForRequest`:
+ *
+ *   - **Never throws.** Every failure (absent key, timeout, non-2xx, `errors[]`,
+ *     `success:false`, a transition-write error) is caught, logged, and metered.
+ *   - **Absent key → silent no-op, no metric** (non-prod state; must not pollute
+ *     the `aeci.linear.sync` error-rate denominator).
+ *   - **Tolerant of a missing issue.** `linear_issue_id === null` (issue never
+ *     created — §6.2 — or the §6.7 sweep hasn't reconciled it yet) is **skip +
+ *     log**, not an error: there is simply nothing to push.
+ */
+export async function pushRequestResolutionToLinear(
+  c: LinearContext,
+  prisma: LinearSyncPersistClient,
+  input: LinearResolutionInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const apiKey = c.env.LINEAR_API_KEY;
+  // Absent key is the expected non-prod state — silent no-op, no metric (parity
+  // with `createLinearIssueForRequest`).
+  if (!apiKey) return;
+
+  // Tolerant of a request whose Linear issue was never created: nothing to sync.
+  // Skip + log (not an error) and don't record a transition — there is no issue
+  // the admin's resolution could have been pushed to.
+  if (!input.linearIssueId) {
+    info(c, `linear sync skipped: request ${input.requestId} has no linear_issue_id`);
+    emitSync(c, 'skipped_no_issue', input.kind, input.toStatus);
+    return;
+  }
+
+  const started = Date.now();
+  const stateId = WORKFLOW_STATE_IDS[input.toStatus];
+  const updateRes = await linearGraphql<IssueUpdatePayload>(
+    apiKey,
+    ISSUE_UPDATE_MUTATION,
+    { id: input.linearIssueId, input: { stateId } },
+    fetchImpl,
+  );
+
+  // Gate on transport ok AND Linear's own `success`/`issue` — a 200 can carry
+  // `errors[]` or `success:false` (same rationale as the create path).
+  const issue = updateRes.ok ? updateRes.data.issueUpdate.issue : null;
+  if (!updateRes.ok || !updateRes.data.issueUpdate.success || !issue) {
+    const reason = updateRes.ok ? 'graphql_error' : updateRes.reason;
+    const message = updateRes.ok ? 'issueUpdate success=false' : updateRes.message;
+    error(c, `linear issueUpdate failed (${reason}): ${message}`);
+    emitSync(c, 'failed', input.kind, input.toStatus, reason, Date.now() - started);
+    return;
+  }
+
+  // Comment — best-effort (a failed comment must not undo the state change or
+  // block the transition record), mirroring the create path's attachment step.
+  const commentRes = await linearGraphql<CommentCreatePayload>(
+    apiKey,
+    COMMENT_CREATE_MUTATION,
+    { input: { issueId: input.linearIssueId, body: buildResolutionComment(input) } },
+    fetchImpl,
+  );
+  if (!commentRes.ok || !commentRes.data.commentCreate.success) {
+    warn(c, `linear commentCreate failed: ${commentRes.ok ? 'success=false' : commentRes.message}`);
+  }
+
+  // Record the site-originated transition (§6.5, AECI-213 AC2). Append-only,
+  // non-transactional (we're post-commit in `waitUntil`); a write failure is
+  // logged + metered, never thrown. `actor_type` lives in metadata (no column).
+  try {
+    await appendWorkflowTransition(
+      prisma,
+      {
+        workflowId: input.workflowId,
+        fromState: input.fromStatus ?? 'open',
+        toState: input.toStatus,
+        actorId: input.actorId ?? null,
+        reason: input.reason ?? null,
+        metadata: {
+          source: 'site-linear-sync',
+          actor_type: 'admin',
+          linear_issue_id: input.linearIssueId,
+          linear_state_id: stateId,
+          linear_state_name: issue.state?.name ?? null,
+          linear_state_type: issue.state?.type ?? null,
+        },
+      },
+      makeSyncForwarder(c),
+    );
+  } catch (err) {
+    error(c, `linear sync transition persist failed: ${errMsg(err)}`);
+    emitSync(c, 'failed', input.kind, input.toStatus, 'db_error', Date.now() - started);
+    return;
+  }
+
+  emitSync(c, 'ok', input.kind, input.toStatus, undefined, Date.now() - started);
+}
+
 // ─── Issue content ───────────────────────────────────────────────────────────
 
 function buildTitle(input: LinearIssueInput): string {
@@ -354,6 +526,15 @@ function buildDescription(input: LinearIssueInput): string {
   if (input.submitterName) lines.push(`**Name:** ${input.submitterName}`);
   if (input.submitterRole) lines.push(`**Role:** ${input.submitterRole}`);
   lines.push('', input.body, '', '---', `Request: ${input.requestId}`);
+  return lines.join('\n');
+}
+
+/** Linear comment for an admin resolve/reject pushed from the site (§6.5). */
+function buildResolutionComment(input: LinearResolutionInput): string {
+  const verb = input.toStatus === 'resolved' ? 'resolved' : 'rejected';
+  const who = input.actorLabel ? ` by ${input.actorLabel}` : '';
+  const lines = [`This request was **${verb}**${who} on AECi.`];
+  if (input.reason) lines.push('', `> ${input.reason}`);
   return lines.join('\n');
 }
 
@@ -388,17 +569,68 @@ function emit(
   }
 }
 
+/** Emit the `aeci.linear.sync` outcome count (+ duration on a terminal attempt)
+ *  for the site→Linear resolve/reject push (§6.5, AECI-213). Same swallow-on-error
+ *  wrapper as `emit`. */
+function emitSync(
+  c: LinearContext,
+  outcome: 'ok' | 'failed' | 'skipped_no_issue',
+  kind: RequestKind,
+  toStatus: keyof typeof WORKFLOW_STATE_IDS,
+  reason?: string,
+  durationMs?: number,
+): void {
+  try {
+    const tags = [`outcome:${outcome}`, `kind:${kind}`, `to_status:${toStatus}`];
+    if (reason) tags.push(`reason:${reason}`);
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.linear.sync', 1, tags);
+    if (durationMs !== undefined) {
+      submitDistribution(
+        c.executionCtx,
+        c.env,
+        c.req.raw,
+        'aeci.linear.sync.duration_ms',
+        durationMs,
+        [`outcome:${outcome}`],
+      );
+    }
+  } catch {
+    // Telemetry must never break the pipeline.
+  }
+}
+
+/** Datadog forwarder for the sync transition write; no-op without `DD_API_KEY`.
+ *  Mirrors `routes/webhooks.ts`'s `makeWorkflowForwarder`, tagged
+ *  `source: site-linear-sync`. */
+function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | undefined {
+  if (!c.env.DD_API_KEY) return undefined;
+  return (entry) => {
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'info',
+      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
+      from_state: entry.fromState ?? undefined,
+      to_state: entry.toState,
+      workflow_id: entry.workflowId,
+      source: 'site-linear-sync',
+    });
+  };
+}
+
+function info(c: LinearContext, message: string): void {
+  log(c, 'info', message);
+}
 function warn(c: LinearContext, message: string): void {
   log(c, 'warn', message);
 }
 function error(c: LinearContext, message: string): void {
   log(c, 'error', message);
 }
-function log(c: LinearContext, level: 'warn' | 'error', message: string): void {
+function log(c: LinearContext, level: 'info' | 'warn' | 'error', message: string): void {
   try {
     logToDatadog(c.executionCtx, c.env, c.req.raw, { level, message, source: 'linear' });
   } catch {
-    console[level === 'error' ? 'error' : 'warn'](`linear: ${message}`);
+    const sink = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
+    console[sink](`linear: ${message}`);
   }
 }
 
