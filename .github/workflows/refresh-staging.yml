@@ -369,7 +369,38 @@ jobs:
         run: pnpm exec wrangler deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # ---------------------------------------------------------------------
-      # Step 11: Smoke tests
+      # Step 11: Reindex Algolia (AECI-229)
+      #   The wipe+restore (steps 4/5) leaves the staging_* indexes holding
+      #   pre-refresh data, while step 5 restores prod's stats_cache — INCLUDING
+      #   the `algolia_sync_watermark` row. So the daily 08:00 UTC sync cron
+      #   reads prod's (recent) fence and finds almost nothing to push: it does
+      #   NOT self-heal the index, and staging search stays stale indefinitely.
+      #   Reindex now from the just-restored DB so staging search is fresh the
+      #   moment the refresh finishes. Runs on the Actions runner as a direct
+      #   `tsx` CLI (NOT the
+      #   `db:algolia-bulk-sync` npm script, which wraps `dotenv -e .dev.vars`
+      #   — absent in CI) over DIRECT_URL_STAGING with the vanilla Prisma
+      #   driver; mirrors deploy.yml's reconcile step. The Prisma client was
+      #   generated in step 2. Upserts every promoted row by objectID.
+      #   Missing Algolia secrets → skip with a warning (staging-graceful);
+      #   a genuine sync failure hard-stops the refresh (post-deploy, so no
+      #   rollback) so stale search never goes silently green.
+      # ---------------------------------------------------------------------
+      - name: Reindex Algolia (staging)
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL_STAGING }}
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DIRECT_URL:-}" ] || [ -z "${ALGOLIA_APP_ID:-}" ] || [ -z "${ALGOLIA_ADMIN_KEY:-}" ]; then
+            echo "::warning::Algolia staging secrets not fully provisioned (need ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY_STAGING + DIRECT_URL_STAGING); skipping reindex. staging_* search will stay stale until the secrets are set and this step reruns — the daily sync cron won't catch up (step 5 restores prod's watermark)."
+            exit 0
+          fi
+          pnpm --filter @aeci/api exec tsx scripts/algolia-bulk-sync.ts --env staging
+
+      # ---------------------------------------------------------------------
+      # Step 12: Smoke tests
       #   (a) GET /api/health -> 200 (per AECI-77 spec).
       #   (b) Poll until BOTH the API (/api/version) and the SSR Worker's own
       #       (/_version, AECI-92) report the new SHA. /api/version is proxied
@@ -402,7 +433,7 @@ jobs:
           exit 1
 
       # ---------------------------------------------------------------------
-      # Step 12: Summary
+      # Step 13: Summary
       # ---------------------------------------------------------------------
       - name: Summary
         if: always()

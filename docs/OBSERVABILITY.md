@@ -51,6 +51,8 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.moderation.queue_oldest_age_hours` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
 | `aeci.linear.issue` | count | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211 — the request→Linear `ctx.waitUntil` task) | `outcome` (ok / failed / skipped_exists), `kind` (claim / correction), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
 | `aeci.linear.issue.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211) | `outcome` (ok / failed) |
+| `aeci.linear.sync` | count | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213 — the site→Linear resolve/reject `ctx.waitUntil` push) | `outcome` (ok / failed / skipped_no_issue), `kind` (claim / correction), `to_status` (resolved / rejected), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
+| `aeci.linear.sync.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213) | `outcome` (ok / failed) |
 | `aeci.linear.reconcile.stuck` | gauge | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214 — the every-15-min sweep) | — (backlog: count of `open`/unlinked `vendor_requests` older than the stuck threshold; **0 on a clean run**) |
 | `aeci.linear.reconcile.attempt` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | `outcome` (cleared / still_failing) — submits the **row count** as the value, so query with `sum:` |
 | `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
@@ -182,6 +184,15 @@ the persistent threshold) ride the same `source:reconcile` logs; the persistent-
 Phase 7 — §14). The full Phase-6 **dashboard** still lands in **6.12** (not this issue) — AECI-214
 ships only the single stuck-row monitor the §6.2 backstop requires.
 
+`aeci.linear.sync` / `aeci.linear.sync.duration_ms` (AECI-213, Phase 6.6) are the **outbound-resolution**
+counterpart: one count per site→Linear `ctx.waitUntil` push when an admin resolves/rejects a request.
+`outcome:ok` on a pushed state transition + comment + recorded `workflow_transition`; `outcome:skipped_no_issue`
+when the request was never linked to a Linear issue (`linear_issue_id` null — nothing to push, a tolerated
+no-op, not a failure); `outcome:failed` (with a `reason` tag) when the Linear `issueUpdate` or the transition
+write fails. The `to_status` tag (`resolved` / `rejected`) splits the two terminal pushes. Same absent-key
+silence as `aeci.linear.issue`. The dashboard widget + alert for this metric land with the Phase 6.12
+observability issue (AECI-218), not this one.
+
 ### Three gotchas when querying
 
 1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as
@@ -190,7 +201,8 @@ ships only the single stuck-row monitor the §6.2 backstop requires.
 2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms`,
    `aeci.api.query.duration_ms`, `aeci.algolia.sync.duration_ms`,
    `aeci.stats.compute.duration_ms`, `aeci.stats.compute.key.duration_ms`,
-   `aeci.perspective.api.duration_ms`, and `aeci.linear.issue.duration_ms` are
+   `aeci.perspective.api.duration_ms`, `aeci.linear.issue.duration_ms`, and
+   `aeci.linear.sync.duration_ms` are
    distribution metrics — to query `p50/p95/p99` you must enable percentile aggregations
    under **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
    aggregations**. Done once per metric.
