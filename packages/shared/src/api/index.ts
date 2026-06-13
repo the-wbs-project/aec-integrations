@@ -1,5 +1,6 @@
 export * from './account';
 export * from './admin';
+export * from './admin-requests';
 export * from './common';
 export * from './integrations';
 export * from './page-views';

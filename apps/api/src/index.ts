@@ -18,6 +18,10 @@ import {
   createUpdateAccountHandler,
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
+import {
+  createAdminRequestsListHandler,
+  createModerateRequestHandler,
+} from './routes/admin-requests';
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
@@ -206,16 +210,20 @@ app.route('/', authAccount);
 // identity (no `bannedCode` — a banned admin gets the default `403 FORBIDDEN`).
 // Registered before the `/api/*` 404 catch-all so they can match; reached only
 // over the service binding, no ingress.
-//   - GET   /api/admin/summary     (5.12) — admin shell badge feed (pending
+//   - GET   /api/admin/summary      (5.12) — admin shell badge feed (pending
 //     review count); also the SSR `/admin` gate signal (200 = admin, 401/403 →
 //     the resolver renders a 404).
-//   - GET   /api/admin/reviews     (5.13) — paginated moderation queue.
-//   - PATCH /api/admin/reviews/:id (5.13) — approve/reject a review.
+//   - GET   /api/admin/reviews      (5.13) — paginated moderation queue.
+//   - PATCH /api/admin/reviews/:id  (5.13) — approve/reject a review.
+//   - GET   /api/admin/requests     (6.9)  — paginated vendor-requests queue.
+//   - PATCH /api/admin/requests/:id (6.9)  — resolve/reject a vendor request.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
 authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandler());
 authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
+authAdmin.get('/api/admin/requests', requireAdmin(), createAdminRequestsListHandler());
+authAdmin.patch('/api/admin/requests/:id', requireAdmin(), createModerateRequestHandler());
 app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

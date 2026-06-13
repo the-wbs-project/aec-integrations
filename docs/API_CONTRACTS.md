@@ -875,14 +875,74 @@ Errors: `NOT_FOUND`, `INVALID_STATE_TRANSITION` if review is not in `pending` st
 
 #### `GET /api/admin/requests`
 
-Lists vendor requests (claims and corrections).
+Lists vendor requests (claims and corrections). Implemented in AECI-216 (Phase 6.9).
+Source of truth: `packages/shared/src/api/admin-requests.ts` (Zod), `apps/api/src/routes/admin-requests.ts` (handlers).
 
 ```typescript
-export const ListVendorRequestsQuerySchema = PaginationQuerySchema.extend({
+// PageQuerySchema (page/perPage), not the older offset/limit PaginationQuerySchema
+// — this section was the "pending realignment" the §6 note flags.
+export const ListVendorRequestsQuerySchema = PageQuerySchema.extend({
   kind: z.enum(['claim', 'correction']).optional(),
   status: z.enum(['open', 'resolved', 'rejected']).default('open'),
 });
+
+export const AdminVendorRequestSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['claim', 'correction']),
+  // `in_review` (set by the inbound Linear webhook, §6.11) is a valid row status
+  // even though it is NOT a `status` filter value above — such rows are not
+  // reachable by any filter (known gap; the default `open` view excludes them).
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
+  target_type: z.enum(['product', 'vendor']),
+  target_id: z.string().uuid(),
+  submitter_email: z.string(),
+  submitter_name: z.string().nullable(),
+  submitter_role: z.string().nullable(),
+  // Surfaced VERBATIM from the DB (`pending|match|no_match|manual_review`). This
+  // deviates from §7.1's yes/no framing; computing it is a 6.8 (AECI-215)
+  // concern, so until that lands every row reads `pending`.
+  domain_match: z.string(),
+  body: z.string(),
+  source_url: z.string().nullable(),
+  // COMPUTED at read time (no column): an OPEN sibling request shares the same
+  // `(kind, target_type, target_id)` or `(submitter_email, target_type,
+  // target_id)` (Phase 6 Spec §7.2). Informational only.
+  is_duplicate: z.boolean(),
+  linear_issue_id: z.string().nullable(),
+  created_at: z.string().datetime(),
+  resolved_at: z.string().datetime().nullable(),
+  resolved_by: z.string().uuid().nullable(),
+});
+export type AdminVendorRequest = z.infer<typeof AdminVendorRequestSchema>;
+
+export type ListVendorRequestsResponse = PaginatedResponse<AdminVendorRequest>;
 ```
+
+The target is the loose-polymorphic `(target_type, target_id)` pair — no FK, and
+no name/slug hydration on the row (the `/admin/requests` UI resolves links).
+
+#### `PATCH /api/admin/requests/:id`
+
+Resolve or reject an open (or in-review) request.
+
+```typescript
+export const ModerateRequestSchema = z.object({
+  action: z.enum(['resolve', 'reject']),
+  // Optional for BOTH actions (unlike `ModerateReviewSchema`) — `vendor_requests`
+  // has no rejection-reason column, so the reason is recorded in the
+  // `workflow_transitions.reason` + audit-log metadata, never stored on the row.
+  reason: z.string().max(500).optional(),
+});
+
+export type ModerateRequestResponse = AdminVendorRequest;
+```
+
+`resolve` → `status='resolved'`; `reject` → `status='rejected'`; both set
+`resolved_by`/`resolved_at`, append an `audit_log` + a `workflow_transitions` row,
+and (post-commit, best-effort) push the change to the linked Linear issue (§6.5).
+
+Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` if the request is
+not `open`/`in_review` (already terminal, or a concurrent action moved it).
 
 ### 6.11 Webhooks
 
