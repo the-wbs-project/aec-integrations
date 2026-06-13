@@ -43,6 +43,7 @@ import { logToDatadog } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
+import { createLinearIssueForRequest, type LinearPersistClient } from '../lib/linear';
 import type { PrismaFactory } from '../lib/handler-utils';
 import { getPrisma } from '../prisma';
 
@@ -125,27 +126,34 @@ async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T
 }
 
 /**
- * Resolve a `(target_type, slug)` pair to the entity's UUID. The form addresses
- * its target by slug (it never holds a UUID), and `vendor_requests.target_id`
- * has no FK (the table is loose-polymorphic), so resolving here both yields the
- * id and guards against orphan rows. A missing target → canonical 404, which the
- * form surfaces.
+ * Resolve a `(target_type, slug)` pair to the entity's UUID **and** display name.
+ * The form addresses its target by slug (it never holds a UUID), and
+ * `vendor_requests.target_id` has no FK (the table is loose-polymorphic), so
+ * resolving here both yields the id and guards against orphan rows. A missing
+ * target → canonical 404, which the form surfaces. The name is for the Linear
+ * issue title only (not stored on the row); products carry `name`, vendors
+ * `company_name`, so we normalise per type.
  */
-async function resolveTargetId(
+async function resolveTarget(
   prisma: RequestsClient,
   targetType: RequestTargetType,
   slug: string,
-): Promise<string> {
+): Promise<{ id: string; name: string }> {
   const delegate = targetType === 'product' ? prisma.product : prisma.vendor;
-  const row = await delegate.findUnique({ where: { slug }, select: { id: true } });
+  const select: Record<string, boolean> =
+    targetType === 'product' ? { id: true, name: true } : { id: true, companyName: true };
+  const row = await delegate.findUnique({ where: { slug }, select });
   if (!row) throw notFoundError(targetType, { slug });
-  return row.id;
+  const name = (targetType === 'product' ? row.name : row.companyName) as string;
+  return { id: row.id, name };
 }
 
 interface RequestInsert {
   targetType: RequestTargetType;
-  /** Resolved by `resolveTargetId`; the row's `target_id`. */
+  /** Resolved by `resolveTarget`; the row's `target_id`. */
   targetId: string;
+  /** Target display name — Linear issue title only, never stored on the row. */
+  targetName: string;
   /** Carried into the audit metadata for traceability. */
   slug: string;
   submitterEmail: string;
@@ -166,7 +174,7 @@ async function createRequest(
   const forward = makeForwarder(c);
   const workflowForward = makeWorkflowForwarder(c);
 
-  const { slug, ...row_data } = insert;
+  const { slug, targetName, ...row_data } = insert;
   // Shared metadata for the audit row and the genesis workflow transition.
   const metadata = {
     source: 'request-form',
@@ -177,8 +185,9 @@ async function createRequest(
   };
   const created = await prisma.$transaction(async (tx) => {
     // `status` ('open'), `domainMatch` ('pending'), `linearIssueId` (null) take
-    // their column defaults — the Phase 6 pipeline owns them. `slug` is metadata
-    // only (the row stores `targetId`), so it's excluded from the insert above.
+    // their column defaults — the Phase 6 pipeline owns them. `slug`/`targetName`
+    // are metadata/title only (the row stores `targetId`), so they're excluded
+    // from the insert above.
     const row = await tx.vendorRequest.create({
       data: { kind, ...row_data },
       select: { id: true },
@@ -187,7 +196,7 @@ async function createRequest(
     // Phase 6.2 (AECI-209): open the workflow instance whose `current_state`
     // mirrors the request `status`, then record the genesis transition. Lean —
     // no guarded FSM (Stage-1 §26.3 relaxation). `linearIssueId` stays null (the
-    // slot Phase 6.4 fills); `initiatedBy` null because submit is anonymous.
+    // slot Phase 6.4 fills below); `initiatedBy` null because submit is anonymous.
     const workflow = await tx.workflowInstance.create({
       data: {
         workflowType: kind === 'claim' ? 'vendor_claim' : 'correction_request',
@@ -219,8 +228,32 @@ async function createRequest(
       },
       forward,
     );
-    return row;
+    // Thread the workflow id out so the Phase 6.4 background task can link the
+    // Linear issue back onto the instance by PK.
+    return { id: row.id, workflowId: workflow.id };
   });
+
+  // Phase 6.4 (AECI-211): create the Linear issue out-of-band so it never blocks
+  // the 201. `createLinearIssueForRequest` never throws (it logs + meters every
+  // failure and leaves the row `open`/`linear_issue_id=null` for the §6.7
+  // reconciliation sweep), so `waitUntil` never sees a rejection.
+  c.executionCtx.waitUntil(
+    createLinearIssueForRequest(c, prisma as unknown as LinearPersistClient, {
+      requestId: created.id,
+      workflowId: created.workflowId,
+      kind,
+      targetType: insert.targetType,
+      targetName,
+      slug,
+      submitterEmail: insert.submitterEmail,
+      submitterName: insert.submitterName,
+      submitterRole: insert.submitterRole,
+      body: insert.body,
+      sourceUrl: insert.sourceUrl,
+      // domainMatch omitted — 6.8 computes it; until then the row default
+      // ('pending') means no `domain-check-pending` label fires.
+    }),
+  );
 
   const body: RequestSubmitResponse = {
     request_id: created.id,
@@ -240,11 +273,12 @@ export function createCorrectionSubmitHandler(
   return async (c) => {
     const payload = await parseJsonBody(c, CorrectionRequestSchema);
     const prisma = prismaFor(c.env) as unknown as RequestsClient;
-    const targetId = await resolveTargetId(prisma, payload.target_type, payload.slug);
+    const target = await resolveTarget(prisma, payload.target_type, payload.slug);
 
     return createRequest(c, prisma, 'correction', {
       targetType: payload.target_type,
-      targetId,
+      targetId: target.id,
+      targetName: target.name,
       slug: payload.slug,
       submitterEmail: payload.submitter_email,
       submitterName: null,
@@ -261,11 +295,12 @@ export function createClaimSubmitHandler(
   return async (c) => {
     const payload = await parseJsonBody(c, ClaimRequestSchema);
     const prisma = prismaFor(c.env) as unknown as RequestsClient;
-    const targetId = await resolveTargetId(prisma, payload.target_type, payload.slug);
+    const target = await resolveTarget(prisma, payload.target_type, payload.slug);
 
     return createRequest(c, prisma, 'claim', {
       targetType: payload.target_type,
-      targetId,
+      targetId: target.id,
+      targetName: target.name,
       slug: payload.slug,
       submitterEmail: payload.submitter_email,
       submitterName: payload.submitter_name,
