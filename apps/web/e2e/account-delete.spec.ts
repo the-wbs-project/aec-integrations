@@ -27,6 +27,30 @@ const ACCOUNT_PATH = '/account';
 
 const PROFILE = { user_id: 'e2e-user-1', email: 'e2e@example.com', display_name: 'E2E Reviewer' };
 
+/** Canned own-reviews payload for the AECI-225 list. One per status. */
+const ACCOUNT_REVIEWS = [
+  {
+    id: '00000000-0000-4000-8000-0000000000a1',
+    product: { id: '00000000-0000-4000-8000-0000000000b1', name: 'Procore', slug: 'procore' },
+    rating_overall: 5,
+    rating_onboarding: 4,
+    title: 'Rolled out across two studios',
+    status: 'approved',
+    rejection_reason: null,
+    created_at: '2024-06-10T00:00:00.000Z',
+  },
+  {
+    id: '00000000-0000-4000-8000-0000000000a2',
+    product: { id: '00000000-0000-4000-8000-0000000000b2', name: 'Revit', slug: 'revit' },
+    rating_overall: 2,
+    rating_onboarding: 1,
+    title: 'Not the right fit',
+    status: 'rejected',
+    rejection_reason: 'Off-topic — not about the product.',
+    created_at: '2024-06-01T00:00:00.000Z',
+  },
+];
+
 /** Add a dummy Supabase session cookie so the SSR presence-gate passes. */
 async function addAuthCookie(context: BrowserContext): Promise<void> {
   const url = new URL(BASE_URL);
@@ -42,8 +66,21 @@ async function addAuthCookie(context: BrowserContext): Promise<void> {
   ]);
 }
 
-/** Stub the auth-enforced account endpoints (GET identity + DELETE erasure). */
-async function stubAccountApi(page: Page, onDelete?: () => void): Promise<void> {
+/** Stub the auth-enforced account endpoints (GET identity + DELETE erasure +
+ *  the AECI-225 own-reviews list). The reviews route is a separate, disjoint
+ *  glob (`/api/account/reviews` doesn't match the `/api/account` glob). */
+async function stubAccountApi(
+  page: Page,
+  onDelete?: () => void,
+  reviews: typeof ACCOUNT_REVIEWS = ACCOUNT_REVIEWS,
+): Promise<void> {
+  await page.route('**/api/account/reviews**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ data: reviews, page: 1, perPage: 24, total: reviews.length }),
+    });
+  });
   await page.route('**/api/account', async (route) => {
     if (route.request().method() === 'DELETE') {
       onDelete?.();
@@ -119,5 +156,47 @@ test.describe('/account — authenticated (AECI-202)', () => {
     // The erasure was requested and the user is bounced home.
     await page.waitForURL(`${BASE_URL}/`);
     expect(deleteCalled).toBe(true);
+  });
+});
+
+test.describe('/account — own reviews list (AECI-225)', () => {
+  test('renders the user’s reviews with product links and per-review status badges', async ({
+    page,
+    context,
+  }) => {
+    await addAuthCookie(context);
+    await stubAccountApi(page);
+    await page.goto(ACCOUNT_PATH);
+
+    // Each review links to its product detail page.
+    await expect(page.getByRole('link', { name: 'Procore' })).toHaveAttribute(
+      'href',
+      '/products/procore',
+    );
+    await expect(page.getByRole('link', { name: 'Revit' })).toBeVisible();
+    // Per-review status badges.
+    await expect(page.getByText('Approved', { exact: true })).toBeVisible();
+    await expect(page.getByText('Not published', { exact: true })).toBeVisible();
+    // The rejected review surfaces its reason.
+    await expect(page.getByText('Off-topic — not about the product.')).toBeVisible();
+  });
+
+  test('shows the empty state when the user has no reviews', async ({ page, context }) => {
+    await addAuthCookie(context);
+    await stubAccountApi(page, undefined, []);
+    await page.goto(ACCOUNT_PATH);
+
+    await expect(page.locator('#account-display-name')).toBeVisible();
+    await expect(page.getByText("You haven't submitted any reviews yet.")).toBeVisible();
+  });
+
+  test('the reviews list is axe (WCAG-AA) clean', async ({ page, context }) => {
+    await addAuthCookie(context);
+    await stubAccountApi(page);
+    await page.goto(ACCOUNT_PATH);
+    // Wait for the list to paint before scanning.
+    await expect(page.getByRole('link', { name: 'Procore' })).toBeVisible();
+    const violations = await aaViolations(page);
+    expect(violations, JSON.stringify(violations, null, 2)).toEqual([]);
   });
 });

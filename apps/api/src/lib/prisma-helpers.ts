@@ -39,6 +39,7 @@ import type { Prisma } from '@prisma/client/edge';
 
 import { ProductUsefulnessSchema } from '@aeci/shared';
 import type {
+  AccountReview,
   AdminReview,
   IntegrationDetail,
   IntegrationListItem,
@@ -49,6 +50,7 @@ import type {
   ProductRole,
   ProductUsefulness,
   PublicReview,
+  ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
   VendorLink,
@@ -231,6 +233,28 @@ export const adminReviewSelect = {
 } as const satisfies Prisma.ReviewSelect;
 
 export type RawAdminReviewRow = Prisma.ReviewGetPayload<{ select: typeof adminReviewSelect }>;
+
+/**
+ * Reviewer-scoped own-reviews select (`AccountReview`, AECI-225 / Phase 5.11) for
+ * `GET /api/account/reviews`. A narrow slice between `publicReviewSelect` and
+ * `adminReviewSelect`: the author needs `status` + `rejectionReason` to see where
+ * each review stands, plus the hydrated `product` ref so the card links out — but
+ * NONE of the admin-only signals (`toxicityScore`, `moderatedAt/By`, `locale`,
+ * `reviewerId`/email). Always paired with a `reviewerId = session.userId` filter
+ * in the handler; the select itself carries no scope guarantee.
+ */
+export const accountReviewSelect = {
+  id: true,
+  ratingOverall: true,
+  ratingOnboarding: true,
+  title: true,
+  status: true,
+  rejectionReason: true,
+  createdAt: true,
+  product: { select: { id: true, name: true, slug: true } },
+} as const satisfies Prisma.ReviewSelect;
+
+export type RawAccountReviewRow = Prisma.ReviewGetPayload<{ select: typeof accountReviewSelect }>;
 
 /**
  * First-page size for the approved-reviews list and the `ProductDetail.reviews`
@@ -643,6 +667,29 @@ export function toAdminReview(
     toxicity_score: raw.toxicityScore,
     rejection_reason: raw.rejectionReason,
     moderated_at: raw.moderatedAt ? toIso(raw.moderatedAt) : null,
+    created_at: toIso(raw.createdAt),
+  };
+}
+
+const VALID_REVIEW_STATUS = new Set<ReviewStatus>(['pending', 'approved', 'rejected']);
+
+/**
+ * Shape an own-review row (selected via `accountReviewSelect`) into the
+ * `AccountReview` wire contract (AECI-225 / Phase 5.11). `status` degrades an
+ * off-contract value to `'pending'` the same defensive way `toAdminReview`
+ * handles `would_recommend`, so a legacy/manual row can't fail dev
+ * response-validation. No PII or admin-only columns cross the wire.
+ */
+export function toAccountReview(raw: RawAccountReviewRow): AccountReview {
+  const status = raw.status as ReviewStatus;
+  return {
+    id: raw.id,
+    product: { id: raw.product.id, name: raw.product.name, slug: raw.product.slug },
+    rating_overall: raw.ratingOverall,
+    rating_onboarding: raw.ratingOnboarding,
+    title: raw.title,
+    status: VALID_REVIEW_STATUS.has(status) ? status : 'pending',
+    rejection_reason: raw.rejectionReason,
     created_at: toIso(raw.createdAt),
   };
 }

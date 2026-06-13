@@ -15,6 +15,8 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AccountProfileResponse,
+  AccountReviewsQuery,
+  AccountReviewsResponse,
   DeleteAccountResponse,
   UpdateAccountInput,
 } from '@aeci/shared';
@@ -37,5 +39,16 @@ export class AccountApi {
    *  auth user. The caller signs out + redirects on success. */
   deleteAccount(): Promise<DeleteAccountResponse> {
     return firstValueFrom(this.http.delete<DeleteAccountResponse>('/api/account'));
+  }
+
+  /** List the caller's own reviews (all statuses), newest-first, page-based
+   *  (AECI-225). Scope is server-set to the session — no reviewer id is sent. */
+  listReviews(query?: Partial<AccountReviewsQuery>): Promise<AccountReviewsResponse> {
+    const params: Record<string, string> = {};
+    if (query?.page != null) params['page'] = String(query.page);
+    if (query?.perPage != null) params['perPage'] = String(query.perPage);
+    return firstValueFrom(
+      this.http.get<AccountReviewsResponse>('/api/account/reviews', { params }),
+    );
   }
 }
