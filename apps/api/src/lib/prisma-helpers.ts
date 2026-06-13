@@ -40,6 +40,7 @@ import type { Prisma } from '@prisma/client/edge';
 import { ProductUsefulnessSchema } from '@aeci/shared';
 import type {
   AdminReview,
+  AdminVendorRequest,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
@@ -644,6 +645,69 @@ export function toAdminReview(
     rejection_reason: raw.rejectionReason,
     moderated_at: raw.moderatedAt ? toIso(raw.moderatedAt) : null,
     created_at: toIso(raw.createdAt),
+  };
+}
+
+/**
+ * Admin requests select (`AdminVendorRequest`, AECI-216 / Phase 6.9). Selects the
+ * full `vendor_requests` row the admin queue surfaces, INCLUDING the keys the
+ * list handler groups on to derive `is_duplicate` (`kind`, `targetType`,
+ * `targetId`, `submitterEmail`). `is_duplicate` itself has no column — it's
+ * computed at read time and passed to `toAdminVendorRequest`.
+ */
+export const adminVendorRequestSelect = {
+  id: true,
+  kind: true,
+  status: true,
+  targetType: true,
+  targetId: true,
+  submitterEmail: true,
+  submitterName: true,
+  submitterRole: true,
+  domainMatch: true,
+  body: true,
+  sourceUrl: true,
+  linearIssueId: true,
+  createdAt: true,
+  resolvedAt: true,
+  resolvedById: true,
+} as const satisfies Prisma.VendorRequestSelect;
+
+export type RawAdminVendorRequestRow = Prisma.VendorRequestGetPayload<{
+  select: typeof adminVendorRequestSelect;
+}>;
+
+/**
+ * Map a raw `vendor_requests` row → the `AdminVendorRequest` wire shape
+ * (camelCase → snake_case, `Date` → ISO). `is_duplicate` is supplied by the
+ * caller (the list handler computes it from a page-wide groupBy; the single-row
+ * PATCH response passes `false` — the action response is a confirmation, the
+ * dashboard re-fetches the list). `kind`/`status`/`target_type` are cast to their
+ * enums (the columns are free `String` in Prisma; the DB CHECK guarantees the
+ * value, and dev response-validation catches drift — same pattern as
+ * `toAdminReview`'s `status`).
+ */
+export function toAdminVendorRequest(
+  raw: RawAdminVendorRequestRow,
+  isDuplicate: boolean,
+): AdminVendorRequest {
+  return {
+    id: raw.id,
+    kind: raw.kind as AdminVendorRequest['kind'],
+    status: raw.status as AdminVendorRequest['status'],
+    target_type: raw.targetType as AdminVendorRequest['target_type'],
+    target_id: raw.targetId,
+    submitter_email: raw.submitterEmail,
+    submitter_name: raw.submitterName,
+    submitter_role: raw.submitterRole,
+    domain_match: raw.domainMatch,
+    body: raw.body,
+    source_url: raw.sourceUrl,
+    is_duplicate: isDuplicate,
+    linear_issue_id: raw.linearIssueId,
+    created_at: toIso(raw.createdAt),
+    resolved_at: raw.resolvedAt ? toIso(raw.resolvedAt) : null,
+    resolved_by: raw.resolvedById,
   };
 }
 
