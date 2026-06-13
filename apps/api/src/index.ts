@@ -35,6 +35,7 @@ import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
+import { createLinearWebhookHandler } from './routes/webhooks';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
@@ -129,6 +130,14 @@ phase28.get('/api/stats/home', createStatsHomeHandler());
 // is out of scope — see `routes/requests.ts`.
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
+
+// Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the
+// moderation sync. Public URL; auth is the `Linear-Signature` HMAC verified
+// inside the handler against `LINEAR_WEBHOOK_SIGNING_SECRET` (no user session).
+// On an Issue state change it updates the matching `vendor_requests.status` and
+// records a `workflow_transitions` + `audit_log` row. Reached only over the
+// service binding like every other route. See `routes/webhooks.ts`.
+phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 
 // Review-app push endpoint (promotion). Bearer-auth middleware runs first so an
 // unauthenticated request never reaches the DB; both it and the handler throw

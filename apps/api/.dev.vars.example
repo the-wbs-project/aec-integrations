@@ -102,6 +102,17 @@ AIRTABLE_BASE_ID=appy81IdGJY6Fngf9
 # /api/promote request is rejected 401 (fail-closed).
 REVIEW_APP_TOKEN=
 
+# ─── Linear webhook signing (AECI-212 / Phase 6.5) ─────────────────────────
+# HMAC-SHA256 signing secret for the inbound Linear webhook (POST /api/webhooks/
+# linear). Copy it from the webhook's settings in Linear (Settings > API >
+# Webhooks). The WORKER reads it at runtime, so set it as a Wrangler secret in
+# deployed envs:
+#   wrangler secret put LINEAR_WEBHOOK_SIGNING_SECRET --env preview|staging|production
+# Absent → every webhook is rejected 401 (fail-closed). For local testing,
+# generate any value and sign requests with it:
+#   printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET"   # → Linear-Signature
+LINEAR_WEBHOOK_SIGNING_SECRET=
+
 # ─── Cache-tag purge after promote (AECI-105 / ADR 0010) ───────────────────
 # The promote handler purges the affected edge cache tags by calling Cloudflare's
 # purge-by-tag API DIRECTLY (no web↔api service binding — see ADR 0010). The

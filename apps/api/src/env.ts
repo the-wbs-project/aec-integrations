@@ -79,6 +79,13 @@ export type Env = {
    */
   REVIEW_APP_TOKEN?: string;
   /**
+   * HMAC signing secret for the inbound Linear webhook (`POST /api/webhooks/
+   * linear`, AECI-212). Set as a Wrangler secret per environment; absent → every
+   * webhook is rejected 401 (fail-closed). Verified constant-time in
+   * `lib/linear-webhook-auth.ts` against the `Linear-Signature` header.
+   */
+  LINEAR_WEBHOOK_SIGNING_SECRET?: string;
+  /**
    * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
    * Optional: handler falls back to a direct Prisma fetch when the binding is
    * absent (e.g. local `wrangler dev` without `--remote`). 5-minute TTL is
