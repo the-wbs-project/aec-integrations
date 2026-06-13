@@ -38,6 +38,12 @@
   //                 Required on production (verify-worker-secrets.sh fails the deploy
   //                 if absent — AECI-139); absent on preview/local → the cron +
   //                 promote hook are a graceful no-op.
+  //   LINEAR_API_KEY — Linear personal API key for the form→Linear pipeline
+  //                 (AECI-211 / Phase 6.4). Presented raw in `Authorization` (no
+  //                 `Bearer`). Optional + fail-open like PERSPECTIVE_API_KEY: absent
+  //                 → issue creation is a silent no-op and the request row sits open
+  //                 for the §6.7 reconciliation sweep. Set per env via `wrangler
+  //                 secret put LINEAR_API_KEY --env <env>` when ready (no CI gate).
   //
   // AECI-139: the API Worker also runs `scheduled` + `queue` handlers (daily
   // scheduled jobs). The cron `scheduled` handler does not work inline — it

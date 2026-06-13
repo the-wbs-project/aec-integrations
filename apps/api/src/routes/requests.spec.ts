@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './requests';
@@ -25,9 +25,18 @@ function makeFake(opts: FakeOptions = {}) {
   const bySlug = (map: Record<string, string> = {}) => ({
     async findUnique({ where }: { where: Rec }) {
       const id = map[where.slug as string];
-      return id ? { id } : null;
+      // Resolve also reads `name` (product) / `companyName` (vendor) for the
+      // Linear issue title; return both so either branch is populated.
+      return id ? { id, name: `name-${where.slug}`, companyName: `co-${where.slug}` } : null;
     },
   });
+
+  const findById = (rows: Rec[], where: Rec) =>
+    rows.find(
+      (r) =>
+        r.id === where.id &&
+        (where.linearIssueId === undefined || (r.linearIssueId ?? null) === where.linearIssueId),
+    );
 
   const models = {
     product: bySlug(opts.productSlugToId),
@@ -38,12 +47,29 @@ function makeFake(opts: FakeOptions = {}) {
         created.push({ ...data, id });
         return { id };
       },
+      // Phase 6.4 (AECI-211) Linear-persist surface (top-level, outside the tx).
+      async findUnique({ where }: { where: Rec }) {
+        const row = created.find((r) => r.id === where.id);
+        return row ? { linearIssueId: (row.linearIssueId as string | undefined) ?? null } : null;
+      },
+      async updateMany({ where, data }: { where: Rec; data: Rec }) {
+        const row = findById(created, where);
+        if (!row) return { count: 0 };
+        Object.assign(row, data);
+        return { count: 1 };
+      },
     },
     workflowInstance: {
       async create({ data }: { data: Rec }) {
         const id = `wf_${(workflowCounter += 1)}`;
         workflows.push({ ...data, id });
         return { id };
+      },
+      async updateMany({ where, data }: { where: Rec; data: Rec }) {
+        const wf = findById(workflows, where);
+        if (!wf) return { count: 0 };
+        Object.assign(wf, data);
+        return { count: 1 };
       },
     },
     workflowTransition: {
@@ -252,5 +278,89 @@ describe('POST /api/requests/claim', () => {
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('VALIDATION_FAILED');
     expect(fake.created).toHaveLength(0);
+  });
+});
+
+// ─── Phase 6.4 (AECI-211): Linear issue creation via ctx.waitUntil ──────────────
+// The handler fires `createLinearIssueForRequest` in the background. With no
+// LINEAR_API_KEY it is a silent no-op (the existing tests above prove the 201 path
+// is unperturbed); these stub the global fetch + LINEAR_API_KEY to exercise the
+// background link-back and its failure mode.
+describe('POST /api/requests/* → Linear issue (background)', () => {
+  const ENV_WITH_LINEAR = { ...TEST_ENV, LINEAR_API_KEY: 'lin_test' };
+  const validBody = {
+    target_type: 'product',
+    slug: 'acme-build',
+    body: 'The founding year on this listing is wrong; it should read 2009 not 2019.',
+    source_url: '',
+    submitter_email: 'reporter@example.com',
+  };
+
+  afterEach(() => vi.unstubAllGlobals());
+
+  function issueOkFetch() {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            data: {
+              issueCreate: {
+                success: true,
+                issue: { id: 'iss_xyz', identifier: 'AECI-900', url: 'u' },
+              },
+            },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    return fetchMock;
+  }
+
+  it('creates a Linear issue and stores linear_issue_id on the request + workflow', async () => {
+    const fetchMock = issueOkFetch();
+    const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
+    const execCtx = fakeExecutionContext();
+
+    const res = await correctionApp(fake.models).request(
+      '/api/requests/correction',
+      postInit(validBody),
+      ENV_WITH_LINEAR,
+      execCtx,
+    );
+    expect(res.status).toBe(201);
+
+    // Drain the backgrounded work before asserting on its effects.
+    await vi.mocked(execCtx.waitUntil).mock.calls[0]![0];
+
+    expect(fetchMock).toHaveBeenCalledTimes(1); // issueCreate (no source_url → no attachment)
+    expect(fake.created[0].linearIssueId).toBe('iss_xyz');
+    expect(fake.workflows[0].linearIssueId).toBe('iss_xyz');
+  });
+
+  it('leaves the row unlinked but still returns 201 when Linear fails', async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ errors: [{ message: 'bad label' }] }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
+    const execCtx = fakeExecutionContext();
+
+    const res = await correctionApp(fake.models).request(
+      '/api/requests/correction',
+      postInit(validBody),
+      ENV_WITH_LINEAR,
+      execCtx,
+    );
+    expect(res.status).toBe(201); // failure never blocks the response
+
+    await vi.mocked(execCtx.waitUntil).mock.calls[0]![0];
+
+    expect(fake.created[0].linearIssueId).toBeUndefined();
+    expect(fake.workflows[0].linearIssueId).toBeUndefined();
   });
 });

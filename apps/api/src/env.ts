@@ -167,4 +167,15 @@ export type Env = {
    * submission. See `lib/perspective.ts` and `STAGE_1_PHASE_5_SPEC.md` §5.3.
    */
   PERSPECTIVE_API_KEY?: string;
+  /**
+   * Linear personal API key for the form→Linear pipeline (AECI-211 / Phase 6.4).
+   * Set as a Wrangler secret per env. Optional and **fail-open** (mirrors
+   * `PERSPECTIVE_API_KEY`): absent → `createLinearIssueForRequest()` is a silent
+   * no-op (the expected state in local `dev:bound` / PR previews — the secret is
+   * staging/prod only), so the request still returns `201` and its row simply sits
+   * `open` with `linear_issue_id=null` for the reconciliation sweep (§6.7) to pick
+   * up. Presented raw in the `Authorization` header (no `Bearer` prefix — Linear's
+   * convention). See `lib/linear.ts` and `STAGE_1_PHASE_6_SPEC.md` §6.1/§6.2.
+   */
+  LINEAR_API_KEY?: string;
 };
