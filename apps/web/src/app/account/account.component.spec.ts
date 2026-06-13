@@ -3,7 +3,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AccountProfileResponse } from '@aeci/shared';
+import type { AccountProfileResponse, AccountReview, AccountReviewsResponse } from '@aeci/shared';
 
 import { AuthService } from '../auth/auth.service';
 import { AccountApi } from './account-api';
@@ -15,6 +15,38 @@ const PROFILE: AccountProfileResponse = {
   display_name: 'Dana Reviewer',
 };
 
+const REVIEWS: AccountReview[] = [
+  {
+    id: 'review-1',
+    product: { id: 'prod-1', name: 'Procore', slug: 'procore' },
+    rating_overall: 5,
+    rating_onboarding: 4,
+    title: 'Rolled out across two studios',
+    status: 'approved',
+    rejection_reason: null,
+    created_at: '2024-06-10T00:00:00.000Z',
+  },
+  {
+    id: 'review-2',
+    product: { id: 'prod-2', name: 'Revit', slug: 'revit' },
+    rating_overall: 2,
+    rating_onboarding: 1,
+    title: 'Not the right fit',
+    status: 'rejected',
+    rejection_reason: 'Off-topic — not about the product.',
+    created_at: '2024-06-01T00:00:00.000Z',
+  },
+];
+
+function reviewsPage(
+  data: AccountReview[],
+  total = data.length,
+  page = 1,
+  perPage = 24,
+): AccountReviewsResponse {
+  return { data, page, perPage, total };
+}
+
 /** Macrotask boundary — drains afterNextRender's async load + the async
  *  `validateStandardSchema` resource (mirrors the login/request-form harness). */
 function settle(): Promise<void> {
@@ -25,6 +57,7 @@ interface ApiMock {
   getProfile: ReturnType<typeof vi.fn>;
   updateProfile: ReturnType<typeof vi.fn>;
   deleteAccount: ReturnType<typeof vi.fn>;
+  listReviews: ReturnType<typeof vi.fn>;
 }
 
 interface AuthMock {
@@ -39,6 +72,7 @@ function makeApiMock(): ApiMock {
       display_name: input.display_name,
     })),
     deleteAccount: vi.fn(async () => ({ message: 'gone' })),
+    listReviews: vi.fn(async () => reviewsPage([...REVIEWS])),
   };
 }
 
@@ -195,6 +229,68 @@ describe('AccountPage', () => {
     expect(assignSpy).not.toHaveBeenCalled();
     expect(instance.deleteFailed()).toBe(true);
     expect(instance.deleting()).toBe(false);
+  });
+
+  it('renders the user’s reviews with a product link and a per-review status badge', async () => {
+    const { el, api } = await setup();
+
+    expect(api.listReviews).toHaveBeenCalledTimes(1);
+    // Each review links to its product detail page.
+    expect(el.querySelector('a[href="/products/procore"]')?.textContent).toContain('Procore');
+    expect(el.querySelector('a[href="/products/revit"]')).not.toBeNull();
+    // The review title + ratings render.
+    expect(el.textContent).toContain('Rolled out across two studios');
+    expect(el.textContent).toContain('5/5');
+    // Status badges reflect each status.
+    const badges = [...el.querySelectorAll('aec-review-status-badge')].map((b) =>
+      b.textContent?.trim(),
+    );
+    expect(badges).toContain('Approved');
+    expect(badges).toContain('Not published');
+  });
+
+  it('shows the rejection reason only for a rejected review', async () => {
+    const { el } = await setup();
+    expect(el.textContent).toContain('Off-topic — not about the product.');
+  });
+
+  it('shows the empty state when the user has no reviews', async () => {
+    const api = makeApiMock();
+    api.listReviews.mockResolvedValueOnce(reviewsPage([]));
+    const { el } = await setup(api);
+    expect(el.textContent).toContain("haven't submitted any reviews");
+    expect(el.querySelector('aec-review-status-badge')).toBeNull();
+  });
+
+  it('shows a retryable notice when the reviews fetch fails', async () => {
+    const api = makeApiMock();
+    api.listReviews.mockRejectedValueOnce(new Error('boom'));
+    const { el } = await setup(api);
+    expect(el.textContent).toContain("We couldn't load your reviews");
+  });
+
+  it('appends the next page when "Load more" is clicked', async () => {
+    const api = makeApiMock();
+    // Page 1: one review, but two exist total → "Load more" shows.
+    api.listReviews.mockImplementation(async (query?: { page?: number }) =>
+      query?.page === 2 ? reviewsPage([REVIEWS[1]], 2, 2) : reviewsPage([REVIEWS[0]], 2, 1),
+    );
+    const { fixture, el } = await setup(api);
+
+    expect(el.textContent).toContain('Rolled out across two studios');
+    expect(el.textContent).not.toContain('Not the right fit');
+
+    const loadMore = [...el.querySelectorAll('button[type="button"]')].find((b) =>
+      b.textContent?.trim().startsWith('Load more'),
+    ) as HTMLButtonElement;
+    expect(loadMore).toBeDefined();
+    loadMore.click();
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.listReviews).toHaveBeenCalledTimes(2);
+    expect(api.listReviews).toHaveBeenLastCalledWith({ page: 2, perPage: 24 });
+    expect(el.textContent).toContain('Not the right fit');
   });
 
   it('keeps the delete dialog wrapper free of a prohibited aria-labelledby and a sane heading order', async () => {

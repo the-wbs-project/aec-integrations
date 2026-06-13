@@ -45,6 +45,15 @@ export type SubmitReviewResponse = {
 };
 
 /**
+ * The moderation lifecycle of a review. A submitted review enters `pending`;
+ * an admin moves it to `approved` or `rejected` (§7.2). Extracted here so the
+ * admin queue, the account-reviews list, and the frontend status badge all
+ * share one source of truth rather than re-declaring the enum inline.
+ */
+export const ReviewStatusSchema = z.enum(['pending', 'approved', 'rejected']);
+export type ReviewStatus = z.infer<typeof ReviewStatusSchema>;
+
+/**
  * Public read contract for approved reviews (AECI-199 / Phase 5.8): the item
  * shape for `GET /api/products/:slug/reviews` and the `ProductDetail.reviews`
  * SSR embed. Source of truth is `docs/API_CONTRACTS.md` §6.6 /
@@ -109,7 +118,7 @@ export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema
  *  rest of Phase 5 (`product-reviews`). `queue_age` is oldest-first (work the
  *  backlog), `created_at` is newest-first. */
 export const ListPendingReviewsQuerySchema = PageQuerySchema.extend({
-  status: z.enum(['pending', 'approved', 'rejected']).default('pending'),
+  status: ReviewStatusSchema.default('pending'),
   sort: z.enum(['queue_age', 'created_at']).default('queue_age'),
 });
 export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySchema>;
@@ -131,7 +140,7 @@ export const AdminReviewSchema = z.object({
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
   verified_work_email: z.boolean(),
   locale: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected']),
+  status: ReviewStatusSchema,
   toxicity_score: z.number().nullable(),
   rejection_reason: z.string().nullable(),
   moderated_at: z.string().datetime().nullable(),
