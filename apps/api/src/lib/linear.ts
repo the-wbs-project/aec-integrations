@@ -54,8 +54,7 @@ export const VENDOR_REQUESTS_PROJECT_ID = '9f67f235-8610-4eb5-b58d-35d4ae0f2596'
 export const AECI_TEAM_ID = 'd7706bcb-c776-4064-b4da-0c350dfb8f16';
 
 /** Request-type + workflow-stage label ids. `domain-check-pending` is applied on
- *  a domain mismatch from 6.8 (§7.1); until 6.8 lands `domain_match` is always
- *  `'pending'`, so that label never fires yet. */
+ *  a domain mismatch (`domain_match:'no_match'`) computed at submit time (6.8 §7.1). */
 export const LABEL_IDS = {
   claim: '3fcb69bc-9759-4e6e-848d-84f28692289e',
   correction: '6842dec1-aaec-4fee-a3e1-9efd4ca620f2',
@@ -276,8 +275,13 @@ export interface LinearIssueInput {
   submitterRole?: string | null;
   body: string;
   sourceUrl?: string | null;
-  /** From 6.8 (not yet computed); `'no_match'` adds the domain-check-pending label. */
+  /** From 6.8 (§7.1); `'no_match'` adds the domain-check-pending label. */
   domainMatch?: string | null;
+  /** From 6.8 (§7.2): the earliest matching `open` request id when this submit looks
+   *  like a duplicate. Set → post an informational note on the issue (never rejects). */
+  duplicateOfRequestId?: string | null;
+  /** That duplicate request's Linear issue id, if any — referenced in the note. */
+  duplicateLinearIssueId?: string | null;
 }
 
 /** Prisma surface the resolution sync needs: just the append-only transition write
@@ -380,6 +384,23 @@ export async function createLinearIssueForRequest(
       warn(
         c,
         `linear attachmentCreate failed: ${attachRes.ok ? 'success=false' : attachRes.message}`,
+      );
+    }
+  }
+
+  // Duplicate note (§7.2). Best-effort like the attachment — informational only, a
+  // failure must not undo the issue or block linking.
+  if (input.duplicateOfRequestId) {
+    const noteRes = await linearGraphql<CommentCreatePayload>(
+      apiKey,
+      COMMENT_CREATE_MUTATION,
+      { input: { issueId: issue.id, body: buildDuplicateNote(input) } },
+      fetchImpl,
+    );
+    if (!noteRes.ok || !noteRes.data.commentCreate.success) {
+      warn(
+        c,
+        `linear duplicate commentCreate failed: ${noteRes.ok ? 'success=false' : noteRes.message}`,
       );
     }
   }
@@ -535,6 +556,25 @@ function buildResolutionComment(input: LinearResolutionInput): string {
   const who = input.actorLabel ? ` by ${input.actorLabel}` : '';
   const lines = [`This request was **${verb}**${who} on AECi.`];
   if (input.reason) lines.push('', `> ${input.reason}`);
+  return lines.join('\n');
+}
+
+/** Informational duplicate note (§7.2). Vendor-request duplicates are sometimes
+ *  legitimate (two people from the same vendor claim independently), so this only
+ *  flags for the admin — it never rejects. */
+function buildDuplicateNote(input: LinearIssueInput): string {
+  const lines = [
+    "⚠️ **Possible duplicate.** An existing `open` request for this target shares this submit's kind or submitter.",
+    '',
+    `**Original request:** \`${input.duplicateOfRequestId}\``,
+  ];
+  if (input.duplicateLinearIssueId) {
+    lines.push(`**Original Linear issue:** ${input.duplicateLinearIssueId}`);
+  }
+  lines.push(
+    '',
+    'Informational only — review before resolving. Vendor-request duplicates are sometimes legitimate (e.g. two people from the same vendor claiming independently).',
+  );
   return lines.join('\n');
 }
 

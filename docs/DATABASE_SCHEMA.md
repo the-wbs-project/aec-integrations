@@ -605,6 +605,13 @@ create table vendor_requests (
   -- External system link
   linear_issue_id text,
 
+  -- Duplicate-detection signal computed at submission time (Phase 6.8, AECI-215).
+  -- Points at the earliest matching `open` request for the same target that shares
+  -- this submit's kind or submitter_email. Informational only (never auto-rejects);
+  -- the admin dashboard reads it directly. Self-FK, on delete set null so removing
+  -- the original never orphans the pointer.
+  duplicate_of_request_id uuid references vendor_requests(id) on delete set null,
+
   -- Lifecycle
   created_at  timestamptz not null default now(),
   resolved_at timestamptz,
