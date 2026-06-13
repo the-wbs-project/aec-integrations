@@ -42,7 +42,16 @@ import { expect, test, type APIRequestContext, type Page, type Response } from '
 // assertions; element snapshots (counts, text) are taken before clicks.
 
 const FACET_PARAM = /[?&](category_id|audience_id|phase_id)=/;
-const PAGE_RESET = /[?&]page=1(?:&|$)/;
+// Infinite-scroll listings (#328) set `[resetsPage]="false"` on the /products
+// and browse sidebars: a filter change no longer writes a `page` param (the list
+// appends client-side; `?page=N` is only the load-more deep-link). These tests
+// assert that contract — refining must NOT introduce `page=…`.
+const PAGE_PARAM = /[?&]page=/;
+// The total appears in the lede ("…indexed on AEC Integrations (N in total).")
+// AND, once the list is fully loaded, the pagination footer ("You've reached the
+// end (N in total)."). Scope to the lede so the count assertion stays a single
+// match regardless of how many pages are loaded.
+const LEDE_TOTAL = /indexed on AEC Integrations \(\d+ in total\)/;
 const FACET_CHECKBOX = 'aec-facet-sidebar aec-search-refinement-list input[type="checkbox"]';
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CROSS_PARAMS = ['audience_id', 'phase_id'] as const;
@@ -130,16 +139,17 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     test.skip((await firstFacet.count()) === 0, 'no facet data seeded in this environment');
 
     // Unfiltered total from the lede — the restore target for Clear below.
-    const lede = page.getByText(/\(\d+ in total\)/);
+    const lede = page.getByText(LEDE_TOTAL);
     await expect(lede).toBeVisible();
     const unfilteredTotal = ((await lede.textContent()) ?? '').match(/\((\d+) in total\)/)?.[1];
     expect(unfilteredTotal, 'lede must expose the unfiltered total').toBeTruthy();
 
     // Refining wires the facet to the URL (the API-driven filter — CACHE_STRATEGY
-    // §4 facets-in-the-key) and resets pagination to page 1.
+    // §4 facets-in-the-key). With infinite-scroll listings (#328) it must NOT
+    // reintroduce a `page` param (`resetsPage=false`).
     await firstFacet.click();
     await expect(page).toHaveURL(FACET_PARAM);
-    await expect(page).toHaveURL(PAGE_RESET);
+    await expect(page).not.toHaveURL(PAGE_PARAM);
 
     // The filtered results still render. AECI-190 made the card grid the default
     // /products view (the table is behind the ?view=table toggle).
@@ -289,7 +299,7 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     // ⇒ identical payload.
     const gridBody = (await (await page.request.get(gridResp.url())).json()) as { total: number };
     expect(gridBody.total).toBe(n);
-    await expect(page.getByText(/\(\d+ in total\)/)).toContainText(`(${n} in total)`);
+    await expect(page.getByText(LEDE_TOTAL)).toContainText(`(${n} in total)`);
     if (n <= 24) {
       // One page of results (perPage=24) — every match is exactly one card link.
       await expect(page.locator('aec-product-card-grid a[href^="/products/"]')).toHaveCount(n);
@@ -340,7 +350,8 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     expect((await facetsWait).status()).toBe(200);
     const v1 = qp(page).get(param)!;
     expect(v1, 'facet param must be the term UUID').toMatch(UUID_RE);
-    expect(qp(page).get('page')).toBe('1');
+    // Infinite scroll (#328): a refine never adds a `page` param.
+    expect(qp(page).get('page')).toBeNull();
     await expect(checkboxes.first()).toBeChecked(); // render barrier: rail is back
 
     // Toggle-off: clicking the ACTIVE term clears the param (and refires the
@@ -382,7 +393,7 @@ test.describe('/products — facet sidebar interaction (AECI-143 / AECI-145 / AE
     expect(ids, 'ids emitted in sorted order (cache-stable)').toEqual([...ids].sort());
     await expect(checkboxes.first()).toBeChecked();
     await expect(checkboxes.nth(1)).toBeChecked();
-    expect(qp(page).get('page')).toBe('1');
+    expect(qp(page).get('page')).toBeNull();
   });
 });
 
@@ -410,7 +421,8 @@ test.describe('/categories/:slug — locked-kind facet sidebar (AECI-143 / AECI-
     // A non-locked dimension is refined; the page stays on the browse route.
     await expect(page).toHaveURL(/\/categories\/project-management\?/);
     await expect(page).toHaveURL(/[?&](audience_id|phase_id)=/);
-    await expect(page).toHaveURL(PAGE_RESET);
+    // Infinite scroll (#328): the refine must not reintroduce a `page` param.
+    await expect(page).not.toHaveURL(PAGE_PARAM);
   });
 
   test('the locked dimension rides the API requests as category_id, never the URL (AECI-189 AC5)', async ({
