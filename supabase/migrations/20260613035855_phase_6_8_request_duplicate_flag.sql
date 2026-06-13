@@ -13,7 +13,8 @@
 --
 -- Forward-only per docs/migrations.md §3.1. `IF NOT EXISTS` keeps re-apply safe. The
 -- schema.prisma field is hand-mirrored (db:pull is unusable under P1012 multiSchema;
--- see docs/prisma.md).
+-- see docs/prisma.md). The self-FK is modelled as a Prisma `@relation` on
+-- `VendorRequest` (not just a scalar) so `prisma migrate diff` does not flag drift.
 
 BEGIN;
 
