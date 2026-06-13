@@ -36,7 +36,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.algolia.index_drift` | gauge | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/scripts/reconcile-algolia-drift.ts` (CLI / deploy-staging hook) | `entity` (products/vendors/integrations), `index` (physical index name) |
 | `aeci.algolia.sync.records` | count | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `entity` (products / vendors / integrations), `op` (saved / deleted) |
 | `aeci.algolia.sync.duration_ms` | distribution | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
-| `aeci.search.query` _(planned, AECI-174)_ | RUM action | `apps/web` search UI — **not yet emitted** (deferred; see "Browser search RUM" below) | `index`, `status`, `results_bucket` + `duration_ms` context |
+| `aeci.search.query` | RUM action | `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`), called by `search-controller.ts` (per-index `connectStats` render + instance `error` event) and `autocomplete-controller.ts` (`runSearch`) — AECI-174; see "Browser search RUM" below | `index` (products/vendors/integrations/federated), `status` (ok/error), `results_bucket` (none/1-5/6-20/21+), `duration_ms` |
 | `aeci.stats.compute` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (success / partial / failed) |
 | `aeci.stats.compute.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron) |
 | `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
@@ -319,25 +319,42 @@ so the same series carries both the threshold alert (oldest pending > 48h → ba
 stopped). Because the snapshot is **daily**, detection lags up to ~24h on top of the 48h threshold; the
 cron can move to hourly post-launch if a tighter moderation SLA is needed.
 
-## Browser search RUM (deferred — contract for the search UI)
+## Browser search RUM (`aeci.search.query`, AECI-174)
 
 §14.3 lists "Algolia query latency and error rate" as a dashboard signal. Search is
 queried **client-side**, direct to Algolia with the search-only key injected as
 `window.__AECI_ALGOLIA__` (`apps/web/src/algolia-bootstrap-inject.ts`), so this latency is
-a **browser RUM** signal, not a Worker metric. As of AECI-141 there is no search-results UI
-to instrument (no `instantsearch`/`algoliasearch` dependency, no `/search` route — the header
-search box is a placeholder), so the emission and its two dashboard widgets are **deferred to
-AECI-174** (which lands with the search-results UI). This is the contract that issue must satisfy:
+a **browser RUM** signal, not a Worker metric. AECI-141 documented this contract and deferred
+the emit until a search-results UI existed; AECI-142 (`/search`) and AECI-144 (the header
+autocomplete) shipped that UI, and **AECI-174 implements the emit + the two dashboard widgets**.
 
-- **Action:** `datadogRum.addAction('aeci.search.query', {...})` from the search component when
-  a query resolves or errors (pattern: `apps/web/src/app/datadog.provider.ts`).
+- **Action:** `datadogRum.addAction('aeci.search.query', {...})` on every query that resolves
+  or errors. The dynamic-import, fire-and-forget emit lives in
+  `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`, pattern:
+  `apps/web/src/app/datadog.provider.ts`); it's injected into each controller as a
+  `SearchQueryEmitter` seam so the unit tests assert the context without loading the SDK.
 - **Context (low-cardinality only — no raw query text):**
   - `index` — `products` | `vendors` | `integrations` | `federated`
   - `status` — `ok` | `error`
   - `duration_ms` — number (Algolia `processingTimeMS`, or the client round-trip)
   - `results_bucket` — `none` | `1-5` | `6-20` | `21+`
-- **Widgets it then adds to `AECi Phase 3 — Search`:** query latency p50/p95/p99 over
-  `@context.duration_ms`; error rate = `status:error` count / all-queries count.
+- **Emit sites & `index` mapping:**
+  - `/search` (`search-controller.ts`) runs one batched products+vendors multi-query per
+    keystroke; each index's `connectStats` render emits `status:ok` **per index**
+    (`index:'products'` / `index:'vendors'`, `duration_ms` = that index's `processingTimeMS`,
+    `results_bucket` from its `nbHits`). A failed batched request emits ONE `index:'federated'`
+    `status:'error'` from the InstantSearch instance `error` event.
+  - The header autocomplete (`autocomplete-controller.ts`, a single federated `searchForHits`)
+    emits ONE `index:'federated'` per query — `status:'ok'` with the client round-trip
+    `duration_ms` and `results_bucket` from the true total `nbHits`, or `status:'error'` on reject.
+  - `integrations` is a reserved enum value — not queried by either surface today (the
+    `/search` integrations index is intentionally disabled; see `search-controller.ts`).
+- **Widgets in `AECi Phase 3 — Search`** (`observability/datadog/dashboard-search.json`, both
+  `data_source: "rum"`): query latency p50/p95/p99 over `@context.duration_ms` (filtered
+  `@context.status:ok`); error rate = `@context.status:error` count / **one-action-per-query**
+  count. The denominator filters `@context.index:(products OR federated)` (not all actions):
+  a successful `/search` query emits two `ok` actions (one per index) while a failed query emits
+  one `federated` error, so counting every action would halve the apparent `/search` error rate.
 
 ## Credentials
 
