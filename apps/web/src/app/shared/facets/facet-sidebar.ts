@@ -38,7 +38,13 @@ import type { RefinementItem } from './refinement-item';
   selector: 'aec-facet-sidebar',
   imports: [SearchRefinementList],
   template: `
-    <div class="space-y-6">
+    <!--
+      flex+gap (not space-y-*): each facet group is a custom element
+      (<aec-search-refinement-list>), which defaults to display:inline, and
+      space-y's margin-top is ignored on inline boxes (the groups rendered
+      flush). As flex items they're blockified and gap-6 spaces them reliably.
+    -->
+    <div class="flex flex-col gap-6">
       <h2 class="aec-overline text-(--text-primary)" i18n="@@listing.filters.title">Filters</h2>
 
       @for (group of groups(); track group.kind) {

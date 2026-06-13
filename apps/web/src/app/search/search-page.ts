@@ -164,7 +164,11 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             class="mt-6 focus-visible:outline-none"
           >
             <div class="grid gap-8 md:grid-cols-[16rem_1fr]">
-              <aside i18n-aria-label="@@search.filters.aria" aria-label="Filters" class="space-y-6">
+              <aside
+                i18n-aria-label="@@search.filters.aria"
+                aria-label="Filters"
+                class="flex flex-col gap-6"
+              >
                 @if (showSkeleton()) {
                   <ng-container [ngTemplateOutlet]="facetsSkeleton" />
                 } @else if (currentFacets(); as facets) {

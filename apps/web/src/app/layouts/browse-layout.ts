@@ -35,7 +35,7 @@ import { Component } from '@angular/core';
 
         <div class="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] md:gap-12">
           <aside
-            class="md:sticky md:top-8 md:self-start"
+            class="md:self-start"
             i18n-aria-label="@@app.layouts.browse.filters.aria"
             aria-label="Filters"
           >
