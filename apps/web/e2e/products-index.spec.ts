@@ -108,21 +108,33 @@ test.describe('/products — product index (AECI-58)', () => {
     await expect(page.locator('table[aria-label="Products"]')).toHaveCount(0);
   });
 
-  test('Pagination Next button advances ?page= when more than one page exists', async ({
+  test("Pagination footer 'Load more' is the no-JS page-2 floor and appends in place (AECI-328)", async ({
     page,
   }) => {
     await page.goto('/products');
     await expect(page.locator('app-root')).toBeAttached();
 
-    const nextButton = page.getByRole('button', { name: 'Next page' });
-    const rendered = (await nextButton.count()) > 0;
-    test.skip(!rendered, 'paginator not rendered (no data or local DB unconfigured)');
+    // AECI-328 replaced the prev/next Paginator with an append-mode footer: a
+    // real `?page=N+1` anchor (the no-JS / crawler floor) that JS intercepts to
+    // append the next page in place. The link only renders when a second page
+    // exists — self-skip otherwise (no data, or a single page in this DB).
+    const loadMore = page.getByRole('link', { name: 'Load more' });
+    test.skip(
+      (await loadMore.count()) === 0,
+      'fewer than two pages of products in this environment',
+    );
 
-    const enabled = await nextButton.isEnabled();
-    test.skip(!enabled, 'fewer than two pages of products in this environment');
+    // The link is the de-emphasised a11y/SEO floor: a genuine ?page=2 href.
+    await expect(loadMore).toHaveAttribute('href', /[?&]page=2(?:&|$)/);
 
-    await nextButton.click();
-    await expect(page).toHaveURL(/\?.*page=2/);
+    // Clicking appends in place — the page count stays OUT of the URL (append
+    // mode), unlike the removed Paginator which advanced `?page=`.
+    const before = await page.locator('#main a[href^="/products/"]').count();
+    await loadMore.click();
+    await expect(page).not.toHaveURL(/[?&]page=/);
+    await expect
+      .poll(() => page.locator('#main a[href^="/products/"]').count())
+      .toBeGreaterThan(before);
   });
 
   test('clicking a product card navigates to /products/:slug', async ({ page }) => {
