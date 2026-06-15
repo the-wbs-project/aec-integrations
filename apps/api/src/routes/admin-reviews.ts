@@ -37,13 +37,14 @@
 
 import {
   ApiErrorCode,
-  AdminReviewSchema,
   ListPendingReviewsQuerySchema,
   ListPendingReviewsResponseSchema,
+  ModerateReviewResponseSchema,
   ModerateReviewSchema,
   callCloudflarePurge,
   type ListPendingReviewsResponse,
   type ModerateReviewResponse,
+  type RepeatOffenderPrompt,
 } from '@aeci/shared';
 import {
   appendAuditLog,
@@ -70,6 +71,12 @@ import { getPrisma } from '../prisma';
 import type { AcceleratedPrisma } from '../prisma';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
+
+/** Repeat-offender prompt threshold (AECI-218 / Phase 6.11 — Spec §9 / §22.3):
+ *  on the *reject* that brings a reviewer's total rejected-review count to this
+ *  many (their "3rd review rejected"), the response carries an advisory
+ *  "consider a ban" prompt. `>=` keeps prompting on the 4th, 5th, … rejection. */
+const REPEAT_OFFENDER_THRESHOLD = 3;
 
 // ─── Loose structural Prisma surfaces ────────────────────────────────────────
 // Same approach as `routes/reviews.ts` / `routes/promote.ts`: we touch a known
@@ -132,6 +139,10 @@ type ModerateClient = {
       where: { id: string };
       select: typeof adminReviewSelect;
     }): Promise<RawAdminReviewRow | null>;
+    // Post-commit, reject-only: the reviewer's total rejected count for the
+    // AECI-218 repeat-offender prompt (the just-rejected row is committed, so
+    // it's included).
+    count(args: { where: Record<string, unknown> }): Promise<number>;
   };
   $transaction<T>(fn: (tx: ModerateTx) => Promise<T>): Promise<T>;
 };
@@ -490,12 +501,53 @@ export function createModerateReviewHandler(
       prisma,
       existing.reviewerId ? [existing.reviewerId] : [],
     );
-    const body: ModerateReviewResponse = toAdminReview(moderatedRow, emailByReviewerId);
+
+    // AECI-218 repeat-offender prompt (Spec §9 / §22.3): advisory only, reject-only,
+    // and only for an identified reviewer (anonymized reviews — `reviewer_id IS
+    // NULL` — can't be banned). Count the reviewer's total rejected reviews (the
+    // row we just rejected is committed, so it's included); at the 3rd rejection
+    // surface "consider a ban" to the admin. Best-effort: a count failure must not
+    // 500 the moderation that already committed — degrade to no prompt.
+    const repeatOffender = await computeRepeatOffenderPrompt(
+      db,
+      approve ? null : existing.reviewerId,
+      emailByReviewerId,
+    );
+
+    const body: ModerateReviewResponse = {
+      review: toAdminReview(moderatedRow, emailByReviewerId),
+      repeat_offender: repeatOffender,
+    };
 
     validateResponseInDev(c.env, () => {
-      AdminReviewSchema.parse(body);
+      ModerateReviewResponseSchema.parse(body);
     });
 
     return json(body);
+  };
+}
+
+/** Compute the AECI-218 repeat-offender prompt. Returns null on approve
+ *  (`reviewerId === null`), for anonymized reviews, below the threshold, or if the
+ *  count query fails (the moderation already committed — never 500 over an
+ *  advisory prompt). */
+async function computeRepeatOffenderPrompt(
+  db: ModerateClient,
+  reviewerId: string | null,
+  emailByReviewerId: Map<string, string>,
+): Promise<RepeatOffenderPrompt | null> {
+  if (!reviewerId) return null;
+  let rejectedCount: number;
+  try {
+    rejectedCount = await db.review.count({ where: { reviewerId, status: 'rejected' } });
+  } catch (error) {
+    console.warn('admin-reviews: repeat-offender count failed', error);
+    return null;
+  }
+  if (rejectedCount < REPEAT_OFFENDER_THRESHOLD) return null;
+  return {
+    reviewer_id: reviewerId,
+    reviewer_email: emailByReviewerId.get(reviewerId) ?? null,
+    rejected_count: rejectedCount,
   };
 }

@@ -1,14 +1,21 @@
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
+import {
+  BrnDialog,
+  BrnDialogContent,
+  BrnDialogDescription,
+  BrnDialogTitle,
+} from '@spartan-ng/brain/dialog';
 
 import { z } from 'zod';
 
-import type { AdminReview } from '@aeci/shared';
+import type { AdminReview, RepeatOffenderPrompt } from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
+import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
@@ -28,6 +35,12 @@ type SortKey = 'toxicity' | 'queue_age' | 'product' | 'reviewer';
  *  whitespace-only reason invalid; the API enforces the same on its side. */
 const RejectReasonSchema = z.object({
   rejection_reason: z.string().trim().min(1).max(500),
+});
+
+/** Ban-reason rule (AECI-218). Same shape/limits as the reject reason; the API
+ *  enforces the same via `BanReviewerSchema`'s refine. */
+const BanReasonSchema = z.object({
+  reason: z.string().trim().min(1).max(500),
 });
 
 /**
@@ -52,11 +65,20 @@ const RejectReasonSchema = z.object({
  */
 @Component({
   selector: 'aec-review-queue',
-  imports: [DatePipe, RouterLink, FormField],
+  imports: [
+    DatePipe,
+    RouterLink,
+    FormField,
+    BrnDialog,
+    BrnDialogContent,
+    BrnDialogTitle,
+    BrnDialogDescription,
+  ],
   templateUrl: './review-queue.html',
 })
 export class ReviewQueue {
   private readonly api = inject(AdminReviewsApi);
+  private readonly bansApi = inject(ReviewerBansApi);
   private readonly summaryStore = inject(AdminSummaryStore);
 
   /** The loaded pending reviews (server order; the view applies the sort). */
@@ -113,6 +135,29 @@ export class ReviewQueue {
   protected readonly rejectForm = form(this.rejectionModel, (p) => {
     validateStandardSchema(p, RejectReasonSchema);
   });
+
+  // ── AECI-218 repeat-offender prompt + ban dialog ───────────────────────────
+  /** Set by a reject whose response carried a repeat-offender prompt (reviewer's
+   *  3rd+ rejection). Drives the dismissible banner atop the queue. */
+  protected readonly repeatOffenderPrompt = signal<RepeatOffenderPrompt | null>(null);
+  /** The reviewer being banned in the dialog (non-null → the dialog is open). */
+  protected readonly banTarget = signal<RepeatOffenderPrompt | null>(null);
+  protected readonly banSubmitting = signal(false);
+  protected readonly banFailed = signal(false);
+
+  /** Localized stand-in for the reviewer's name when their email is unknown
+   *  (anonymized). Held here as a `$localize` string so the fallback stays
+   *  translatable — an inline `?? 'This reviewer'` in the template would bake the
+   *  English into the binding expression, which i18n extraction can't reach. */
+  protected readonly fallbackReviewerName = $localize`:@@admin.reviews.ban.fallbackReviewer:This reviewer`;
+
+  /** Ban-reason model + Signal Form (the dialog's required reason). */
+  private readonly banReasonModel = signal<{ reason: string }>({ reason: '' });
+  protected readonly banForm = form(this.banReasonModel, (p) => {
+    validateStandardSchema(p, BanReasonSchema);
+  });
+
+  private readonly banDialog = viewChild(BrnDialog);
 
   constructor() {
     afterNextRender(() => {
@@ -229,10 +274,13 @@ export class ReviewQueue {
       const reason = f().value().rejection_reason.trim();
       this.pendingActionId.set(id);
       try {
-        await this.api.moderate(id, { action: 'reject', rejection_reason: reason });
+        const res = await this.api.moderate(id, { action: 'reject', rejection_reason: reason });
         this.rejectingId.set(null);
         this.rejectionModel.set({ rejection_reason: '' });
         this.onModerated(id, $localize`:@@admin.reviews.announce.rejected:Review rejected.`);
+        // AECI-218: surface the advisory "consider a ban" banner when this
+        // rejection was the reviewer's 3rd+ (the API decides; null otherwise).
+        this.repeatOffenderPrompt.set(res.repeat_offender);
       } catch (err) {
         this.onModerateError(id, err);
       } finally {
@@ -268,6 +316,57 @@ export class ReviewQueue {
   private removeRow(id: string): void {
     this.reviews.update((list) => list.filter((r) => r.id !== id));
     this.total.update((n) => Math.max(0, n - 1));
+  }
+
+  // ── AECI-218 ban actions ───────────────────────────────────────────────────
+
+  /** Dismiss the repeat-offender banner without banning. */
+  protected dismissPrompt(): void {
+    this.repeatOffenderPrompt.set(null);
+  }
+
+  /** Open the ban dialog for the prompted reviewer (resets the reason field).
+   *  Driven imperatively (not via an effect): `BrnDialog.open()` creates its own
+   *  effect internally, which Angular forbids from inside another effect. */
+  protected openBan(): void {
+    const prompt = this.repeatOffenderPrompt();
+    if (!prompt) return;
+    this.banFailed.set(false);
+    this.banReasonModel.set({ reason: '' });
+    this.banForm.reason().reset();
+    this.banTarget.set(prompt);
+    this.banDialog()?.open();
+  }
+
+  /** Close the ban dialog (Cancel button, backdrop click, or Escape). */
+  protected closeBan(): void {
+    this.banTarget.set(null);
+    this.banReasonModel.set({ reason: '' });
+    this.banForm.reason().reset();
+    this.banDialog()?.close();
+  }
+
+  protected async confirmBan(): Promise<void> {
+    if (this.banSubmitting()) return;
+    const target = this.banTarget();
+    if (!target) return;
+    this.banFailed.set(false);
+    await submit(this.banForm, async (f) => {
+      const reason = f().value().reason.trim();
+      this.banSubmitting.set(true);
+      try {
+        await this.bansApi.ban(target.reviewer_id, { action: 'ban', reason });
+        this.closeBan();
+        this.repeatOffenderPrompt.set(null);
+        this.liveMessage.set($localize`:@@admin.reviews.ban.announce.banned:Reviewer banned.`);
+      } catch {
+        // Keep the dialog open so the admin can retry; surface an inline error.
+        this.banFailed.set(true);
+      } finally {
+        this.banSubmitting.set(false);
+      }
+      return undefined;
+    });
   }
 }
 

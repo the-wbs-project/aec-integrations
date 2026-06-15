@@ -174,5 +174,32 @@ export const ModerateReviewSchema = z
   });
 export type ModerateReviewInput = z.infer<typeof ModerateReviewSchema>;
 
-/** `PATCH /api/admin/reviews/:id` returns the moderated review (`AdminReview`). */
-export type ModerateReviewResponse = AdminReview;
+/**
+ * Advisory "consider a ban" prompt (AECI-218 / Phase 6.11 — Spec §9 / §22.3). The
+ * moderate-review response carries this **only** when a *reject* pushes the
+ * reviewer's total rejected-review count to **3 or more** (and the review was not
+ * anonymized — `reviewer_id` is known). It is informational: the admin decides
+ * whether to ban via `PATCH /api/admin/reviewers/:id`. `reviewer_id` is the ban
+ * target (= the profile id); `reviewer_email` is the same admin-only lookup the
+ * queue uses (null on failure).
+ */
+export const RepeatOffenderPromptSchema = z.object({
+  reviewer_id: z.string().uuid(),
+  reviewer_email: z.string().nullable(),
+  rejected_count: z.number().int(),
+});
+export type RepeatOffenderPrompt = z.infer<typeof RepeatOffenderPromptSchema>;
+
+/**
+ * `PATCH /api/admin/reviews/:id` response envelope. The moderated `review` plus an
+ * optional `repeat_offender` prompt (AECI-218): non-null only on the reject that
+ * makes the reviewer's rejected count ≥ 3; always null on approve / 1st–2nd
+ * rejection / anonymized reviews. Wrapping (rather than returning a bare
+ * `AdminReview`) lets the prompt ride back with the action — faithful to "when the
+ * reviewer's 3rd review is rejected, surface a prompt".
+ */
+export const ModerateReviewResponseSchema = z.object({
+  review: AdminReviewSchema,
+  repeat_offender: RepeatOffenderPromptSchema.nullable(),
+});
+export type ModerateReviewResponse = z.infer<typeof ModerateReviewResponseSchema>;

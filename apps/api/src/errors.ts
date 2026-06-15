@@ -33,7 +33,8 @@ type ResourceKind =
   | 'audience'
   | 'phase'
   | 'review'
-  | 'vendor_request';
+  | 'vendor_request'
+  | 'profile';
 
 export type ApiErrorOptions = {
   /** Set for `VALIDATION_FAILED` so the SSR client can target the field. */

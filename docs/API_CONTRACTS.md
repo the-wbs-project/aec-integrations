@@ -868,7 +868,23 @@ export const ModerateReviewSchema = z.object({
   rejection_reason: z.string().max(500).optional(),
 });
 
-export type ModerateReviewResponse = AdminReview;
+// AECI-218 (Phase 6.11): the response is an ENVELOPE — the moderated review plus
+// an advisory repeat-offender prompt. `repeat_offender` is non-null ONLY on the
+// reject that brings the reviewer's total rejected-review count to ≥ 3 (their
+// "3rd review rejected", §22.3); null on approve / 1st–2nd rejection / anonymized
+// reviews (`reviewer_id IS NULL`). It is informational — the admin decides whether
+// to ban via `PATCH /api/admin/reviewers/:id`. `reviewer_id` is the ban target.
+export const RepeatOffenderPromptSchema = z.object({
+  reviewer_id: z.string().uuid(),
+  reviewer_email: z.string().nullable(),
+  rejected_count: z.number().int(),
+});
+
+export const ModerateReviewResponseSchema = z.object({
+  review: AdminReviewSchema,
+  repeat_offender: RepeatOffenderPromptSchema.nullable(),
+});
+export type ModerateReviewResponse = z.infer<typeof ModerateReviewResponseSchema>;
 ```
 
 Errors: `NOT_FOUND`, `INVALID_STATE_TRANSITION` if review is not in `pending` status.
@@ -943,6 +959,63 @@ and (post-commit, best-effort) push the change to the linked Linear issue (§6.5
 
 Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` if the request is
 not `open`/`in_review` (already terminal, or a concurrent action moved it).
+
+#### `GET /api/admin/reviewers`
+
+Lists the currently-banned reviewers (newest ban first). Implemented in AECI-218
+(Phase 6.11). The ban *action* is triggered from the review-queue's 3rd-rejection
+prompt; this list is the home for **unbanning**. `reviewer_email` is admin-only
+(read from `auth.users.email` via the same privileged `$queryRaw` the moderation
+queue uses) and degrades to `null` on a lookup failure. Source of truth:
+`packages/shared/src/api/admin-reviewers.ts`, `apps/api/src/routes/admin-reviewers.ts`.
+
+```typescript
+export const ListBannedReviewersQuerySchema = PageQuerySchema; // page/perPage
+
+export const BannedReviewerSchema = z.object({
+  reviewer_id: z.string().uuid(), // = profile id = auth.users.id = reviews.reviewer_id
+  reviewer_email: z.string().nullable(),
+  banned_at: z.string().datetime(),
+  ban_reason: z.string().nullable(),
+});
+
+export type ListBannedReviewersResponse = PaginatedResponse<BannedReviewer>;
+```
+
+#### `PATCH /api/admin/reviewers/:id`
+
+Ban or unban a reviewer (a `profiles` row); `:id` is the profile id. Sets/clears
+`profiles.banned_at` + `profiles.ban_reason` (§22.3). Ban *enforcement* (rejecting a
+banned user's `POST /api/reviews`) already shipped in Phase 5 (AECI-197) — this is
+the *management* half.
+
+```typescript
+export const BanReviewerSchema = z.object({
+  action: z.enum(['ban', 'unban']),
+  // Required (non-empty) when action === 'ban' — enforced by a cross-field refine
+  // (mirrors ModerateReviewSchema). Stored on `profiles.ban_reason`; cleared on unban.
+  reason: z.string().max(500).optional(),
+});
+
+export const BanReviewerResponseSchema = z.object({
+  reviewer_id: z.string().uuid(),
+  banned_at: z.string().datetime().nullable(), // null after unban
+  ban_reason: z.string().nullable(),
+});
+export type BanReviewerResponse = z.infer<typeof BanReviewerResponseSchema>;
+```
+
+`ban` sets `banned_at = now()` + `ban_reason`; `unban` clears both. Both append an
+`audit_log` (`reviewer.banned` / `reviewer.unbanned`, with before/after state) + a
+`workflow_transitions` row on a long-lived **reversible** `reviewer_ban` workflow
+(`active ↔ banned`; no terminal `final_outcome`). No cache invalidation — a ban
+changes no cacheable page (a banned reviewer's approved reviews stay visible, flagged
+internally only, §22.3).
+
+Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
+banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent
+flip; `FORBIDDEN` (403) when the target is an admin account or the acting admin
+themselves (a banned admin would lock themselves out of `requireAdmin()`).
 
 ### 6.11 Webhooks
 
