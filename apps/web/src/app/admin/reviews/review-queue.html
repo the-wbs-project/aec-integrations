@@ -39,7 +39,41 @@
   <!-- Polite announcements: rows vanish on success, so announce the outcome. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
-  @if (loading()) {
+  <!-- AECI-218: advisory "consider a ban" banner — appears after a reviewer's 3rd+
+       rejection. The rejected row is already gone, so the banner (not the row) is
+       where the admin acts. -->
+  @if (repeatOffenderPrompt(); as p) {
+  <div
+    role="status"
+    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) px-4 py-3"
+  >
+    <p class="text-sm text-(--text-primary)">
+      <span class="font-bold" i18n="@@admin.reviews.ban.prompt.lead">Consider a ban.</span>
+      <span i18n="@@admin.reviews.ban.prompt.detail"
+        >{{ p.reviewer_email ?? fallbackReviewerName }} now has {{ p.rejected_count }} rejected
+        reviews.</span
+      >
+    </p>
+    <div class="flex flex-wrap gap-2">
+      <button
+        type="button"
+        (click)="openBan()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.reviews.ban.prompt.ban"
+      >
+        Ban reviewer
+      </button>
+      <button
+        type="button"
+        (click)="dismissPrompt()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.reviews.ban.prompt.dismiss"
+      >
+        Dismiss
+      </button>
+    </div>
+  </div>
+  } @if (loading()) {
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.loading">
     Loading the moderation queue…
   </p>
@@ -275,4 +309,98 @@
     }
   </ul>
   }
+
+  <!-- AECI-218 ban dialog: opened from the banner's "Ban reviewer" button. A
+       required reason mirrors the reject form. Driven imperatively by `banTarget()`
+       (see the component effect); the backdrop/Escape `closed` output keeps state
+       in sync. -->
+  <brn-dialog (closed)="closeBan()">
+    <ng-template brnDialogContent>
+      @if (banTarget(); as t) {
+      <div
+        class="fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
+      >
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.reviews.ban.dialog.title"
+        >
+          Ban this reviewer?
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@admin.reviews.ban.dialog.description"
+        >
+          {{ t.reviewer_email ?? fallbackReviewerName }} will be blocked from submitting new
+          reviews. Their existing approved reviews stay visible. You can unban them later.
+        </p>
+
+        <form novalidate (submit)="$event.preventDefault(); confirmBan()" class="mt-5 space-y-2">
+          <label
+            for="ban-reason"
+            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.reviews.ban.dialog.label"
+          >
+            Reason for ban
+          </label>
+          <textarea
+            id="ban-reason"
+            rows="3"
+            [formField]="banForm.reason"
+            [attr.aria-invalid]="
+              banForm.reason().touched() && banForm.reason().invalid() ? 'true' : null
+            "
+            [attr.aria-describedby]="
+              banForm.reason().touched() && banForm.reason().getError('standardSchema')
+                ? 'ban-reason-error'
+                : null
+            "
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
+          @if (banForm.reason().touched() && banForm.reason().getError('standardSchema')) {
+          <p
+            id="ban-reason-error"
+            class="text-xs font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@admin.reviews.ban.dialog.error"
+          >
+            Enter a reason between 1 and 500 characters.
+          </p>
+          } @if (banFailed()) {
+          <p
+            class="text-sm font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@admin.reviews.ban.dialog.failed"
+          >
+            Something went wrong. Please try again.
+          </p>
+          }
+          <div class="flex flex-wrap gap-3 pt-2">
+            <button
+              type="submit"
+              [disabled]="banSubmitting()"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              @if (banSubmitting()) {
+              <span i18n="@@admin.reviews.ban.dialog.banning">Banning…</span>
+              } @else {
+              <span i18n="@@admin.reviews.ban.dialog.confirm">Confirm ban</span>
+              }
+            </button>
+            <button
+              type="button"
+              (click)="closeBan()"
+              [disabled]="banSubmitting()"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.reviews.ban.dialog.cancel"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+      }
+    </ng-template>
+  </brn-dialog>
 </section>

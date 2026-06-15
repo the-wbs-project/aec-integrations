@@ -22,6 +22,10 @@ import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
 } from './routes/admin-requests';
+import {
+  createBanReviewerHandler,
+  createBannedReviewersListHandler,
+} from './routes/admin-reviewers';
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
@@ -217,6 +221,8 @@ app.route('/', authAccount);
 //   - PATCH /api/admin/reviews/:id  (5.13) — approve/reject a review.
 //   - GET   /api/admin/requests     (6.9)  — paginated vendor-requests queue.
 //   - PATCH /api/admin/requests/:id (6.9)  — resolve/reject a vendor request.
+//   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
+//   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
@@ -224,6 +230,8 @@ authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandle
 authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
 authAdmin.get('/api/admin/requests', requireAdmin(), createAdminRequestsListHandler());
 authAdmin.patch('/api/admin/requests/:id', requireAdmin(), createModerateRequestHandler());
+authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
+authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

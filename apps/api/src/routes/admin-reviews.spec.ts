@@ -236,12 +236,20 @@ describe('GET /api/admin/reviews', () => {
 // ─── PATCH /api/admin/reviews/:id ────────────────────────────────────────────
 
 function moderatePrisma(
-  opts: { existing?: unknown; updateCount?: number; workflowMissing?: boolean } = {},
+  opts: {
+    existing?: unknown;
+    updateCount?: number;
+    workflowMissing?: boolean;
+    rejectedCount?: number;
+  } = {},
 ) {
   const findUnique = vi.fn(async (_args: unknown) =>
     opts.existing === undefined ? adminRow() : opts.existing,
   );
   const updateMany = vi.fn(async (_args: unknown) => ({ count: opts.updateCount ?? 1 }));
+  // AECI-218: the post-commit repeat-offender count (reject-only). Defaults to 0
+  // so existing approve/reject assertions see `repeat_offender: null`.
+  const reviewCount = vi.fn(async (_args: unknown) => opts.rejectedCount ?? 0);
   const auditCreate = vi.fn(async (_args: unknown) => ({}));
   // Phase 6.3 (AECI-210): the `review_moderation` workflow surfaces. `findFirst`
   // returns null when `workflowMissing` (the retrofit branch: a review submitted
@@ -263,13 +271,14 @@ function moderatePrisma(
     workflowTransition: { create: transitionCreate },
   };
   const prisma = {
-    review: { findUnique },
+    review: { findUnique, count: reviewCount },
     $transaction: async <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
   };
   return {
     prisma,
     findUnique,
     updateMany,
+    reviewCount,
     auditCreate,
     workflowFindFirst,
     workflowCreate,
@@ -338,10 +347,15 @@ describe('PATCH /api/admin/reviews/:id', () => {
     const response = await res;
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as Record<string, unknown>;
-    expect(body.status).toBe('approved');
-    expect(body.moderated_at).toEqual(expect.any(String));
-    expect(body.reviewer_email).toBe(`${REVIEWER_ID}@example.test`);
+    const body = (await response.json()) as {
+      review: Record<string, unknown>;
+      repeat_offender: unknown;
+    };
+    expect(body.review.status).toBe('approved');
+    expect(body.review.moderated_at).toEqual(expect.any(String));
+    expect(body.review.reviewer_email).toBe(`${REVIEWER_ID}@example.test`);
+    // Approve never carries the repeat-offender prompt.
+    expect(body.repeat_offender).toBeNull();
 
     const updateArgs = updateMany.mock.calls[0][0] as {
       where: { id: string; status: string };
@@ -424,9 +438,14 @@ describe('PATCH /api/admin/reviews/:id', () => {
     const response = await res;
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as Record<string, unknown>;
-    expect(body.status).toBe('rejected');
-    expect(body.rejection_reason).toBe('Spam');
+    const body = (await response.json()) as {
+      review: Record<string, unknown>;
+      repeat_offender: unknown;
+    };
+    expect(body.review.status).toBe('rejected');
+    expect(body.review.rejection_reason).toBe('Spam');
+    // 1 prior rejection (the fake's default count) is below the threshold.
+    expect(body.repeat_offender).toBeNull();
 
     expect((updateMany.mock.calls[0][0] as { data: Record<string, unknown> }).data).toMatchObject({
       status: 'rejected',
@@ -572,6 +591,64 @@ describe('PATCH /api/admin/reviews/:id', () => {
     expect(workflowUpdate).not.toHaveBeenCalled();
     // The concurrent-race guard also reports an invalid-state attempt.
     expect(moderationActions()).toEqual([['action:approve', 'outcome:invalid_state']]);
+  });
+
+  // ── AECI-218 repeat-offender prompt ──────────────────────────────────────────
+  describe('repeat-offender prompt', () => {
+    it('surfaces the prompt on the reviewer’s 3rd rejection', async () => {
+      const { prisma, reviewCount } = moderatePrisma({ rejectedCount: 3 });
+      const { app } = moderateApp(prisma);
+      const { res } = patchReq(app, { action: 'reject', rejection_reason: 'Spam again.' });
+      const response = await res;
+
+      expect(response.status).toBe(200);
+      const body = (await response.json()) as {
+        repeat_offender: {
+          reviewer_id: string;
+          reviewer_email: string | null;
+          rejected_count: number;
+        } | null;
+      };
+      expect(body.repeat_offender).toEqual({
+        reviewer_id: REVIEWER_ID,
+        reviewer_email: `${REVIEWER_ID}@example.test`,
+        rejected_count: 3,
+      });
+      // Counted this reviewer's rejected reviews (the just-rejected row included).
+      expect((reviewCount.mock.calls[0][0] as { where: unknown }).where).toEqual({
+        reviewerId: REVIEWER_ID,
+        status: 'rejected',
+      });
+    });
+
+    it('does not surface the prompt below the threshold (2nd rejection)', async () => {
+      const { prisma } = moderatePrisma({ rejectedCount: 2 });
+      const { app } = moderateApp(prisma);
+      const { res } = patchReq(app, { action: 'reject', rejection_reason: 'Spam.' });
+      const body = (await (await res).json()) as { repeat_offender: unknown };
+      expect(body.repeat_offender).toBeNull();
+    });
+
+    it('never counts or prompts for an anonymized review (reviewer_id null)', async () => {
+      const { prisma, reviewCount } = moderatePrisma({
+        existing: adminRow({ reviewerId: null }),
+        rejectedCount: 9,
+      });
+      const { app } = moderateApp(prisma);
+      const { res } = patchReq(app, { action: 'reject', rejection_reason: 'Spam.' });
+      const body = (await (await res).json()) as { repeat_offender: unknown };
+      expect(body.repeat_offender).toBeNull();
+      expect(reviewCount).not.toHaveBeenCalled();
+    });
+
+    it('never counts or prompts on approve, even with prior rejections', async () => {
+      const { prisma, reviewCount } = moderatePrisma({ rejectedCount: 9 });
+      const { app } = moderateApp(prisma);
+      const { res } = patchReq(app, { action: 'approve' });
+      const body = (await (await res).json()) as { repeat_offender: unknown };
+      expect(body.repeat_offender).toBeNull();
+      expect(reviewCount).not.toHaveBeenCalled();
+    });
   });
 });
 

@@ -230,6 +230,10 @@ export const routes: Routes = [
         path: 'reviews',
         loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),
       },
+      {
+        path: 'reviewers',
+        loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
+      },
     ],
   },
   // AECI-62 — Phase 2.16 global 404. Must be the last entry so every other
