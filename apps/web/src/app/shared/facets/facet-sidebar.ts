@@ -1,5 +1,5 @@
 import { httpResource } from '@angular/common/http';
-import { Component, computed, inject, input, linkedSignal } from '@angular/core';
+import { Component, computed, inject, input, linkedSignal, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 
@@ -33,38 +33,101 @@ import type { RefinementItem } from './refinement-item';
  *
  * Browse pages pass `lockedKind` + `lockedId` to scope to (and hide) their own
  * taxonomy; `/products` passes neither and shows all three groups.
+ *
+ * Responsive (AECI — mobile facet disclosure): on `< md` the host `aside`
+ * stacks *above* the results grid (`BrowseLayout`'s single-column collapse), so
+ * a fully-expanded rail forces the reader to scroll past every checkbox to reach
+ * the list. Below `md` the groups therefore live behind a "Filters" disclosure
+ * (collapsed by default, with an active-filter count badge); at `md+` the
+ * trigger is removed and the panel is always shown — the desktop two-column rail
+ * is unchanged. Default-collapsed keeps the SSR/edge-cached HTML
+ * visitor-state-neutral (the panel's `hidden`/`md:flex` is pure CSS the client
+ * never has to reconcile). Matches the disclosure idiom in `nav-menu.ts`.
  */
 @Component({
   selector: 'aec-facet-sidebar',
   imports: [SearchRefinementList],
   template: `
-    <!--
-      flex+gap (not space-y-*): each facet group is a custom element
-      (<aec-search-refinement-list>), which defaults to display:inline, and
-      space-y's margin-top is ignored on inline boxes (the groups rendered
-      flush). As flex items they're blockified and gap-6 spaces them reliably.
-    -->
-    <div class="flex flex-col gap-6">
-      <h2 class="aec-overline text-(--text-primary)" i18n="@@listing.filters.title">Filters</h2>
-
-      @for (group of groups(); track group.kind) {
-        <aec-search-refinement-list
-          [label]="group.label"
-          [items]="group.items"
-          (refine)="onRefine(group.kind, $event)"
-        />
-      }
-
-      @if (hasActiveFilters()) {
-        <button
-          type="button"
-          class="rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          (click)="clearFilters()"
-          i18n="@@listing.filters.clear"
+    <div class="flex flex-col gap-4">
+      <!--
+        Mobile (< md): a "Filters" disclosure so the reader reaches the results
+        without scrolling past every checkbox. Hidden at md+, where the panel
+        below is always shown (canonical \`hidden\`/\`md:flex\` toggle). Collapsed
+        by default → the SSR/edge-cached HTML stays visitor-state-neutral.
+      -->
+      <button
+        type="button"
+        class="flex w-full cursor-pointer items-center justify-between rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-4 py-2.5 text-start transition-colors hover:border-(--border-strong) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) md:hidden"
+        [attr.aria-expanded]="panelOpen()"
+        aria-controls="aec-facet-panel"
+        (click)="togglePanel()"
+      >
+        <span class="aec-overline text-(--text-primary)" i18n="@@listing.filters.title"
+          >Filters</span
         >
-          Clear filters
-        </button>
-      }
+        <span class="inline-flex items-center gap-2">
+          @if (activeFilterCount(); as n) {
+            <span
+              class="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-(--accent-primary) px-1.5 text-xs font-medium tabular-nums text-(--surface-base)"
+              aria-hidden="true"
+              >{{ n }}</span
+            >
+          }
+          <svg
+            aria-hidden="true"
+            class="h-4 w-4 text-(--text-secondary) transition-transform"
+            [class.rotate-180]="panelOpen()"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        </span>
+      </button>
+
+      <!--
+        Panel: collapsed on mobile unless open; always a flex column at md+.
+        flex+gap (not space-y-*): each facet group is a custom element
+        (<aec-search-refinement-list>), which defaults to display:inline, and
+        space-y's margin-top is ignored on inline boxes (the groups rendered
+        flush). As flex items they're blockified and gap-6 spaces them reliably.
+      -->
+      <div
+        id="aec-facet-panel"
+        class="flex-col gap-6 md:flex"
+        [class.flex]="panelOpen()"
+        [class.hidden]="!panelOpen()"
+      >
+        <h2
+          class="aec-overline hidden text-(--text-primary) md:block"
+          i18n="@@listing.filters.title"
+        >
+          Filters
+        </h2>
+
+        @for (group of groups(); track group.kind) {
+          <aec-search-refinement-list
+            [label]="group.label"
+            [items]="group.items"
+            (refine)="onRefine(group.kind, $event)"
+          />
+        }
+
+        @if (hasActiveFilters()) {
+          <button
+            type="button"
+            class="rounded-(--radius-sm) text-sm text-(--accent-primary) underline-offset-2 transition-colors hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            (click)="clearFilters()"
+            i18n="@@listing.filters.clear"
+          >
+            Clear filters
+          </button>
+        }
+      </div>
     </div>
   `,
 })
@@ -172,6 +235,30 @@ export class FacetSidebar {
     const qp = this.queryParamMap();
     return DIMENSIONS.some((d) => d.kind !== locked && !!qp.get(d.param));
   });
+
+  /**
+   * Count of selected terms across the non-locked dimensions — shown as a badge
+   * on the mobile "Filters" trigger so the active-filter state is legible while
+   * the panel is collapsed.
+   */
+  protected readonly activeFilterCount = computed(() => {
+    const locked = this.lockedKind();
+    const qp = this.queryParamMap();
+    let count = 0;
+    for (const d of DIMENSIONS) {
+      if (d.kind === locked) continue;
+      count += parseIds(qp.get(d.param)).size;
+    }
+    return count;
+  });
+
+  /** Mobile-only disclosure state for the facet panel (always shown at md+). */
+  private readonly panelOpenSig = signal(false);
+  protected readonly panelOpen = this.panelOpenSig.asReadonly();
+
+  protected togglePanel(): void {
+    this.panelOpenSig.update((open) => !open);
+  }
 
   /**
    * Multi-select toggle (AECI-223): add the term to (or remove it from) the
