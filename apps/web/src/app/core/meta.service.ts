@@ -170,8 +170,8 @@ export class MetaService {
    * SEO-relevant path) is a fresh per-URL app, so it never ships cross-page LD.
    */
   setHomeMeta(input: { canonical: string }): void {
-    const title = $localize`:@@meta.homeTitle:AEC Integrations: verified software integrations for the AEC industry`;
-    const description = $localize`:@@meta.homeDescription:Find verified integrations between AEC software. Every integration is confirmed by both vendors, with no marketing and no pay-for-placement.`;
+    const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent directory of AEC software integrations`;
+    const description = $localize`:@@meta.homeDescription:The independent directory of integrations between AEC software tools. No vendor marketing, no pay-for-placement.`;
 
     this.title.setTitle(title);
     this.meta.updateTag({ name: 'description', content: description });
