@@ -110,7 +110,7 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
         >
           <div class="overflow-x-auto">
             <table
-              class="w-full min-w-[40rem] border-collapse text-start text-sm"
+              class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
               i18n-aria-label="@@taxonomy.browse.table.aria"
               aria-label="Products"
             >
@@ -121,7 +121,11 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
                   <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.name">
                     Name
                   </th>
-                  <th scope="col" class="px-4 py-3 font-medium" i18n="@@taxonomy.browse.col.vendor">
+                  <th
+                    scope="col"
+                    class="hidden px-4 py-3 font-medium md:table-cell"
+                    i18n="@@taxonomy.browse.col.vendor"
+                  >
                     Vendor
                   </th>
                   <th
