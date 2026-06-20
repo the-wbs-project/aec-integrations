@@ -12,6 +12,7 @@ import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-ran
 import { BrowseGrid } from './browse-grid';
 import { HomeHero } from './home-hero';
 import { HomeStatsCards } from './home-stats-cards';
+import { HomeTrustPillars } from './home-trust-pillars';
 import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
 
@@ -44,6 +45,7 @@ import { TrendingProductsSection } from './trending-products-section';
   selector: 'app-home',
   imports: [
     HomeHero,
+    HomeTrustPillars,
     HomeStatsCards,
     BrowseGrid,
     RecentIntegrationsSection,
@@ -52,6 +54,9 @@ import { TrendingProductsSection } from './trending-products-section';
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <aec-home-hero />
+
+      <!-- Trust band: the three trust commitments (full-bleed, sits under the hero). -->
+      <aec-home-trust-pillars />
 
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <div class="flex flex-col gap-10 md:gap-12">

@@ -4,10 +4,12 @@
  * Faire-anchored editorial hero per `docs/design/home-direction.md` §"Hero
  * (Faire treatment)": a full-bleed warm Bone (`--accent-warm`) band with a 1px
  * bottom rule, a left-aligned `max-w-3xl` column holding a small-caps eyebrow, a
- * Source-Serif display tagline (leads with the substantive trust / what-connects
- * claim, not a verb imperative — placeholder copy, final marketing copy is out of
- * scope for 4.7), a one-line lede, and the search field as the single primary
- * affordance.
+ * Source-Serif display tagline, a one-line lede, and the search field as the single
+ * primary affordance. The tagline states only what is true at Stage 1 launch: it
+ * does NOT claim dual-vendor verification (out of scope until the Stage 2 vendor-
+ * claim flow — spec §1 "Out of scope for Stage 1"; §4.2 "Verified badge (placeholder
+ * — none verified in Stage 1)"), and avoids an "every …" completeness claim the
+ * partial launch catalog can't back.
  *
  * The search is the REUSED `SearchAutocomplete` widget (AECI-144) — no new
  * Algolia plumbing. It SSR-renders a static `<form action="/search">` + a real
@@ -51,7 +53,7 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
             class="mt-3 font-display text-[clamp(2.25rem,4.5vw+1rem,4rem)] font-normal leading-[1.05] tracking-[-0.01em] text-(--text-primary)"
             i18n="@@home.hero.tagline"
           >
-            Every integration between AEC tools, verified by both vendors.
+            Find the integrations between your AEC tools.
           </h1>
           <p class="mt-5 text-base text-(--text-secondary)" i18n="@@home.hero.lede">
             Product and vendor integrations across the AEC stack, with no vendor marketing and no

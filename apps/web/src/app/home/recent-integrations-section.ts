@@ -44,7 +44,7 @@ import { IntegrationTile } from './integration-tile';
             bg-(--surface-sunken) p-6 text-center text-sm text-(--text-secondary)"
           i18n="@@home.recent.empty"
         >
-          No integrations added yet. The first vendor-verified integrations land at launch.
+          No integrations added yet. The first integrations land at launch.
         </p>
       }
     </section>

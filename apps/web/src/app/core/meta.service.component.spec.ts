@@ -109,7 +109,7 @@ describe('MetaService.setHomeMeta', () => {
     expect(doc.title).toContain('AEC Integrations');
 
     const desc = doc.head.querySelector('meta[name="description"]') as HTMLMetaElement | null;
-    expect(desc?.getAttribute('content')).toContain('verified');
+    expect(desc?.getAttribute('content')).toContain('independent');
 
     // Home is indexable — no robots tag.
     expect(doc.head.querySelector('meta[name="robots"]')).toBeNull();

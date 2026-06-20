@@ -69,7 +69,7 @@ describe('HomeHero', () => {
     expect(section.className).toContain('border-b'); // 1px bottom rule
 
     expect(host.querySelector('h1')?.textContent?.trim()).toBe(
-      'Every integration between AEC tools, verified by both vendors.',
+      'Find the integrations between your AEC tools.',
     );
     expect(host.textContent).toContain('The specifier');
     expect(host.textContent).toContain('no vendor marketing and no pay-for-placement');
