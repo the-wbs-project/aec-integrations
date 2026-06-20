@@ -24,6 +24,7 @@
 import { Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 
+import { SessionStatus } from '../auth/session-status';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -74,13 +75,39 @@ import { NavMenu } from './nav-menu';
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
           />
-          <a
-            routerLink="/auth/login"
-            class="inline-flex items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.header.signIn"
-          >
-            Sign in
-          </a>
+          <!-- Auth affordance. Neutral "Sign in" is the SSR/pre-hydration
+               default (cache-safe); SessionStatus flips to the account avatar
+               after hydration when a session is present (Phase 5 §4.4). -->
+          @if (session.signedIn()) {
+            <a
+              routerLink="/account"
+              class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-(--border-strong) bg-(--surface-raised) text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              aria-label="Account"
+              i18n-aria-label="@@app.header.account.aria"
+            >
+              <svg
+                aria-hidden="true"
+                class="h-5 w-5"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
+            </a>
+          } @else {
+            <a
+              routerLink="/auth/login"
+              class="inline-flex items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@app.header.signIn"
+            >
+              Sign in
+            </a>
+          }
         </div>
       </div>
       <div class="h-1 w-full bg-(--accent-warm)" aria-hidden="true"></div>
@@ -89,6 +116,7 @@ import { NavMenu } from './nav-menu';
 })
 export class SiteHeader {
   protected readonly taxonomy = inject(TaxonomyNavStore);
+  protected readonly session = inject(SessionStatus);
   private readonly router = inject(Router);
 
   protected onSearchQuery(query: string): void {

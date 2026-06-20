@@ -35,6 +35,7 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
+import { SessionStatus } from '../auth/session-status';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -156,14 +157,40 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
             (suggestionChosen)="onSuggestion($event); menu.close()"
           />
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
-            <a
-              routerLink="/auth/login"
-              (click)="menu.close()"
-              class="flex w-full items-center justify-center rounded-md bg-(--accent-primary) px-4 py-2 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              i18n="@@app.header.signIn"
-            >
-              Sign in
-            </a>
+            <!-- Neutral "Sign in" is the cache-safe SSR default; SessionStatus
+                 swaps to "Account" after hydration (Phase 5 §4.4). -->
+            @if (session.signedIn()) {
+              <a
+                routerLink="/account"
+                (click)="menu.close()"
+                class="flex w-full items-center justify-center gap-2 rounded-md border border-(--border-strong) bg-(--surface-raised) px-4 py-2 text-sm font-medium text-(--text-primary) hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@app.header.account"
+              >
+                <svg
+                  aria-hidden="true"
+                  class="h-4 w-4"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                  <circle cx="12" cy="7" r="4" />
+                </svg>
+                Account
+              </a>
+            } @else {
+              <a
+                routerLink="/auth/login"
+                (click)="menu.close()"
+                class="flex w-full items-center justify-center rounded-md bg-(--accent-primary) px-4 py-2 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@app.header.signIn"
+              >
+                Sign in
+              </a>
+            }
           </div>
         </nav>
       </ng-template>
@@ -172,6 +199,7 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 })
 export class NavMenu {
   private readonly taxonomy = inject(TaxonomyNavStore);
+  protected readonly session = inject(SessionStatus);
   private readonly router = inject(Router);
 
   protected onSearchQuery(query: string): void {
