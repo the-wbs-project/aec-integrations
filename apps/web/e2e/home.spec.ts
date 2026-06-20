@@ -175,7 +175,7 @@ test.describe('/ — home assembly (AECI-186)', () => {
 
     await expect(page.locator('head meta[name="description"]')).toHaveAttribute(
       'content',
-      /verified/,
+      /independent directory/,
     );
 
     const canonical = page.locator('head link[rel="canonical"]');
