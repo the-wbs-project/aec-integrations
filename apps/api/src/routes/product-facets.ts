@@ -1,34 +1,14 @@
 /**
- * Phase 3.10 (AECI-143) scoped facet-count endpoint.
+ * Phase 3.10 (AECI-143) scoped facet-count endpoint — Drizzle/D1 (ADR 0016 /
+ * AECI-253).
  *
- *   GET /api/products/facets — for each taxonomy dimension (category / audience
- *   / phase), the count of products per term under the *other* active filters.
+ *   GET /api/products/facets — per taxonomy dimension, the count of products per
+ *   term under the *other* active filters (disjunctive faceting).
  *
- * This is the server-side aggregation that backs the API-backed filter sidebar
- * on `/products` and the taxonomy browse pages (issue Decision 1: API-backed,
- * NOT Algolia — these pages stay edge-cacheable and Algolia/InstantSearch stays
- * scoped to `/search`). The *page* is edge-cached; this internal call is
- * request-scoped and never cached (`Cache-Control: private, no-store` via
- * `json()`), same as the list/detail siblings.
- *
- * Contracts:
- *   - Query: `ProductFacetsQuerySchema` from `@aeci/shared` — the same filter
- *     params as `GET /api/products` minus page/perPage/sort.
- *   - Response: `ProductFacetsResponseSchema` = `{ categories, audiences,
- *     phases }`, each `TaxonomyTermWithCount[]` where `product_count` is the
- *     **scoped** count.
- *
- * Disjunctive faceting: each dimension's counts are computed with every active
- * filter applied EXCEPT that dimension's own clause (`buildProductsWhere(query,
- * dim)`), so the count reflects "products that would match if you also picked
- * this term" rather than collapsing onto the already-selected term. The locked
- * `{kind}_id` a browse page sends rides the same `category_id` / `audience_id` /
- * `phase_id` params — it applies to the *other* dimensions' counts (correct)
- * and is excluded from its own (irrelevant; the sidebar hides the locked group).
- *
- * One filtered-relation `_count` query per dimension (3 total), batched with
- * `Promise.all`. The term list + order match the flat taxonomy list endpoints
- * (`routes/taxonomy-list.ts`) so the sidebar renders terms in editorial order.
+ * For each dimension the scoped count joins the dimension's link table to
+ * `products`, applies `buildProductsWhere(query, dim)` (every active filter EXCEPT
+ * that dimension's own clause), and groups by term. Terms are listed in editorial
+ * order to match the flat list endpoints; a term with no matching product counts 0.
  */
 
 import {
@@ -36,75 +16,102 @@ import {
   ProductFacetsResponseSchema,
   type ProductFacetsResponse,
 } from '@aeci/shared';
+import { asc, count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import {
+  productAudiences,
+  productCategories,
+  productPhases,
+  products,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+} from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import { buildProductsWhere, toTaxonomyTermWithCount } from '../lib/prisma-helpers';
-import { getPrisma } from '../prisma';
+import { buildProductsWhere, toTaxonomyTermWithCount } from '../lib/drizzle-helpers';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+
+type TermRow = {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  displayOrder: number | null;
+};
+
+function withCounts(terms: TermRow[], counts: Array<{ termId: string; value: number }>) {
+  const byTerm = new Map(counts.map((r) => [r.termId, r.value]));
+  return terms.map((t) => toTaxonomyTermWithCount({ ...t, productCount: byTerm.get(t.id) ?? 0 }));
+}
 
 export function createProductFacetsHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const query = ProductFacetsQuerySchema.parse(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const prisma = prismaFor(c.env);
-    const order = [{ displayOrder: 'asc' as const }, { name: 'asc' as const }];
+    const { db } = dbFor(c.env);
 
-    const [categoryRows, audienceRows, phaseRows] = await Promise.all([
-      prisma.taxonomyCategory.findMany({
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          description: true,
-          displayOrder: true,
-          _count: {
-            select: {
-              productCategories: { where: { product: buildProductsWhere(query, 'category') } },
-            },
-          },
-        },
-        orderBy: order,
-      }),
-      prisma.taxonomyAudience.findMany({
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          description: true,
-          displayOrder: true,
-          _count: {
-            select: {
-              productAudiences: { where: { product: buildProductsWhere(query, 'audience') } },
-            },
-          },
-        },
-        orderBy: order,
-      }),
-      prisma.taxonomyPhase.findMany({
-        select: {
-          id: true,
-          slug: true,
-          name: true,
-          description: true,
-          displayOrder: true,
-          _count: {
-            select: { productPhases: { where: { product: buildProductsWhere(query, 'phase') } } },
-          },
-        },
-        orderBy: order,
-      }),
+    const [catTerms, catCounts, audTerms, audCounts, phaseTerms, phaseCounts] = await Promise.all([
+      db
+        .select({
+          id: taxonomyCategories.id,
+          slug: taxonomyCategories.slug,
+          name: taxonomyCategories.name,
+          description: taxonomyCategories.description,
+          displayOrder: taxonomyCategories.displayOrder,
+        })
+        .from(taxonomyCategories)
+        .orderBy(asc(taxonomyCategories.displayOrder), asc(taxonomyCategories.name)),
+      db
+        .select({ termId: productCategories.categoryId, value: count() })
+        .from(productCategories)
+        .innerJoin(products, eq(products.id, productCategories.productId))
+        .where(buildProductsWhere(db, query, 'category'))
+        .groupBy(productCategories.categoryId),
+      db
+        .select({
+          id: taxonomyAudiences.id,
+          slug: taxonomyAudiences.slug,
+          name: taxonomyAudiences.name,
+          description: taxonomyAudiences.description,
+          displayOrder: taxonomyAudiences.displayOrder,
+        })
+        .from(taxonomyAudiences)
+        .orderBy(asc(taxonomyAudiences.displayOrder), asc(taxonomyAudiences.name)),
+      db
+        .select({ termId: productAudiences.audienceId, value: count() })
+        .from(productAudiences)
+        .innerJoin(products, eq(products.id, productAudiences.productId))
+        .where(buildProductsWhere(db, query, 'audience'))
+        .groupBy(productAudiences.audienceId),
+      db
+        .select({
+          id: taxonomyPhases.id,
+          slug: taxonomyPhases.slug,
+          name: taxonomyPhases.name,
+          description: taxonomyPhases.description,
+          displayOrder: taxonomyPhases.displayOrder,
+        })
+        .from(taxonomyPhases)
+        .orderBy(asc(taxonomyPhases.displayOrder), asc(taxonomyPhases.name)),
+      db
+        .select({ termId: productPhases.phaseId, value: count() })
+        .from(productPhases)
+        .innerJoin(products, eq(products.id, productPhases.productId))
+        .where(buildProductsWhere(db, query, 'phase'))
+        .groupBy(productPhases.phaseId),
     ]);
 
     const body: ProductFacetsResponse = {
-      categories: categoryRows.map((row) => toTaxonomyTermWithCount(row, 'productCategories')),
-      audiences: audienceRows.map((row) => toTaxonomyTermWithCount(row, 'productAudiences')),
-      phases: phaseRows.map((row) => toTaxonomyTermWithCount(row, 'productPhases')),
+      categories: withCounts(catTerms, catCounts),
+      audiences: withCounts(audTerms, audCounts),
+      phases: withCounts(phaseTerms, phaseCounts),
     };
 
     validateResponseInDev(c.env, () => {

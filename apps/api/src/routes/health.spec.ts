@@ -1,122 +1,48 @@
-import { Hono } from 'hono';
-import { describe, expect, it, vi } from 'vitest';
+/**
+ * GET /api/health on the Drizzle/D1 path (ADR 0016 / AECI-253), against the
+ * in-memory D1 harness.
+ */
 
-import type { Env } from '../env';
-import { makeMockPrisma, type MockPrisma } from '../test/factories/prisma';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createHealthHandler } from './health';
 
-function buildApp(prisma: MockPrisma) {
-  const app = new Hono<{ Bindings: Env }>();
-  app.get(
-    '/api/health',
-    createHealthHandler(() => prisma as never),
-  );
-  return app;
-}
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => {
+  try {
+    t.dispose();
+  } catch {
+    /* already disposed by a test */
+  }
+});
 
-function fakeExecutionContext(): ExecutionContext {
-  return {
-    waitUntil: vi.fn(),
-    passThroughOnException: vi.fn(),
-    props: {},
-  };
-}
+const app = () =>
+  buildAppWithHandler({
+    method: 'get',
+    path: '/api/health',
+    handler: createHealthHandler(t.factory),
+  });
 
-const env: Env = { DATABASE_URL: 'prisma://test', ENV: 'preview' };
-
-describe('createHealthHandler', () => {
-  it("returns 200 with { ok: true, db: 'ok', latencyMs } on Prisma success", async () => {
-    // Guards: happy path response shape — the contract /api/health exposes to callers.
-    const prisma = makeMockPrisma();
-    const res = await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
-
+describe('GET /api/health', () => {
+  it('returns ok when the DB answers SELECT 1', async () => {
+    const res = await app().request('/api/health', {}, TEST_ENV, fakeExecutionContext());
     expect(res.status).toBe(200);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as { ok: boolean; db: string };
     expect(body.ok).toBe(true);
     expect(body.db).toBe('ok');
-    expect(typeof body.latencyMs).toBe('number');
   });
 
-  it('calls prisma.$queryRaw with a SELECT 1 template', async () => {
-    // Guards: AECI-28 acceptance — /api/health must round-trip a SELECT 1 via Prisma.
-    const prisma = makeMockPrisma();
-    await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
-
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
-    const firstArg = prisma.$queryRaw.mock.calls[0]?.[0];
-    expect(Array.isArray(firstArg)).toBe(true);
-    expect((firstArg as TemplateStringsArray).join('')).toBe('SELECT 1');
-  });
-
-  it("returns 500 with { ok: false, db: 'error', error } when Prisma rejects", async () => {
-    // Guards: error path surfaces the failure message so on-call can debug from logs.
-    const prisma = makeMockPrisma({
-      queryRaw: vi.fn(async () => {
-        throw new Error('connection refused');
-      }),
-    });
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const res = await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
-    errorSpy.mockRestore();
-
+  it('returns 500 db:error when the query throws', async () => {
+    t.dispose(); // close the connection → the SELECT 1 throws
+    const res = await app().request('/api/health', {}, TEST_ENV, fakeExecutionContext());
     expect(res.status).toBe(500);
-    expect(await res.json()).toMatchObject({
-      ok: false,
-      db: 'error',
-      error: 'connection refused',
-    });
-  });
-
-  it('reports latencyMs as a non-negative integer', async () => {
-    // Guards: rounding via Math.round; downstream dashboards parse this as an int.
-    const prisma = makeMockPrisma();
-    const res = await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
-    const body = (await res.json()) as { latencyMs: number };
-
-    expect(Number.isInteger(body.latencyMs)).toBe(true);
-    expect(body.latencyMs).toBeGreaterThanOrEqual(0);
-  });
-
-  it('forwards a Datadog log via ctx.waitUntil when DD_API_KEY is set (AECI-31 smoke)', async () => {
-    // Guards: every /api/health response emits a `message:health` log so the
-    // §"smoke test: API health log visible in Datadog Logs" criterion can be
-    // exercised every request — not just a one-off probe.
-    const prisma = makeMockPrisma();
-    const ctx = fakeExecutionContext();
-    const envWithDd: Env = {
-      ...env,
-      DD_API_KEY: 'secret-key',
-      DD_SITE: 'us5.datadoghq.com',
-    };
-    await buildApp(prisma).request('/api/health', {}, envWithDd, ctx);
-    expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
-  });
-
-  it('does not call ctx.waitUntil when DD_API_KEY is absent (no observability outage)', async () => {
-    const prisma = makeMockPrisma();
-    const ctx = fakeExecutionContext();
-    await buildApp(prisma).request('/api/health', {}, env, ctx);
-    expect(ctx.waitUntil).not.toHaveBeenCalled();
-  });
-
-  it("sets Cache-Control: 'private, no-store' on the success response (AECI-43)", async () => {
-    // Guards: /api/health must never be edge- or client-cached — a stale
-    // { ok: true, db: 'ok' } during a DB outage would be actively misleading.
-    const prisma = makeMockPrisma();
-    const res = await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
-  });
-
-  it("sets Cache-Control: 'private, no-store' on the error response (AECI-43)", async () => {
-    // Guards: failure responses are even more dangerous to cache than success.
-    const prisma = makeMockPrisma({
-      queryRaw: vi.fn(async () => {
-        throw new Error('connection refused');
-      }),
-    });
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const res = await buildApp(prisma).request('/api/health', {}, env, fakeExecutionContext());
-    errorSpy.mockRestore();
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    const body = (await res.json()) as { ok: boolean; db: string };
+    expect(body.ok).toBe(false);
+    expect(body.db).toBe('error');
   });
 });

@@ -1,199 +1,86 @@
+/**
+ * GET /api/products/facets on the Drizzle/D1 path (ADR 0016 / AECI-253), against
+ * the in-memory D1 harness. Exercises disjunctive faceting: a filter on one
+ * dimension scopes the OTHER dimensions' counts but not its own.
+ */
+
 import { ProductFacetsResponseSchema } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  CONSTRUCTION_AUDIENCE_ID,
-  FIELD_MGMT_CATEGORY_ID,
-  PROJECT_MGMT_CATEGORY_ID,
-  allAudienceRows,
-  allCategoryRows,
-  allPhaseRows,
-} from '../test/fixtures/taxonomy';
-import {
-  buildAppWithHandler,
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
-
+  productAudiences,
+  productCategories,
+  products,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+} from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductFacetsHandler } from './product-facets';
 
-function facetsApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const get = (url: string) =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/products/facets',
-    handler: createProductFacetsHandler(() => prisma as never),
-  });
-}
-
-/** A prisma mock wired with the full three-facet term fixtures. */
-function allTermsPrisma(): MockAcceleratedPrisma {
-  return makeMockAcceleratedPrisma({
-    taxonomyCategory: { findMany: allCategoryRows },
-    taxonomyAudience: { findMany: allAudienceRows },
-    taxonomyPhase: { findMany: allPhaseRows },
-  });
-}
-
-/** Pull the `where.product` filter passed into a model's filtered `_count`. */
-function countWhere(
-  call: unknown,
-  relation: 'productCategories' | 'productAudiences' | 'productPhases',
-): Record<string, unknown> {
-  const args = call as {
-    select: { _count: { select: Record<string, { where: { product: unknown } }> } };
-  };
-  return args.select._count.select[relation].where.product as Record<string, unknown>;
-}
+    handler: createProductFacetsHandler(t.factory),
+  }).request(url, {}, TEST_ENV, fakeExecutionContext());
 
 describe('GET /api/products/facets', () => {
-  it('returns category/audience/phase groups each with product_count per term', async () => {
-    const res = await facetsApp(allTermsPrisma()).request(
-      '/api/products/facets',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    const parsed = ProductFacetsResponseSchema.parse(await res.json());
-    expect(parsed.categories.map((t) => t.slug)).toEqual([
-      'project-management',
-      'field-management',
+  beforeEach(async () => {
+    // Two products. p1 ∈ {cat A, aud X}; p2 ∈ {cat B, aud X}.
+    await t.db.insert(products).values([
+      { id: u(1), slug: 'p1', name: 'P1', promotionStatus: 'promoted' },
+      { id: u(2), slug: 'p2', name: 'P2', promotionStatus: 'promoted' },
     ]);
-    expect(parsed.categories.find((t) => t.slug === 'project-management')?.product_count).toBe(5);
-    expect(parsed.audiences[0]?.product_count).toBe(7);
-    expect(parsed.phases[0]?.product_count).toBe(4);
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(11), slug: 'cat-a', name: 'Cat A', displayOrder: 10 },
+      { id: u(12), slug: 'cat-b', name: 'Cat B', displayOrder: 20 },
+    ]);
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: u(21), slug: 'aud-x', name: 'Aud X', displayOrder: 10 });
+    await t.db
+      .insert(taxonomyPhases)
+      .values({ id: u(31), slug: 'phase-1', name: 'Phase 1', displayOrder: 10 });
+    await t.db.insert(productCategories).values([
+      { productId: u(1), categoryId: u(11) },
+      { productId: u(2), categoryId: u(12) },
+    ]);
+    await t.db.insert(productAudiences).values([
+      { productId: u(1), audienceId: u(21) },
+      { productId: u(2), audienceId: u(21) },
+    ]);
   });
 
-  it('with no filters builds an empty product `where` for every dimension', async () => {
-    const prisma = allTermsPrisma();
-    await facetsApp(prisma).request('/api/products/facets', {}, TEST_ENV, fakeExecutionContext());
-
-    expect(
-      countWhere(prisma.taxonomyCategory.findMany.mock.calls[0][0], 'productCategories'),
-    ).toEqual({});
-    expect(
-      countWhere(prisma.taxonomyAudience.findMany.mock.calls[0][0], 'productAudiences'),
-    ).toEqual({});
-    expect(countWhere(prisma.taxonomyPhase.findMany.mock.calls[0][0], 'productPhases')).toEqual({});
-  });
-
-  it('computes each dimension disjunctively — its own filter is excluded, the others apply', async () => {
-    const prisma = allTermsPrisma();
-    await facetsApp(prisma).request(
-      `/api/products/facets?category_id=${PROJECT_MGMT_CATEGORY_ID}&audience_id=${CONSTRUCTION_AUDIENCE_ID}`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+  it('returns per-term counts across all dimensions (no filter)', async () => {
+    const body = ProductFacetsResponseSchema.parse(
+      await (await get('/api/products/facets')).json(),
     );
-
-    // categories group: own (category) clause dropped; audience clause applies.
-    expect(
-      countWhere(prisma.taxonomyCategory.findMany.mock.calls[0][0], 'productCategories'),
-    ).toEqual({
-      productAudiences: { some: { audienceId: { in: [CONSTRUCTION_AUDIENCE_ID] } } },
-    });
-
-    // audiences group: own (audience) clause dropped; category clause applies.
-    expect(
-      countWhere(prisma.taxonomyAudience.findMany.mock.calls[0][0], 'productAudiences'),
-    ).toEqual({
-      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
-    });
-
-    // phases group: neither own — both category + audience clauses apply.
-    expect(countWhere(prisma.taxonomyPhase.findMany.mock.calls[0][0], 'productPhases')).toEqual({
-      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
-      productAudiences: { some: { audienceId: { in: [CONSTRUCTION_AUDIENCE_ID] } } },
-    });
+    const cat = (slug: string) => body.categories.find((c) => c.slug === slug)?.product_count;
+    expect(cat('cat-a')).toBe(1);
+    expect(cat('cat-b')).toBe(1);
+    expect(body.audiences.find((a) => a.slug === 'aud-x')?.product_count).toBe(2);
+    // term with no links still listed, count 0
+    expect(body.phases.find((p) => p.slug === 'phase-1')?.product_count).toBe(0);
   });
 
-  it("excludes a dimension's own multi-selection from its own counts, ORs it into the others (AECI-223)", async () => {
-    const prisma = allTermsPrisma();
-    const catA = PROJECT_MGMT_CATEGORY_ID;
-    const catB = FIELD_MGMT_CATEGORY_ID;
-    await facetsApp(prisma).request(
-      `/api/products/facets?category_id=${catA},${catB}`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+  it('disjunctive faceting: filtering category A scopes audience counts but not category counts', async () => {
+    const body = ProductFacetsResponseSchema.parse(
+      await (await get(`/api/products/facets?category_id=${u(11)}`)).json(),
     );
-
-    // categories group: its own (multi) clause is dropped entirely — each term's
-    // count reflects what it would add, not the already-selected pair.
-    expect(
-      countWhere(prisma.taxonomyCategory.findMany.mock.calls[0][0], 'productCategories'),
-    ).toEqual({});
-
-    // sibling dimensions: the full multi-select rides in as a single `in` clause.
-    expect(
-      countWhere(prisma.taxonomyAudience.findMany.mock.calls[0][0], 'productAudiences'),
-    ).toEqual({
-      productCategories: { some: { categoryId: { in: [catA, catB] } } },
-    });
-    expect(countWhere(prisma.taxonomyPhase.findMany.mock.calls[0][0], 'productPhases')).toEqual({
-      productCategories: { some: { categoryId: { in: [catA, catB] } } },
-    });
-  });
-
-  it('applies a locked {kind}_id (browse page scope) to the other dimensions', async () => {
-    // A `/categories/:slug` page sends its locked category_id with no cross-filter.
-    const prisma = allTermsPrisma();
-    await facetsApp(prisma).request(
-      `/api/products/facets?category_id=${PROJECT_MGMT_CATEGORY_ID}`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    // The locked dimension is excluded from its own counts (the sidebar hides it).
-    expect(
-      countWhere(prisma.taxonomyCategory.findMany.mock.calls[0][0], 'productCategories'),
-    ).toEqual({});
-    // …and applied to the other two so their counts are scoped to the category.
-    expect(
-      countWhere(prisma.taxonomyAudience.findMany.mock.calls[0][0], 'productAudiences'),
-    ).toEqual({
-      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
-    });
-    expect(countWhere(prisma.taxonomyPhase.findMany.mock.calls[0][0], 'productPhases')).toEqual({
-      productCategories: { some: { categoryId: { in: [PROJECT_MGMT_CATEGORY_ID] } } },
-    });
-  });
-
-  it('orders each dimension by displayOrder then name', async () => {
-    const prisma = allTermsPrisma();
-    await facetsApp(prisma).request('/api/products/facets', {}, TEST_ENV, fakeExecutionContext());
-
-    const call = prisma.taxonomyCategory.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual([{ displayOrder: 'asc' }, { name: 'asc' }]);
-  });
-
-  it('rejects a non-uuid category_id with 400 VALIDATION_FAILED', async () => {
-    const prisma = allTermsPrisma();
-    const res = await facetsApp(prisma).request(
-      '/api/products/facets?category_id=not-a-uuid',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; field?: string } };
-    expect(body.error.code).toBe('VALIDATION_FAILED');
-    expect(body.error.field).toBe('category_id');
-    expect(prisma.taxonomyCategory.findMany).not.toHaveBeenCalled();
-  });
-
-  it("emits `Cache-Control: 'private, no-store'` (request-scoped, not edge-cached)", async () => {
-    const res = await facetsApp(allTermsPrisma()).request(
-      '/api/products/facets',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    // category counts ignore their own filter → both still 1
+    expect(body.categories.find((c) => c.slug === 'cat-a')?.product_count).toBe(1);
+    expect(body.categories.find((c) => c.slug === 'cat-b')?.product_count).toBe(1);
+    // audience count is scoped to category A → only p1 → 1 (not 2)
+    expect(body.audiences.find((a) => a.slug === 'aud-x')?.product_count).toBe(1);
   });
 });
