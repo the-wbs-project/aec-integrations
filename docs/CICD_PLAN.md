@@ -368,7 +368,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `SUPABASE_ACCESS_TOKEN` | Migrations via Supabase CLI | All |
 | `SUPABASE_DB_URL` | Supabase pooler URL; doubles as `DIRECT_URL` for `supabase db push --linked` | All |
 | `DATABASE_URL` | Prisma Accelerate runtime URL (`prisma://...`); one per environment. Pushed to Worker via `wrangler secret put DATABASE_URL` | All |
-| `SUPABASE_SERVICE_ROLE_KEY` | Server-side Supabase admin | All |
+| `SUPABASE_SERVICE_ROLE_KEY` | Operator-held for transient shell provisioning (e.g. dev test user). **Never** pushed to a Worker and read by **no** workflow — the `integration-db-tests` job mints its own from a local `supabase start` stack. Not a runtime secret; not involved in sign-in. See `environments.md` §Secrets. | — (optional) |
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |
 | `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env **management** key — search + index-mutation ACLs, scoped to that env's three indexes (NOT the app-wide root admin key). Sync pipeline (3.5/3.6) + CI. Pushed to the API Worker as `ALGOLIA_ADMIN_KEY`. Rotated independently per env (§7.4). | staging, production |
 | `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION` | Per-env **search-only** key (`['search']`), scoped to that env's three indexes. Pushed to the web Worker as `ALGOLIA_SEARCH_KEY`; client-exposed (InstantSearch, 3.9). | staging, production |
@@ -387,10 +387,12 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 For runtime use, secrets are pushed to Worker secrets via Wrangler:
 
 ```bash
-wrangler secret put SUPABASE_SERVICE_ROLE_KEY --env production
+wrangler secret put DD_API_KEY --env production
 ```
 
 GitHub Actions does this via the `cloudflare/wrangler-action` step, pulling from GitHub Actions secrets.
+
+> **Never push the Supabase service-role key to a Worker.** No Worker reads it (`AUTH_AND_RLS.md` §3); the web Worker's auth path uses `SUPABASE_URL` + the anon key, and the API Worker verifies JWTs with public JWKS material only. See `environments.md` §Secrets.
 
 ### 7.3 Local development
 

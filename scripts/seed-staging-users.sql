@@ -82,6 +82,13 @@ BEGIN
             INSERT INTO auth.users (
                 instance_id, id, aud, role, email, encrypted_password,
                 email_confirmed_at, raw_app_meta_data, raw_user_meta_data,
+                -- GoTrue scans these token columns as NON-NULL Go strings.
+                -- Left to their nullable default, a later magic-link login
+                -- 500s ("Database error finding user") on the user lookup.
+                -- '' is GoTrue's "no token" sentinel — never NULL.
+                confirmation_token, recovery_token, email_change,
+                email_change_token_new, email_change_token_current,
+                phone_change, phone_change_token, reauthentication_token,
                 created_at, updated_at
             ) VALUES (
                 '00000000-0000-0000-0000-000000000000',
@@ -92,6 +99,7 @@ BEGIN
                 now(),
                 '{"provider":"email","providers":["email"]}'::jsonb,
                 '{}'::jsonb,
+                '', '', '', '', '', '', '', '',
                 now(), now()
             );
         ELSE
@@ -99,16 +107,24 @@ BEGIN
             -- operator, or a prior seed run). Give it the shared test password
             -- and clear any outstanding tokens; leave its UUID and FK refs be.
             UPDATE auth.users
-               SET encrypted_password     = crypt('staging-test-password', gen_salt('bf')),
-                   email_confirmed_at      = COALESCE(email_confirmed_at, now()),
-                   aud                     = 'authenticated',
-                   role                    = 'authenticated',
-                   raw_app_meta_data       = '{"provider":"email","providers":["email"]}'::jsonb,
-                   confirmation_token      = NULL,
-                   recovery_token          = NULL,
-                   email_change_token_new  = NULL,
-                   phone_change_token      = NULL,
-                   updated_at              = now()
+               SET encrypted_password         = crypt('staging-test-password', gen_salt('bf')),
+                   email_confirmed_at          = COALESCE(email_confirmed_at, now()),
+                   aud                         = 'authenticated',
+                   role                        = 'authenticated',
+                   raw_app_meta_data           = '{"provider":"email","providers":["email"]}'::jsonb,
+                   -- Clear outstanding tokens to '' — NOT NULL. GoTrue scans
+                   -- these as NON-NULL Go strings; a NULL (e.g. carried in from
+                   -- the restored prod row) makes the next magic-link login 500
+                   -- ("Database error finding user"). '' is the cleared sentinel.
+                   confirmation_token          = '',
+                   recovery_token              = '',
+                   email_change                = '',
+                   email_change_token_new      = '',
+                   email_change_token_current  = '',
+                   phone_change                = '',
+                   phone_change_token          = '',
+                   reauthentication_token      = '',
+                   updated_at                  = now()
              WHERE id = target_id;
         END IF;
 
