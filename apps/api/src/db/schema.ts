@@ -610,10 +610,9 @@ export const auditLog = sqliteTable(
       'audit_log_actor_type_check',
       sql`"actor_type" IN ('user', 'admin', 'system', 'workflow')`,
     ),
-    check(
-      'audit_log_entity_type_check',
-      sql`"entity_type" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')`,
-    ),
+    // NOTE: audit_log.entity_type is intentionally UNCONSTRAINED (freeform) — the
+    // app writes 'review', 'vendor_request', 'profile', etc. The entity_type CHECK
+    // belongs to `translations`, not here (Postgres baseline §audit_log).
   ],
 );
 
@@ -689,6 +688,10 @@ export const translations = sqliteTable(
       t.field,
     ),
     index('translations_lookup_idx').on(t.entityType, t.entityId, t.locale),
+    check(
+      'translations_entity_type_check',
+      sql`"entity_type" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')`,
+    ),
   ],
 );
 

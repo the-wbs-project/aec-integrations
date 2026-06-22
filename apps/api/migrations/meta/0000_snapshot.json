@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "50ee0a39-7856-45ec-9f0d-c916495c9103",
+  "id": "0cf69c16-98d7-4c1c-a7cd-02924fd592ad",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit_log": {
@@ -134,10 +134,6 @@
         "audit_log_actor_type_check": {
           "name": "audit_log_actor_type_check",
           "value": "\"actor_type\" IN ('user', 'admin', 'system', 'workflow')"
-        },
-        "audit_log_entity_type_check": {
-          "name": "audit_log_entity_type_check",
-          "value": "\"entity_type\" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')"
         }
       }
     },
@@ -2192,7 +2188,12 @@
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
-      "checkConstraints": {}
+      "checkConstraints": {
+        "translations_entity_type_check": {
+          "name": "translations_entity_type_check",
+          "value": "\"entity_type\" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration')"
+        }
+      }
     },
     "vendor_requests": {
       "name": "vendor_requests",

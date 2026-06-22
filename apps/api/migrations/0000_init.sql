@@ -10,8 +10,7 @@ CREATE TABLE `audit_log` (
 	`metadata` text,
 	`created_at` text NOT NULL,
 	FOREIGN KEY (`actor_id`) REFERENCES `profiles`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "audit_log_actor_type_check" CHECK("actor_type" IN ('user', 'admin', 'system', 'workflow')),
-	CONSTRAINT "audit_log_entity_type_check" CHECK("entity_type" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration'))
+	CONSTRAINT "audit_log_actor_type_check" CHECK("actor_type" IN ('user', 'admin', 'system', 'workflow'))
 );
 --> statement-breakpoint
 CREATE INDEX `audit_log_entity_idx` ON `audit_log` (`entity_type`,`entity_id`,`created_at`);--> statement-breakpoint
@@ -314,7 +313,8 @@ CREATE TABLE `translations` (
 	`field` text NOT NULL,
 	`value` text NOT NULL,
 	`created_at` text NOT NULL,
-	`updated_at` text NOT NULL
+	`updated_at` text NOT NULL,
+	CONSTRAINT "translations_entity_type_check" CHECK("entity_type" IN ('product', 'vendor', 'category', 'audience', 'phase', 'integration'))
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `translations_entity_type_entity_id_locale_field_key` ON `translations` (`entity_type`,`entity_id`,`locale`,`field`);--> statement-breakpoint
