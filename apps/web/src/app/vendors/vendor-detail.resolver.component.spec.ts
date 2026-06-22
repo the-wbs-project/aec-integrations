@@ -58,7 +58,6 @@ function buildVendor(overrides: Partial<VendorDetail> = {}): VendorDetail {
     facebook_url: null,
     instagram_url: null,
     youtube_url: null,
-    github_url: null,
     products: [],
     ...overrides,
   };
