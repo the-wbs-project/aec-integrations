@@ -76,18 +76,27 @@
 
       <p class="break-words text-sm leading-relaxed text-(--text-secondary)">{{ r.body }}</p>
 
-      <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-(--text-secondary)">
+      <div class="flex flex-wrap items-center gap-2 text-xs text-(--text-secondary)">
         @if (r.verified_work_email) {
         <span class="inline-flex items-center gap-1 font-medium text-(--text-primary)">
           <span aria-hidden="true">✓</span>
           <span i18n="@@products.detail.reviews.verified">Verified reviewer</span>
         </span>
         } @if (r.role_at_company) {
-        <span>{{ roleLabel(r.role_at_company) }}</span>
+        <span
+          class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2 py-0.5 font-medium tracking-[0.01em] text-(--text-secondary)"
+          >{{ roleLabel(r.role_at_company) }}</span
+        >
         } @if (r.years_using !== null) {
-        <span>{{ yearsLabel(r.years_using) }}</span>
+        <span
+          class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2 py-0.5 font-medium tracking-[0.01em] text-(--text-secondary)"
+          >{{ yearsLabel(r.years_using) }}</span
+        >
         } @if (r.would_recommend) {
-        <span>{{ recommendLabel(r.would_recommend) }}</span>
+        <span
+          class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default) bg-(--surface-raised) px-2 py-0.5 font-medium tracking-[0.01em] text-(--text-secondary)"
+          >{{ recommendLabel(r.would_recommend) }}</span
+        >
         }
       </div>
     </li>
