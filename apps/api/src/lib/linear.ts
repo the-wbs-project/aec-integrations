@@ -9,7 +9,7 @@
  * AND the request's `workflow_instance.linear_issue_id`. Linear's own email
  * notifications then alert the assignee (`STAGE_1_PHASE_6_SPEC.md` §6.1, §10).
  *
- * The contract `createLinearIssueForRequest()` upholds (mirrors `lib/perspective.ts`):
+ * The contract `createLinearIssueForRequest()` upholds (mirrors `lib/toxicity.ts`):
  *
  *   - **Never throws.** Every failure mode (absent key, timeout, non-2xx, a
  *     200-with-`errors[]` body, `success:false`, a DB write error) is caught,
@@ -258,7 +258,7 @@ export type LinearPersistClient = {
 };
 
 /** The slice of Hono's `Context` this needs, typed structurally (like
- *  `perspective.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits. */
+ *  `toxicity.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits. */
 type LinearContext = { env: Env; executionCtx: ExecutionContext; req: { raw: Request } };
 
 export interface LinearIssueInput {
@@ -321,7 +321,7 @@ export async function createLinearIssueForRequest(
 ): Promise<void> {
   const apiKey = c.env.LINEAR_API_KEY;
   // Absent key is the expected non-prod state — silent no-op, no metric (it must
-  // not pollute the error-rate denominator; mirrors `perspective.ts`).
+  // not pollute the error-rate denominator; mirrors `toxicity.ts`).
   if (!apiKey) return;
 
   // Idempotency guard: skip if already linked. Covers a stray re-fire and the
@@ -582,7 +582,7 @@ function buildDuplicateNote(input: LinearIssueInput): string {
 
 /** Emit the `aeci.linear.issue` outcome count (+ duration distribution on a
  *  terminal create attempt). Wrapped so a missing `DD_API_KEY` / ExecutionContext
- *  can never turn a graceful path into a throw (mirrors `perspective.ts`). */
+ *  can never turn a graceful path into a throw (mirrors `toxicity.ts`). */
 function emit(
   c: LinearContext,
   outcome: 'ok' | 'failed' | 'skipped_exists',

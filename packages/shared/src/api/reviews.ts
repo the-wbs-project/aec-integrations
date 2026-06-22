@@ -103,7 +103,7 @@ export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema
  * Source of truth is `docs/API_CONTRACTS.md` §6.10 and `STAGE_1_PHASE_5_SPEC.md`
  * §7.2 / §22.1. Both endpoints are admin-only (`requireAdmin()`); the item shape
  * carries fields the public `PublicReview` contract deliberately hides —
- * `status`, the `toxicity_score` Perspective triage signal, the moderation
+ * `status`, the `toxicity_score` moderation triage signal, the moderation
  * columns, and the author's `reviewer_email`.
  *
  * Contract note (deviates from `API_CONTRACTS.md` §6.10 as written):

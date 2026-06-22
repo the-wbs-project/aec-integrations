@@ -851,7 +851,7 @@ export const ListPendingReviewsQuerySchema = PaginationQuerySchema.extend({
 
 export type AdminReview = Review & {
   status: 'pending' | 'approved' | 'rejected';
-  toxicity_score: number | null;   // from Perspective API
+  toxicity_score: number | null;   // from the toxicity scorer (Claude), 0–100
   product: ProductRef;
   reviewer_email: string;          // visible to admins only
 };

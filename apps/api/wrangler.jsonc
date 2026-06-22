@@ -38,9 +38,21 @@
   //                 Required on production (verify-worker-secrets.sh fails the deploy
   //                 if absent — AECI-139); absent on preview/local → the cron +
   //                 promote hook are a graceful no-op.
+  //   ANTHROPIC_API_KEY — Anthropic API key for review toxicity scoring via Claude
+  //                 Haiku (AECI-258, supersedes the sunsetting Perspective API of
+  //                 AECI-198). Read at runtime by `scoreToxicity()` on POST
+  //                 /api/reviews. Optional + fail-open: absent (local/preview) →
+  //                 scoring is a silent no-op storing toxicity_score=null (emits no
+  //                 metric); an outage stores null too. Never blocks a submission.
+  //                 Set per env via `wrangler secret put ANTHROPIC_API_KEY --env
+  //                 <env>` when ready (no CI gate). GDPR prerequisite: the
+  //                 Messages API has no per-request no-store control, so the
+  //                 Anthropic org behind a real key MUST have zero data retention
+  //                 (ZDR) enabled or scored review bodies are retained ~30 days
+  //                 outside the AUTH_AND_RLS.md §8 erasure boundary.
   //   LINEAR_API_KEY — Linear personal API key for the form→Linear pipeline
   //                 (AECI-211 / Phase 6.4). Presented raw in `Authorization` (no
-  //                 `Bearer`). Optional + fail-open like PERSPECTIVE_API_KEY: absent
+  //                 `Bearer`). Optional + fail-open like ANTHROPIC_API_KEY: absent
   //                 → issue creation is a silent no-op and the request row sits open
   //                 for the §6.7 reconciliation sweep. Set per env via `wrangler
   //                 secret put LINEAR_API_KEY --env <env>` when ready (no CI gate).

@@ -1,10 +1,11 @@
 /**
- * Unit coverage for `scoreToxicity()` (AECI-198 / Phase 5.7).
+ * Unit coverage for `scoreToxicity()` (AECI-258, supersedes the AECI-198 /
+ * Phase 5.7 Perspective path).
  *
  * The contract under test: the call NEVER throws and fails open to `null` for
- * every failure mode (absent key, non-2xx, network error, timeout, malformed
- * payload), and maps Perspective's 0.0–1.0 float to a 0–100 `smallint`. Global
- * `fetch` is stubbed; `DD_API_KEY` is unset so the `warn` path is a no-op.
+ * every failure mode (absent key, non-2xx, network error, timeout, malformed /
+ * unparseable payload), and maps the model's reply to a clamped 0–100 integer.
+ * Global `fetch` is stubbed; `DD_API_KEY` is unset so the `warn` path is a no-op.
  */
 
 import type { Context } from 'hono';
@@ -12,11 +13,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
-import { scoreToxicity } from './perspective';
+import { scoreToxicity } from './toxicity';
 
-// AECI-206: the `aeci.perspective.api*` observability pair rides the shared
-// transport; mock it so we can assert the per-branch outcome/latency. The file
-// also imports `logToDatadog` (the `warn` path).
+// AECI-206 / AECI-258: the `aeci.toxicity.api*` observability pair rides the
+// shared transport; mock it so we can assert the per-branch outcome/latency. The
+// file also imports `logToDatadog` (the `warn` path).
 vi.mock('../datadog', () => ({
   logToDatadog: vi.fn(),
   submitCount: vi.fn(),
@@ -26,19 +27,19 @@ vi.mock('../datadog', () => ({
 
 type ScoreContext = Context<{ Bindings: Env }>;
 
-/** The tag arrays recorded for `aeci.perspective.api` (the outcome count) this test. */
+/** The tag arrays recorded for `aeci.toxicity.api` (the outcome count) this test. */
 function apiCountTags(): string[][] {
   return vi
     .mocked(submitCount)
-    .mock.calls.filter((call) => call[3] === 'aeci.perspective.api')
+    .mock.calls.filter((call) => call[3] === 'aeci.toxicity.api')
     .map((call) => call[5] as string[]);
 }
 
-/** The `{ value, tags }` recorded for the `aeci.perspective.api.duration_ms` latency. */
+/** The `{ value, tags }` recorded for the `aeci.toxicity.api.duration_ms` latency. */
 function apiDurations(): Array<{ value: number; tags: string[] }> {
   return vi
     .mocked(submitDistribution)
-    .mock.calls.filter((call) => call[3] === 'aeci.perspective.api.duration_ms')
+    .mock.calls.filter((call) => call[3] === 'aeci.toxicity.api.duration_ms')
     .map((call) => ({ value: call[4] as number, tags: call[5] as string[] }));
 }
 
@@ -56,10 +57,16 @@ function fakeContext(env: Partial<Env> = {}): ScoreContext {
   } as unknown as ScoreContext;
 }
 
-/** A Perspective 200 response carrying `summaryScore.value`. */
-function okResponse(value: number): Response {
+/** An Anthropic Messages 200 response carrying the model's text reply. */
+function okResponse(text: string): Response {
   return new Response(
-    JSON.stringify({ attributeScores: { TOXICITY: { summaryScore: { value } } } }),
+    JSON.stringify({
+      id: 'msg_test',
+      type: 'message',
+      role: 'assistant',
+      content: [{ type: 'text', text }],
+      stop_reason: 'end_turn',
+    }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   );
 }
@@ -68,21 +75,24 @@ afterEach(() => vi.restoreAllMocks());
 
 describe('scoreToxicity', () => {
   it('returns the 0–100 integer for a normal 200 response', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse(0.92));
-    const score = await scoreToxicity(fakeContext({ PERSPECTIVE_API_KEY: 'k' }), 'some body text');
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse('92'));
+    const score = await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'some body text');
 
     expect(score).toBe(92);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
     const [url, init] = fetchSpy.mock.calls[0]!;
-    expect(String(url)).toContain('commentanalyzer.googleapis.com');
-    expect(String(url)).toContain('key=k');
-    // Scores the body text, requests TOXICITY, sends an abort signal (timeout).
-    // `doNotStore` keeps private/pending content out of Google's retention.
-    expect(JSON.parse(String(init?.body))).toMatchObject({
-      comment: { text: 'some body text' },
-      requestedAttributes: { TOXICITY: {} },
-      doNotStore: true,
+    expect(String(url)).toBe('https://api.anthropic.com/v1/messages');
+    // Authenticates with x-api-key + the required anthropic-version header.
+    const headers = init?.headers as Record<string, string>;
+    expect(headers['x-api-key']).toBe('k');
+    expect(headers['anthropic-version']).toBe('2023-06-01');
+    // Sends the body as the user message to Claude Haiku, with an abort signal.
+    const sent = JSON.parse(String(init?.body));
+    expect(sent).toMatchObject({
+      model: 'claude-haiku-4-5',
+      messages: [{ role: 'user', content: 'some body text' }],
     });
+    expect(typeof sent.system).toBe('string');
     expect(init?.signal).toBeInstanceOf(AbortSignal);
 
     // AECI-206: a success emits outcome:ok + a latency point tagged outcome:ok.
@@ -93,9 +103,17 @@ describe('scoreToxicity', () => {
     expect(durations[0]?.value).toBeGreaterThanOrEqual(0);
   });
 
-  it('rounds to the nearest integer (0.875 → 88)', async () => {
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse(0.875));
-    expect(await scoreToxicity(fakeContext({ PERSPECTIVE_API_KEY: 'k' }), 'b')).toBe(88);
+  it('tolerates surrounding whitespace and clamps to the 0–100 range', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse('  7  '));
+    expect(await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).toBe(7);
+
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse('150'));
+    expect(await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).toBe(100);
+
+    vi.restoreAllMocks();
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse('-5'));
+    expect(await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).toBe(0);
   });
 
   it('is a silent no-op returning null when no key is configured (never calls fetch)', async () => {
@@ -109,29 +127,35 @@ describe('scoreToxicity', () => {
 
   it('returns null on a non-2xx response', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('nope', { status: 503 }));
-    expect(await scoreToxicity(fakeContext({ PERSPECTIVE_API_KEY: 'k' }), 'b')).toBeNull();
+    expect(await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).toBeNull();
     expect(apiCountTags()).toEqual([['outcome:failed', 'reason:http_error']]);
     expect(apiDurations()[0]?.tags).toEqual(['outcome:failed']);
   });
 
   it('returns null on a network error (never throws)', async () => {
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(new TypeError('network down'));
-    await expect(scoreToxicity(fakeContext({ PERSPECTIVE_API_KEY: 'k' }), 'b')).resolves.toBeNull();
+    await expect(scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).resolves.toBeNull();
     expect(apiCountTags()).toEqual([['outcome:failed', 'reason:network']]);
   });
 
   it('returns null on a timeout (AbortError, never throws)', async () => {
     const abort = new DOMException('The operation timed out.', 'AbortError');
     vi.spyOn(globalThis, 'fetch').mockRejectedValue(abort);
-    await expect(scoreToxicity(fakeContext({ PERSPECTIVE_API_KEY: 'k' }), 'b')).resolves.toBeNull();
+    await expect(scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).resolves.toBeNull();
     expect(apiCountTags()).toEqual([['outcome:failed', 'reason:timeout']]);
   });
 
-  it('returns null when the payload lacks a TOXICITY summaryScore', async () => {
+  it('returns null when the reply has no parseable integer', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue(okResponse('not a number'));
+    expect(await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).toBeNull();
+    expect(apiCountTags()).toEqual([['outcome:failed', 'reason:malformed']]);
+  });
+
+  it('returns null when the payload has no text content block', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response(JSON.stringify({ attributeScores: {} }), { status: 200 }),
+      new Response(JSON.stringify({ content: [] }), { status: 200 }),
     );
-    expect(await scoreToxicity(fakeContext({ PERSPECTIVE_API_KEY: 'k' }), 'b')).toBeNull();
+    expect(await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).toBeNull();
     expect(apiCountTags()).toEqual([['outcome:failed', 'reason:malformed']]);
   });
 
@@ -139,8 +163,8 @@ describe('scoreToxicity', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response('{not json', { status: 200, headers: { 'Content-Type': 'application/json' } }),
     );
-    expect(await scoreToxicity(fakeContext({ PERSPECTIVE_API_KEY: 'k' }), 'b')).toBeNull();
-    // A 200 whose body won't parse throws into the catch → counted as failed.
+    expect(await scoreToxicity(fakeContext({ ANTHROPIC_API_KEY: 'k' }), 'b')).toBeNull();
+    // A 200 whose body won't parse throws into the catch → counted as failed/network.
     expect(apiCountTags()).toEqual([['outcome:failed', 'reason:network']]);
   });
 });

@@ -379,7 +379,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `LOOPS_API_KEY` | Transactional email | staging, production |
 | `LINEAR_API_TOKEN` | Issue creation | All |
 | `LINEAR_WEBHOOK_SECRET` | Webhook signature verification | All |
-| `PERSPECTIVE_API_KEY` | Profanity flagging | All |
+| `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
 | `BRANDFETCH_CLIENT_ID` | Logo CDN | All |
 
 ### 7.2 Worker secrets

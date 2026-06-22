@@ -19,8 +19,8 @@ import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 
 /** Score at/above which a review is flagged "high toxicity" and styled with a
- *  warning. 70/100 == Perspective's common 0.7 attribute threshold; the default
- *  sort already floats the worst content to the top (§22.2), this just labels it. */
+ *  warning. 70 is our cutoff on the 0–100 toxicity score; the default sort
+ *  already floats the worst content to the top (§22.2), this just labels it. */
 const HIGH_TOXICITY_THRESHOLD = 70;
 
 /** One request covers a launch-scale moderation backlog. The API caps `perPage`

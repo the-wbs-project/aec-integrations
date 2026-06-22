@@ -45,8 +45,8 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found) |
 | `aeci.moderation.action` | count | `apps/api/src/routes/admin-reviews.ts` (`createModerateReviewHandler`, AECI-206) | `action` (approve / reject), `outcome` (ok / invalid_state) |
-| `aeci.perspective.api` | count | `apps/api/src/lib/perspective.ts` (`scoreToxicity`, AECI-206) | `outcome` (ok / failed), `reason` on failure (http_error / malformed / timeout / network) |
-| `aeci.perspective.api.duration_ms` | distribution | `apps/api/src/lib/perspective.ts` (`scoreToxicity`, AECI-206) | `outcome` (ok / failed) |
+| `aeci.toxicity.api` | count | `apps/api/src/lib/toxicity.ts` (`scoreToxicity`, AECI-206 / AECI-258) | `outcome` (ok / failed), `reason` on failure (http_error / malformed / timeout / network) |
+| `aeci.toxicity.api.duration_ms` | distribution | `apps/api/src/lib/toxicity.ts` (`scoreToxicity`, AECI-206 / AECI-258) | `outcome` (ok / failed) |
 | `aeci.moderation.queue_depth` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
 | `aeci.moderation.queue_oldest_age_hours` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
 | `aeci.linear.issue` | count | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211 — the request→Linear `ctx.waitUntil` task) | `outcome` (ok / failed / skipped_exists), `kind` (claim / correction), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
@@ -131,7 +131,7 @@ next daily compute. Note it is monitored on error-rate **only**, never liveness/
 is traffic-driven, so zero writes (no visitors) is normal at pre-launch and a no-data alert would
 fire constantly — unlike the fixed-cadence stats cron.
 
-`aeci.auth.signin` / `aeci.review.submit` / `aeci.moderation.action` / `aeci.perspective.api*` /
+`aeci.auth.signin` / `aeci.review.submit` / `aeci.moderation.action` / `aeci.toxicity.api*` /
 `aeci.moderation.queue_*` (AECI-206, the Phase 5.15 auth + reviews analogue) cover the four new
 write surfaces:
 
@@ -152,10 +152,10 @@ write surfaces:
 - **`aeci.moderation.action`** is one count per `PATCH /api/admin/reviews/:id` attempt, `action`
   (`approve`/`reject`) × `outcome` (`ok` on a committed transition, `invalid_state` at the preload guard
   or the concurrent-race guard — both 422).
-- **`aeci.perspective.api`** + **`aeci.perspective.api.duration_ms`** are the toxicity-scoring health
-  pair (`lib/perspective.ts`, called once per review submit). Scoring is **fail-open** — an outage (or
-  no key) stores `toxicity_score = null` and the review still enters the queue — so the count is an
-  *outage/triage-loss* signal, never user-facing. The **absent-key** path is a silent no-op that emits
+- **`aeci.toxicity.api`** + **`aeci.toxicity.api.duration_ms`** are the toxicity-scoring health
+  pair (`lib/toxicity.ts`, Claude Haiku, called once per review submit). Scoring is **fail-open** — an
+  outage (or no key) stores `toxicity_score = null` and the review still enters the queue — so the count
+  is an *outage/triage-loss* signal, never user-facing. The **absent-key** path is a silent no-op that emits
   **nothing** (an intentional skip, like Algolia's `skipped_no_creds`), so it can't pollute the
   error-rate denominator. `…duration_ms` is the latency distribution (enable percentile aggregations).
 - **`aeci.moderation.queue_depth`** + **`aeci.moderation.queue_oldest_age_hours`** are **gauges** from
@@ -170,7 +170,7 @@ Phase 6 request→Linear pipeline metrics. One count per request→Linear `ctx.w
 `outcome:ok` on a created+linked issue, `outcome:skipped_exists` when the request is already linked
 (idempotent re-fire), `outcome:failed` (with a `reason` tag) when Linear or the link-back write fails —
 the row then sits `open`/`linear_issue_id=null` for the §6.7 reconciliation sweep. The absent-key path
-(no `LINEAR_API_KEY`, the expected non-prod state) emits **nothing**, mirroring `aeci.perspective.api`,
+(no `LINEAR_API_KEY`, the expected non-prod state) emits **nothing**, mirroring `aeci.toxicity.api`,
 so it never pollutes the error-rate denominator.
 
 `aeci.linear.reconcile.*` (AECI-214, Phase 6.7) are the §6.7 reconciliation-sweep metrics — the
@@ -201,7 +201,7 @@ observability issue (AECI-218), not this one.
 2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms`,
    `aeci.api.query.duration_ms`, `aeci.algolia.sync.duration_ms`,
    `aeci.stats.compute.duration_ms`, `aeci.stats.compute.key.duration_ms`,
-   `aeci.perspective.api.duration_ms`, `aeci.linear.issue.duration_ms`, and
+   `aeci.toxicity.api.duration_ms`, `aeci.linear.issue.duration_ms`, and
    `aeci.linear.sync.duration_ms` are
    distribution metrics — to query `p50/p95/p99` you must enable percentile aggregations
    under **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
@@ -280,8 +280,8 @@ Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute ru
 
 Widgets (Phase 5.15 auth + reviews health, AECI-206): sign-ins by `outcome` · sign-ins by
 `method` · auth failure rate (`100 × failed / total`, with a 30% marker) · review submits by
-`outcome` · moderation actions by `action`/`outcome` · Perspective API latency p50/p95/p99 ·
-Perspective API error rate (`100 × failed / total`, with a 50% marker) · moderation queue
+`outcome` · moderation actions by `action`/`outcome` · toxicity scoring latency p50/p95/p99 ·
+toxicity scoring error rate (`100 × failed / total`, with a 50% marker) · moderation queue
 oldest-pending age (h) + depth (with a 48h backlog marker). Note the sign-in widgets read
 `aeci.auth.signin`, which carries `service:aeci-web` (the SSR Worker), unlike the rest of the
 Phase 5 metrics on `aeci-api`.
@@ -306,7 +306,7 @@ nine monitors were applied 2026-06-12 with that substitution.
 | Home stats not running | no `aeci.stats.compute{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-stats-compute-no-data.json` |
 | page_views write errors | write error rate > 10% over 10m | `observability/datadog/monitor-pageviews-write-errors.json` |
 | Auth sign-in error rate | sign-in failure rate > 30% over 15m (`service:aeci-web`) | `observability/datadog/monitor-auth-error-rate.json` |
-| Perspective API outage | Perspective failure rate > 50% over 15m | `observability/datadog/monitor-perspective-outage.json` |
+| Toxicity scoring outage | Toxicity-scoring failure rate > 50% over 15m | `observability/datadog/monitor-toxicity-outage.json` |
 | Moderation queue backlog | oldest pending review > 48h (daily); or no snapshot for ~26h | `observability/datadog/monitor-moderation-queue-age.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
@@ -343,8 +343,8 @@ failure ratio is meaningful. The 10% threshold is a launch-tunable starting poin
 for request error rate; page_views runs at far lower volume, so the floor is higher to avoid
 single-failure noise) — retune once production traffic is known.
 
-The Phase 5 monitors (AECI-206) split the same way. **"Auth sign-in error rate"** and **"Perspective
-API outage"** are **traffic-driven error-rate** monitors — like page_views, no `notify_no_data` (zero
+The Phase 5 monitors (AECI-206) split the same way. **"Auth sign-in error rate"** and **"Toxicity
+scoring outage"** are **traffic-driven error-rate** monitors — like page_views, no `notify_no_data` (zero
 sign-ins / zero review-submits is normal at pre-launch and a no-data alert would be constant noise);
 only the failure ratio matters, and both thresholds (30% / 50%) are launch-tunable starting points
 (at low volume a single failure can dominate the ratio). The auth monitor is the only one scoped to

@@ -310,6 +310,15 @@ The schema does most of the work via a mix of triggers and cascading FKs:
   inbound FK to `profiles` that auto-nulls. This is the anonymization seam:
   deleting the profile leaves the review content intact with no author.
 
+**Third-party processors.** Erasure covers our own stores; the one external
+egress of review content is toxicity scoring, which sends the review body to
+Anthropic (`apps/api/src/lib/toxicity.ts`, AECI-258). The Messages API has no
+per-request no-store control (Perspective's `doNotStore` had no equivalent), so
+the Anthropic org behind `ANTHROPIC_API_KEY` **must** have zero data retention
+(ZDR) enabled — otherwise a scored body is retained for the provider's default
+window (~30 days) outside this boundary. Confirm ZDR before provisioning a real
+key; the absent-key path (a silent no-op) sends nothing.
+
 **The FK trap (AECI-202).** There are **seven** inbound FKs to `profiles(id)`.
 Six are `ON DELETE NO ACTION`, so any `DELETE FROM profiles` — issued directly by
 the erasure handler **or** by the `on_auth_user_deleted` trigger — **FK-fails**

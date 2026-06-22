@@ -355,40 +355,41 @@ single failure can dominate the ratio. Retune once production traffic is known.)
 
 ---
 
-## Perspective API outage
+## Toxicity scoring outage
 
-**Alert:** `AECi — Perspective API outage (>50% errors, 15m)`.
-**Metric:** `aeci.perspective.api{outcome:failed}` / `aeci.perspective.api` (all) over 15m; failure
-`reason` ∈ `http_error` / `malformed` / `timeout` / `network`. Companion: `aeci.perspective.api.duration_ms`
-(latency) and the `service:aeci-api source:perspective` warn logs.
+**Alert:** `AECi — Toxicity scoring outage (>50% errors, 15m)`.
+**Metric:** `aeci.toxicity.api{outcome:failed}` / `aeci.toxicity.api` (all) over 15m; failure
+`reason` ∈ `http_error` / `malformed` / `timeout` / `network`. Companion: `aeci.toxicity.api.duration_ms`
+(latency) and the `service:aeci-api source:toxicity` warn logs.
 
-**What it means:** Google's Perspective API (review toxicity scoring, `lib/perspective.ts`, AECI-198) is
-failing for most calls. Scoring is **fail-open and flag-never-block**: a failed score stores
-`toxicity_score = null` and the review **still enters the moderation queue** — so this is **not
-user-facing** and does **not** block submissions. The cost is that the moderation queue temporarily loses
-its triage signal (the worst content no longer floats to the top of `/admin/reviews`).
+**What it means:** Anthropic Claude (review toxicity scoring, `lib/toxicity.ts`, AECI-258 — supersedes the
+sunsetting Perspective API of AECI-198) is failing for most calls. Scoring is **fail-open and
+flag-never-block**: a failed score stores `toxicity_score = null` and the review **still enters the
+moderation queue** — so this is **not user-facing** and does **not** block submissions. The cost is that
+the moderation queue temporarily loses its triage signal (the worst content no longer floats to the top
+of `/admin/reviews`).
 
 **First checks**
 
-1. Which reason? Pivot the "AECi Phase 5 — Auth/Reviews" dashboard Perspective widgets / the metric by
-   `reason`. `timeout`-dominated → Perspective is slow (the client caps at 2s); `http_error` → non-2xx
-   (quota/`429`, auth/`403`); `network` → connectivity or a body that won't parse; `malformed` → a 200
-   with no TOXICITY summaryScore (an API contract change).
-2. Read the failures: Datadog logs `service:aeci-api source:perspective` carry the message + status.
-3. Credentials/quota? A **missing** `PERSPECTIVE_API_KEY` is a silent no-op that emits **no** metric (so
-   it can't trip this alert) — but a *revoked/over-quota* key shows as `http_error` `403`/`429`. Check the
-   key and the Perspective quota in Google Cloud.
-4. Provider status: an upstream Perspective outage self-heals; confirm via Google Cloud status.
+1. Which reason? Pivot the "AECi Phase 5 — Auth/Reviews" dashboard toxicity widgets / the metric by
+   `reason`. `timeout`-dominated → the model is slow (the client caps at 4s); `http_error` → non-2xx
+   (rate-limit/`429`, auth/`401`/`403`); `network` → connectivity or a body that won't parse; `malformed` →
+   a 200 whose reply had no parseable integer (a prompt/response-shape change).
+2. Read the failures: Datadog logs `service:aeci-api source:toxicity` carry the message + status.
+3. Credentials/quota? A **missing** `ANTHROPIC_API_KEY` is a silent no-op that emits **no** metric (so it
+   can't trip this alert) — but a *revoked/over-quota* key shows as `http_error` `401`/`403`/`429`. Check
+   the key and the Anthropic Console usage limits.
+4. Provider status: an upstream Anthropic outage self-heals; confirm via https://status.anthropic.com.
 
 **Repair:** none required for correctness — submissions keep working with `toxicity_score = null`. Once
-Perspective recovers, **new** submissions score normally; reviews submitted during the outage keep their
-null score (there is no backfill — they're triaged manually in the queue). If the cause is a bad/revoked
-key or exhausted quota, rotate the key / raise the quota and redeploy the secret.
+scoring recovers, **new** submissions score normally; reviews submitted during the outage keep their null
+score (there is no backfill — they're triaged manually in the queue). If the cause is a bad/revoked key or
+exhausted quota, rotate the key / raise the limit and redeploy the secret.
 
 **Escalation:** a prolonged outage isn't urgent (fail-open), but flag it so moderators know the queue's
-toxicity ordering is degraded until it clears. A persistent `malformed` reason with Perspective healthy
-points at an API contract change — open a follow-up against `lib/perspective.ts`. (The 50% threshold is a
-launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
+toxicity ordering is degraded until it clears. A persistent `malformed` reason with Anthropic healthy
+points at a prompt/response-shape change — open a follow-up against `lib/toxicity.ts`. (The 50% threshold
+is a launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
 
 ---
 
