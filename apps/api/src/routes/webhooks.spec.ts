@@ -1,88 +1,74 @@
+/**
+ * Inbound Linear webhook (AECI-212 / Phase 6.5) on the Drizzle/D1 path (ADR 0016 /
+ * AECI-253), against the in-memory D1 harness. Seeds a real workflow instance +
+ * vendor request and asserts the real status update / instance mirror / transition
+ * / audit rows the atomic `db.batch` writes (or the absence of any write on a
+ * no-op / rejected request).
+ */
+
 import { createHmac } from 'node:crypto';
 
-import { describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { auditLog, vendorRequests, workflowInstances, workflowTransitions } from '../db/schema';
 import type { Env } from '../env';
+import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createLinearWebhookHandler } from './webhooks';
 
-// ─── In-memory fake ───────────────────────────────────────────────────────────
-// Covers the slice the handler touches: `workflowInstance.findFirst`/`update`,
-// `vendorRequest.findUnique`/`update`, `workflowTransition.create`,
-// `auditLog.create`, and `$transaction` (runs the callback against the same
-// models, like the real client). `findFirst`/`findUnique` return preset rows so
-// each test drives a specific lookup outcome.
-type Rec = Record<string, unknown>;
-
-interface FakeOptions {
-  workflow?: Rec | null; // workflowInstance.findFirst result
-  request?: Rec | null; // vendorRequest.findUnique result
-}
-
-function makeFake(opts: FakeOptions = {}) {
-  const findFirstArgs: Rec[] = [];
-  const requestUpdates: Rec[] = [];
-  const instanceUpdates: Rec[] = [];
-  const transitions: Rec[] = [];
-  const audit: Rec[] = [];
-
-  const models = {
-    workflowInstance: {
-      async findFirst(args: Rec) {
-        findFirstArgs.push(args);
-        return (opts.workflow ?? null) as Rec | null;
-      },
-      async update({ where, data }: { where: Rec; data: Rec }) {
-        instanceUpdates.push({ where, data });
-        return { id: where.id };
-      },
-    },
-    vendorRequest: {
-      async findUnique(_args: Rec) {
-        return (opts.request ?? null) as Rec | null;
-      },
-      async update({ where, data }: { where: Rec; data: Rec }) {
-        requestUpdates.push({ where, data });
-        return { id: where.id };
-      },
-    },
-    workflowTransition: {
-      async create({ data }: { data: Rec }) {
-        transitions.push(data);
-        return data;
-      },
-    },
-    auditLog: {
-      async create({ data }: { data: Rec }) {
-        audit.push(data);
-        return data;
-      },
-    },
-    $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-      return fn(models);
-    },
-  };
-
-  return { models, findFirstArgs, requestUpdates, instanceUpdates, transitions, audit };
-}
-
-// ─── Fixtures + helpers ───────────────────────────────────────────────────────
-
 const SECRET = 'whsec_test_linear_signing_secret';
 const ISSUE_ID = '11111111-1111-4111-8111-111111111111';
-const WORKFLOW = { id: 'wf_1', entityId: 'req_1', currentState: 'open' };
-const REQUEST = { id: 'req_1', status: 'open' };
+const REQUEST_ID = '22222222-2222-4222-8222-222222222222';
+const WORKFLOW_ID = '33333333-3333-4333-8333-333333333333';
 
 const env: Env = { ...TEST_ENV, LINEAR_WEBHOOK_SIGNING_SECRET: SECRET };
 const envNoSecret: Env = { ...TEST_ENV };
 
-function app(prisma: unknown) {
-  return buildAppWithHandler({
-    method: 'post',
-    path: '/api/webhooks/linear',
-    handler: createLinearWebhookHandler(() => prisma as never),
+type Rec = Record<string, unknown>;
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+/** Seed the workflow instance + its vendor request the webhook resolves. */
+async function seed(
+  opts: {
+    workflowType?: string;
+    linearIssueId?: string | null;
+    currentState?: string;
+    requestStatus?: string;
+    omitRequest?: boolean;
+  } = {},
+) {
+  if (!opts.omitRequest) {
+    await t.db.insert(vendorRequests).values({
+      id: REQUEST_ID,
+      kind: 'claim',
+      targetType: 'vendor',
+      targetId: 'tgt-1',
+      submitterEmail: 'submitter@vendor.com',
+      body: 'A seeded vendor request.',
+      status: opts.requestStatus ?? 'open',
+    });
+  }
+  await t.db.insert(workflowInstances).values({
+    id: WORKFLOW_ID,
+    workflowType: opts.workflowType ?? 'vendor_claim',
+    entityId: REQUEST_ID,
+    currentState: opts.currentState ?? 'open',
+    linearIssueId: opts.linearIssueId === undefined ? ISSUE_ID : opts.linearIssueId,
   });
 }
+
+const app = () =>
+  buildAppWithHandler({
+    method: 'post',
+    path: '/api/webhooks/linear',
+    handler: createLinearWebhookHandler(t.factory),
+  });
 
 function sign(raw: string, secret = SECRET): string {
   return createHmac('sha256', secret).update(raw).digest('hex');
@@ -100,11 +86,7 @@ interface PayloadOpts {
 function issuePayload(opts: PayloadOpts = {}): Rec {
   const data: Rec = { id: opts.id ?? ISSUE_ID, title: 'Claim: Acme' };
   if (!opts.omitState) {
-    data.state = {
-      id: 'state-1',
-      name: opts.stateName ?? 'Done',
-      type: opts.stateType ?? 'completed',
-    };
+    data.state = { id: 'state-1', name: opts.stateName ?? 'Done', type: opts.stateType ?? 'completed' };
   }
   return {
     action: opts.action ?? 'update',
@@ -123,109 +105,87 @@ function webhookInit(raw: string, signature?: string): RequestInit {
   return { method: 'POST', headers, body: raw };
 }
 
-/** POST a payload signed with `SECRET` (the valid header) and return the
- *  Response. `environment` lets a test point the Worker at a different secret
- *  (or none) to exercise the fail-closed path. */
-function post(prisma: unknown, body: Rec, opts: { environment?: Env } = {}) {
+/** POST a payload signed with `SECRET` and return the Response. */
+function post(body: Rec, opts: { environment?: Env; signature?: string } = {}) {
   const raw = JSON.stringify(body);
-  return app(prisma).request(
+  return app().request(
     '/api/webhooks/linear',
-    webhookInit(raw, sign(raw)),
+    webhookInit(raw, opts.signature ?? sign(raw)),
     opts.environment ?? env,
     fakeExecutionContext(),
   );
 }
 
-function expectNoWrites(fake: ReturnType<typeof makeFake>) {
-  expect(fake.requestUpdates).toHaveLength(0);
-  expect(fake.instanceUpdates).toHaveLength(0);
-  expect(fake.transitions).toHaveLength(0);
-  expect(fake.audit).toHaveLength(0);
+const allAudits = () => t.db.select().from(auditLog);
+const allTransitions = () => t.db.select().from(workflowTransitions);
+const requestRow = () =>
+  t.db.query.vendorRequests.findFirst({ where: eq(vendorRequests.id, REQUEST_ID) });
+const workflowRow = () =>
+  t.db.query.workflowInstances.findFirst({ where: eq(workflowInstances.id, WORKFLOW_ID) });
+
+async function expectNoWrites() {
+  expect(await allAudits()).toHaveLength(0);
+  expect(await allTransitions()).toHaveLength(0);
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('POST /api/webhooks/linear — HMAC verification', () => {
   it('rejects an invalid signature with 401 and writes nothing', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const raw = JSON.stringify(issuePayload());
-    const res = await app(fake.models).request(
-      '/api/webhooks/linear',
-      webhookInit(raw, 'deadbeef'),
-      env,
-      fakeExecutionContext(),
-    );
-
+    await seed();
+    const res = await post(issuePayload(), { signature: 'deadbeef' });
     expect(res.status).toBe(401);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('UNAUTHENTICATED');
-    expectNoWrites(fake);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('UNAUTHENTICATED');
+    await expectNoWrites();
   });
 
   it('rejects a missing Linear-Signature header with 401', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
+    await seed();
     const raw = JSON.stringify(issuePayload());
-    const res = await app(fake.models).request(
+    const res = await app().request(
       '/api/webhooks/linear',
       webhookInit(raw), // no signature
       env,
       fakeExecutionContext(),
     );
-
     expect(res.status).toBe(401);
-    expectNoWrites(fake);
+    await expectNoWrites();
   });
 
   it('fails closed (401) when the signing secret is unset', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    // Signature is computed with the right secret, but the Worker has none.
-    const res = await post(fake.models, issuePayload(), { environment: envNoSecret });
-
+    await seed();
+    const res = await post(issuePayload(), { environment: envNoSecret });
     expect(res.status).toBe(401);
-    expectNoWrites(fake);
+    await expectNoWrites();
   });
 });
 
 describe('POST /api/webhooks/linear — state → status mapping', () => {
-  it('maps completed → resolved: updates status, mirrors the instance, and records transition + audit', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const res = await post(
-      fake.models,
-      issuePayload({ stateType: 'completed', stateName: 'Done' }),
-    );
+  it('maps completed → resolved: updates status, mirrors the instance, records transition + audit', async () => {
+    await seed();
+    const res = await post(issuePayload({ stateType: 'completed', stateName: 'Done' }));
 
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ ok: true, applied: true });
 
-    // Scoped lookup: by Linear issue id, vendor-request workflow types only.
-    expect(fake.findFirstArgs[0].where).toMatchObject({
-      linearIssueId: ISSUE_ID,
-      workflowType: { in: ['vendor_claim', 'correction_request'] },
-    });
+    const request = await requestRow();
+    expect(request!.status).toBe('resolved');
+    expect(request!.resolvedAt).not.toBeNull();
 
-    expect(fake.requestUpdates).toHaveLength(1);
-    expect(fake.requestUpdates[0]).toMatchObject({
-      where: { id: 'req_1' },
-      data: { status: 'resolved' },
-    });
-    expect((fake.requestUpdates[0].data as Rec).resolvedAt).toBeInstanceOf(Date);
+    const wf = await workflowRow();
+    expect(wf!.currentState).toBe('resolved');
+    expect(wf!.finalOutcome).toBe('completed');
+    expect(wf!.completedAt).not.toBeNull();
 
-    expect(fake.instanceUpdates).toHaveLength(1);
-    expect(fake.instanceUpdates[0].data).toMatchObject({
-      currentState: 'resolved',
-      finalOutcome: 'completed',
-    });
-    expect((fake.instanceUpdates[0].data as Rec).completedAt).toBeInstanceOf(Date);
-
-    expect(fake.transitions).toHaveLength(1);
-    expect(fake.transitions[0]).toMatchObject({
-      workflowId: 'wf_1',
+    const transitions = await allTransitions();
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]).toMatchObject({
+      workflowId: WORKFLOW_ID,
       fromState: 'open',
       toState: 'resolved',
       actorId: null,
     });
-    const tMeta = fake.transitions[0].metadata as Rec;
-    expect(tMeta).toMatchObject({
+    expect(transitions[0]!.metadata).toMatchObject({
       source: 'linear-webhook',
       actor_type: 'workflow',
       linear_action: 'update',
@@ -234,157 +194,151 @@ describe('POST /api/webhooks/linear — state → status mapping', () => {
       linear_state_name: 'Done',
     });
 
-    expect(fake.audit).toHaveLength(1);
-    expect(fake.audit[0]).toMatchObject({
+    const audits = await allAudits();
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
       actorType: 'workflow',
       action: 'vendor_request.status_changed',
       entityType: 'vendor_request',
-      entityId: 'req_1',
+      entityId: REQUEST_ID,
       beforeState: { status: 'open' },
       afterState: { status: 'resolved' },
     });
   });
 
   it('maps canceled → rejected with finalOutcome rejected', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const res = await post(
-      fake.models,
-      issuePayload({ stateType: 'canceled', stateName: 'Canceled' }),
-    );
-
+    await seed();
+    const res = await post(issuePayload({ stateType: 'canceled', stateName: 'Canceled' }));
     expect(res.status).toBe(200);
-    expect(fake.requestUpdates[0].data).toMatchObject({ status: 'rejected' });
-    expect(fake.instanceUpdates[0].data).toMatchObject({
-      currentState: 'rejected',
-      finalOutcome: 'rejected',
-    });
-    expect(fake.transitions[0]).toMatchObject({ fromState: 'open', toState: 'rejected' });
+    expect((await requestRow())!.status).toBe('rejected');
+    const wf = await workflowRow();
+    expect(wf!.currentState).toBe('rejected');
+    expect(wf!.finalOutcome).toBe('rejected');
+    expect((await allTransitions())[0]).toMatchObject({ fromState: 'open', toState: 'rejected' });
   });
 
   it('maps started → in_review without resolving (non-terminal)', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const res = await post(
-      fake.models,
-      issuePayload({ stateType: 'started', stateName: 'In Progress' }),
-    );
-
+    await seed();
+    const res = await post(issuePayload({ stateType: 'started', stateName: 'In Progress' }));
     expect(res.status).toBe(200);
-    expect(fake.requestUpdates[0].data).toMatchObject({ status: 'in_review' });
-    // Non-terminal: resolution fields are written null (set/cleared, never left
-    // stale), not omitted.
-    expect((fake.requestUpdates[0].data as Rec).resolvedAt).toBeNull();
-    expect(fake.instanceUpdates[0].data).toMatchObject({ currentState: 'in_review' });
-    expect((fake.instanceUpdates[0].data as Rec).completedAt).toBeNull();
-    expect((fake.instanceUpdates[0].data as Rec).finalOutcome).toBeNull();
+    const request = await requestRow();
+    expect(request!.status).toBe('in_review');
+    expect(request!.resolvedAt).toBeNull(); // set/cleared, never left stale
+    const wf = await workflowRow();
+    expect(wf!.currentState).toBe('in_review');
+    expect(wf!.completedAt).toBeNull();
+    expect(wf!.finalOutcome).toBeNull();
   });
 
   it('clears resolvedAt/completedAt/finalOutcome when a resolved request is reopened', async () => {
-    // Reverse transition: an admin moves a Done issue back to In Progress, so
-    // resolved → in_review. The terminal fields must be cleared, not left stale.
-    const fake = makeFake({
-      workflow: { ...WORKFLOW, currentState: 'resolved' },
-      request: { id: 'req_1', status: 'resolved' },
-    });
-    const res = await post(
-      fake.models,
-      issuePayload({ stateType: 'started', stateName: 'In Progress' }),
-    );
+    // Reverse transition: an admin moves a Done issue back to In Progress
+    // (resolved → in_review). The terminal fields must be cleared, not left stale.
+    await seed({ currentState: 'resolved', requestStatus: 'resolved' });
+    // Pre-set the terminal fields so we can prove they are cleared.
+    await t.db
+      .update(vendorRequests)
+      .set({ resolvedAt: '2026-06-01T00:00:00.000Z' })
+      .where(eq(vendorRequests.id, REQUEST_ID));
+    await t.db
+      .update(workflowInstances)
+      .set({ completedAt: '2026-06-01T00:00:00.000Z', finalOutcome: 'completed' })
+      .where(eq(workflowInstances.id, WORKFLOW_ID));
 
+    const res = await post(issuePayload({ stateType: 'started', stateName: 'In Progress' }));
     expect(res.status).toBe(200);
-    expect(fake.requestUpdates[0].data).toMatchObject({ status: 'in_review' });
-    expect((fake.requestUpdates[0].data as Rec).resolvedAt).toBeNull();
-    expect(fake.instanceUpdates[0].data).toMatchObject({ currentState: 'in_review' });
-    expect((fake.instanceUpdates[0].data as Rec).completedAt).toBeNull();
-    expect((fake.instanceUpdates[0].data as Rec).finalOutcome).toBeNull();
-    expect(fake.transitions[0]).toMatchObject({ fromState: 'resolved', toState: 'in_review' });
+    const request = await requestRow();
+    expect(request!.status).toBe('in_review');
+    expect(request!.resolvedAt).toBeNull();
+    const wf = await workflowRow();
+    expect(wf!.currentState).toBe('in_review');
+    expect(wf!.completedAt).toBeNull();
+    expect(wf!.finalOutcome).toBeNull();
+    expect((await allTransitions())[0]).toMatchObject({
+      fromState: 'resolved',
+      toState: 'in_review',
+    });
   });
 });
 
 describe('POST /api/webhooks/linear — no-ops', () => {
   it('is a no-op for an unknown issue id', async () => {
-    const fake = makeFake({ workflow: null }); // findFirst misses
-    const res = await post(fake.models, issuePayload());
-
+    await seed({ linearIssueId: 'some-other-issue' });
+    const res = await post(issuePayload());
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ applied: false, reason: 'unknown issue' });
-    expectNoWrites(fake);
+    await expectNoWrites();
+  });
+
+  it('scopes the lookup to vendor-request workflow types (ignores review_moderation)', async () => {
+    // A review_moderation instance with the SAME linear_issue_id must not match.
+    await seed({ workflowType: 'review_moderation' });
+    const res = await post(issuePayload());
+    expect(res.status).toBe(200);
+    expect((await res.json()) as Rec).toMatchObject({ applied: false, reason: 'unknown issue' });
+    await expectNoWrites();
   });
 
   it('is a no-op when the workflow instance is orphaned (request missing)', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: null });
-    const res = await post(fake.models, issuePayload());
-
+    await seed({ omitRequest: true });
+    const res = await post(issuePayload());
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ applied: false });
-    expectNoWrites(fake);
+    await expectNoWrites();
   });
 
   it('is a no-op for a non-Issue payload type', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const res = await post(fake.models, issuePayload({ type: 'Comment' }));
-
+    await seed();
+    const res = await post(issuePayload({ type: 'Comment' }));
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ applied: false });
-    expectNoWrites(fake);
+    await expectNoWrites();
   });
 
   it('is a no-op for a create action (only state changes sync)', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const res = await post(fake.models, issuePayload({ action: 'create' }));
-
+    await seed();
+    const res = await post(issuePayload({ action: 'create' }));
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ applied: false });
-    expectNoWrites(fake);
+    await expectNoWrites();
   });
 
   it('is a no-op when the issue carries no state', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const res = await post(fake.models, issuePayload({ omitState: true }));
-
+    await seed();
+    const res = await post(issuePayload({ omitState: true }));
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ applied: false });
-    expectNoWrites(fake);
+    await expectNoWrites();
   });
 
   it('is a no-op when the mapped status already matches', async () => {
-    const fake = makeFake({
-      workflow: { ...WORKFLOW },
-      request: { id: 'req_1', status: 'resolved' },
-    });
-    const res = await post(fake.models, issuePayload({ stateType: 'completed' }));
-
+    await seed({ requestStatus: 'resolved' });
+    const res = await post(issuePayload({ stateType: 'completed' }));
     expect(res.status).toBe(200);
     expect((await res.json()) as Rec).toMatchObject({ applied: false, reason: 'already in sync' });
-    expectNoWrites(fake);
+    await expectNoWrites();
   });
 });
 
 describe('POST /api/webhooks/linear — request validation', () => {
   it('returns 400 MALFORMED_REQUEST for a body that is not valid JSON', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
+    await seed();
     const raw = '{ not valid json';
-    const res = await app(fake.models).request(
+    const res = await app().request(
       '/api/webhooks/linear',
       webhookInit(raw, sign(raw)), // signed over the malformed bytes → passes HMAC
       env,
       fakeExecutionContext(),
     );
-
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-      'MALFORMED_REQUEST',
-    );
-    expectNoWrites(fake);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('MALFORMED_REQUEST');
+    await expectNoWrites();
   });
 
   it('returns 400 VALIDATION_FAILED when the payload misses required fields', async () => {
-    const fake = makeFake({ workflow: { ...WORKFLOW }, request: { ...REQUEST } });
-    const res = await post(fake.models, { action: 'update', type: 'Issue' } as Rec);
-
+    await seed();
+    const res = await post({ action: 'update', type: 'Issue' } as Rec);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-      'VALIDATION_FAILED',
-    );
-    expectNoWrites(fake);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+    await expectNoWrites();
   });
 });
