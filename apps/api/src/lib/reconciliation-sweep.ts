@@ -32,7 +32,7 @@ import {
   type AlertContext,
   type StuckRequestSummary,
 } from './admin-alert';
-import { createLinearIssueForRequest, type LinearPersistClient } from './linear';
+import { createLinearIssueForRequest, prismaLinearStore, type LinearPersistClient } from './linear';
 import { logToDatadog, submitCount, submitGauge } from '../datadog';
 
 const MINUTE_MS = 60_000;
@@ -216,7 +216,9 @@ export async function runReconciliationSweep(
       }
       retried++;
       // Idempotent retry of §6.4 — the same function the request handler runs.
-      await createIssue(c, prisma as unknown as LinearPersistClient, {
+      // `prismaLinearStore` adapts this still-Prisma sweep to the ORM-neutral
+      // `LinearRequestStore` seam (dropped when this job moves to Drizzle).
+      await createIssue(c, prismaLinearStore(prisma as unknown as LinearPersistClient), {
         requestId: row.id,
         workflowId: workflow.id,
         kind: row.kind,
