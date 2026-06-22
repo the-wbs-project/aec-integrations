@@ -1,7 +1,7 @@
 # 0016 — Application data on Cloudflare D1 (Drizzle), Supabase for Auth only
 
-- **Status:** Proposed (AECI-248; flips to **Accepted** in Phase 6 / AECI-257)
-- **Date:** 2026-06-13 (proposed)
+- **Status:** Accepted (AECI-257) — the API Worker runtime is Drizzle/D1 only; Supabase retained for Auth (and the separately-tracked landing-Postgres path).
+- **Date:** 2026-06-13 (proposed), 2026-06-22 (accepted)
 - **Context owner:** chrisw@thewbsproject.com
 - **Note:** the proposal was filed 2026-06-13 with the AECI-248 issue tree and the
   `docs/adr/README.md` index entry, but this document body was never committed.
