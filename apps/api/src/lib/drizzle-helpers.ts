@@ -25,6 +25,7 @@
 
 import { ProductUsefulnessSchema } from '@aeci/shared';
 import type {
+  AccountReview,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
@@ -34,6 +35,7 @@ import type {
   ProductRole,
   ProductUsefulness,
   PublicReview,
+  ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
   VendorLink,
@@ -173,6 +175,22 @@ export const publicReviewColumns = {
 
 /** First-page size for the approved-reviews list + the `ProductDetail` embed. */
 export const EMBED_REVIEWS_PAGE_SIZE = 24;
+
+/** Reviewer-scoped own-reviews (`AccountReview`, §5.11). A narrow slice: the
+ *  author needs `status` + `rejectionReason`, NONE of the admin-only signals.
+ *  Always paired with a `reviewerId = session.userId` filter by the caller. */
+export const accountReviewConfig = {
+  columns: {
+    id: true,
+    ratingOverall: true,
+    ratingOnboarding: true,
+    title: true,
+    status: true,
+    rejectionReason: true,
+    createdAt: true,
+  },
+  with: { product: { columns: { id: true, name: true, slug: true } } },
+} as const;
 
 /** `VendorListItem` — counts via correlated-subquery `extras`. */
 export const vendorListConfig = {
@@ -347,6 +365,17 @@ export interface RawPublicReviewRow {
   wouldRecommend: string | null;
   verifiedWorkEmail: boolean;
   createdAt: string;
+}
+
+export interface RawAccountReviewRow {
+  id: string;
+  ratingOverall: number;
+  ratingOnboarding: number;
+  title: string;
+  status: string;
+  rejectionReason: string | null;
+  createdAt: string;
+  product: { id: string; name: string; slug: string };
 }
 
 export interface RawVendorListRow {
@@ -529,6 +558,24 @@ export function toPublicReview(raw: RawPublicReviewRow): PublicReview {
     years_using: raw.yearsUsing,
     would_recommend: VALID_WOULD_RECOMMEND.has(wouldRecommend) ? wouldRecommend : null,
     verified_work_email: raw.verifiedWorkEmail,
+    created_at: raw.createdAt,
+  };
+}
+
+const VALID_REVIEW_STATUS = new Set<ReviewStatus>(['pending', 'approved', 'rejected']);
+
+/** Shape an own-review row (`accountReviewConfig`) into `AccountReview` (§5.11).
+ *  An off-contract `status` degrades to `'pending'`; no PII/admin columns. */
+export function toAccountReview(raw: RawAccountReviewRow): AccountReview {
+  const status = raw.status as ReviewStatus;
+  return {
+    id: raw.id,
+    product: { id: raw.product.id, name: raw.product.name, slug: raw.product.slug },
+    rating_overall: raw.ratingOverall,
+    rating_onboarding: raw.ratingOnboarding,
+    title: raw.title,
+    status: VALID_REVIEW_STATUS.has(status) ? status : 'pending',
+    rejection_reason: raw.rejectionReason,
     created_at: raw.createdAt,
   };
 }
