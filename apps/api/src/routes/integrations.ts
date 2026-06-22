@@ -1,5 +1,5 @@
 /**
- * Phase 2.8 (AECI-54) integrations endpoints.
+ * Phase 2.8 (AECI-54) integrations endpoints — Drizzle/D1 (ADR 0016 / AECI-253).
  *
  *   GET /api/integrations       — paginated, filterable (search,
  *                                 sourceProductId, targetProductId,
@@ -7,11 +7,10 @@
  *   GET /api/integrations/:id   — single integration detail with vendor/connector
  *                                 hydration.
  *
- * Filter fields use the camelCase names from the Phase 2 Spec §7.1 example
- * query (`sourceProductId`, `targetProductId`); enum filters keep snake_case
- * to match the underlying columns. Default sort is `name ASC` (§7.4) — since
- * integration names render as "Source → Target", alphabetical groups by
- * source product, which is useful for browsing.
+ * Default sort is `name ASC` (§7.4). `search` expands to an OR across the explicit
+ * `name` column AND both product-name columns (rows without an explicit name have
+ * their display name synthesised from source/target at the API layer, so a plain
+ * `name LIKE` would miss them) — expressed as `product_id IN (subquery)`.
  */
 
 import {
@@ -21,75 +20,67 @@ import {
   type IntegrationDetail,
   type IntegrationsListResponse,
 } from '@aeci/shared';
+import { and, count, eq, inArray, like, or, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { integrations, products } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
-  integrationDetailSelect,
-  integrationListSelect,
+  integrationDetailConfig,
+  integrationListConfig,
   toIntegrationDetail,
   toIntegrationListItem,
-} from '../lib/prisma-helpers';
-import { resolveIntegrationSort } from '../lib/sort';
-import { getPrisma } from '../prisma';
+} from '../lib/drizzle-helpers';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { resolveIntegrationOrderBy } from '../lib/sort';
 
 export function createIntegrationsListHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const query = IntegrationsListQuerySchema.parse(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const where: {
-      sourceProductId?: string;
-      targetProductId?: string;
-      mechanismKind?: string;
-      direction?: string;
-      // `name` is nullable on the integration row — rows without an explicit
-      // name have their display name synthesised from source/target product
-      // names at the API layer. A plain `name: { contains }` filter would
-      // silently miss all those rows, so we expand `search` into an OR that
-      // covers the explicit name column AND both product-name columns.
-      OR?: Array<{
-        name?: { contains: string; mode: 'insensitive' };
-        sourceProduct?: { name: { contains: string; mode: 'insensitive' } };
-        targetProduct?: { name: { contains: string; mode: 'insensitive' } };
-      }>;
-    } = {};
+    const { db } = dbFor(c.env);
+    const conds: SQL[] = [];
     if (query.search) {
-      const term = { contains: query.search, mode: 'insensitive' as const };
-      where.OR = [
-        { name: term },
-        { sourceProduct: { name: term } },
-        { targetProduct: { name: term } },
-      ];
+      const term = `%${query.search}%`;
+      const matchByProductName = () =>
+        db.select({ id: products.id }).from(products).where(like(products.name, term));
+      conds.push(
+        or(
+          like(integrations.name, term),
+          inArray(integrations.sourceProductId, matchByProductName()),
+          inArray(integrations.targetProductId, matchByProductName()),
+        )!,
+      );
     }
-    if (query.sourceProductId) where.sourceProductId = query.sourceProductId;
-    if (query.targetProductId) where.targetProductId = query.targetProductId;
-    if (query.mechanism_kind) where.mechanismKind = query.mechanism_kind;
-    if (query.direction) where.direction = query.direction;
+    if (query.sourceProductId) conds.push(eq(integrations.sourceProductId, query.sourceProductId));
+    if (query.targetProductId) conds.push(eq(integrations.targetProductId, query.targetProductId));
+    if (query.mechanism_kind) conds.push(eq(integrations.mechanismKind, query.mechanism_kind));
+    if (query.direction) conds.push(eq(integrations.direction, query.direction));
+    const where = conds.length ? and(...conds) : undefined;
 
-    const prisma = prismaFor(c.env);
-    const [rows, total] = await Promise.all([
-      prisma.integration.findMany({
+    const [rows, countRows] = await Promise.all([
+      db.query.integrations.findMany({
+        ...integrationListConfig,
         where,
-        orderBy: resolveIntegrationSort(query.sort),
-        skip: (query.page - 1) * query.perPage,
-        take: query.perPage,
-        select: integrationListSelect,
+        orderBy: resolveIntegrationOrderBy(query.sort),
+        limit: query.perPage,
+        offset: (query.page - 1) * query.perPage,
       }),
-      prisma.integration.count({ where }),
+      db.select({ value: count() }).from(integrations).where(where),
     ]);
 
     const body: IntegrationsListResponse = {
       data: rows.map(toIntegrationListItem),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {
@@ -103,7 +94,7 @@ export function createIntegrationsListHandler(
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function createIntegrationDetailHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const id = c.req.param('id');
@@ -111,14 +102,13 @@ export function createIntegrationDetailHandler(
       throw new ApiError(400, 'VALIDATION_FAILED', 'Missing integration id', { field: 'id' });
     }
     if (!UUID_REGEX.test(id)) {
-      // Treat as not-found rather than 500ing inside Prisma on a malformed UUID.
       throw notFoundError('integration', { id });
     }
 
-    const prisma = prismaFor(c.env);
-    const row = await prisma.integration.findUnique({
-      where: { id },
-      select: integrationDetailSelect,
+    const { db } = dbFor(c.env);
+    const row = await db.query.integrations.findFirst({
+      ...integrationDetailConfig,
+      where: eq(integrations.id, id),
     });
 
     if (!row) throw notFoundError('integration', { id });
