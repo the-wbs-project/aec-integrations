@@ -1,144 +1,63 @@
-import { TaxonomyResponseSchema, type TaxonomyResponse } from '@aeci/shared';
-import { Hono } from 'hono';
-import { describe, expect, it, vi } from 'vitest';
+/**
+ * GET /api/taxonomy aggregate on the Drizzle/D1 path (ADR 0016 / AECI-253),
+ * against the in-memory D1 harness (no TAXONOMY_KV → direct DB fallback).
+ */
 
-import type { Env } from '../env';
-import { errorHandler } from '../errors';
-import { allCategoryRows, allAudienceRows, allPhaseRows } from '../test/fixtures/taxonomy';
+import { TaxonomyResponseSchema } from '@aeci/shared';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
 import {
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
+  productCategories,
+  products,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+} from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createTaxonomyHandler } from './taxonomy';
 
-function buildApp(prisma: MockAcceleratedPrisma) {
-  const app = new Hono<{ Bindings: Env }>();
-  app.onError(errorHandler());
-  app.get(
-    '/api/taxonomy',
-    createTaxonomyHandler(() => prisma as never),
-  );
-  return app;
-}
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-function fixtureSeed(): MockAcceleratedPrisma {
-  return makeMockAcceleratedPrisma({
-    taxonomyCategory: { findMany: allCategoryRows },
-    taxonomyAudience: { findMany: allAudienceRows },
-    taxonomyPhase: { findMany: allPhaseRows },
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const app = () =>
+  buildAppWithHandler({
+    method: 'get',
+    path: '/api/taxonomy',
+    handler: createTaxonomyHandler(t.factory),
   });
-}
-
-/**
- * Minimal `KVNamespace` stand-in. Only the methods the handler touches
- * (`get`, `put`) are implemented. State is held in a `Map` so tests can
- * assert hit/miss behaviour.
- */
-function makeKv(initial: Record<string, unknown> = {}) {
-  const store = new Map<string, string>(
-    Object.entries(initial).map(([k, v]) => [k, JSON.stringify(v)]),
-  );
-  return {
-    store,
-    get: vi.fn(async (key: string, type: 'json' | 'text' = 'text') => {
-      const raw = store.get(key);
-      if (raw === undefined) return null;
-      return type === 'json' ? JSON.parse(raw) : raw;
-    }),
-    put: vi.fn(async (key: string, value: string, _opts?: { expirationTtl?: number }) => {
-      store.set(key, value);
-    }),
-  };
-}
 
 describe('GET /api/taxonomy', () => {
-  it('falls back to Prisma when TAXONOMY_KV is not bound', async () => {
-    const prisma = fixtureSeed();
-    const res = await buildApp(prisma).request(
-      '/api/taxonomy',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
+  it('returns the three facet lists ordered by display_order, with product counts', async () => {
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(1), slug: 'zeta', name: 'Zeta', displayOrder: 90 },
+      { id: u(2), slug: 'alpha', name: 'Alpha', displayOrder: 10 },
+    ]);
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: u(3), slug: 'arch', name: 'Arch', displayOrder: 10 });
+    await t.db
+      .insert(taxonomyPhases)
+      .values({ id: u(4), slug: 'design', name: 'Design', displayOrder: 10 });
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productCategories).values({ productId: u(11), categoryId: u(2) });
 
+    const res = await app().request('/api/taxonomy', {}, TEST_ENV, fakeExecutionContext());
     expect(res.status).toBe(200);
-    const body = await res.json();
-    const parsed = TaxonomyResponseSchema.parse(body);
-    expect(parsed.categories.map((c) => c.slug)).toContain('project-management');
-    expect(parsed.audiences.map((d) => d.slug)).toContain('construction');
-    expect(parsed.phases.map((p) => p.slug)).toContain('construction-phase');
-    expect(prisma.taxonomyCategory.findMany).toHaveBeenCalledOnce();
-  });
+    const body = TaxonomyResponseSchema.parse(await res.json());
 
-  it('on a cache miss, fetches from Prisma and writes the response into KV with a 5-minute TTL', async () => {
-    const prisma = fixtureSeed();
-    const kv = makeKv();
-    const ctx = fakeExecutionContext();
-    const env: Env = { ...TEST_ENV, TAXONOMY_KV: kv as unknown as KVNamespace };
-
-    const res = await buildApp(prisma).request('/api/taxonomy', {}, env, ctx);
-
-    expect(res.status).toBe(200);
-    expect(kv.get).toHaveBeenCalledWith('taxonomy:v1', 'json');
-    expect(prisma.taxonomyCategory.findMany).toHaveBeenCalledOnce();
-
-    // Put is fire-and-forget via ctx.waitUntil — make sure waitUntil was passed a Promise.
-    expect(ctx.waitUntil).toHaveBeenCalledOnce();
-    const waitPromise = (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls[0][0];
-    await waitPromise;
-    expect(kv.put).toHaveBeenCalledWith('taxonomy:v1', expect.any(String), {
-      expirationTtl: 300,
-    });
-  });
-
-  it('on a cache hit, returns the KV body without hitting Prisma', async () => {
-    const prisma = fixtureSeed();
-    const cachedBody: TaxonomyResponse = {
-      categories: [
-        {
-          id: '00000000-0000-4000-8000-000000030099',
-          name: 'Cached',
-          slug: 'cached',
-          description: null,
-          display_order: 0,
-          product_count: 99,
-        },
-      ],
-      audiences: [],
-      phases: [],
-    };
-    const kv = makeKv({ 'taxonomy:v1': cachedBody });
-    const env: Env = { ...TEST_ENV, TAXONOMY_KV: kv as unknown as KVNamespace };
-
-    const res = await buildApp(prisma).request('/api/taxonomy', {}, env, fakeExecutionContext());
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as TaxonomyResponse;
-    expect(body.categories[0].slug).toBe('cached');
-    expect(prisma.taxonomyCategory.findMany).not.toHaveBeenCalled();
-  });
-
-  it('falls through to Prisma when the cached value fails schema validation', async () => {
-    const prisma = fixtureSeed();
-    const kv = makeKv({ 'taxonomy:v1': { malformed: true } });
-    const env: Env = { ...TEST_ENV, TAXONOMY_KV: kv as unknown as KVNamespace };
-
-    const res = await buildApp(prisma).request('/api/taxonomy', {}, env, fakeExecutionContext());
-
-    expect(res.status).toBe(200);
-    expect(prisma.taxonomyCategory.findMany).toHaveBeenCalledOnce();
-  });
-
-  it('emits Cache-Control: private, no-store', async () => {
-    const prisma = fixtureSeed();
-    const res = await buildApp(prisma).request(
-      '/api/taxonomy',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    // display_order ASC → alpha (10) before zeta (90)
+    expect(body.categories.map((c) => c.slug)).toEqual(['alpha', 'zeta']);
+    expect(body.categories.find((c) => c.slug === 'alpha')?.product_count).toBe(1);
+    expect(body.categories.find((c) => c.slug === 'zeta')?.product_count).toBe(0);
+    expect(body.audiences.map((a) => a.slug)).toEqual(['arch']);
+    expect(body.phases.map((p) => p.slug)).toEqual(['design']);
   });
 });

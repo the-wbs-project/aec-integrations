@@ -1,46 +1,35 @@
 /**
- * Phase 2.8 (AECI-54) taxonomy aggregate endpoint.
+ * Phase 2.8 (AECI-54) taxonomy aggregate endpoint — Drizzle/D1 (ADR 0016 / AECI-253).
  *
  *   GET /api/taxonomy → { categories, audiences, phases }
  *
- * Each list ships `TaxonomyTermWithCount[]`. Consumed by the SSR Worker for the
- * flat taxonomy index pages (`/categories`, `/audiences`, `/phases`) and, since
- * AECI-156, by the client-side primary-nav flyouts (desktop bar + mobile
- * overlay). The taxonomy is small (≈30 terms) and rarely changes, so this
- * endpoint is read-through cached in KV with a 5-minute TTL. That TTL is the
- * only staleness bound: there is no active invalidation of this KV key — the
- * AECI-105 promote purge invalidates the edge `taxonomy` cache-tag (the SSR
- * taxonomy pages), not this internal KV entry.
- *
- * The KV binding (`TAXONOMY_KV`) is optional. If absent (e.g. local `wrangler
- * dev` without `--remote`), the handler falls back to a direct Prisma query.
- * This matches the AECI-54 acceptance criterion: "KV-cached if cache is
- * available, otherwise direct Prisma".
+ * Each list ships `TaxonomyTermWithCount[]` (counts via the per-term `extras`
+ * subquery). Read-through cached in `TAXONOMY_KV` (5-min TTL, the sole staleness
+ * bound — no active invalidation of this internal key). The KV binding is
+ * optional: absent (local dev) → a direct DB query.
  */
 
-import {
-  TaxonomyResponseSchema,
-  type TaxonomyResponse,
-  type TaxonomyTermWithCount,
-} from '@aeci/shared';
+import { TaxonomyResponseSchema, type TaxonomyResponse } from '@aeci/shared';
+import { asc } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { taxonomyAudiences, taxonomyCategories, taxonomyPhases } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
-  categoryTermSelect,
-  audienceTermSelect,
-  phaseTermSelect,
+  audienceTermConfig,
+  categoryTermConfig,
+  phaseTermConfig,
   toTaxonomyTermWithCount,
-} from '../lib/prisma-helpers';
-import { getPrisma } from '../prisma';
+} from '../lib/drizzle-helpers';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 const CACHE_KEY = 'taxonomy:v1';
-const CACHE_TTL_SECONDS = 300; // 5 minutes — sole staleness bound; no active KV invalidation (see header).
+const CACHE_TTL_SECONDS = 300; // 5 minutes — sole staleness bound (see header).
 
 export function createTaxonomyHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const kv = c.env.TAXONOMY_KV;
@@ -49,40 +38,31 @@ export function createTaxonomyHandler(
       const cached = await kv.get(CACHE_KEY, 'json');
       if (cached) {
         const parsed = TaxonomyResponseSchema.safeParse(cached);
-        if (parsed.success) {
-          return json(parsed.data);
-        }
-        // Cached value drifted from the schema (e.g. shape evolved across
-        // deploys). Fall through to a fresh Prisma fetch + overwrite.
+        if (parsed.success) return json(parsed.data);
+        // Cached value drifted from the schema — fall through to a fresh fetch.
       }
     }
 
-    const prisma = prismaFor(c.env);
+    const { db } = dbFor(c.env);
     const [categories, audiences, phases] = await Promise.all([
-      prisma.taxonomyCategory.findMany({
-        select: categoryTermSelect,
-        orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
+      db.query.taxonomyCategories.findMany({
+        ...categoryTermConfig,
+        orderBy: [asc(taxonomyCategories.displayOrder), asc(taxonomyCategories.name)],
       }),
-      prisma.taxonomyAudience.findMany({
-        select: audienceTermSelect,
-        orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
+      db.query.taxonomyAudiences.findMany({
+        ...audienceTermConfig,
+        orderBy: [asc(taxonomyAudiences.displayOrder), asc(taxonomyAudiences.name)],
       }),
-      prisma.taxonomyPhase.findMany({
-        select: phaseTermSelect,
-        orderBy: [{ displayOrder: 'asc' as const }, { name: 'asc' as const }],
+      db.query.taxonomyPhases.findMany({
+        ...phaseTermConfig,
+        orderBy: [asc(taxonomyPhases.displayOrder), asc(taxonomyPhases.name)],
       }),
     ]);
 
     const body: TaxonomyResponse = {
-      categories: categories.map(
-        (row): TaxonomyTermWithCount => toTaxonomyTermWithCount(row, 'productCategories'),
-      ),
-      audiences: audiences.map(
-        (row): TaxonomyTermWithCount => toTaxonomyTermWithCount(row, 'productAudiences'),
-      ),
-      phases: phases.map(
-        (row): TaxonomyTermWithCount => toTaxonomyTermWithCount(row, 'productPhases'),
-      ),
+      categories: categories.map(toTaxonomyTermWithCount),
+      audiences: audiences.map(toTaxonomyTermWithCount),
+      phases: phases.map(toTaxonomyTermWithCount),
     };
 
     validateResponseInDev(c.env, () => {
@@ -90,7 +70,6 @@ export function createTaxonomyHandler(
     });
 
     if (kv) {
-      // Fire-and-forget — never block the response on the cache write.
       c.executionCtx.waitUntil(
         kv.put(CACHE_KEY, JSON.stringify(body), { expirationTtl: CACHE_TTL_SECONDS }),
       );

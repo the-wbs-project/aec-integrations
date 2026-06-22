@@ -187,11 +187,13 @@ export const vendorListConfig = {
     createdAt: true,
     updatedAt: true,
   },
-  // The correlated outer column MUST be table-qualified (`"vendors"."id"`).
-  // Drizzle renders `${vendors.id}` as bare `"id"`, which a subquery's own table
-  // shadows when it also has an `id` column (e.g. `integrations`) — silently
-  // returning 0. The root table's alias is its own name in both the relational
-  // (`db.query`) and core (`db.select`) builders, so the literal is stable.
+  // The correlated outer column MUST be qualified by the root alias. Drizzle
+  // renders `${vendors.id}` as bare `"id"`, which a subquery's own table shadows
+  // when it also has an `id` column (e.g. `integrations`) — silently returning 0.
+  // The relational builder (`db.query.*`) aliases the root as its DRIZZLE SCHEMA
+  // KEY (here `vendors`, which happens to match the SQL table name). These configs
+  // are used only in relational queries, so the schema-key literal is stable; a
+  // regression would fail the route specs (which exercise the counts).
   extras: {
     productCount:
       sql<number>`(SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = "vendors"."id")`.as(
@@ -235,7 +237,7 @@ export const categoryTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_categories pc WHERE pc.category_id = "taxonomy_categories"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_categories pc WHERE pc.category_id = "taxonomyCategories"."id")`.as(
         'product_count',
       ),
   },
@@ -244,7 +246,7 @@ export const audienceTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_audiences pa WHERE pa.audience_id = "taxonomy_audiences"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_audiences pa WHERE pa.audience_id = "taxonomyAudiences"."id")`.as(
         'product_count',
       ),
   },
@@ -253,7 +255,7 @@ export const phaseTermConfig = {
   columns: { id: true, slug: true, name: true, description: true, displayOrder: true },
   extras: {
     productCount:
-      sql<number>`(SELECT count(*) FROM product_phases pp WHERE pp.phase_id = "taxonomy_phases"."id")`.as(
+      sql<number>`(SELECT count(*) FROM product_phases pp WHERE pp.phase_id = "taxonomyPhases"."id")`.as(
         'product_count',
       ),
   },
