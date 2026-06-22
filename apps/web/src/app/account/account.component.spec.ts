@@ -13,6 +13,7 @@ const PROFILE: AccountProfileResponse = {
   user_id: 'user-uuid-1',
   email: 'dana@example.com',
   display_name: 'Dana Reviewer',
+  role: 'reviewer',
 };
 
 const REVIEWS: AccountReview[] = [

@@ -166,7 +166,7 @@ function call(
 // ─── GET ───────────────────────────────────────────────────────────────────────
 
 describe('createGetAccountHandler', () => {
-  it('returns the session email (read-only) and the profile display name', async () => {
+  it('returns the session email (read-only), the profile display name, and the session role', async () => {
     const { prisma } = makeFakePrisma({ displayName: 'Dana Reviewer' });
     const app = appWith(
       '/api/account',
@@ -181,7 +181,20 @@ describe('createGetAccountHandler', () => {
       user_id: USER_ID,
       email: USER_EMAIL,
       display_name: 'Dana Reviewer',
+      role: 'reviewer',
     });
+  });
+
+  it('echoes role: "admin" for an admin session (drives the web admin affordances)', async () => {
+    const { prisma } = makeFakePrisma({ displayName: 'Ada Admin' });
+    const app = appWith(
+      '/api/account',
+      'get',
+      createGetAccountHandler(() => prisma as never),
+      { userId: USER_ID, email: USER_EMAIL, role: 'admin' },
+    );
+    const res = await call(app, 'GET');
+    expect(((await res.json()) as { role: unknown }).role).toBe('admin');
   });
 
   it('returns display_name: null when the profile has none', async () => {
@@ -215,6 +228,7 @@ describe('createUpdateAccountHandler', () => {
       user_id: USER_ID,
       email: USER_EMAIL,
       display_name: 'New Name',
+      role: 'reviewer',
     });
     expect(profileUpdateCalls).toHaveLength(1);
     expect(profileUpdateCalls[0]).toMatchObject({

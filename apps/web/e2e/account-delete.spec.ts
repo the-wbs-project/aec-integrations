@@ -25,7 +25,12 @@ const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 const ACCOUNT_PATH = '/account';
 
-const PROFILE = { user_id: 'e2e-user-1', email: 'e2e@example.com', display_name: 'E2E Reviewer' };
+const PROFILE = {
+  user_id: 'e2e-user-1',
+  email: 'e2e@example.com',
+  display_name: 'E2E Reviewer',
+  role: 'reviewer',
+};
 
 /** Canned own-reviews payload for the AECI-225 list. One per status. */
 const ACCOUNT_REVIEWS = [

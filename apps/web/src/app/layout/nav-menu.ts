@@ -35,7 +35,11 @@ import { Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { BrnPopover, BrnPopoverContent, BrnPopoverTrigger } from '@spartan-ng/brain/popover';
 
+import { AdminStatus } from '../admin/admin-status';
+import { AdminSummaryStore } from '../admin/admin-summary.store';
+import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
+import { signOutAndGoHome } from '../auth/sign-out';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -65,9 +69,10 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
       brnPopoverTrigger
       [brnPopoverTriggerFor]="menu"
       type="button"
-      class="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-(--border-default) bg-(--surface-raised) text-(--text-primary) transition-colors hover:border-(--border-strong) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      class="relative inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-md border border-(--border-default) bg-(--surface-raised) text-(--text-primary) transition-colors hover:border-(--border-strong) hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       i18n-aria-label="@@app.nav.menu.toggle.aria"
       aria-label="Open menu"
+      [attr.aria-describedby]="showBadge() ? 'aec-nav-menu-pending' : null"
     >
       <svg
         aria-hidden="true"
@@ -83,6 +88,18 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
         <line x1="4" x2="20" y1="12" y2="12" />
         <line x1="4" x2="20" y1="18" y2="18" />
       </svg>
+      <!-- Pending-review badge: parity with the desktop user icon, so an admin
+           sees there's moderation work without opening the menu (AECI-259). -->
+      @if (showBadge()) {
+        <span
+          class="absolute -end-1 -top-1 inline-flex h-[1.125rem] min-w-[1.125rem] items-center justify-center rounded-full px-1 text-[0.625rem] font-bold leading-none text-(--surface-base) ring-2 ring-(--surface-base) bg-(--color-status-error)"
+          aria-hidden="true"
+          >{{ badgeText() }}</span
+        >
+        <span id="aec-nav-menu-pending" class="sr-only" i18n="@@admin.shell.nav.pendingCount"
+          >{{ pending() }} reviews pending moderation</span
+        >
+      }
     </button>
 
     <brn-popover #menu="brnPopover" class="contents" align="start" [sideOffset]="8">
@@ -158,7 +175,8 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
           />
           <div class="mt-1 flex flex-col gap-2 border-t border-(--border-default) px-1 pt-2">
             <!-- Neutral "Sign in" is the cache-safe SSR default; SessionStatus
-                 swaps to "Account" after hydration (Phase 5 §4.4). -->
+                 swaps to the account block after hydration (Phase 5 §4.4), and
+                 AdminStatus reveals the admin section/badge for admins (AECI-259). -->
             @if (session.signedIn()) {
               <a
                 routerLink="/account"
@@ -181,6 +199,52 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
                 </svg>
                 Account
               </a>
+
+              @if (adminStatus.isAdmin()) {
+                <p
+                  class="aec-overline px-3 pt-1 text-(--text-secondary)"
+                  i18n="@@admin.shell.eyebrow"
+                >
+                  Admin
+                </p>
+                <a
+                  routerLink="/admin/reviews"
+                  (click)="menu.close()"
+                  class="flex items-center justify-between gap-2 rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >
+                  <span i18n="@@admin.shell.nav.reviews">Review queue</span>
+                  @if (pending() > 0) {
+                    <span class="text-(--text-secondary)" aria-hidden="true"
+                      >({{ pending() }})</span
+                    >
+                  }
+                </a>
+                <a
+                  routerLink="/admin/reviewers"
+                  (click)="menu.close()"
+                  class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@admin.shell.nav.reviewers"
+                >
+                  Reviewer bans
+                </a>
+              }
+
+              <button
+                type="button"
+                (click)="onSignOut()"
+                class="block w-full cursor-pointer rounded-md px-3 py-2 text-start text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@app.header.signOut"
+              >
+                Sign out
+              </button>
+              @if (signOutFailed()) {
+                <p
+                  class="px-3 text-xs text-(--color-status-error)"
+                  i18n="@@app.header.signOut.failed"
+                >
+                  Couldn’t sign out. Try again.
+                </p>
+              }
             } @else {
               <a
                 routerLink="/auth/login"
@@ -200,7 +264,29 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
 export class NavMenu {
   private readonly taxonomy = inject(TaxonomyNavStore);
   protected readonly session = inject(SessionStatus);
+  protected readonly adminStatus = inject(AdminStatus);
+  private readonly summaryStore = inject(AdminSummaryStore);
+  private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+
+  /** Live pending-review count (0 until the admin probe seeds the store). */
+  protected readonly pending = computed(() => this.summaryStore.pendingReviews() ?? 0);
+
+  /** The trigger badge shows only for an admin with pending reviews. */
+  protected readonly showBadge = computed(() => this.adminStatus.isAdmin() && this.pending() > 0);
+
+  /** Capped so the badge can't grow unbounded; the in-menu "(N)" stays exact. */
+  protected readonly badgeText = computed(() =>
+    this.pending() > 9 ? '9+' : String(this.pending()),
+  );
+
+  protected readonly signOutFailed = signal(false);
+
+  protected async onSignOut(): Promise<void> {
+    this.signOutFailed.set(false);
+    const ok = await signOutAndGoHome(this.auth);
+    if (!ok) this.signOutFailed.set(true);
+  }
 
   protected onSearchQuery(query: string): void {
     navigateToSearchQuery(this.router, query);
