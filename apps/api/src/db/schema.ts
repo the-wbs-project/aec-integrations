@@ -17,7 +17,7 @@
 // - RLS/GRANTs do NOT translate to D1 — authorization is app-layer (ADR 0016 §4,
 //   AECI-254). This file carries data shape + integrity constraints only.
 
-import { sql } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
 import {
   check,
   foreignKey,
@@ -733,6 +733,113 @@ export const mailingList = sqliteTable(
   (t) => [uniqueIndex('mailing_list_email_key').on(t.email)],
 );
 
+// ===========================================================================
+// Relations — power the Drizzle relational query builder (`db.query.*`), which
+// hydrates nested rows the way Prisma `select`/`include` did. Multi-FK targets
+// (a product referenced by both source/target on integrations; reviewer vs
+// moderator on reviews) carry an explicit `relationName` matching the old
+// Prisma `@relation("…")` so the two sides disambiguate.
+// ===========================================================================
+
+export const vendorsRelations = relations(vendors, ({ many }) => ({
+  productVendors: many(productVendors),
+  builtIntegrations: many(integrations, { relationName: 'IntegrationBuiltByVendor' }),
+}));
+
+export const productsRelations = relations(products, ({ many }) => ({
+  productVendors: many(productVendors),
+  productCategories: many(productCategories),
+  productAudiences: many(productAudiences),
+  productPhases: many(productPhases),
+  reviews: many(reviews),
+  sourceIntegrations: many(integrations, { relationName: 'IntegrationSource' }),
+  targetIntegrations: many(integrations, { relationName: 'IntegrationTarget' }),
+}));
+
+export const integrationsRelations = relations(integrations, ({ one }) => ({
+  sourceProduct: one(products, {
+    fields: [integrations.sourceProductId],
+    references: [products.id],
+    relationName: 'IntegrationSource',
+  }),
+  targetProduct: one(products, {
+    fields: [integrations.targetProductId],
+    references: [products.id],
+    relationName: 'IntegrationTarget',
+  }),
+  builtByVendor: one(vendors, {
+    fields: [integrations.builtByVendorId],
+    references: [vendors.id],
+    relationName: 'IntegrationBuiltByVendor',
+  }),
+  poweredByProduct: one(products, {
+    fields: [integrations.poweredByProductId],
+    references: [products.id],
+    relationName: 'IntegrationPoweredByProduct',
+  }),
+}));
+
+export const taxonomyCategoriesRelations = relations(taxonomyCategories, ({ many }) => ({
+  productCategories: many(productCategories),
+}));
+export const taxonomyAudiencesRelations = relations(taxonomyAudiences, ({ many }) => ({
+  productAudiences: many(productAudiences),
+}));
+export const taxonomyPhasesRelations = relations(taxonomyPhases, ({ many }) => ({
+  productPhases: many(productPhases),
+}));
+
+export const productCategoriesRelations = relations(productCategories, ({ one }) => ({
+  product: one(products, { fields: [productCategories.productId], references: [products.id] }),
+  category: one(taxonomyCategories, {
+    fields: [productCategories.categoryId],
+    references: [taxonomyCategories.id],
+  }),
+}));
+export const productAudiencesRelations = relations(productAudiences, ({ one }) => ({
+  product: one(products, { fields: [productAudiences.productId], references: [products.id] }),
+  audience: one(taxonomyAudiences, {
+    fields: [productAudiences.audienceId],
+    references: [taxonomyAudiences.id],
+  }),
+}));
+export const productPhasesRelations = relations(productPhases, ({ one }) => ({
+  product: one(products, { fields: [productPhases.productId], references: [products.id] }),
+  phase: one(taxonomyPhases, {
+    fields: [productPhases.phaseId],
+    references: [taxonomyPhases.id],
+  }),
+}));
+
+export const productVendorsRelations = relations(productVendors, ({ one }) => ({
+  product: one(products, { fields: [productVendors.productId], references: [products.id] }),
+  vendor: one(vendors, { fields: [productVendors.vendorId], references: [vendors.id] }),
+}));
+
+export const reviewsRelations = relations(reviews, ({ one }) => ({
+  product: one(products, { fields: [reviews.productId], references: [products.id] }),
+  reviewer: one(profiles, {
+    fields: [reviews.reviewerId],
+    references: [profiles.id],
+    relationName: 'ReviewReviewer',
+  }),
+  moderator: one(profiles, {
+    fields: [reviews.moderatedBy],
+    references: [profiles.id],
+    relationName: 'ReviewModerator',
+  }),
+}));
+
+export const workflowInstancesRelations = relations(workflowInstances, ({ many }) => ({
+  transitions: many(workflowTransitions),
+}));
+export const workflowTransitionsRelations = relations(workflowTransitions, ({ one }) => ({
+  workflow: one(workflowInstances, {
+    fields: [workflowTransitions.workflowId],
+    references: [workflowInstances.id],
+  }),
+}));
+
 // ---------------------------------------------------------------------------
 // Aggregate export — passed to `drizzle(env.DB, { schema })` so the relational
 // query builder + types are available app-wide.
@@ -762,4 +869,18 @@ export const schema = {
   translations,
   feedback,
   mailingList,
+  // relations
+  vendorsRelations,
+  productsRelations,
+  integrationsRelations,
+  taxonomyCategoriesRelations,
+  taxonomyAudiencesRelations,
+  taxonomyPhasesRelations,
+  productCategoriesRelations,
+  productAudiencesRelations,
+  productPhasesRelations,
+  productVendorsRelations,
+  reviewsRelations,
+  workflowInstancesRelations,
+  workflowTransitionsRelations,
 };
