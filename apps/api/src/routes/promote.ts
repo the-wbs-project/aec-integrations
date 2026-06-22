@@ -39,8 +39,8 @@
  * Cache purge (AECI-105) is best-effort + post-commit (`ctx.waitUntil` →
  * `callCloudflarePurge` directly, ADR 0010); no-op without
  * `CF_PURGE_API_TOKEN`/`CF_ZONE_ID`. Algolia sync (AECI-139) is an injectable
- * post-commit seam; its default still re-queries via the (Prisma) algolia-sync
- * core until that job migrates, and no-ops without the Algolia secrets.
+ * post-commit seam over the Drizzle `algolia-sync` core, no-op without the
+ * Algolia secrets.
  */
 
 import {
@@ -66,7 +66,7 @@ import { eq, inArray, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
-import { getDb } from '../db/client';
+import { getDb, type Db } from '../db/client';
 import {
   integrations,
   productAudiences,
@@ -84,12 +84,11 @@ import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import { syncPromoteTargets, type AlgoliaSyncPrisma } from '../lib/algolia-sync';
+import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import type { DbFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/recompute-counts';
-import { getPrisma } from '../prisma';
 import { cacheTagsForPromote } from './promote-cache-tags';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -300,9 +299,8 @@ function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason:
 
 /**
  * Post-commit Algolia upsert seam. Default re-queries the touched rows by id and
- * pushes them to the env's indexes via the shared (still-Prisma) sync core,
- * gated on the Algolia secrets. Injected for tests + removed when `algolia-sync`
- * migrates to Drizzle (AECI-253). Never throws.
+ * pushes them to the env's indexes via the Drizzle `algolia-sync` core, gated on
+ * the Algolia secrets. Injected for tests. Never throws.
  */
 export type PromoteAlgoliaSync = (
   c: Context<{ Bindings: Env }>,
@@ -310,18 +308,18 @@ export type PromoteAlgoliaSync = (
 ) => Promise<void>;
 
 const defaultAlgoliaSync: PromoteAlgoliaSync = (c, response) =>
-  syncAlgoliaAfterPromote(c, response, getPrisma(c.env) as unknown as AlgoliaSyncPrisma);
+  syncAlgoliaAfterPromote(c, response, getDb(c.env).db);
 
 async function syncAlgoliaAfterPromote(
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
-  prisma: AlgoliaSyncPrisma,
+  db: Db,
 ): Promise<void> {
   const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
   const env: AlgoliaEnv = c.env.ENV ?? 'development';
   const started = Date.now();
   try {
-    const results = await syncPromoteTargets(prisma, fetch, creds, env, {
+    const results = await syncPromoteTargets(db, fetch, creds, env, {
       product: response.product ? { id: response.product.id } : null,
       vendors: response.vendors.map((v) => ({ id: v.id })),
       integrations: response.integrations.map((i) => ({ id: i.id })),

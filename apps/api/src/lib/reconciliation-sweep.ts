@@ -25,6 +25,7 @@
  */
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
+import { and, asc, count as countRows, eq, inArray, isNull, lt } from 'drizzle-orm';
 
 import {
   sendAdminAlert,
@@ -32,7 +33,9 @@ import {
   type AlertContext,
   type StuckRequestSummary,
 } from './admin-alert';
-import { createLinearIssueForRequest, prismaLinearStore, type LinearPersistClient } from './linear';
+import { createLinearIssueForRequest, drizzleLinearStore } from './linear';
+import type { Db } from '../db/client';
+import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount, submitGauge } from '../datadog';
 
 const MINUTE_MS = 60_000;
@@ -50,12 +53,10 @@ export const RECONCILE_PERSISTENT_MINUTES = 60;
  *  silent truncation). */
 export const RECONCILE_BATCH_CAP = 50;
 
-// ─── Structural Prisma surface ───────────────────────────────────────────────
-// Same loose-structural approach as `routes/requests.ts` / `scheduled.ts`: we
-// touch a known slice of the generated client and type it structurally. A real
-// accelerated client and the test fake both satisfy this. The slice is a superset
-// of `LinearPersistClient` (the retry casts to it), plus the read delegates the
-// sweep needs to find stuck rows and rebuild the §6.4 input.
+// ─── Row shape the sweep reads ───────────────────────────────────────────────
+// The subset of `vendor_requests` the sweep needs to find a stuck row and rebuild
+// the §6.4 input. `createdAt` is ISO-8601 TEXT under D1 (not a `Date`), so the age
+// math below parses it via `new Date(...)`.
 
 type StuckRow = {
   id: string;
@@ -68,32 +69,7 @@ type StuckRow = {
   body: string;
   sourceUrl: string | null;
   domainMatch: string;
-  createdAt: Date;
-};
-
-type FindUniqueById = (args: {
-  where: { id: string };
-  select: Record<string, boolean>;
-}) => Promise<Record<string, unknown> | null>;
-
-export type ReconcilePrisma = {
-  vendorRequest: {
-    findMany(args: {
-      where: Record<string, unknown>;
-      orderBy?: Record<string, 'asc' | 'desc'>;
-      take?: number;
-      select?: Record<string, boolean>;
-    }): Promise<Array<Record<string, unknown>>>;
-    count(args: { where: Record<string, unknown> }): Promise<number>;
-  };
-  product: { findUnique: FindUniqueById };
-  vendor: { findUnique: FindUniqueById };
-  workflowInstance: {
-    findFirst(args: {
-      where: Record<string, unknown>;
-      select: Record<string, boolean>;
-    }): Promise<{ id: string } | null>;
-  };
+  createdAt: string;
 };
 
 // ─── Dependencies (injected for tests) ───────────────────────────────────────
@@ -130,31 +106,33 @@ export interface ReconcileResult {
 // ─── The sweep ───────────────────────────────────────────────────────────────
 
 /**
- * Run one reconciliation pass. Unexpected throws (a Prisma/Accelerate read
- * failure on the initial query or the re-read) propagate to the queue consumer,
- * which `retry()`s — the whole sweep re-runs and `createLinearIssueForRequest`'s
- * idempotency makes that safe. Per-row errors are caught (logged + skipped) so one
- * bad row never aborts the batch.
+ * Run one reconciliation pass. Unexpected throws (a D1 read failure on the initial
+ * query or the re-read) propagate to the queue consumer, which `retry()`s — the
+ * whole sweep re-runs and `createLinearIssueForRequest`'s idempotency makes that
+ * safe. Per-row errors are caught (logged + skipped) so one bad row never aborts
+ * the batch.
  */
 export async function runReconciliationSweep(
   c: AlertContext,
-  prisma: ReconcilePrisma,
+  db: Db,
   deps: ReconcileDeps = {},
 ): Promise<ReconcileResult> {
   const createIssue = deps.createIssue ?? createLinearIssueForRequest;
   const sendAlert = deps.sendAlert ?? sendAdminAlert;
   const now = deps.now ?? new Date();
   const nowMs = now.getTime();
-  const stuckCutoff = new Date(nowMs - RECONCILE_STUCK_MINUTES * MINUTE_MS);
-  // One predicate, used by both the batched fetch and the unbounded backlog count,
-  // so the two can't drift.
-  const stuckWhere = { status: 'open', linearIssueId: null, createdAt: { lt: stuckCutoff } };
+  // `created_at` is ISO-8601 TEXT, which sorts/compares lexically, so the cutoff is
+  // compared as a string. One predicate, used by both the batched fetch and the
+  // unbounded backlog count, so the two can't drift.
+  const cutoffIso = new Date(nowMs - RECONCILE_STUCK_MINUTES * MINUTE_MS).toISOString();
+  const stuckWhere = and(
+    eq(vendorRequests.status, 'open'),
+    isNull(vendorRequests.linearIssueId),
+    lt(vendorRequests.createdAt, cutoffIso),
+  );
 
-  const stuckRows = (await prisma.vendorRequest.findMany({
-    where: stuckWhere,
-    orderBy: { createdAt: 'asc' },
-    take: RECONCILE_BATCH_CAP,
-    select: {
+  const stuckRows = (await db.query.vendorRequests.findMany({
+    columns: {
       id: true,
       kind: true,
       targetType: true,
@@ -167,6 +145,9 @@ export async function runReconciliationSweep(
       domainMatch: true,
       createdAt: true,
     },
+    where: stuckWhere,
+    orderBy: asc(vendorRequests.createdAt),
+    limit: RECONCILE_BATCH_CAP,
   })) as unknown as StuckRow[];
 
   // The gauge is the TRUE backlog, not this sweep's batch. `findMany` caps at
@@ -178,7 +159,8 @@ export async function runReconciliationSweep(
   const backlog =
     stuckRows.length < RECONCILE_BATCH_CAP
       ? stuckRows.length
-      : await prisma.vendorRequest.count({ where: stuckWhere });
+      : ((await db.select({ value: countRows() }).from(vendorRequests).where(stuckWhere))[0]
+          ?.value ?? 0);
   gauge(c, 'aeci.linear.reconcile.stuck', backlog);
 
   if (stuckRows.length === 0) {
@@ -197,11 +179,11 @@ export async function runReconciliationSweep(
   let retried = 0;
   for (const row of stuckRows) {
     try {
-      const target = await resolveTargetById(prisma, row.targetType, row.targetId);
+      const target = await resolveTargetById(db, row.targetType, row.targetId);
       targetNames.set(row.id, target?.name ?? null);
-      const workflow = await prisma.workflowInstance.findFirst({
-        where: { entityId: row.id },
-        select: { id: true },
+      const workflow = await db.query.workflowInstances.findFirst({
+        columns: { id: true },
+        where: eq(workflowInstances.entityId, row.id),
       });
       if (!target || !workflow) {
         // Can't rebuild the §6.4 input (target row gone, or no workflow instance) —
@@ -216,9 +198,9 @@ export async function runReconciliationSweep(
       }
       retried++;
       // Idempotent retry of §6.4 — the same function the request handler runs.
-      // `prismaLinearStore` adapts this still-Prisma sweep to the ORM-neutral
-      // `LinearRequestStore` seam (dropped when this job moves to Drizzle).
-      await createIssue(c, prismaLinearStore(prisma as unknown as LinearPersistClient), {
+      // `drizzleLinearStore` adapts the Drizzle `db` to the ORM-neutral
+      // `LinearRequestStore` seam `createLinearIssueForRequest` persists through.
+      await createIssue(c, drizzleLinearStore(db), {
         requestId: row.id,
         workflowId: workflow.id,
         kind: row.kind,
@@ -247,10 +229,10 @@ export async function runReconciliationSweep(
   const sweptIds = stuckRows.map((r) => r.id);
   const stillFailingIds = new Set(
     (
-      (await prisma.vendorRequest.findMany({
-        where: { id: { in: sweptIds }, linearIssueId: null },
-        select: { id: true },
-      })) as unknown as Array<{ id: string }>
+      await db.query.vendorRequests.findMany({
+        columns: { id: true },
+        where: and(inArray(vendorRequests.id, sweptIds), isNull(vendorRequests.linearIssueId)),
+      })
     ).map((r) => r.id),
   );
 
@@ -264,13 +246,13 @@ export async function runReconciliationSweep(
   // Persistent failures: still unlinked AND older than the persistent threshold.
   const persistentCutoffMs = nowMs - RECONCILE_PERSISTENT_MINUTES * MINUTE_MS;
   const persistentRows: StuckRequestSummary[] = stuckRows
-    .filter((r) => stillFailingIds.has(r.id) && r.createdAt.getTime() < persistentCutoffMs)
+    .filter((r) => stillFailingIds.has(r.id) && new Date(r.createdAt).getTime() < persistentCutoffMs)
     .map((r) => ({
       requestId: r.id,
       kind: r.kind,
       targetType: r.targetType,
       targetName: targetNames.get(r.id) ?? null,
-      ageMinutes: Math.floor((nowMs - r.createdAt.getTime()) / MINUTE_MS),
+      ageMinutes: Math.floor((nowMs - new Date(r.createdAt).getTime()) / MINUTE_MS),
     }));
 
   let alerted = false;
@@ -308,21 +290,21 @@ export async function runReconciliationSweep(
  * Products carry `name`, vendors `company_name`. `null` if the target row is gone.
  */
 async function resolveTargetById(
-  prisma: ReconcilePrisma,
+  db: Db,
   targetType: RequestTargetType,
   targetId: string,
 ): Promise<{ name: string; slug: string } | null> {
   if (targetType === 'product') {
-    const row = (await prisma.product.findUnique({
-      where: { id: targetId },
-      select: { name: true, slug: true },
-    })) as { name: string; slug: string } | null;
+    const row = await db.query.products.findFirst({
+      columns: { name: true, slug: true },
+      where: eq(products.id, targetId),
+    });
     return row ? { name: row.name, slug: row.slug } : null;
   }
-  const row = (await prisma.vendor.findUnique({
-    where: { id: targetId },
-    select: { companyName: true, slug: true },
-  })) as { companyName: string; slug: string } | null;
+  const row = await db.query.vendors.findFirst({
+    columns: { companyName: true, slug: true },
+    where: eq(vendors.id, targetId),
+  });
   return row ? { name: row.companyName, slug: row.slug } : null;
 }
 
