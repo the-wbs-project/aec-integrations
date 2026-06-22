@@ -1,8 +1,13 @@
 # 0016 — Application data on Cloudflare D1 (Drizzle), Supabase for Auth only
 
 - **Status:** Proposed (AECI-248; flips to **Accepted** in Phase 6 / AECI-257)
-- **Date:** 2026-06-22
+- **Date:** 2026-06-13 (proposed)
 - **Context owner:** chrisw@thewbsproject.com
+- **Note:** the proposal was filed 2026-06-13 with the AECI-248 issue tree and the
+  `docs/adr/README.md` index entry, but this document body was never committed.
+  Reconstructed 2026-06-22 from the issue set + a full codebase survey, then
+  reconciled against the canonical README index entry (which it matches on every
+  decision).
 - **Spec anchor:** `docs/DATABASE_SCHEMA.md`, `docs/AUTH_AND_RLS.md`, `STAGE_1_SPEC.md` §26
 - **Supersedes (for the DB path):** ADR 0002 (Prisma Accelerate), ADR 0007 (Supabase CLI migrations)
 - **Retains:** ADR 0015 (Supabase Auth on Workers) — **unchanged**
@@ -37,8 +42,8 @@ instead of a shared remote database.
 ### Why not move auth too? (Option A vs Option B)
 
 - **Option A (this ADR): keep Supabase Auth, move only app data to D1.**
-- **Option B (deferred): move auth off Supabase as well** (single-vendor
-  consolidation).
+- **Option B (deferred): self-host auth as well** — full Cloudflare
+  consolidation (single-vendor end-state).
 
 We choose **Option A**. Supabase Auth on Workers is a *recently proven, working*
 subsystem (ADR 0015: `@supabase/ssr` cookie sessions on SSR + `jose`/JWKS
