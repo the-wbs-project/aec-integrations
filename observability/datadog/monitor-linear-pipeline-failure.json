@@ -1,0 +1,14 @@
+{
+  "name": "AECi — Linear pipeline failure rate > 50% (1h)",
+  "type": "query alert",
+  "query": "sum(last_1h):( sum:aeci.linear.issue{outcome:failed,env:production}.as_count() + sum:aeci.linear.sync{outcome:failed,env:production}.as_count() ) / ( sum:aeci.linear.issue{!outcome:skipped_exists,env:production}.as_count() + sum:aeci.linear.sync{!outcome:skipped_no_issue,env:production}.as_count() ) * 100 > 50",
+  "message": "More than 50% of Linear write-pipeline attempts failed over 1h (AECI-219 / Phase 6.12). This combines the request→Linear creation (`aeci.linear.issue`, AECI-211 / 6.4) and the admin resolve/reject site→Linear sync (`aeci.linear.sync`, AECI-213 / 6.6) — both `outcome:failed` over terminal attempts (`ok` + `failed`; the `skipped_exists` idempotent re-fire and `skipped_no_issue` no-op are excluded from the denominator so they can't mask a spike). A high RATE means SYSTEMIC breakage — a revoked/missing `LINEAR_API_KEY`, drifted board/label/assignee ids in `lib/linear.ts`, or Linear being down — not a single transient failure. This is the early-detection complement to `AECi — Linear reconciliation: persistent stuck requests`, which is the per-row backstop that only fires after the ~60m persistent threshold; it also covers the SYNC path, which has NO reconciliation retry (a failed resolve/reject silently diverges Linear from Supabase). Pivot the 'AECi Phase 6 — Requests/Moderation' dashboard / Metrics Explorer by `reason` (`http_error 401/403` → key missing/revoked/over-scope; `graphql_error` → drifted ids; `timeout`/`network` → Linear slow/down; `db_error` → link-back/transition write failed) and read `service:aeci-api` logs.\n\nNote: deliberately NO notify_no_data — the Linear pipeline is traffic-driven (no submits / no resolves = no points), and the absent-key path emits NOTHING, so zero data is the healthy pre-launch state and a no-data alert would be constant noise. The 50% threshold + 1h window are launch-tunable starting points (at low volume a single failure can dominate the ratio) — retune once production traffic is known.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#linear-pipeline-failure-issue-creation--sync\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:6", "managed-by:aeci-219"],
+  "options": {
+    "thresholds": { "critical": 50 },
+    "notify_no_data": false,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

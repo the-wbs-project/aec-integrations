@@ -431,12 +431,100 @@ cron to hourly if a tighter SLA is needed.)
 
 ---
 
+## Linear pipeline failure (issue creation / sync)
+
+**Alert:** `AECi — Linear pipeline failure rate > 50% (1h)` (AECI-219 / Phase 6.12). Traffic-driven, so
+deliberately **no** `notify_no_data` — no submits/resolves (and the absent-key no-op) emit nothing, so
+zero is the healthy pre-launch state.
+**Metric:** the combined failure **rate** of the two outbound Linear write paths over **terminal**
+attempts — `aeci.linear.issue{outcome:failed}` (request→Linear creation, §6.4) + `aeci.linear.sync{outcome:failed}`
+(admin resolve/reject site→Linear push, §6.6), divided by the same metrics excluding `skipped_exists` /
+`skipped_no_issue` (idempotent re-fires and no-op pushes aren't attempts and must not dilute the ratio).
+Companion latency: `aeci.linear.issue.duration_ms`, `aeci.linear.sync.duration_ms`.
+
+**What it means:** a **systemic** break in the Linear pipeline — most creations/syncs are failing, not a
+one-off. Usual causes: a missing/revoked/over-scoped `LINEAR_API_KEY`; drifted board/label/assignee/project
+ids in `lib/linear.ts`; or Linear itself being down. This is the **early-detection** complement to the
+reconciliation `persistent stuck requests` alert (the per-row backstop that only fires after the ~60m
+persistent threshold), and it is the **only** alert covering the **sync** path — a failed resolve/reject
+has no reconciliation retry, so Linear silently diverges from Supabase until someone notices.
+
+**First checks**
+
+1. **Which path?** Pivot the 'AECi Phase 6 — Requests/Moderation' dashboard (or Metrics Explorer) to
+   split `aeci.linear.issue{outcome:failed}` vs `aeci.linear.sync{outcome:failed}`. Both failing → a
+   shared cause (key/Linear outage). Only `sync` failing → likely a state/transition-id problem specific
+   to the resolve/reject push.
+2. **Why?** Pivot the failing metric by `reason`: `http_error 401/403` → `LINEAR_API_KEY` missing/revoked/
+   over-scope (`wrangler secret list` on the Worker); `graphql_error` → a bad label/assignee/project/state
+   id — the board constants in `lib/linear.ts` drifted from Linear; `timeout`/`network` → Linear is
+   slow/down (check the Linear status page); `db_error` → the Linear call succeeded but the link-back /
+   `workflow_transition` write failed. Read `service:aeci-api` logs for detail.
+3. **Blast radius:** for the creation path, failures land in the reconciliation sweep — check
+   `aeci.linear.reconcile.stuck` for the growing backlog. For the **sync** path there is no backstop, so
+   list recently resolved/rejected requests and confirm their Linear issues actually transitioned.
+
+**Repair:** fix the root cause and the creation path self-heals via the next 15-min sweep (idempotent —
+never double-creates). For a bad/revoked key, rotate it and re-push the secret + redeploy. For drifted
+board ids (`graphql_error`), correct the constants in `lib/linear.ts` and redeploy. For a Linear outage,
+no action — it clears when Linear recovers. **Sync-path failures don't auto-heal:** after the root cause
+is fixed, manually re-resolve/reject the affected requests in `/admin/requests` (idempotent) to re-push
+their Linear transitions, or fix them directly in Linear (the §6.3 inbound webhook then syncs the status
+back).
+
+**Escalation:** route a sustained pipeline failure to whoever owns the Linear integration. A revoked key
+or drifted board ids are config issues (fix + redeploy); a Linear outage is vendor-side (monitor + wait).
+The 50% threshold + 1h window are launch-tunable starting points (`docs/OBSERVABILITY.md`).
+
+---
+
+## Linear webhook HMAC failures
+
+**Alert:** `AECi — Linear webhook HMAC failures > 3 (1h)` (AECI-219 / Phase 6.12). Deliberately **no**
+`notify_no_data` — a bad signature is the only thing that emits this, so zero is healthy.
+**Metric:** `aeci.webhooks.linear.hmac_failure` (count) — emitted by `POST /api/webhooks/linear`
+(`routes/webhooks.ts`, AECI-212 / Phase 6.5) when the `Linear-Signature` header is missing or doesn't
+match `LINEAR_WEBHOOK_SIGNING_SECRET`. The request is rejected **401 before any write** (fail-closed).
+Companion: `aeci.webhooks.linear.receipt` (the verified-receipt throughput).
+
+**What it means:** inbound Linear webhooks are bouncing signature verification. Two shapes: **(a)
+mis-config** — the signing secret was rotated in Linear's webhook settings but the Worker's
+`LINEAR_WEBHOOK_SIGNING_SECRET` wasn't re-pushed (or vice-versa); legitimate Linear deliveries are now all
+401ing, so the **Linear → Site status sync silently stops** (admins resolving in Linear won't reflect on
+the site). **(b) probing/replay** — someone is POSTing to the public endpoint with a bad/again signature.
+The fail-closed 401 means **no data was written** either way; the risk in (a) is the lost sync, not a breach.
+
+**First checks**
+
+1. **(a) or (b)?** Check `aeci.webhooks.linear.receipt` over the same window: if verified receipts
+   **dropped to zero** at the moment HMAC failures spiked, it's a **secret mismatch** (legit traffic is
+   bouncing) — NOT an attack. If receipts are still flowing normally alongside the failures, it's external
+   probing hitting the endpoint.
+2. **Diff the secret:** compare the signing secret in Linear's webhook config (Linear → Settings → API →
+   Webhooks) against the Worker's `LINEAR_WEBHOOK_SIGNING_SECRET` (`wrangler secret list` on
+   `aeci-api-<env>`). A recent rotation on one side is the usual culprit.
+3. **Read the source:** `service:aeci-api` logs around the endpoint show the request origin — confirm
+   whether deliveries are coming from Linear or an unknown source.
+
+**Repair:** for a mismatch, re-push the correct `LINEAR_WEBHOOK_SIGNING_SECRET` and redeploy — Linear
+retries failed webhook deliveries, and the inbound webhook + the §6.4 reconciliation sweep are the two
+directions of the same sync, so state re-converges. For external probing, no app change is needed (the
+endpoint already fails closed); escalate to WAF rate-limiting on the public request endpoints if it's
+abusive — that's a Phase 7 handoff item (§14).
+
+**Escalation:** a secret mismatch is a config fix (owner of the Linear integration); persistent probing is
+a security concern (route to whoever owns WAF/edge). The >3-per-hour threshold is a launch-tunable starting
+point (`docs/OBSERVABILITY.md`).
+
+---
+
 ## Linear reconciliation — stuck requests
 
-**Alert:** `AECi — Linear reconciliation: persistent stuck requests` (the persistent-failure signal).
-Deliberately **no** `notify_no_data` — the count is emitted only when the failure condition holds, so
-zero points is healthy (sweep-liveness — a no-data check on the always-emitted
-`aeci.linear.reconcile.stuck` gauge — lands with the Phase-6 dashboard, 6.12).
+**Alert:** two monitors share this runbook — `AECi — Linear reconciliation: persistent stuck requests`
+(the persistent-failure signal; deliberately **no** `notify_no_data` — the count is emitted only when the
+failure condition holds, so zero points is healthy) and its liveness companion `AECi — Linear
+reconciliation sweep not running` (AECI-219 / Phase 6.12; a `notify_no_data` check on the always-emitted
+`aeci.linear.reconcile.stuck` gauge — no point for ~1h ≈ 4 missed sweeps means the cron itself stalled).
 **Metric:** `aeci.linear.reconcile.persistent_failure` (count) — requests stuck past the persistent
 threshold (~60m) AND still failing after a retry; companion `aeci.linear.reconcile.stuck` (backlog
 gauge) and `aeci.linear.reconcile.attempt` (`outcome:cleared|still_failing`). Emitted by the
@@ -452,11 +540,13 @@ never notified by Linear, so it needs a human. **Not user-facing:** the submitte
 
 **First checks**
 
-1. Confirm the sweep is running: a persistent failure means a request is genuinely stuck. If the
-   backlog gauge `aeci.linear.reconcile.stuck` has flat-lined / stopped reporting, the every-15-min
-   sweep itself stalled — check the API Worker's scheduled invocations / `wrangler tail`, confirm the
-   `*/15 * * * *` trigger is present in `apps/api/wrangler.jsonc` (staging + production only) and the
-   `aeci-reconcile-<env>` queue exists. A stalled sweep means stuck rows aren't being retried.
+1. **Which alert?** `sweep not running` (no-data) → the every-15-min sweep stalled outright; the backlog
+   gauge `aeci.linear.reconcile.stuck` stopped reporting. `persistent stuck requests` → the sweep is
+   running but a request is genuinely stuck. Either way, confirm the sweep is running: if the backlog
+   gauge has flat-lined / stopped reporting, check the API Worker's scheduled invocations / `wrangler
+   tail`, confirm the `*/15 * * * *` trigger is present in `apps/api/wrangler.jsonc` (staging +
+   production only) and the `aeci-reconcile-<env>` queue + consumer exist. A stalled sweep means stuck
+   rows aren't being retried (the §6.2 backstop is down).
 2. Why is creation failing? Read the `service:aeci-api source:reconcile` error log for the
    `request_ids`, then pivot `aeci.linear.issue{outcome:failed}` by `reason`: `http_error 401/403` →
    the `LINEAR_API_KEY` is missing/revoked/over-scope (a **missing** key is a silent no-op that emits
