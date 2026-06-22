@@ -15,10 +15,14 @@
  *
  * A11y: this is the project's FIRST `@angular/aria` combobox adoption (ADR 0010).
  * `ngCombobox` + `ngListbox`/`ngOption` supply role=combobox/listbox/option,
- * `aria-expanded`/`aria-controls`/`aria-activedescendant`, the Arrow/Home/End/
- * Escape keyboard model, and the CDK-Overlay-positioned popup; we supply only the
- * HTML + token CSS (`data-[active=true]:` highlight, `aria-selected`). A real
- * `<label for>` names the input (never placeholder-as-label).
+ * `aria-expanded`/`aria-controls`/`aria-activedescendant`, and the Arrow/Home/End/
+ * Escape keyboard model; we supply only the HTML + token CSS (`data-[active=true]:`
+ * highlight, `aria-selected`) AND the popup positioning. Aria's `ComboboxPopup`
+ * renders the listbox INLINE (via `DeferredContent`'s `createEmbeddedView`) inside
+ * the `relative` `<form>` — it is NOT a CDK overlay — so the listbox must be taken
+ * out of flow itself (`absolute top-full …`), or it grows the form and (under the
+ * header's `items-center`) shoves the input out of the row. A real `<label for>`
+ * names the input (never placeholder-as-label).
  *
  * Navigation lives in the PARENT (mirrors `navigateToSearch`): the component is
  * Router-free and emits `suggestionChosen` (an option committed → detail page)
@@ -105,7 +109,7 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
             selectionMode="explicit"
             i18n-aria-label="@@app.search.autocomplete.listbox.aria"
             aria-label="Search suggestions"
-            class="m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+            class="absolute top-full end-0 z-50 m-0 mt-2 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
           >
             @for (s of suggestions(); track s.objectID) {
               <li
