@@ -1,36 +1,17 @@
 /**
  * Denormalized product-count maintenance + reconciliation (AECI-104).
  *
+ * LEGACY Prisma path — retained ONLY for `routes/promote.ts` + its specs until
+ * that route migrates to Drizzle (ADR 0016 / AECI-253). The Drizzle successor is
+ * `lib/recompute-counts.ts`; once promote moves over, delete this file.
+ *
  * `products.integration_count`, `products.review_count`,
  * `products.rating_overall_avg`, and `products.rating_onboarding_avg` are
- * denormalized for read performance. In Stage 1 they are kept in sync at the
- * **application layer** (NOT by DB triggers — those stay deferred to Phase 2,
- * see DATABASE_SCHEMA.md §11.2). Every write path that mutates `integrations`
- * or `reviews` must call `recomputeProductCounts()` for the touched products
- * **inside the same transaction** as the mutation, so the stored columns can
- * never lag the source rows.
- *
- * This module is the single source of truth for the aggregation rule:
- *   - `integration_count` = integrations where the product is the source OR the
- *     target endpoint (`poweredByProductId` is not counted).
- *   - `review_count` and both rating averages count ONLY reviews with
- *     `status = 'approved'` — the only publicly visible state
- *     (STAGE_1_SPEC.md §4.7 "no public visibility until approved"; §12). When a
- *     product has zero approved reviews the averages are NULL, matching the
- *     column defaults.
- *
- * `findProductCountDrift()` recomputes the expected values from the source rows
- * and reports any product whose stored columns disagree — the reconciliation
- * guard against a write path forgetting to recompute. Both functions share the
- * private `computeExpected()` primitive so "what we write" and "what we check"
- * can never diverge on the rule.
- *
- * Cache-Tag purging of affected pages is a SEPARATE concern (see CLAUDE.md
- * "Cache invalidation") and is not part of count maintenance.
- *
- * NOTE (future review write path, Phase 5/6): review submission, moderation
- * (approve/reject), and the §1073 reject→archive recompute must each call
- * `recomputeProductCounts()` for the affected product in their write tx.
+ * denormalized for read performance and kept in sync at the application layer.
+ * The aggregation rule (single source of truth):
+ *   - `integration_count` = integrations where the product is source OR target.
+ *   - `review_count` + both averages count ONLY `status = 'approved'` reviews;
+ *     zero approved reviews → NULL averages.
  */
 
 /** The only review status counted toward public aggregates. */
@@ -93,21 +74,16 @@ export type ProductCountDrift = {
   expected: number | null;
 };
 
-/** numeric(3,2) precision — stored averages are rounded to 2dp by Postgres, so
- * we round expected values the same way before comparing. */
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** Coerce a Prisma Decimal / number / string / null into a finite number or null. */
 function toNum(v: AvgScalar): number | null {
   if (v === null || v === undefined) return null;
   const n = typeof v === 'number' ? v : Number(v.toString());
   return Number.isFinite(n) ? n : null;
 }
 
-/** The aggregation rule, in one place. Recomputes the four denormalized columns
- * for a single product from the `integrations` / `reviews` source rows. */
 async function computeExpected(
   db: { integration: IntegrationReader; review: ReviewReader },
   productId: string,
@@ -133,12 +109,6 @@ async function computeExpected(
   };
 }
 
-/**
- * Recompute and persist the denormalized aggregates for `productIds`. Call
- * inside the same transaction as the integration/review write. No-op on an
- * empty id set. Runs sequentially to stay transaction-safe and avoid connection
- * storms on the bulk path.
- */
 export async function recomputeProductCounts(
   db: RecomputeClient,
   productIds: Iterable<string>,
@@ -149,11 +119,6 @@ export async function recomputeProductCounts(
   }
 }
 
-/**
- * Recompute expected aggregates for every product and return the rows whose
- * stored columns disagree — one entry per drifted field. Read-only; never
- * writes. An empty array means no drift.
- */
 export async function findProductCountDrift(db: DriftClient): Promise<ProductCountDrift[]> {
   const products = await db.product.findMany({
     select: {

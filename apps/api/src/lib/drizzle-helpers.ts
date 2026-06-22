@@ -26,6 +26,7 @@
 import { ProductUsefulnessSchema } from '@aeci/shared';
 import type {
   AccountReview,
+  AdminReview,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
@@ -175,6 +176,31 @@ export const publicReviewColumns = {
 
 /** First-page size for the approved-reviews list + the `ProductDetail` embed. */
 export const EMBED_REVIEWS_PAGE_SIZE = 24;
+
+/** Admin moderation row (`AdminReview`, §5.13) — the INVERSE of the public
+ *  select: the columns the public path hides (status/toxicity/moderation +
+ *  reviewerId to look the email up out-of-band) + the hydrated product. */
+export const adminReviewConfig = {
+  columns: {
+    id: true,
+    reviewerId: true,
+    ratingOverall: true,
+    ratingOnboarding: true,
+    title: true,
+    body: true,
+    roleAtCompany: true,
+    yearsUsing: true,
+    wouldRecommend: true,
+    verifiedWorkEmail: true,
+    locale: true,
+    status: true,
+    toxicityScore: true,
+    rejectionReason: true,
+    moderatedAt: true,
+    createdAt: true,
+  },
+  with: { product: { columns: { id: true, name: true, slug: true } } },
+} as const;
 
 /** Reviewer-scoped own-reviews (`AccountReview`, §5.11). A narrow slice: the
  *  author needs `status` + `rejectionReason`, NONE of the admin-only signals.
@@ -378,6 +404,26 @@ export interface RawAccountReviewRow {
   product: { id: string; name: string; slug: string };
 }
 
+export interface RawAdminReviewRow {
+  id: string;
+  reviewerId: string | null;
+  ratingOverall: number;
+  ratingOnboarding: number;
+  title: string;
+  body: string;
+  roleAtCompany: string | null;
+  yearsUsing: number | null;
+  wouldRecommend: string | null;
+  verifiedWorkEmail: boolean;
+  locale: string;
+  status: string;
+  toxicityScore: number | null;
+  rejectionReason: string | null;
+  moderatedAt: string | null;
+  createdAt: string;
+  product: { id: string; name: string; slug: string };
+}
+
 export interface RawVendorListRow {
   id: string;
   slug: string;
@@ -558,6 +604,35 @@ export function toPublicReview(raw: RawPublicReviewRow): PublicReview {
     years_using: raw.yearsUsing,
     would_recommend: VALID_WOULD_RECOMMEND.has(wouldRecommend) ? wouldRecommend : null,
     verified_work_email: raw.verifiedWorkEmail,
+    created_at: raw.createdAt,
+  };
+}
+
+/** Shape an admin moderation row (`adminReviewConfig`) into `AdminReview` (§5.13).
+ *  `emailByReviewerId` carries the out-of-band `auth.users.email` lookup (seam #2);
+ *  an anonymized review or a missing entry → `reviewer_email: null`. */
+export function toAdminReview(
+  raw: RawAdminReviewRow,
+  emailByReviewerId: ReadonlyMap<string, string>,
+): AdminReview {
+  const wouldRecommend = raw.wouldRecommend as AdminReview['would_recommend'] | null;
+  return {
+    id: raw.id,
+    product: { id: raw.product.id, name: raw.product.name, slug: raw.product.slug },
+    reviewer_email: raw.reviewerId ? (emailByReviewerId.get(raw.reviewerId) ?? null) : null,
+    rating_overall: raw.ratingOverall,
+    rating_onboarding: raw.ratingOnboarding,
+    title: raw.title,
+    body: raw.body,
+    role_at_company: raw.roleAtCompany,
+    years_using: raw.yearsUsing,
+    would_recommend: VALID_WOULD_RECOMMEND.has(wouldRecommend) ? wouldRecommend : null,
+    verified_work_email: raw.verifiedWorkEmail,
+    locale: raw.locale,
+    status: raw.status as AdminReview['status'],
+    toxicity_score: raw.toxicityScore,
+    rejection_reason: raw.rejectionReason,
+    moderated_at: raw.moderatedAt,
     created_at: raw.createdAt,
   };
 }

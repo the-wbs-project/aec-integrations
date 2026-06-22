@@ -552,8 +552,11 @@ export const workflowInstances = sqliteTable(
       .on(t.linearIssueId)
       .where(sql`"linear_issue_id" IS NOT NULL`),
     check(
+      // 'reviewer_ban' (Phase 6.11 / AECI-218) was MISSING from the Postgres
+      // baseline CHECK — the ban workflow would have CHECK-failed in prod. Added
+      // here (the harness caught it). The app writes all four workflow types.
       'workflow_instances_type_check',
-      sql`"workflow_type" IN ('vendor_claim', 'review_moderation', 'correction_request')`,
+      sql`"workflow_type" IN ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')`,
     ),
     check(
       'workflow_instances_final_outcome_check',

@@ -1,34 +1,15 @@
 /**
- * Reviewer ban-management API (AECI-218 / Phase 6.11) — the admin ban/unban
- * action + the currently-banned list, behind `requireAdmin()`:
+ * Reviewer ban-management API (AECI-218 / Phase 6.11) — Drizzle/D1 (ADR 0016 /
+ * AECI-253, AECI-254).
  *
  *   GET   /api/admin/reviewers      — the currently-banned reviewers, paginated.
  *   PATCH /api/admin/reviewers/:id  — ban / unban a reviewer (a `profiles` row).
  *
- * Source of truth: `STAGE_1_PHASE_6_SPEC.md` §9, `STAGE_1_SPEC.md` §22.3,
- * `docs/API_CONTRACTS.md` §6.10. Ban *enforcement* (rejecting a banned user's
- * review submit) already shipped in Phase 5 (AECI-197) — this is the *management*
- * half: setting/clearing `profiles.banned_at` + `ban_reason`.
- *
- * The shape mirrors `routes/admin-requests.ts`: a preload-then-guarded-`updateMany`
- * write in one transaction with `appendAuditLog()` + a `workflow_transitions` row
- * (CLAUDE.md / §26.1 — every state-changing write logs; failure rolls back). The
- * ban workflow (`workflow_type: 'reviewer_ban'`) is **reversible**, so unlike the
- * review/request workflows it never sets `completed_at`/`final_outcome` — the
- * instance just toggles `current_state` between `active` and `banned`.
- *
- * `:id` is the profile id (= `auth.users.id` = `reviews.reviewer_id`). Guardrails:
- * an admin profile and the acting admin themselves can't be banned via this
- * surface (a banned admin would lock themselves out of `requireAdmin()`).
- *
- * No cache invalidation: a ban changes no cacheable SSR page — a banned reviewer's
- * already-approved reviews stay visible (flagged internally only, §22.3) — so
- * there's no `Cache-Tag` to purge.
- *
- * The loose structural Prisma client types follow the `routes/admin-requests.ts`
- * rationale: we touch a known slice of the generated client, so we type it
- * structurally and `as unknown as` it rather than dragging in the full edge-client
- * generics. A real accelerated client and the test fakes both satisfy these.
+ * Mirrors `admin-reviews`: a preload-gate then one atomic `db.batch` (guarded
+ * `UPDATE … WHERE` + audit + the lean workflow history). The `reviewer_ban`
+ * workflow is REVERSIBLE, so it only toggles `current_state` (`active ↔ banned`)
+ * — never `completed_at`/`final_outcome`. `reviewer_email` comes from the GoTrue
+ * Admin API (seam #2). Admins (and the acting admin) can't be banned here.
  */
 
 import {
@@ -42,109 +23,40 @@ import {
   type ListBannedReviewersResponse,
 } from '@aeci/shared';
 import {
-  appendAuditLog,
-  type AuditLogClient,
+  forwardAuditLog,
+  type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
 import {
-  appendWorkflowTransition,
-  type WorkflowTransitionClient,
+  forwardWorkflowTransition,
+  type WorkflowTransitionEntry,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
+import { and, asc, count, desc, eq, isNotNull, isNull } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
+import { getDb } from '../db/client';
+import { profiles, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import { getPrisma } from '../prisma';
-import type { AcceleratedPrisma } from '../prisma';
-
-import { fetchReviewerEmails, type FetchReviewerEmails } from './admin-reviews';
+import {
+  auditInsert,
+  workflowTransitionInsert,
+  type BatchStmt,
+  type BatchTuple,
+} from '../lib/audit';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { fetchAuthUserEmails } from '../lib/supabase-admin';
+import type { FetchReviewerEmails } from './admin-reviews';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
-// ─── Loose structural Prisma surfaces ────────────────────────────────────────
-
-/** Profile fields the ban path preloads: status (`bannedAt`) gates the
- *  transition + builds the before-state; `role` enforces the admin guardrail. */
-const banProfileSelect = { id: true, role: true, bannedAt: true, banReason: true } as const;
-type BanProfileRow = {
-  id: string;
-  role: string;
-  bannedAt: Date | null;
-  banReason: string | null;
-};
-
-/** Fields the banned list selects; `bannedAt` is non-null by the `{ not: null }`
- *  filter, so the structural row narrows it. */
-const bannedListSelect = { id: true, bannedAt: true, banReason: true } as const;
-type BannedListRow = { id: string; bannedAt: Date; banReason: string | null };
-
-type WorkflowRow = { id: string };
-
-/** Transaction surface for the ban/unban write: the guarded `updateMany`, plus
- *  the audit (`AuditLogClient`) and workflow (`WorkflowTransitionClient` + the
- *  `workflowInstance` find-or-create/update) surfaces. */
-type BanReviewerTx = {
-  profile: {
-    updateMany(args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }): Promise<{ count: number }>;
-  };
-  workflowInstance: {
-    findFirst(args: {
-      where: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<WorkflowRow | null>;
-    create(args: {
-      data: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<WorkflowRow>;
-    update(args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }): Promise<unknown>;
-  };
-} & AuditLogClient &
-  WorkflowTransitionClient;
-
-/** Read + transaction surface for `PATCH /api/admin/reviewers/:id`. The single
- *  `findUnique` gates the transition (status + role) and builds the before-state;
- *  the after-state is the values we commit (no post-commit re-read). */
-type BanReviewerClient = {
-  profile: {
-    findUnique(args: {
-      where: { id: string };
-      select: typeof banProfileSelect;
-    }): Promise<BanProfileRow | null>;
-  };
-  $transaction<T>(fn: (tx: BanReviewerTx) => Promise<T>): Promise<T>;
-};
-
-/** Read surface for `GET /api/admin/reviewers`: the paginated `findMany` + `count`
- *  over the currently-banned set. */
-type BannedReviewersClient = {
-  profile: {
-    findMany(args: {
-      where: Record<string, unknown>;
-      orderBy: unknown;
-      skip: number;
-      take: number;
-      select: typeof bannedListSelect;
-    }): Promise<BannedListRow[]>;
-    count(args: { where: Record<string, unknown> }): Promise<number>;
-  };
-};
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Mirrors
- *  `routes/admin-requests.ts`, tagged `source: admin-moderation`. */
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
@@ -159,8 +71,6 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without
- *  `DD_API_KEY`. Mirrors `makeForwarder`, tagged `source: admin-moderation`. */
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
@@ -182,16 +92,9 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
   } catch {
     throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
   }
-  // ZodError bubbles to `errorHandler()` → canonical VALIDATION_FAILED envelope
-  // (the ban-reason refine surfaces here, keyed to `reason`).
   return schema.parse(raw);
 }
 
-/** Emit the `aeci.moderation.ban` count (Phase 6 Spec §11) — one per ban/unban
- *  attempt: `outcome:ok` on a committed action, `outcome:invalid_state` when the
- *  target isn't in a toggleable state (already banned / not banned),
- *  `outcome:forbidden` for the admin/self guardrail. Fire-and-forget; no-op
- *  without `DD_API_KEY`. */
 function emitBanAction(
   c: AdminContext,
   action: 'ban' | 'unban',
@@ -203,66 +106,33 @@ function emitBanAction(
   ]);
 }
 
-/** Wrap the email lookup so an `auth`-schema failure degrades to an empty map
- *  (→ `reviewer_email: null`) + a warn, never a 500 — mirrors `admin-reviews`. */
-async function safeFetchEmails(
-  c: AdminContext,
-  fetchEmails: FetchReviewerEmails,
-  prisma: AcceleratedPrisma,
-  ids: string[],
-): Promise<Map<string, string>> {
-  if (ids.length === 0) return new Map();
-  try {
-    return await fetchEmails(prisma, ids);
-  } catch (error) {
-    try {
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
-        level: 'warn',
-        message: 'Admin reviewers: reviewer email lookup failed',
-        data_gap: 'reviewer_email_lookup_failed',
-      });
-    } catch {
-      console.warn('admin-reviewers: reviewer email lookup failed', error);
-    }
-    return new Map();
-  }
-}
+// ─── GET /api/admin/reviewers ──────────────────────────────────────────────────
 
-// ─── Handlers ────────────────────────────────────────────────────────────────
-
-/** `GET /api/admin/reviewers` — the currently-banned reviewers, newest ban first. */
 export function createBannedReviewersListHandler(
-  prismaFor: PrismaFactory = getPrisma,
-  fetchEmails: FetchReviewerEmails = fetchReviewerEmails,
+  dbFor: DbFactory = getDb,
+  fetchEmails: FetchReviewerEmails = fetchAuthUserEmails,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const query = ListBannedReviewersQuerySchema.parse(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const prisma = prismaFor(c.env);
-    const db = prisma as unknown as BannedReviewersClient;
+    const { db } = dbFor(c.env);
+    const where = isNotNull(profiles.bannedAt);
 
-    const where = { bannedAt: { not: null } };
-    const skip = (query.page - 1) * query.perPage;
-
-    const [rows, total] = await Promise.all([
-      db.profile.findMany({
+    const [rows, countRows] = await Promise.all([
+      db.query.profiles.findMany({
+        columns: { id: true, bannedAt: true, banReason: true },
         where,
-        // Newest ban first; `id` tiebreaks a `banned_at` collision so pagination
-        // is stable across pages. `as const` keeps the literal narrow.
-        orderBy: [{ bannedAt: 'desc' as const }, { id: 'asc' as const }],
-        skip,
-        take: query.perPage,
-        select: bannedListSelect,
+        orderBy: [desc(profiles.bannedAt), asc(profiles.id)],
+        limit: query.perPage,
+        offset: (query.page - 1) * query.perPage,
       }),
-      db.profile.count({ where }),
+      db.select({ value: count() }).from(profiles).where(where),
     ]);
 
-    const emailByReviewerId = await safeFetchEmails(
-      c,
-      fetchEmails,
-      prisma,
+    const emailByReviewerId = await fetchEmails(
+      c.env,
       rows.map((row) => row.id),
     );
 
@@ -271,13 +141,13 @@ export function createBannedReviewersListHandler(
         (row): BannedReviewer => ({
           reviewer_id: row.id,
           reviewer_email: emailByReviewerId.get(row.id) ?? null,
-          banned_at: row.bannedAt.toISOString(),
+          banned_at: row.bannedAt ?? '',
           ban_reason: row.banReason,
         }),
       ),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {
@@ -288,9 +158,10 @@ export function createBannedReviewersListHandler(
   };
 }
 
-/** `PATCH /api/admin/reviewers/:id` — ban / unban a reviewer. */
+// ─── PATCH /api/admin/reviewers/:id ────────────────────────────────────────────
+
 export function createBanReviewerHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -303,16 +174,15 @@ export function createBanReviewerHandler(
 
     const payload = await parseJsonBody(c, BanReviewerSchema);
     const ban = payload.action === 'ban';
+    const { db } = dbFor(c.env);
 
-    const prisma = prismaFor(c.env);
-    const db = prisma as unknown as BanReviewerClient;
-
-    // Preload: gate the transition (status + role) and build the before-state.
-    const existing = await db.profile.findUnique({ where: { id }, select: banProfileSelect });
+    const existing = await db.query.profiles.findFirst({
+      columns: { id: true, role: true, bannedAt: true, banReason: true },
+      where: eq(profiles.id, id),
+    });
     if (!existing) throw notFoundError('profile', { id });
 
-    // Guardrail: never ban an admin or the acting admin themselves via this
-    // surface — a banned admin would lock themselves out of `requireAdmin()`.
+    // Guardrail: never ban an admin or the acting admin themselves.
     if (ban && (existing.role === 'admin' || id === userId)) {
       emitBanAction(c, payload.action, 'forbidden');
       throw new ApiError(
@@ -322,8 +192,7 @@ export function createBanReviewerHandler(
       );
     }
 
-    // Toggle guard: ban needs a currently-un-banned target; unban needs a banned
-    // one. Idempotent re-bans / no-op unbans are an invalid transition (422).
+    // Toggle guard (preload): ban needs an un-banned target; unban a banned one.
     const alreadyInTargetState = ban ? existing.bannedAt !== null : existing.bannedAt === null;
     if (alreadyInTargetState) {
       emitBanAction(c, payload.action, 'invalid_state');
@@ -335,93 +204,75 @@ export function createBanReviewerHandler(
     }
 
     const reason = ban ? (payload.reason as string).trim() : null;
-    const bannedAt = ban ? new Date() : null;
+    const bannedAt = ban ? new Date().toISOString() : null;
     const fromState = ban ? 'active' : 'banned';
     const toState = ban ? 'banned' : 'active';
-    const forward = makeForwarder(c);
-    const workflowForward = makeWorkflowForwarder(c);
-    const metadata = {
-      source: 'admin-moderation',
-      ...(reason ? { reason } : {}),
+    const metadata = { source: 'admin-moderation', ...(reason ? { reason } : {}) };
+
+    const existingWf = await db.query.workflowInstances.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(workflowInstances.workflowType, 'reviewer_ban'),
+        eq(workflowInstances.entityId, id),
+      ),
+    });
+    const workflowId = existingWf?.id ?? crypto.randomUUID();
+
+    const auditEntry: AuditLogEntry = {
+      actorId: userId,
+      actorType: auditActorType(session),
+      action: ban ? 'reviewer.banned' : 'reviewer.unbanned',
+      entityType: 'profile',
+      entityId: id,
+      beforeState: { banned_at: existing.bannedAt ?? null, ban_reason: existing.banReason },
+      afterState: { banned_at: bannedAt, ban_reason: reason },
+      metadata,
+    };
+    const workflowEntry: WorkflowTransitionEntry = {
+      workflowId,
+      fromState,
+      toState,
+      actorId: userId,
+      reason,
+      metadata,
     };
 
-    await db.$transaction(async (tx) => {
-      // Atomic guard: only flip a row still in the expected ban state. If a
-      // concurrent action already moved it, `count` is 0 → 422 (rolls back) —
-      // closes the two-admins-racing window the preload check can't.
-      const updated = await tx.profile.updateMany({
-        where: { id, bannedAt: ban ? null : { not: null } },
-        data: { bannedAt, banReason: reason },
-      });
-      if (updated.count !== 1) {
-        emitBanAction(c, payload.action, 'invalid_state');
-        throw new ApiError(
-          422,
-          ApiErrorCode.INVALID_STATE_TRANSITION,
-          ban ? 'Reviewer is already banned.' : 'Reviewer is not banned.',
-        );
-      }
+    // The guarded update (`WHERE banned_at IS [NOT] NULL`) makes the toggle safe
+    // under a concurrent action; audit + workflow are atomic with it.
+    const stmts: BatchStmt[] = [
+      db
+        .update(profiles)
+        .set({ bannedAt, banReason: reason })
+        .where(
+          and(eq(profiles.id, id), ban ? isNull(profiles.bannedAt) : isNotNull(profiles.bannedAt)),
+        ),
+      auditInsert(db, auditEntry),
+      existingWf
+        ? db
+            .update(workflowInstances)
+            .set({ currentState: toState })
+            .where(eq(workflowInstances.id, workflowId))
+        : db.insert(workflowInstances).values({
+            id: workflowId,
+            workflowType: 'reviewer_ban',
+            entityId: id,
+            currentState: toState,
+          }),
+      workflowTransitionInsert(db, workflowEntry),
+    ];
+    await db.batch(stmts as BatchTuple);
 
-      await appendAuditLog(
-        tx,
-        {
-          actorId: userId,
-          actorType: auditActorType(session),
-          action: ban ? 'reviewer.banned' : 'reviewer.unbanned',
-          entityType: 'profile',
-          entityId: id,
-          beforeState: {
-            banned_at: existing.bannedAt ? existing.bannedAt.toISOString() : null,
-            ban_reason: existing.banReason,
-          },
-          afterState: {
-            banned_at: bannedAt ? bannedAt.toISOString() : null,
-            ban_reason: reason,
-          },
-          metadata,
-        },
-        forward,
-      );
-
-      // Record the ban in the shared workflow history. The `reviewer_ban`
-      // instance is long-lived (a reviewer can be banned/unbanned repeatedly),
-      // so find-or-create it (seeded at the *prior* state), append the
-      // `active↔banned` transition, and toggle `current_state`. No
-      // `completed_at`/`final_outcome` — the workflow is reversible (unlike
-      // review/request moderation, which terminate). Same tx → rolls back with
-      // the write.
-      let workflow = await tx.workflowInstance.findFirst({
-        where: { workflowType: 'reviewer_ban', entityId: id },
-        select: { id: true },
-      });
-      workflow ??= await tx.workflowInstance.create({
-        data: { workflowType: 'reviewer_ban', entityId: id, currentState: fromState },
-        select: { id: true },
-      });
-      await appendWorkflowTransition(
-        tx,
-        {
-          workflowId: workflow.id,
-          fromState,
-          toState,
-          actorId: userId,
-          reason,
-          metadata,
-        },
-        workflowForward,
-      );
-      await tx.workflowInstance.update({
-        where: { id: workflow.id },
-        data: { currentState: toState },
-      });
-    });
-
-    // Committed: one `aeci.moderation.ban{outcome:ok}` per ban/unban.
     emitBanAction(c, payload.action, 'ok');
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(auditEntry, makeForwarder(c)),
+        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+      ]),
+    );
 
     const body: BanReviewerResponse = {
       reviewer_id: id,
-      banned_at: bannedAt ? bannedAt.toISOString() : null,
+      banned_at: bannedAt,
       ban_reason: reason,
     };
 

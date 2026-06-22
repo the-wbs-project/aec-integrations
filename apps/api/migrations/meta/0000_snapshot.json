@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "0cf69c16-98d7-4c1c-a7cd-02924fd592ad",
+  "id": "c0190daa-c780-4cd2-8f10-21ee888c72c8",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "audit_log": {
@@ -2774,7 +2774,7 @@
       "checkConstraints": {
         "workflow_instances_type_check": {
           "name": "workflow_instances_type_check",
-          "value": "\"workflow_type\" IN ('vendor_claim', 'review_moderation', 'correction_request')"
+          "value": "\"workflow_type\" IN ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')"
         },
         "workflow_instances_final_outcome_check": {
           "name": "workflow_instances_final_outcome_check",

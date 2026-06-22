@@ -399,7 +399,7 @@ CREATE TABLE `workflow_instances` (
 	`completed_at` text,
 	`final_outcome` text,
 	FOREIGN KEY (`initiated_by`) REFERENCES `profiles`(`id`) ON UPDATE no action ON DELETE no action,
-	CONSTRAINT "workflow_instances_type_check" CHECK("workflow_type" IN ('vendor_claim', 'review_moderation', 'correction_request')),
+	CONSTRAINT "workflow_instances_type_check" CHECK("workflow_type" IN ('vendor_claim', 'review_moderation', 'correction_request', 'reviewer_ban')),
 	CONSTRAINT "workflow_instances_final_outcome_check" CHECK("final_outcome" IN ('approved', 'rejected', 'cancelled', 'completed'))
 );
 --> statement-breakpoint
