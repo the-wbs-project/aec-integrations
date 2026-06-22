@@ -49,7 +49,6 @@ export const procoreVendorDetailRow: RawVendorDetailRow = {
   facebookUrl: 'https://www.facebook.com/procoretech',
   instagramUrl: 'https://www.instagram.com/procoretech',
   youtubeUrl: 'https://www.youtube.com/@procoretechnologies',
-  githubOrg: 'procore',
   productVendors: [], // Filled in via a deep merge in the spec — keeps this file circular-import-free.
 };
 

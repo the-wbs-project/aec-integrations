@@ -113,7 +113,6 @@ describe('VendorDetailSchema', () => {
       facebook_url: null,
       instagram_url: null,
       youtube_url: null,
-      github_url: null,
       products: [],
     });
     expect(parsed.products).toEqual([]);
@@ -129,7 +128,6 @@ describe('VendorDetailSchema', () => {
       facebook_url: 'https://www.facebook.com/procoretech',
       instagram_url: 'https://www.instagram.com/procoretech',
       youtube_url: 'https://www.youtube.com/@procoretechnologies',
-      github_url: 'https://github.com/procore',
       products: [validProductListItem],
     });
     expect(parsed.products).toHaveLength(1);
@@ -138,7 +136,6 @@ describe('VendorDetailSchema', () => {
     expect(parsed.linkedin_url).toBe('https://www.linkedin.com/company/procore-technologies');
     expect(parsed.x_url).toBe('https://x.com/procoretech');
     expect(parsed.youtube_url).toBe('https://www.youtube.com/@procoretechnologies');
-    expect(parsed.github_url).toBe('https://github.com/procore');
   });
 
   it('rejects a non-URL social link', () => {
@@ -151,7 +148,6 @@ describe('VendorDetailSchema', () => {
       facebook_url: null,
       instagram_url: null,
       youtube_url: null,
-      github_url: null,
       products: [],
     });
     expect(result.success).toBe(false);
