@@ -2,15 +2,24 @@
 
 How to write, test, and ship a schema change in this repo.
 
-> **⚠️ Migrating to Cloudflare D1 + Drizzle (ADR 0016 / AECI-248).** The
-> application database is moving from Supabase Postgres (Supabase CLI migrations)
-> to **Cloudflare D1**, with the schema authored in **Drizzle**. Until the
-> cut-over completes (Phase 5/6), both systems exist: the running app still reads
-> Supabase via Prisma, but **new schema work targets D1**. The Supabase-CLI
-> section below is **legacy** and is removed at decommission (AECI-257). See
-> [§0](#0-d1--drizzle-the-target-workflow) for the D1 workflow.
+> **✅ The application database is now Cloudflare D1 + Drizzle (ADR 0016 / AECI-248).**
+> The Prisma→Drizzle query rewrite (AECI-253) is complete — the Worker reads and
+> writes **D1** through `getDb(env)` (`apps/api/src/db/client.ts`), the schema is
+> authored in **Drizzle** (`apps/api/src/db/schema.ts`), and migrations are applied
+> with `wrangler d1 migrations apply`. **[§0](#0-d1--drizzle-the-target-workflow) is
+> the only workflow for the app database — start there.**
+>
+> **Everything below §0 (§§1–10) is the legacy Supabase-CLI / Prisma workflow.** It
+> no longer governs the app tables (vendors, products, reviews, …). It is retained,
+> scoped down, only for the surfaces still on Supabase Postgres: **Supabase Auth**
+> (`auth.users`) and the **landing lead-capture tables** (`feedback`, `mailing_list`),
+> which keep their own `supabase/migrations/` + `schema.prisma` until their separate
+> cut-over. Caveat: the local Supabase Postgres still *physically* contains the old
+> app tables (from the baseline migration); they are now **stale — D1 is the source
+> of truth**. Per-env cloud D1 provisioning + CI apply steps are Phase 5 (AECI-256);
+> full removal of the legacy sections lands with the Supabase-DB decommission (AECI-257).
 
-The legacy migration system is **Supabase CLI**. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client, but `prisma migrate` is not.
+The legacy migration system below is **Supabase CLI**, now scoped to Auth + the landing tables. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client (for the landing-Postgres integration test), but `prisma migrate` is not.
 
 This document is the source of truth for the workflow. The constraints in [`CLAUDE.md`](../CLAUDE.md) ("Constraints that aren't negotiable") incorporate the rules below by reference.
 
@@ -52,6 +61,12 @@ Rules:
   (Drizzle `$onUpdate`), not by a DB trigger.
 
 ---
+
+> **⚠️ Legacy — Supabase-CLI / Prisma workflow (landing + auth Postgres only).**
+> Sections §§1–10 below predate the D1 cut-over. They **do not apply to the app
+> database** (now D1 — see [§0](#0-d1--drizzle-the-target-workflow)). They remain only
+> for Supabase Auth and the `feedback` / `mailing_list` landing tables, pending their
+> own cut-over, and are removed at decommission (AECI-257).
 
 ## 1. When to write a migration
 
