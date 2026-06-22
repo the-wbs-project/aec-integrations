@@ -2,9 +2,54 @@
 
 How to write, test, and ship a schema change in this repo.
 
-The migration system is **Supabase CLI**. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client, but `prisma migrate` is not.
+> **⚠️ Migrating to Cloudflare D1 + Drizzle (ADR 0016 / AECI-248).** The
+> application database is moving from Supabase Postgres (Supabase CLI migrations)
+> to **Cloudflare D1**, with the schema authored in **Drizzle**. Until the
+> cut-over completes (Phase 5/6), both systems exist: the running app still reads
+> Supabase via Prisma, but **new schema work targets D1**. The Supabase-CLI
+> section below is **legacy** and is removed at decommission (AECI-257). See
+> [§0](#0-d1--drizzle-the-target-workflow) for the D1 workflow.
+
+The legacy migration system is **Supabase CLI**. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client, but `prisma migrate` is not.
 
 This document is the source of truth for the workflow. The constraints in [`CLAUDE.md`](../CLAUDE.md) ("Constraints that aren't negotiable") incorporate the rules below by reference.
+
+---
+
+## 0. D1 + Drizzle: the target workflow
+
+The schema source of truth is `apps/api/src/db/schema.ts` (Drizzle SQLite). The
+flow is **generate → apply → seed**, all from `apps/api/`:
+
+```bash
+# 1. Edit apps/api/src/db/schema.ts, then generate migration SQL into apps/api/migrations/
+pnpm --filter @aeci/api db:generate          # drizzle-kit generate
+
+# 2. Apply to the LOCAL D1 (per-workspace SQLite in .wrangler/state — no shared DB)
+pnpm --filter @aeci/api db:migrate:local     # wrangler d1 migrations apply aeci-app-preview --local
+
+# 3. Seed local data (idempotent): taxonomy reference data + a sample catalog
+pnpm --filter @aeci/api db:seed:local
+
+# Convenience: migrate + seed in one step
+pnpm --filter @aeci/api db:setup:local
+```
+
+Rules:
+
+- **Drizzle generates, `wrangler d1 migrations apply` applies.** Never
+  `drizzle-kit migrate`/`push` — that mirrors the old "CLI owns apply" split.
+  Generated SQL is committed under `apps/api/migrations/` (flat layout = wrangler's
+  default `migrations_dir`, so no `migrations_pattern` is needed).
+- **Reference data** (taxonomy, ADR 0008) lives in `apps/api/seed/taxonomy.sql`
+  as idempotent `INSERT … ON CONFLICT(slug) DO UPDATE` with deterministic
+  UUIDv5 ids. The local catalog fixture is `apps/api/seed/catalog.sql`
+  (local-dev only; staging/prod re-promote from Airtable via `POST /api/promote`).
+- **Per-env apply** (preview/staging/production) is wired into CI in Phase 5
+  (AECI-256): `wrangler d1 migrations apply aeci-app-<env> --env <env>`.
+- **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
+  (ADR 0016 §4, `docs/AUTH_AND_RLS.md`), and `updated_at` is refreshed app-side
+  (Drizzle `$onUpdate`), not by a DB trigger.
 
 ---
 

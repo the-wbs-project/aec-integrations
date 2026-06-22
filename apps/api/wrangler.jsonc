@@ -107,6 +107,23 @@
       "preview_id": "331fc1cfc6e0421b985442ac934748fa",
     },
   ],
+  // ADR 0016 / AECI-252: the application database is Cloudflare D1, bound as `DB`
+  // and reached via the Drizzle client factory `getDb(env)` (`src/db/client.ts`).
+  // `wrangler dev` serves a LOCAL SQLite copy (in `.wrangler/state`) regardless of
+  // `database_id`, so the placeholder id below is correct for local dev; the real
+  // per-env database ids are provisioned with `wrangler d1 create` in Phase 5
+  // (AECI-256) and pasted into the staging/production blocks. Drizzle writes flat
+  // migration SQL to `apps/api/migrations/` (drizzle.config.ts `out`), which is
+  // wrangler's default `migrations_dir`, so `wrangler d1 migrations apply` finds
+  // them with no `migrations_pattern` override.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aeci-app-preview",
+      "database_id": "local-placeholder-provisioned-in-phase-5",
+      "migrations_dir": "migrations",
+    },
+  ],
   "env": {
     "preview": {
       "name": "aeci-api-preview",
@@ -132,6 +149,17 @@
           "binding": "TAXONOMY_KV",
           "id": "331fc1cfc6e0421b985442ac934748fa",
           "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+        },
+      ],
+      // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
+      // `--env preview`, so this is the binding the bound local stack uses — a
+      // LOCAL SQLite copy (placeholder id). Real id provisioned in Phase 5.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-preview",
+          "database_id": "local-placeholder-provisioned-in-phase-5",
+          "migrations_dir": "migrations",
         },
       ],
       "observability": {
@@ -163,6 +191,17 @@
         {
           "binding": "TAXONOMY_KV",
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
+        },
+      ],
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` is a placeholder until
+      // `wrangler d1 create aeci-app-staging` is run in Phase 5; deploy CI applies
+      // migrations via `wrangler d1 migrations apply aeci-app-staging --env staging`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-staging",
+          "database_id": "provisioned-in-phase-5-aeci-256",
+          "migrations_dir": "migrations",
         },
       ],
       // Scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
@@ -248,6 +287,18 @@
         {
           "binding": "TAXONOMY_KV",
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
+        },
+      ],
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` placeholder until
+      // `wrangler d1 create aeci-app-production` is run in Phase 5; promote-to-prod
+      // CI applies migrations via `wrangler d1 migrations apply aeci-app-production
+      // --env production`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-production",
+          "database_id": "provisioned-in-phase-5-aeci-256",
+          "migrations_dir": "migrations",
         },
       ],
       // Scheduled crons (see staging note): 06:00 UTC (= 01:00 EST) moderation-queue
