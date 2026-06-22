@@ -554,13 +554,14 @@ jobs:
           # (search degraded, not broken) — so staging stays green pre-provision.
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY_STAGING: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+          ALGOLIA_SEARCH_KEY_STAGING: ${{ secrets.ALGOLIA_SEARCH_KEY_STAGING }}
           SUPABASE_ANON_KEY_STAGING: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
           ENV_LABEL: staging
           REQUIRED_SECRETS: 'DATABASE_URL_STAGING REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
           # AECI-193: SUPABASE_ANON_KEY_STAGING is recommended (warn-and-skip)
           # during the Phase 5 spike — flip to REQUIRED in 5.5 when real auth
           # surfaces ship.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING SUPABASE_ANON_KEY_STAGING'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING ALGOLIA_SEARCH_KEY_STAGING SUPABASE_ANON_KEY_STAGING'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -729,6 +730,32 @@ jobs:
           fi
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
             | pnpm exec wrangler secret put SUPABASE_ANON_KEY --env staging
+
+      # AECI-134/Phase 3.1: push the PUBLIC Algolia config to the staging WEB
+      # Worker so the SSR `algolia-bootstrap-inject` can emit
+      # `window.__AECI_ALGOLIA__` and `/search` boots real InstantSearch instead
+      # of the degraded shell. Web only: the shared app id + the query-only,
+      # client-exposed SEARCH key — never the management/admin key (that goes to
+      # the API Worker above). Recommended-but-optional on staging: warn-and-skip
+      # when unset keeps staging green pre-provision (search degraded, not broken),
+      # mirroring the API push. Same idempotent deploy→secret order.
+      - name: Push Algolia public config to web Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_STAGING }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
+            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY_STAGING not set — skipping push. /search renders the degraded shell (no window.__AECI_ALGOLIA__) until these are provisioned."
+            exit 0
+          fi
+          printf '%s' "$ALGOLIA_APP_ID_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_APP_ID --env staging
+          printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env staging
 
       # Postflight enforcement of THE RULE at the Worker level: assert the staging
       # API Worker actually carries its required runtime secrets after the pushes
