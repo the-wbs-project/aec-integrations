@@ -149,10 +149,7 @@ async function buildVendorRequests(db: Db, filter: AlgoliaSyncFilter): Promise<R
  * delete-by-id. The both-promoted test is a subquery over the promoted product
  * ids (Drizzle `inArray`/`notInArray` against the same `SELECT id …` subquery).
  */
-async function buildIntegrationRequests(
-  db: Db,
-  filter: AlgoliaSyncFilter,
-): Promise<RequestBuild> {
+async function buildIntegrationRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
   const window = whereFor(filter, integrations.id, integrations.updatedAt);
   const promotedProductIds = db
     .select({ id: products.id })
@@ -196,11 +193,12 @@ async function buildIntegrationRequests(
   return { requests, transformErrors };
 }
 
-const BUILDERS: Record<IndexEntity, (db: Db, filter: AlgoliaSyncFilter) => Promise<RequestBuild>> = {
-  products: buildProductRequests,
-  vendors: buildVendorRequests,
-  integrations: buildIntegrationRequests,
-};
+const BUILDERS: Record<IndexEntity, (db: Db, filter: AlgoliaSyncFilter) => Promise<RequestBuild>> =
+  {
+    products: buildProductRequests,
+    vendors: buildVendorRequests,
+    integrations: buildIntegrationRequests,
+  };
 
 // ---------------------------------------------------------------------------
 // Core: build → chunk → push

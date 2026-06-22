@@ -60,14 +60,12 @@ describe('in-memory D1 harness (AECI-253)', () => {
     const t = await makeTestDb();
     await expect(
       t.db.batch([
-        t.db
-          .insert(products)
-          .values({
-            id: 'p3',
-            slug: 'navisworks',
-            name: 'Navisworks',
-            promotionStatus: 'promoted',
-          }),
+        t.db.insert(products).values({
+          id: 'p3',
+          slug: 'navisworks',
+          name: 'Navisworks',
+          promotionStatus: 'promoted',
+        }),
         // Invalid actor_type → audit_log CHECK violation → the whole batch rolls back.
         auditInsert(t.db, {
           actorType: 'NOT_VALID' as unknown as 'system',

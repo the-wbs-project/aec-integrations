@@ -57,7 +57,9 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-function buildApp(opts: { withAuth?: boolean; syncAlgolia?: PromoteAlgoliaSync; dbFor?: DbFactory } = {}) {
+function buildApp(
+  opts: { withAuth?: boolean; syncAlgolia?: PromoteAlgoliaSync; dbFor?: DbFactory } = {},
+) {
   const app = new Hono<{ Bindings: Env }>();
   app.onError(errorHandler());
   const handler = createPromoteHandler(opts.dbFor ?? t.factory, opts.syncAlgolia ?? noopAlgolia);
@@ -83,8 +85,12 @@ const auditActions = async () => (await t.db.select().from(auditLog)).map((e) =>
 // ─── Seed helpers ──────────────────────────────────────────────────────────────
 const seedVendor = (id: string, slug: string, name: string) =>
   t.db.insert(vendors).values({ id, slug, companyName: name, promotionStatus: 'promoted' });
-const seedProduct = (id: string, slug: string, name: string, extra: Partial<typeof products.$inferInsert> = {}) =>
-  t.db.insert(products).values({ id, slug, name, promotionStatus: 'promoted', ...extra });
+const seedProduct = (
+  id: string,
+  slug: string,
+  name: string,
+  extra: Partial<typeof products.$inferInsert> = {},
+) => t.db.insert(products).values({ id, slug, name, promotionStatus: 'promoted', ...extra });
 
 describe('createPromoteHandler', () => {
   it('creates a product with vendor and taxonomy', async () => {
@@ -93,7 +99,12 @@ describe('createPromoteHandler', () => {
 
     const res = await promote({
       vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
-      product: { ref: 'p1', name: 'Revit', categories: ['BIM', 'Design'], audiences: ['Architecture'] },
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        categories: ['BIM', 'Design'],
+        audiences: ['Architecture'],
+      },
       integrations: [
         {
           ref: 'i1',
@@ -133,9 +144,16 @@ describe('createPromoteHandler', () => {
 
     const audits = await t.db.select().from(auditLog);
     expect(audits.map((e) => e.action)).toEqual(
-      expect.arrayContaining(['vendor.created', 'category.created', 'product.created', 'integration.created']),
+      expect.arrayContaining([
+        'vendor.created',
+        'category.created',
+        'product.created',
+        'integration.created',
+      ]),
     );
-    expect(audits.every((e) => (e.metadata as { source?: string }).source === 'review-app-promote')).toBe(true);
+    expect(
+      audits.every((e) => (e.metadata as { source?: string }).source === 'review-app-promote'),
+    ).toBe(true);
   });
 
   it('updates by supabaseId and keeps the slug stable', async () => {
@@ -159,7 +177,9 @@ describe('createPromoteHandler', () => {
 
     const prod = await t.db.query.products.findFirst({ where: eq(products.id, prodX) });
     expect(prod).toMatchObject({ name: 'Revit 2025', slug: 'revit' });
-    expect(await auditActions()).toEqual(expect.arrayContaining(['vendor.updated', 'product.updated']));
+    expect(await auditActions()).toEqual(
+      expect.arrayContaining(['vendor.updated', 'product.updated']),
+    );
   });
 
   it('promotes a vendor on its own (no product)', async () => {
@@ -216,7 +236,9 @@ describe('createPromoteHandler', () => {
   it('reuses existing taxonomy rather than duplicating', async () => {
     await t.db.insert(taxonomyCategories).values({ id: uuid(6), slug: 'bim', name: 'BIM' });
     const res = await promote({ product: { ref: 'p1', name: 'Revit', categories: ['BIM'] } });
-    const b = (await res.json()) as { taxonomy: { categories: { id: string; operation: string }[] } };
+    const b = (await res.json()) as {
+      taxonomy: { categories: { id: string; operation: string }[] };
+    };
     expect(b.taxonomy.categories[0]).toMatchObject({ id: uuid(6), operation: 'reused' });
     expect(await t.db.select().from(taxonomyCategories)).toHaveLength(1);
     expect(await auditActions()).not.toContain('category.created');
@@ -225,9 +247,14 @@ describe('createPromoteHandler', () => {
   it('skips an integration whose other endpoint is not promoted', async () => {
     const res = await promote({
       product: { ref: 'p1', name: 'Revit' },
-      integrations: [{ ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: uuid(9) } }],
+      integrations: [
+        { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: uuid(9) } },
+      ],
     });
-    const b = (await res.json()) as { integrations: unknown[]; skipped: { ref: string; kind: string }[] };
+    const b = (await res.json()) as {
+      integrations: unknown[];
+      skipped: { ref: string; kind: string }[];
+    };
     expect(b.integrations).toHaveLength(0);
     expect(b.skipped).toEqual([expect.objectContaining({ ref: 'i1', kind: 'integration' })]);
     expect(await t.db.select().from(integrations)).toHaveLength(0);
@@ -248,11 +275,18 @@ describe('createPromoteHandler', () => {
     await seedProduct(prodA, 'a', 'A', { integrationCount: 1 });
     await seedProduct(prodB, 'b', 'B', { integrationCount: 1 });
     await seedProduct(prodC, 'c', 'C', { integrationCount: 0 });
-    await t.db.insert(integrations).values({ id: intgId, sourceProductId: prodA, targetProductId: prodB });
+    await t.db
+      .insert(integrations)
+      .values({ id: intgId, sourceProductId: prodA, targetProductId: prodB });
 
     const res = await promote({
       integrations: [
-        { ref: 'i1', supabaseId: intgId, sourceProduct: { supabaseId: prodA }, targetProduct: { supabaseId: prodC } },
+        {
+          ref: 'i1',
+          supabaseId: intgId,
+          sourceProduct: { supabaseId: prodA },
+          targetProduct: { supabaseId: prodC },
+        },
       ],
     });
 
@@ -278,15 +312,27 @@ describe('createPromoteHandler', () => {
   });
 
   it('returns 400 for duplicate refs', async () => {
-    const res = await promote({ vendors: [{ ref: 'dup', companyName: 'A' }], product: { ref: 'dup', name: 'Revit' } });
+    const res = await promote({
+      vendors: [{ ref: 'dup', companyName: 'A' }],
+      product: { ref: 'dup', name: 'Revit' },
+    });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
   });
 
   it('returns 400 for malformed JSON', async () => {
-    const res = await buildApp().request('/api/promote', post('not json'), baseEnv, fakeExecutionContext());
+    const res = await buildApp().request(
+      '/api/promote',
+      post('not json'),
+      baseEnv,
+      fakeExecutionContext(),
+    );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('MALFORMED_REQUEST');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'MALFORMED_REQUEST',
+    );
   });
 
   it('returns 409 SLUG_CONFLICT when the batch trips a slug unique constraint', async () => {
@@ -296,7 +342,10 @@ describe('createPromoteHandler', () => {
 
     const res = await promote({ product: { ref: 'p1', name: 'Revit' } });
     expect(res.status).toBe(409);
-    const b = (await res.json()) as { error: { code: string; details?: { target?: unknown } }; trace_id: string };
+    const b = (await res.json()) as {
+      error: { code: string; details?: { target?: unknown } };
+      trace_id: string;
+    };
     expect(b.error.code).toBe('SLUG_CONFLICT');
     expect(b.error.details?.target).toEqual(['slug']);
     expect(b.trace_id).toBeTruthy();
@@ -304,7 +353,11 @@ describe('createPromoteHandler', () => {
 
   it('still returns 500 for a non-slug unique violation (no mislabeling)', async () => {
     (t.db as unknown as { batch: () => Promise<unknown[]> }).batch = () =>
-      Promise.reject(new Error('UNIQUE constraint failed: product_vendors.product_id, product_vendors.vendor_id'));
+      Promise.reject(
+        new Error(
+          'UNIQUE constraint failed: product_vendors.product_id, product_vendors.vendor_id',
+        ),
+      );
 
     const res = await promote({ product: { ref: 'p1', name: 'Revit' } });
     expect(res.status).toBe(500);
@@ -342,7 +395,13 @@ describe('usefulness resolution on promote (AECI-172)', () => {
     const b = (await res.json()) as { product: { id: string }; skipped: unknown[] };
     expect(b.skipped).toHaveLength(0);
     expect(await storedUsefulness(b.product.id)).toEqual({
-      audiences: [{ slug: 'architecture', name: 'Architecture', points: ['Coordinate models', 'Clash detection'] }],
+      audiences: [
+        {
+          slug: 'architecture',
+          name: 'Architecture',
+          points: ['Coordinate models', 'Clash detection'],
+        },
+      ],
       phases: [{ slug: 'design', name: 'Design', points: ['Author drawings'] }],
     });
   });
@@ -403,7 +462,10 @@ describe('usefulness resolution on promote (AECI-172)', () => {
       },
     });
     expect(res.status).toBe(200);
-    const b = (await res.json()) as { product: { id: string }; skipped: { ref: string; kind: string }[] };
+    const b = (await res.json()) as {
+      product: { id: string };
+      skipped: { ref: string; kind: string }[];
+    };
     expect(b.skipped).toEqual([expect.objectContaining({ ref: 'p1', kind: 'usefulness' })]);
     expect(((await storedUsefulness(b.product.id)) as Stored).audiences).toEqual([
       { slug: 'architecture', name: 'Architecture', points: ['kept'] },
@@ -413,9 +475,14 @@ describe('usefulness resolution on promote (AECI-172)', () => {
   it('clears the column to NULL when usefulness is null', async () => {
     const prodX = uuid(3);
     await seedProduct(prodX, 'revit', 'Revit', {
-      usefulness: { audiences: [{ slug: 'architecture', name: 'Architecture', points: ['old'] }], phases: [] },
+      usefulness: {
+        audiences: [{ slug: 'architecture', name: 'Architecture', points: ['old'] }],
+        phases: [],
+      },
     });
-    const res = await promote({ product: { ref: 'p1', supabaseId: prodX, name: 'Revit', usefulness: null } });
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: prodX, name: 'Revit', usefulness: null },
+    });
     expect(res.status).toBe(200);
     expect(await storedUsefulness(prodX)).toBeNull();
   });
@@ -433,7 +500,10 @@ describe('usefulness resolution on promote (AECI-172)', () => {
       product: {
         ref: 'p1',
         name: 'Revit',
-        usefulness: { audiences: [{ slug: 'architecture', points: ['x'], bogusKey: 'ignored' }], phases: [] },
+        usefulness: {
+          audiences: [{ slug: 'architecture', points: ['x'], bogusKey: 'ignored' }],
+          phases: [],
+        },
       },
     });
     expect(res.status).toBe(200);
@@ -445,10 +515,16 @@ describe('usefulness resolution on promote (AECI-172)', () => {
 
   it('rejects a usefulness group with neither slug nor name', async () => {
     const res = await promote({
-      product: { ref: 'p1', name: 'Revit', usefulness: { audiences: [{ points: ['x'] }], phases: [] } },
+      product: {
+        ref: 'p1',
+        name: 'Revit',
+        usefulness: { audiences: [{ points: ['x'] }], phases: [] },
+      },
     });
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
   });
 });
 
@@ -482,7 +558,15 @@ describe('cache purge after promote (AECI-105)', () => {
     expect((init.headers as Record<string, string>).authorization).toBe('Bearer cf-token');
     const sent = JSON.parse(init.body as string) as { tags: string[] };
     expect(new Set(sent.tags)).toEqual(
-      new Set(['product:revit', 'index:products', 'vendor:autodesk', 'category:bim', 'audience:architecture', 'taxonomy', 'sitemap']),
+      new Set([
+        'product:revit',
+        'index:products',
+        'vendor:autodesk',
+        'category:bim',
+        'audience:architecture',
+        'taxonomy',
+        'sitemap',
+      ]),
     );
     expect(sent.tags.some((tag) => tag.startsWith('route:'))).toBe(false);
   });
@@ -491,14 +575,21 @@ describe('cache purge after promote (AECI-105)', () => {
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const execCtx = fakeExecutionContext();
-    const res = await buildApp().request('/api/promote', post({ product: { ref: 'p1', name: 'Revit' } }), baseEnv, execCtx);
+    const res = await buildApp().request(
+      '/api/promote',
+      post({ product: { ref: 'p1', name: 'Revit' } }),
+      baseEnv,
+      execCtx,
+    );
     expect(res.status).toBe(200);
     expect(execCtx.waitUntil).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('still returns 200 when the purge call fails (never fails the promote)', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{"errors":[{"message":"x"}]}', { status: 502 }));
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response('{"errors":[{"message":"x"}]}', { status: 502 }));
     const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, fetchMock);
     expect(res.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -541,7 +632,11 @@ describe('Algolia index sync after promote (AECI-139)', () => {
 
   it('does not schedule the Algolia sync when credentials are absent (graceful no-op)', async () => {
     const syncAlgolia = vi.fn<PromoteAlgoliaSync>(async () => {});
-    const { res } = await promoteWithSeam(baseEnv, { product: { ref: 'p1', name: 'Revit' } }, syncAlgolia);
+    const { res } = await promoteWithSeam(
+      baseEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      syncAlgolia,
+    );
     expect(res.status).toBe(200);
     expect(syncAlgolia).not.toHaveBeenCalled();
   });
@@ -550,15 +645,28 @@ describe('Algolia index sync after promote (AECI-139)', () => {
     const syncAlgolia = vi.fn<PromoteAlgoliaSync>(async () => {
       throw new Error('algolia unreachable');
     });
-    const { res, execCtx } = await promoteWithSeam(algoliaEnv, { product: { ref: 'p1', name: 'Revit' } }, syncAlgolia);
+    const { res, execCtx } = await promoteWithSeam(
+      algoliaEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      syncAlgolia,
+    );
     expect(res.status).toBe(200); // returned before the waitUntil settles
     await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
   });
 });
 
 describe('cacheTagsForPromote (AECI-105)', () => {
-  const entity = (slug: string, operation: 'created' | 'updated') => ({ ref: `ref-${slug}`, id: `id-${slug}`, slug, operation });
-  const tax = (slug: string, operation: 'created' | 'reused') => ({ id: `id-${slug}`, slug, operation });
+  const entity = (slug: string, operation: 'created' | 'updated') => ({
+    ref: `ref-${slug}`,
+    id: `id-${slug}`,
+    slug,
+    operation,
+  });
+  const tax = (slug: string, operation: 'created' | 'reused') => ({
+    id: `id-${slug}`,
+    slug,
+    operation,
+  });
   const emptyTaxonomy = { categories: [], audiences: [], phases: [] };
 
   it('created product + vendor + mixed taxonomy → entity, index, taxonomy, sitemap tags', () => {
@@ -566,11 +674,23 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       vendors: [entity('autodesk', 'created')],
       product: entity('revit', 'created'),
       integrations: [],
-      taxonomy: { categories: [tax('bim', 'reused')], audiences: [tax('architecture', 'created')], phases: [] },
+      taxonomy: {
+        categories: [tax('bim', 'reused')],
+        audiences: [tax('architecture', 'created')],
+        phases: [],
+      },
       skipped: [],
     };
     expect(new Set(cacheTagsForPromote(response))).toEqual(
-      new Set(['product:revit', 'index:products', 'vendor:autodesk', 'category:bim', 'audience:architecture', 'taxonomy', 'sitemap']),
+      new Set([
+        'product:revit',
+        'index:products',
+        'vendor:autodesk',
+        'category:bim',
+        'audience:architecture',
+        'taxonomy',
+        'sitemap',
+      ]),
     );
   });
 
@@ -623,7 +743,13 @@ describe('cacheTagsForPromote (AECI-105)', () => {
   });
 
   it('nothing cacheable changed → empty tag set', () => {
-    const response: PromoteResponse = { vendors: [], product: null, integrations: [], taxonomy: emptyTaxonomy, skipped: [] };
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
     expect(cacheTagsForPromote(response)).toEqual([]);
   });
 
@@ -644,18 +770,33 @@ describe('requireReviewAppAuth (on /api/promote)', () => {
   const authApp = () => buildApp({ withAuth: true });
 
   it('rejects a request with no Authorization header', async () => {
-    const res = await authApp().request('/api/promote', post(validBody), baseEnv, fakeExecutionContext());
+    const res = await authApp().request(
+      '/api/promote',
+      post(validBody),
+      baseEnv,
+      fakeExecutionContext(),
+    );
     expect(res.status).toBe(401);
     expect(((await res.json()) as { error: { code: string } }).error.code).toBe('UNAUTHENTICATED');
   });
 
   it('rejects a wrong token', async () => {
-    const res = await authApp().request('/api/promote', post(validBody, { Authorization: 'Bearer wrong' }), baseEnv, fakeExecutionContext());
+    const res = await authApp().request(
+      '/api/promote',
+      post(validBody, { Authorization: 'Bearer wrong' }),
+      baseEnv,
+      fakeExecutionContext(),
+    );
     expect(res.status).toBe(401);
   });
 
   it('accepts the correct token', async () => {
-    const res = await authApp().request('/api/promote', post(validBody, { Authorization: 'Bearer secret-token' }), baseEnv, fakeExecutionContext());
+    const res = await authApp().request(
+      '/api/promote',
+      post(validBody, { Authorization: 'Bearer secret-token' }),
+      baseEnv,
+      fakeExecutionContext(),
+    );
     expect(res.status).toBe(200);
   });
 

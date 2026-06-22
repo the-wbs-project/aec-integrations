@@ -66,9 +66,11 @@ function realAppFetcher(): Fetcher {
 
 describe('SSR Worker → API Worker service binding round-trip', () => {
   it('returns a schema-valid ProductDetail when called via env.API.fetch(...)', async () => {
-    await t.db
-      .insert(vendors)
-      .values({ id: '00000000-0000-4000-8000-0000000000a1', slug: 'procore', companyName: 'Procore' });
+    await t.db.insert(vendors).values({
+      id: '00000000-0000-4000-8000-0000000000a1',
+      slug: 'procore',
+      companyName: 'Procore',
+    });
     await t.db
       .insert(products)
       .values({ id: '00000000-0000-4000-8000-0000000000b1', slug: 'procore', name: 'Procore' });

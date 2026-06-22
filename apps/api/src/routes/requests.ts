@@ -174,7 +174,10 @@ async function detectDuplicate(
       eq(vendorRequests.status, 'open'),
       eq(vendorRequests.targetType, args.targetType),
       eq(vendorRequests.targetId, args.targetId),
-      or(eq(vendorRequests.kind, args.kind), eq(vendorRequests.submitterEmail, args.submitterEmail)),
+      or(
+        eq(vendorRequests.kind, args.kind),
+        eq(vendorRequests.submitterEmail, args.submitterEmail),
+      ),
     ),
     orderBy: asc(vendorRequests.createdAt),
   });

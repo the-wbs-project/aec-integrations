@@ -184,7 +184,12 @@ describe('createLinearIssueForRequest — issue creation', () => {
     const fetchImpl = mockFetch();
     const { store } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), store, { ...INPUT, domainMatch: 'no_match' }, fetchImpl);
+    await createLinearIssueForRequest(
+      ctx(),
+      store,
+      { ...INPUT, domainMatch: 'no_match' },
+      fetchImpl,
+    );
 
     const sent = JSON.parse(String(vi.mocked(fetchImpl).mock.calls[0]![1]!.body)) as {
       variables: { input: { labelIds: string[] } };

@@ -22,7 +22,13 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { auditLog, profiles, vendorRequests, workflowInstances, workflowTransitions } from '../db/schema';
+import {
+  auditLog,
+  profiles,
+  vendorRequests,
+  workflowInstances,
+  workflowTransitions,
+} from '../db/schema';
 import { submitCount } from '../datadog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
@@ -73,7 +79,9 @@ beforeEach(async () => {
 afterEach(() => t.dispose());
 
 /** A `vendor_requests` insert payload (camelCase), defaults overridable. */
-function reqRow(o: Partial<typeof vendorRequests.$inferInsert> = {}): typeof vendorRequests.$inferInsert {
+function reqRow(
+  o: Partial<typeof vendorRequests.$inferInsert> = {},
+): typeof vendorRequests.$inferInsert {
   return {
     id: REQUEST_ID,
     kind: 'claim',
@@ -144,7 +152,9 @@ describe('GET /api/admin/requests', () => {
       reqRow({ kind: 'claim' }),
       reqRow({ id: OTHER_TARGET, kind: 'correction', targetId: OTHER_TARGET }),
     );
-    const parsed = ListVendorRequestsResponseSchema.parse(await (await getList('?kind=claim')).json());
+    const parsed = ListVendorRequestsResponseSchema.parse(
+      await (await getList('?kind=claim')).json(),
+    );
     expect(parsed.total).toBe(1);
     expect(parsed.data.every((r) => r.kind === 'claim')).toBe(true);
   });
@@ -254,7 +264,10 @@ describe('GET /api/admin/requests', () => {
 
 const noopSync: SyncRequestToLinear = async () => {};
 
-function moderateApp(sync: SyncRequestToLinear = noopSync, auth: AuthzVariables['auth'] = ADMIN_AUTH) {
+function moderateApp(
+  sync: SyncRequestToLinear = noopSync,
+  auth: AuthzVariables['auth'] = ADMIN_AUTH,
+) {
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
   app.use('/api/admin/requests/:id', async (c, next) => {
@@ -352,7 +365,10 @@ describe('PATCH /api/admin/requests/:id', () => {
 
     const audits = await t.db.select().from(auditLog);
     expect(audits[0]!.action).toBe('vendor_request.rejected');
-    expect(audits[0]!.metadata).toMatchObject({ source: 'admin-moderation', reason: 'Not a real claim' });
+    expect(audits[0]!.metadata).toMatchObject({
+      source: 'admin-moderation',
+      reason: 'Not a real claim',
+    });
     const transitions = await t.db.select().from(workflowTransitions);
     expect(transitions[0]!.toState).toBe('rejected');
     expect(transitions[0]!.reason).toBe('Not a real claim');
@@ -361,7 +377,10 @@ describe('PATCH /api/admin/requests/:id', () => {
       .from(workflowInstances)
       .where(eq(workflowInstances.entityId, REQUEST_ID));
     expect(wf!.finalOutcome).toBe('rejected');
-    expect(sync.mock.calls[0]![2]).toMatchObject({ status: 'rejected', reason: 'Not a real claim' });
+    expect(sync.mock.calls[0]![2]).toMatchObject({
+      status: 'rejected',
+      reason: 'Not a real claim',
+    });
     expect(requestModerationActions()).toEqual([['action:reject', 'outcome:ok']]);
   });
 

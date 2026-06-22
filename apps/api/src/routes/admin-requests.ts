@@ -223,11 +223,7 @@ export function createAdminRequestsListHandler(
         })
         .from(vendorRequests)
         .where(openFilter)
-        .groupBy(
-          vendorRequests.submitterEmail,
-          vendorRequests.targetType,
-          vendorRequests.targetId,
-        ),
+        .groupBy(vendorRequests.submitterEmail, vendorRequests.targetType, vendorRequests.targetId),
     ]);
 
     const kindCounts = new Map<string, number>();
@@ -331,8 +327,7 @@ export function createModerateRequestHandler(
     const auditEntry: AuditLogEntry = {
       actorId: userId,
       actorType: auditActorType(session),
-      action:
-        payload.action === 'resolve' ? 'vendor_request.resolved' : 'vendor_request.rejected',
+      action: payload.action === 'resolve' ? 'vendor_request.resolved' : 'vendor_request.rejected',
       entityType: 'vendor_request',
       entityId: id,
       beforeState: { status: fromState },
@@ -357,10 +352,7 @@ export function createModerateRequestHandler(
         .update(vendorRequests)
         .set({ status: newStatus, resolvedById: userId, resolvedAt })
         .where(
-          and(
-            eq(vendorRequests.id, id),
-            inArray(vendorRequests.status, ['open', 'in_review']),
-          ),
+          and(eq(vendorRequests.id, id), inArray(vendorRequests.status, ['open', 'in_review'])),
         ),
       auditInsert(db, auditEntry),
       existingWf

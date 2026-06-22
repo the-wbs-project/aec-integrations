@@ -86,7 +86,11 @@ interface PayloadOpts {
 function issuePayload(opts: PayloadOpts = {}): Rec {
   const data: Rec = { id: opts.id ?? ISSUE_ID, title: 'Claim: Acme' };
   if (!opts.omitState) {
-    data.state = { id: 'state-1', name: opts.stateName ?? 'Done', type: opts.stateType ?? 'completed' };
+    data.state = {
+      id: 'state-1',
+      name: opts.stateName ?? 'Done',
+      type: opts.stateType ?? 'completed',
+    };
   }
   return {
     action: opts.action ?? 'update',
@@ -330,7 +334,9 @@ describe('POST /api/webhooks/linear — request validation', () => {
       fakeExecutionContext(),
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('MALFORMED_REQUEST');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'MALFORMED_REQUEST',
+    );
     await expectNoWrites();
   });
 
@@ -338,7 +344,9 @@ describe('POST /api/webhooks/linear — request validation', () => {
     await seed();
     const res = await post({ action: 'update', type: 'Issue' } as Rec);
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
     await expectNoWrites();
   });
 });

@@ -51,7 +51,9 @@ function makeCtx() {
 }
 
 /** Insert a stuck (`open` / `linear_issue_id = null`) vendor_request row. */
-async function seedStuckRequest(over: Partial<typeof vendorRequests.$inferInsert> & { id: string }) {
+async function seedStuckRequest(
+  over: Partial<typeof vendorRequests.$inferInsert> & { id: string },
+) {
   await t.db.insert(vendorRequests).values({
     kind: 'correction',
     targetType: 'product',

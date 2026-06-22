@@ -188,7 +188,10 @@ describe('scheduled (cron producer)', () => {
     expect(send).not.toHaveBeenCalled();
     const gauges = vi.mocked(submitGauge).mock.calls;
     const names = gauges.map((c) => c[3]);
-    expect(names).toEqual(['aeci.moderation.queue_depth', 'aeci.moderation.queue_oldest_age_hours']);
+    expect(names).toEqual([
+      'aeci.moderation.queue_depth',
+      'aeci.moderation.queue_oldest_age_hours',
+    ]);
     // Depth gauge reflects the 3 seeded pending reviews.
     expect(gauges[0]![4]).toBe(3);
   });

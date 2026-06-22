@@ -60,7 +60,11 @@ import {
   type UsefulnessGroup,
 } from '@aeci/shared';
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
-import { forwardAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import {
+  forwardAuditLog,
+  type AuditLogEntry,
+  type AuditLogForwarder,
+} from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
 import { eq, inArray, type Table } from 'drizzle-orm';
 import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
@@ -417,13 +421,22 @@ export function createPromoteHandler(
         stmts.push(
           db
             .update(vendors)
-            .set({ companyName: v.companyName, promotionStatus: 'promoted', ...vendorEditableData(v) })
+            .set({
+              companyName: v.companyName,
+              promotionStatus: 'promoted',
+              ...vendorEditableData(v),
+            })
             .where(eq(vendors.id, v.supabaseId)),
         );
         vendorIdByRef.set(v.ref, v.supabaseId);
         vendorResults.push({ ref: v.ref, id: v.supabaseId, slug, operation: 'updated' });
         firstVendorSlug ??= slug;
-        audit({ actorType: 'system', action: 'vendor.updated', entityType: 'vendor', entityId: v.supabaseId });
+        audit({
+          actorType: 'system',
+          action: 'vendor.updated',
+          entityType: 'vendor',
+          entityId: v.supabaseId,
+        });
       } else {
         const slug = generateSlug(v.companyName, vendorSlugs);
         const id = crypto.randomUUID();
@@ -439,7 +452,12 @@ export function createPromoteHandler(
         vendorIdByRef.set(v.ref, id);
         vendorResults.push({ ref: v.ref, id, slug, operation: 'created' });
         firstVendorSlug ??= slug;
-        audit({ actorType: 'system', action: 'vendor.created', entityType: 'vendor', entityId: id });
+        audit({
+          actorType: 'system',
+          action: 'vendor.created',
+          entityType: 'vendor',
+          entityId: id,
+        });
       }
     }
 
@@ -485,7 +503,12 @@ export function createPromoteHandler(
         ids.push(id);
         results.push({ slug, id, operation: 'created' });
         seen.add(id);
-        audit({ actorType: 'system', action: `${entity}.created`, entityType: entity, entityId: id });
+        audit({
+          actorType: 'system',
+          action: `${entity}.created`,
+          entityType: entity,
+          entityId: id,
+        });
       }
       return { ids, results, termBySlug };
     };
@@ -629,7 +652,12 @@ export function createPromoteHandler(
             )
             .where(eq(products.id, p.supabaseId)),
         );
-        audit({ actorType: 'system', action: 'product.updated', entityType: 'product', entityId: p.supabaseId });
+        audit({
+          actorType: 'system',
+          action: 'product.updated',
+          entityType: 'product',
+          entityId: p.supabaseId,
+        });
       } else {
         const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
         const id = crypto.randomUUID();
@@ -645,7 +673,12 @@ export function createPromoteHandler(
             ...productEditableData(p),
           }),
         );
-        audit({ actorType: 'system', action: 'product.created', entityType: 'product', entityId: id });
+        audit({
+          actorType: 'system',
+          action: 'product.created',
+          entityType: 'product',
+          entityId: id,
+        });
       }
 
       // Replace join rows to reflect the pushed state exactly. Deletes are no-ops
@@ -717,7 +750,12 @@ export function createPromoteHandler(
             .values(hostIds.map((hostProductId) => ({ productId: pid, hostProductId })))
             .onConflictDoNothing(),
         );
-        audit({ actorType: 'system', action: 'product.extension_created', entityType: 'product', entityId: pid });
+        audit({
+          actorType: 'system',
+          action: 'product.extension_created',
+          entityType: 'product',
+          entityId: pid,
+        });
       }
     }
 
@@ -775,14 +813,24 @@ export function createPromoteHandler(
             .where(eq(integrations.id, intg.supabaseId)),
         );
         integrationResults.push({ ref: intg.ref, id: intg.supabaseId, operation: 'updated' });
-        audit({ actorType: 'system', action: 'integration.updated', entityType: 'integration', entityId: intg.supabaseId });
+        audit({
+          actorType: 'system',
+          action: 'integration.updated',
+          entityType: 'integration',
+          entityId: intg.supabaseId,
+        });
       } else {
         const id = crypto.randomUUID();
         stmts.push(
           db.insert(integrations).values({ id, ...integrationEditableData(intg), ...linkData }),
         );
         integrationResults.push({ ref: intg.ref, id, operation: 'created' });
-        audit({ actorType: 'system', action: 'integration.created', entityType: 'integration', entityId: id });
+        audit({
+          actorType: 'system',
+          action: 'integration.created',
+          entityType: 'integration',
+          entityId: id,
+        });
       }
       affectedProducts.add(sourceId);
       affectedProducts.add(targetId);

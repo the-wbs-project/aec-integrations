@@ -246,7 +246,9 @@ export async function runReconciliationSweep(
   // Persistent failures: still unlinked AND older than the persistent threshold.
   const persistentCutoffMs = nowMs - RECONCILE_PERSISTENT_MINUTES * MINUTE_MS;
   const persistentRows: StuckRequestSummary[] = stuckRows
-    .filter((r) => stillFailingIds.has(r.id) && new Date(r.createdAt).getTime() < persistentCutoffMs)
+    .filter(
+      (r) => stillFailingIds.has(r.id) && new Date(r.createdAt).getTime() < persistentCutoffMs,
+    )
     .map((r) => ({
       requestId: r.id,
       kind: r.kind,

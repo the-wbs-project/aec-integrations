@@ -63,7 +63,10 @@ export const algoliaProductConfig = {
     updatedAt: true,
   },
   with: {
-    productVendors: { columns: { isPrimary: true }, with: { vendor: { columns: vendorLinkColumns } } },
+    productVendors: {
+      columns: { isPrimary: true },
+      with: { vendor: { columns: vendorLinkColumns } },
+    },
     productCategories: { columns: {}, with: { category: { columns: taxonomyNameColumns } } },
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyNameColumns } } },
     productPhases: { columns: {}, with: { phase: { columns: taxonomyNameColumns } } },

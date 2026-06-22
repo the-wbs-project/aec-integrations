@@ -244,7 +244,11 @@ describe('POST /api/requests/claim', () => {
       entityId: request_id,
     });
     const transitions = await t.db.select().from(workflowTransitions);
-    expect(transitions[0]).toMatchObject({ workflowId: wfs[0]!.id, fromState: null, toState: 'open' });
+    expect(transitions[0]).toMatchObject({
+      workflowId: wfs[0]!.id,
+      fromState: null,
+      toState: 'open',
+    });
   });
 
   it('rejects a missing name with VALIDATION_FAILED', async () => {
@@ -257,7 +261,9 @@ describe('POST /api/requests/claim', () => {
       fakeExecutionContext(),
     );
     expect(res.status).toBe(400);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('VALIDATION_FAILED');
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
     expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
   });
 });
@@ -394,7 +400,10 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
         new Response(
           JSON.stringify({
             data: {
-              issueCreate: { success: true, issue: { id: 'iss_xyz', identifier: 'AECI-900', url: 'u' } },
+              issueCreate: {
+                success: true,
+                issue: { id: 'iss_xyz', identifier: 'AECI-900', url: 'u' },
+              },
             },
           }),
           { status: 200, headers: { 'content-type': 'application/json' } },
