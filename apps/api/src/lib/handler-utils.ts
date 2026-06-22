@@ -9,6 +9,7 @@
 
 import type { Context } from 'hono';
 
+import type { DbContext } from '../db/client';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import type { AcceleratedPrisma } from '../prisma';
@@ -17,8 +18,18 @@ import type { AcceleratedPrisma } from '../prisma';
  * Builds a per-request Accelerated Prisma client from the Worker env. Injected
  * into route-handler factories (defaulting to `getPrisma`) so tests can pass a
  * mock client.
+ *
+ * @deprecated Being replaced by {@link DbFactory} (Drizzle/D1) per ADR 0016 /
+ * AECI-253 as each route migrates.
  */
 export type PrismaFactory = (env: Env) => AcceleratedPrisma;
+
+/**
+ * Builds a per-request Drizzle/D1 client context from the Worker env (ADR 0016).
+ * Injected into route-handler factories (defaulting to `getDb`) so tests pass a
+ * client over a local/mock D1. The optional `bookmark` is the Sessions-API seam.
+ */
+export type DbFactory = (env: Env, bookmark?: string | null) => DbContext;
 
 /**
  * Inline response-shape validation. Phase 2.8 acceptance criterion requires
