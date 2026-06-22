@@ -1,3 +1,10 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+
+# Allow better-sqlite3 (apps/api dev dep) to run its native build script — it
+# backs the in-memory D1 test harness (apps/api/src/test/d1.ts, ADR 0016 /
+# AECI-253). pnpm 10 blocks all build scripts by default; this opts in the one
+# we need (CI runs `pnpm install` and builds it too).
+onlyBuiltDependencies:
+  - better-sqlite3

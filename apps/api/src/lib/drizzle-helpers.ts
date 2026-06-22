@@ -120,14 +120,14 @@ export const productListConfig = {
     updatedAt: true,
   },
   with: {
-    // No orderBy on the join: `pickPrimaryVendor` resolves the primary via
-    // `find(isPrimary) ?? rows[0]`, so it is order-independent.
+    // No `columns` restriction on the junctions: Drizzle's relational query needs
+    // the FK columns to resolve the nested `with`, and the mappers ignore the
+    // extra scalar fields. No orderBy — `pickPrimaryVendor` resolves the primary
+    // via `find(isPrimary) ?? rows[0]`, so it is order-independent.
     productVendors: {
-      columns: { isPrimary: true },
       with: { vendor: { columns: vendorLinkColumns } },
     },
     productCategories: {
-      columns: {},
       with: { category: { columns: taxonomyLinkWithOrderColumns } },
     },
   },
