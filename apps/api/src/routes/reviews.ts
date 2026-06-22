@@ -9,11 +9,12 @@
  * — and `locale` is resolved server-side (see `resolveLocale`); neither is a
  * body field. Public display and the form are out of scope (5.8 / 5.9 / 5.10).
  *
- * The body is scored for toxicity via the Perspective API before the insert and
- * the result stored in `toxicity_score` (AECI-198 / Phase 5.7, `lib/perspective.ts`).
- * It is a moderation-queue triage signal only — **flag, never auto-reject** — and
- * fail-open: an outage (or no key) stores `null` and the review still enters the
- * queue. The score is admin-only and never appears in the submit response.
+ * The body is scored for toxicity via Anthropic Claude before the insert and the
+ * result stored in `toxicity_score` (AECI-258, supersedes the AECI-198 / Phase
+ * 5.7 Perspective path, `lib/toxicity.ts`). It is a moderation-queue triage
+ * signal only — **flag, never auto-reject** — and fail-open: an outage (or no
+ * key) stores `null` and the review still enters the queue. The score is
+ * admin-only and never appears in the submit response.
  *
  * Dedup is enforced two ways (`API_CONTRACTS.md` §6.6):
  *   1. an app-level pre-check (`review.findFirst` on a non-archived row), and
@@ -57,7 +58,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import type { PrismaFactory } from '../lib/handler-utils';
-import { scoreToxicity } from '../lib/perspective';
+import { scoreToxicity } from '../lib/toxicity';
 import { getPrisma } from '../prisma';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;

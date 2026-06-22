@@ -37,7 +37,7 @@ Phase 5 is **app code**. The data layer and authorization model shipped in earli
 
 1. **Auth**: Supabase Auth (magic link + Google OAuth), `/auth/login`, `/auth/callback`, session read in the SSR Worker, sign-out, signed-in header state, return-path handling.
 2. **Worker authz middleware**: JWT verify + role/ban check on the API Worker for every write endpoint (AUTH_AND_RLS §4).
-3. **Reviews — submit**: `POST /api/reviews` (auth-gated; duplicate rejection; banned rejection; locale capture; `status='pending'`), the `/products/:slug/review` form, and **Perspective API toxicity scoring** (flag, never auto-reject).
+3. **Reviews — submit**: `POST /api/reviews` (auth-gated; duplicate rejection; banned rejection; locale capture; `status='pending'`), the `/products/:slug/review` form, and **Anthropic Claude toxicity scoring** (flag, never auto-reject).
 4. **Reviews — display**: `GET /api/products/:slug/reviews` (paginated, approved-only) + the reviews section + ratings summary on the product detail page, with the **≥5 threshold** and **"Be the first to review"** empty state.
 5. **Account + GDPR**: `/account` page and `DELETE /api/account` (anonymize reviews → `reviewer_id = null`, delete profile, delete `auth.users` row).
 6. **Admin moderation (functional)**: `/admin` route guard + shell, `GET /api/admin/reviews`, `PATCH /api/admin/reviews/:id` (approve/reject + reason; toxicity surfaced; pending badge), `/admin/reviews` queue UI.
@@ -117,9 +117,9 @@ Fields → `SubmitReviewSchema` (`API_CONTRACTS.md` §6.6, shared Zod): overall 
 
 Per `API_CONTRACTS.md` §6.6. Auth-gated (§4.5). Inserts a `reviews` row with `status='pending'`, `reviewer_id = auth.uid()`, `locale`. Errors: `UNAUTHENTICATED`, `REVIEW_BANNED` (banned user), `REVIEW_DUPLICATE` (the partial unique index also enforces this at the DB), `NOT_FOUND` (product), `VALIDATION_FAILED`. `appendAuditLog()` on insert. Recompute/queue the denormalized counts only on **approval** (§5.4), not on submit.
 
-### 5.3 Perspective API toxicity (Phase 5.7)
+### 5.3 Toxicity scoring (Phase 5.7)
 
-Per `STAGE_1_SPEC.md` §22.2. On submit, score the body via Perspective API and store `toxicity_score`. **Flag, never auto-reject** — high scores surface the review first in the queue. Failure is non-fatal: a Perspective outage logs a warning and stores `null` (the review still enters the queue). Secret: `PERSPECTIVE_API_KEY`. Score is admin-only (never in public payloads).
+Per `STAGE_1_SPEC.md` §22.2. On submit, score the body via **Anthropic Claude** (Claude Haiku — AECI-258, supersedes the original Perspective API path, which Google is sunsetting) and store `toxicity_score` (an integer 0–100). **Flag, never auto-reject** — high scores surface the review first in the queue. Failure is non-fatal: an outage logs a warning and stores `null` (the review still enters the queue). Secret: `ANTHROPIC_API_KEY` (optional + fail-open; absent → silent no-op). Score is admin-only (never in public payloads). See `lib/toxicity.ts`.
 
 ### 5.4 Public reviews display — `GET /api/products/:slug/reviews` (Phase 5.8)
 
@@ -191,7 +191,7 @@ Per `STAGE_1_SPEC.md` §22.1: pending list (product, reviewer email, timestamp, 
 
 ## 9. Observability (Phase 5.15)
 
-Parity with AECI-66 (Phase 2) / AECI-141 (Phase 3) / AECI-180 (Phase 4). Metrics (`aeci.*`): sign-in attempts/success/failure (by method), review submit count, moderation actions (approve/reject), Perspective API latency/error rate. Alerts: auth error-rate spike, Perspective outage, moderation-queue age. Dashboard group "Phase 5 — Auth/Reviews"; runbook entries.
+Parity with AECI-66 (Phase 2) / AECI-141 (Phase 3) / AECI-180 (Phase 4). Metrics (`aeci.*`): sign-in attempts/success/failure (by method), review submit count, moderation actions (approve/reject), toxicity-scoring latency/error rate. Alerts: auth error-rate spike, toxicity-scoring outage, moderation-queue age. Dashboard group "Phase 5 — Auth/Reviews"; runbook entries.
 
 ---
 
@@ -228,7 +228,7 @@ Phase 6 ("Requests & moderation") inherits: the review-moderation **FSM** (`work
 | 5.4 | `/auth/callback` handler (code exchange, session cookie, profile-ensure, safe redirect) | 5.2 |
 | 5.5 | API Worker authz middleware (JWT verify + role/ban; AUTH_AND_RLS §4) | 5.2 |
 | 5.6 | `POST /api/reviews` (dedup, banned, locale, pending) | 5.5 |
-| 5.7 | Perspective API toxicity scoring (flag-not-block) | 5.6 |
+| 5.7 | Anthropic Claude toxicity scoring (flag-not-block) | 5.6 |
 | 5.8 | `GET /api/products/:slug/reviews` + ProductDetail summary + ≥5 | 5.1 |
 | 5.9 | Review submission form `/products/:slug/review` (Signal Forms + Aria — satisfies AECI-133) | 5.3, 5.6 |
 | 5.10 | Reviews display on product page (list, summary gate, empty state, cache-neutral CTA) | 5.8, 5.4 |

@@ -1068,7 +1068,7 @@ Governed by `docs/STAGE_1_PHASE_5_SPEC.md` (decomposed into AECI Phase 5.1–5.1
 
 - [ ] Supabase Auth (magic link + Google OAuth): `/auth/login`, `/auth/callback`, SSR session read, sign-out
 - [ ] API Worker authz middleware (JWT verify + role/ban; `AUTH_AND_RLS.md` §4)
-- [ ] `POST /api/reviews` (dedup, banned rejection, locale) + Perspective toxicity flagging
+- [ ] `POST /api/reviews` (dedup, banned rejection, locale) + Claude toxicity flagging
 - [ ] `GET /api/products/:slug/reviews` (public, approved-only) + ProductDetail summary + ≥5 threshold
 - [ ] Review submission form `/products/:slug/review` (Signal Forms + Angular Aria — satisfies AECI-133)
 - [ ] Reviews display + "Be the first to review" empty state + cache-neutral personalized CTA
@@ -1287,7 +1287,7 @@ Brand tokens validated against WCAG AA contrast ratios:
 
 ### 22.2 Profanity filter
 
-- Reviews passed through Perspective API on submission
+- Reviews scored for toxicity on submission via **Anthropic Claude** (Claude Haiku — AECI-258; supersedes the original Perspective API, which Google is sunsetting)
 - High-toxicity scores flag the review in the moderation queue (not auto-reject)
 - Saves moderation time by surfacing the worst content first
 - Flagged reviews show toxicity score in admin UI

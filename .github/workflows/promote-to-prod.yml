@@ -189,13 +189,18 @@ jobs:
           ALGOLIA_ADMIN_KEY_PRODUCTION: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
           ALGOLIA_SEARCH_KEY_PRODUCTION: ${{ secrets.ALGOLIA_SEARCH_KEY_PRODUCTION }}
           SUPABASE_ANON_KEY_PRODUCTION: ${{ secrets.SUPABASE_ANON_KEY_PRODUCTION }}
+          ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           ENV_LABEL: production
           REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_PRODUCTION ALGOLIA_SEARCH_KEY_PRODUCTION'
           # AECI-193: SUPABASE_ANON_KEY_PRODUCTION is recommended (warn-and-skip)
           # during the Phase 5 spike — flips to REQUIRED in 5.5 when real auth
           # surfaces ship. Until then a missing key only degrades the (throwaway)
-          # /auth/whoami smoke to 503, never a launch-critical surface.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY_PRODUCTION'
+          # /auth/whoami smoke to 503, never a launch-critical surface. AECI-258:
+          # ANTHROPIC_API_KEY_PRODUCTION is recommended (NOT required) — toxicity
+          # scoring is fail-open, so a missing key only drops the moderation-queue
+          # triage signal (reviews still submit + enter the queue), never a
+          # launch-critical surface, so prod does NOT fail closed on it.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY_PRODUCTION ANTHROPIC_API_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -609,6 +614,28 @@ jobs:
             | pnpm exec wrangler secret put ALGOLIA_APP_ID --env production
           printf '%s' "$ALGOLIA_ADMIN_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_ADMIN_KEY --env production
+
+      # AECI-258: push the Anthropic API key to the prod API Worker for review
+      # toxicity scoring (Claude Haiku, lib/toxicity.ts) on POST /api/reviews.
+      # Optional + FAIL-OPEN — unlike the Algolia push above (which fail-closes on
+      # prod), a missing key here is a silent no-op (toxicity_score=null, the
+      # review still enters the moderation queue), so this is graceful
+      # warn-and-skip and is NOT in REQUIRED_WORKER_SECRETS. Same idempotent
+      # deploy→secret order.
+      - name: Push ANTHROPIC_API_KEY to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ANTHROPIC_API_KEY_VALUE: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$ANTHROPIC_API_KEY_VALUE" ]; then
+            echo "::warning::ANTHROPIC_API_KEY_PRODUCTION not set — skipping push. Review toxicity scoring will no-op in production (toxicity_score=null, 'Not scored' in the moderation queue) until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$ANTHROPIC_API_KEY_VALUE" \
+            | pnpm exec wrangler secret put ANTHROPIC_API_KEY --env production
 
       - name: Deploy SSR (production)
         id: deploy_ssr

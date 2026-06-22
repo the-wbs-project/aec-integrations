@@ -173,7 +173,7 @@ function uniqueConstraintError(target: string[]) {
 }
 
 /** Mount the handler behind a middleware that injects a verified `auth`.
- *  `score` stands in for the Perspective call (default: a no-op → `null`, as a
+ *  `score` stands in for the toxicity scorer (default: a no-op → `null`, as a
  *  missing key would behave) so unit tests stay offline and deterministic. */
 function appWith(
   prisma: unknown,
@@ -403,9 +403,9 @@ describe('createSubmitReviewHandler', () => {
     );
   });
 
-  // ─── Toxicity scoring (AECI-198 / Phase 5.7) ────────────────────────────────
+  // ─── Toxicity scoring (AECI-258, supersedes AECI-198 / Phase 5.7) ───────────
 
-  it('persists the Perspective toxicity_score and records it in the audit metadata', async () => {
+  it('persists the toxicity_score and records it in the audit metadata', async () => {
     const { prisma, createCalls, auditCalls } = makeFakePrisma();
     const score = async () => 92;
     const res = await post(appWith(prisma, undefined, score), validBody());
@@ -417,7 +417,7 @@ describe('createSubmitReviewHandler', () => {
     });
   });
 
-  it('stores toxicity_score=null and still saves the review when Perspective fails (outage)', async () => {
+  it('stores toxicity_score=null and still saves the review when scoring fails (outage)', async () => {
     const { prisma, createCalls } = makeFakePrisma();
     // Default `score` already resolves to null; assert the review is saved anyway.
     const res = await post(appWith(prisma), validBody());
