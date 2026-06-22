@@ -18,15 +18,13 @@
  * result is structurally checked against them at each call site, so dropping a
  * needed column from a config breaks the build — the same lockstep the Prisma
  * `select` discipline gave us.
- *
- * Admin/account review + request mappers remain in `prisma-helpers.ts` until
- * their write routes migrate (AECI-253 is incremental).
  */
 
 import { ProductUsefulnessSchema } from '@aeci/shared';
 import type {
   AccountReview,
   AdminReview,
+  AdminVendorRequest,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
@@ -652,6 +650,84 @@ export function toAccountReview(raw: RawAccountReviewRow): AccountReview {
     status: VALID_REVIEW_STATUS.has(status) ? status : 'pending',
     rejection_reason: raw.rejectionReason,
     created_at: raw.createdAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Admin vendor-request (`AdminVendorRequest`, §6.9) — moved from prisma-helpers.
+// ---------------------------------------------------------------------------
+
+/** Admin requests `columns` config (`AdminVendorRequest`, AECI-216 / Phase 6.9).
+ *  Selects the full `vendor_requests` row the admin queue surfaces, INCLUDING the
+ *  keys the list handler groups on to derive `is_duplicate` (`kind`, `targetType`,
+ *  `targetId`, `submitterEmail`). `is_duplicate` itself has no column — it's
+ *  computed at read time and passed to `toAdminVendorRequest`. No relations: every
+ *  field is a `vendor_requests` scalar. */
+export const adminVendorRequestConfig = {
+  columns: {
+    id: true,
+    kind: true,
+    status: true,
+    targetType: true,
+    targetId: true,
+    submitterEmail: true,
+    submitterName: true,
+    submitterRole: true,
+    domainMatch: true,
+    body: true,
+    sourceUrl: true,
+    linearIssueId: true,
+    createdAt: true,
+    resolvedAt: true,
+    resolvedById: true,
+  },
+} as const;
+
+export interface RawAdminVendorRequestRow {
+  id: string;
+  kind: string;
+  status: string;
+  targetType: string;
+  targetId: string;
+  submitterEmail: string;
+  submitterName: string | null;
+  submitterRole: string | null;
+  domainMatch: string;
+  body: string;
+  sourceUrl: string | null;
+  linearIssueId: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  resolvedById: string | null;
+}
+
+/** Map a raw `vendor_requests` row → `AdminVendorRequest` (camelCase → snake_case;
+ *  D1 `*_at` are already ISO text, so no `Date` conversion). `is_duplicate` is
+ *  supplied by the caller (the list handler computes it page-wide; the single-row
+ *  PATCH confirmation passes `false`). `kind`/`status`/`target_type` cast to their
+ *  enums — the DB CHECK guarantees the value and dev response-validation catches
+ *  drift (same pattern as `toAdminReview`'s `status`). */
+export function toAdminVendorRequest(
+  raw: RawAdminVendorRequestRow,
+  isDuplicate: boolean,
+): AdminVendorRequest {
+  return {
+    id: raw.id,
+    kind: raw.kind as AdminVendorRequest['kind'],
+    status: raw.status as AdminVendorRequest['status'],
+    target_type: raw.targetType as AdminVendorRequest['target_type'],
+    target_id: raw.targetId,
+    submitter_email: raw.submitterEmail,
+    submitter_name: raw.submitterName,
+    submitter_role: raw.submitterRole,
+    domain_match: raw.domainMatch,
+    body: raw.body,
+    source_url: raw.sourceUrl,
+    is_duplicate: isDuplicate,
+    linear_issue_id: raw.linearIssueId,
+    created_at: raw.createdAt,
+    resolved_at: raw.resolvedAt,
+    resolved_by: raw.resolvedById,
   };
 }
 
