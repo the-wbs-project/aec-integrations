@@ -1,0 +1,11 @@
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+file_include_globs = ".env*\n**/.dev.vars*"
+
+[prompts]
+code_review = "Use @docs/CODE_REVIEW_CHECKLIST.md to perform code reviews."
+general = "When starting a workspace from a Linear issue, assign that issue to chrisw@thewbsproject.com then change the status to \"In Progress\".\n\nWhen creating a plan, always include a bullet point summary at the end of the plan. This way I can read the quick points and decide if I need to read the full plan (I usually will).\n\nMake sure you status the project accordingly. Do not create PRs automatically unless I specify."
+
+[scripts]
+run = "pnpm run dev"
+run_mode = "concurrent"
+setup = "pnpm install\npnpm run build:web"
