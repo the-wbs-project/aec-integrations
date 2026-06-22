@@ -9,8 +9,6 @@ import { vi } from 'vitest';
 
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
-import type { MockAcceleratedPrisma } from './factories/prisma';
-import { makeMockAcceleratedPrisma } from './factories/prisma';
 
 export function fakeExecutionContext(): ExecutionContext {
   return {
@@ -44,6 +42,3 @@ export function buildAppWithHandler(args: {
   }
   return app;
 }
-
-export { makeMockAcceleratedPrisma };
-export type { MockAcceleratedPrisma };

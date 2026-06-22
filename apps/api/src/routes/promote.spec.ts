@@ -15,7 +15,6 @@ import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { DbContext } from './../db/client';
 import {
   auditLog,
   integrations,
