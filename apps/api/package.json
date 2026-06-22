@@ -2,8 +2,8 @@
   "name": "@aeci/api",
   "private": true,
   "scripts": {
-    "dev": "pnpm prisma:generate && wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
-    "dev:preview": "pnpm prisma:generate && wrangler dev --env preview --port ${AECI_API_PORT:-8787} --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+    "dev": "pnpm db:setup:local && pnpm prisma:generate && wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+    "dev:preview": "pnpm db:setup:local && pnpm prisma:generate && wrangler dev --env preview --port ${AECI_API_PORT:-8787} --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "start": "pnpm dev",
     "deploy": "pnpm prisma:generate && wrangler deploy --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "deploy:staging": "pnpm prisma:generate && wrangler deploy --env staging --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
