@@ -314,7 +314,7 @@ Phase 5 metrics on `aeci-api`.
 ### `AECi Phase 6 — Requests / Moderation`
 
 - **Definition (for record):** `observability/datadog/dashboard-requests-moderation.json`
-- **Live URL:** _TBD — filled in after the live apply (AECI-219 operator step)._
+- **Live URL:** https://us5.datadoghq.com/dashboard/k86-25g-8rx/aeci-phase-6--requests--moderation _(applied 2026-06-20 — AECI-219; the 3 Phase 6 monitors were applied in the same pass with `@chrisw@thewbsproject.com` substituted for the placeholder)._
 
 Widgets (Phase 6.12 requests/moderation health, AECI-219 — all `aeci-api`, already emitted by the
 6.4–6.7 feature issues): Linear issue creation by `outcome` · by `kind` · issue-creation failure rate
