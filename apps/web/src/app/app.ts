@@ -6,14 +6,16 @@ import { PageViewTracker } from './core/page-view-tracker';
 import { SiteFooter } from './layout/site-footer';
 import { SiteHeader } from './layout/site-header';
 import { SkipLink } from './layout/skip-link';
+import { WaitlistWelcome } from './waitlist/waitlist-welcome';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, SiteHeader, SiteFooter, SkipLink, ConsentBanner],
+  imports: [RouterOutlet, SiteHeader, SiteFooter, SkipLink, ConsentBanner, WaitlistWelcome],
   template: `
     <div class="flex min-h-screen flex-col bg-(--surface-base) text-(--text-primary)">
       <aec-skip-link />
       <aec-site-header />
+      <aec-waitlist-welcome />
       <main id="main" class="flex-1">
         <router-outlet />
       </main>

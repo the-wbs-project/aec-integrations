@@ -127,6 +127,10 @@ async function capturePageView(
       cfBotScore: cf.botScore,
       userAgentHash,
       locale: localeFromRoute(payload.route),
+      // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
+      // (e.g. the waitlist welcome banner); null for ordinary views.
+      refSource: payload.ref_source ?? null,
+      refToken: payload.ref_token ?? null,
     });
     submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:ok']);
   } catch (error) {

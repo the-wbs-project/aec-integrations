@@ -86,6 +86,32 @@ describe('POST /api/page-views', () => {
     expect(rows[0]!.productId).toBeNull();
   });
 
+  it('persists ref_source / ref_token campaign attribution (AECI-243)', async () => {
+    const { res, settle } = post({
+      route: '/',
+      ref_source: 'waitlist',
+      ref_token: 'tok-abc123',
+    });
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.refSource).toBe('waitlist');
+    expect(rows[0]!.refToken).toBe('tok-abc123');
+  });
+
+  it('leaves ref_source / ref_token null for an ordinary view', async () => {
+    const { res, settle } = post({ route: '/products/revit' });
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.refSource).toBeNull();
+    expect(rows[0]!.refToken).toBeNull();
+  });
+
   it('400s a malformed body and inserts nothing', async () => {
     const { res } = post('not json');
     expect((await res).status).toBe(400);

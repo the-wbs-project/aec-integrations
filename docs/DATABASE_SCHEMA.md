@@ -714,6 +714,11 @@ create table page_views (
   session_id text,
   referrer text,
 
+  -- Campaign attribution (AECI-243 / §11.2) — populated only on tagged arrivals
+  -- (e.g. the waitlist launch email's ?ref=waitlist&token=xyz); null otherwise
+  ref_source text,
+  ref_token text,
+
   -- Cloudflare-provided headers
   cf_country text,
   cf_colo text,
