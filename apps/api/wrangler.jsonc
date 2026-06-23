@@ -193,14 +193,14 @@
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
         },
       ],
-      // ADR 0016 / AECI-252 + AECI-256. `database_id` is a placeholder until
-      // `wrangler d1 create aeci-app-staging` is run in Phase 5; deploy CI applies
-      // migrations via `wrangler d1 migrations apply aeci-app-staging --env staging`.
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
+      // deploy CI applies migrations via
+      // `wrangler d1 migrations apply aeci-app-staging --env staging --remote`.
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "aeci-app-staging",
-          "database_id": "provisioned-in-phase-5-aeci-256",
+          "database_id": "6cd91530-20f3-4264-b6ba-3b2bf611c2aa",
           "migrations_dir": "migrations",
         },
       ],
@@ -289,15 +289,14 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
-      // ADR 0016 / AECI-252 + AECI-256. `database_id` placeholder until
-      // `wrangler d1 create aeci-app-production` is run in Phase 5; promote-to-prod
-      // CI applies migrations via `wrangler d1 migrations apply aeci-app-production
-      // --env production`.
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
+      // promote-to-prod CI applies migrations via `wrangler d1 migrations apply
+      // aeci-app-production --env production --remote`.
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "aeci-app-production",
-          "database_id": "provisioned-in-phase-5-aeci-256",
+          "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
           "migrations_dir": "migrations",
         },
       ],
