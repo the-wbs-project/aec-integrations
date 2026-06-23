@@ -982,6 +982,33 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 - Rate limit on `/api/auth/login` magic link requests: 5 per email per hour
 - Block known scraper user agents from `/products/*` and `/vendors/*`
 
+> **Implementation (AECI-242, Phase 7.7).** These rules are live on the
+> `aecintegrations.com` zone (applied via the CF Rulesets API) — see the operator
+> runbook [`waf-rate-limits.md`](./waf-rate-limits.md) for the exact expressions,
+> thresholds, deployed rule IDs, and verification. Several spec targets cannot be honored literally on
+> our **Pro** plan and are handled differently (recorded here rather than silently
+> reworked):
+> - **The counting window caps at 1 minute on Pro** (10 s or 1 min — not 1 hour),
+>   so *both* WAF rate-limit rules are **per-minute burst caps**, not the spec's
+>   hourly caps: `/api/requests/*` and `/api/reviews` are each **5 per IP per
+>   minute**. A true hourly cap would need in-Worker KV/Durable-Object state (kept
+>   out of scope). The burst caps stop scripted floods; slow-drip abuse across an
+>   hour is bounded instead by the app-layer controls below.
+> - **`/api/reviews` "3 per authenticated user"** is additionally only a **per-IP**
+>   approximation — Pro WAF counts by client IP only (per-user counting is an
+>   Enterprise feature). The real per-user controls are the existing auth gate,
+>   one-review-per-product-per-user dedup, toxicity scoring, and moderation queue.
+> - **magic-link "5 per email / hour"** → lives in **Supabase Auth → Rate Limits**,
+>   not Cloudflare: the magic-link request goes browser→Supabase directly and never
+>   transits our zone, so no WAF rule can see it. (Owner-managed; out of AECI-242
+>   scope.)
+>
+> The acceptance criteria's "configured as code (Terraform / CF API)" clause was
+> intentionally relaxed for launch (dashboard + runbook instead). Datadog visibility
+> of WAF events is deferred to a post-launch follow-up; CF Security Events is the
+> launch surface. `/api/page-views` (high-volume beacon) and `/api/webhooks/linear`
+> (HMAC-verified, single source) are deliberately excluded — see the runbook.
+
 ### 15.2 API privacy
 
 API Worker remains private via Cloudflare service binding (per existing architecture): it has no public ingress on its own hostname. The SSR Worker is the only public ingress — and it re-proxies `/api/*` same-origin to the API Worker (the path hydrated browser code and the `/api/health` / `/api/version` checks use; ADR 0001 §Consequences). Read GETs are public through that passthrough by construction; write routes (`/api/promote`, `/admin/purge`, …) carry per-endpoint auth.
@@ -1103,7 +1130,7 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 - [ ] 7.4 — PostHog integration (event set + locale/theme dimensions; §14.1)
 - [ ] 7.5 — Loops transactional email (review + account-deletion + magic-link sender; §11.1) — home for the Phase 5/6 deferred emails
 - [ ] 7.6 — Daily data-quality job (full §23.1 suite + email summary; Algolia-drift line already shipped in AECI-140)
-- [ ] 7.7 — WAF rate limits on the public endpoints (§15.1)
+- [x] 7.7 — WAF rate limits on the public endpoints (§15.1) — dashboard runbook `docs/waf-rate-limits.md` (AECI-242)
 - [ ] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154)
 - [ ] 7.9 — Waitlist welcome banner + token attribution (§11.2)
 - [ ] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3)

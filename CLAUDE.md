@@ -32,6 +32,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | CI/CD, environments, deployment | `docs/CICD_PLAN.md` |
 | Environment topology, promotion model, operator runbook (tiers, PR-preview lifecycle, bootstrap) | `docs/environments.md` |
 | Cloudflare Access for non-prod environments (allowlist, service token rotation, lockout) | `docs/access.md` |
+| Cloudflare WAF rate limits + scraper block on the public endpoints (rule expressions, thresholds, Pro-plan limits, verification) | `docs/waf-rate-limits.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
