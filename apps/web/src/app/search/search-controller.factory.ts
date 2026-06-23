@@ -75,6 +75,7 @@ export async function createSearchEngine(config: AlgoliaPublicConfig): Promise<S
     connectNumericMenu:
       connectors.connectNumericMenu as unknown as InstantSearchLib['connectNumericMenu'],
     connectRange: connectors.connectRange as unknown as InstantSearchLib['connectRange'],
+    connectSortBy: connectors.connectSortBy as unknown as InstantSearchLib['connectSortBy'],
   };
 
   const searchClient = lite.liteClient(config.appId, config.searchKey);
