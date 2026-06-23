@@ -41,7 +41,6 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   facebook_url: null,
   instagram_url: null,
   youtube_url: null,
-  github_url: null,
   products: [],
 };
 

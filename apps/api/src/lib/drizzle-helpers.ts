@@ -790,7 +790,6 @@ export function toVendorDetail(raw: RawVendorDetailRow): VendorDetail {
     facebook_url: raw.facebookUrl,
     instagram_url: raw.instagramUrl,
     youtube_url: raw.youtubeUrl,
-    github_url: raw.githubOrg ? `https://github.com/${encodeURIComponent(raw.githubOrg)}` : null,
     products: raw.productVendors.map((r) => toProductListItem(r.product)),
   };
 }

@@ -97,7 +97,6 @@ describe('GET /api/vendors/:slug', () => {
     expect(res.status).toBe(200);
     const detail = VendorDetailSchema.parse(await res.json());
     expect(detail.products.map((p) => p.slug)).toEqual(['revit']);
-    expect(detail.github_url).toBe('https://github.com/Autodesk');
   });
 
   it('404s an unknown slug', async () => {

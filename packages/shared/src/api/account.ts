@@ -38,11 +38,15 @@ export const UpdateAccountSchema = z.object({
 export type UpdateAccountInput = z.infer<typeof UpdateAccountSchema>;
 
 /** Returned by `GET /api/account` and `PATCH /api/account`. `email` is read-only
- *  (from the session JWT); `display_name` is null when unset. */
+ *  (from the session JWT); `display_name` is null when unset. `role` is the
+ *  caller's own `profiles.role` (e.g. `'admin'` / `'reviewer'`), re-fetched from
+ *  the verified session on every request — the web client reads it to decide
+ *  whether to surface admin affordances (AECI-259). */
 export interface AccountProfileResponse {
   user_id: string;
   email: string | null;
   display_name: string | null;
+  role: string;
 }
 
 // ─── Delete (GDPR erasure) ──────────────────────────────────────────────────

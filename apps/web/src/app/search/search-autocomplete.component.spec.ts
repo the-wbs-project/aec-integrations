@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 import { SearchAutocomplete } from './search-autocomplete';
@@ -120,6 +121,49 @@ describe('SearchAutocomplete', () => {
     expect(emitted).toEqual(['revit']);
     // No listbox is ever rendered without a controller.
     expect(host.querySelector('[role="listbox"]')).toBeNull();
+  });
+
+  it('floats the suggestion listbox out of flow (absolute) so it cannot grow the header row', async () => {
+    // Regression guard for the header-search layout bug: Aria renders the combobox
+    // popup INLINE in the relative <form> (DeferredContent.createEmbeddedView), so the
+    // listbox must take itself out of flow. If it falls back into normal flow it grows
+    // the form and the header's `items-center` shoves the input out of the row.
+    setup(); // config absent → afterNextRender no-ops; we inject our own settled controller
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // A controller settled to one suggestion, without the Algolia SDK or RUM.
+    const controller = new AutocompleteController(
+      () => Promise.resolve({ products: [SUGGESTION], vendors: [], nbHits: 1 }),
+      () => {},
+    );
+    controller.setQuery('rev');
+    await new Promise((resolve) => setTimeout(resolve, 220)); // past the 180ms debounce
+    expect(controller.suggestions().length, 'controller should hold one suggestion').toBe(1);
+
+    // Inject the settled controller (the component normally builds this in afterNextRender).
+    (
+      fixture.componentInstance as unknown as {
+        controller: { set(c: AutocompleteController): void };
+      }
+    ).controller.set(controller);
+
+    // Drive Aria's expand exactly as the empty-listbox test does (focusin + input),
+    // which is what keeps aria-expanded=true in the test environment.
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('input')!;
+    input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    input.value = 'rev';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    const listbox = host.querySelector('[role="listbox"]');
+    expect(listbox, 'listbox renders once a query returns ≥1 suggestion').not.toBeNull();
+    expect(listbox!.classList.contains('absolute')).toBe(true);
+    expect(listbox!.classList.contains('top-full')).toBe(true);
   });
 
   it('emits suggestionChosen on commit and suppresses the coincident submit', () => {

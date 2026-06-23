@@ -193,6 +193,30 @@ jobs:
             | pnpm exec wrangler secret put DATABASE_URL --name "${API_WORKER_NAME}"
 
       # ---------------------------------------------------------------------
+      # Step 6b: Push ANTHROPIC_API_KEY to the per-PR API Worker (AECI-258)
+      #   Review toxicity scoring (Claude Haiku, lib/toxicity.ts) on POST
+      #   /api/reviews. Reuses the staging-tier key (shared dev project, like the
+      #   DATABASE_URL push above) and targets the per-PR Worker by `--name`.
+      #   Optional + FAIL-OPEN: warn-and-skip when unset — a preview without the
+      #   key just stores toxicity_score=null ('Not scored'); submissions still
+      #   work. Same printf-over-stdin idempotent pattern as the DATABASE_URL push.
+      # ---------------------------------------------------------------------
+      - name: Push ANTHROPIC_API_KEY to per-PR API Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ANTHROPIC_API_KEY_VALUE: ${{ secrets.ANTHROPIC_API_KEY_STAGING }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$ANTHROPIC_API_KEY_VALUE" ]; then
+            echo "::warning::ANTHROPIC_API_KEY_STAGING not set — skipping push. This preview's review toxicity scoring will no-op (toxicity_score=null) until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$ANTHROPIC_API_KEY_VALUE" \
+            | pnpm exec wrangler secret put ANTHROPIC_API_KEY --name "${API_WORKER_NAME}"
+
+      # ---------------------------------------------------------------------
       # Step 7: Rewrite the SSR service binding to point at the per-PR API
       #   `apps/web/wrangler.jsonc` env.preview.services binds API to the
       #   static name `aeci-api-preview`. Wrangler 4 has no `--service`

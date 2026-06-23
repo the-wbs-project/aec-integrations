@@ -333,14 +333,13 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   facebook_url: z.string().url().nullable(),
   instagram_url: z.string().url().nullable(),
   youtube_url: z.string().url().nullable(),
-  github_url: z.string().url().nullable(),
   products: z.array(ProductListItemSchema),
 });
 ```
 
 The public sort key `name` on `/api/vendors` maps to the `company_name` column server-side (vendors have no plain `name` column).
 
-`linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, and `youtube_url` are returned verbatim from their `vendors.*` columns (the review app curates full canonical URLs and forwards them via `POST /api/promote`). `github_url` is the exception — **derived** server-side from the `vendors.github_org` handle (`https://github.com/{org}`), since that column stores a bare org name, never a URL — so the public contract carries a uniform, URL-validatable field throughout. All are nullable; the detail hero renders an icon for each only when its value is present.
+`linkedin_url`, `x_url`, `facebook_url`, `instagram_url`, and `youtube_url` are returned verbatim from their `vendors.*` columns (the review app curates full canonical URLs and forwards them via `POST /api/promote`). All are nullable; the detail hero renders an icon for each only when its value is present.
 
 ### 5.3 Integration
 
@@ -852,7 +851,7 @@ export const ListPendingReviewsQuerySchema = PaginationQuerySchema.extend({
 
 export type AdminReview = Review & {
   status: 'pending' | 'approved' | 'rejected';
-  toxicity_score: number | null;   // from Perspective API
+  toxicity_score: number | null;   // from the toxicity scorer (Claude), 0–100
   product: ProductRef;
   reviewer_email: string;          // visible to admins only
 };

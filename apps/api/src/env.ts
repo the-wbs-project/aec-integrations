@@ -195,18 +195,26 @@ export type Env = {
    */
   PAGE_VIEWS_MIN_BOT_SCORE?: string;
   /**
-   * Google Perspective API key for review toxicity scoring (AECI-198 / Phase
-   * 5.7). Set as a Wrangler secret per env. Optional and **fail-open**: absent →
-   * `scoreToxicity()` is a silent no-op that stores `null` (the expected state in
-   * local `dev:bound` / PR previews), and any outage also stores `null` (logged
-   * `warn`) — the score only ever *flags* the moderation queue, it never blocks a
-   * submission. See `lib/perspective.ts` and `STAGE_1_PHASE_5_SPEC.md` §5.3.
+   * Anthropic API key for review toxicity scoring (AECI-258, supersedes the
+   * AECI-198 / Phase 5.7 `PERSPECTIVE_API_KEY` — Google is sunsetting
+   * Perspective). The Worker reads it at runtime to score review bodies via
+   * Claude Haiku on `POST /api/reviews`. Set as a Wrangler secret per env.
+   * Optional and **fail-open**: absent → `scoreToxicity()` is a silent no-op
+   * that stores `null` (the expected state in local `dev:bound` / PR previews),
+   * and any outage also stores `null` (logged `warn`) — the score only ever
+   * *flags* the moderation queue, it never blocks a submission. See
+   * `lib/toxicity.ts` and `STAGE_1_PHASE_5_SPEC.md` §5.3.
+   *
+   * **GDPR prerequisite:** the Messages API has no per-request no-store control,
+   * so the Anthropic org behind this key **must** have zero data retention (ZDR)
+   * enabled before a real key is set — otherwise scored review bodies are retained
+   * ~30 days outside the `AUTH_AND_RLS.md` §8 erasure boundary.
    */
-  PERSPECTIVE_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
   /**
    * Linear personal API key for the form→Linear pipeline (AECI-211 / Phase 6.4).
    * Set as a Wrangler secret per env. Optional and **fail-open** (mirrors
-   * `PERSPECTIVE_API_KEY`): absent → `createLinearIssueForRequest()` is a silent
+   * `ANTHROPIC_API_KEY`): absent → `createLinearIssueForRequest()` is a silent
    * no-op (the expected state in local `dev:bound` / PR previews — the secret is
    * staging/prod only), so the request still returns `201` and its row simply sits
    * `open` with `linear_issue_id=null` for the reconciliation sweep (§6.7) to pick

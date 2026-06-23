@@ -540,7 +540,7 @@ create table reviews (
   rejection_reason text,
   moderated_at timestamptz,
   moderated_by uuid references profiles(id),
-  toxicity_score smallint, -- from Perspective API, populated on submission
+  toxicity_score smallint, -- from the toxicity scorer (Claude), populated on submission
 
   -- Trust signals (Stage 3+ uses)
   verified_work_email boolean not null default false,

@@ -94,6 +94,7 @@ export function createGetAccountHandler(
       user_id: session.userId,
       email: session.email ?? null,
       display_name: profile?.displayName ?? null,
+      role: session.role,
     };
     return json(body);
   };
@@ -137,6 +138,7 @@ export function createUpdateAccountHandler(
       user_id: userId,
       email: session.email ?? null,
       display_name: payload.display_name,
+      role: session.role,
     };
     return json(body);
   };

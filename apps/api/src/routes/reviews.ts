@@ -12,6 +12,13 @@
  * generated up front so nothing depends on batch return values. The best-effort
  * Datadog forwards run AFTER commit via `waitUntil`.
  *
+ * The body is scored for toxicity via Anthropic Claude before the insert and the
+ * result stored in `toxicity_score` (AECI-258, supersedes the AECI-198 / Phase
+ * 5.7 Perspective path, `lib/toxicity.ts`). It is a moderation-queue triage
+ * signal only — **flag, never auto-reject** — and fail-open: an outage (or no
+ * key) stores `null` and the review still enters the queue. The score is
+ * admin-only and never appears in the submit response.
+ *
  * Dedup: an app-level pre-check + the DB partial-unique index
  * `reviews_unique_per_user_product` (a row racing past the pre-check trips a
  * UNIQUE violation → mapped to `409 REVIEW_DUPLICATE`, never a 500).
@@ -48,7 +55,7 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import type { DbFactory } from '../lib/handler-utils';
-import { scoreToxicity } from '../lib/perspective';
+import { scoreToxicity } from '../lib/toxicity';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 

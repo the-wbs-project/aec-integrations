@@ -62,6 +62,7 @@ describe('GET /api/account', () => {
       user_id: USER,
       email: 'me@example.com',
       display_name: 'Ada',
+      role: 'reviewer',
     });
   });
 });

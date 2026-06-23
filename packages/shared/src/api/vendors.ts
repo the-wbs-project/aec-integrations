@@ -48,10 +48,7 @@ export type VendorListItem = z.infer<typeof VendorListItemSchema>;
  * `linkedin_url` and the four B2 social platforms (`x_url`, `facebook_url`,
  * `instagram_url`, `youtube_url`) mirror their stored columns verbatim — the
  * review app curates and forwards full canonical URLs via `POST /api/promote`.
- * `github_url` is the exception: derived server-side from the `github_org` handle
- * (`https://github.com/{org}`) so the contract carries a uniform, URL-validatable
- * field rather than a bare handle. All are nullable — a vendor without a given
- * link renders no icon for it.
+ * All are nullable — a vendor without a given link renders no icon for it.
  */
 export const VendorDetailSchema = VendorListItemSchema.extend({
   description: z.string().nullable(),
@@ -61,7 +58,6 @@ export const VendorDetailSchema = VendorListItemSchema.extend({
   facebook_url: z.string().url().nullable(),
   instagram_url: z.string().url().nullable(),
   youtube_url: z.string().url().nullable(),
-  github_url: z.string().url().nullable(),
   products: z.array(ProductListItemSchema),
 });
 

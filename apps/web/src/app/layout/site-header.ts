@@ -33,10 +33,19 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { BrandLogo } from './brand-logo';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
+import { UserMenu } from './user-menu';
 
 @Component({
   selector: 'aec-site-header',
-  imports: [RouterLink, RouterLinkActive, BrandLogo, NavMenu, NavFlyoutTrigger, SearchAutocomplete],
+  imports: [
+    RouterLink,
+    RouterLinkActive,
+    BrandLogo,
+    NavMenu,
+    NavFlyoutTrigger,
+    SearchAutocomplete,
+    UserMenu,
+  ],
   template: `
     <header class="bg-(--surface-base)">
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
@@ -76,29 +85,12 @@ import { NavMenu } from './nav-menu';
             (suggestionChosen)="onSuggestion($event)"
           />
           <!-- Auth affordance. Neutral "Sign in" is the SSR/pre-hydration
-               default (cache-safe); SessionStatus flips to the account avatar
-               after hydration when a session is present (Phase 5 §4.4). -->
+               default (cache-safe); SessionStatus flips to the account menu
+               after hydration when a session is present (Phase 5 §4.4). The
+               menu (Account / Admin / Sign out + the pending-review badge) is
+               its own component (AECI-259). -->
           @if (session.signedIn()) {
-            <a
-              routerLink="/account"
-              class="inline-flex h-9 w-9 items-center justify-center rounded-full border border-(--border-strong) bg-(--surface-raised) text-(--text-primary) transition-colors hover:border-(--accent-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-              aria-label="Account"
-              i18n-aria-label="@@app.header.account.aria"
-            >
-              <svg
-                aria-hidden="true"
-                class="h-5 w-5"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              >
-                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                <circle cx="12" cy="7" r="4" />
-              </svg>
-            </a>
+            <aec-user-menu />
           } @else {
             <a
               routerLink="/auth/login"
