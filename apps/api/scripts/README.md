@@ -3,6 +3,79 @@
 Maintenance scripts run from the developer machine (or CI) against the API
 package's database. Not deployed to the Worker.
 
+## `export-catalog-to-d1.ts` — one-time Supabase→D1 catalog backfill (ADR 0016)
+
+After the app DB moved to **Cloudflare D1**, a staging/production deploy seeds
+only the **schema + `seed/taxonomy.sql`** reference data — it does **not** load
+the catalog (vendors/products/integrations). A freshly-cut D1 therefore renders
+an empty site. The steady-state catalog path is `POST /api/promote` (review app
+→ D1); this script is the **one-time backfill** for the catalog that already
+lives in the old **Supabase Postgres** app DB.
+
+It is **read-only** against Postgres and **writes nothing remote**: it shells out
+to `psql`, pulls each table as JSON, and emits an idempotent
+(`INSERT OR IGNORE`) SQLite file you review, then load with `wrangler`.
+
+Why backfill instead of re-promote: it **preserves the existing ids/slugs**, so
+the site is populated immediately *and* the review app's stored `supabase_*_id`
+mappings stay valid — a later "Promote" edit lands as a real `UPDATE`. (Pushing
+old ids into an **empty** D1 via `/api/promote` would silently no-op — the
+handler's `UPDATE … WHERE id = ?` matches zero rows; see
+`src/routes/promote.ts:420`.)
+
+### Prerequisites
+
+- **`psql`** on `PATH` (Postgres 17 client — same dep as
+  `scripts/seed-from-staging.sh`; `brew install libpq && brew link --force libpq`).
+- **`SOURCE_DATABASE_URL`** — a **DIRECT** `postgresql://` URL for the Supabase
+  project that holds the catalog (the script also accepts `DIRECT_URL_STAGING` /
+  `DIRECT_URL`). **Not** a `prisma://` Accelerate URL. Use the Supabase
+  **session-mode pooler** (`docs` note): `postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres`.
+- To **load**: `wrangler` auth — `CLOUDFLARE_API_TOKEN` (with **D1: Edit**) +
+  `CLOUDFLARE_ACCOUNT_ID`, or `wrangler login`.
+
+### Runbook (staging)
+
+```bash
+cd apps/api
+
+# 1. Generate the SQL (read-only against Postgres). Writes apps/api/staging-catalog-export.sql.
+export SOURCE_DATABASE_URL='postgresql://postgres.<ref>:<pw>@aws-0-<region>.pooler.supabase.com:5432/postgres'
+pnpm db:export:catalog            # prints per-table row counts
+
+# 2. Review it. (gitignored — never commit; it carries real catalog rows.)
+less staging-catalog-export.sql
+
+# 3. Load into the remote staging D1 (needs the CF token with D1: Edit).
+pnpm exec wrangler d1 execute aeci-app-staging --env staging --remote \
+  --file=staging-catalog-export.sql
+
+# 4. Verify the counts landed.
+pnpm exec wrangler d1 execute aeci-app-staging --env staging --remote \
+  --command "SELECT (SELECT count(*) FROM products) AS products, (SELECT count(*) FROM vendors) AS vendors, (SELECT count(*) FROM integrations) AS integrations"
+```
+
+Then reload the staging site — projects should render. **Search (Algolia) is
+separate** from D1 rendering; if staging search lags the catalog, run a reindex
+(`pnpm algolia:bulk-sync -- --env staging`) or wait for the nightly cron.
+
+For **production**, repeat with the production source URL and
+`aeci-app-production --env production`.
+
+### Notes
+
+- **Order & FK safety:** taxonomy + entities are emitted before join tables, and
+  full tables are exported (no promotion filter) so every integration FK target
+  exists. The site renders only `promoted` rows regardless.
+- **Taxonomy ids:** emitted `INSERT OR IGNORE`, so the CI-seeded `taxonomy.sql`
+  ids win on slug collisions; join tables resolve the taxonomy id **by slug**
+  (subquery), so the file is independent of which id won — same trick as
+  `seed/catalog.sql`.
+- **Idempotent:** re-running the load is a no-op (`INSERT OR IGNORE`).
+- **Type coercion:** Postgres→SQLite — `boolean`→`0/1`, `jsonb`→JSON text,
+  `timestamptz`→ISO-8601 text. Column set is drift-tolerant (intersects the D1
+  target columns in `src/db/schema.ts` with the live source columns).
+
 ## `backfill-slugs.ts` — AECI-53 / Phase 2 §6.4
 
 Normalizes `products.slug` and `vendors.slug` in Supabase against the canonical

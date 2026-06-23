@@ -4,3 +4,6 @@
 coverage
 node_modules
 prisma/generated
+
+# Generated one-time Supabase→D1 backfill artifacts (export-catalog-to-d1.ts)
+*-catalog-export.sql
