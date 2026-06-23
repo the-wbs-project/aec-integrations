@@ -20,3 +20,7 @@ spikes/
 # Supabase CLI runtime state — gitignored, not for prettier
 supabase/.temp/
 supabase/.branches/
+
+# drizzle-kit output — generated migrations + meta (re-dirtied on every db:generate).
+# The .sql has no Prettier parser anyway; the meta/*.json must stay in drizzle's format.
+apps/api/migrations/

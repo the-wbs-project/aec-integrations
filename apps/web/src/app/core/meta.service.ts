@@ -196,6 +196,34 @@ export class MetaService {
     );
   }
 
+  /**
+   * Meta for a static, indexable content page with hand-authored copy — `/about`
+   * (AECI-238) and the future `/legal/*` pages (Phase 7.2). Like `setHomeMeta`
+   * but WITHOUT the WebSite/Organization JSON-LD: sets `<title>`, description, a
+   * self-referential canonical, and OG/Twitter tags (`og:type=website`). No
+   * `robots` tag — these are canonical, indexable content pages (contrast
+   * `setSearchMeta` / `setNotFoundMeta`, which noindex). The caller passes the
+   * full title (e.g. `"About · AEC Integrations"`), mirroring `setSearchMeta` /
+   * `setHomeMeta`. Set from the component constructor so it ships in the SSR HTML
+   * head AND refreshes on an in-app navigation onto the route.
+   */
+  setStaticPageMeta(input: { title: string; description: string; canonical: string }): void {
+    this.title.setTitle(input.title);
+    this.meta.updateTag({ name: 'description', content: input.description });
+
+    const canonical = stripQueryParams(input.canonical);
+    this.upsertCanonical(canonical);
+
+    const tags = buildOgTags({
+      title: input.title,
+      description: input.description,
+      url: canonical,
+      type: 'website',
+      image: DEFAULT_OG_IMAGE,
+    });
+    for (const tag of tags) this.meta.updateTag(tag);
+  }
+
   setProductJsonLd(product: ProductDetail): void {
     this.upsertJsonLdScript('product', buildProductJsonLd(product));
   }

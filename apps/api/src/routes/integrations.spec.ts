@@ -1,227 +1,121 @@
-import { IntegrationDetailSchema, IntegrationsListResponseSchema } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
+/**
+ * GET /api/integrations (list + detail) on the Drizzle/D1 path (ADR 0016 /
+ * AECI-253), against the in-memory D1 harness. Replaces the retired Prisma-mock
+ * suite. Visibility filtering is added in Phase 3 (AECI-254).
+ */
 
-import {
-  NULL_NAME_INTEGRATION_ID,
-  PROCORE_REVIZTO_INTEGRATION_ID,
-  allIntegrationRows,
-  nullNameIntegrationRow,
-  procoreReviztoIntegrationDetailRow,
-  procoreReviztoIntegrationRow,
-} from '../test/fixtures/integrations';
-import {
-  buildAppWithHandler,
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
+import { IntegrationDetailSchema, IntegrationsListResponseSchema } from '@aeci/shared';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { integrations, products, vendors } from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createIntegrationDetailHandler, createIntegrationsListHandler } from './integrations';
 
-function listApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const listApp = () =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/integrations',
-    handler: createIntegrationsListHandler(() => prisma as never),
+    handler: createIntegrationsListHandler(t.factory),
   });
-}
-
-function detailApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+const detailApp = () =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/integrations/:id',
-    handler: createIntegrationDetailHandler(() => prisma as never),
+    handler: createIntegrationDetailHandler(t.factory),
   });
+const get = (app: ReturnType<typeof listApp>, url: string) =>
+  app.request(url, {}, TEST_ENV, fakeExecutionContext());
+
+async function seedProducts() {
+  await t.db.insert(products).values([
+    { id: u(1), slug: 'procore', name: 'Procore', promotionStatus: 'promoted' },
+    { id: u(2), slug: 'revizto', name: 'Revizto', promotionStatus: 'promoted' },
+  ]);
 }
 
 describe('GET /api/integrations', () => {
-  it('default sort is `name ASC` per §7.4, with the AECI-99 `id` tiebreaker', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: { findMany: allIntegrationRows, count: allIntegrationRows.length },
-    });
-    await listApp(prisma).request('/api/integrations', {}, TEST_ENV, fakeExecutionContext());
+  it('lists with a synthesised name when the row name is null', async () => {
+    await seedProducts();
+    await t.db
+      .insert(integrations)
+      .values({ id: u(11), sourceProductId: u(1), targetProductId: u(2), mechanismKind: 'native' });
 
-    const call = prisma.integration.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual([{ name: 'asc' }, { id: 'asc' }]);
+    const parsed = IntegrationsListResponseSchema.parse(
+      await (await get(listApp(), '/api/integrations')).json(),
+    );
+    expect(parsed.total).toBe(1);
+    // null name → "Source → Target"
+    expect(parsed.data[0]?.name).toBe('Procore → Revizto');
   });
 
-  it('synthesizes `Source → Target` for rows with null `name`', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: { findMany: [nullNameIntegrationRow], count: 1 },
-    });
-    const res = await listApp(prisma).request(
-      '/api/integrations',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    const body = await res.json();
-    const parsed = IntegrationsListResponseSchema.parse(body);
-    expect(parsed.data[0].name).toBe('Procore → Revizto');
-    // Null mechanism_kind passes through as null (AECI-115) — no longer
-    // coerced to 'native'; the schema's enum is nullable.
-    expect(parsed.data[0].mechanism_kind).toBeNull();
-  });
-
-  it('expands `search` into an OR across name, sourceProduct.name, targetProduct.name', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: { findMany: [], count: 0 },
-    });
-    await listApp(prisma).request(
-      '/api/integrations?search=Procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    const call = prisma.integration.findMany.mock.calls[0][0] as {
-      where: {
-        OR?: Array<{
-          name?: { contains: string; mode: string };
-          sourceProduct?: { name: { contains: string; mode: string } };
-          targetProduct?: { name: { contains: string; mode: string } };
-        }>;
-      };
-    };
-    expect(call.where.OR).toEqual([
-      { name: { contains: 'Procore', mode: 'insensitive' } },
-      { sourceProduct: { name: { contains: 'Procore', mode: 'insensitive' } } },
-      { targetProduct: { name: { contains: 'Procore', mode: 'insensitive' } } },
+  it('search matches the explicit name OR either product name', async () => {
+    await seedProducts();
+    await t.db.insert(integrations).values([
+      { id: u(11), sourceProductId: u(1), targetProductId: u(2) }, // null name → "Procore → Revizto"
+      { id: u(12), name: 'Acme Bridge', sourceProductId: u(2), targetProductId: u(1) },
     ]);
-    // Plain `name` filter must NOT be present — it would silently miss null-name rows.
-    expect(call.where).not.toHaveProperty('name');
+
+    const byProduct = IntegrationsListResponseSchema.parse(
+      await (await get(listApp(), '/api/integrations?search=revizto')).json(),
+    );
+    expect(byProduct.total).toBe(2); // both touch Revizto
+
+    const byName = IntegrationsListResponseSchema.parse(
+      await (await get(listApp(), '/api/integrations?search=acme')).json(),
+    );
+    expect(byName.data.map((i) => i.id)).toEqual([u(12)]);
   });
 
-  it('combines `search` OR clause with other filters (AND semantics)', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: { findMany: [], count: 0 },
-    });
-    const sourceProductId = '00000000-0000-4000-8000-000000020001';
-    await listApp(prisma).request(
-      `/api/integrations?search=Revizto&sourceProductId=${sourceProductId}`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    const call = prisma.integration.findMany.mock.calls[0][0] as {
-      where: { sourceProductId?: string; OR?: unknown };
-    };
-    // Both conditions must be present so Prisma generates:
-    // WHERE sourceProductId = ? AND (name ILIKE ? OR …)
-    expect(call.where.sourceProductId).toBe(sourceProductId);
-    expect(call.where.OR).toHaveLength(3);
-  });
+  it('filters by mechanism_kind and source product', async () => {
+    await seedProducts();
+    await t.db.insert(integrations).values([
+      { id: u(11), sourceProductId: u(1), targetProductId: u(2), mechanismKind: 'native' },
+      { id: u(12), sourceProductId: u(2), targetProductId: u(1), mechanismKind: 'api' },
+    ]);
 
-  it('applies `sourceProductId` and `mechanism_kind` filters', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: { findMany: [], count: 0 },
-    });
-    const sourceProductId = '00000000-0000-4000-8000-000000020001';
-    await listApp(prisma).request(
-      `/api/integrations?sourceProductId=${sourceProductId}&mechanism_kind=api`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+    const byKind = IntegrationsListResponseSchema.parse(
+      await (await get(listApp(), '/api/integrations?mechanism_kind=api')).json(),
     );
-    const call = prisma.integration.findMany.mock.calls[0][0] as {
-      where: { sourceProductId?: string; mechanismKind?: string };
-    };
-    expect(call.where).toMatchObject({
-      sourceProductId,
-      mechanismKind: 'api',
-    });
+    expect(byKind.data.map((i) => i.id)).toEqual([u(12)]);
+
+    const bySource = IntegrationsListResponseSchema.parse(
+      await (await get(listApp(), `/api/integrations?sourceProductId=${u(1)}`)).json(),
+    );
+    expect(bySource.data.map((i) => i.id)).toEqual([u(11)]);
   });
 });
 
 describe('GET /api/integrations/:id', () => {
-  it('returns the full detail with built_by_vendor + powered_by_product as null when absent', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: { findUnique: procoreReviztoIntegrationDetailRow },
+  it('hydrates detail with built_by_vendor', async () => {
+    await seedProducts();
+    await t.db
+      .insert(vendors)
+      .values({ id: u(31), slug: 'acme', companyName: 'Acme', promotionStatus: 'promoted' });
+    await t.db.insert(integrations).values({
+      id: u(11),
+      sourceProductId: u(1),
+      targetProductId: u(2),
+      mechanismKind: 'native',
+      builtByVendorId: u(31),
     });
-    const res = await detailApp(prisma).request(
-      `/api/integrations/${PROCORE_REVIZTO_INTEGRATION_ID}`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
 
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    const parsed = IntegrationDetailSchema.parse(body);
-    expect(parsed.built_by_vendor).toBeNull();
-    expect(parsed.powered_by_product).toBeNull();
-    expect(parsed.pricing_model).toBe('free');
+    const detail = IntegrationDetailSchema.parse(
+      await (await get(detailApp(), `/api/integrations/${u(11)}`)).json(),
+    );
+    expect(detail.built_by_vendor?.slug).toBe('acme');
+    expect(detail.source.slug).toBe('procore');
   });
 
-  it('returns 404 with `details: { resource: "integration", id }` when no row matches', async () => {
-    const prisma = makeMockAcceleratedPrisma({ integration: { findUnique: null } });
-    const res = await detailApp(prisma).request(
-      `/api/integrations/${NULL_NAME_INTEGRATION_ID}`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as {
-      error: { code: string; details?: { resource?: string; id?: string } };
-    };
-    expect(body.error.code).toBe('NOT_FOUND');
-    expect(body.error.details).toEqual({ resource: 'integration', id: NULL_NAME_INTEGRATION_ID });
-  });
-
-  it('returns 404 for a malformed UUID without hitting Prisma', async () => {
-    const prisma = makeMockAcceleratedPrisma();
-    const res = await detailApp(prisma).request(
-      '/api/integrations/not-a-uuid',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(404);
-    expect(prisma.integration.findUnique).not.toHaveBeenCalled();
-  });
-
-  it('synthesizes Source → Target name on detail responses too', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: {
-        findUnique: {
-          ...procoreReviztoIntegrationDetailRow,
-          ...nullNameIntegrationRow,
-          description: 'desc',
-          listingUrl: null,
-          docsUrl: null,
-          mechanismUrl: null,
-          pricingModel: null,
-          maturity: null,
-          builtByVendor: null,
-          poweredByProduct: null,
-        },
-      },
-    });
-    const res = await detailApp(prisma).request(
-      `/api/integrations/${NULL_NAME_INTEGRATION_ID}`,
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    const body = await res.json();
-    const parsed = IntegrationDetailSchema.parse(body);
-    expect(parsed.name).toBe('Procore → Revizto');
-  });
-
-  // List row is unchanged through the helper — `procoreReviztoIntegrationRow`
-  // is used in the synthesizes test above when we needed an alternate name.
-  it('list endpoint still emits Cache-Control on success', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      integration: { findMany: [procoreReviztoIntegrationRow], count: 1 },
-    });
-    const res = await listApp(prisma).request(
-      '/api/integrations',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+  it('404s a malformed (non-UUID) id without 500ing', async () => {
+    expect((await get(detailApp(), '/api/integrations/not-a-uuid')).status).toBe(404);
   });
 });

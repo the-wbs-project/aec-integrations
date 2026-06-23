@@ -8,9 +8,11 @@
  * `retry()`s on an unexpected throw.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { products, reviews } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
+import { makeTestDb, type TestDb } from './test/d1';
 
 vi.mock('./datadog', () => ({
   logToDatadog: vi.fn(),
@@ -25,14 +27,16 @@ vi.mock('./lib/algolia-drift', () => ({
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
-vi.mock('./prisma', () => ({ getPrisma: vi.fn(() => ({})) }));
+// The inline jobs (moderation snapshot, drift counter) call `getDb`; mock it to
+// hand back the in-memory D1 harness so the real Drizzle reads run on real SQL.
+vi.mock('./db/client', () => ({ getDb: vi.fn() }));
 
+import { getDb } from './db/client';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runHomeStats } from './lib/home-stats';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
-import { getPrisma } from './prisma';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
 // Must stay byte-equal to the constants / `wrangler.jsonc` triggers.
@@ -76,14 +80,17 @@ function makeBatch(job: ScheduledJob, queueName: string) {
   return makeBatchFromBody({ job, trigger: 'cron', enqueuedAt: 'x' }, queueName);
 }
 
-beforeEach(() => {
+let t: TestDb;
+beforeEach(async () => {
   vi.clearAllMocks();
   // runAlgoliaSync reads `result.entities` after the call; default to a clean run.
   vi.mocked(runDailySync).mockResolvedValue({ entities: [] } as never);
   // runHomeStatsJob reads `result.keys` after the call; default to a clean run.
   vi.mocked(runHomeStats).mockResolvedValue({ keys: [] } as never);
-  vi.mocked(getPrisma).mockReturnValue({} as never);
+  t = await makeTestDb();
+  vi.mocked(getDb).mockReturnValue(t.dbCtx);
 });
+afterEach(() => t.dispose());
 
 describe('scheduled (cron producer)', () => {
   it('enqueues the sync job when the queue binding is present (does not run inline)', async () => {
@@ -148,11 +155,25 @@ describe('scheduled (cron producer)', () => {
   });
 
   it('snapshots the moderation queue inline on the 06:00 cron (queue-less) and emits its gauges', async () => {
-    const count = vi.fn().mockResolvedValue(3);
-    const findFirst = vi
-      .fn()
-      .mockResolvedValue({ createdAt: new Date('2026-06-10T06:00:00.000Z') });
-    vi.mocked(getPrisma).mockReturnValue({ review: { count, findFirst } } as never);
+    // Seed 3 pending reviews (one older) on the harness — the real Drizzle reads run.
+    await t.db.insert(products).values({ id: 'p1', slug: 'p1', name: 'P1' });
+    const review = (id: string, createdAt: string) => ({
+      id,
+      productId: 'p1',
+      ratingOverall: 5,
+      ratingOnboarding: 5,
+      title: 't',
+      body: 'b',
+      status: 'pending',
+      createdAt,
+    });
+    await t.db
+      .insert(reviews)
+      .values([
+        review('r1', '2026-06-10T06:00:00.000Z'),
+        review('r2', '2026-06-11T06:00:00.000Z'),
+        review('r3', '2026-06-12T06:00:00.000Z'),
+      ]);
 
     // Even with every queue bound, moderation has no producer → always inline.
     const send = vi.fn().mockResolvedValue(undefined);
@@ -165,12 +186,14 @@ describe('scheduled (cron producer)', () => {
     await scheduled(cronController(MODERATION_CRON), env, ctx);
 
     expect(send).not.toHaveBeenCalled();
-    expect(count).toHaveBeenCalledTimes(1);
-    const gauges = vi.mocked(submitGauge).mock.calls.map((c) => c[3]);
-    expect(gauges).toEqual([
+    const gauges = vi.mocked(submitGauge).mock.calls;
+    const names = gauges.map((c) => c[3]);
+    expect(names).toEqual([
       'aeci.moderation.queue_depth',
       'aeci.moderation.queue_oldest_age_hours',
     ]);
+    // Depth gauge reflects the 3 seeded pending reviews.
+    expect(gauges[0]![4]).toBe(3);
   });
 
   it('falls back to an inline run and logs to Datadog when queue.send rejects', async () => {
@@ -220,9 +243,9 @@ describe('queue (consumer)', () => {
     expect(retry).not.toHaveBeenCalled();
   });
 
-  it('retry()s when the job throws unexpectedly (e.g. Prisma init)', async () => {
-    vi.mocked(getPrisma).mockImplementation(() => {
-      throw new Error('prisma init failed');
+  it('retry()s when the job throws unexpectedly (e.g. a missing D1 binding)', async () => {
+    vi.mocked(getDb).mockImplementation(() => {
+      throw new Error('D1 binding `DB` is not configured');
     });
     const { batch, ack, retry } = makeBatch('sync', 'aeci-algolia-sync-staging');
 

@@ -22,14 +22,15 @@
  * the rest); empty `page_views` → empty `trending_products`.
  * 08:00 UTC (= 03:00 EST) — incremental Algolia sync (`./lib/algolia-sync`,
  * AECI-139): push rows changed since the stored watermark to the env's three
- * indexes, removing `retracted`/`rejected` records. The full reindex is the
- * separate AECI-138 CLI; this keeps the index fresh between those.
+ * indexes, removing `retracted`/`rejected` records. A full reindex is the same
+ * `indexEntity` over all rows (the Node-Prisma bulk CLI was retired under D1 —
+ * ADR 0016; a Worker-triggered full sweep is the follow-up).
  * 09:00 UTC (= 04:00 EST) — Algolia ↔ Supabase index-drift reconciliation
  * (`./lib/algolia-drift`, AECI-140 / §23.1): compare promoted-row counts to
  * Algolia object counts per entity and emit the `aeci.algolia.index_drift` gauge.
  * Report-only — no auto-remediation; the alert is the Datadog monitor
- * (`observability/datadog/monitor-algolia-index-drift.json`). Re-run the AECI-138
- * bulk sync to repair.
+ * (`observability/datadog/monitor-algolia-index-drift.json`). Re-run a full
+ * Algolia reindex to repair.
  * Every 15 minutes (the one sub-hourly trigger; see `RECONCILE_CRON`) —
  * request→Linear reconciliation sweep (`./lib/reconciliation-sweep`, AECI-214 /
  * Phase 6.7 / §6.2/§6.4): retry `vendor_requests` stuck
@@ -45,7 +46,10 @@
  */
 
 import type { AlgoliaEnv } from '@aeci/shared/algolia';
+import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
+import { getDb } from './db/client';
+import { integrations, products, reviews, vendors } from './db/schema';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
@@ -54,17 +58,16 @@ import {
   type AlgoliaIndexDrift,
   type DriftCountPrisma,
 } from './lib/algolia-drift';
-import { runDailySync, type AlgoliaSyncPrisma } from './lib/algolia-sync';
+import { runDailySync } from './lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
-import { runHomeStats, type HomeStatsPrisma, type HomeStatsResult } from './lib/home-stats';
+import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics } from './lib/home-stats-metrics';
 import {
   emitModerationQueueMetrics,
   oldestPendingAgeHours,
   type ModerationMetricSink,
 } from './lib/moderation-metrics';
-import { runReconciliationSweep, type ReconcilePrisma } from './lib/reconciliation-sweep';
-import { getPrisma } from './prisma';
+import { runReconciliationSweep } from './lib/reconciliation-sweep';
 
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
  *  08:00 UTC = 03:00 EST (US-East, our launch customer base). Cloudflare cron
@@ -115,6 +118,55 @@ function algoliaEnvFor(env: Env): AlgoliaEnv {
   return env.ENV ?? 'development';
 }
 
+/** A Drizzle-backed `DriftCountPrisma` (the index-drift check's injected count
+ *  surface). Counts promoted products/vendors and integrations whose BOTH
+ *  endpoints are promoted — the same membership filter `algolia-sync` indexes on.
+ *  algolia-drift stays ORM-agnostic; only this adapter knows about D1. */
+function drizzleDriftCounter(env: Env): DriftCountPrisma {
+  const { db } = getDb(env);
+  return {
+    product: {
+      count: async ({ where }) =>
+        (
+          await db
+            .select({ value: count() })
+            .from(products)
+            .where(eq(products.promotionStatus, where.promotionStatus))
+        )[0]?.value ?? 0,
+    },
+    vendor: {
+      count: async ({ where }) =>
+        (
+          await db
+            .select({ value: count() })
+            .from(vendors)
+            .where(eq(vendors.promotionStatus, where.promotionStatus))
+        )[0]?.value ?? 0,
+    },
+    integration: {
+      count: async ({ where }) => {
+        const promoted = db
+          .select({ id: products.id })
+          .from(products)
+          .where(eq(products.promotionStatus, where.sourceProduct.promotionStatus));
+        return (
+          (
+            await db
+              .select({ value: count() })
+              .from(integrations)
+              .where(
+                and(
+                  inArray(integrations.sourceProductId, promoted),
+                  inArray(integrations.targetProductId, promoted),
+                ),
+              )
+          )[0]?.value ?? 0
+        );
+      },
+    },
+  };
+}
+
 /** Adapt the shared Datadog submitters into the pure metrics modules' sink, so
  *  `emitAlgoliaSyncMetrics` / `emitHomeStatsMetrics` / `emitModerationQueueMetrics`
  *  stay free of `ctx`/`env`/`Request` plumbing. The count + distribution + gauge
@@ -152,15 +204,15 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
     return;
   }
 
-  const prisma = getPrisma(env) as unknown as AlgoliaSyncPrisma;
+  const { db } = getDb(env);
 
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runDailySync>>;
   try {
-    result = await runDailySync(prisma, fetch, creds, algoliaEnvFor(env), new Date());
+    result = await runDailySync(db, fetch, creds, algoliaEnvFor(env), new Date());
   } catch (error) {
     // runDailySync swallows per-entity push failures, but the watermark
-    // read/write (Prisma/Accelerate) can still throw — log loudly, never rethrow
+    // read/write (D1) can still throw — log loudly, never rethrow
     // (a thrown cron just shows as a failed invocation with no detail). This is
     // a pre-push crash, not a completed run, so it stays inline rather than going
     // through emitAlgoliaSyncMetrics (which is per-entity, completed-run only).
@@ -210,7 +262,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
     return;
   }
 
-  const prisma = getPrisma(env) as unknown as DriftCountPrisma;
+  const prisma = drizzleDriftCounter(env);
   const algolia = createAlgoliaCounter(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY);
   const ddEnv = algoliaEnvFor(env);
 
@@ -231,7 +283,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
             level: 'error',
             message: `aeci.algolia.index_drift on ${ddEnv}: ${drifted
               .map((d) => `${d.indexName} ${d.drift > 0 ? '+' : ''}${d.drift}`)
-              .join(', ')} (report-only; re-run the bulk sync to repair)`,
+              .join(', ')} (report-only; re-run a full Algolia reindex to repair)`,
             source: 'algolia-drift-cron',
             drift: drifted,
           }),
@@ -253,15 +305,15 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
 
 async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/stats');
-  const prisma = getPrisma(env) as unknown as HomeStatsPrisma;
+  const { db } = getDb(env);
 
   const started = Date.now();
   let result: HomeStatsResult;
   try {
-    result = await runHomeStats(prisma, new Date());
+    result = await runHomeStats(db, new Date());
   } catch (error) {
     // `runHomeStats` is per-key best-effort and never throws on a compute/write
-    // failure, so reaching here is a pre-compute crash (e.g. Prisma client init).
+    // failure, so reaching here is a pre-compute crash (e.g. a missing DB binding).
     // Log loudly + count an outright failure; never rethrow (a thrown cron is an
     // opaque failed invocation with no detail).
     submitCount(ctx, env, req, 'aeci.stats.compute', 1, ['trigger:cron', 'outcome:failed']);
@@ -303,40 +355,28 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
   });
 }
 
-/** Loose structural Prisma surface for the moderation-queue snapshot — a count
- *  plus the oldest pending row's `created_at`. A real accelerated client
- *  satisfies it (cf. the loose surfaces in `routes/admin-reviews.ts`). */
-type ModerationQueuePrisma = {
-  review: {
-    count(args: { where: { status: string } }): Promise<number>;
-    findFirst(args: {
-      where: { status: string };
-      orderBy: { createdAt: 'asc' };
-      select: { createdAt: true };
-    }): Promise<{ createdAt: Date } | null>;
-  };
-};
-
 /** Snapshot the pending-review moderation queue and emit its health gauges
  *  (AECI-206 / Phase 5.15): depth + oldest-pending age. Report-only — like the
  *  index-drift check it never mutates; the alert is the Datadog "moderation
  *  backlog" monitor. Two cheap indexed reads, so it runs inline (no queue). */
 async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/moderation-queue');
-  const prisma = getPrisma(env) as unknown as ModerationQueuePrisma;
+  const { db } = getDb(env);
 
   try {
-    const [pendingCount, oldest] = await Promise.all([
-      prisma.review.count({ where: { status: 'pending' } }),
-      prisma.review.findFirst({
-        where: { status: 'pending' },
-        orderBy: { createdAt: 'asc' },
-        select: { createdAt: true },
+    const [pendingRows, oldest] = await Promise.all([
+      db.select({ value: count() }).from(reviews).where(eq(reviews.status, 'pending')),
+      db.query.reviews.findFirst({
+        columns: { createdAt: true },
+        where: eq(reviews.status, 'pending'),
+        orderBy: asc(reviews.createdAt),
       }),
     ]);
+    const pendingCount = pendingRows[0]?.value ?? 0;
+    // `created_at` is ISO-8601 TEXT under D1 — parse for the age math.
     const ageHours = oldestPendingAgeHours(
       pendingCount,
-      oldest ? oldest.createdAt.getTime() : null,
+      oldest ? new Date(oldest.createdAt).getTime() : null,
       Date.now(),
     );
     emitModerationQueueMetrics(metricSink(ctx, env, req), {
@@ -362,14 +402,12 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
 
 /** Run the request→Linear reconciliation sweep (AECI-214 / Phase 6.7): retry
  *  `vendor_requests` stuck `open`/`linear_issue_id=null` and alert on persistent
- *  failures. `getPrisma()` is outside any try (a client-init throw propagates to
- *  the consumer's `retry()`, mirroring `runAlgoliaSync`); the sweep's own
- *  unexpected read failures likewise propagate so the queue re-runs it (idempotent
- *  via `createLinearIssueForRequest`). */
+ *  failures. The sweep's unexpected read failures propagate so the queue re-runs
+ *  it (idempotent via `createLinearIssueForRequest`). */
 async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/reconcile');
-  const prisma = getPrisma(env) as unknown as ReconcilePrisma;
-  await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, prisma);
+  const { db } = getDb(env);
+  await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
 }
 
 /** The producer queue binding for a job (absent on local/preview → inline run). */
@@ -536,8 +574,8 @@ export function normalizeJobMessage(
  * loops at most once per invocation. The job impls (`runAlgoliaSync`,
  * `runAlgoliaDrift`, `runHomeStatsJob`) swallow their own operational errors
  * (logging to Datadog), so reaching the `catch` means an unexpected throw (e.g.
- * Prisma client init) — `retry()` it per the consumer's `max_retries`; everything
- * else `ack()`s.
+ * a missing D1 binding) — `retry()` it per the consumer's `max_retries`;
+ * everything else `ack()`s.
  */
 export const queue: ExportedHandlerQueueHandler<Env, ScheduledJobMessageInput> = async (
   batch,

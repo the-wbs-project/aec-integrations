@@ -1,26 +1,23 @@
 /**
- * Supabase-row → Algolia-record transforms (AECI-137 / Phase 3.2).
+ * Drizzle-row → Algolia-record transforms (AECI-137 / Phase 3.2) — Drizzle/D1
+ * (ADR 0016 / AECI-253).
  *
- * The denormalizing mappers that turn a Prisma row into the flat, zero-join
- * Algolia record shapes from `@aeci/shared/algolia-records` (spec §7.1). This is
- * the single transform the sync pipeline (3.5 bulk import / 3.6 incremental
- * Worker) shares — keep the `*Select` shapes and the mappers here in lockstep.
+ * The denormalizing mappers that turn a Drizzle row into the flat, zero-join
+ * Algolia record shapes from `@aeci/shared/algolia-records` (spec §7.1). The
+ * single transform the sync pipeline (incremental Worker + promote hook) shares —
+ * keep the `*Config` shapes and the mappers here in lockstep.
  *
- * Pattern mirrors `prisma-helpers.ts`: an `as const satisfies Prisma.*Select`
- * shape, a `Raw*` payload type via `*GetPayload`, and a `to*` mapper that
- * coerces `Decimal → number` and denormalizes relations. We deliberately REUSE
- * the helpers from `prisma-helpers.ts` (`vendorListSelect`, `integrationListSelect`,
- * `pickPrimaryVendor`, `toMechanismKind`, `coerceDirection`, `toNumberOrNull`) so
- * the search index stays consistent with what the `/products`, `/vendors`, and
- * `/integrations` API endpoints already surface (counts, vendor selection, the
- * fail-loud out-of-enum `mechanism_kind` behaviour).
+ * Pattern mirrors `drizzle-helpers.ts`: a `*Config` object spread into
+ * `db.query.<table>.findMany({ ...config, where })`, a `Raw*Row` interface the
+ * `findMany` result is structurally checked against, and a `to*` mapper. Two old
+ * Prisma conversions are gone under D1: `real` columns are already `number` (no
+ * `Decimal`), and the vendor counts come from correlated-subquery `extras` (no
+ * Prisma `_count`). The fail-loud out-of-enum `mechanism_kind` behaviour and the
+ * `pickPrimaryVendor` selection are reused from `drizzle-helpers.ts`.
  *
- * The mappers return typed records but do NOT `.parse()` them (same as the
- * `prisma-helpers.ts` mappers) — callers validate against the Zod schema where it
- * matters (the unit test here; the sync pipeline before upload).
- *
- * Spec: `STAGE_1_SPEC.md` §7.1 (record shapes); ranking weights + settings live
- * in `@aeci/shared/algolia`.
+ * The mappers return typed records but do NOT `.parse()` them — callers validate
+ * against the Zod schema where it matters (the unit test here; the sync pipeline
+ * before upload).
  */
 
 import { mechanismRank } from '@aeci/shared/algolia';
@@ -29,82 +26,150 @@ import type {
   AlgoliaProductRecord,
   AlgoliaVendorRecord,
 } from '@aeci/shared/algolia-records';
-import type { Prisma } from '@prisma/client/edge';
+import { sql } from 'drizzle-orm';
 
-import {
-  coerceDirection,
-  integrationListSelect,
-  pickPrimaryVendor,
-  toMechanismKind,
-  toNumberOrNull,
-  vendorListSelect,
-  vendorLinkSelect,
-} from './prisma-helpers';
+import { coerceDirection, pickPrimaryVendor, toMechanismKind } from './drizzle-helpers';
 
 // ---------------------------------------------------------------------------
-// Select shapes
+// Leaf column sets
 // ---------------------------------------------------------------------------
 
-/** A taxonomy join that needs only the term's display **name** (Algolia facets
- *  on the names, not the slugs/ids). */
-const taxonomyNameSelect = { name: true } as const;
+const vendorLinkColumns = { id: true, companyName: true, slug: true, logoUrl: true } as const;
+const taxonomyNameColumns = { name: true } as const;
+
+// ---------------------------------------------------------------------------
+// Query configs (spread into db.query.<table>.findMany)
+// ---------------------------------------------------------------------------
 
 /**
- * Fields for `AlgoliaProductRecord`. `vendor` reuses `vendorLinkSelect` so the
- * `productVendors` rows are exactly the shape `pickPrimaryVendor` consumes;
- * `categories` / `audiences` / `phases` pull every linked term's name (the
- * record is multi-valued, unlike the API list shape's single primary category).
+ * `AlgoliaProductRecord` hydration. `productVendors` carries `isPrimary` + the
+ * vendor link so `pickPrimaryVendor` resolves the primary; categories/audiences/
+ * phases pull every linked term's NAME (the record is multi-valued). Includes the
+ * incremental-sync signals (`promotionStatus`, `updatedAt`) that
+ * `buildFromStatusRows` + the watermark window read.
  */
-export const algoliaProductSelect = {
-  id: true,
-  slug: true,
-  name: true,
-  description: true,
-  logoUrl: true,
-  hasApiDocs: true,
-  integrationCount: true,
-  reviewCount: true,
-  ratingOverallAvg: true,
-  productVendors: {
-    select: {
-      isPrimary: true,
-      vendor: { select: vendorLinkSelect },
-    },
-    orderBy: { isPrimary: 'desc' as const },
+export const algoliaProductConfig = {
+  columns: {
+    id: true,
+    slug: true,
+    name: true,
+    description: true,
+    logoUrl: true,
+    hasApiDocs: true,
+    integrationCount: true,
+    reviewCount: true,
+    ratingOverallAvg: true,
+    promotionStatus: true,
+    updatedAt: true,
   },
-  productCategories: { select: { category: { select: taxonomyNameSelect } } },
-  productAudiences: { select: { audience: { select: taxonomyNameSelect } } },
-  productPhases: { select: { phase: { select: taxonomyNameSelect } } },
-} as const satisfies Prisma.ProductSelect;
+  with: {
+    productVendors: {
+      columns: { isPrimary: true },
+      with: { vendor: { columns: vendorLinkColumns } },
+    },
+    productCategories: { columns: {}, with: { category: { columns: taxonomyNameColumns } } },
+    productAudiences: { columns: {}, with: { audience: { columns: taxonomyNameColumns } } },
+    productPhases: { columns: {}, with: { phase: { columns: taxonomyNameColumns } } },
+  },
+} as const;
 
-/** Fields for `AlgoliaVendorRecord` — `vendorListSelect` already carries the
- *  `_count` aggregation for `product_count` / `integration_count`; add the
- *  editorial `description`. */
-export const algoliaVendorSelect = {
-  ...vendorListSelect,
-  description: true,
-} as const satisfies Prisma.VendorSelect;
+/**
+ * `AlgoliaVendorRecord` hydration. `product_count` / `integration_count` come from
+ * correlated-subquery `extras` (the `drizzle-helpers.ts` vendor-list pattern); the
+ * outer column MUST be qualified by the root alias (`"vendors"."id"`) so a
+ * subquery's own `id` can't shadow it. Includes `promotionStatus` for the
+ * membership filter.
+ */
+export const algoliaVendorConfig = {
+  columns: {
+    id: true,
+    slug: true,
+    companyName: true,
+    description: true,
+    headquarters: true,
+    foundedYear: true,
+    logoUrl: true,
+    promotionStatus: true,
+    updatedAt: true,
+  },
+  extras: {
+    productCount:
+      sql<number>`(SELECT count(*) FROM product_vendors pv WHERE pv.vendor_id = "vendors"."id")`.as(
+        'product_count',
+      ),
+    integrationCount:
+      sql<number>`(SELECT count(*) FROM integrations bi WHERE bi.built_by_vendor_id = "vendors"."id")`.as(
+        'integration_count',
+      ),
+  },
+} as const;
 
-/** Fields for `AlgoliaIntegrationRecord` — `integrationListSelect` carries the
- *  source/target `ProductLink`s + mechanism/direction; add `description`. */
-export const algoliaIntegrationSelect = {
-  ...integrationListSelect,
-  description: true,
-} as const satisfies Prisma.IntegrationSelect;
+/** `AlgoliaIntegrationRecord` hydration — source/target product links + mechanism/
+ *  direction + description + `updatedAt` (the watermark window). */
+export const algoliaIntegrationConfig = {
+  columns: {
+    id: true,
+    mechanismKind: true,
+    mechanismName: true,
+    direction: true,
+    description: true,
+    updatedAt: true,
+  },
+  with: {
+    sourceProduct: { columns: { name: true, slug: true } },
+    targetProduct: { columns: { name: true, slug: true } },
+  },
+} as const;
 
 // ---------------------------------------------------------------------------
-// Row shape types
+// Raw row shapes (what the configs above return)
 // ---------------------------------------------------------------------------
 
-export type RawAlgoliaProductRow = Prisma.ProductGetPayload<{
-  select: typeof algoliaProductSelect;
-}>;
-export type RawAlgoliaVendorRow = Prisma.VendorGetPayload<{
-  select: typeof algoliaVendorSelect;
-}>;
-export type RawAlgoliaIntegrationRow = Prisma.IntegrationGetPayload<{
-  select: typeof algoliaIntegrationSelect;
-}>;
+export interface RawAlgoliaProductRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  logoUrl: string | null;
+  hasApiDocs: boolean;
+  integrationCount: number;
+  reviewCount: number;
+  ratingOverallAvg: number | null;
+  promotionStatus: string;
+  updatedAt: string;
+  productVendors: Array<{
+    isPrimary: boolean;
+    vendor: { id: string; companyName: string; slug: string; logoUrl: string | null };
+  }>;
+  productCategories: Array<{ category: { name: string } }>;
+  productAudiences: Array<{ audience: { name: string } }>;
+  productPhases: Array<{ phase: { name: string } }>;
+}
+
+export interface RawAlgoliaVendorRow {
+  id: string;
+  slug: string;
+  companyName: string;
+  description: string | null;
+  headquarters: string | null;
+  foundedYear: number | null;
+  logoUrl: string | null;
+  promotionStatus: string;
+  updatedAt: string;
+  productCount: number;
+  integrationCount: number;
+}
+
+export interface RawAlgoliaIntegrationRow {
+  id: string;
+  mechanismKind: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  description: string | null;
+  updatedAt: string;
+  sourceProduct: { name: string; slug: string };
+  targetProduct: { name: string; slug: string };
+}
 
 // ---------------------------------------------------------------------------
 // Mappers
@@ -124,7 +189,7 @@ export function toAlgoliaProduct(row: RawAlgoliaProductRow): AlgoliaProductRecor
     phases: row.productPhases.map((r) => r.phase.name),
     integration_count: row.integrationCount,
     review_count: row.reviewCount,
-    rating_overall_avg: toNumberOrNull(row.ratingOverallAvg),
+    rating_overall_avg: row.ratingOverallAvg,
     has_api_docs: row.hasApiDocs,
     logo_url: row.logoUrl,
   };
@@ -138,8 +203,8 @@ export function toAlgoliaVendor(row: RawAlgoliaVendorRow): AlgoliaVendorRecord {
     description: row.description,
     headquarters: row.headquarters,
     founded_year: row.foundedYear,
-    product_count: row._count.productVendors,
-    integration_count: row._count.builtIntegrations,
+    product_count: row.productCount,
+    integration_count: row.integrationCount,
     logo_url: row.logoUrl,
   };
 }

@@ -35,13 +35,17 @@
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
 import {
-  appendWorkflowTransition,
-  type WorkflowTransitionClient,
+  forwardWorkflowTransition,
+  type WorkflowTransitionEntry,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
+import { and, eq, isNull } from 'drizzle-orm';
 
+import type { Db } from '../db/client';
+import { vendorRequests, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
+import { workflowTransitionInsert } from './audit';
 
 // ─── Verified Linear board constants ─────────────────────────────────────────
 // Queried live (2026-06-13). Hardcoded rather than env-configured because they
@@ -238,13 +242,53 @@ export function labelIdsFor(kind: RequestKind, domainMatch?: string | null): str
 
 // ─── Orchestration ───────────────────────────────────────────────────────────
 
+/**
+ * ORM-neutral persistence seam for the issue link-back + idempotency guard. The
+ * post-commit task runs OUTSIDE any transaction, so these are top-level reads/
+ * writes. `createLinearIssueForRequest` depends only on this seam:
+ * `routes/requests.ts` passes a Drizzle-backed store (`drizzleLinearStore`);
+ * `lib/reconciliation-sweep.ts` passes a Prisma-backed one (`prismaLinearStore`)
+ * until it migrates (ADR 0016 / AECI-253).
+ */
+export interface LinearRequestStore {
+  /** Current `linear_issue_id` of the request — null if unlinked OR the row is
+   *  gone (both mean "proceed to create", matching the old `findUnique` guard). */
+  getLinkedIssueId(requestId: string): Promise<string | null>;
+  /** Compare-and-set the issue id onto the request row AND its workflow instance,
+   *  by PK with a `linear_issue_id IS NULL` guard (idempotent under a retry race). */
+  linkIssue(requestId: string, workflowId: string, issueId: string): Promise<void>;
+}
+
+/** Drizzle/D1 `LinearRequestStore` (`routes/requests.ts`; the §6.7 sweep once it
+ *  migrates). */
+export function drizzleLinearStore(db: Db): LinearRequestStore {
+  return {
+    async getLinkedIssueId(requestId) {
+      const row = await db.query.vendorRequests.findFirst({
+        columns: { linearIssueId: true },
+        where: eq(vendorRequests.id, requestId),
+      });
+      return row?.linearIssueId ?? null;
+    },
+    async linkIssue(requestId, workflowId, issueId) {
+      await db
+        .update(vendorRequests)
+        .set({ linearIssueId: issueId })
+        .where(and(eq(vendorRequests.id, requestId), isNull(vendorRequests.linearIssueId)));
+      await db
+        .update(workflowInstances)
+        .set({ linearIssueId: issueId })
+        .where(and(eq(workflowInstances.id, workflowId), isNull(workflowInstances.linearIssueId)));
+    },
+  };
+}
+
 type UpdateManyArgs = { where: Record<string, unknown>; data: Record<string, unknown> };
 
 /**
- * Minimal top-level Prisma surface the persist + idempotency guard need. The
- * post-commit task runs OUTSIDE any `$transaction`, so these are top-level
- * delegates (not a `tx`). A real accelerated client and the test fake both
- * satisfy this. (Same `UpdateManyArgs` shape as `routes/account.ts`.)
+ * @deprecated Transitional Prisma surface for {@link prismaLinearStore}. Removed
+ * when `lib/reconciliation-sweep.ts` (its only remaining caller) moves to Drizzle
+ * (AECI-253). A real accelerated client and the sweep's test fake both satisfy it.
  */
 export type LinearPersistClient = {
   vendorRequest: {
@@ -256,6 +300,30 @@ export type LinearPersistClient = {
   };
   workflowInstance: { updateMany(args: UpdateManyArgs): Promise<{ count: number }> };
 };
+
+/** @deprecated Transitional Prisma-backed `LinearRequestStore` (the §6.7 sweep
+ *  until it migrates to Drizzle). */
+export function prismaLinearStore(client: LinearPersistClient): LinearRequestStore {
+  return {
+    async getLinkedIssueId(requestId) {
+      const row = await client.vendorRequest.findUnique({
+        where: { id: requestId },
+        select: { linearIssueId: true },
+      });
+      return row?.linearIssueId ?? null;
+    },
+    async linkIssue(requestId, workflowId, issueId) {
+      await client.vendorRequest.updateMany({
+        where: { id: requestId, linearIssueId: null },
+        data: { linearIssueId: issueId },
+      });
+      await client.workflowInstance.updateMany({
+        where: { id: workflowId, linearIssueId: null },
+        data: { linearIssueId: issueId },
+      });
+    },
+  };
+}
 
 /** The slice of Hono's `Context` this needs, typed structurally (like
  *  `toxicity.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits. */
@@ -284,11 +352,6 @@ export interface LinearIssueInput {
   duplicateLinearIssueId?: string | null;
 }
 
-/** Prisma surface the resolution sync needs: just the append-only transition write
- *  (post-commit, top-level — no `$transaction`). The accelerated client and the
- *  test fake both satisfy it. */
-export type LinearSyncPersistClient = WorkflowTransitionClient;
-
 export interface LinearResolutionInput {
   requestId: string;
   /** The request's `workflow_instance.id` — the transition's parent. */
@@ -315,7 +378,7 @@ export interface LinearResolutionInput {
  */
 export async function createLinearIssueForRequest(
   c: LinearContext,
-  prisma: LinearPersistClient,
+  store: LinearRequestStore,
   input: LinearIssueInput,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
@@ -327,11 +390,8 @@ export async function createLinearIssueForRequest(
   // Idempotency guard: skip if already linked. Covers a stray re-fire and the
   // §6.7 retrier reusing this function.
   try {
-    const existing = await prisma.vendorRequest.findUnique({
-      where: { id: input.requestId },
-      select: { linearIssueId: true },
-    });
-    if (existing?.linearIssueId) {
+    const existingId = await store.getLinkedIssueId(input.requestId);
+    if (existingId) {
       emit(c, 'skipped_exists', input.kind);
       return;
     }
@@ -408,14 +468,7 @@ export async function createLinearIssueForRequest(
   // Persist the id on both the request row and its workflow instance, compare-and-
   // set by PK so only the first writer wins (idempotent under a retry race).
   try {
-    await prisma.vendorRequest.updateMany({
-      where: { id: input.requestId, linearIssueId: null },
-      data: { linearIssueId: issue.id },
-    });
-    await prisma.workflowInstance.updateMany({
-      where: { id: input.workflowId, linearIssueId: null },
-      data: { linearIssueId: issue.id },
-    });
+    await store.linkIssue(input.requestId, input.workflowId, issue.id);
   } catch (err) {
     // The issue exists but we couldn't link it — row stays open; §6.7 reconciles
     // via the embedded `Request: <id>` marker. Reported as a pipeline failure.
@@ -449,7 +502,7 @@ export async function createLinearIssueForRequest(
  */
 export async function pushRequestResolutionToLinear(
   c: LinearContext,
-  prisma: LinearSyncPersistClient,
+  db: Db,
   input: LinearResolutionInput,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
@@ -502,31 +555,31 @@ export async function pushRequestResolutionToLinear(
   // Record the site-originated transition (§6.5, AECI-213 AC2). Append-only,
   // non-transactional (we're post-commit in `waitUntil`); a write failure is
   // logged + metered, never thrown. `actor_type` lives in metadata (no column).
+  const transitionEntry: WorkflowTransitionEntry = {
+    workflowId: input.workflowId,
+    fromState: input.fromStatus ?? 'open',
+    toState: input.toStatus,
+    actorId: input.actorId ?? null,
+    reason: input.reason ?? null,
+    metadata: {
+      source: 'site-linear-sync',
+      actor_type: 'admin',
+      linear_issue_id: input.linearIssueId,
+      linear_state_id: stateId,
+      linear_state_name: issue.state?.name ?? null,
+      linear_state_type: issue.state?.type ?? null,
+    },
+  };
   try {
-    await appendWorkflowTransition(
-      prisma,
-      {
-        workflowId: input.workflowId,
-        fromState: input.fromStatus ?? 'open',
-        toState: input.toStatus,
-        actorId: input.actorId ?? null,
-        reason: input.reason ?? null,
-        metadata: {
-          source: 'site-linear-sync',
-          actor_type: 'admin',
-          linear_issue_id: input.linearIssueId,
-          linear_state_id: stateId,
-          linear_state_name: issue.state?.name ?? null,
-          linear_state_type: issue.state?.type ?? null,
-        },
-      },
-      makeSyncForwarder(c),
-    );
+    await workflowTransitionInsert(db, transitionEntry);
   } catch (err) {
     error(c, `linear sync transition persist failed: ${errMsg(err)}`);
     emitSync(c, 'failed', input.kind, input.toStatus, 'db_error', Date.now() - started);
     return;
   }
+  // Best-effort §26.5 forward AFTER the row commits (forwarder swallows its own
+  // errors, so this can't throw out of the `waitUntil`).
+  await forwardWorkflowTransition(transitionEntry, makeSyncForwarder(c));
 
   emitSync(c, 'ok', input.kind, input.toStatus, undefined, Date.now() - started);
 }

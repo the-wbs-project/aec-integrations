@@ -1,100 +1,67 @@
+/**
+ * GET /api/categories|audiences|phases list on the Drizzle/D1 path (ADR 0016 /
+ * AECI-253), against the in-memory D1 harness.
+ */
+
 import { CategoriesListResponseSchema } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  allAudienceRows,
-  allCategoryRows,
-  allPhaseRows,
-  fieldManagementCategoryRow,
-} from '../test/fixtures/taxonomy';
-import {
-  buildAppWithHandler,
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
-
+import { productCategories, products, taxonomyCategories, taxonomyPhases } from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createTaxonomyListHandler, type TaxonomyListKind } from './taxonomy-list';
 
-// The `/api/{categories|audiences|phases}/:slug` detail endpoints are exercised
-// in `taxonomy-detail.spec.ts` (shared factory); the aggregate tree in
-// `taxonomy.spec.ts`. This file covers the three flat list endpoints.
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 
-function listApp(path: string, kind: TaxonomyListKind, prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const app = (kind: TaxonomyListKind, path: string) =>
+  buildAppWithHandler({
     method: 'get',
     path,
-    handler: createTaxonomyListHandler(kind, () => prisma as never),
+    handler: createTaxonomyListHandler(kind, t.factory),
   });
-}
 
-interface ListCase {
-  kind: TaxonomyListKind;
-  path: string;
-  mock: () => MockAcceleratedPrisma;
-  length: number;
-  slug: string;
-  count: number;
-}
+describe('GET /api/categories (list)', () => {
+  it('returns terms ordered by display_order with product counts', async () => {
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(1), slug: 'zeta', name: 'Zeta', displayOrder: 90 },
+      { id: u(2), slug: 'alpha', name: 'Alpha', displayOrder: 10 },
+    ]);
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productCategories).values({ productId: u(11), categoryId: u(2) });
 
-const CASES: ListCase[] = [
-  {
-    kind: 'categories',
-    path: '/api/categories',
-    mock: () => makeMockAcceleratedPrisma({ taxonomyCategory: { findMany: allCategoryRows } }),
-    length: 2,
-    slug: 'project-management',
-    count: 5,
-  },
-  {
-    kind: 'audiences',
-    path: '/api/audiences',
-    mock: () => makeMockAcceleratedPrisma({ taxonomyAudience: { findMany: allAudienceRows } }),
-    length: 1,
-    slug: 'construction',
-    count: 7,
-  },
-  {
-    kind: 'phases',
-    path: '/api/phases',
-    mock: () => makeMockAcceleratedPrisma({ taxonomyPhase: { findMany: allPhaseRows } }),
-    length: 1,
-    slug: 'construction-phase',
-    count: 4,
-  },
-];
-
-describe('taxonomy list endpoints', () => {
-  it.each(CASES)(
-    'GET $path returns a flat list with product_count per term',
-    async ({ kind, path, mock, length, slug, count }) => {
-      const res = await listApp(path, kind, mock()).request(
-        path,
-        {},
-        TEST_ENV,
-        fakeExecutionContext(),
-      );
-
-      expect(res.status).toBe(200);
-      const parsed = CategoriesListResponseSchema.parse(await res.json());
-      expect(parsed.data).toHaveLength(length);
-      expect(parsed.data.find((t) => t.slug === slug)?.product_count).toBe(count);
-    },
-  );
-
-  it('coalesces a null displayOrder to 0', async () => {
-    const prisma = makeMockAcceleratedPrisma({ taxonomyCategory: { findMany: allCategoryRows } });
-    const res = await listApp('/api/categories', 'categories', prisma).request(
+    const res = await app('categories', '/api/categories').request(
       '/api/categories',
       {},
       TEST_ENV,
       fakeExecutionContext(),
     );
+    expect(res.status).toBe(200);
+    const body = CategoriesListResponseSchema.parse(await res.json());
+    expect(body.data.map((c) => c.slug)).toEqual(['alpha', 'zeta']);
+    expect(body.data[0]?.product_count).toBe(1);
+  });
+});
 
-    const parsed = CategoriesListResponseSchema.parse(await res.json());
-    expect(parsed.data.find((t) => t.slug === fieldManagementCategoryRow.slug)?.display_order).toBe(
-      0,
+describe('GET /api/phases (list)', () => {
+  it('reuses the factory for the phases facet', async () => {
+    await t.db
+      .insert(taxonomyPhases)
+      .values({ id: u(1), slug: 'design', name: 'Design', displayOrder: 10 });
+    const res = await app('phases', '/api/phases').request(
+      '/api/phases',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
     );
+    const body = CategoriesListResponseSchema.parse(await res.json());
+    expect(body.data.map((p) => p.slug)).toEqual(['design']);
   });
 });

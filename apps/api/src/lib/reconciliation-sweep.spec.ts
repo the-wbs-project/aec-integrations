@@ -1,13 +1,20 @@
 /**
- * Unit tests for the request→Linear reconciliation sweep (AECI-214 / Phase 6.7).
- * The §6.4 retrier (`createLinearIssueForRequest`) and the §6.2 admin-alert seam
- * (`sendAdminAlert`) are injected as deps so these drive the sweep's logic — a
- * stuck row is retried; a success clears it; a persistent failure alerts + emails
- * — without a real Linear/email transport. Only `../datadog` is mocked (so metric
- * + log calls are observable).
+ * Unit tests for the request→Linear reconciliation sweep (AECI-214 / Phase 6.7)
+ * on the Drizzle/D1 path (ADR 0016 / AECI-253), against the in-memory D1 harness.
+ * Real `vendor_requests` / `products` / `vendors` / `workflow_instances` rows are
+ * seeded so the stuck-query, target resolution, and the still-failing re-read run
+ * over real SQL. The §6.4 retrier (`createLinearIssueForRequest`) and the §6.2
+ * admin-alert seam (`sendAdminAlert`) are injected as deps so these drive the
+ * sweep's logic — a stuck row is retried; a success clears it; a persistent failure
+ * alerts + emails — without a real Linear/email transport. A "cleared" outcome is
+ * modeled by the `createIssue` fake actually writing `linear_issue_id` onto the
+ * seeded row (exactly how the real compare-and-set persist makes a swept row drop
+ * out of the still-failing set); a "failing" outcome is modeled by a no-op fake.
+ * Only `../datadog` is mocked (so metric + log calls are observable).
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
@@ -18,17 +25,22 @@ vi.mock('../datadog', () => ({
   submitDistribution: vi.fn(),
 }));
 
+import { products, vendorRequests, vendors, workflowInstances } from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
 import { logToDatadog, submitCount, submitGauge } from '../datadog';
-import {
-  RECONCILE_BATCH_CAP,
-  runReconciliationSweep,
-  type ReconcilePrisma,
-} from './reconciliation-sweep';
+import { RECONCILE_BATCH_CAP, runReconciliationSweep } from './reconciliation-sweep';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const NOW = new Date('2026-06-13T12:00:00.000Z');
-const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60_000);
+const minsAgo = (m: number) => new Date(NOW.getTime() - m * 60_000).toISOString();
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+  vi.clearAllMocks();
+});
+afterEach(() => t.dispose());
 
 function makeCtx() {
   return {
@@ -38,95 +50,53 @@ function makeCtx() {
   };
 }
 
-type Row = {
-  id: string;
-  kind: 'claim' | 'correction';
-  targetType: 'product' | 'vendor';
-  targetId: string;
-  submitterEmail: string;
-  submitterName: string | null;
-  submitterRole: string | null;
-  body: string;
-  sourceUrl: string | null;
-  domainMatch: string;
-  createdAt: Date;
-};
-
-function stuckRow(over: Partial<Row> = {}): Row {
-  return {
-    id: 'req-1',
+/** Insert a stuck (`open` / `linear_issue_id = null`) vendor_request row. */
+async function seedStuckRequest(
+  over: Partial<typeof vendorRequests.$inferInsert> & { id: string },
+) {
+  await t.db.insert(vendorRequests).values({
     kind: 'correction',
     targetType: 'product',
     targetId: 'tgt-1',
     submitterEmail: 'reporter@example.com',
-    submitterName: null,
-    submitterRole: null,
-    body: 'The founding year is wrong.',
-    sourceUrl: null,
     domainMatch: 'pending',
+    body: 'The founding year is wrong.',
+    status: 'open',
     createdAt: minsAgo(90),
     ...over,
-  };
+  });
+}
+
+/** Seed a product target (resolved via `name`). */
+async function seedProductTarget(id: string, name: string, slug: string) {
+  await t.db.insert(products).values({ id, slug, name });
+}
+/** Seed a vendor target (resolved via `company_name`). */
+async function seedVendorTarget(id: string, companyName: string, slug: string) {
+  await t.db.insert(vendors).values({ id, slug, companyName });
+}
+
+/** Seed the request's workflow instance (resolved by `entity_id`). */
+async function seedWorkflow(id: string, entityId: string) {
+  await t.db.insert(workflowInstances).values({
+    id,
+    workflowType: 'correction_request',
+    entityId,
+    currentState: 'open',
+  });
 }
 
 /**
- * In-memory Prisma fake. `linkedIds` models "this request now has a Linear issue":
- * the injected `createIssue` adds to it on a successful retry, and the re-read
- * query returns only rows NOT in it — exactly how the real compare-and-set persist
- * makes a swept row drop out of the still-failing set.
+ * A retrier that links the request — models a successful §6.4 create by writing
+ * `linear_issue_id` onto the real seeded row, so the sweep's still-failing re-read
+ * (a real SQL query) sees it drop out of the failing set.
  */
-function makePrisma(opts: {
-  rows: Row[];
-  targets?: Record<string, { name: string; slug: string } | undefined>;
-  workflows?: Record<string, string | undefined>;
-}) {
-  const linkedIds = new Set<string>();
-  const targets = opts.targets ?? {};
-  const workflows = opts.workflows ?? {};
-  const client = {
-    vendorRequest: {
-      async findMany(args: { where: Record<string, unknown>; take?: number }) {
-        const where = args.where as { id?: { in?: string[] } };
-        if (where.id && typeof where.id === 'object' && Array.isArray(where.id.in)) {
-          const ids = where.id.in;
-          return opts.rows
-            .filter((r) => ids.includes(r.id) && !linkedIds.has(r.id))
-            .map((r) => ({ id: r.id }));
-        }
-        // Initial stuck query — honor `take` so the batch cap is observable.
-        return typeof args.take === 'number' ? opts.rows.slice(0, args.take) : opts.rows;
-      },
-      // Unbounded backlog count for the stuck gauge (every fixture row is stuck).
-      async count() {
-        return opts.rows.length;
-      },
-    },
-    product: {
-      async findUnique(args: { where: { id: string } }) {
-        const t = targets[args.where.id];
-        return t ? { name: t.name, slug: t.slug } : null;
-      },
-    },
-    vendor: {
-      async findUnique(args: { where: { id: string } }) {
-        const t = targets[args.where.id];
-        return t ? { companyName: t.name, slug: t.slug } : null;
-      },
-    },
-    workflowInstance: {
-      async findFirst(args: { where: { entityId: string } }) {
-        const id = workflows[args.where.entityId];
-        return id ? { id } : null;
-      },
-    },
-  } as unknown as ReconcilePrisma;
-  return { client, linkedIds };
-}
-
-/** A retrier that links the request (models a successful §6.4 create). */
-function linkingCreateIssue(linkedIds: Set<string>) {
-  return vi.fn(async (_c: unknown, _p: unknown, input: { requestId: string }) => {
-    linkedIds.add(input.requestId);
+function linkingCreateIssue() {
+  return vi.fn(async (_c: unknown, _store: unknown, input: { requestId: string }) => {
+    await t.db
+      .update(vendorRequests)
+      .set({ linearIssueId: `iss-${input.requestId}` })
+      .where(eq(vendorRequests.id, input.requestId));
   });
 }
 /** A retrier that never links (models a persistent Linear failure). */
@@ -134,22 +104,17 @@ function failingCreateIssue() {
   return vi.fn(async () => {});
 }
 
-beforeEach(() => vi.clearAllMocks());
-
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 describe('runReconciliationSweep', () => {
   it('retries a stuck row with the rebuilt §6.4 input and clears it on success', async () => {
-    const row = stuckRow({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(30) });
-    const { client, linkedIds } = makePrisma({
-      rows: [row],
-      targets: { 'tgt-1': { name: 'Acme Build', slug: 'acme-build' } },
-      workflows: { 'req-1': 'wf-1' },
-    });
-    const createIssue = linkingCreateIssue(linkedIds);
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(30) });
+    const createIssue = linkingCreateIssue();
     const sendAlert = vi.fn(async () => 'skipped' as const);
 
-    const result = await runReconciliationSweep(makeCtx(), client, {
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
       createIssue: createIssue as never,
       sendAlert: sendAlert as never,
       now: NOW,
@@ -196,21 +161,18 @@ describe('runReconciliationSweep', () => {
   });
 
   it('resolves a vendor target via company_name', async () => {
-    const row = stuckRow({
+    await seedVendorTarget('v-1', 'Globex Inc', 'globex');
+    await seedWorkflow('wf-2', 'req-2');
+    await seedStuckRequest({
       id: 'req-2',
       kind: 'claim',
       targetType: 'vendor',
       targetId: 'v-1',
       createdAt: minsAgo(30),
     });
-    const { client, linkedIds } = makePrisma({
-      rows: [row],
-      targets: { 'v-1': { name: 'Globex Inc', slug: 'globex' } },
-      workflows: { 'req-2': 'wf-2' },
-    });
-    const createIssue = linkingCreateIssue(linkedIds);
+    const createIssue = linkingCreateIssue();
 
-    await runReconciliationSweep(makeCtx(), client, {
+    await runReconciliationSweep(makeCtx(), t.db, {
       createIssue: createIssue as never,
       sendAlert: vi.fn(async () => 'skipped' as const) as never,
       now: NOW,
@@ -224,16 +186,13 @@ describe('runReconciliationSweep', () => {
   });
 
   it('alerts + emails when a failing row is older than the persistent threshold', async () => {
-    const row = stuckRow({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(90) }); // > 60m
-    const { client } = makePrisma({
-      rows: [row],
-      targets: { 'tgt-1': { name: 'Acme Build', slug: 'acme-build' } },
-      workflows: { 'req-1': 'wf-1' },
-    });
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(90) }); // > 60m
     const createIssue = failingCreateIssue();
     const sendAlert = vi.fn(async () => 'skipped' as const);
 
-    const result = await runReconciliationSweep(makeCtx(), client, {
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
       createIssue: createIssue as never,
       sendAlert: sendAlert as never,
       now: NOW,
@@ -283,16 +242,13 @@ describe('runReconciliationSweep', () => {
   });
 
   it('retries a recently-stuck failing row but does NOT alert before the persistent threshold', async () => {
-    const row = stuckRow({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(30) }); // 15 < 30 < 60
-    const { client } = makePrisma({
-      rows: [row],
-      targets: { 'tgt-1': { name: 'Acme Build', slug: 'acme-build' } },
-      workflows: { 'req-1': 'wf-1' },
-    });
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    await seedWorkflow('wf-1', 'req-1');
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(30) }); // 15 < 30 < 60
     const createIssue = failingCreateIssue();
     const sendAlert = vi.fn(async () => 'skipped' as const);
 
-    const result = await runReconciliationSweep(makeCtx(), client, {
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
       createIssue: createIssue as never,
       sendAlert: sendAlert as never,
       now: NOW,
@@ -319,11 +275,10 @@ describe('runReconciliationSweep', () => {
   });
 
   it('emits a 0 backlog gauge and does nothing on a clean run (no stuck rows)', async () => {
-    const { client } = makePrisma({ rows: [] });
     const createIssue = vi.fn();
     const sendAlert = vi.fn();
 
-    const result = await runReconciliationSweep(makeCtx(), client, {
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
       createIssue: createIssue as never,
       sendAlert: sendAlert as never,
       now: NOW,
@@ -343,17 +298,15 @@ describe('runReconciliationSweep', () => {
   });
 
   it('reports the true backlog on the stuck gauge when more rows are stuck than the batch cap', async () => {
-    const rows = Array.from({ length: RECONCILE_BATCH_CAP + 5 }, (_, i) =>
-      stuckRow({ id: `req-${i}`, targetId: 'tgt-1', createdAt: minsAgo(30) }),
-    );
-    const { client, linkedIds } = makePrisma({
-      rows,
-      targets: { 'tgt-1': { name: 'Acme Build', slug: 'acme-build' } },
-      workflows: Object.fromEntries(rows.map((r) => [r.id, `wf-${r.id}`])),
-    });
-    const createIssue = linkingCreateIssue(linkedIds);
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    const total = RECONCILE_BATCH_CAP + 5;
+    for (let i = 0; i < total; i++) {
+      await seedWorkflow(`wf-req-${i}`, `req-${i}`);
+      await seedStuckRequest({ id: `req-${i}`, targetId: 'tgt-1', createdAt: minsAgo(30) });
+    }
+    const createIssue = linkingCreateIssue();
 
-    const result = await runReconciliationSweep(makeCtx(), client, {
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
       createIssue: createIssue as never,
       sendAlert: vi.fn(async () => 'skipped' as const) as never,
       now: NOW,
@@ -365,10 +318,10 @@ describe('runReconciliationSweep', () => {
       expect.anything(),
       expect.anything(),
       'aeci.linear.reconcile.stuck',
-      RECONCILE_BATCH_CAP + 5,
+      total,
       [],
     );
-    expect(result.stuck).toBe(RECONCILE_BATCH_CAP + 5);
+    expect(result.stuck).toBe(total);
     // Only the cap's worth is processed this sweep; the next tick continues.
     expect(createIssue).toHaveBeenCalledTimes(RECONCILE_BATCH_CAP);
     expect(logToDatadog).toHaveBeenCalledWith(
@@ -380,16 +333,13 @@ describe('runReconciliationSweep', () => {
   });
 
   it('skips an un-rebuildable row (missing workflow) and still counts it as failing/persistent', async () => {
-    const row = stuckRow({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(90) });
-    const { client } = makePrisma({
-      rows: [row],
-      targets: { 'tgt-1': { name: 'Acme Build', slug: 'acme-build' } },
-      workflows: {}, // no workflow instance → cannot rebuild the §6.4 input
-    });
+    await seedProductTarget('tgt-1', 'Acme Build', 'acme-build');
+    // No workflow instance seeded → cannot rebuild the §6.4 input.
+    await seedStuckRequest({ id: 'req-1', targetId: 'tgt-1', createdAt: minsAgo(90) });
     const createIssue = failingCreateIssue();
     const sendAlert = vi.fn(async () => 'skipped' as const);
 
-    const result = await runReconciliationSweep(makeCtx(), client, {
+    const result = await runReconciliationSweep(makeCtx(), t.db, {
       createIssue: createIssue as never,
       sendAlert: sendAlert as never,
       now: NOW,

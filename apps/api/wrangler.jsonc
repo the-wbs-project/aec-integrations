@@ -119,6 +119,23 @@
       "preview_id": "331fc1cfc6e0421b985442ac934748fa",
     },
   ],
+  // ADR 0016 / AECI-252: the application database is Cloudflare D1, bound as `DB`
+  // and reached via the Drizzle client factory `getDb(env)` (`src/db/client.ts`).
+  // `wrangler dev` serves a LOCAL SQLite copy (in `.wrangler/state`) regardless of
+  // `database_id`, so local dev works no matter what id is set here. The preview
+  // database is now provisioned (AECI-256); the staging/production ids below are
+  // still placeholders, created with `wrangler d1 create` and pasted in. Drizzle writes flat
+  // migration SQL to `apps/api/migrations/` (drizzle.config.ts `out`), which is
+  // wrangler's default `migrations_dir`, so `wrangler d1 migrations apply` finds
+  // them with no `migrations_pattern` override.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aeci-app-preview",
+      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+      "migrations_dir": "migrations",
+    },
+  ],
   "env": {
     "preview": {
       "name": "aeci-api-preview",
@@ -144,6 +161,17 @@
           "binding": "TAXONOMY_KV",
           "id": "331fc1cfc6e0421b985442ac934748fa",
           "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+        },
+      ],
+      // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
+      // `--env preview`, so this is the binding the bound local stack uses — a
+      // LOCAL SQLite copy regardless of id; the real preview database is provisioned (AECI-256).
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-preview",
+          "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+          "migrations_dir": "migrations",
         },
       ],
       "observability": {
@@ -175,6 +203,17 @@
         {
           "binding": "TAXONOMY_KV",
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
+        },
+      ],
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
+      // deploy CI applies migrations via
+      // `wrangler d1 migrations apply aeci-app-staging --env staging --remote`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-staging",
+          "database_id": "6cd91530-20f3-4264-b6ba-3b2bf611c2aa",
+          "migrations_dir": "migrations",
         },
       ],
       // Scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
@@ -260,6 +299,17 @@
         {
           "binding": "TAXONOMY_KV",
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
+        },
+      ],
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
+      // promote-to-prod CI applies migrations via `wrangler d1 migrations apply
+      // aeci-app-production --env production --remote`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-production",
+          "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+          "migrations_dir": "migrations",
         },
       ],
       // Scheduled crons (see staging note): 06:00 UTC (= 01:00 EST) moderation-queue

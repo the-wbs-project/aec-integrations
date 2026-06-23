@@ -16,7 +16,7 @@
     "dev:web": "pnpm --filter @aeci/web dev",
     "dev:api": "pnpm --filter @aeci/api dev",
     "dev:bound": "mkdir -p .wrangler/registry && WRANGLER_REGISTRY_PATH=$PWD/.wrangler/registry pnpm --parallel --filter @aeci/api --filter @aeci/web run dev:preview",
-    "db:studio": "pnpm --filter @aeci/api prisma:studio",
+    "db:studio": "open http://localhost:54323 2>/dev/null || echo 'Supabase Studio: http://localhost:54323 (start the local stack first with: pnpm db:start)'",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:status": "supabase status",

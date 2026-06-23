@@ -60,12 +60,35 @@ export interface WorkflowTransitionClient {
 export type WorkflowTransitionForwarder = (entry: WorkflowTransitionEntry) => void | Promise<void>;
 
 /**
+ * Best-effort forward of a transition event to Datadog (§26.5), decoupled from
+ * the DB write. Under D1 (ADR 0016 / AECI-249) the transition row is inserted as
+ * a statement inside the caller's atomic `db.batch([...])` (see
+ * `apps/api/src/lib/audit.ts` `workflowTransitionInsert`). Call AFTER the batch
+ * commits. A forward failure is logged and swallowed.
+ */
+export async function forwardWorkflowTransition(
+  entry: WorkflowTransitionEntry,
+  forward?: WorkflowTransitionForwarder,
+): Promise<void> {
+  if (!forward) return;
+  try {
+    await forward(entry);
+  } catch (error) {
+    console.warn('forwardWorkflowTransition: Datadog forward failed', error);
+  }
+}
+
+/**
  * Write a `workflow_transitions` row and (best-effort) forward it.
  *
  * The DB write is awaited and propagates errors — callers pass their
  * transaction client so a failed write rolls the operation back. The forward
  * step is wrapped: any rejection is logged via `console.warn` and swallowed so
  * Datadog availability never blocks a state change.
+ *
+ * @deprecated Prisma-coupled writer (Supabase path). Replaced by the D1 batch
+ * builder `workflowTransitionInsert` + {@link forwardWorkflowTransition}
+ * (ADR 0016 / AECI-249). Removed once all call sites migrate off Prisma.
  */
 export async function appendWorkflowTransition(
   db: WorkflowTransitionClient,

@@ -2,11 +2,71 @@
 
 How to write, test, and ship a schema change in this repo.
 
-The migration system is **Supabase CLI**. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client, but `prisma migrate` is not.
+> **✅ The application database is now Cloudflare D1 + Drizzle (ADR 0016 / AECI-248).**
+> The Prisma→Drizzle query rewrite (AECI-253) is complete — the Worker reads and
+> writes **D1** through `getDb(env)` (`apps/api/src/db/client.ts`), the schema is
+> authored in **Drizzle** (`apps/api/src/db/schema.ts`), and migrations are applied
+> with `wrangler d1 migrations apply`. **[§0](#0-d1--drizzle-the-target-workflow) is
+> the only workflow for the app database — start there.**
+>
+> **Everything below §0 (§§1–10) is the legacy Supabase-CLI / Prisma workflow.** It
+> no longer governs the app tables (vendors, products, reviews, …). It is retained,
+> scoped down, only for the surfaces still on Supabase Postgres: **Supabase Auth**
+> (`auth.users`) and the **landing lead-capture tables** (`feedback`, `mailing_list`),
+> which keep their own `supabase/migrations/` + `schema.prisma` until their separate
+> cut-over. Caveat: the local Supabase Postgres still *physically* contains the old
+> app tables (from the baseline migration); they are now **stale — D1 is the source
+> of truth**. Per-env cloud D1 provisioning + CI apply steps are Phase 5 (AECI-256);
+> full removal of the legacy sections lands with the Supabase-DB decommission (AECI-257).
+
+The legacy migration system below is **Supabase CLI**, now scoped to Auth + the landing tables. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client (for the landing-Postgres integration test), but `prisma migrate` is not.
 
 This document is the source of truth for the workflow. The constraints in [`CLAUDE.md`](../CLAUDE.md) ("Constraints that aren't negotiable") incorporate the rules below by reference.
 
 ---
+
+## 0. D1 + Drizzle: the target workflow
+
+The schema source of truth is `apps/api/src/db/schema.ts` (Drizzle SQLite). The
+flow is **generate → apply → seed**, all from `apps/api/`:
+
+```bash
+# 1. Edit apps/api/src/db/schema.ts, then generate migration SQL into apps/api/migrations/
+pnpm --filter @aeci/api db:generate          # drizzle-kit generate
+
+# 2. Apply to the LOCAL D1 (per-workspace SQLite in .wrangler/state — no shared DB)
+pnpm --filter @aeci/api db:migrate:local     # wrangler d1 migrations apply aeci-app-preview --local
+
+# 3. Seed local data (idempotent): taxonomy reference data + a sample catalog
+pnpm --filter @aeci/api db:seed:local
+
+# Convenience: migrate + seed in one step
+pnpm --filter @aeci/api db:setup:local
+```
+
+Rules:
+
+- **Drizzle generates, `wrangler d1 migrations apply` applies.** Never
+  `drizzle-kit migrate`/`push` — that mirrors the old "CLI owns apply" split.
+  Generated SQL is committed under `apps/api/migrations/` (flat layout = wrangler's
+  default `migrations_dir`, so no `migrations_pattern` is needed).
+- **Reference data** (taxonomy, ADR 0008) lives in `apps/api/seed/taxonomy.sql`
+  as idempotent `INSERT … ON CONFLICT(slug) DO UPDATE` with deterministic
+  UUIDv5 ids. The local catalog fixture is `apps/api/seed/catalog.sql`
+  (local-dev only; staging/prod re-promote from Airtable via `POST /api/promote`).
+- **Per-env apply** (preview/staging/production) is wired into CI in Phase 5
+  (AECI-256): `wrangler d1 migrations apply aeci-app-<env> --env <env>`.
+- **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
+  (ADR 0016 §4, `docs/AUTH_AND_RLS.md`), and `updated_at` is refreshed app-side
+  (Drizzle `$onUpdate`), not by a DB trigger.
+
+---
+
+> **⚠️ Legacy — Supabase-CLI / Prisma workflow (landing + auth Postgres only).**
+> Sections §§1–10 below predate the D1 cut-over. They **do not apply to the app
+> database** (now D1 — see [§0](#0-d1--drizzle-the-target-workflow)). They remain only
+> for Supabase Auth and the `feedback` / `mailing_list` landing tables, pending their
+> own cut-over, and are removed at decommission (AECI-257).
 
 ## 1. When to write a migration
 

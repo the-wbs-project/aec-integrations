@@ -33,13 +33,15 @@ import {
   HomeStatsResponseSchema,
   type HomeStatsResponse,
 } from '@aeci/shared';
+import { inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { z } from 'zod';
 
+import { getDb } from '../db/client';
+import { statsCache } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import { getPrisma } from '../prisma';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 type HomeKey = Extract<(typeof STATS_CACHE_KEYS)[number], `home.${string}`>;
 
@@ -59,15 +61,15 @@ function parseOr<T, F>(schema: z.ZodType<T>, raw: unknown, fallback: F): T | F {
 }
 
 export function createStatsHomeHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
-    const prisma = prismaFor(c.env);
+    const { db } = dbFor(c.env);
 
-    const rows = await prisma.statsCache.findMany({
-      where: { key: { in: [...HOME_KEYS] } },
-      select: { key: true, value: true },
-    });
+    const rows = await db
+      .select({ key: statsCache.key, value: statsCache.value })
+      .from(statsCache)
+      .where(inArray(statsCache.key, [...HOME_KEYS]));
 
     const byKey = new Map<string, unknown>(rows.map((row) => [row.key, row.value]));
 

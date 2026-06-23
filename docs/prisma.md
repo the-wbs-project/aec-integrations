@@ -1,5 +1,12 @@
 # Prisma in this repo
 
+> **⚠️ DEPRECATED by ADR 0016 (AECI-248).** Prisma is being replaced by **Drizzle
+> over Cloudflare D1**. The Prisma→Drizzle query rewrite is AECI-253; this doc is
+> **retired at decommission** (AECI-257). New query code uses the Drizzle client
+> factory `getDb(env)` (`apps/api/src/db/client.ts`), not `getPrisma(env)`. See
+> `docs/migrations.md` §0 for the D1/Drizzle workflow. The contract below applies
+> only to call sites not yet migrated.
+
 Prisma is a **query-builder and typed client**. It is not a migration tool here.
 The Supabase CLI owns schema changes; `schema.prisma` is downstream of
 `supabase/migrations/`. This file is the contract.

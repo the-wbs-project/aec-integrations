@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 
@@ -10,6 +10,8 @@ vi.mock('../datadog', () => ({
   submitDistribution: vi.fn(),
 }));
 
+import { profiles, workflowInstances, workflowTransitions } from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import {
   ASSIGNEE_IDS,
@@ -18,9 +20,8 @@ import {
   LABEL_IDS,
   labelIdsFor,
   type LinearIssueInput,
-  type LinearPersistClient,
+  type LinearRequestStore,
   type LinearResolutionInput,
-  type LinearSyncPersistClient,
   pickAssignee,
   pushRequestResolutionToLinear,
   VENDOR_REQUESTS_PROJECT_ID,
@@ -30,10 +31,11 @@ import {
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const REQUEST_ID = '11111111-1111-4111-8111-111111111111';
+const WORKFLOW_ID = '22222222-2222-4222-8222-222222222222';
 
 const INPUT: LinearIssueInput = {
   requestId: REQUEST_ID,
-  workflowId: 'wf_1',
+  workflowId: WORKFLOW_ID,
   kind: 'correction',
   targetType: 'product',
   targetName: 'Acme Build',
@@ -50,48 +52,23 @@ function ctx(envOverrides: Record<string, unknown> = {}) {
   };
 }
 
-// In-memory persist client; records every updateMany so we can assert the link-back.
-function makePrisma(
+// In-memory `LinearRequestStore`; records every `linkIssue` so we can assert the
+// link-back. Replaces the old Prisma-shaped fake (the store is ORM-neutral now).
+function makeStore(
   opts: { existingLinearId?: string | null; throwOnRead?: boolean; throwOnWrite?: boolean } = {},
 ) {
-  const updates: Array<{
-    model: string;
-    where: Record<string, unknown>;
-    data: Record<string, unknown>;
-  }> = [];
-  const client = {
-    vendorRequest: {
-      async findUnique() {
-        if (opts.throwOnRead) throw new Error('db read failed');
-        return { linearIssueId: opts.existingLinearId ?? null };
-      },
-      async updateMany({
-        where,
-        data,
-      }: {
-        where: Record<string, unknown>;
-        data: Record<string, unknown>;
-      }) {
-        if (opts.throwOnWrite) throw new Error('db write failed');
-        updates.push({ model: 'vendorRequest', where, data });
-        return { count: 1 };
-      },
+  const links: Array<{ requestId: string; workflowId: string; issueId: string }> = [];
+  const store: LinearRequestStore = {
+    async getLinkedIssueId() {
+      if (opts.throwOnRead) throw new Error('db read failed');
+      return opts.existingLinearId ?? null;
     },
-    workflowInstance: {
-      async updateMany({
-        where,
-        data,
-      }: {
-        where: Record<string, unknown>;
-        data: Record<string, unknown>;
-      }) {
-        if (opts.throwOnWrite) throw new Error('db write failed');
-        updates.push({ model: 'workflowInstance', where, data });
-        return { count: 1 };
-      },
+    async linkIssue(requestId, workflowId, issueId) {
+      if (opts.throwOnWrite) throw new Error('db write failed');
+      links.push({ requestId, workflowId, issueId });
     },
-  } as unknown as LinearPersistClient;
-  return { client, updates };
+  };
+  return { store, links };
 }
 
 // ── Fetch mock keyed on the GraphQL operation ──
@@ -154,16 +131,23 @@ function lastTags(): string[] {
   return (vi.mocked(submitCount).mock.calls.at(-1)?.[5] ?? []) as string[];
 }
 
-beforeEach(() => vi.clearAllMocks());
+// Per-test in-memory D1 (only the pushRequestResolutionToLinear suites use it; the
+// issue-creation suites drive the ORM-neutral store fake).
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+  vi.clearAllMocks();
+});
+afterEach(() => t.dispose());
 
 // ─── Happy path ───────────────────────────────────────────────────────────────
 
 describe('createLinearIssueForRequest — issue creation', () => {
   it('creates the issue and links the id onto both the request row and workflow instance', async () => {
     const fetchImpl = mockFetch();
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
     // issueCreate was called against the Linear endpoint with the right input.
     const [url, init] = vi.mocked(fetchImpl).mock.calls[0]!;
@@ -182,19 +166,8 @@ describe('createLinearIssueForRequest — issue creation', () => {
     expect(sent.variables.input.description).toContain(`Request: ${REQUEST_ID}`);
     expect(sent.variables.input.description).toContain(INPUT.submitterEmail);
 
-    // Both rows linked by PK via compare-and-set (linearIssueId:null guard).
-    expect(updates).toEqual([
-      {
-        model: 'vendorRequest',
-        where: { id: REQUEST_ID, linearIssueId: null },
-        data: { linearIssueId: 'iss_123' },
-      },
-      {
-        model: 'workflowInstance',
-        where: { id: 'wf_1', linearIssueId: null },
-        data: { linearIssueId: 'iss_123' },
-      },
-    ]);
+    // One `linkIssue` call covers both compare-and-set updates (request + workflow).
+    expect(links).toEqual([{ requestId: REQUEST_ID, workflowId: WORKFLOW_ID, issueId: 'iss_123' }]);
 
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:ok', 'kind:correction']));
     expect(submitDistribution).toHaveBeenCalledWith(
@@ -209,11 +182,11 @@ describe('createLinearIssueForRequest — issue creation', () => {
 
   it('adds the domain-check-pending label when domainMatch is no_match (§7.1)', async () => {
     const fetchImpl = mockFetch();
-    const { client } = makePrisma();
+    const { store } = makeStore();
 
     await createLinearIssueForRequest(
       ctx(),
-      client,
+      store,
       { ...INPUT, domainMatch: 'no_match' },
       fetchImpl,
     );
@@ -229,11 +202,11 @@ describe('createLinearIssueForRequest — issue creation', () => {
 
   it('attaches the Source URL when present', async () => {
     const fetchImpl = mockFetch();
-    const { client } = makePrisma();
+    const { store } = makeStore();
 
     await createLinearIssueForRequest(
       ctx(),
-      client,
+      store,
       { ...INPUT, sourceUrl: 'https://proof.example' },
       fetchImpl,
     );
@@ -255,16 +228,16 @@ describe('createLinearIssueForRequest — issue creation', () => {
 
   it('still links the issue when attachmentCreate fails (best-effort)', async () => {
     const fetchImpl = mockFetch({ attach: graphqlErrors });
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
     await createLinearIssueForRequest(
       ctx(),
-      client,
+      store,
       { ...INPUT, sourceUrl: 'https://proof.example' },
       fetchImpl,
     );
 
-    expect(updates).toHaveLength(2); // persisted despite attach failure
+    expect(links).toHaveLength(1); // persisted despite attach failure
     expect(lastOutcome()).toBe('outcome:ok');
     expect(logToDatadog).toHaveBeenCalledWith(
       expect.anything(),
@@ -286,9 +259,9 @@ describe('createLinearIssueForRequest — duplicate note', () => {
 
   it('posts an informational comment referencing the original, and still links the issue', async () => {
     const fetchImpl = mockFetch();
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, DUP_INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, DUP_INPUT, fetchImpl);
 
     const commentCall = vi
       .mocked(fetchImpl)
@@ -301,15 +274,15 @@ describe('createLinearIssueForRequest — duplicate note', () => {
     expect(sent.variables.input.body).toContain('req_orig');
     expect(sent.variables.input.body).toContain('iss_orig');
 
-    expect(updates).toHaveLength(2); // issue still linked despite the extra call
+    expect(links).toHaveLength(1); // issue still linked despite the extra call
     expect(lastOutcome()).toBe('outcome:ok');
   });
 
   it('posts no comment when there is no duplicate', async () => {
     const fetchImpl = mockFetch();
-    const { client } = makePrisma();
+    const { store } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
     const commentCall = vi
       .mocked(fetchImpl)
@@ -319,11 +292,11 @@ describe('createLinearIssueForRequest — duplicate note', () => {
 
   it('still links the issue when the duplicate comment fails (best-effort)', async () => {
     const fetchImpl = mockFetch({ comment: graphqlErrors });
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, DUP_INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, DUP_INPUT, fetchImpl);
 
-    expect(updates).toHaveLength(2);
+    expect(links).toHaveLength(1);
     expect(lastOutcome()).toBe('outcome:ok');
     expect(logToDatadog).toHaveBeenCalledWith(
       expect.anything(),
@@ -339,12 +312,12 @@ describe('createLinearIssueForRequest — duplicate note', () => {
 describe('createLinearIssueForRequest — idempotency', () => {
   it('skips creation when the request is already linked (no double-create)', async () => {
     const fetchImpl = mockFetch();
-    const { client, updates } = makePrisma({ existingLinearId: 'iss_existing' });
+    const { store, links } = makeStore({ existingLinearId: 'iss_existing' });
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(updates).toHaveLength(0);
+    expect(links).toHaveLength(0);
     expect(lastTags()).toEqual(
       expect.arrayContaining(['outcome:skipped_exists', 'kind:correction']),
     );
@@ -356,11 +329,11 @@ describe('createLinearIssueForRequest — idempotency', () => {
 describe('createLinearIssueForRequest — failure handling', () => {
   it('treats a 200-with-errors body as a failure and leaves the row unlinked', async () => {
     const fetchImpl = mockFetch({ issue: graphqlErrors });
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
-    expect(updates).toHaveLength(0);
+    expect(links).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:graphql_error']));
     expect(logToDatadog).toHaveBeenCalledWith(
       expect.anything(),
@@ -378,21 +351,21 @@ describe('createLinearIssueForRequest — failure handling', () => {
           headers: { 'content-type': 'application/json' },
         }),
     });
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
-    expect(updates).toHaveLength(0);
+    expect(links).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:graphql_error']));
   });
 
   it('treats a non-2xx response as http_error', async () => {
     const fetchImpl = mockFetch({ issue: () => new Response('{}', { status: 500 }) });
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
-    expect(updates).toHaveLength(0);
+    expect(links).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:http_error']));
   });
 
@@ -400,11 +373,11 @@ describe('createLinearIssueForRequest — failure handling', () => {
     const fetchImpl = vi.fn(async () => {
       throw new Error('connection refused');
     }) as unknown as typeof fetch;
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
-    expect(updates).toHaveLength(0);
+    expect(links).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:network']));
   });
 
@@ -414,18 +387,18 @@ describe('createLinearIssueForRequest — failure handling', () => {
       e.name = 'TimeoutError';
       throw e;
     }) as unknown as typeof fetch;
-    const { client } = makePrisma();
+    const { store } = makeStore();
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:timeout']));
   });
 
   it('fails as db_error (and does not call Linear) when the idempotency read throws', async () => {
     const fetchImpl = mockFetch();
-    const { client } = makePrisma({ throwOnRead: true });
+    const { store } = makeStore({ throwOnRead: true });
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:db_error']));
@@ -433,9 +406,9 @@ describe('createLinearIssueForRequest — failure handling', () => {
 
   it('fails as db_error when the link-back write throws (issue created but unlinked)', async () => {
     const fetchImpl = mockFetch();
-    const { client } = makePrisma({ throwOnWrite: true });
+    const { store } = makeStore({ throwOnWrite: true });
 
-    await createLinearIssueForRequest(ctx(), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx(), store, INPUT, fetchImpl);
 
     expect(fetchImpl).toHaveBeenCalled(); // issue was created
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:db_error']));
@@ -449,13 +422,13 @@ describe('createLinearIssueForRequest — failure handling', () => {
 
   it('is a silent no-op (no fetch, no metric) when LINEAR_API_KEY is absent', async () => {
     const fetchImpl = mockFetch();
-    const { client, updates } = makePrisma();
+    const { store, links } = makeStore();
 
-    await createLinearIssueForRequest(ctx({ LINEAR_API_KEY: undefined }), client, INPUT, fetchImpl);
+    await createLinearIssueForRequest(ctx({ LINEAR_API_KEY: undefined }), store, INPUT, fetchImpl);
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(submitCount).not.toHaveBeenCalled();
-    expect(updates).toHaveLength(0);
+    expect(links).toHaveLength(0);
   });
 });
 
@@ -473,7 +446,7 @@ describe('pickAssignee', () => {
     expect(pool).toContain(first);
     expect(pickAssignee(REQUEST_ID, pool)).toBe(first); // stable across retries
     // A different request id can land on the other member.
-    expect(pickAssignee('22222222-2222-4222-8222-222222222222', pool)).toBeDefined();
+    expect(pickAssignee('33333333-3333-4333-8333-333333333333', pool)).toBeDefined();
   });
 
   it('returns undefined for an empty pool', () => {
@@ -496,18 +469,29 @@ describe('labelIdsFor', () => {
   });
 });
 
-// ─── Site → Linear sync (AECI-213 / Phase 6.6) ───────────────────────────────
+// ─── Site → Linear sync (AECI-213 / Phase 6.6) — real transition writes on D1 ──
 
 const STATE_DONE = { id: WORKFLOW_STATE_IDS.resolved, name: 'Done', type: 'completed' };
 const STATE_CANCELED = { id: WORKFLOW_STATE_IDS.rejected, name: 'Canceled', type: 'canceled' };
 
 const RESOLUTION_INPUT: LinearResolutionInput = {
   requestId: REQUEST_ID,
-  workflowId: 'wf_1',
+  workflowId: WORKFLOW_ID,
   linearIssueId: 'iss_1',
   kind: 'claim',
   toStatus: 'resolved',
 };
+
+/** Seed the workflow instance the transition FK references. */
+const seedWorkflow = () =>
+  t.db.insert(workflowInstances).values({
+    id: WORKFLOW_ID,
+    workflowType: 'vendor_claim',
+    entityId: REQUEST_ID,
+    currentState: 'open',
+  });
+
+const allTransitions = () => t.db.select().from(workflowTransitions);
 
 function issueUpdateOk(state: { id: string; name: string; type: string } = STATE_DONE): Response {
   return new Response(
@@ -529,21 +513,6 @@ function mockSyncFetch(handlers: { update?: FetchHandler; comment?: FetchHandler
   }) as unknown as typeof fetch;
 }
 
-/** In-memory persist client; records every workflow_transitions insert. */
-function makeSyncPrisma(opts: { throwOnTransition?: boolean } = {}) {
-  const transitions: Array<Record<string, unknown>> = [];
-  const client = {
-    workflowTransition: {
-      async create({ data }: { data: Record<string, unknown> }) {
-        if (opts.throwOnTransition) throw new Error('db write failed');
-        transitions.push(data);
-        return data;
-      },
-    },
-  } as unknown as LinearSyncPersistClient;
-  return { client, transitions };
-}
-
 function findCall(fetchImpl: typeof fetch, op: string) {
   return vi.mocked(fetchImpl).mock.calls.find((c) => String(c[1]?.body).includes(op));
 }
@@ -560,10 +529,10 @@ function sentVars(init: RequestInit | undefined): {
 
 describe('pushRequestResolutionToLinear — resolve', () => {
   it('transitions the issue to Done, comments, and records the open→resolved transition', async () => {
+    await seedWorkflow();
     const fetchImpl = mockSyncFetch();
-    const { client, transitions } = makeSyncPrisma();
 
-    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+    await pushRequestResolutionToLinear(ctx(), t.db, RESOLUTION_INPUT, fetchImpl);
 
     // issueUpdate hit the Linear endpoint with the resolved (Done) state id.
     const updateCall = findCall(fetchImpl, 'issueUpdate')!;
@@ -578,10 +547,11 @@ describe('pushRequestResolutionToLinear — resolve', () => {
     expect(comment.input.issueId).toBe('iss_1');
     expect(String(comment.input.body)).toContain('resolved');
 
-    // exactly one transition, carrying the site-linear-sync provenance.
+    // exactly one transition row, carrying the site-linear-sync provenance.
+    const transitions = await allTransitions();
     expect(transitions).toHaveLength(1);
     expect(transitions[0]).toMatchObject({
-      workflowId: 'wf_1',
+      workflowId: WORKFLOW_ID,
       fromState: 'open',
       toState: 'resolved',
       actorId: null,
@@ -611,12 +581,14 @@ describe('pushRequestResolutionToLinear — resolve', () => {
 
 describe('pushRequestResolutionToLinear — reject', () => {
   it('transitions to Canceled and threads the actor + reason into the comment and transition', async () => {
+    await seedWorkflow();
+    // actor_id is a real FK → seed the admin profile.
+    await t.db.insert(profiles).values({ id: 'admin_1', role: 'admin' });
     const fetchImpl = mockSyncFetch({ update: () => issueUpdateOk(STATE_CANCELED) });
-    const { client, transitions } = makeSyncPrisma();
 
     await pushRequestResolutionToLinear(
       ctx(),
-      client,
+      t.db,
       {
         ...RESOLUTION_INPUT,
         toStatus: 'rejected',
@@ -637,6 +609,7 @@ describe('pushRequestResolutionToLinear — reject', () => {
     expect(body).toContain('chris@aeci.test');
     expect(body).toContain('Duplicate of an existing claim.');
 
+    const transitions = await allTransitions();
     expect(transitions[0]).toMatchObject({
       fromState: 'in_review',
       toState: 'rejected',
@@ -653,18 +626,18 @@ describe('pushRequestResolutionToLinear — reject', () => {
 
 describe('pushRequestResolutionToLinear — tolerance & failure', () => {
   it('skips (skip + info-log, no error, no transition) when linear_issue_id is null', async () => {
+    await seedWorkflow();
     const fetchImpl = mockSyncFetch();
-    const { client, transitions } = makeSyncPrisma();
 
     await pushRequestResolutionToLinear(
       ctx(),
-      client,
+      t.db,
       { ...RESOLUTION_INPUT, linearIssueId: null },
       fetchImpl,
     );
 
     expect(fetchImpl).not.toHaveBeenCalled();
-    expect(transitions).toHaveLength(0);
+    expect(await allTransitions()).toHaveLength(0);
     expect(lastTags()).toEqual(
       expect.arrayContaining(['outcome:skipped_no_issue', 'kind:claim', 'to_status:resolved']),
     );
@@ -677,28 +650,28 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
   });
 
   it('is a silent no-op (no fetch, no metric, no transition) when LINEAR_API_KEY is absent', async () => {
+    await seedWorkflow();
     const fetchImpl = mockSyncFetch();
-    const { client, transitions } = makeSyncPrisma();
 
     await pushRequestResolutionToLinear(
       ctx({ LINEAR_API_KEY: undefined }),
-      client,
+      t.db,
       RESOLUTION_INPUT,
       fetchImpl,
     );
 
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(submitCount).not.toHaveBeenCalled();
-    expect(transitions).toHaveLength(0);
+    expect(await allTransitions()).toHaveLength(0);
   });
 
   it('treats a 200-with-errors issueUpdate as failed: no comment, no transition', async () => {
+    await seedWorkflow();
     const fetchImpl = mockSyncFetch({ update: graphqlErrors });
-    const { client, transitions } = makeSyncPrisma();
 
-    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+    await pushRequestResolutionToLinear(ctx(), t.db, RESOLUTION_INPUT, fetchImpl);
 
-    expect(transitions).toHaveLength(0);
+    expect(await allTransitions()).toHaveLength(0);
     expect(findCall(fetchImpl, 'commentCreate')).toBeUndefined();
     expect(lastTags()).toEqual(
       expect.arrayContaining(['outcome:failed', 'reason:graphql_error', 'to_status:resolved']),
@@ -712,6 +685,7 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
   });
 
   it('treats issueUpdate success:false as failed', async () => {
+    await seedWorkflow();
     const fetchImpl = mockSyncFetch({
       update: () =>
         new Response(JSON.stringify({ data: { issueUpdate: { success: false, issue: null } } }), {
@@ -719,21 +693,20 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
           headers: { 'content-type': 'application/json' },
         }),
     });
-    const { client, transitions } = makeSyncPrisma();
 
-    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+    await pushRequestResolutionToLinear(ctx(), t.db, RESOLUTION_INPUT, fetchImpl);
 
-    expect(transitions).toHaveLength(0);
+    expect(await allTransitions()).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:graphql_error']));
   });
 
   it('still records the transition when the comment fails (best-effort)', async () => {
+    await seedWorkflow();
     const fetchImpl = mockSyncFetch({ comment: graphqlErrors });
-    const { client, transitions } = makeSyncPrisma();
 
-    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+    await pushRequestResolutionToLinear(ctx(), t.db, RESOLUTION_INPUT, fetchImpl);
 
-    expect(transitions).toHaveLength(1); // recorded despite the comment failure
+    expect(await allTransitions()).toHaveLength(1); // recorded despite the comment failure
     expect(lastOutcome()).toBe('outcome:ok');
     expect(logToDatadog).toHaveBeenCalledWith(
       expect.anything(),
@@ -743,13 +716,13 @@ describe('pushRequestResolutionToLinear — tolerance & failure', () => {
     );
   });
 
-  it('fails as db_error (no throw) when the transition write throws', async () => {
+  it('fails as db_error (no throw) when the transition write throws (FK violation)', async () => {
+    // No workflow instance seeded → the transition FK fails → db_error path.
     const fetchImpl = mockSyncFetch();
-    const { client, transitions } = makeSyncPrisma({ throwOnTransition: true });
 
-    await pushRequestResolutionToLinear(ctx(), client, RESOLUTION_INPUT, fetchImpl);
+    await pushRequestResolutionToLinear(ctx(), t.db, RESOLUTION_INPUT, fetchImpl);
 
-    expect(transitions).toHaveLength(0);
+    expect(await allTransitions()).toHaveLength(0);
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:failed', 'reason:db_error']));
     expect(logToDatadog).toHaveBeenCalledWith(
       expect.anything(),

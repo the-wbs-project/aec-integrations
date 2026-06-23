@@ -1,751 +1,143 @@
 /**
- * Unit coverage for the Phase 5.13 admin moderation API (AECI-204):
- *
- *   GET   /api/admin/reviews
- *   PATCH /api/admin/reviews/:id
- *
- * The handlers are exercised in isolation (mirroring `reviews.spec.ts`): a
- * middleware sets the `auth` Variable that `requireAdmin()` would, a hand-rolled
- * fake Prisma surface stands in for the accelerated client, and the
- * email-lookup + recompute side effects are injected so each can be asserted
- * without a DB. The AC matrix: list filters / sort / pagination / email
- * hydration; approve recomputes + purges + audits; reject requires a reason and
- * does neither; non-pending → 422; not-found → 404.
- *
- * One integration block wires the REAL `requireAdmin()` (offline ES256 JWKS via
- * the `getKey` seam, same as `authz.spec.ts`) to pin the non-admin → 403 path
- * the `index.ts` sub-router uses.
+ * Admin moderation API (AECI-204 / Phase 5.13) on the Drizzle/D1 path (ADR 0016 /
+ * AECI-253), against the in-memory D1 harness. Asserts the moderation batch
+ * (status + audit + workflow), the post-batch count recompute, and the seam-#2
+ * email lookup (injected).
  */
 
-import { ApiErrorCode, ListPendingReviewsResponseSchema } from '@aeci/shared';
 import { Hono } from 'hono';
-import {
-  SignJWT,
-  createLocalJWKSet,
-  exportJWK,
-  generateKeyPair,
-  type JWK,
-  type JWTVerifyGetKey,
-} from 'jose';
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { submitCount } from '../datadog';
+import {
+  auditLog,
+  products,
+  profiles,
+  reviews,
+  workflowInstances,
+  workflowTransitions,
+} from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
-import { requireAdmin, type AuthzProfileClient, type AuthzVariables } from '../lib/authz';
-import {
-  createAdminReviewsListHandler,
-  createModerateReviewHandler,
-  type FetchReviewerEmails,
-} from './admin-reviews';
+import type { AuthzVariables } from '../lib/authz';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { createAdminReviewsListHandler, createModerateReviewHandler } from './admin-reviews';
 
-// AECI-206: `aeci.moderation.action` (and the existing `aeci.cache.purge`) ride
-// the shared transport; mock it so we can assert the per-action metric. The
-// handler also imports `logToDatadog` (audit forwarder / purge warn).
-vi.mock('../datadog', () => ({
-  logToDatadog: vi.fn(),
-  submitCount: vi.fn(),
-  submitDistribution: vi.fn(),
-  submitGauge: vi.fn(),
-}));
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const ADMIN = u(900);
+const REVIEWER = u(901);
 
-/** The tag arrays recorded for `aeci.moderation.action` this test. */
-function moderationActions(): string[][] {
-  return vi
-    .mocked(submitCount)
-    .mock.calls.filter((call) => call[3] === 'aeci.moderation.action')
-    .map((call) => call[5] as string[]);
-}
-
-beforeEach(() => {
-  vi.mocked(submitCount).mockClear();
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+  await t.db.insert(profiles).values([{ id: ADMIN, role: 'admin' }, { id: REVIEWER }]);
+  await t.db
+    .insert(products)
+    .values({ id: u(1), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
 });
+afterEach(() => t.dispose());
 
-const ADMIN_ID = 'admin-uuid-1';
-const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
-const REVIEWER_ID = '22222222-2222-4222-8222-222222222222';
-const REVIEW_ID = '33333333-3333-4333-8333-333333333333';
-
-const ADMIN_AUTH: AuthzVariables['auth'] = {
-  userId: ADMIN_ID,
-  email: 'admin@aeci.test',
-  role: 'admin',
-};
-
-const ENV = { DD_API_KEY: undefined } as Env;
-
-/** ExecutionContext stub whose `waitUntil` is a spy, so the post-commit purge
- *  trigger can be asserted (and the 500 / telemetry branches don't throw). */
-function executionCtxStub() {
-  const waitUntil = vi.fn((_p: Promise<unknown>) => {});
-  const ctx = {
-    waitUntil,
-    passThroughOnException: () => {},
-    props: {},
-  } as unknown as ExecutionContext;
-  return { ctx, waitUntil };
+async function seedReview(id: string, status: string) {
+  await t.db.insert(reviews).values({
+    id,
+    productId: u(1),
+    reviewerId: REVIEWER,
+    ratingOverall: 5,
+    ratingOnboarding: 4,
+    title: 'T',
+    body: 'B',
+    status,
+  });
 }
 
-/** A full admin row as `adminReviewSelect` would return it (camelCase, Date). */
-function adminRow(overrides: Record<string, unknown> = {}) {
-  return {
-    id: REVIEW_ID,
-    reviewerId: REVIEWER_ID,
-    ratingOverall: 4,
-    ratingOnboarding: 5,
-    title: 'Solid Revit add-in',
-    body: 'We rolled this out across two studios and onboarding took about a day. Stable since.',
-    roleAtCompany: 'practitioner',
-    yearsUsing: 3,
-    wouldRecommend: 'yes',
-    verifiedWorkEmail: true,
-    locale: 'en-US',
-    status: 'pending',
-    toxicityScore: 12,
-    rejectionReason: null,
-    moderatedAt: null,
-    createdAt: new Date('2026-06-01T00:00:00.000Z'),
-    product: { id: PRODUCT_ID, name: 'Procore', slug: 'procore' },
-    ...overrides,
-  };
-}
+const emails = vi.fn(async () => new Map([[REVIEWER, 'rev@example.com']]));
 
-/** Email lookup fake: every requested id maps to `<id>@example.test`. */
-const fakeFetchEmails: FetchReviewerEmails = async (_prisma, ids) =>
-  new Map(ids.map((id) => [id, `${id}@example.test`]));
-
-// ─── GET /api/admin/reviews ──────────────────────────────────────────────────
-
-function listPrisma(rows: unknown[], total = rows.length) {
-  const findMany = vi.fn(async (_args: unknown) => rows);
-  const count = vi.fn(async (_args: unknown) => total);
-  return { prisma: { review: { findMany, count } }, findMany, count };
-}
-
-function listApp(
-  prisma: unknown,
-  fetchEmails: FetchReviewerEmails = fakeFetchEmails,
-  auth: AuthzVariables['auth'] = ADMIN_AUTH,
-) {
-  const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
-  app.onError(errorHandler());
-  app.use('/api/admin/reviews', async (c, next) => {
-    c.set('auth', auth);
+function listApp() {
+  const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+  a.onError(errorHandler());
+  a.use('*', async (c, next) => {
+    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
     await next();
   });
-  app.get(
-    '/api/admin/reviews',
-    createAdminReviewsListHandler(() => prisma as never, fetchEmails),
-  );
-  return app;
+  a.get('/api/admin/reviews', createAdminReviewsListHandler(t.factory, emails));
+  return a;
 }
-
-function getList(app: Hono<{ Bindings: Env; Variables: AuthzVariables }>, qs = '') {
-  return app.request(`/api/admin/reviews${qs}`, {}, ENV, executionCtxStub().ctx);
-}
-
-describe('GET /api/admin/reviews', () => {
-  it('defaults to pending + queue_age (oldest-first) and hydrates reviewer_email + toxicity_score', async () => {
-    const { prisma, findMany, count } = listPrisma([adminRow()]);
-    const res = await getList(listApp(prisma));
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
-    const parsed = ListPendingReviewsResponseSchema.parse(await res.json());
-    expect(parsed.page).toBe(1);
-    expect(parsed.perPage).toBe(24);
-    expect(parsed.total).toBe(1);
-    expect(parsed.data[0]?.reviewer_email).toBe(`${REVIEWER_ID}@example.test`);
-    expect(parsed.data[0]?.toxicity_score).toBe(12);
-    expect(parsed.data[0]?.product).toEqual({ id: PRODUCT_ID, name: 'Procore', slug: 'procore' });
-
-    const call = findMany.mock.calls[0][0] as {
-      where: { status: string };
-      orderBy: unknown;
-      skip: number;
-      take: number;
-    };
-    expect(call.where).toEqual({ status: 'pending' });
-    expect(call.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }]);
-    expect(call.skip).toBe(0);
-    expect(call.take).toBe(24);
-    expect((count.mock.calls[0][0] as { where: unknown }).where).toEqual({ status: 'pending' });
-  });
-
-  it('filters by status=approved', async () => {
-    const { prisma, findMany, count } = listPrisma([adminRow({ status: 'approved' })]);
-    await getList(listApp(prisma), '?status=approved');
-    expect((findMany.mock.calls[0][0] as { where: unknown }).where).toEqual({ status: 'approved' });
-    expect((count.mock.calls[0][0] as { where: unknown }).where).toEqual({ status: 'approved' });
-  });
-
-  it('filters by status=rejected', async () => {
-    const { prisma, findMany } = listPrisma([adminRow({ status: 'rejected' })]);
-    await getList(listApp(prisma), '?status=rejected');
-    expect((findMany.mock.calls[0][0] as { where: unknown }).where).toEqual({ status: 'rejected' });
-  });
-
-  it('sort=created_at orders newest-first', async () => {
-    const { prisma, findMany } = listPrisma([adminRow()]);
-    await getList(listApp(prisma), '?sort=created_at');
-    expect((findMany.mock.calls[0][0] as { orderBy: unknown }).orderBy).toEqual([
-      { createdAt: 'desc' },
-      { id: 'asc' },
-    ]);
-  });
-
-  it('honors page/perPage with the correct skip/take', async () => {
-    const { prisma, findMany } = listPrisma([], 40);
-    await getList(listApp(prisma), '?page=3&perPage=10');
-    const call = findMany.mock.calls[0][0] as { skip: number; take: number };
-    expect(call.skip).toBe(20);
-    expect(call.take).toBe(10);
-  });
-
-  it('returns reviewer_email: null for an anonymized review (reviewer_id null)', async () => {
-    const fetchEmails = vi.fn(fakeFetchEmails);
-    const { prisma } = listPrisma([adminRow({ reviewerId: null })]);
-    const res = await getList(listApp(prisma, fetchEmails));
-    const parsed = ListPendingReviewsResponseSchema.parse(await res.json());
-    expect(parsed.data[0]?.reviewer_email).toBeNull();
-    // No reviewer ids on the page → the lookup is skipped entirely.
-    expect(fetchEmails).not.toHaveBeenCalled();
-  });
-
-  it('degrades to reviewer_email: null when the auth.users lookup throws (no 500)', async () => {
-    const throwingFetch: FetchReviewerEmails = async () => {
-      throw new Error('permission denied for relation users');
-    };
-    const { prisma } = listPrisma([adminRow()]);
-    const res = await getList(listApp(prisma, throwingFetch));
-    expect(res.status).toBe(200);
-    const parsed = ListPendingReviewsResponseSchema.parse(await res.json());
-    expect(parsed.data[0]?.reviewer_email).toBeNull();
-  });
-
-  it('returns an empty page when no reviews match', async () => {
-    const { prisma } = listPrisma([], 0);
-    const res = await getList(listApp(prisma));
-    expect(res.status).toBe(200);
-    const parsed = ListPendingReviewsResponseSchema.parse(await res.json());
-    expect(parsed.data).toEqual([]);
-    expect(parsed.total).toBe(0);
-  });
-});
-
-// ─── PATCH /api/admin/reviews/:id ────────────────────────────────────────────
-
-function moderatePrisma(
-  opts: {
-    existing?: unknown;
-    updateCount?: number;
-    workflowMissing?: boolean;
-    rejectedCount?: number;
-  } = {},
-) {
-  const findUnique = vi.fn(async (_args: unknown) =>
-    opts.existing === undefined ? adminRow() : opts.existing,
-  );
-  const updateMany = vi.fn(async (_args: unknown) => ({ count: opts.updateCount ?? 1 }));
-  // AECI-218: the post-commit repeat-offender count (reject-only). Defaults to 0
-  // so existing approve/reject assertions see `repeat_offender: null`.
-  const reviewCount = vi.fn(async (_args: unknown) => opts.rejectedCount ?? 0);
-  const auditCreate = vi.fn(async (_args: unknown) => ({}));
-  // Phase 6.3 (AECI-210): the `review_moderation` workflow surfaces. `findFirst`
-  // returns null when `workflowMissing` (the retrofit branch: a review submitted
-  // before AECI-210 has no instance), forcing the on-the-fly create.
-  const workflowFindFirst = vi.fn(async (_args: unknown) =>
-    opts.workflowMissing ? null : { id: 'wf-1' },
-  );
-  const workflowCreate = vi.fn(async (_args: unknown) => ({ id: 'wf-1' }));
-  const workflowUpdate = vi.fn(async (_args: unknown) => ({}));
-  const transitionCreate = vi.fn(async (_args: unknown) => ({}));
-  const tx = {
-    review: { updateMany },
-    auditLog: { create: auditCreate },
-    workflowInstance: {
-      findFirst: workflowFindFirst,
-      create: workflowCreate,
-      update: workflowUpdate,
-    },
-    workflowTransition: { create: transitionCreate },
-  };
-  const prisma = {
-    review: { findUnique, count: reviewCount },
-    $transaction: async <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
-  };
-  return {
-    prisma,
-    findUnique,
-    updateMany,
-    reviewCount,
-    auditCreate,
-    workflowFindFirst,
-    workflowCreate,
-    workflowUpdate,
-    transitionCreate,
-  };
-}
-
-function moderateApp(
-  prisma: unknown,
-  opts: {
-    fetchEmails?: FetchReviewerEmails;
-    recompute?: (db: unknown, ids: Iterable<string>) => Promise<void>;
-    auth?: AuthzVariables['auth'];
-    env?: Env;
-  } = {},
-) {
-  const recompute = opts.recompute ?? vi.fn(async () => {});
-  const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
-  app.onError(errorHandler());
-  app.use('/api/admin/reviews/:id', async (c, next) => {
-    c.set('auth', opts.auth ?? ADMIN_AUTH);
+function moderateApp() {
+  const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+  a.onError(errorHandler());
+  a.use('*', async (c, next) => {
+    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
     await next();
   });
-  app.patch(
-    '/api/admin/reviews/:id',
-    createModerateReviewHandler(
-      () => prisma as never,
-      opts.fetchEmails ?? fakeFetchEmails,
-      recompute as never,
-    ),
-  );
-  return { app, recompute, env: opts.env ?? ENV };
+  a.patch('/api/admin/reviews/:id', createModerateReviewHandler(t.factory, emails));
+  return a;
 }
-
-function patchReq(
-  app: Hono<{ Bindings: Env; Variables: AuthzVariables }>,
-  body: unknown,
-  env: Env = ENV,
-  id = REVIEW_ID,
-) {
-  const { ctx, waitUntil } = executionCtxStub();
-  const res = app.request(
+const patch = (id: string, body: unknown) =>
+  moderateApp().request(
     `/api/admin/reviews/${id}`,
     {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: typeof body === 'string' ? body : JSON.stringify(body),
+      body: JSON.stringify(body),
+      headers: { 'content-type': 'application/json' },
     },
-    env,
-    ctx,
+    TEST_ENV,
+    fakeExecutionContext(),
   );
-  return { res, waitUntil };
-}
 
-describe('PATCH /api/admin/reviews/:id', () => {
-  afterEach(() => {
-    vi.unstubAllGlobals();
-  });
-
-  it('approves a pending review: status, moderator, recompute, audit', async () => {
-    const { prisma, updateMany, auditCreate, workflowFindFirst, workflowUpdate, transitionCreate } =
-      moderatePrisma();
-    const { app, recompute } = moderateApp(prisma);
-    const { res } = patchReq(app, { action: 'approve' });
-    const response = await res;
-
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      review: Record<string, unknown>;
-      repeat_offender: unknown;
-    };
-    expect(body.review.status).toBe('approved');
-    expect(body.review.moderated_at).toEqual(expect.any(String));
-    expect(body.review.reviewer_email).toBe(`${REVIEWER_ID}@example.test`);
-    // Approve never carries the repeat-offender prompt.
-    expect(body.repeat_offender).toBeNull();
-
-    const updateArgs = updateMany.mock.calls[0][0] as {
-      where: { id: string; status: string };
-      data: Record<string, unknown>;
-    };
-    expect(updateArgs.where).toEqual({ id: REVIEW_ID, status: 'pending' });
-    expect(updateArgs.data).toMatchObject({ status: 'approved', moderatedBy: ADMIN_ID });
-    expect(updateArgs.data.moderatedAt).toBeInstanceOf(Date);
-    expect(updateArgs.data).not.toHaveProperty('rejectionReason');
-
-    // Recompute fires once, for this review's product, inside the tx.
-    expect(recompute).toHaveBeenCalledTimes(1);
-    expect((recompute as ReturnType<typeof vi.fn>).mock.calls[0][1]).toEqual([PRODUCT_ID]);
-
-    expect(auditCreate).toHaveBeenCalledTimes(1);
-    expect((auditCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data).toMatchObject({
-      actorId: ADMIN_ID,
-      actorType: 'admin',
-      action: 'review.approved',
-      entityType: 'review',
-      entityId: REVIEW_ID,
-      metadata: { source: 'admin-moderation', product_id: PRODUCT_ID },
-    });
-
-    // Phase 6.3 (AECI-210): the existing instance is found (not created), the
-    // pending → approved transition is recorded with no reason, and the instance
-    // is marked complete with `current_state` mirroring the new status.
-    expect(workflowFindFirst).toHaveBeenCalledTimes(1);
-    expect((workflowFindFirst.mock.calls[0][0] as { where: unknown }).where).toEqual({
-      workflowType: 'review_moderation',
-      entityId: REVIEW_ID,
-    });
-    expect(transitionCreate).toHaveBeenCalledTimes(1);
-    expect(
-      (transitionCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
-    ).toMatchObject({
-      workflowId: 'wf-1',
-      fromState: 'pending',
-      toState: 'approved',
-      actorId: ADMIN_ID,
-      reason: null,
-      metadata: { source: 'admin-moderation', product_id: PRODUCT_ID },
-    });
-    const wfUpdate = workflowUpdate.mock.calls[0][0] as {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    };
-    expect(wfUpdate.where).toEqual({ id: 'wf-1' });
-    expect(wfUpdate.data).toMatchObject({ currentState: 'approved', finalOutcome: 'approved' });
-    expect(wfUpdate.data.completedAt).toBeInstanceOf(Date);
-
-    // AECI-206: one committed approve.
-    expect(moderationActions()).toEqual([['action:approve', 'outcome:ok']]);
-  });
-
-  it('purges the product Cache-Tag on approve (creds present)', async () => {
-    const fetchMock = vi.fn(
-      async (_url: string, _init?: RequestInit) =>
-        ({ ok: true, status: 200 }) as unknown as Response,
-    );
-    vi.stubGlobal('fetch', fetchMock);
-    const { prisma } = moderatePrisma();
-    const env = { DD_API_KEY: undefined, CF_PURGE_API_TOKEN: 'tok', CF_ZONE_ID: 'zone-1' } as Env;
-    const { app } = moderateApp(prisma, { env });
-    const { res, waitUntil } = patchReq(app, { action: 'approve' }, env);
-    await res;
-
-    expect(waitUntil).toHaveBeenCalledTimes(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0];
-    expect(url).toContain('/zones/zone-1/purge_cache');
-    expect(JSON.parse(init?.body as string)).toEqual({ tags: ['product:procore'] });
-  });
-
-  it('rejects a pending review: required reason stored, no recompute, no purge', async () => {
-    const { prisma, updateMany, auditCreate, transitionCreate, workflowUpdate } = moderatePrisma();
-    const env = { DD_API_KEY: undefined, CF_PURGE_API_TOKEN: 'tok', CF_ZONE_ID: 'zone-1' } as Env;
-    const { app, recompute } = moderateApp(prisma, { env });
-    const { res, waitUntil } = patchReq(app, { action: 'reject', rejection_reason: 'Spam' }, env);
-    const response = await res;
-
-    expect(response.status).toBe(200);
-    const body = (await response.json()) as {
-      review: Record<string, unknown>;
-      repeat_offender: unknown;
-    };
-    expect(body.review.status).toBe('rejected');
-    expect(body.review.rejection_reason).toBe('Spam');
-    // 1 prior rejection (the fake's default count) is below the threshold.
-    expect(body.repeat_offender).toBeNull();
-
-    expect((updateMany.mock.calls[0][0] as { data: Record<string, unknown> }).data).toMatchObject({
-      status: 'rejected',
-      moderatedBy: ADMIN_ID,
-      rejectionReason: 'Spam',
-    });
-    // Reject never touches public aggregates or the edge cache.
-    expect(recompute).not.toHaveBeenCalled();
-    expect(waitUntil).not.toHaveBeenCalled();
-    expect((auditCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data).toMatchObject({
-      action: 'review.rejected',
-      metadata: { source: 'admin-moderation', product_id: PRODUCT_ID, rejection_reason: 'Spam' },
-    });
-
-    // Phase 6.3 (AECI-210): the pending → rejected transition carries the reason,
-    // and the instance is closed out as `rejected`.
-    expect(
-      (transitionCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
-    ).toMatchObject({
-      workflowId: 'wf-1',
-      fromState: 'pending',
-      toState: 'rejected',
-      actorId: ADMIN_ID,
-      reason: 'Spam',
-      metadata: { source: 'admin-moderation', product_id: PRODUCT_ID, rejection_reason: 'Spam' },
-    });
-    expect(
-      (workflowUpdate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
-    ).toMatchObject({
-      currentState: 'rejected',
-      finalOutcome: 'rejected',
-    });
-
-    expect(moderationActions()).toEqual([['action:reject', 'outcome:ok']]);
-  });
-
-  it('retrofit: creates the workflow instance on the fly when a legacy review has none', async () => {
-    // A review submitted before AECI-210 has no `review_moderation` instance →
-    // `findFirst` returns null → the handler creates one, then transitions it.
-    const { prisma, workflowCreate, transitionCreate, workflowUpdate } = moderatePrisma({
-      workflowMissing: true,
-    });
-    const { app } = moderateApp(prisma);
-    const { res } = patchReq(app, { action: 'approve' });
-    const response = await res;
-
-    expect(response.status).toBe(200);
-    expect(workflowCreate).toHaveBeenCalledTimes(1);
-    expect(
-      (workflowCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
-    ).toMatchObject({
-      workflowType: 'review_moderation',
-      entityId: REVIEW_ID,
-      currentState: 'pending',
-    });
-    // The transition + instance close-out still run against the freshly created row.
-    expect(
-      (transitionCreate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
-    ).toMatchObject({ workflowId: 'wf-1', fromState: 'pending', toState: 'approved' });
-    expect(
-      (workflowUpdate.mock.calls[0][0] as { data: Record<string, unknown> }).data,
-    ).toMatchObject({
-      currentState: 'approved',
-      finalOutcome: 'approved',
-    });
-  });
-
-  it('rejects with 400 VALIDATION_FAILED when rejection_reason is missing', async () => {
-    const { prisma, findUnique, updateMany } = moderatePrisma();
-    const { app } = moderateApp(prisma);
-    const { res } = patchReq(app, { action: 'reject' });
-    const response = await res;
-
-    expect(response.status).toBe(400);
-    const body = (await response.json()) as { error: { code: string; field?: string } };
-    expect(body.error.code).toBe(ApiErrorCode.VALIDATION_FAILED);
-    expect(body.error.field).toBe('rejection_reason');
-    // Validation fails before any DB work.
-    expect(findUnique).not.toHaveBeenCalled();
-    expect(updateMany).not.toHaveBeenCalled();
-  });
-
-  it('rejects with 400 when rejection_reason is whitespace-only', async () => {
-    const { prisma } = moderatePrisma();
-    const { app } = moderateApp(prisma);
-    const { res } = patchReq(app, { action: 'reject', rejection_reason: '   ' });
-    const response = await res;
-    expect(response.status).toBe(400);
-    expect(((await response.json()) as { error: { field?: string } }).error.field).toBe(
-      'rejection_reason',
-    );
-  });
-
-  it('returns 422 INVALID_STATE_TRANSITION for a non-pending review', async () => {
-    const { prisma, updateMany } = moderatePrisma({ existing: adminRow({ status: 'approved' }) });
-    const { app } = moderateApp(prisma);
-    const { res } = patchReq(app, { action: 'approve' });
-    const response = await res;
-
-    expect(response.status).toBe(422);
-    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
-      ApiErrorCode.INVALID_STATE_TRANSITION,
-    );
-    expect(updateMany).not.toHaveBeenCalled();
-    // The non-pending guard reports an invalid-state attempt (tagged by action).
-    expect(moderationActions()).toEqual([['action:approve', 'outcome:invalid_state']]);
-  });
-
-  it('returns the canonical 404 envelope for an unknown review id', async () => {
-    const { prisma, updateMany } = moderatePrisma({ existing: null });
-    const { app } = moderateApp(prisma);
-    const { res } = patchReq(app, { action: 'approve' });
-    const response = await res;
-
-    expect(response.status).toBe(404);
-    const body = (await response.json()) as {
-      error: { code: string; details?: { resource?: string; id?: string } };
-    };
-    expect(body.error.code).toBe('NOT_FOUND');
-    expect(body.error.details).toEqual({ resource: 'review', id: REVIEW_ID });
-    expect(updateMany).not.toHaveBeenCalled();
-  });
-
-  it('returns 422 when the row is no longer pending at update time (concurrent race)', async () => {
-    // Preload sees pending, but the guarded updateMany matches 0 rows.
-    const { prisma, auditCreate, transitionCreate, workflowCreate, workflowUpdate } =
-      moderatePrisma({
-        updateCount: 0,
-      });
-    const { app, recompute } = moderateApp(prisma);
-    const { res } = patchReq(app, { action: 'approve' });
-    const response = await res;
-
-    expect(response.status).toBe(422);
-    expect(((await response.json()) as { error: { code: string } }).error.code).toBe(
-      ApiErrorCode.INVALID_STATE_TRANSITION,
-    );
-    // The transition rolled back before recompute / audit / workflow writes.
-    expect(recompute).not.toHaveBeenCalled();
-    expect(auditCreate).not.toHaveBeenCalled();
-    expect(transitionCreate).not.toHaveBeenCalled();
-    expect(workflowCreate).not.toHaveBeenCalled();
-    expect(workflowUpdate).not.toHaveBeenCalled();
-    // The concurrent-race guard also reports an invalid-state attempt.
-    expect(moderationActions()).toEqual([['action:approve', 'outcome:invalid_state']]);
-  });
-
-  // ── AECI-218 repeat-offender prompt ──────────────────────────────────────────
-  describe('repeat-offender prompt', () => {
-    it('surfaces the prompt on the reviewer’s 3rd rejection', async () => {
-      const { prisma, reviewCount } = moderatePrisma({ rejectedCount: 3 });
-      const { app } = moderateApp(prisma);
-      const { res } = patchReq(app, { action: 'reject', rejection_reason: 'Spam again.' });
-      const response = await res;
-
-      expect(response.status).toBe(200);
-      const body = (await response.json()) as {
-        repeat_offender: {
-          reviewer_id: string;
-          reviewer_email: string | null;
-          rejected_count: number;
-        } | null;
-      };
-      expect(body.repeat_offender).toEqual({
-        reviewer_id: REVIEWER_ID,
-        reviewer_email: `${REVIEWER_ID}@example.test`,
-        rejected_count: 3,
-      });
-      // Counted this reviewer's rejected reviews (the just-rejected row included).
-      expect((reviewCount.mock.calls[0][0] as { where: unknown }).where).toEqual({
-        reviewerId: REVIEWER_ID,
-        status: 'rejected',
-      });
-    });
-
-    it('does not surface the prompt below the threshold (2nd rejection)', async () => {
-      const { prisma } = moderatePrisma({ rejectedCount: 2 });
-      const { app } = moderateApp(prisma);
-      const { res } = patchReq(app, { action: 'reject', rejection_reason: 'Spam.' });
-      const body = (await (await res).json()) as { repeat_offender: unknown };
-      expect(body.repeat_offender).toBeNull();
-    });
-
-    it('never counts or prompts for an anonymized review (reviewer_id null)', async () => {
-      const { prisma, reviewCount } = moderatePrisma({
-        existing: adminRow({ reviewerId: null }),
-        rejectedCount: 9,
-      });
-      const { app } = moderateApp(prisma);
-      const { res } = patchReq(app, { action: 'reject', rejection_reason: 'Spam.' });
-      const body = (await (await res).json()) as { repeat_offender: unknown };
-      expect(body.repeat_offender).toBeNull();
-      expect(reviewCount).not.toHaveBeenCalled();
-    });
-
-    it('never counts or prompts on approve, even with prior rejections', async () => {
-      const { prisma, reviewCount } = moderatePrisma({ rejectedCount: 9 });
-      const { app } = moderateApp(prisma);
-      const { res } = patchReq(app, { action: 'approve' });
-      const body = (await (await res).json()) as { repeat_offender: unknown };
-      expect(body.repeat_offender).toBeNull();
-      expect(reviewCount).not.toHaveBeenCalled();
-    });
-  });
-});
-
-// ─── Integration: real requireAdmin() in front of the real list handler ───────
-
-const SUPABASE_URL = 'https://test-project.supabase.co';
-const ISSUER = `${SUPABASE_URL}/auth/v1`;
-
-let privateKey: CryptoKey;
-let getKey: JWTVerifyGetKey;
-
-beforeAll(async () => {
-  const pair = await generateKeyPair('ES256');
-  privateKey = pair.privateKey as CryptoKey;
-  const publicJwk: JWK = { ...(await exportJWK(pair.publicKey)), kid: 'test-key', alg: 'ES256' };
-  getKey = createLocalJWKSet({ keys: [publicJwk] });
-});
-
-async function mintToken(sub: string): Promise<string> {
-  return new SignJWT({ sub })
-    .setProtectedHeader({ alg: 'ES256', kid: 'test-key' })
-    .setIssuedAt()
-    .setIssuer(ISSUER)
-    .setAudience('authenticated')
-    .setExpirationTime('1h')
-    .sign(privateKey);
-}
-
-type ProfileRow = { role: string; bannedAt: Date | null; banReason: string | null };
-
-function authProfileClient(profiles: Record<string, ProfileRow>): AuthzProfileClient {
-  return {
-    profile: {
-      findUnique: ({ where }) => Promise.resolve(profiles[where.id] ?? null),
-    },
-  };
-}
-
-function adminGuardedApp(profiles: Record<string, ProfileRow>, prisma: unknown) {
-  const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
-  app.onError(errorHandler());
-  app.get(
-    '/api/admin/reviews',
-    requireAdmin({ getKey, getClient: () => authProfileClient(profiles) }),
-    createAdminReviewsListHandler(() => prisma as never, fakeFetchEmails),
-  );
-  return app;
-}
-
-describe('GET /api/admin/reviews (with requireAdmin middleware)', () => {
-  const GUARD_ENV = { SUPABASE_URL, DD_API_KEY: undefined } as Env;
-
-  it('rejects a non-admin (reviewer) with 403 FORBIDDEN before the handler runs', async () => {
-    const { prisma, findMany } = listPrisma([adminRow()]);
-    const app = adminGuardedApp(
-      { 'user-reviewer': { role: 'reviewer', bannedAt: null, banReason: null } },
-      prisma,
-    );
-    const token = await mintToken('user-reviewer');
-    const res = await app.request(
-      '/api/admin/reviews',
-      { headers: { Authorization: `Bearer ${token}` } },
-      GUARD_ENV,
-    );
-
-    expect(res.status).toBe(403);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-      ApiErrorCode.FORBIDDEN,
-    );
-    expect(findMany).not.toHaveBeenCalled();
-  });
-
-  it('admits an admin end-to-end (200)', async () => {
-    const { prisma } = listPrisma([adminRow()]);
-    const app = adminGuardedApp(
-      { 'user-admin': { role: 'admin', bannedAt: null, banReason: null } },
-      prisma,
-    );
-    const token = await mintToken('user-admin');
-    const res = await app.request(
-      '/api/admin/reviews',
-      { headers: { Authorization: `Bearer ${token}` } },
-      GUARD_ENV,
+describe('GET /api/admin/reviews', () => {
+  it('lists pending reviews with the reviewer email (seam #2)', async () => {
+    await seedReview(u(11), 'pending');
+    const res = await listApp().request(
+      '/api/admin/reviews?status=pending',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
     );
     expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      total: number;
+      data: Array<{ reviewer_email: string | null }>;
+    };
+    expect(body.total).toBe(1);
+    expect(body.data[0]!.reviewer_email).toBe('rev@example.com');
+  });
+});
+
+describe('PATCH /api/admin/reviews/:id', () => {
+  it('approves: status, audit, workflow, and recomputed product counts', async () => {
+    await seedReview(u(11), 'pending');
+    const res = await patch(u(11), { action: 'approve' });
+    expect(res.status).toBe(200);
+
+    expect((await t.db.select().from(reviews))[0]!.status).toBe('approved');
+    // recompute ran post-batch: the product's denormalized review_count = 1.
+    expect((await t.db.select().from(products))[0]!.reviewCount).toBe(1);
+    expect((await t.db.select().from(auditLog)).some((a) => a.action === 'review.approved')).toBe(
+      true,
+    );
+    const wf = await t.db.select().from(workflowInstances);
+    expect(wf[0]!.currentState).toBe('approved');
+    expect((await t.db.select().from(workflowTransitions))[0]!.toState).toBe('approved');
   });
 
-  it('rejects a missing token with 401 UNAUTHENTICATED', async () => {
-    const { prisma } = listPrisma([adminRow()]);
-    const app = adminGuardedApp(
-      { 'user-admin': { role: 'admin', bannedAt: null, banReason: null } },
-      prisma,
-    );
-    const res = await app.request('/api/admin/reviews', {}, GUARD_ENV);
-    expect(res.status).toBe(401);
-    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
-      ApiErrorCode.UNAUTHENTICATED,
-    );
+  it('rejects with a reason', async () => {
+    await seedReview(u(11), 'pending');
+    const res = await patch(u(11), {
+      action: 'reject',
+      rejection_reason: 'Spam / not a genuine review.',
+    });
+    expect(res.status).toBe(200);
+    const [row] = await t.db.select().from(reviews);
+    expect(row!.status).toBe('rejected');
+    expect(row!.rejectionReason).toBe('Spam / not a genuine review.');
+  });
+
+  it('422s a non-pending review', async () => {
+    await seedReview(u(11), 'approved');
+    expect((await patch(u(11), { action: 'approve' })).status).toBe(422);
+  });
+
+  it('404s an unknown review', async () => {
+    expect((await patch(u(999), { action: 'approve' })).status).toBe(404);
   });
 });
