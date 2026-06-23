@@ -95,6 +95,32 @@ describe('ReviewForm', () => {
     httpMock.verify();
   });
 
+  it('wires the role-at-company trigger as a closed Aria combobox', async () => {
+    // AECI-232: the role popup is positioned via cdkConnectedOverlay (Aria supplies
+    // behavior, not the floating layer). We assert the always-rendered trigger's
+    // wiring, NOT the opened overlay — matching the repo convention of not opening
+    // CDK overlays in unit tests (see user-menu/nav-menu specs). The open→select
+    // flow runs manually + in e2e.
+    const { fixture, el, httpMock } = setup();
+    await settle();
+    fixture.detectChanges();
+
+    const trigger = el.querySelector('#role-trigger') as HTMLButtonElement;
+    expect(trigger).not.toBeNull();
+    expect(trigger.getAttribute('type')).toBe('button');
+    // Aria's ngCombobox applies the combobox role + the collapsed state.
+    expect(trigger.getAttribute('role')).toBe('combobox');
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(trigger.getAttribute('aria-labelledby')).toBe('role-label role-trigger');
+    // An empty selection shows the placeholder label.
+    expect(trigger.textContent).toContain('Select a role');
+    // The role listbox is deferred behind the (closed) overlay — absent from the DOM,
+    // and distinct from the inline star-rating listboxes (which use aria-labelledby).
+    expect(el.querySelector('ul[aria-label="Roles"]')).toBeNull();
+    expect(document.querySelector('ul[aria-label="Roles"]')).toBeNull();
+    httpMock.verify();
+  });
+
   it('renders the 404 shell when the product is missing', () => {
     const { el, httpMock } = setup(null);
     expect(el.querySelector('aec-not-found')).not.toBeNull();
