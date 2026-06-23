@@ -210,7 +210,7 @@
           >(optional)</span
         >
       </label>
-      <div class="relative">
+      <div #roleOrigin class="relative">
         <button
           ngCombobox
           #roleCb="ngCombobox"
@@ -226,34 +226,46 @@
           <span aria-hidden="true" class="ms-2 text-(--text-tertiary)">▾</span>
         </button>
 
-        <ng-template ngComboboxPopup [combobox]="roleCb" popupType="listbox">
-          <ul
-            ngComboboxWidget
-            ngListbox
-            #roleListbox="ngListbox"
-            [(value)]="roleSel"
-            (valueChange)="onRoleChange()"
-            [activeDescendant]="roleListbox.activeDescendant()"
-            focusMode="activedescendant"
-            selectionMode="explicit"
-            i18n-aria-label="@@reviews.role.listbox.aria"
-            aria-label="Roles"
-            class="absolute z-10 mt-1 flex max-h-72 w-full list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
-          >
-            @for (opt of roleOptions; track opt.value) {
-            <li
-              ngOption
-              [value]="opt"
-              [label]="opt.label"
-              class="flex cursor-pointer items-center justify-between rounded-(--radius-sm) px-3 py-2 text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
+        <!--
+          Aria's ComboboxPopup renders the listbox via DeferredContent.createEmbeddedView
+          (in-flow) — it is NOT itself a floating layer. An outer cdkConnectedOverlay
+          (usePopover:'inline' → browser top layer) supplies positioning, flip, and
+          overflow-escape, per ADR 0010 ("Aria supplies behavior, not the floating
+          layer"). matchWidth pins the panel to the trigger width; the <ul> only styles.
+        -->
+        <ng-template
+          [cdkConnectedOverlay]="{ origin: roleOrigin, usePopover: 'inline', matchWidth: true }"
+          [cdkConnectedOverlayOpen]="roleExpanded()"
+        >
+          <ng-template ngComboboxPopup [combobox]="roleCb" popupType="listbox">
+            <ul
+              ngComboboxWidget
+              ngListbox
+              #roleListbox="ngListbox"
+              [(value)]="roleSel"
+              (valueChange)="onRoleChange()"
+              [activeDescendant]="roleListbox.activeDescendant()"
+              focusMode="activedescendant"
+              selectionMode="explicit"
+              i18n-aria-label="@@reviews.role.listbox.aria"
+              aria-label="Roles"
+              class="flex max-h-72 list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
             >
-              <span>{{ opt.label }}</span>
-              @if (roleSel()[0]?.value === opt.value) {
-              <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+              @for (opt of roleOptions; track opt.value) {
+              <li
+                ngOption
+                [value]="opt"
+                [label]="opt.label"
+                class="flex cursor-pointer items-center justify-between rounded-(--radius-sm) px-3 py-2 text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
+              >
+                <span>{{ opt.label }}</span>
+                @if (roleSel()[0]?.value === opt.value) {
+                <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+                }
+              </li>
               }
-            </li>
-            }
-          </ul>
+            </ul>
+          </ng-template>
         </ng-template>
       </div>
     </div>
