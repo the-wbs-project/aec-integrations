@@ -634,6 +634,12 @@ export const pageViews = sqliteTable(
     sessionId: text('session_id'),
     referrer: text('referrer'),
 
+    // Campaign attribution (AECI-243 / §11.2). Populated only when a visitor
+    // arrives via a tagged link (e.g. the waitlist launch email's
+    // `?ref=waitlist&token=xyz`); null for ordinary views.
+    refSource: text('ref_source'),
+    refToken: text('ref_token'),
+
     cfCountry: text('cf_country'),
     cfColo: text('cf_colo'),
     cfAsn: integer('cf_asn'),
