@@ -154,7 +154,9 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 2. Run pending Supabase migrations against staging
 3. `wrangler deploy --env staging`
 4. Run smoke test suite against staging (Playwright subset, ~2 min)
-5. Update Algolia staging index settings (AECI-137), then run the **report-only**
+5. Update Algolia staging index settings (AECI-137; as of AECI-175 this also links +
+   configures each primary's sort **replicas** — needs the management key scoped to the
+   replicas, see §7.4/§7.5), then run the **report-only**
    Algolia ↔ Supabase index-drift check (AECI-140, `scripts/reconcile-algolia-drift.ts`,
    `continue-on-error`) — surfaces drift via the `aeci.algolia.index_drift` gauge without
    blocking the deploy. The scheduled (daily 09:00 UTC = 04:00 EST) drift check runs as the API Worker
@@ -370,8 +372,8 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `DATABASE_URL` | Prisma Accelerate runtime URL (`prisma://...`); one per environment. Pushed to Worker via `wrangler secret put DATABASE_URL` | All |
 | `SUPABASE_SERVICE_ROLE_KEY` | Operator-held for transient shell provisioning (e.g. dev test user). **Never** pushed to a Worker and read by **no** workflow — the `integration-db-tests` job mints its own from a local `supabase start` stack. Not a runtime secret; not involved in sign-in. See `environments.md` §Secrets. | — (optional) |
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |
-| `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env **management** key — search + index-mutation ACLs, scoped to that env's three indexes (NOT the app-wide root admin key). Sync pipeline (3.5/3.6) + CI. Pushed to the API Worker as `ALGOLIA_ADMIN_KEY`. Rotated independently per env (§7.4). | staging, production |
-| `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION` | Per-env **search-only** key (`['search']`), scoped to that env's three indexes. Pushed to the web Worker as `ALGOLIA_SEARCH_KEY` (with `ALGOLIA_APP_ID`) by `deploy.yml` (staging — recommended/warn-and-skip) and `promote-to-prod.yml` (production — required/fail-closed); client-exposed (InstantSearch, 3.9). | staging, production |
+| `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env **management** key — search + index-mutation ACLs, scoped to that env's three indexes **and their sort replicas** (AECI-175; NOT the app-wide root admin key). Sync pipeline (3.5/3.6) + CI. Pushed to the API Worker as `ALGOLIA_ADMIN_KEY`. Rotated independently per env (§7.4). | staging, production |
+| `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION` | Per-env **search-only** key (`['search']`), scoped to that env's three indexes **and their sort replicas** (AECI-175 — `connectSortBy` queries a replica directly). Pushed to the web Worker as `ALGOLIA_SEARCH_KEY` (with `ALGOLIA_APP_ID`) by `deploy.yml` (staging — recommended/warn-and-skip) and `promote-to-prod.yml` (production — required/fail-closed); client-exposed (InstantSearch, 3.9). | staging, production |
 | `ALGOLIA_SEARCH_KEY_PREVIEW` | The preview env's search-only key (same shape as above). Consumed by [`lighthouse.yml`](../.github/workflows/lighthouse.yml) (AECI-188), which writes it into `apps/web/.dev.vars` so the post-merge Lighthouse run measures `/search` with the real InstantSearch SDK against the `preview_*` indexes (populated via `pnpm algolia:bulk-sync -- --env preview`); the workflow hard-fails without it. `scripts/algolia/provision.mjs --env preview` prints the `gh secret set` command. | CI (lighthouse.yml) |
 | `ALGOLIA_APP_ID` | Algolia application id. **Single value shared across all envs** (one app; only indexes/keys differ). Pushed to both Workers. | All |
 | `POSTHOG_KEY_STAGING` / `_PRODUCTION` | Per-env PostHog **project API key** (publishable, client-exposed). Pushed to the **web Worker** as `POSTHOG_KEY` by `deploy.yml` (staging), `promote-to-prod.yml` (production), and `pr-preview.yml` (per-PR, reuses `_STAGING`) — all **warn-and-skip** (analytics no-ops/fail-open if unset). `POSTHOG_HOST` is a public `var` (US Cloud). AECI-239. **Never on the API Worker.** | staging, production (+ preview reuses `_STAGING`) |
@@ -422,8 +424,10 @@ For the API keys with dev/prod separation (Algolia, Datadog), rotate independent
 
 **Algolia (per-env, independent).** The app-wide root admin key stays operator-held and is used _only_ to run the provision script — it is never a GitHub or Worker secret, so it does not rotate through this pipeline. The per-env scoped keys rotate one env at a time:
 
-1. `node scripts/algolia/provision.mjs --env <env> --rotate` — mints fresh search + management keys for that env and deletes the old ones (the index scope is unchanged).
+1. `node scripts/algolia/provision.mjs --env <env> --rotate` — mints fresh search + management keys for that env and deletes the old ones (the index scope follows `searchKeyParams`/`managementKeyParams`).
 2. Re-set the affected secrets with the printed values: `gh secret set ALGOLIA_SEARCH_KEY_<ENV>` / `ALGOLIA_ADMIN_KEY_<ENV>`, and `wrangler secret put ALGOLIA_SEARCH_KEY --env <env>` (web) / `ALGOLIA_ADMIN_KEY --env <env>` (API).
+
+**One-time scope widening (AECI-175).** The sort replicas (§7.5) widened both keys' index scope to include the replica names. Before the first deploy that runs the AECI-175 apply step in an env, **re-provision that env's keys** (`pnpm algolia:provision --env <env>` — or `--rotate`) and re-push the secrets per the two steps above, or the CI `setSettings` on a replica will 403 and the browser key will 401 on a replica query. This is a one-off per env; routine rotation (above) already carries the wider scope.
 3. Redeploy that env so the Workers pick up the new secrets.
 
 `ALGOLIA_APP_ID` is not a credential and does not rotate. Rotating the root admin key itself is a dashboard operation (Algolia → API Keys) followed by re-exporting it locally before the next provision run.
@@ -443,8 +447,10 @@ The prefix is derived from the Worker `ENV` label (matching the Datadog tags + `
 **Three keys per app, two of them per-env-scoped:**
 
 - **Root admin key** — app-wide, all ACLs. **Operator-held**; used _only_ to run `scripts/algolia/provision.mjs`. Never a GitHub or Worker secret.
-- **Search-only key** (per env) — ACL `['search']`, scoped to that env's three indexes. → web Worker `ALGOLIA_SEARCH_KEY`. Client-exposed (rendered into the SSR HTML as `window.__AECI_ALGOLIA__` for InstantSearch, 3.9).
-- **Management key** (per env) — ACL `search + addObject + deleteObject + editSettings + listIndexes`, scoped to that env's three indexes; excludes the destructive/global ACLs (`deleteIndex`, `usage`, `logs`, …). → API Worker `ALGOLIA_ADMIN_KEY`. Server-only; used by sync from 3.5.
+- **Search-only key** (per env) — ACL `['search']`, scoped to that env's three indexes **and their sort replicas** (AECI-175: `<prefix>_products_name_asc`, etc. — `connectSortBy` queries replicas directly). → web Worker `ALGOLIA_SEARCH_KEY`. Client-exposed (rendered into the SSR HTML as `window.__AECI_ALGOLIA__` for InstantSearch, 3.9).
+- **Management key** (per env) — ACL `search + addObject + deleteObject + editSettings + listIndexes`, scoped to that env's three indexes **and their sort replicas** (so the apply step can configure each replica's `ranking`); excludes the destructive/global ACLs (`deleteIndex`, `usage`, `logs`, …). → API Worker `ALGOLIA_ADMIN_KEY`. Server-only; used by sync from 3.5.
+
+The replica index names (`<prefix>_<entity>_<sort>`) are defined alongside the base names in `packages/shared/src/algolia.ts` (`replicaNamesFor`); the standard replicas auto-mirror their primary's records, so sync still pushes only to the base indexes (see `SEARCH_RANKING.md` §5a).
 
 Both per-env keys are standalone (`addApiKey`, not derived/secured keys), so each rotates independently per env (§7.4). The search and management keys are minted by the provision script; the operator pushes them to the Workers via `wrangler secret put`. **The management/admin key must never reach the browser** — it is deliberately absent from the web Worker's `WebEnv`, and a unit test (`apps/web/src/algolia-bootstrap-inject.spec.ts`) enforces that the bootstrap injection never serializes it.
 

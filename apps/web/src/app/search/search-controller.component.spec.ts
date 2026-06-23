@@ -32,6 +32,7 @@ function makeFakeLib() {
     refinementList: [] as Captured[],
     numericMenu: [] as Captured[],
     range: [] as Captured[],
+    sortBy: [] as Captured[],
   };
   const instance = {
     started: 0,
@@ -87,6 +88,7 @@ function makeFakeLib() {
       calls.numericMenu,
     ) as unknown as InstantSearchLib['connectNumericMenu'],
     connectRange: connector(calls.range) as unknown as InstantSearchLib['connectRange'],
+    connectSortBy: connector(calls.sortBy) as unknown as InstantSearchLib['connectSortBy'],
   };
 
   return { lib, calls, instance };
@@ -98,11 +100,22 @@ const CONFIG: AlgoliaPublicConfig = {
   indexes: { products: 'p_idx', vendors: 'v_idx', integrations: 'i_idx' },
 };
 
-function build(initialQuery = '') {
+function build(
+  initialQuery = '',
+  initialSort: Partial<Record<'products' | 'vendors', string>> = {},
+) {
   const fake = makeFakeLib();
   const emit = vi.fn();
   const onSearch = vi.fn();
-  const controller = new SearchController(fake.lib, {}, CONFIG, initialQuery, emit, onSearch);
+  const controller = new SearchController(
+    fake.lib,
+    {},
+    CONFIG,
+    initialQuery,
+    initialSort,
+    emit,
+    onSearch,
+  );
   return { ...fake, controller, emit, onSearch };
 }
 
@@ -177,6 +190,56 @@ describe('SearchController wiring', () => {
       'Design',
       'Construction',
     ]);
+  });
+});
+
+describe('SearchController — AECI-175 sort (replicas)', () => {
+  it('registers one connectSortBy per index (products + vendors)', () => {
+    const { calls } = build();
+    expect(calls.sortBy).toHaveLength(2);
+  });
+
+  it('builds the per-tab sort options: relevance (primary) + the two replicas', () => {
+    const { controller } = build();
+    expect(controller.products.sortOptions).toEqual([
+      { value: 'p_idx', key: 'relevance' },
+      { value: 'p_idx_integration_count_desc', key: 'integrations' },
+      { value: 'p_idx_name_asc', key: 'name' },
+    ]);
+    expect(controller.vendors.sortOptions).toEqual([
+      { value: 'v_idx', key: 'relevance' },
+      { value: 'v_idx_integration_count_desc', key: 'integrations' },
+      { value: 'v_idx_name_asc', key: 'name' },
+    ]);
+  });
+
+  it('passes the replica index names as connectSortBy items', () => {
+    const { calls } = build();
+    expect(calls.sortBy[0].params['items']).toEqual([
+      { label: 'relevance', value: 'p_idx' },
+      { label: 'integrations', value: 'p_idx_integration_count_desc' },
+      { label: 'name', value: 'p_idx_name_asc' },
+    ]);
+  });
+
+  it('defaults sortBy to the primary index and maps currentRefinement on render', () => {
+    const { calls, controller } = build();
+    expect(controller.products.sortBy()).toBe('p_idx');
+    const refine = vi.fn();
+    calls.sortBy[0].renderFn({ currentRefinement: 'p_idx_name_asc', options: [], refine }, true);
+    expect(controller.products.sortBy()).toBe('p_idx_name_asc');
+    controller.products.refineSort('p_idx_integration_count_desc');
+    expect(refine).toHaveBeenCalledWith('p_idx_integration_count_desc');
+  });
+
+  it('seeds the index widgets + sortBy signal from initialSort (inbound ?sort=)', () => {
+    const { calls, controller } = build('', { vendors: 'v_idx_name_asc' });
+    // The root products index starts on its primary…
+    expect(calls.instantsearch[0].indexName).toBe('p_idx');
+    expect(controller.products.sortBy()).toBe('p_idx');
+    // …while the nested vendors index starts on the seeded replica.
+    expect(calls.index[0].indexName).toBe('v_idx_name_asc');
+    expect(controller.vendors.sortBy()).toBe('v_idx_name_asc');
   });
 });
 

@@ -94,6 +94,36 @@ test.describe('/search — live results (requires Algolia; local/preview only)',
     await expect(page).toHaveURL(/\/products\/[^/?#]+$/);
     await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
   });
+
+  // AECI-175 — the per-tab sort dropdown (Algolia replicas). The control only
+  // mounts once the browser controller has live results, so it is part of this
+  // live-only leg. Picking "Name (A–Z)" must re-query the replica and mirror the
+  // choice into `?sort=`.
+  test('sort dropdown switches the replica index and syncs ?sort=', async ({ page }) => {
+    await page.goto('/search');
+    const hasAlgolia = await page.evaluate(() =>
+      Boolean((globalThis as { __AECI_ALGOLIA__?: unknown }).__AECI_ALGOLIA__),
+    );
+    test.skip(!hasAlgolia, 'Algolia not provisioned (CI dev:bound) — live results unavailable');
+
+    // Wait for the controller to mount (first results) so the control renders.
+    await page
+      .locator('aec-search-product-card')
+      .first()
+      .waitFor({ timeout: 8000 })
+      .catch(() => {});
+    const sortTrigger = page.locator('aec-search-sort-by button[role="combobox"]').first();
+    test.skip((await sortTrigger.count()) === 0, 'sort control not mounted (no live results)');
+
+    // Default sort is relevance (param absent).
+    await expect(sortTrigger).toContainText(/Relevance/);
+
+    await sortTrigger.click();
+    await page.getByRole('option', { name: /Name/ }).click();
+
+    await expect(page).toHaveURL(/\bsort=name\b/);
+    await expect(sortTrigger).toContainText(/Name/);
+  });
 });
 
 async function aaViolations(page: Page) {

@@ -65,13 +65,15 @@ runtime regardless.
   leaning on a widget library. That is *more* code, but it is fully unit-testable (the adapter
   takes a structural `InstantSearchLib`, so tests drive connector→signal mapping with fakes — no
   network, no real SDK) and it is the only Angular-22-compatible option.
-- **Deferred — per-tab sort dropdown (tracked as AECI-175).** §4.6 lists "Sort options per
-  tab," but no Algolia **replicas** exist yet, so a sort control has nothing to switch to. Ship
-  the §7.3 relevance default (`customRanking`). The `connectSortBy` insertion point is marked in
-  `search-controller.ts`. The follow-up is scoped: add `replicas` to
-  `IndexSettings`/`INDEX_SETTINGS` (`packages/shared/src/algolia.ts`) + the provision/apply
-  scripts (`forwardToReplicas`) + a product call on which sort options, plus the Algolia
-  quota/cost note (3 entities × N options = 3N indexes).
+- **Per-tab sort dropdown (AECI-175, shipped).** §4.6's "Sort options per tab" is now live for
+  Products and Vendors (Relevance · Most integrations · Name A–Z), backed by Algolia **standard
+  replica** indexes. `connectSortBy` is wired per index in `search-controller.ts` (the deferral
+  marker is gone); the `aec-search-sort-by` widget is a non-editable Aria combobox + listbox
+  (ADR 0010); `REPLICA_SORTS` + `applyIndexSettingsTo` in `packages/shared/src/algolia.ts` own
+  the replica model; the active sort mirrors to `?sort=`. The Integrations tab stays hidden
+  (§7.5) so it gets no replicas. Standard replicas auto-mirror their primary (4 replicas = 4×
+  the products+vendors record footprint, accepted for exact ordering). Full model:
+  `SEARCH_RANKING.md` §5a.
 - If a future Angular-native InstantSearch binding ships (or `@angular/aria`-based community
   widgets mature), revisit; the connector→signal seam localizes the blast radius of a swap to
   `search-controller.ts` + `search-controller.factory.ts`.

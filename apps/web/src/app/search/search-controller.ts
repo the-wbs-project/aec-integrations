@@ -44,6 +44,7 @@
  */
 import { type Signal, type WritableSignal, signal } from '@angular/core';
 
+import { replicaIndexName, sortReplicasFor } from '@aeci/shared/algolia';
 import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
 import type { RefinementItem } from '../shared/facets/refinement-item';
@@ -95,6 +96,17 @@ export interface RangeView {
   refine(values: [number | undefined, number | undefined]): void;
 }
 
+/**
+ * One sort choice on a tab (AECI-175). `value` is the physical Algolia index name
+ * `connectSortBy` switches to (the primary for `relevance`, a replica otherwise);
+ * `key` is the stable i18n token the page maps to a localized label
+ * (`relevance` | `integrations` | `name`).
+ */
+export interface SortOption {
+  readonly value: string;
+  readonly key: string;
+}
+
 /** Everything one entity tab binds to. `T` is the entity's denormalized record. */
 export interface IndexView<T> {
   readonly entity: 'products' | 'vendors';
@@ -107,6 +119,12 @@ export interface IndexView<T> {
   readonly refinementLists: readonly RefinementListView[];
   readonly numericMenus: readonly NumericMenuView[];
   readonly ranges: readonly RangeView[];
+  /** The active sort's physical index name (AECI-175); `relevance` = the primary. */
+  readonly sortBy: Signal<string>;
+  /** Switch the tab's sort (pass a `SortOption.value`, i.e. an index name). */
+  refineSort(indexName: string): void;
+  /** The tab's available sorts, relevance first. */
+  readonly sortOptions: readonly SortOption[];
 }
 
 // ─── Structural SDK surface (injected; real impl in the factory) ─────────────
@@ -165,6 +183,12 @@ export interface RangeRenderState {
   canRefine: boolean;
   refine(values: readonly [number | undefined, number | undefined]): void;
 }
+export interface SortByRenderState {
+  /** The currently-active index name (the primary, or a replica). */
+  currentRefinement: string;
+  options: readonly { label: string; value: string }[];
+  refine(value: string): void;
+}
 
 type Renderer<S> = (state: S, isFirstRender: boolean) => void;
 type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (params: P) => IsWidget;
@@ -206,6 +230,7 @@ export interface InstantSearchLib {
     { attribute: string; items: { label: string; start?: number; end?: number }[] }
   >;
   connectRange: Connector<RangeRenderState, { attribute: string }>;
+  connectSortBy: Connector<SortByRenderState, { items: { label: string; value: string }[] }>;
 }
 
 // ─── Facet configuration (§7.2) ──────────────────────────────────────────────
@@ -300,6 +325,13 @@ export class SearchController {
     searchClient: unknown,
     config: AlgoliaPublicConfig,
     initialQuery = '',
+    /**
+     * Initial sort per tab (AECI-175): a physical index name to start that tab's
+     * index widget on, so an inbound `?sort=` renders the right order on first
+     * paint. Omitted entries default to the entity's primary (relevance). The
+     * page resolves the `?sort=` token → index name before passing it here.
+     */
+    initialSort: Partial<Record<'products' | 'vendors', string>> = {},
     /** RUM emit seam (AECI-174); injectable so tests assert without the SDK. */
     private readonly emit: SearchQueryEmitter = emitSearchQuery,
     /** PostHog `search_performed` emit seam (AECI-239); defaults to a no-op so
@@ -311,8 +343,12 @@ export class SearchController {
     // Root index = products. The shared searchBox + the products widgets attach
     // to the root; vendors attaches as a nested `index()` widget. That is two
     // index queries (integrations intentionally not queried — see file header).
+    // Each index widget STARTS on its initial-sort index (a replica when `?sort=`
+    // asked for one), which `connectSortBy` then switches; `relevance` = primary.
+    const productsStart = initialSort.products ?? config.indexes.products;
+    const vendorsStart = initialSort.vendors ?? config.indexes.vendors;
     this.search = lib.instantsearch({
-      indexName: config.indexes.products,
+      indexName: productsStart,
       searchClient,
       future: { preserveSharedStateOnUnmount: true },
     });
@@ -331,9 +367,19 @@ export class SearchController {
       },
     });
 
-    this.products = this.wireIndex<AlgoliaProductRecord>(this.search, 'products');
-    const vendorsHost = lib.index({ indexName: config.indexes.vendors });
-    this.vendors = this.wireIndex<AlgoliaVendorRecord>(vendorsHost, 'vendors');
+    this.products = this.wireIndex<AlgoliaProductRecord>(
+      this.search,
+      'products',
+      config.indexes.products,
+      productsStart,
+    );
+    const vendorsHost = lib.index({ indexName: vendorsStart });
+    this.vendors = this.wireIndex<AlgoliaVendorRecord>(
+      vendorsHost,
+      'vendors',
+      config.indexes.vendors,
+      vendorsStart,
+    );
 
     // Root gets: the shared searchBox + products widgets (already attached to
     // `this.search` by `wireIndex`) + the one nested index widget.
@@ -424,7 +470,14 @@ export class SearchController {
    * attach them to `host` (the root instance for products; a nested `index()`
    * for vendors/integrations), and return the signal-backed view.
    */
-  private wireIndex<T>(host: WidgetHost, entity: 'products' | 'vendors'): IndexView<T> {
+  private wireIndex<T>(
+    host: WidgetHost,
+    entity: 'products' | 'vendors',
+    /** The entity's primary (relevance) index name — the `relevance` option's value. */
+    baseIndexName: string,
+    /** The index this widget starts on (a replica when `?sort=` seeded one). */
+    initialSortIndex: string,
+  ): IndexView<T> {
     const { lib } = this;
     const facets = FACET_CONFIG[entity];
 
@@ -433,6 +486,20 @@ export class SearchController {
     const page = signal(0);
     const nbPages = signal(0);
     let pageRefine: ((p: number) => void) | null = null;
+
+    // Sort (AECI-175): relevance = the primary index, then one replica per
+    // non-relevance sort. `connectSortBy` switches this index widget between them;
+    // its `currentRefinement` (an index name) drives `sortBy`. The page maps each
+    // option's `key` token to a localized label.
+    const sortOptions: SortOption[] = [
+      { value: baseIndexName, key: 'relevance' },
+      ...sortReplicasFor(entity).map((replica) => ({
+        value: replicaIndexName(baseIndexName, replica.suffix),
+        key: replica.sort,
+      })),
+    ];
+    const sortBy = signal<string>(initialSortIndex);
+    let sortRefine: ((value: string) => void) | null = null;
 
     const widgets: IsWidget[] = [
       lib.configure({ hitsPerPage: HITS_PER_PAGE }),
@@ -467,6 +534,10 @@ export class SearchController {
         nbPages.set(state.nbPages);
         pageRefine = state.refine;
       })({}),
+      lib.connectSortBy((state) => {
+        sortBy.set(state.currentRefinement);
+        sortRefine = state.refine;
+      })({ items: sortOptions.map((option) => ({ label: option.key, value: option.value })) }),
     ];
 
     const refinementLists: RefinementListView[] = facets.refinementLists.map((attribute) => {
@@ -538,14 +609,9 @@ export class SearchController {
       refinementLists,
       numericMenus,
       ranges,
+      sortBy,
+      refineSort: (indexName: string) => sortRefine?.(indexName),
+      sortOptions,
     };
   }
 }
-
-// AECI-142 follow-up — DEFERRED per-tab sort dropdown (tracked as AECI-175). No
-// Algolia *replicas* exist yet, so a sort control has nothing to switch to; ship
-// the relevance default (§7.3 `customRanking`). When replicas land (AECI-175:
-// `replicas` in `IndexSettings`/`INDEX_SETTINGS` + provision/apply scripts +
-// `forwardToReplicas`), add a `connectSortBy` per index here — register it in
-// each `wireIndex` widget set keyed by the index's replica names — and surface a
-// `sortBy` signal + `refineSort()` on `IndexView`.

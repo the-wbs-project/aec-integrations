@@ -9,6 +9,12 @@
  * `packages/shared/src/algolia.ts` to ONE environment's three indexes
  * (`<prefix>_products`, `<prefix>_vendors`, `<prefix>_integrations`).
  *
+ * As of AECI-175 it ALSO links + configures each primary's sort **replicas**
+ * (`<prefix>_products_name_asc`, …): the primary's `replicas` array creates them,
+ * and each replica gets the primary's searchable/facet settings plus its own
+ * `ranking`. The management key must be scoped to the replicas (it is, via
+ * `managementKeyParams`) — rotate it before the first deploy that runs this.
+ *
  * This is the entrypoint the CI "update Algolia indexes" step (CICD §3.2) runs
  * on every staging/prod deploy; the sync pipeline (3.5/3.6) calls the same shared
  * `applyIndexSettings()` directly. Re-running is a no-op when the settings are
@@ -96,8 +102,9 @@ async function main() {
   try {
     const applied = await applyIndexSettings(client, env);
     console.log('• Applied searchable/facet/ranking settings to:');
-    for (const { indexName, taskID } of applied) {
-      console.log(`    ✓ ${indexName}  (task ${taskID})`);
+    for (const { indexName, taskID, role } of applied) {
+      const tag = role === 'replica' ? ' (replica)' : '';
+      console.log(`    ✓ ${indexName}${tag}  (task ${taskID})`);
     }
     console.log('\n✓ Done — settings are idempotent; re-running is a no-op when unchanged.\n');
   } catch (error) {
