@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Title } from '@angular/platform-browser';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
 
 import { AboutPage } from './about';
 
@@ -13,6 +13,17 @@ function setup(): { host: HTMLElement; title: Title } {
 }
 
 describe('AboutPage', () => {
+  // The Angular vitest builder shares one jsdom document across every
+  // *.component.spec.ts and never resets <head> between files. Sibling specs
+  // write `<meta name="robots" content="noindex">` (search-page's
+  // setSearchMeta; the resolver/404 specs' setNotFoundMeta) and don't clean it
+  // up, so strip any lingering robots tag first — same hygiene as
+  // meta.service.component.spec.ts. Without this the indexable-page assertion
+  // below fails purely on run order.
+  beforeEach(() => {
+    document.head.querySelector('meta[name="robots"]')?.remove();
+  });
+
   it('leads with the trust-first positioning in the page H1', () => {
     const { host } = setup();
     expect(host.querySelector('h1')?.textContent).toContain("couldn't find anywhere else");
