@@ -51,8 +51,10 @@ import { MetaService } from '../core/meta.service';
       </section>
 
       <div class="mx-auto max-w-7xl px-6 py-12 md:px-8 md:py-16">
-        <div class="flex max-w-[70ch] flex-col gap-12">
-          <section>
+        <div class="grid max-w-5xl gap-6 md:grid-cols-2">
+          <section
+            class="flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
+          >
             <h2
               class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
               i18n="@@app.contact.email.heading"
@@ -66,7 +68,7 @@ import { MetaService } from '../core/meta.service';
               The fastest way to reach us is email. Tell us what you are working on and we will
               route your message to the right person.
             </p>
-            <p class="mt-4 text-lg">
+            <p class="mt-4 text-base">
               <a
                 [href]="mailtoHref"
                 class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
@@ -74,9 +76,18 @@ import { MetaService } from '../core/meta.service';
                 {{ email }}
               </a>
             </p>
+            <a
+              [href]="mailtoHref"
+              class="mt-auto inline-flex items-center justify-center self-start rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@app.contact.email.cta"
+            >
+              Email us
+            </a>
           </section>
 
-          <section>
+          <section
+            class="flex h-full flex-col rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 md:p-8"
+          >
             <h2
               class="font-display text-2xl font-normal leading-snug text-(--text-primary) md:text-3xl"
               i18n="@@app.contact.corrections.heading"
@@ -91,15 +102,13 @@ import { MetaService } from '../core/meta.service';
               claim it or suggest a correction. Open the relevant page from the directory, or email
               us directly and we will make sure it gets reviewed.
             </p>
-            <p class="mt-6">
-              <a
-                routerLink="/products"
-                class="font-medium text-(--accent-primary) hover:text-(--accent-primary-hover)"
-                i18n="@@app.contact.corrections.browse"
-              >
-                Browse the directory
-              </a>
-            </p>
+            <a
+              routerLink="/products"
+              class="mt-auto inline-flex items-center justify-center self-start rounded-(--radius-md) bg-(--accent-primary) px-5 py-3 text-sm font-semibold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@app.contact.corrections.cta"
+            >
+              Browse listings
+            </a>
           </section>
         </div>
       </div>

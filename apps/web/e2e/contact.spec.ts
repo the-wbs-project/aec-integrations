@@ -49,8 +49,13 @@ test.describe('/contact — Phase 7.3 (AECI-238)', () => {
   test('the mailto link is clickable in the rendered page', async ({ page }) => {
     await page.goto('/contact');
     await expect(page.locator('app-root')).toBeAttached();
-    await expect(page.locator('a[href="mailto:founders@thewbsproject.com"]')).toHaveText(
-      'founders@thewbsproject.com',
+    // The email card carries two `mailto:` anchors with the same href: the
+    // visible address line and the "Email us" primary button. Scope by
+    // accessible name so each is asserted unambiguously.
+    await expect(page.getByRole('link', { name: 'founders@thewbsproject.com' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Email us' })).toHaveAttribute(
+      'href',
+      'mailto:founders@thewbsproject.com',
     );
   });
 
