@@ -110,9 +110,9 @@
   // ADR 0016 / AECI-252: the application database is Cloudflare D1, bound as `DB`
   // and reached via the Drizzle client factory `getDb(env)` (`src/db/client.ts`).
   // `wrangler dev` serves a LOCAL SQLite copy (in `.wrangler/state`) regardless of
-  // `database_id`, so the placeholder id below is correct for local dev; the real
-  // per-env database ids are provisioned with `wrangler d1 create` in Phase 5
-  // (AECI-256) and pasted into the staging/production blocks. Drizzle writes flat
+  // `database_id`, so local dev works no matter what id is set here. The preview
+  // database is now provisioned (AECI-256); the staging/production ids below are
+  // still placeholders, created with `wrangler d1 create` and pasted in. Drizzle writes flat
   // migration SQL to `apps/api/migrations/` (drizzle.config.ts `out`), which is
   // wrangler's default `migrations_dir`, so `wrangler d1 migrations apply` finds
   // them with no `migrations_pattern` override.
@@ -120,7 +120,7 @@
     {
       "binding": "DB",
       "database_name": "aeci-app-preview",
-      "database_id": "local-placeholder-provisioned-in-phase-5",
+      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
       "migrations_dir": "migrations",
     },
   ],
@@ -153,12 +153,12 @@
       ],
       // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
       // `--env preview`, so this is the binding the bound local stack uses — a
-      // LOCAL SQLite copy (placeholder id). Real id provisioned in Phase 5.
+      // LOCAL SQLite copy regardless of id; the real preview database is provisioned (AECI-256).
       "d1_databases": [
         {
           "binding": "DB",
           "database_name": "aeci-app-preview",
-          "database_id": "local-placeholder-provisioned-in-phase-5",
+          "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
           "migrations_dir": "migrations",
         },
       ],
