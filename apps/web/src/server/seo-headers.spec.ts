@@ -87,6 +87,24 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*posthog/);
   });
 
+  it('allows both Supabase project origins on connect-src (browser auth, AECI-194)', () => {
+    // The @supabase/ssr browser client XHRs to https://<ref>.supabase.co/auth/v1/*
+    // (getSession/token-refresh, magic-link OTP, sign-out). The CSP is static
+    // but SUPABASE_URL is per-env, so BOTH known project refs are allowlisted
+    // explicitly: dmbygwupskttzsvfzluq (dev/preview/staging) + jgxebjufabtwkcgxjqvk
+    // (production). Missing the origin makes every signed-in page CSP-refuse its
+    // SessionStatus probe in a refresh-retry loop (the staging regression).
+    expect(CONTENT_SECURITY_POLICY).toMatch(
+      /connect-src[^;]*https:\/\/dmbygwupskttzsvfzluq\.supabase\.co/,
+    );
+    expect(CONTENT_SECURITY_POLICY).toMatch(
+      /connect-src[^;]*https:\/\/jgxebjufabtwkcgxjqvk\.supabase\.co/,
+    );
+    // Auth is REST-only (no realtime subscriptions) and OAuth is a top-level
+    // navigation — neither needs script-src, so Supabase stays out of it.
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*supabase/);
+  });
+
   it('allows the Cloudflare Web Analytics beacon (script + report hosts)', () => {
     // Cloudflare auto-injects beacon.min.js from static.cloudflareinsights.com
     // at the edge; it then POSTs RUM data to cloudflareinsights.com/cdn-cgi/rum.
