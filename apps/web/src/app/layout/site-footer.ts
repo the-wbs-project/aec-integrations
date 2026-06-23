@@ -149,6 +149,15 @@ import { BrandLogo } from './brand-logo';
             <ul class="space-y-2">
               <li>
                 <a
+                  routerLink="/about"
+                  class="text-(--text-secondary) hover:text-(--text-primary)"
+                  i18n="@@app.footer.about"
+                >
+                  About
+                </a>
+              </li>
+              <li>
+                <a
                   routerLink="/contact"
                   class="text-(--text-secondary) hover:text-(--text-primary)"
                   i18n="@@app.footer.contact"

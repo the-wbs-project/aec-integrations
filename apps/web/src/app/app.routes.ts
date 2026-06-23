@@ -236,6 +236,24 @@ export const routes: Routes = [
       },
     ],
   },
+  // AECI-238 — Phase 7.3 static content pages (About + Contact). No resolver:
+  // the copy is static, so meta (title/description/canonical/OG) is set in each
+  // component constructor via `MetaService.setStaticPageMeta` (the `Home`
+  // pattern), not by a resolver. Both render `RenderMode.Server` (the `**`
+  // catch-all in app.routes.server.ts) and are indexable (canonical set, no
+  // noindex). `/about` is CACHEABLE (24h edge / 1h browser, `Cache-Tag:
+  // route:index`) — pre-wired in `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`.
+  // `/contact` is NON-cacheable (§3.1 "No cache"): absent from those tables, it
+  // gets the fail-closed `private, no-store` default. Registered before the `**`
+  // wildcard so they match.
+  {
+    path: 'about',
+    loadComponent: () => import('./about/about').then((m) => m.AboutPage),
+  },
+  {
+    path: 'contact',
+    loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),
+  },
   // AECI-62 — Phase 2.16 global 404. Must be the last entry so every other
   // route gets a chance to match first. The resolver sets RESPONSE_INIT.status
   // to 404 and the noindex meta tags; the SSR runtime then emits NOT_FOUND_TTL
