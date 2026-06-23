@@ -258,6 +258,35 @@ export const routes: Routes = [
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),
   },
+  // AECI-237 — Phase 7.2 legal pages. Four counsel-tracked documents
+  // (`STAGE_1_SPEC.md` §13/§27) rendered from Markdown (`src/content/legal/`) by
+  // one `LegalPage`, selected by the route's `data.slug` (short public slug →
+  // long §27.1 filename in `legal-content.ts`). All four are static, indexable,
+  // RenderMode.Server, and CACHEABLE (24h edge / 1h browser, `Cache-Tag:
+  // route:index`) — pre-wired in `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath`
+  // for the `/legal/*` prefix. Explicit routes (not `legal/:slug`) so an unknown
+  // `/legal/*` falls through to the `**` 404 (NOT_FOUND_TTL + `Cache-Tag:
+  // route:404`). Registered before the `**` wildcard so they match.
+  {
+    path: 'legal/terms',
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    data: { slug: 'terms' },
+  },
+  {
+    path: 'legal/privacy',
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    data: { slug: 'privacy' },
+  },
+  {
+    path: 'legal/review-guidelines',
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    data: { slug: 'review-guidelines' },
+  },
+  {
+    path: 'legal/listing-accuracy',
+    loadComponent: () => import('./legal/legal-page').then((m) => m.LegalPage),
+    data: { slug: 'listing-accuracy' },
+  },
   // AECI-62 — Phase 2.16 global 404. Must be the last entry so every other
   // route gets a chance to match first. The resolver sets RESPONSE_INIT.status
   // to 404 and the noindex meta tags; the SSR runtime then emits NOT_FOUND_TTL

@@ -140,6 +140,17 @@ describe('resolveSitemapEntries', () => {
     );
   });
 
+  it('includes the four static legal pages (AECI-237), without a lastmod', async () => {
+    const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
+    const byLoc = (loc: string) => entries.find((e) => e.loc === loc);
+    for (const slug of ['terms', 'privacy', 'review-guidelines', 'listing-accuracy']) {
+      const entry = byLoc(`https://aecintegrations.com/legal/${slug}`);
+      expect(entry, slug).toBeDefined();
+      expect(entry?.changefreq).toBe('yearly');
+      expect(entry?.lastmod).toBeUndefined();
+    }
+  });
+
   it('sets lastmod from updated_at for products/vendors/integrations but not taxonomy', async () => {
     const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
     const byLoc = (loc: string) => entries.find((e) => e.loc === loc);

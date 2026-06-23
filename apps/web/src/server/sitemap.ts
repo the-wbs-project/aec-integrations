@@ -126,6 +126,13 @@ export async function resolveSitemapEntries(
     { loc: `${base}/categories`, changefreq: 'weekly', priority: 0.6 },
     { loc: `${base}/audiences`, changefreq: 'weekly', priority: 0.6 },
     { loc: `${base}/phases`, changefreq: 'weekly', priority: 0.6 },
+    // Static legal pages (AECI-237). Indexable, rarely change — low priority,
+    // yearly changefreq. Their canonicals are self-referential against the same
+    // serving origin, so sitemap `<loc>` ⇄ page canonical stay consistent.
+    { loc: `${base}/legal/terms`, changefreq: 'yearly', priority: 0.3 },
+    { loc: `${base}/legal/privacy`, changefreq: 'yearly', priority: 0.3 },
+    { loc: `${base}/legal/review-guidelines`, changefreq: 'yearly', priority: 0.3 },
+    { loc: `${base}/legal/listing-accuracy`, changefreq: 'yearly', priority: 0.3 },
   ];
 
   for (const product of products) {

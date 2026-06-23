@@ -262,3 +262,130 @@ html {
     scroll-behavior: auto !important;
   }
 }
+
+/* AECI-237 — long-form legal prose (`/legal/*`) rendered from Markdown via
+   `[innerHTML]`. Tailwind preflight strips list bullets and block margins, and
+   Angular's sanitizer drops authored classes, so the rhythm/list/quote/code/table
+   styling for the markdown body lives here, keyed off the `.legal-prose` wrapper
+   in `legal-page.ts`. The global element rules above already give `h1–h3` Source
+   Serif and body text Atkinson; this block adds only what's missing. Logical
+   properties keep it RTL-ready (CLAUDE.md "i18n from day one"). The 70ch measure
+   cap stays a Tailwind utility on the wrapper (mirrors `/about`). */
+.legal-prose {
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.legal-prose > :first-child {
+  margin-block-start: 0;
+}
+
+.legal-prose p {
+  margin-block: 1rem 0;
+}
+
+.legal-prose h2 {
+  color: var(--text-primary);
+  margin-block: 2.5rem 0;
+}
+
+.legal-prose h3 {
+  color: var(--text-primary);
+  margin-block: 2rem 0;
+}
+
+/* Serif-Floor Rule (DESIGN.md): sub-heading levels stay in the body face rather
+   than dropping Source Serif below its 18px floor. */
+.legal-prose h4,
+.legal-prose h5,
+.legal-prose h6 {
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.4;
+  margin-block: 1.75rem 0;
+}
+
+.legal-prose ul,
+.legal-prose ol {
+  margin-block: 1rem 0;
+  padding-inline-start: 1.5rem;
+}
+
+.legal-prose ul {
+  list-style: disc;
+}
+
+.legal-prose ol {
+  list-style: decimal;
+}
+
+.legal-prose li {
+  margin-block: 0.5rem 0;
+}
+
+.legal-prose li::marker {
+  color: var(--text-tertiary);
+}
+
+.legal-prose a {
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+.legal-prose strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.legal-prose blockquote {
+  border-inline-start: 3px solid var(--accent-primary);
+  color: var(--text-secondary);
+  margin-block: 1.5rem;
+  padding-inline-start: 1.25rem;
+}
+
+.legal-prose code {
+  background-color: var(--surface-muted);
+  border-radius: 0.25rem;
+  font-size: 0.875em;
+  padding-block: 0.1em;
+  padding-inline: 0.35em;
+}
+
+.legal-prose pre {
+  background-color: var(--surface-muted);
+  border-radius: 0.5rem;
+  margin-block: 1.5rem 0;
+  overflow-x: auto;
+  padding: 1rem;
+}
+
+.legal-prose pre code {
+  background-color: transparent;
+  padding: 0;
+}
+
+.legal-prose hr {
+  margin-block: 2.5rem;
+}
+
+.legal-prose table {
+  border-collapse: collapse;
+  margin-block: 1.5rem 0;
+  width: 100%;
+}
+
+.legal-prose th,
+.legal-prose td {
+  border: 1px solid var(--border-default);
+  padding-block: 0.5rem;
+  padding-inline: 0.75rem;
+  text-align: start;
+}
+
+.legal-prose th {
+  color: var(--text-primary);
+  font-weight: 600;
+}

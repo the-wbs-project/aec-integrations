@@ -75,6 +75,15 @@
             // `afterNextRender` (browser), so the SSR Worker never loads it — and
             // even if it did, `nodejs_compat` provides `util` at runtime.
             "externalDependencies": ["cloudflare:workers", "util"],
+            // AECI-237 — inline `*.md` imports as raw strings via esbuild's
+            // `text` loader, so the legal-page content registry
+            // (`src/app/legal/legal-content.ts`) can `import` the Markdown
+            // sources in `src/content/legal/`. Applies to every `.md` import,
+            // but only the legal content uses them. The matching ambient type
+            // (`declare module '*.md'`) lives in `src/markdown.d.ts`.
+            "loader": {
+              ".md": "text"
+            },
             "outputPath": "dist"
           },
           "configurations": {
