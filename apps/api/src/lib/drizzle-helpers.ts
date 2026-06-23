@@ -28,6 +28,7 @@ import type {
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
+  LinkRef,
   ProductDetail,
   ProductLink,
   ProductListItem,
@@ -49,6 +50,7 @@ import {
   productPhases,
   products,
   productVendors,
+  vendors,
 } from '../db/schema';
 
 // ---------------------------------------------------------------------------
@@ -662,7 +664,11 @@ export function toAccountReview(raw: RawAccountReviewRow): AccountReview {
  *  keys the list handler groups on to derive `is_duplicate` (`kind`, `targetType`,
  *  `targetId`, `submitterEmail`). `is_duplicate` itself has no column — it's
  *  computed at read time and passed to `toAdminVendorRequest`. No relations: every
- *  field is a `vendor_requests` scalar. */
+ *  field is a `vendor_requests` scalar. The polymorphic target (`target_type`,
+ *  `target_id`) is hydrated separately via `resolveRequestTargets` — a batch lookup
+ *  against the products/vendors tables (AECI-217) — and the resolved `LinkRef` is
+ *  passed into `toAdminVendorRequest`. (A relational `with` can't model the
+ *  same-field-two-tables polymorphism here.) */
 export const adminVendorRequestConfig = {
   columns: {
     id: true,
@@ -701,6 +707,50 @@ export interface RawAdminVendorRequestRow {
   resolvedById: string | null;
 }
 
+/**
+ * Batch-resolve the polymorphic `(target_type, target_id)` of a page of vendor
+ * requests into a `Map<target_id, LinkRef>` (AECI-217). One `IN (...)` query per
+ * target table (skipped when that page has none) — no per-row N+1. The
+ * `/admin/requests` UI needs name/slug to link the target, but detail pages are
+ * slug-only with no by-id route, so the API resolves the link here. A request whose
+ * target row is missing (deleted/un-promoted) simply gets no map entry → the
+ * caller passes `null` and the UI shows a non-linked label. Vendors expose their
+ * label as `companyName`, mapped to `LinkRef.name`.
+ */
+export async function resolveRequestTargets(
+  db: Db,
+  rows: ReadonlyArray<{ targetType: string; targetId: string }>,
+): Promise<Map<string, LinkRef>> {
+  const productIds = [
+    ...new Set(rows.filter((r) => r.targetType === 'product').map((r) => r.targetId)),
+  ];
+  const vendorIds = [
+    ...new Set(rows.filter((r) => r.targetType === 'vendor').map((r) => r.targetId)),
+  ];
+  const map = new Map<string, LinkRef>();
+  await Promise.all([
+    productIds.length === 0
+      ? Promise.resolve()
+      : db
+          .select({ id: products.id, name: products.name, slug: products.slug })
+          .from(products)
+          .where(inArray(products.id, productIds))
+          .then((ps) => {
+            for (const p of ps) map.set(p.id, { id: p.id, name: p.name, slug: p.slug });
+          }),
+    vendorIds.length === 0
+      ? Promise.resolve()
+      : db
+          .select({ id: vendors.id, name: vendors.companyName, slug: vendors.slug })
+          .from(vendors)
+          .where(inArray(vendors.id, vendorIds))
+          .then((vs) => {
+            for (const v of vs) map.set(v.id, { id: v.id, name: v.name, slug: v.slug });
+          }),
+  ]);
+  return map;
+}
+
 /** Map a raw `vendor_requests` row → `AdminVendorRequest` (camelCase → snake_case;
  *  D1 `*_at` are already ISO text, so no `Date` conversion). `is_duplicate` is
  *  supplied by the caller (the list handler computes it page-wide; the single-row
@@ -710,6 +760,7 @@ export interface RawAdminVendorRequestRow {
 export function toAdminVendorRequest(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
+  target: LinkRef | null = null,
 ): AdminVendorRequest {
   return {
     id: raw.id,
@@ -717,6 +768,7 @@ export function toAdminVendorRequest(
     status: raw.status as AdminVendorRequest['status'],
     target_type: raw.targetType as AdminVendorRequest['target_type'],
     target_id: raw.targetId,
+    target,
     submitter_email: raw.submitterEmail,
     submitter_name: raw.submitterName,
     submitter_role: raw.submitterRole,

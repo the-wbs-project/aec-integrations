@@ -71,6 +71,7 @@ import {
 } from '../lib/audit';
 import {
   adminVendorRequestConfig,
+  resolveRequestTargets,
   toAdminVendorRequest,
   type RawAdminVendorRequestRow,
 } from '../lib/drizzle-helpers';
@@ -247,8 +248,14 @@ export function createAdminRequestsListHandler(
       return kc - self >= 1 || ec - self >= 1;
     };
 
+    // Hydrate the polymorphic target → `LinkRef` (AECI-217) in one batched lookup
+    // per target table over the page's rows; a missing target row → `null`.
+    const targets = await resolveRequestTargets(db, rows);
+
     const body: ListVendorRequestsResponse = {
-      data: rows.map((row) => toAdminVendorRequest(row, isDuplicate(row))),
+      data: rows.map((row) =>
+        toAdminVendorRequest(row, isDuplicate(row), targets.get(row.targetId) ?? null),
+      ),
       page: query.page,
       perPage: query.perPage,
       total: countRows[0]?.value ?? 0,
@@ -410,10 +417,13 @@ export function createModerateRequestHandler(
 
     // Build the response from the preloaded row + the values we just committed.
     // `is_duplicate` is `false` on the single-row confirmation (the dashboard
-    // re-fetches the list, which recomputes it).
+    // re-fetches the list, which recomputes it). Hydrate the target `LinkRef`
+    // (AECI-217) from the one row's `(target_type, target_id)`.
+    const targets = await resolveRequestTargets(db, [existing]);
     const body: ModerateRequestResponse = toAdminVendorRequest(
       { ...existing, status: newStatus, resolvedById: userId, resolvedAt },
       false,
+      targets.get(existing.targetId) ?? null,
     );
 
     validateResponseInDev(c.env, () => {

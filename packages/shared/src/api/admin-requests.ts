@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-import { PageQuerySchema, paginatedResponseSchema } from './common';
+import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
  * Admin requests moderation contracts (AECI-216 / Phase 6.9) — the admin-facing
@@ -47,8 +47,13 @@ export type ListVendorRequestsQuery = z.infer<typeof ListVendorRequestsQuerySche
  *  - `is_duplicate` is COMPUTED at read time (no column): an OPEN sibling request
  *    shares the same `(kind, target_type, target_id)` or `(submitter_email,
  *    target_type, target_id)` (Phase 6 Spec §7.2). Informational only.
- *  - target is the loose-polymorphic `(target_type, target_id)` pair — no FK, no
- *    name/slug hydration here (the dashboard UI resolves links itself).
+ *  - target is the loose-polymorphic `(target_type, target_id)` pair — no FK. The
+ *    list/PATCH handlers HYDRATE it into `target` (a `LinkRef`: id/name/slug) by
+ *    resolving `target_id` against the products OR vendors table (AECI-217), so the
+ *    `/admin/requests` UI can render a real detail link without a by-id route. A
+ *    null `target` means the referenced row is missing (deleted/un-promoted) — the
+ *    UI falls back to a non-linked label. `target_type`/`target_id` stay on the row
+ *    (the discriminator the UI uses to pick `/products` vs `/vendors`).
  */
 export const AdminVendorRequestSchema = z.object({
   id: z.string().uuid(),
@@ -56,6 +61,7 @@ export const AdminVendorRequestSchema = z.object({
   status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
   target_type: z.enum(['product', 'vendor']),
   target_id: z.string().uuid(),
+  target: LinkRefSchema.nullable(),
   submitter_email: z.string(),
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
