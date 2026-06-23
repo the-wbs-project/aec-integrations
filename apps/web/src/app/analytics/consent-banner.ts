@@ -36,8 +36,7 @@ import { ConsentService } from './consent';
             <span i18n="@@analytics.consent.message"
               >We use privacy-friendly product analytics to understand how the directory is used and
               make it better. No ads, and we never sell your data.</span
-            >
-            <a
+            >&ngsp;<a
               routerLink="/legal/privacy"
               class="font-medium text-(--accent-primary) underline underline-offset-2
                 hover:text-(--accent-primary-hover)"
