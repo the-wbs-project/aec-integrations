@@ -63,7 +63,21 @@
  *     `<script>` — `script-src` therefore stays untouched, these two
  *     `connect-src` XHR origins are all it needs. The region is PINNED to US:
  *     switching `POSTHOG_HOST` to EU requires swapping these for the `eu.`
- *     hosts here (the CSP is static and cannot read per-env config).
+ *     hosts here (the CSP is static and cannot read per-env config). Last, the
+ *     two Supabase project origins for browser auth (Phase 5, AECI-194): the
+ *     `@supabase/ssr` `createBrowserClient` XHRs to `https://<ref>.supabase.co/auth/v1/*`
+ *     for `getSession()`/token-refresh, magic-link OTP, and sign-out. Because
+ *     the CSP is static while `SUPABASE_URL` is per-env, BOTH known project
+ *     refs are allowlisted explicitly (mirroring the two Datadog intake hosts,
+ *     not a `*.supabase.co` wildcard): `dmbygwupskttzsvfzluq` is the dev project
+ *     (local/preview/staging) and `jgxebjufabtwkcgxjqvk` is production (see the
+ *     `SUPABASE_URL` env vars in `apps/web/wrangler.jsonc`). A new project ref
+ *     must be added here or every signed-in page on that env CSP-refuses its
+ *     session probe — the bug this fixed: the staging header's `SessionStatus`
+ *     probe (`afterNextRender`, every page) hit `TypeError: Failed to fetch` in
+ *     a refresh-retry loop because the origin was missing. Google OAuth's
+ *     `signInWithOAuth` is a top-level navigation to `accounts.google.com`, not
+ *     a `connect-src` fetch, so it needs no entry here.
  */
 const CSP_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
@@ -71,7 +85,7 @@ const CSP_DIRECTIVES: readonly string[] = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://browser-intake-datadoghq.com https://browser-intake-us5-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com https://us.i.posthog.com https://us-assets.i.posthog.com",
+  "connect-src 'self' https://browser-intake-datadoghq.com https://browser-intake-us5-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com https://us.i.posthog.com https://us-assets.i.posthog.com https://dmbygwupskttzsvfzluq.supabase.co https://jgxebjufabtwkcgxjqvk.supabase.co",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
