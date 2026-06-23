@@ -51,12 +51,15 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.moderation.queue_oldest_age_hours` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
 | `aeci.linear.issue` | count | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211 — the request→Linear `ctx.waitUntil` task) | `outcome` (ok / failed / skipped_exists), `kind` (claim / correction), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
 | `aeci.linear.issue.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211) | `outcome` (ok / failed) |
+| `aeci.webhooks.linear.receipt` | count | `apps/api/src/routes/webhooks.ts` (`createLinearWebhookHandler`, AECI-212 — the inbound `POST /api/webhooks/linear`, emitted after a valid HMAC verify) | `type` (Linear webhook resource, e.g. `Issue`), `action` (`create` / `update` / `remove`) |
+| `aeci.webhooks.linear.hmac_failure` | count | `apps/api/src/routes/webhooks.ts` (`createLinearWebhookHandler`, AECI-212 — emitted before the 401 when `Linear-Signature` is missing/invalid) | — |
 | `aeci.linear.sync` | count | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213 — the site→Linear resolve/reject `ctx.waitUntil` push) | `outcome` (ok / failed / skipped_no_issue), `kind` (claim / correction), `to_status` (resolved / rejected), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
 | `aeci.linear.sync.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213) | `outcome` (ok / failed) |
 | `aeci.linear.reconcile.stuck` | gauge | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214 — the every-15-min sweep) | — (backlog: count of `open`/unlinked `vendor_requests` older than the stuck threshold; **0 on a clean run**) |
 | `aeci.linear.reconcile.attempt` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | `outcome` (cleared / still_failing) — submits the **row count** as the value, so query with `sum:` |
 | `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
 | `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214) | `outcome` (sent / failed / skipped) — **`skipped` until Phase 7 wires Loops** (§14); the seam is fail-open and the Datadog alert is the backstop |
+| `aeci.moderation.ban` | count | _deferred — the reviewer-ban handler, **AECI-218 / Phase 6.11** (the ban write-path is unbuilt; see the deferred-metric note below)_ | `action` (`ban` / `unban`), `outcome` (`ok`) — **planned contract, not yet emitted** |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -181,8 +184,9 @@ no-data monitor distinguishes "ran clean" from "didn't run"). `aeci.linear.recon
 the persistent threshold) ride the same `source:reconcile` logs; the persistent-failure count + its
 `level:error` log are **the Datadog alert** behind `monitor-linear-reconcile-stuck.json`.
 `aeci.linear.reconcile.email` tracks the admin-alert seam (`outcome:skipped` until Loops lands in
-Phase 7 — §14). The full Phase-6 **dashboard** still lands in **6.12** (not this issue) — AECI-214
-ships only the single stuck-row monitor the §6.2 backstop requires.
+Phase 7 — §14). The full Phase-6 **dashboard** + the pipeline-failure / HMAC / sweep-liveness monitors
+land in **6.12** (AECI-219, below); AECI-214 shipped only the single stuck-row (persistent-failure)
+monitor the §6.2 backstop required.
 
 `aeci.linear.sync` / `aeci.linear.sync.duration_ms` (AECI-213, Phase 6.6) are the **outbound-resolution**
 counterpart: one count per site→Linear `ctx.waitUntil` push when an admin resolves/rejects a request.
@@ -191,7 +195,28 @@ when the request was never linked to a Linear issue (`linear_issue_id` null — 
 no-op, not a failure); `outcome:failed` (with a `reason` tag) when the Linear `issueUpdate` or the transition
 write fails. The `to_status` tag (`resolved` / `rejected`) splits the two terminal pushes. Same absent-key
 silence as `aeci.linear.issue`. The dashboard widget + alert for this metric land with the Phase 6.12
-observability issue (AECI-218), not this one.
+observability issue (AECI-219).
+
+`aeci.webhooks.linear.receipt` / `aeci.webhooks.linear.hmac_failure` (AECI-212, Phase 6.5) are the
+**inbound** (Linear → Site) half of the sync. `POST /api/webhooks/linear` (`routes/webhooks.ts`)
+HMAC-verifies the `Linear-Signature` header against `LINEAR_WEBHOOK_SIGNING_SECRET` and **fails closed**:
+a missing/invalid signature emits `aeci.webhooks.linear.hmac_failure` and returns 401 **before** anything
+is written. A verified request emits `aeci.webhooks.linear.receipt` tagged `type` (the Linear resource —
+`Issue`) × `action` (`create` / `update` / `remove`); only `Issue`/`update` state changes drive a
+`workflow_transition` + `vendor_requests.status` update, the rest are acknowledged no-ops. `…receipt` is
+the throughput signal (and, paired against a sudden zero, the "secret rotated but not re-pushed → all
+deliveries bouncing" tell); `…hmac_failure` is the security/mis-config signal behind the
+`monitor-webhook-hmac-failure.json` alert. The full dashboard + alert land in 6.12 (AECI-219, below).
+
+`aeci.moderation.ban` (count, `action:ban|unban` × `outcome:ok`) is a **deferred contract**, documented
+here ahead of its feature the same way the browser `aeci.search.query` RUM metric was reserved by AECI-141
+before AECI-174 implemented it. The reviewer-**ban management** write-path (admin sets `profiles.banned_at`
++ `ban_reason`) is **AECI-218 / Phase 6.11**, still unbuilt — Phase 5 (AECI-197) only *enforces* an
+existing ban on review submit; nothing yet *writes* one outside SQL. So there is no emit, dashboard widget,
+or monitor for it yet: the emit (one count per ban/unban, alongside the §9 `appendAuditLog()` +
+`workflow_transition`) and its dashboard widget land **with AECI-218**, not with this observability issue
+(6.12 depends only on 6.4 + 6.5). This row reserves the name + tag vocabulary so the feature issue doesn't
+re-invent it.
 
 ### Three gotchas when querying
 
@@ -286,6 +311,21 @@ oldest-pending age (h) + depth (with a 48h backlog marker). Note the sign-in wid
 `aeci.auth.signin`, which carries `service:aeci-web` (the SSR Worker), unlike the rest of the
 Phase 5 metrics on `aeci-api`.
 
+### `AECi Phase 6 — Requests / Moderation`
+
+- **Definition (for record):** `observability/datadog/dashboard-requests-moderation.json`
+- **Live URL:** https://us5.datadoghq.com/dashboard/k86-25g-8rx/aeci-phase-6--requests--moderation _(applied 2026-06-20 — AECI-219; the 3 Phase 6 monitors were applied in the same pass with `@chrisw@thewbsproject.com` substituted for the placeholder)._
+
+Widgets (Phase 6.12 requests/moderation health, AECI-219 — all `aeci-api`, already emitted by the
+6.4–6.7 feature issues): Linear issue creation by `outcome` · by `kind` · issue-creation failure rate
+(`100 × failed / terminal`, `skipped_exists` excluded, 50% marker) · issue-creation latency p50/p95/p99 ·
+site→Linear sync by `outcome` · by `to_status` · sync latency p50/p95/p99 · webhook receipts by `action` ·
+webhook HMAC failures (`sum:`, 3/1h marker) · reconciliation backlog gauge (`aeci.linear.reconcile.stuck`) ·
+reconciliation attempts by `outcome` (`sum:`) · persistent failures (`sum:`, any > 0 pages) · admin-alert
+email seam by `outcome`. **No ban-action widget** — `aeci.moderation.ban` is deferred to AECI-218 / Phase
+6.11 (see the catalog note above). The two duration distributions need percentile aggregations enabled
+(gotcha 2); `…reconcile.attempt`/`…persistent_failure` submit row counts, so they use `sum:` (gotcha 3).
+
 ## Monitors
 
 Each monitor's `message` links the matching runbook in `docs/RUNBOOKS.md` and routes to
@@ -308,6 +348,10 @@ nine monitors were applied 2026-06-12 with that substitution.
 | Auth sign-in error rate | sign-in failure rate > 30% over 15m (`service:aeci-web`) | `observability/datadog/monitor-auth-error-rate.json` |
 | Toxicity scoring outage | Toxicity-scoring failure rate > 50% over 15m | `observability/datadog/monitor-toxicity-outage.json` |
 | Moderation queue backlog | oldest pending review > 48h (daily); or no snapshot for ~26h | `observability/datadog/monitor-moderation-queue-age.json` |
+| Linear pipeline failure | Linear write failure rate (`issue` + `sync`, terminal attempts) > 50% over 1h | `observability/datadog/monitor-linear-pipeline-failure.json` |
+| Linear webhook HMAC failures | `aeci.webhooks.linear.hmac_failure` > 3 over 1h | `observability/datadog/monitor-webhook-hmac-failure.json` |
+| Linear reconciliation: persistent stuck requests | any `aeci.linear.reconcile.persistent_failure` in the last 1h | `observability/datadog/monitor-linear-reconcile-stuck.json` |
+| Linear reconciliation sweep not running | no `aeci.linear.reconcile.stuck` gauge for ~1h (no-data liveness) | `observability/datadog/monitor-linear-reconcile-no-data.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
@@ -355,6 +399,27 @@ so the same series carries both the threshold alert (oldest pending > 48h → ba
 `notify_no_data` (`no_data_timeframe` 1560 ≈ 26h), the cron-liveness check (no snapshot → the cron
 stopped). Because the snapshot is **daily**, detection lags up to ~24h on top of the 48h threshold; the
 cron can move to hourly post-launch if a tighter moderation SLA is needed.
+
+The Phase 6 monitors (AECI-219) follow the **same failure + liveness split**, across two surfaces.
+**"Linear pipeline failure"** is a **traffic-driven error-rate** monitor (like the Phase 5 pair): the
+combined `aeci.linear.issue` + `aeci.linear.sync` `outcome:failed` rate over **terminal** attempts
+(`skipped_exists` / `skipped_no_issue` excluded from the denominator so an idempotent re-fire or a
+no-issue sync can't dilute the ratio), no `notify_no_data` (the pipeline is traffic-driven and the
+absent-key path emits nothing, so zero is healthy). It catches **systemic** breakage (revoked key,
+drifted board ids, Linear down) earlier than the per-row reconcile backstop, and is the **only** alert
+covering the outbound **sync** path, which has no reconciliation retry. **"Linear webhook HMAC failures"**
+is also error-driven (count `> 3`/1h, no `notify_no_data` — a bad signature is the only thing that emits
+it): a security/mis-config signal where a sudden burst paired with a drop in `aeci.webhooks.linear.receipt`
+means the signing secret rotated out of sync. The reconciliation sweep keeps the AECI-214 failure monitor
+(**"persistent stuck requests"**, `aeci.linear.reconcile.persistent_failure > 0`, no `notify_no_data` — the
+§6.2 backstop alert) and now gains its **fixed-cadence liveness** companion (**"sweep not running"**): the
+every-15-min sweep emits the `aeci.linear.reconcile.stuck` gauge on **every** run (0 on a clean run), so a
+`notify_no_data` check (`no_data_timeframe` ~60m ≈ 4 missed sweeps) means the cron stalled and stuck rows
+are no longer retried. That monitor's value threshold is intentionally unsatisfiable (the gauge is ≥ 0) —
+its sole job is the no-data heartbeat; the backlog *value* is alerted by the persistent-failure monitor.
+Same rule as Algolia/stats: keep the failure and liveness concerns on separate metrics. Thresholds
+(50% / 3-per-hour / ~1h) are launch-tunable starting points. The Phase 6 **ban-action** metric
+(`aeci.moderation.ban`) and its monitor are deferred to AECI-218 / Phase 6.11 (the feature is unbuilt).
 
 ## Browser search RUM (`aeci.search.query`, AECI-174)
 

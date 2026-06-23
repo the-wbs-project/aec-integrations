@@ -1,0 +1,14 @@
+{
+  "name": "AECi — Linear webhook HMAC failures > 3 (1h)",
+  "type": "query alert",
+  "query": "sum(last_1h):sum:aeci.webhooks.linear.hmac_failure{env:production}.as_count() > 3",
+  "message": "More than 3 inbound Linear webhook requests failed HMAC signature verification in the last 1h (AECI-219 / Phase 6.12). `aeci.webhooks.linear.hmac_failure` is emitted by `POST /api/webhooks/linear` (`routes/webhooks.ts`, AECI-212 / Phase 6.5) every time the `Linear-Signature` header is missing or does not match `LINEAR_WEBHOOK_SIGNING_SECRET`; the request is rejected 401 and NOTHING is written, so this is fail-closed. A burst usually means one of: (1) the signing secret was rotated in Linear's webhook settings but the Worker secret was not re-pushed (or vice-versa) — legitimate Linear deliveries are now all bouncing, so the site→Linear status sync silently stops; or (2) someone is probing/replaying the public endpoint. First checks: confirm legitimate receipts are still flowing (`aeci.webhooks.linear.receipt` — if it dropped to zero at the same time, it's a secret mismatch, NOT an attack); diff the secret in Linear's webhook config against the Worker's `LINEAR_WEBHOOK_SIGNING_SECRET` (`wrangler secret list`); read `service:aeci-api` logs for the source. Repair: re-push the correct secret and redeploy — Linear retries failed webhook deliveries, and the §6.4 reconciliation sweep + the webhook are both directions of the same sync, so state re-converges.\n\nNote: deliberately NO notify_no_data — HMAC failures are emitted only on a bad signature, so zero points is the healthy state (like `aeci.linear.reconcile.persistent_failure`) and a no-data alert would be constant noise. The >3 threshold over 1h is a launch-tunable starting point — tighten if the endpoint sees scanner traffic, loosen if a legitimate retry storm trips it.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#linear-webhook-hmac-failures\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:6", "managed-by:aeci-219"],
+  "options": {
+    "thresholds": { "critical": 3 },
+    "notify_no_data": false,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}
