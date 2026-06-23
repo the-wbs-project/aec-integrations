@@ -21,6 +21,7 @@
     "db:seed:fixtures:local": "wrangler d1 execute aeci-app-preview --local --file=seed/phase2-fixtures.sql",
     "db:seed:local": "pnpm db:seed:taxonomy:local && pnpm db:seed:catalog:local && pnpm db:seed:fixtures:local",
     "db:setup:local": "pnpm db:migrate:local && pnpm db:seed:local",
+    "db:export:catalog": "tsx scripts/export-catalog-to-d1.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
