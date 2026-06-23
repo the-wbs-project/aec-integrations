@@ -7,6 +7,7 @@ import {
 import { provideClientHydration, withHttpTransferCacheOptions } from '@angular/platform-browser';
 import { provideRouter } from '@angular/router';
 
+import { providePostHog } from './analytics/posthog.provider';
 import { routes } from './app.routes';
 import { provideDatadogRum } from './datadog.provider';
 
@@ -26,5 +27,6 @@ export const appConfig: ApplicationConfig = {
       withHttpTransferCacheOptions({ includePostRequests: false }),
     ),
     provideDatadogRum(),
+    providePostHog(),
   ],
 };

@@ -288,6 +288,30 @@ jobs:
             | pnpm exec wrangler secret put SUPABASE_ANON_KEY --name "${PREVIEW_WORKER_NAME}"
 
       # ---------------------------------------------------------------------
+      # Step 8c: Push POSTHOG_KEY to the per-PR web Worker (AECI-239)
+      #   The preview env's `vars.POSTHOG_HOST` (US Cloud) is inherited from
+      #   wrangler.jsonc; only the project key is a secret. We reuse the staging
+      #   value (shared PostHog project) so previews emit window.__AECI_POSTHOG__
+      #   and the analytics layer can init (after consent). Web Worker only.
+      #   Warn-and-skip: a missing key just no-ops analytics (fail-open). Same
+      #   printf-over-stdin idempotent pattern as the SUPABASE push above.
+      # ---------------------------------------------------------------------
+      - name: Push POSTHOG_KEY to per-PR web Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_STAGING }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$POSTHOG_KEY_VALUE" ]; then
+            echo "::warning::POSTHOG_KEY_STAGING not set — skipping push. This preview's PostHog analytics no-ops (no window.__AECI_POSTHOG__)."
+            exit 0
+          fi
+          printf '%s' "$POSTHOG_KEY_VALUE" \
+            | pnpm exec wrangler secret put POSTHOG_KEY --name "${PREVIEW_WORKER_NAME}"
+
+      # ---------------------------------------------------------------------
       # Step 9: Verify the preview reports the PR head SHA on BOTH Workers
       #   /api/version (proxied raw to the API Worker) AND /_version (the SSR
       #   Worker's own signal, AECI-92). /api/version alone can't catch a stale

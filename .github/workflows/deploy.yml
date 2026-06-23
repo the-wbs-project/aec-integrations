@@ -788,6 +788,29 @@ jobs:
           printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
             | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env staging
 
+      # AECI-239/Phase 7.4: push the PUBLIC PostHog project key to the staging WEB
+      # Worker so the SSR `posthog-bootstrap-inject` can emit
+      # `window.__AECI_POSTHOG__` and the browser analytics layer can init (after
+      # consent). Web only; the project API key is publishable (client-exposed),
+      # same security class as ALGOLIA_SEARCH_KEY. POSTHOG_HOST is a plain `vars`
+      # entry (US Cloud), so only the key is pushed here. Recommended-but-optional:
+      # warn-and-skip when unset keeps staging green pre-provision (analytics
+      # no-ops, fail-open). Same idempotent deploy→secret order.
+      - name: Push PostHog key to web Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_STAGING }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$POSTHOG_KEY_VALUE" ]; then
+            echo "::warning::POSTHOG_KEY_STAGING not set — skipping push. PostHog analytics no-ops (no window.__AECI_POSTHOG__) until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$POSTHOG_KEY_VALUE" \
+            | pnpm exec wrangler secret put POSTHOG_KEY --env staging
+
       # Postflight enforcement of THE RULE at the Worker level: assert the staging
       # API Worker actually carries its required runtime secrets after the pushes
       # above (verify-version/verify-health can't see REVIEW_APP_TOKEN). Inspects

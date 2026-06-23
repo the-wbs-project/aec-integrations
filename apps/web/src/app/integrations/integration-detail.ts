@@ -1,10 +1,12 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, afterNextRender, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import type { IntegrationDetail } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
+import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 
@@ -37,7 +39,7 @@ import { NotFound } from '../not-found/not-found';
  */
 @Component({
   selector: 'aec-integration-detail',
-  imports: [DetailLayout, NotFound, RouterLink],
+  imports: [DetailLayout, ExternalLinkTracker, NotFound, RouterLink],
   template: `
     @let i = integration();
     @if (i === null) {
@@ -117,6 +119,7 @@ import { NotFound } from '../not-found/not-found';
                 [href]="i.listing_url"
                 target="_blank"
                 rel="noopener nofollow"
+                aecTrackExternalLink="integration_detail"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
                   px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
@@ -262,6 +265,7 @@ import { NotFound } from '../not-found/not-found';
                       [href]="i.listing_url"
                       target="_blank"
                       rel="noopener nofollow"
+                      aecTrackExternalLink="integration_detail"
                       class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
                     >
                       <ng-container i18n="@@integrations.detail.links.listing"
@@ -277,6 +281,7 @@ import { NotFound } from '../not-found/not-found';
                       [href]="i.docs_url"
                       target="_blank"
                       rel="noopener nofollow"
+                      aecTrackExternalLink="integration_detail"
                       class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
                     >
                       <ng-container i18n="@@integrations.detail.links.docs"
@@ -292,6 +297,7 @@ import { NotFound } from '../not-found/not-found';
                       [href]="i.mechanism_url"
                       target="_blank"
                       rel="noopener nofollow"
+                      aecTrackExternalLink="integration_detail"
                       class="inline-flex items-center gap-1.5 text-(--accent-primary) underline underline-offset-2"
                     >
                       <ng-container i18n="@@integrations.detail.links.mechanism"
@@ -372,6 +378,7 @@ import { NotFound } from '../not-found/not-found';
 })
 export class IntegrationDetailPage {
   private readonly route = inject(ActivatedRoute);
+  private readonly analytics = inject(Analytics);
 
   /**
    * Resolved data. `integrationDetailResolver` runs server-side and on
@@ -382,6 +389,15 @@ export class IntegrationDetailPage {
     this.route.data.pipe(map((d) => (d['integration'] ?? null) as IntegrationDetail | null)),
     { initialValue: (this.route.snapshot.data['integration'] ?? null) as IntegrationDetail | null },
   );
+
+  constructor() {
+    // Browser-only `integration_viewed` (§14.1) — `afterNextRender` keeps it out
+    // of SSR; `Analytics` handles consent-gating + fire-and-forget.
+    afterNextRender(() => {
+      const i = this.integration();
+      if (i) this.analytics.integrationViewed(i.id);
+    });
+  }
 
   /** `"{source} → {target}"` headline (Phase 2 Spec §6.5). */
   protected readonly headline = computed(() => {

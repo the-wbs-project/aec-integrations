@@ -11,7 +11,7 @@
  * Covered by `tsconfig.app.json`'s `src` glob include. `export {}` keeps this a
  * module so the `declare global` augments rather than redeclares.
  */
-import type { AlgoliaPublicConfig, SupabasePublicConfig } from './env';
+import type { AlgoliaPublicConfig, PostHogPublicConfig, SupabasePublicConfig } from './env';
 
 declare global {
   interface Window {
@@ -23,6 +23,13 @@ declare global {
      * the reader degrades gracefully on `undefined`.
      */
     __AECI_SUPABASE__?: SupabasePublicConfig;
+    /**
+     * Public PostHog analytics config (`posthog-bootstrap-inject.ts`, AECI-239).
+     * Read at hydration by `app/analytics/posthog-config.ts` → the `Analytics`
+     * service. Absent in local dev without a PostHog key — the reader degrades
+     * gracefully on `undefined` and analytics never loads.
+     */
+    __AECI_POSTHOG__?: PostHogPublicConfig;
   }
 }
 

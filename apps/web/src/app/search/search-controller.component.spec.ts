@@ -101,8 +101,9 @@ const CONFIG: AlgoliaPublicConfig = {
 function build(initialQuery = '') {
   const fake = makeFakeLib();
   const emit = vi.fn();
-  const controller = new SearchController(fake.lib, {}, CONFIG, initialQuery, emit);
-  return { ...fake, controller, emit };
+  const onSearch = vi.fn();
+  const controller = new SearchController(fake.lib, {}, CONFIG, initialQuery, emit, onSearch);
+  return { ...fake, controller, emit, onSearch };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -329,6 +330,108 @@ describe('SearchController — AECI-174 RUM emit', () => {
       status: 'error',
       duration_ms: 0,
       results_bucket: 'none',
+    });
+  });
+});
+
+describe('SearchController — AECI-239 search_performed emit', () => {
+  /** Drive a non-initial root (products) stats render at a given query. */
+  function settle(
+    fake: ReturnType<typeof build>,
+    query: string,
+    nbHits = { products: 0, vendors: 0 },
+  ): void {
+    fake.controller.setQuery(query);
+    // vendors stats first so its nbHits is current when products settles.
+    fake.calls.stats[1].renderFn({ nbHits: nbHits.vendors, processingTimeMS: 4 }, false);
+    fake.calls.stats[0].renderFn({ nbHits: nbHits.products, processingTimeMS: 7 }, false);
+  }
+
+  it('emits once per query from the ROOT stats render with the federated count', () => {
+    const fake = build();
+    settle(fake, 'revit', { products: 5, vendors: 3 });
+    expect(fake.onSearch).toHaveBeenCalledExactlyOnceWith({
+      query: 'revit',
+      results_count: 8,
+      filters_applied: [],
+    });
+  });
+
+  it('does NOT emit from the nested (vendors) stats render', () => {
+    const fake = build();
+    fake.controller.setQuery('revit');
+    fake.calls.stats[1].renderFn({ nbHits: 3, processingTimeMS: 4 }, false);
+    expect(fake.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('does NOT emit on the synchronous init (isFirstRender) stats render', () => {
+    const fake = build();
+    fake.controller.setQuery('revit');
+    fake.calls.stats[0].renderFn({ nbHits: 1, processingTimeMS: 0 }, true);
+    expect(fake.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('dedupes: re-rendering the same query (e.g. pagination) does not re-emit', () => {
+    const fake = build();
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    expect(fake.onSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits again once the query text changes', () => {
+    const fake = build();
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    settle(fake, 'autocad', { products: 2, vendors: 0 });
+    expect(fake.onSearch).toHaveBeenCalledTimes(2);
+    expect(fake.onSearch).toHaveBeenLastCalledWith({
+      query: 'autocad',
+      results_count: 2,
+      filters_applied: [],
+    });
+  });
+
+  it('does NOT emit for the empty query (initial /search load, or clearing the box)', () => {
+    const fake = build();
+    settle(fake, '', { products: 40, vendors: 12 });
+    expect(fake.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('emits the first real query after an empty initial search', () => {
+    const fake = build();
+    settle(fake, '', { products: 40, vendors: 12 });
+    settle(fake, 'revit', { products: 5, vendors: 3 });
+    expect(fake.onSearch).toHaveBeenCalledExactlyOnceWith({
+      query: 'revit',
+      results_count: 8,
+      filters_applied: [],
+    });
+  });
+
+  it('reports the distinct refined facet attributes in filters_applied', () => {
+    const fake = build();
+    // Refine the products `categories` list + the vendors `founded_year` range.
+    const categories = fake.calls.refinementList.find(
+      (c) => c.params['attribute'] === 'categories',
+    );
+    categories?.renderFn(
+      {
+        items: [{ value: 'BIM', label: 'BIM', count: 3, isRefined: true }],
+        canRefine: true,
+        refine: vi.fn(),
+      },
+      true,
+    );
+    const range = fake.calls.range.find((c) => c.params['attribute'] === 'founded_year');
+    range?.renderFn(
+      { start: [2000, undefined], range: {}, canRefine: true, refine: vi.fn() },
+      true,
+    );
+
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    expect(fake.onSearch).toHaveBeenCalledExactlyOnceWith({
+      query: 'revit',
+      results_count: 5,
+      filters_applied: ['categories', 'founded_year'],
     });
   });
 });

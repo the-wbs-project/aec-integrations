@@ -52,9 +52,18 @@
  *     (`https://*.algolia.net https://*.algolianet.com`) were added in AECI-136
  *     (Phase 3.4) for InstantSearch: the browser client resolves its query host
  *     as `{appId}-dsn.algolia.net` with `{appId}-{1,2,3}.algolianet.com` retry
- *     fallbacks, so the two wildcards cover every search XHR. Finally
+ *     fallbacks, so the two wildcards cover every search XHR. Then
  *     `https://cloudflareinsights.com` is the host the Cloudflare Web Analytics
- *     beacon POSTs its RUM payload to (`/cdn-cgi/rum`).
+ *     beacon POSTs its RUM payload to (`/cdn-cgi/rum`). Finally the two PostHog
+ *     US-Cloud hosts (`https://us.i.posthog.com` ingestion + assets) were added
+ *     in AECI-239 (Phase 7.4) for the client product-analytics layer: the
+ *     browser PostHog client (`app/analytics/`) POSTs events to `us.i.posthog.com`
+ *     and fetches remote config from the assets host. We init PostHog with
+ *     `disable_external_dependency_loading: true`, so it never injects a remote
+ *     `<script>` — `script-src` therefore stays untouched, these two
+ *     `connect-src` XHR origins are all it needs. The region is PINNED to US:
+ *     switching `POSTHOG_HOST` to EU requires swapping these for the `eu.`
+ *     hosts here (the CSP is static and cannot read per-env config).
  */
 const CSP_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
@@ -62,7 +71,7 @@ const CSP_DIRECTIVES: readonly string[] = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https:",
-  "connect-src 'self' https://browser-intake-datadoghq.com https://browser-intake-us5-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com",
+  "connect-src 'self' https://browser-intake-datadoghq.com https://browser-intake-us5-datadoghq.com https://*.algolia.net https://*.algolianet.com https://cloudflareinsights.com https://us.i.posthog.com https://us-assets.i.posthog.com",
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",

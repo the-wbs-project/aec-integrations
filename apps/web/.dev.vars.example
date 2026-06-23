@@ -66,3 +66,17 @@ SUPABASE_ANON_KEY=
 # auth (Phase 5)".
 SUPABASE_TEST_USER_EMAIL=
 SUPABASE_TEST_USER_PASSWORD=
+
+# ─── PostHog product analytics (AECI-239 / Phase 7.4) ────────────────────────
+# POSTHOG_KEY is the project API key (publishable; client-exposed). The SSR
+# Worker inlines it into the HTML (window.__AECI_POSTHOG__) so the browser
+# Analytics layer can init PostHog — but only AFTER the visitor accepts the
+# consent banner (opt-in; DNT is honored as a hard decline). Stored as a secret
+# only to keep values out of git (same convention as ALGOLIA_SEARCH_KEY).
+# POSTHOG_HOST is the ingestion host; defaults to https://us.i.posthog.com (US
+# Cloud) when empty. The static CSP connect-src is pinned to the US hosts, so a
+# non-US host needs a matching CSP change (src/server/seo-headers.ts).
+# POSTHOG_KEY empty → no script injected and analytics no-ops (fail-open), so
+# dev boots cleanly without a PostHog account.
+POSTHOG_KEY=
+POSTHOG_HOST=https://us.i.posthog.com

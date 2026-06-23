@@ -169,6 +169,18 @@ export interface RangeRenderState {
 type Renderer<S> = (state: S, isFirstRender: boolean) => void;
 type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (params: P) => IsWidget;
 
+/** Payload for the PostHog `search_performed` event (§14.1, AECI-239). */
+export interface SearchPerformedEvent {
+  readonly query: string;
+  /** Best-effort federated total (products + vendors `nbHits`). */
+  readonly results_count: number;
+  /** Distinct facet attributes with an active refinement at search time. */
+  readonly filters_applied: readonly string[];
+}
+
+/** Emit seam for `search_performed` — injectable so tests assert without the SDK. */
+export type SearchPerformedEmitter = (event: SearchPerformedEvent) => void;
+
 /** The minimal `instantsearch.js` surface this controller drives. */
 export interface InstantSearchLib {
   instantsearch(opts: {
@@ -280,6 +292,8 @@ export class SearchController {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
   private disposed = false;
+  /** Last query a `search_performed` was emitted for — dedupes to one per query. */
+  private lastSearchEmittedFor: string | null = null;
 
   constructor(
     private readonly lib: InstantSearchLib,
@@ -288,6 +302,9 @@ export class SearchController {
     initialQuery = '',
     /** RUM emit seam (AECI-174); injectable so tests assert without the SDK. */
     private readonly emit: SearchQueryEmitter = emitSearchQuery,
+    /** PostHog `search_performed` emit seam (AECI-239); defaults to a no-op so
+     *  the controller stays decoupled from Angular DI (the page wires it). */
+    private readonly onSearch: SearchPerformedEmitter = () => undefined,
   ) {
     this.query = signal(initialQuery);
 
@@ -365,6 +382,44 @@ export class SearchController {
   }
 
   /**
+   * Emit `search_performed` once per distinct query (deduped on the query text),
+   * with the best-effort federated result count and the active facet attributes.
+   * Pagination / filter-only re-queries that keep the same query text don't
+   * re-emit — the event tracks the user's search, not every Algolia round-trip.
+   */
+  private maybeEmitSearchPerformed(): void {
+    const query = this.query();
+    // Skip the empty query: `start()` runs an initial empty-query search on every
+    // /search load, and clearing the box returns to empty — neither is a search
+    // the user performed, so they'd pollute the funnel.
+    if (!query || query === this.lastSearchEmittedFor) return;
+    this.lastSearchEmittedFor = query;
+    this.onSearch({
+      query,
+      results_count: this.products.nbHits() + this.vendors.nbHits(),
+      filters_applied: this.appliedFilters(),
+    });
+  }
+
+  /** Distinct facet attributes with an active refinement across both indexes. */
+  private appliedFilters(): string[] {
+    const attributes = new Set<string>();
+    for (const view of [this.products, this.vendors]) {
+      for (const list of view.refinementLists) {
+        if (list.items().some((item) => item.isRefined)) attributes.add(list.attribute);
+      }
+      for (const menu of view.numericMenus) {
+        if (menu.items().some((item) => item.isRefined)) attributes.add(menu.attribute);
+      }
+      for (const range of view.ranges) {
+        const [min, max] = range.start();
+        if (min !== undefined || max !== undefined) attributes.add(range.attribute);
+      }
+    }
+    return [...attributes];
+  }
+
+  /**
    * Build one index's widget set (hits, stats, pagination, configure, facets),
    * attach them to `host` (the root instance for products; a nested `index()`
    * for vendors/integrations), and return the signal-backed view.
@@ -401,6 +456,10 @@ export class SearchController {
             duration_ms: Math.round(state.processingTimeMS),
             results_bucket: resultsBucket(state.nbHits),
           });
+          // §14.1 `search_performed`: one event per distinct settled query. Gated
+          // to the root (products) index so a batched products+vendors response
+          // emits once, not per index.
+          if (entity === 'products') this.maybeEmitSearchPerformed();
         }
       })({}),
       lib.connectPagination((state) => {

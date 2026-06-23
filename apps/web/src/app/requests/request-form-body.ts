@@ -20,6 +20,8 @@ import { RouterLink } from '@angular/router';
 
 import { ClaimFormSchema, CorrectionFormSchema, type RequestSubmitResponse } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
+
 import { RequestsApi, type RequestTargetRef } from './requests-api';
 
 type Entity = 'product' | 'vendor';
@@ -75,6 +77,7 @@ interface RequestModel {
 export class RequestFormBody implements OnInit {
   private readonly api = inject(RequestsApi);
   private readonly injector = inject(Injector);
+  private readonly analytics = inject(Analytics);
 
   readonly entity = input.required<Entity>();
   readonly kind = input.required<Kind>();
@@ -149,6 +152,15 @@ export class RequestFormBody implements OnInit {
                 submitter_email: v.submitter_email,
               });
         this.submitted.set(res);
+        // §14.1: the form holds only (target_type, slug) — never a UUID — so the
+        // event records that + the returned request_id (consent-gated, no-throw).
+        const payload = {
+          target_type: target.targetType,
+          slug: target.slug,
+          request_id: res.request_id,
+        };
+        if (this.kind() === 'claim') this.analytics.claimRequested(payload);
+        else this.analytics.correctionRequested(payload);
       } catch {
         // Surface the failure as a notice, not a form error — returning a
         // `ValidationError` here would mark the form invalid and disable the

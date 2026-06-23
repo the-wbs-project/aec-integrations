@@ -6,6 +6,7 @@ import { map } from 'rxjs';
 
 import type { ProductListItem, VendorDetail } from '@aeci/shared';
 
+import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
@@ -49,6 +50,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
   selector: 'aec-vendor-detail',
   imports: [
     DetailLayout,
+    ExternalLinkTracker,
     LogoOrInitial,
     NgTemplateOutlet,
     NotFound,
@@ -111,6 +113,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 [href]="v.website"
                 target="_blank"
                 rel="noopener noreferrer"
+                aecTrackExternalLink="vendor_detail"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
                   px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
@@ -162,6 +165,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                     [href]="link.href"
                     target="_blank"
                     rel="noopener noreferrer"
+                    aecTrackExternalLink="vendor_detail_social"
                     class="inline-flex h-9 w-9 items-center justify-center rounded-(--radius-sm)
                       border border-(--border-default) bg-(--surface-raised) text-(--text-secondary)
                       transition-colors hover:border-(--border-strong) hover:text-(--accent-primary)

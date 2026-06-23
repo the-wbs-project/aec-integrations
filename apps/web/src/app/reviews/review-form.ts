@@ -12,6 +12,7 @@ import {
   type SubmitReviewResponse,
 } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
 import { NotFound } from '../not-found/not-found';
 
 import { ReviewsApi } from './reviews-api';
@@ -94,6 +95,7 @@ export class ReviewForm {
   private readonly api = inject(ReviewsApi);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
+  private readonly analytics = inject(Analytics);
 
   /** The resolved product (or `null` → render the shared 404 shell). The
    *  resolver ran before this component, so the snapshot is populated. */
@@ -216,6 +218,8 @@ export class ReviewForm {
     await submit(this.form, async (f) => {
       try {
         this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
+        // Analytics is consent-gated + fire-and-forget; never blocks the flow.
+        if (this.product) this.analytics.reviewSubmitted(this.product.id);
       } catch {
         // Surface as a retryable notice, not a form error — a `ValidationError`
         // here would mark the form invalid and disable submit (mirrors

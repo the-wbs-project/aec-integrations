@@ -458,6 +458,53 @@ autocomplete) shipped that UI, and **AECI-174 implements the emit + the two dash
   a successful `/search` query emits two `ok` actions (one per index) while a failed query emits
   one `federated` error, so counting every action would halve the apparent `/search` error rate.
 
+## PostHog (client product analytics, AECI-239 / §14.1)
+
+PostHog is the **client-side** product-analytics layer — funnels, cohorts, feature
+adoption, retention — complementing the server-side `page_views` table (§14.2, which
+sees the Cloudflare context PostHog can't). It is **not** part of the Datadog pipes
+above. Implemented in `apps/web/src/app/analytics/`.
+
+**How it loads (cache-neutral, opt-in).** The SSR Worker inlines the public config as
+`window.__AECI_POSTHOG__ = {key, host}` before `</head>` (`posthog-bootstrap-inject.ts`)
+— deployment-env-only, so it's safe to cache (§9.1a). In the browser, the `Analytics`
+service loads `posthog-js` (dynamic import) and calls `posthog.init()` **only after the
+visitor accepts the consent banner** (`consent-banner.ts`); Do-Not-Track is honored as a
+hard decline (no load, no banner). Init uses `capture_pageview: 'history_change'` (auto
+pageviews incl. SPA navigations), `autocapture: false`, and
+`disable_external_dependency_loading: true` (so the CSP `script-src` stays untouched —
+only the two `connect-src` PostHog US hosts are needed).
+
+**Dimensions on every event.** `locale` + `theme` ride every event. For the 7 custom
+events they're merged into the event properties (`analyticsDimensions()` reads
+`<html lang>` / `data-theme`); for autocaptured pageviews they're registered as PostHog
+super-properties in the `loaded` callback (before the first pageview). `theme` is always
+`light` today (dark removed in AECI-226) but the dimension is still emitted so the schema
+is stable when dark returns.
+
+**Event catalog (§14.1).**
+
+| Event | Fired from | Properties |
+|---|---|---|
+| `search_performed` | `search-controller.ts` (root stats settle, one per distinct non-empty query — the empty initial `/search` load is skipped) | `query`, `results_count` (federated), `filters_applied[]` |
+| `product_viewed` | `products/product-detail.ts` (`afterNextRender`) | `product_id`, `source` (`search`/`browse`/`direct`, from the previous in-app route) |
+| `integration_viewed` | `integrations/integration-detail.ts` (`afterNextRender`) | `integration_id` |
+| `review_submitted` | `reviews/review-form.ts` (submit success) | `product_id` |
+| `claim_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
+| `correction_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
+| `external_link_clicked` | `[aecTrackExternalLink]` directive on detail-page outbound anchors | `destination`, `source` |
+
+**Documented deviation — claim/correction identifier.** §14.1 names `vendor_id` /
+`product_id`, but the request form holds only `(target_type, slug)` by design
+(`request-form-body.ts`) and the submit response returns only `request_id` — the client
+never sees the UUID. So those two events record `{ target_type, slug, request_id }`: the
+slug is the stable public identifier (1:1 with the entity) and is sufficient to join
+back to it. Resolving the UUID would require an extra round-trip for no analytical gain.
+
+**Region is pinned to US.** `POSTHOG_HOST` defaults to `https://us.i.posthog.com`; the
+static CSP `connect-src` allowlists `us.i.posthog.com` + `us-assets.i.posthog.com`.
+Switching to EU is a code change (host default + the two CSP hosts).
+
 ## Credentials
 
 | Credential | Used by | Where it lives | Notes |
@@ -465,6 +512,8 @@ autocomplete) shipped that UI, and **AECI-174 implements the emit + the two dash
 | `DD_API_KEY` | Worker runtime — logs **and** metric submission | Wrangler secret (both Workers, all envs) | Already provisioned (AECI-31). Metric submission needs only this key. |
 | `DD_APP_KEY` | **Operator only** — creating/reading dashboards + monitors | Local shell / CI secret at apply time | **Never** a Worker secret; never in `wrangler.jsonc` / `.dev.vars`. |
 | `DD_SITE` | both | Wrangler `vars` | `us5.datadoghq.com`. The metrics host is `api.{DD_SITE}`. |
+| `POSTHOG_KEY` | `apps/web` browser (client-exposed project key) | Wrangler secret on the **web Worker only**, CI-pushed from `POSTHOG_KEY_{STAGING,PRODUCTION}` | AECI-239. Publishable; stored as a secret only to keep it out of git. Absent → analytics no-ops (fail-open). |
+| `POSTHOG_HOST` | `apps/web` browser | Wrangler `vars` (web Worker, per env) | `https://us.i.posthog.com`. Defaulted in code when unset. |
 
 ## Applying the dashboard + monitors
 
