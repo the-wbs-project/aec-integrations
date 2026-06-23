@@ -753,6 +753,16 @@ Query is `AccountReviewsQuerySchema` (page-based: `page` / `perPage`); order is
 fixed newest-first (`created_at desc`, `id asc` tiebreak), so there is no `sort`
 param. `Cache-Control: private, no-store`.
 
+An optional `product_id` (UUID) **narrows** the caller's list to a single
+product (AECI-260) — it never widens scope (reviewer scope stays server-set to
+`session.userId`; a present `reviewer_id` is still ignored). It powers the cheap
+"have I already reviewed this product?" check behind the personalized review CTA
+and the review-form guard (`STAGE_1_PHASE_5_SPEC.md` §5.5): a non-empty result
+(`total >= 1`) means a blocking review exists. A malformed `product_id` is a
+`VALIDATION_FAILED` `400`. (Caveat: the endpoint applies no `status` filter, so
+the result equals the server's *non-archived* duplicate rule only because no
+review-archival flow exists yet — revisit the filter if one is added.)
+
 ```typescript
 export const AccountReviewSchema = z.object({
   id: z.string().uuid(),

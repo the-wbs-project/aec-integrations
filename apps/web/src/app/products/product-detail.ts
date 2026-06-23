@@ -429,6 +429,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
           <section id="reviews" aria-labelledby="reviews-title" class="scroll-mt-20">
             <aec-product-reviews
               [slug]="p.slug"
+              [productId]="p.id"
               [reviewCount]="p.review_count"
               [ratingOverallAvg]="p.rating_overall_avg"
               [ratingOnboardingAvg]="p.rating_onboarding_avg"

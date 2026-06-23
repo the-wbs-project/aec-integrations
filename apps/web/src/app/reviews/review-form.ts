@@ -1,4 +1,5 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
@@ -7,12 +8,15 @@ import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import {
+  ApiErrorCode,
   SubmitReviewSchema,
+  type AccountReview,
   type ProductDetail,
   type SubmitReviewInput,
   type SubmitReviewResponse,
 } from '@aeci/shared';
 
+import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
 import { NotFound } from '../not-found/not-found';
 
@@ -95,6 +99,7 @@ interface ReviewModel {
 export class ReviewForm {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ReviewsApi);
+  private readonly account = inject(AccountApi);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
   private readonly analytics = inject(Analytics);
@@ -111,6 +116,19 @@ export class ReviewForm {
   /** True when the last submit attempt failed (network / 401 expired-session /
    *  server error). Surfaced as a non-blocking notice so the user can retry. */
   protected readonly submitFailed = signal(false);
+
+  /** True when the last submit was rejected as a duplicate (`REVIEW_DUPLICATE`,
+   *  409). A specific, non-blocking notice — NOT a `ValidationError` (which would
+   *  disable submit) — so it mirrors `submitFailed` (AECI-260). */
+  protected readonly submitDuplicate = signal(false);
+
+  // ── Already-reviewed guard (AECI-260, defense in depth) ───────────────────
+  /** True while the browser-side "have I already reviewed this?" check runs.
+   *  Starts `true` so SSR/pre-hydration paints a placeholder, never the full
+   *  form (which would flash then swap out for an already-reviewed user). */
+  protected readonly checkingExisting = signal(true);
+  /** The caller's existing review for this product, if any — gates the form. */
+  protected readonly existingReview = signal<AccountReview | null>(null);
 
   // ── Aria control bridge / state signals (value is always an array) ────────
   /** Selected overall-rating star (bridged into the form). */
@@ -179,6 +197,27 @@ export class ReviewForm {
     this.titleSvc.setTitle(this.metaTitle());
     // Utility write surface — keep it out of the index (mirrors request-form).
     this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
+
+    // Browser-only: before showing the form, check whether the caller already
+    // reviewed this product (AECI-260). The route is auth-gated SSR-side, so a
+    // session cookie is always present and the same-origin lookup authenticates.
+    // A null product is the 404 shell — nothing to check.
+    afterNextRender(() => {
+      if (this.product) void this.checkExisting();
+      else this.checkingExisting.set(false);
+    });
+  }
+
+  /** Look up the caller's existing review for this product. On any failure the
+   *  form is shown anyway — the API's `REVIEW_DUPLICATE` 409 is the backstop. */
+  private async checkExisting(): Promise<void> {
+    try {
+      this.existingReview.set(await this.account.findMyReviewForProduct(this.product!.id));
+    } catch {
+      // Degrade to showing the form; submit still enforces the duplicate rule.
+    } finally {
+      this.checkingExisting.set(false);
+    }
   }
 
   // ── Bridge handlers: write the chosen rating into the Signal Forms field ───
@@ -217,16 +256,20 @@ export class ReviewForm {
 
   protected async onSubmit(): Promise<void> {
     this.submitFailed.set(false);
+    this.submitDuplicate.set(false);
     await submit(this.form, async (f) => {
       try {
         this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
         // Analytics is consent-gated + fire-and-forget; never blocks the flow.
         if (this.product) this.analytics.reviewSubmitted(this.product.id);
-      } catch {
+      } catch (err) {
         // Surface as a retryable notice, not a form error — a `ValidationError`
         // here would mark the form invalid and disable submit (mirrors
-        // request-form). Covers a 401 from an expired session cookie too.
-        this.submitFailed.set(true);
+        // request-form). A `REVIEW_DUPLICATE` (409) gets its own specific copy
+        // (AECI-260); everything else (network, 401 expired session, 5xx) is the
+        // generic retry notice. Both keep the form enabled.
+        if (isReviewDuplicate(err)) this.submitDuplicate.set(true);
+        else this.submitFailed.set(true);
       }
       return undefined;
     });
@@ -263,4 +306,14 @@ export class ReviewForm {
       ? $localize`:@@reviews.metaTitle:Review ${name}:productName: · AEC Integrations`
       : $localize`:@@reviews.metaTitle.fallback:Write a review · AEC Integrations`;
   }
+}
+
+/** True when `err` is the API's `REVIEW_DUPLICATE` 409 — the only 409 the review
+ *  endpoint emits. Leads with the structured error code (the browser
+ *  `HttpErrorResponse.error` is the parsed `{ error: { code } }` envelope) and
+ *  falls back to the bare 409 status. */
+function isReviewDuplicate(err: unknown): boolean {
+  if (!(err instanceof HttpErrorResponse)) return false;
+  const code = (err.error as { error?: { code?: unknown } } | null)?.error?.code;
+  return code === ApiErrorCode.REVIEW_DUPLICATE || err.status === 409;
 }

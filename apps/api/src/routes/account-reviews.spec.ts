@@ -89,4 +89,48 @@ describe('GET /api/account/reviews', () => {
     );
     expect(body.total).toBe(1);
   });
+
+  // ── ?product_id= filter (AECI-260) ──────────────────────────────────────
+  it('narrows to a single product with ?product_id= (data + count)', async () => {
+    await review(u(11), u(1), REVIEWER, 'pending');
+    await review(u(12), u(2), REVIEWER, 'approved');
+    await review(u(13), u(3), REVIEWER, 'rejected');
+
+    const body = AccountReviewsResponseSchema.parse(
+      await (await get(REVIEWER, `/api/account/reviews?product_id=${u(2)}`)).json(),
+    );
+    // The count reflects the filter (1), not the caller's full set (3).
+    expect(body.total).toBe(1);
+    expect(body.data).toHaveLength(1);
+    expect(body.data[0]?.product.id).toBe(u(2));
+    expect(body.data[0]?.status).toBe('approved');
+  });
+
+  it('returns an empty page for a product the caller has not reviewed', async () => {
+    await review(u(11), u(1), REVIEWER, 'pending');
+
+    const body = AccountReviewsResponseSchema.parse(
+      await (await get(REVIEWER, `/api/account/reviews?product_id=${u(4)}`)).json(),
+    );
+    expect(body.total).toBe(0);
+    expect(body.data).toEqual([]);
+  });
+
+  it('keeps reviewer scope server-set even with ?product_id= (no cross-user leak)', async () => {
+    await review(u(12), u(2), REVIEWER, 'approved');
+    await review(u(14), u(2), OTHER, 'approved'); // same product, different reviewer
+
+    const body = AccountReviewsResponseSchema.parse(
+      await (
+        await get(REVIEWER, `/api/account/reviews?reviewer_id=${OTHER}&product_id=${u(2)}`)
+      ).json(),
+    );
+    expect(body.total).toBe(1);
+    expect(body.data[0]?.id).toBe(u(12)); // the caller's, not OTHER's
+  });
+
+  it('rejects a malformed product_id with 400', async () => {
+    const res = await get(REVIEWER, '/api/account/reviews?product_id=not-a-uuid');
+    expect(res.status).toBe(400);
+  });
 });

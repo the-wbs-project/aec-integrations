@@ -30,7 +30,7 @@ import {
   AccountReviewsResponseSchema,
   type AccountReviewsResponse,
 } from '@aeci/shared';
-import { asc, count, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
 import { getDb } from '../db/client';
@@ -56,8 +56,14 @@ export function createGetAccountReviewsHandler(
     const { db } = dbFor(c.env);
 
     // Server-set scope: the verified token `sub`, never a client value. No
-    // `status` filter — the author sees every status of their own reviews.
-    const where = eq(reviews.reviewerId, session.userId);
+    // `status` filter — the author sees every status of their own reviews. An
+    // optional `product_id` (AECI-260) only NARROWS to one product; it can never
+    // widen scope. No `archived` exclusion is needed: there is no archive flow
+    // yet, so `total >= 1` here already matches the server's non-archived
+    // duplicate rule (`routes/reviews.ts`) — revisit if archiving lands.
+    const conds: SQL[] = [eq(reviews.reviewerId, session.userId)];
+    if (query.product_id) conds.push(eq(reviews.productId, query.product_id));
+    const where = and(...conds);
 
     const [rows, countRows] = await Promise.all([
       db.query.reviews.findMany({
