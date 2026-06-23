@@ -1,46 +1,46 @@
 /**
- * `POST /api/promote` — push-based Airtable → Supabase promotion.
+ * `POST /api/promote` — push-based Airtable → app-DB promotion — Drizzle/D1
+ * (ADR 0016 / AECI-253, AECI-249).
  *
  * The review application sends one product plus its dependencies; this handler
- * upserts the whole bundle in a single transaction and returns the resulting
- * IDs (see `@aeci/shared` `PromotePayloadSchema` / `PromoteResponse` for the
- * contract and the idempotency model). Supersedes the pull-based CLI script
- * `scripts/airtable-to-supabase-bulk-migrate.ts` (now deprecated).
+ * upserts the whole bundle and returns the resulting IDs (see `@aeci/shared`
+ * `PromotePayloadSchema` / `PromoteResponse` for the contract and idempotency
+ * model).
  *
- * Design notes:
+ * D1 has no interactive transactions, so the handler is **plan-then-batch**:
+ *   1. **Plan (reads + id generation, NO writes).** Preload slugs; read the
+ *      slugs of any rows being updated; resolve taxonomy (find-or-create) and
+ *      usefulness against existing+to-be-created terms; resolve every
+ *      integration/extension endpoint (refs → planned ids, supabaseIds →
+ *      existence reads); read an updated integration's OLD endpoints for the
+ *      recompute. All new ids are app-generated `crypto.randomUUID()` up front,
+ *      so nothing depends on a write's return value.
+ *   2. **One atomic `db.batch`** of vendor/product/integration upserts +
+ *      join-table delete/recreate + extension inserts + an `audit_log` row per
+ *      create/update (Stage 1 Spec §26.1 — every state change logs, atomically).
+ *      Statements are ordered to satisfy FKs statement-by-statement (vendors →
+ *      taxonomy → product → joins → integrations → audits).
+ *   3. **Post-batch recompute** of the denormalized counts for the touched
+ *      products (`lib/recompute-counts.ts`; the brief lag is the drift sweep's
+ *      backstop), then the best-effort §26.5 audit forwards, edge-cache purge,
+ *      and Algolia upsert via `ctx.waitUntil`.
+ *
  *   - **Upsert by caller-supplied `supabaseId`.** Present → update; absent →
  *     create. The review app holds the IDs (no `external_id` column exists).
- *   - **Slugs are server-owned.** Generated on create via `@aeci/shared/slug`
- *     (`slugify` + `disambiguateSlug`); kept stable on update.
- *   - **Atomic.** The whole bundle runs inside one interactive
- *     `prisma.$transaction`; an audit row is written for every create/update in
- *     the same transaction (Stage 1 Spec §26.1 — failure to log rolls back).
+ *   - **Slugs are server-owned.** Generated on create via `@aeci/shared/slug`;
+ *     kept stable on update.
  *   - **Joins are replaced, not merged.** On update, the product's
- *     vendor/taxonomy/extension join rows are deleted and re-inserted so they
- *     reflect the pushed state exactly.
+ *     vendor/taxonomy/extension join rows are deleted and re-inserted.
  *   - **Endpoint resolution.** Integrations whose source/target can't be
- *     resolved (the other product isn't promoted yet) are reported in
- *     `skipped[]` rather than failing the request — this preserves the
- *     product-driven "both endpoints promoted" rule from AECI-83.
+ *     resolved (the other product isn't promoted yet) are reported in `skipped[]`
+ *     rather than failing the request (the product-driven "both endpoints
+ *     promoted" rule, AECI-83).
  *
- * Cache purge (AECI-105): promotion mutates cacheable product / vendor /
- * taxonomy pages, so after the transaction commits the handler purges the
- * affected `Cache-Tag`s by calling Cloudflare's purge-by-tag API **directly**
- * (`@aeci/shared` `callCloudflarePurge`). It used to call the SSR Worker's
- * `POST /admin/purge` over a `WEB` service binding; that web↔api cycle was
- * removed in Option B (`docs/adr/0010-promote-purges-cloudflare-directly.md`) —
- * the API now holds its own `Zone.Cache Purge`-scoped token. Tags are derived in
- * `cacheTagsForPromote` to match what SSR emits (`docs/CACHE_STRATEGY.md` §2).
- * The purge is **best-effort and post-commit**: it runs via `ctx.waitUntil`
- * (never blocks or fails the already-committed promote) and a failure is logged
- * to Datadog — worst-case staleness reverts to the edge TTL (≤15 min), i.e. no
- * regression vs. before this change. When `CF_PURGE_API_TOKEN` / `CF_ZONE_ID`
- * are unset (e.g. local `pnpm dev:bound`, PR previews) the purge is a graceful
- * no-op.
- *
- * Two known, bounded staleness gaps remain out of scope (documented in
- * `docs/REVIEW_APP_PROMOTE_API.md`): embedded reverse-tagging is Phase 4, and
- * integration tags wait on AECI-86 re-enabling integration seeding below.
+ * Cache purge (AECI-105) is best-effort + post-commit (`ctx.waitUntil` →
+ * `callCloudflarePurge` directly, ADR 0010); no-op without
+ * `CF_PURGE_API_TOKEN`/`CF_ZONE_ID`. Algolia sync (AECI-139) is an injectable
+ * post-commit seam over the Drizzle `algolia-sync` core, no-op without the
+ * Algolia secrets.
  */
 
 import {
@@ -60,80 +60,43 @@ import {
   type UsefulnessGroup,
 } from '@aeci/shared';
 import { type AlgoliaEnv } from '@aeci/shared/algolia';
-import { appendAuditLog, type AuditLogEntry, type AuditLogForwarder } from '@aeci/shared/audit-log';
+import {
+  forwardAuditLog,
+  type AuditLogEntry,
+  type AuditLogForwarder,
+} from '@aeci/shared/audit-log';
 import { disambiguateSlug, SlugReservedError, slugify } from '@aeci/shared/slug';
-// Value import (not a generated model type): `Prisma.DbNull` is the only correct
-// way to set a nullable `Json?` column to SQL NULL — Prisma 6 rejects a literal
-// JS `null` for Json fields at runtime. Used to clear `products.usefulness`.
-import { Prisma } from '@prisma/client/edge';
+import { eq, inArray, type Table } from 'drizzle-orm';
+import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 import type { Context } from 'hono';
 
+import { getDb, type Db } from '../db/client';
+import {
+  integrations,
+  productAudiences,
+  productCategories,
+  productExtensions,
+  productPhases,
+  products,
+  productVendors,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+  vendors,
+} from '../db/schema';
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import { syncPromoteTargets, type AlgoliaSyncPrisma } from '../lib/algolia-sync';
+import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
-import type { PrismaFactory } from '../lib/handler-utils';
-import { recomputeProductCounts } from '../lib/product-counts';
-import { getPrisma } from '../prisma';
+import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import type { DbFactory } from '../lib/handler-utils';
+import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote } from './promote-cache-tags';
 
-// ─── Loose structural Prisma surface ─────────────────────────────────────────
-// Mirrors the decoupling approach in the bulk-migrate script: we touch a small,
-// known slice of the generated client, so we type it structurally rather than
-// dragging in the full generated types (which differ between the edge and node
-// clients). A real accelerated client and a test fake both satisfy this.
-type Row = { id: string; slug?: string } & Record<string, unknown>;
-
-type ModelDelegate = {
-  create(args: { data: Record<string, unknown> }): Promise<Row>;
-  update(args: { where: Record<string, unknown>; data: Record<string, unknown> }): Promise<Row>;
-  createMany(args: { data: Record<string, unknown>[]; skipDuplicates?: boolean }): Promise<unknown>;
-  deleteMany(args: { where: Record<string, unknown> }): Promise<unknown>;
-  findUnique(args: {
-    where: Record<string, unknown>;
-    select?: Record<string, boolean>;
-  }): Promise<Row | null>;
-  findMany(args?: {
-    where?: Record<string, unknown>;
-    select?: Record<string, boolean>;
-  }): Promise<Row[]>;
-  count(args?: { where?: Record<string, unknown> }): Promise<number>;
-};
-
-type PromoteTx = {
-  vendor: ModelDelegate;
-  product: ModelDelegate;
-  integration: ModelDelegate;
-  productVendor: ModelDelegate;
-  productCategory: ModelDelegate;
-  productAudience: ModelDelegate;
-  productPhase: ModelDelegate;
-  productExtension: ModelDelegate;
-  taxonomyCategory: ModelDelegate;
-  taxonomyAudience: ModelDelegate;
-  taxonomyPhase: ModelDelegate;
-  // `recomputeProductCounts` reads approved reviews to refresh `review_count` and
-  // the rating averages alongside `integration_count`, so it needs `review` with
-  // both `count` and `aggregate` (the latter is absent from `ModelDelegate`).
-  review: {
-    count(args?: { where?: Record<string, unknown> }): Promise<number>;
-    aggregate(args: { where?: Record<string, unknown>; _avg: Record<string, true> }): Promise<{
-      _avg: Record<string, number | string | { toString(): string } | null | undefined>;
-    }>;
-  };
-  auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
-};
-
-type PromoteClient = {
-  vendor: Pick<ModelDelegate, 'findMany'>;
-  product: Pick<ModelDelegate, 'findMany'>;
-  $transaction<T>(fn: (tx: PromoteTx) => Promise<T>, options?: Record<string, unknown>): Promise<T>;
-};
-
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-/** Drop keys whose value is `undefined` so Prisma leaves them untouched. */
+/** Drop keys whose value is `undefined` so the column is left untouched. */
 function compact(obj: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(obj)) if (v !== undefined) out[k] = v;
@@ -176,27 +139,36 @@ function generateSlug(name: string, existing: Set<string>, vendorSlug?: string):
 }
 
 /**
- * True when `err` is a Prisma `P2002` (unique-constraint violation) on a `slug`
- * column/index. Slugs are preloaded *before* the transaction (`loadSlugs`), so
- * two concurrent first-time promotes can both generate the same slug and the
- * second `tx.create` then trips `vendors_slug_key` / `products_slug_key`. That
- * is a caller-resolvable conflict, not a server fault — the handler translates
- * it to a documented `409 SLUG_CONFLICT` (AECI-98) instead of a generic 500.
+ * True when `err` is a SQLite/D1 UNIQUE-constraint violation on a `slug` column.
+ * Slugs are preloaded *before* the batch (`loadSlugs`), so two concurrent
+ * first-time promotes can both generate the same slug and the second insert then
+ * trips `vendors_slug_key` / `products_slug_key`. That is a caller-resolvable
+ * conflict, not a server fault — the handler translates it to a documented
+ * `409 SLUG_CONFLICT` (AECI-98) instead of a generic 500.
  *
- * Duck-typed (rather than `instanceof Prisma.PrismaClientKnownRequestError`) so
- * it stays trivially testable and doesn't pull the edge client's error class
- * into the runtime path. `meta.target` is matched in both shapes Prisma emits:
- * an array of columns (`['slug']`) and a constraint-name string
- * (`'vendors_slug_key'`). Non-slug `P2002`s return false and fall through to the
- * generic 500 so unrelated unique violations are never mislabeled.
+ * Duck-typed across the D1 and better-sqlite3 error shapes (message + code), like
+ * `routes/reviews.ts`'s duplicate check. SQLite reports `UNIQUE constraint
+ * failed: products.slug`; a non-slug UNIQUE violation returns false and falls
+ * through to the generic 500 so unrelated violations are never mislabeled.
  */
 function isSlugUniqueViolation(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
-  const e = err as { code?: unknown; meta?: { target?: unknown } };
-  if (e.code !== 'P2002') return false;
-  const target = e.meta?.target;
-  const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '');
-  return asStr.toLowerCase().includes('slug');
+  const e = err as { message?: unknown; code?: unknown };
+  const msg =
+    `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
+  return msg.includes('unique') && msg.includes('slug');
+}
+
+/** Columns named in a `UNIQUE constraint failed: <table>.<col>, …` message →
+ *  `['slug']` etc. (the `details.target` for the 409 envelope). */
+function slugConflictTarget(err: unknown): string[] {
+  const msg = String((err as { message?: unknown })?.message ?? '');
+  const m = msg.match(/unique constraint failed:\s*(.+)/i);
+  if (!m) return ['slug'];
+  return m[1]!
+    .split(',')
+    .map((s) => s.trim().split('.').pop() ?? s.trim())
+    .filter(Boolean);
 }
 
 function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
@@ -244,7 +216,7 @@ function productEditableData(p: PromoteProduct): Record<string, unknown> {
   });
 }
 
-// Field projection for the integration upsert in the seeding block below.
+// Field projection for the integration upsert.
 function integrationEditableData(intg: PromoteIntegration): Record<string, unknown> {
   return compact({
     name: intg.name,
@@ -279,17 +251,13 @@ function makeForwarder(c: Context<{ Bindings: Env }>): AuditLogForwarder | undef
 const AUDIT_META = { source: 'review-app-promote' } as const;
 
 // ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
-// Cloudflare's purge-by-tag API accepts ≤CF_PURGE_MAX_TAGS (30) tags per call;
-// a promote rarely touches that many, so chunking is defensive.
 
 /**
  * Best-effort, post-commit edge-cache purge for a promote. No-ops when
  * `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` is absent, or when nothing cacheable
  * changed. Batches are fired concurrently; each batch's outcome is recorded as
- * `aeci.cache.purge{source:promote,outcome:ok|cf_failed}` (preserving the
- * dashboard series the web Worker used to emit) and a failed batch is logged
- * (Datadog `warn`) and swallowed so it never affects the already-committed
- * promote.
+ * `aeci.cache.purge{source:promote,outcome:ok|cf_failed}` and a failed batch is
+ * logged (Datadog `warn`) and swallowed so it never affects the committed promote.
  */
 async function purgeAfterPromote(
   c: Context<{ Bindings: Env }>,
@@ -332,39 +300,34 @@ function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason:
 }
 
 // ─── Algolia index sync (AECI-139) ───────────────────────────────────────────
-// Closes the "viewable on promote (purge) but not searchable until the daily sync" gap:
-// after the commit, push the just-promoted records to Algolia immediately so the
-// index matches the freshly-purged pages. Best-effort and post-commit — fired via
-// `waitUntil` (never blocks/fails the promote), gated on the Algolia secrets, and
-// each entity's outcome is recorded as `aeci.algolia.sync{trigger:promote,...}`
-// (the cron emits the same metric with `trigger:cron`). A promote only ever
-// writes `promotionStatus:'promoted'`, so this path upserts; the delete path
-// (retract/reject) is the daily cron's job. Index membership + transport live in
-// `lib/algolia-sync.ts`.
 
 /**
- * Best-effort post-commit Algolia upsert for a promote. Re-queries the touched
- * rows by id (the response carries ids, not full denormalized records) and pushes
- * them to the env's indexes via the shared sync core. No-ops for an entity the
- * promote didn't touch. Never throws (the sync core is never-throw; the outer
- * try/catch is belt-and-suspenders so a bug can't reject the `waitUntil`).
+ * Post-commit Algolia upsert seam. Default re-queries the touched rows by id and
+ * pushes them to the env's indexes via the Drizzle `algolia-sync` core, gated on
+ * the Algolia secrets. Injected for tests. Never throws.
  */
+export type PromoteAlgoliaSync = (
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+) => Promise<void>;
+
+const defaultAlgoliaSync: PromoteAlgoliaSync = (c, response) =>
+  syncAlgoliaAfterPromote(c, response, getDb(c.env).db);
+
 async function syncAlgoliaAfterPromote(
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
-  prisma: AlgoliaSyncPrisma,
+  db: Db,
 ): Promise<void> {
   const creds = { appId: c.env.ALGOLIA_APP_ID, apiKey: c.env.ALGOLIA_ADMIN_KEY };
   const env: AlgoliaEnv = c.env.ENV ?? 'development';
   const started = Date.now();
   try {
-    const results = await syncPromoteTargets(prisma, fetch, creds, env, {
+    const results = await syncPromoteTargets(db, fetch, creds, env, {
       product: response.product ? { id: response.product.id } : null,
       vendors: response.vendors.map((v) => ({ id: v.id })),
       integrations: response.integrations.map((i) => ({ id: i.id })),
     });
-    // Per-entity outcome + records counts and the run-level duration distribution
-    // (AECI-141), shared with the daily cron so the two writers can't drift.
     const sink: SyncMetricSink = {
       count: (metric, value, tags) =>
         submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
@@ -395,8 +358,19 @@ function logAlgoliaSyncFailure(
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
+
+/** A taxonomy facet model (table + the columns the find-or-create reads). The
+ *  generic `Table` type doesn't expose columns, so they're passed explicitly. */
+interface TaxonomyTable {
+  table: Table;
+  idCol: SQLiteColumn;
+  slugCol: SQLiteColumn;
+  nameCol: SQLiteColumn;
+}
+
 export function createPromoteHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
+  syncAlgolia: PromoteAlgoliaSync = defaultAlgoliaSync,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     let raw: unknown;
@@ -407,467 +381,519 @@ export function createPromoteHandler(
     }
 
     const payload = PromotePayloadSchema.parse(raw);
-    const prisma = prismaFor(c.env) as unknown as PromoteClient;
-    const forward = makeForwarder(c);
+    const { db } = dbFor(c.env);
 
-    // Preload existing slugs once for collision-free generation (mirrors the
-    // bulk-migrate script). Done outside the transaction to keep it short.
-    const loadSlugs = async (m: Pick<ModelDelegate, 'findMany'>) =>
-      new Set((await m.findMany({ select: { slug: true } })).map((r) => r.slug as string));
-    const vendorSlugs = await loadSlugs(prisma.vendor);
-    const productSlugs = await loadSlugs(prisma.product);
+    // ── PLAN: reads + id generation. Writes are accumulated, not executed. ──
+    const stmts: BatchStmt[] = [];
+    const auditEntries: AuditLogEntry[] = [];
+    const audit = (entry: AuditLogEntry) => auditEntries.push({ ...entry, metadata: AUDIT_META });
+    const skipped: PromoteSkipped[] = [];
 
-    const promoted = prisma.$transaction(
-      async (tx) => {
-        const audit = (entry: AuditLogEntry) =>
-          appendAuditLog(tx, { ...entry, metadata: AUDIT_META }, forward);
+    // Preload existing slugs for collision-free generation (outside the batch).
+    const loadSlugs = async (col: SQLiteColumn) =>
+      new Set(
+        (await db.select({ slug: col }).from(col.table as Table)).map((r) => r.slug as string),
+      );
+    const vendorSlugs = await loadSlugs(vendors.slug);
+    const productSlugs = await loadSlugs(products.slug);
 
-        const vendorIdByRef = new Map<string, string>();
-        const skipped: PromoteSkipped[] = [];
+    // Read the current slugs of vendors being updated (for `firstVendorSlug` + the
+    // response `slug`, which the update doesn't return).
+    const updatedVendorIds = payload.vendors
+      .map((v) => v.supabaseId)
+      .filter((id): id is string => Boolean(id));
+    const vendorSlugById = new Map<string, string>();
+    if (updatedVendorIds.length) {
+      const rows = await db.query.vendors.findMany({
+        columns: { id: true, slug: true },
+        where: inArray(vendors.id, updatedVendorIds),
+      });
+      for (const r of rows) vendorSlugById.set(r.id, r.slug);
+    }
 
-        // ── Vendors ──────────────────────────────────────────────────────────
-        const vendorResults: PromoteEntityResult[] = [];
-        let firstVendorSlug: string | undefined;
-        for (const v of payload.vendors) {
-          if (v.supabaseId) {
-            const row = await tx.vendor.update({
-              where: { id: v.supabaseId },
-              data: {
-                companyName: v.companyName,
-                promotionStatus: 'promoted',
-                ...vendorEditableData(v),
-              },
-            });
-            vendorIdByRef.set(v.ref, row.id);
-            vendorResults.push({
-              ref: v.ref,
-              id: row.id,
-              slug: row.slug as string,
-              operation: 'updated',
-            });
-            firstVendorSlug ??= row.slug as string;
-            await audit({
-              actorType: 'system',
-              action: 'vendor.updated',
-              entityType: 'vendor',
-              entityId: row.id,
-            });
-          } else {
-            const slug = generateSlug(v.companyName, vendorSlugs);
-            const row = await tx.vendor.create({
-              data: {
-                slug,
-                companyName: v.companyName,
-                promotionStatus: 'promoted',
-                ...vendorEditableData(v),
-              },
-            });
-            vendorIdByRef.set(v.ref, row.id);
-            vendorResults.push({ ref: v.ref, id: row.id, slug, operation: 'created' });
-            firstVendorSlug ??= slug;
-            await audit({
-              actorType: 'system',
-              action: 'vendor.created',
-              entityType: 'vendor',
-              entityId: row.id,
-            });
+    // ── Vendors ──────────────────────────────────────────────────────────────
+    const vendorIdByRef = new Map<string, string>();
+    const vendorResults: PromoteEntityResult[] = [];
+    let firstVendorSlug: string | undefined;
+    for (const v of payload.vendors) {
+      if (v.supabaseId) {
+        const slug = vendorSlugById.get(v.supabaseId) ?? '';
+        stmts.push(
+          db
+            .update(vendors)
+            .set({
+              companyName: v.companyName,
+              promotionStatus: 'promoted',
+              ...vendorEditableData(v),
+            })
+            .where(eq(vendors.id, v.supabaseId)),
+        );
+        vendorIdByRef.set(v.ref, v.supabaseId);
+        vendorResults.push({ ref: v.ref, id: v.supabaseId, slug, operation: 'updated' });
+        firstVendorSlug ??= slug;
+        audit({
+          actorType: 'system',
+          action: 'vendor.updated',
+          entityType: 'vendor',
+          entityId: v.supabaseId,
+        });
+      } else {
+        const slug = generateSlug(v.companyName, vendorSlugs);
+        const id = crypto.randomUUID();
+        stmts.push(
+          db.insert(vendors).values({
+            id,
+            slug,
+            companyName: v.companyName,
+            promotionStatus: 'promoted',
+            ...vendorEditableData(v),
+          }),
+        );
+        vendorIdByRef.set(v.ref, id);
+        vendorResults.push({ ref: v.ref, id, slug, operation: 'created' });
+        firstVendorSlug ??= slug;
+        audit({
+          actorType: 'system',
+          action: 'vendor.created',
+          entityType: 'vendor',
+          entityId: id,
+        });
+      }
+    }
+
+    // ── Taxonomy (find-or-create by canonical slug) ───────────────────────────
+    // Each facet returns the resolved ids + the public results, AND records a
+    // `{slug → {slug,name}}` map (existing + just-created) for usefulness to
+    // resolve against. New-term inserts are appended to the batch.
+    const resolveTaxonomy = async (
+      names: string[],
+      model: TaxonomyTable,
+      entity: 'category' | 'audience' | 'phase',
+    ): Promise<{
+      ids: string[];
+      results: PromoteTaxonomyResult[];
+      termBySlug: Map<string, { slug: string; name: string }>;
+    }> => {
+      const existing = (await db
+        .select({ id: model.idCol, slug: model.slugCol, name: model.nameCol })
+        .from(model.table)) as Array<{ id: string; slug: string; name: string }>;
+      const bySlug = new Map(existing.map((r) => [r.slug, r.id]));
+      const termBySlug = new Map(existing.map((r) => [r.slug, { slug: r.slug, name: r.name }]));
+      const slugSet = new Set(bySlug.keys());
+      const ids: string[] = [];
+      const results: PromoteTaxonomyResult[] = [];
+      const seen = new Set<string>();
+      for (const name of names) {
+        const canonical = slugify(name);
+        const found = bySlug.get(canonical);
+        if (found) {
+          if (!seen.has(found)) {
+            ids.push(found);
+            results.push({ slug: canonical, id: found, operation: 'reused' });
+            seen.add(found);
           }
+          continue;
         }
+        const slug = disambiguateSlug(canonical, [...slugSet]);
+        slugSet.add(slug);
+        const id = crypto.randomUUID();
+        stmts.push(db.insert(model.table).values({ id, slug, name } as Record<string, unknown>));
+        bySlug.set(canonical, id);
+        termBySlug.set(slug, { slug, name });
+        ids.push(id);
+        results.push({ slug, id, operation: 'created' });
+        seen.add(id);
+        audit({
+          actorType: 'system',
+          action: `${entity}.created`,
+          entityType: entity,
+          entityId: id,
+        });
+      }
+      return { ids, results, termBySlug };
+    };
 
-        // ── Taxonomy (find-or-create by canonical slug) ──────────────────────
-        const resolveTaxonomy = async (
-          names: string[],
-          model: ModelDelegate,
-          entity: 'category' | 'audience' | 'phase',
-        ): Promise<{ ids: string[]; results: PromoteTaxonomyResult[] }> => {
-          const existing = await model.findMany({ select: { id: true, slug: true } });
-          const bySlug = new Map(existing.map((r) => [r.slug as string, r.id]));
-          const slugSet = new Set(bySlug.keys());
-          const ids: string[] = [];
-          const results: PromoteTaxonomyResult[] = [];
-          const seen = new Set<string>();
-          for (const name of names) {
-            const canonical = slugify(name);
-            const found = bySlug.get(canonical);
-            if (found) {
-              if (!seen.has(found)) {
-                ids.push(found);
-                results.push({ slug: canonical, id: found, operation: 'reused' });
-                seen.add(found);
-              }
-              continue;
-            }
-            const slug = disambiguateSlug(canonical, [...slugSet]);
-            slugSet.add(slug);
-            const row = await model.create({ data: { slug, name } });
-            bySlug.set(canonical, row.id);
-            ids.push(row.id);
-            results.push({ slug, id: row.id, operation: 'created' });
-            seen.add(row.id);
-            await audit({
-              actorType: 'system',
-              action: `${entity}.created`,
-              entityType: entity,
-              entityId: row.id,
-            });
-          }
-          return { ids, results };
-        };
+    const p = payload.product;
+    const emptyTax = {
+      ids: [] as string[],
+      results: [] as PromoteTaxonomyResult[],
+      termBySlug: new Map<string, { slug: string; name: string }>(),
+    };
+    const categories = p
+      ? await resolveTaxonomy(
+          p.categories,
+          {
+            table: taxonomyCategories,
+            idCol: taxonomyCategories.id,
+            slugCol: taxonomyCategories.slug,
+            nameCol: taxonomyCategories.name,
+          },
+          'category',
+        )
+      : emptyTax;
+    const audiences = p
+      ? await resolveTaxonomy(
+          p.audiences,
+          {
+            table: taxonomyAudiences,
+            idCol: taxonomyAudiences.id,
+            slugCol: taxonomyAudiences.slug,
+            nameCol: taxonomyAudiences.name,
+          },
+          'audience',
+        )
+      : emptyTax;
+    const phases = p
+      ? await resolveTaxonomy(
+          p.phases,
+          {
+            table: taxonomyPhases,
+            idCol: taxonomyPhases.id,
+            slugCol: taxonomyPhases.slug,
+            nameCol: taxonomyPhases.name,
+          },
+          'phase',
+        )
+      : emptyTax;
 
-        // Taxonomy is product-driven: a vendor-only / integration-only push (no
-        // `product`) skips it entirely.
-        const p = payload.product;
-        const emptyTax = { ids: [] as string[], results: [] as PromoteTaxonomyResult[] };
-        const categories = p
-          ? await resolveTaxonomy(p.categories, tx.taxonomyCategory, 'category')
-          : emptyTax;
-        const audiences = p
-          ? await resolveTaxonomy(p.audiences, tx.taxonomyAudience, 'audience')
-          : emptyTax;
-        const phases = p ? await resolveTaxonomy(p.phases, tx.taxonomyPhase, 'phase') : emptyTax;
-
-        // ── Usefulness (find-only resolution against existing terms) ──────────
-        // Unlike the facet arrays above, usefulness groups NEVER find-or-create:
-        // each group resolves against an EXISTING audience/phase term (by slug,
-        // then name, same normalization as the facet path) and is stored as the
-        // canonical `{ slug, name }` it resolved to, with the group's `points`.
-        // Groups resolving to the same term merge (points concatenated, source
-        // order kept); an unresolvable group is dropped and reported in
-        // `skipped[]`. Runs AFTER resolveTaxonomy so a term this same promote
-        // just created is resolvable. See `REVIEW_APP_PROMOTE_API.md` §3.3.
-        const resolveUsefulnessFacet = async (
-          groups: PromoteUsefulnessGroup[],
-          model: ModelDelegate,
-          productRef: string,
-        ): Promise<UsefulnessGroup[]> => {
-          const rows = await model.findMany({ select: { id: true, slug: true, name: true } });
-          const bySlug = new Map(
-            rows.map((r) => [r.slug as string, { slug: r.slug as string, name: r.name as string }]),
-          );
-          const resolveOne = (value?: string) => {
-            if (!value) return undefined;
-            const key = safeSlugify(value);
-            return key ? bySlug.get(key) : undefined;
-          };
-          const merged = new Map<string, UsefulnessGroup>();
-          for (const g of groups) {
-            const term = resolveOne(g.slug) ?? resolveOne(g.name);
-            if (!term) {
-              skipped.push({
-                ref: productRef,
-                kind: 'usefulness',
-                reason: `usefulness group "${g.slug ?? g.name}" did not resolve to an existing term`,
-              });
-              continue;
-            }
-            const existing = merged.get(term.slug);
-            if (existing) existing.points.push(...g.points);
-            else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...g.points] });
-          }
-          return [...merged.values()];
-        };
-
-        // `undefined` → column untouched (Prisma omits it); `Prisma.DbNull` →
-        // cleared to SQL NULL (a literal JS `null` is rejected for `Json?`);
-        // object → the resolved value.
-        let usefulnessData:
-          | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
-          | typeof Prisma.DbNull
-          | undefined;
-        if (p) {
-          if (p.usefulness === null) {
-            usefulnessData = Prisma.DbNull;
-          } else if (p.usefulness) {
-            usefulnessData = {
-              audiences: await resolveUsefulnessFacet(
-                p.usefulness.audiences,
-                tx.taxonomyAudience,
-                p.ref,
-              ),
-              phases: await resolveUsefulnessFacet(p.usefulness.phases, tx.taxonomyPhase, p.ref),
-            };
-          }
+    // ── Usefulness (find-only resolution against existing+new terms) ───────────
+    const resolveUsefulnessFacet = (
+      groups: PromoteUsefulnessGroup[],
+      termBySlug: Map<string, { slug: string; name: string }>,
+      productRef: string,
+    ): UsefulnessGroup[] => {
+      const resolveOne = (value?: string) => {
+        if (!value) return undefined;
+        const key = safeSlugify(value);
+        return key ? termBySlug.get(key) : undefined;
+      };
+      const merged = new Map<string, UsefulnessGroup>();
+      for (const g of groups) {
+        const term = resolveOne(g.slug) ?? resolveOne(g.name);
+        if (!term) {
+          skipped.push({
+            ref: productRef,
+            kind: 'usefulness',
+            reason: `usefulness group "${g.slug ?? g.name}" did not resolve to an existing term`,
+          });
+          continue;
         }
+        const existing = merged.get(term.slug);
+        if (existing) existing.points.push(...g.points);
+        else merged.set(term.slug, { slug: term.slug, name: term.name, points: [...g.points] });
+      }
+      return [...merged.values()];
+    };
 
-        // ── Resolvers (used by extensions + integrations) ─────────────────────
-        // `productId` is filled in by the product block below; resolvers read it
-        // via closure, so they must be called after that block runs.
-        let productResult: PromoteEntityResult | null = null;
-        let productId: string | undefined;
-
-        const productExists = async (id: string): Promise<boolean> =>
-          (await tx.product.findUnique({ where: { id }, select: { id: true } })) !== null;
-
-        const resolveProduct = async (ref: EntityRef): Promise<string | null> => {
-          if (ref.ref) return p && ref.ref === p.ref ? (productId ?? null) : null;
-          if (ref.supabaseId) return (await productExists(ref.supabaseId)) ? ref.supabaseId : null;
-          return null;
+    // `undefined` → column untouched (omitted from the write); `null` → cleared to
+    // SQL NULL (the `Prisma.DbNull` footgun is gone under Drizzle json mode);
+    // object → the resolved value.
+    let usefulnessData:
+      | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
+      | null
+      | undefined;
+    if (p) {
+      if (p.usefulness === null) {
+        usefulnessData = null;
+      } else if (p.usefulness) {
+        usefulnessData = {
+          audiences: resolveUsefulnessFacet(p.usefulness.audiences, audiences.termBySlug, p.ref),
+          phases: resolveUsefulnessFacet(p.usefulness.phases, phases.termBySlug, p.ref),
         };
+      }
+    }
 
-        // Resolves an integration's `builtByVendor` reference to a vendor id.
-        const resolveVendor = async (ref: EntityRef): Promise<string | null> => {
-          if (ref.ref) return vendorIdByRef.get(ref.ref) ?? null;
-          if (ref.supabaseId) {
-            const row = await tx.vendor.findUnique({
-              where: { id: ref.supabaseId },
-              select: { id: true },
-            });
-            return row ? ref.supabaseId : null;
-          }
-          return null;
-        };
+    // ── Resolvers (used by extensions + integrations) ─────────────────────────
+    let productResult: PromoteEntityResult | null = null;
+    let productId: string | undefined;
 
-        // ── Product (+ join rows + extensions) ────────────────────────────────
-        if (p) {
-          if (p.supabaseId) {
-            const row = await tx.product.update({
-              where: { id: p.supabaseId },
-              data: {
+    const productExists = async (id: string): Promise<boolean> =>
+      (await db.query.products.findFirst({ columns: { id: true }, where: eq(products.id, id) })) !==
+      undefined;
+
+    const resolveProduct = async (ref: EntityRef): Promise<string | null> => {
+      if (ref.ref) return p && ref.ref === p.ref ? (productId ?? null) : null;
+      if (ref.supabaseId) return (await productExists(ref.supabaseId)) ? ref.supabaseId : null;
+      return null;
+    };
+
+    const resolveVendor = async (ref: EntityRef): Promise<string | null> => {
+      if (ref.ref) return vendorIdByRef.get(ref.ref) ?? null;
+      if (ref.supabaseId) {
+        const row = await db.query.vendors.findFirst({
+          columns: { id: true },
+          where: eq(vendors.id, ref.supabaseId),
+        });
+        return row ? ref.supabaseId : null;
+      }
+      return null;
+    };
+
+    // ── Product (+ join rows + extensions) ────────────────────────────────────
+    if (p) {
+      if (p.supabaseId) {
+        const existing = await db.query.products.findFirst({
+          columns: { slug: true },
+          where: eq(products.id, p.supabaseId),
+        });
+        const slug = existing?.slug ?? '';
+        productId = p.supabaseId;
+        productResult = { ref: p.ref, id: p.supabaseId, slug, operation: 'updated' };
+        stmts.push(
+          db
+            .update(products)
+            .set(
+              compact({
                 name: p.name,
                 promotionStatus: 'promoted',
                 usefulness: usefulnessData,
                 ...productEditableData(p),
-              },
-            });
-            productResult = {
-              ref: p.ref,
-              id: row.id,
-              slug: row.slug as string,
-              operation: 'updated',
-            };
-            await audit({
-              actorType: 'system',
-              action: 'product.updated',
-              entityType: 'product',
-              entityId: row.id,
-            });
-          } else {
-            const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
-            const row = await tx.product.create({
-              data: {
-                slug,
-                name: p.name,
-                promotionStatus: 'promoted',
-                usefulness: usefulnessData,
-                ...productEditableData(p),
-              },
-            });
-            productResult = { ref: p.ref, id: row.id, slug, operation: 'created' };
-            await audit({
-              actorType: 'system',
-              action: 'product.created',
-              entityType: 'product',
-              entityId: row.id,
-            });
-          }
-          productId = productResult.id;
+              }),
+            )
+            .where(eq(products.id, p.supabaseId)),
+        );
+        audit({
+          actorType: 'system',
+          action: 'product.updated',
+          entityType: 'product',
+          entityId: p.supabaseId,
+        });
+      } else {
+        const slug = generateSlug(p.name, productSlugs, firstVendorSlug);
+        const id = crypto.randomUUID();
+        productId = id;
+        productResult = { ref: p.ref, id, slug, operation: 'created' };
+        stmts.push(
+          db.insert(products).values({
+            id,
+            slug,
+            name: p.name,
+            promotionStatus: 'promoted',
+            ...(usefulnessData === undefined ? {} : { usefulness: usefulnessData }),
+            ...productEditableData(p),
+          }),
+        );
+        audit({
+          actorType: 'system',
+          action: 'product.created',
+          entityType: 'product',
+          entityId: id,
+        });
+      }
 
-          // Replace join rows to reflect the pushed state exactly.
-          await tx.productVendor.deleteMany({ where: { productId } });
-          await tx.productCategory.deleteMany({ where: { productId } });
-          await tx.productAudience.deleteMany({ where: { productId } });
-          await tx.productPhase.deleteMany({ where: { productId } });
-          await tx.productExtension.deleteMany({ where: { productId } });
+      // Replace join rows to reflect the pushed state exactly. Deletes are no-ops
+      // for a fresh product; on update they clear the prior joins.
+      const pid = productId;
+      stmts.push(db.delete(productVendors).where(eq(productVendors.productId, pid)));
+      stmts.push(db.delete(productCategories).where(eq(productCategories.productId, pid)));
+      stmts.push(db.delete(productAudiences).where(eq(productAudiences.productId, pid)));
+      stmts.push(db.delete(productPhases).where(eq(productPhases.productId, pid)));
+      stmts.push(db.delete(productExtensions).where(eq(productExtensions.productId, pid)));
 
-          if (payload.vendors.length) {
-            await tx.productVendor.createMany({
-              data: payload.vendors.map((v, i) => ({
-                productId,
+      if (payload.vendors.length) {
+        stmts.push(
+          db
+            .insert(productVendors)
+            .values(
+              payload.vendors.map((v, i) => ({
+                productId: pid,
                 vendorId: vendorIdByRef.get(v.ref)!,
                 isPrimary: v.isPrimary ?? i === 0,
               })),
-              skipDuplicates: true,
-            });
-          }
-          if (categories.ids.length) {
-            await tx.productCategory.createMany({
-              data: categories.ids.map((categoryId) => ({ productId, categoryId })),
-              skipDuplicates: true,
-            });
-          }
-          if (audiences.ids.length) {
-            await tx.productAudience.createMany({
-              data: audiences.ids.map((audienceId) => ({ productId, audienceId })),
-              skipDuplicates: true,
-            });
-          }
-          if (phases.ids.length) {
-            await tx.productPhase.createMany({
-              data: phases.ids.map((phaseId) => ({ productId, phaseId })),
-              skipDuplicates: true,
-            });
-          }
-
-          // Extensions: host products must already be promoted (by supabaseId).
-          const hostIds: string[] = [];
-          for (const host of p.extensionOf) {
-            const hostId = await resolveProduct(host);
-            if (!hostId || hostId === productId) {
-              skipped.push({
-                ref: p.ref,
-                kind: 'extension',
-                reason: `host product ${host.supabaseId ?? host.ref} not found or self-referential`,
-              });
-              continue;
-            }
-            hostIds.push(hostId);
-          }
-          if (hostIds.length) {
-            await tx.productExtension.createMany({
-              data: hostIds.map((hostProductId) => ({ productId, hostProductId })),
-              skipDuplicates: true,
-            });
-            await audit({
-              actorType: 'system',
-              action: 'product.extension_created',
-              entityType: 'product',
-              entityId: productId,
-            });
-          }
-        }
-
-        // ── Integrations ──────────────────────────────────────────────────────
-        // Integrations whose source/target can't both be resolved (the other
-        // product isn't promoted yet) are reported in `skipped[]` rather than
-        // failing the request — the product-driven "both endpoints promoted" rule
-        // from AECI-83. `affectedProducts` accumulates every product whose
-        // `integration_count` may have changed, recomputed once after the loop.
-        const integrationResults: PromoteIntegrationResult[] = [];
-        const affectedProducts = new Set<string>();
-        if (productId) affectedProducts.add(productId);
-        for (const intg of payload.integrations) {
-          const sourceId = await resolveProduct(intg.sourceProduct);
-          const targetId = await resolveProduct(intg.targetProduct);
-          if (!sourceId || !targetId) {
-            skipped.push({
-              ref: intg.ref,
-              kind: 'integration',
-              reason: 'source or target product is not promoted yet',
-            });
-            continue;
-          }
-          if (sourceId === targetId) {
-            skipped.push({
-              ref: intg.ref,
-              kind: 'integration',
-              reason: 'source and target resolve to the same product (self-link not allowed)',
-            });
-            continue;
-          }
-          const builtByVendorId = intg.builtByVendor
-            ? await resolveVendor(intg.builtByVendor)
-            : null;
-          const poweredByProductId = intg.poweredByProduct
-            ? await resolveProduct(intg.poweredByProduct)
-            : null;
-
-          const linkData = {
-            sourceProductId: sourceId,
-            targetProductId: targetId,
-            builtByVendorId,
-            poweredByProductId,
-          };
-
-          if (intg.supabaseId) {
-            // An update may MOVE an endpoint. Capture the pre-update source/target
-            // so the OLD products are recomputed too — otherwise their stored
-            // `integration_count` lags (the AECI-86 drift bug). The new endpoints
-            // are added below; recompute is idempotent per id, so overlap is safe.
-            const existing = await tx.integration.findUnique({
-              where: { id: intg.supabaseId },
-              select: { sourceProductId: true, targetProductId: true },
-            });
-            if (existing) {
-              affectedProducts.add(existing.sourceProductId as string);
-              affectedProducts.add(existing.targetProductId as string);
-            }
-            const row = await tx.integration.update({
-              where: { id: intg.supabaseId },
-              data: { ...integrationEditableData(intg), ...linkData },
-            });
-            integrationResults.push({ ref: intg.ref, id: row.id, operation: 'updated' });
-            await audit({
-              actorType: 'system',
-              action: 'integration.updated',
-              entityType: 'integration',
-              entityId: row.id,
-            });
-          } else {
-            const row = await tx.integration.create({
-              data: { ...integrationEditableData(intg), ...linkData },
-            });
-            integrationResults.push({ ref: intg.ref, id: row.id, operation: 'created' });
-            await audit({
-              actorType: 'system',
-              action: 'integration.created',
-              entityType: 'integration',
-              entityId: row.id,
-            });
-          }
-          affectedProducts.add(sourceId);
-          affectedProducts.add(targetId);
-        }
-
-        // ── Recompute denormalized counts for touched products (AECI-104) ─────
-        // Maintains integration_count, review_count, and the rating averages from
-        // source rows in the same transaction so they never lag.
-        await recomputeProductCounts(tx, affectedProducts);
-
-        const result: PromoteResponse = {
-          vendors: vendorResults,
-          product: productResult,
-          integrations: integrationResults,
-          taxonomy: {
-            categories: categories.results,
-            audiences: audiences.results,
-            phases: phases.results,
-          },
-          skipped,
-        };
-        return result;
-      },
-      // Prisma Accelerate caps interactive-transaction `timeout` at 15_000ms
-      // globally — anything higher is rejected at parameter validation (P6005)
-      // before the transaction runs, surfacing as a BadRequestError. The cap is
-      // only raisable via a Prisma support/plan request, not from code, so stay
-      // at the max for the most headroom. Keep this bundle short (preload slugs
-      // outside the tx; batch with createMany) to fit comfortably inside it.
-      { maxWait: 10_000, timeout: 15_000 },
-    );
-
-    // AECI-98: a concurrent first-time promote can generate a duplicate slug; the
-    // racing `tx.create` then trips a `*_slug_key` unique constraint (Prisma
-    // P2002). Translate that to the documented 409 SLUG_CONFLICT (canonical
-    // envelope, no Datadog alert) rather than a generic 500 — the caller can
-    // safely retry, since `loadSlugs` re-reads per request and disambiguates.
-    // Any other failure rethrows and still surfaces as 500.
-    const response = await promoted.catch((err: unknown): never => {
-      if (isSlugUniqueViolation(err)) {
-        throw new ApiError(
-          409,
-          'SLUG_CONFLICT',
-          'A concurrent promote generated a duplicate slug; retry the request.',
-          { details: { target: (err as { meta?: { target?: unknown } }).meta?.target } },
+            )
+            .onConflictDoNothing(),
         );
       }
-      throw err;
-    });
+      if (categories.ids.length) {
+        stmts.push(
+          db
+            .insert(productCategories)
+            .values(categories.ids.map((categoryId) => ({ productId: pid, categoryId })))
+            .onConflictDoNothing(),
+        );
+      }
+      if (audiences.ids.length) {
+        stmts.push(
+          db
+            .insert(productAudiences)
+            .values(audiences.ids.map((audienceId) => ({ productId: pid, audienceId })))
+            .onConflictDoNothing(),
+        );
+      }
+      if (phases.ids.length) {
+        stmts.push(
+          db
+            .insert(productPhases)
+            .values(phases.ids.map((phaseId) => ({ productId: pid, phaseId })))
+            .onConflictDoNothing(),
+        );
+      }
 
-    // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort
-    // and post-commit — fired via `waitUntil` so it never blocks or fails the
-    // response. No-ops when `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` are unset.
+      // Extensions: host products must already be promoted (by supabaseId).
+      const hostIds: string[] = [];
+      for (const host of p.extensionOf) {
+        const hostId = await resolveProduct(host);
+        if (!hostId || hostId === pid) {
+          skipped.push({
+            ref: p.ref,
+            kind: 'extension',
+            reason: `host product ${host.supabaseId ?? host.ref} not found or self-referential`,
+          });
+          continue;
+        }
+        hostIds.push(hostId);
+      }
+      if (hostIds.length) {
+        stmts.push(
+          db
+            .insert(productExtensions)
+            .values(hostIds.map((hostProductId) => ({ productId: pid, hostProductId })))
+            .onConflictDoNothing(),
+        );
+        audit({
+          actorType: 'system',
+          action: 'product.extension_created',
+          entityType: 'product',
+          entityId: pid,
+        });
+      }
+    }
+
+    // ── Integrations ──────────────────────────────────────────────────────────
+    const integrationResults: PromoteIntegrationResult[] = [];
+    const affectedProducts = new Set<string>();
+    if (productId) affectedProducts.add(productId);
+    for (const intg of payload.integrations) {
+      const sourceId = await resolveProduct(intg.sourceProduct);
+      const targetId = await resolveProduct(intg.targetProduct);
+      if (!sourceId || !targetId) {
+        skipped.push({
+          ref: intg.ref,
+          kind: 'integration',
+          reason: 'source or target product is not promoted yet',
+        });
+        continue;
+      }
+      if (sourceId === targetId) {
+        skipped.push({
+          ref: intg.ref,
+          kind: 'integration',
+          reason: 'source and target resolve to the same product (self-link not allowed)',
+        });
+        continue;
+      }
+      const builtByVendorId = intg.builtByVendor ? await resolveVendor(intg.builtByVendor) : null;
+      const poweredByProductId = intg.poweredByProduct
+        ? await resolveProduct(intg.poweredByProduct)
+        : null;
+
+      const linkData = {
+        sourceProductId: sourceId,
+        targetProductId: targetId,
+        builtByVendorId,
+        poweredByProductId,
+      };
+
+      if (intg.supabaseId) {
+        // An update may MOVE an endpoint. Capture the pre-update source/target so
+        // the OLD products are recomputed too (the AECI-86 drift fix); the new
+        // endpoints are added below. Read pre-batch.
+        const existing = await db.query.integrations.findFirst({
+          columns: { sourceProductId: true, targetProductId: true },
+          where: eq(integrations.id, intg.supabaseId),
+        });
+        if (existing) {
+          affectedProducts.add(existing.sourceProductId);
+          affectedProducts.add(existing.targetProductId);
+        }
+        stmts.push(
+          db
+            .update(integrations)
+            .set({ ...integrationEditableData(intg), ...linkData })
+            .where(eq(integrations.id, intg.supabaseId)),
+        );
+        integrationResults.push({ ref: intg.ref, id: intg.supabaseId, operation: 'updated' });
+        audit({
+          actorType: 'system',
+          action: 'integration.updated',
+          entityType: 'integration',
+          entityId: intg.supabaseId,
+        });
+      } else {
+        const id = crypto.randomUUID();
+        stmts.push(
+          db.insert(integrations).values({ id, ...integrationEditableData(intg), ...linkData }),
+        );
+        integrationResults.push({ ref: intg.ref, id, operation: 'created' });
+        audit({
+          actorType: 'system',
+          action: 'integration.created',
+          entityType: 'integration',
+          entityId: id,
+        });
+      }
+      affectedProducts.add(sourceId);
+      affectedProducts.add(targetId);
+    }
+
+    // ── Audit rows (appended last; same atomic batch as the writes above) ─────
+    for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
+
+    const response: PromoteResponse = {
+      vendors: vendorResults,
+      product: productResult,
+      integrations: integrationResults,
+      taxonomy: {
+        categories: categories.results,
+        audiences: audiences.results,
+        phases: phases.results,
+      },
+      skipped,
+    };
+
+    // ── BATCH: one atomic unit (§26.1). A racing duplicate slug trips a UNIQUE
+    //    violation → 409 SLUG_CONFLICT (AECI-98); any other failure rethrows → 500.
+    if (stmts.length) {
+      try {
+        await db.batch(stmts as BatchTuple);
+      } catch (err) {
+        if (isSlugUniqueViolation(err)) {
+          throw new ApiError(
+            409,
+            'SLUG_CONFLICT',
+            'A concurrent promote generated a duplicate slug; retry the request.',
+            { details: { target: slugConflictTarget(err) } },
+          );
+        }
+        throw err;
+      }
+    }
+
+    // ── Post-batch: recompute the denormalized counts for touched products
+    //    (AECI-104; the brief lag is the drift sweep's backstop). Separate
+    //    read+write under D1 (no interactive tx).
+    if (affectedProducts.size) await recomputeProductCounts(db, affectedProducts);
+
+    // Best-effort §26.5 audit forwards AFTER the commit. Only scheduled when
+    // Datadog is configured — the forwarder is a no-op otherwise, so there is
+    // nothing to await.
+    const forward = makeForwarder(c);
+    if (forward && auditEntries.length) {
+      c.executionCtx.waitUntil(
+        Promise.all(auditEntries.map((entry) => forwardAuditLog(entry, forward))),
+      );
+    }
+
+    // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort,
+    // post-commit; no-ops without CF creds.
     if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
       c.executionCtx.waitUntil(purgeAfterPromote(c, response));
     }
 
-    // AECI-139: push the promoted records to Algolia immediately so they're
-    // searchable now, not at the next daily sync cron. Independent best-effort task
-    // (separate `waitUntil`, so it never blocks the purge or the response).
-    // No-ops when the Algolia secrets are unset (local / preview).
+    // AECI-139: push the promoted records to Algolia immediately (independent
+    // best-effort task). No-ops without the Algolia secrets.
     if (c.env.ALGOLIA_APP_ID && c.env.ALGOLIA_ADMIN_KEY) {
-      c.executionCtx.waitUntil(
-        syncAlgoliaAfterPromote(c, response, prisma as unknown as AlgoliaSyncPrisma),
-      );
+      c.executionCtx.waitUntil(syncAlgolia(c, response));
     }
 
     return json(response);

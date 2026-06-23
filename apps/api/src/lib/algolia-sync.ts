@@ -1,45 +1,27 @@
 /**
- * Algolia incremental sync core (AECI-139 / Phase 3.6).
+ * Algolia incremental sync core (AECI-139 / Phase 3.6) — Drizzle/D1 (ADR 0016 /
+ * AECI-253).
  *
- * The complement to the one-off bulk reindex (AECI-138, `./algolia-bulk-sync.ts`):
- * keeps each env's three Algolia indexes fresh between full reindexes via the
+ * Keeps each env's three Algolia indexes fresh between full reindexes via the
  * §20.5 write-event pipeline. Two callers share one core (`indexEntity`):
  *
- *   - the **daily cron** (`../scheduled.ts`, 08:00 UTC = 03:00 EST) passes a
- *     watermark window (`{ updatedAt: { gt, lte } }`) so it pushes only rows
- *     changed since the last run, and
+ *   - the **daily cron** (`../scheduled.ts`) passes a watermark window
+ *     (`{ type:'window', gtIso, lteIso }`) so it pushes only rows changed since
+ *     the last run, and
  *   - the **promote hook** (`syncAlgoliaAfterPromote`, fired from `routes/promote.ts`
- *     via `ctx.waitUntil`) passes the just-touched ids (`{ id: { in } }`) so a
- *     promote is searchable immediately, not at the next daily sync.
+ *     via `ctx.waitUntil`) passes the just-touched ids (`{ type:'ids', ids }`).
  *
- * Index-membership rule (identical to the bulk script, so cron / bulk / promote
- * converge on the same index state): a **product/vendor** is in the index iff
+ * Index-membership rule: a **product/vendor** is in the index iff
  * `promotion_status = 'promoted'`; an **integration** iff BOTH its endpoint
- * products are `promoted`. Anything else is **deleted** from the index (the
- * delete path the bulk script deliberately omits — that's this issue's job, so
- * `retracted`/`rejected` rows are removed, not just skipped).
+ * products are `promoted`. Anything else is **deleted** from the index.
  *
  * Transport: the Worker-runtime `callAlgoliaBatch` (`@aeci/shared/algolia-batch`),
- * a never-throwing raw-`fetch` client — NOT the `algoliasearch` SDK (that's a
- * Node-only devDep used by the bulk CLI). Both produce the same upsert-by-objectID
- * end-state.
+ * a never-throwing raw-`fetch` client.
  *
  * Watermark: a single `stats_cache` row (`algolia_sync_watermark`) holding a
- * per-entity ISO timestamp. Advanced to the run's wall-clock `cutoff` (a fence,
- * not `max(updated_at)`) only after that entity's push succeeds; a failed entity
- * keeps its watermark so the next run retries (idempotent re-push is safe).
- *
- * Known bounded gaps (style of `routes/promote-cache-tags.ts`; owned elsewhere):
- *   - **Denormalized drift** the delta can't see: a vendor's `integration_count`
- *     or a taxonomy-term rename changes the *record* without bumping the entity
- *     row's `updated_at`, so the daily window misses it. Owned by AECI-140
- *     (index↔DB drift reconciliation) and the periodic bulk reindex.
- *   - **Integration cascade on endpoint retract:** eligibility is read from both
- *     endpoints, but a retracted endpoint product does not bump its integrations'
- *     `updated_at`, so those integrations aren't re-evaluated until the
- *     integration row itself changes. No retract path exists today; AECI-140.
- *   - **Single write host** (no Algolia retry-host failover): acceptable for a
- *     best-effort sync — the next cron run is the safety net.
+ * per-entity ISO timestamp; advanced to the run's wall-clock `cutoff` only after
+ * that entity's push succeeds. `updated_at` is ISO-8601 TEXT under D1, so the
+ * window compares lexically (ISO sorts chronologically).
  */
 
 import {
@@ -54,19 +36,24 @@ import {
   type AlgoliaEnv,
   type IndexEntity,
 } from '@aeci/shared/algolia';
-import type { Prisma } from '@prisma/client/edge';
+import { and, eq, gt, inArray, lte, notInArray, or, type SQL } from 'drizzle-orm';
+import { type SQLiteColumn } from 'drizzle-orm/sqlite-core';
 
+import type { Db } from '../db/client';
+import { integrations, products, statsCache, vendors } from '../db/schema';
 import {
-  algoliaIntegrationSelect,
-  algoliaProductSelect,
-  algoliaVendorSelect,
+  algoliaIntegrationConfig,
+  algoliaProductConfig,
+  algoliaVendorConfig,
   toAlgoliaIntegration,
   toAlgoliaProduct,
   toAlgoliaVendor,
+  type RawAlgoliaIntegrationRow,
+  type RawAlgoliaProductRow,
+  type RawAlgoliaVendorRow,
 } from './algolia-transforms';
 
-/** The `promotion_status` value that marks a product/vendor as live (mirrors
- *  `./algolia-bulk-sync.ts` and `routes/promote.ts`). */
+/** The `promotion_status` value that marks a product/vendor as live. */
 const PROMOTED = 'promoted';
 
 /** The `stats_cache` key holding the per-entity incremental-sync watermark. */
@@ -76,86 +63,41 @@ export const ALGOLIA_WATERMARK_KEY = 'algolia_sync_watermark';
 const EPOCH_ISO = new Date(0).toISOString();
 
 // ---------------------------------------------------------------------------
-// Select shapes (augment the AECI-137 transform selects with the sync signals)
-// ---------------------------------------------------------------------------
-
-/** `algoliaProductSelect` carries neither `promotionStatus` nor `updatedAt`. */
-const productSyncSelect = {
-  ...algoliaProductSelect,
-  promotionStatus: true,
-  updatedAt: true,
-} as const satisfies Prisma.ProductSelect;
-
-/** `algoliaVendorSelect` already carries `updatedAt` (via `vendorListSelect`). */
-const vendorSyncSelect = {
-  ...algoliaVendorSelect,
-  promotionStatus: true,
-} as const satisfies Prisma.VendorSelect;
-
-type RawProductSyncRow = Prisma.ProductGetPayload<{ select: typeof productSyncSelect }>;
-type RawVendorSyncRow = Prisma.VendorGetPayload<{ select: typeof vendorSyncSelect }>;
-
-// ---------------------------------------------------------------------------
-// Minimal Prisma + result types (structural, so tests inject a recording fake)
+// Filter (what both callers pass) → per-table Drizzle condition
 // ---------------------------------------------------------------------------
 
 /**
- * The where-filter both callers pass. A minimal shape valid as a
- * `Product|Vendor|Integration WhereInput`: the cron passes the watermark window,
- * the promote hook passes the touched ids.
+ * The row selector both callers pass: the cron passes the watermark window
+ * (`updated_at` in `(gtIso, lteIso]`), the promote hook the touched ids. Each
+ * builder turns it into a condition over ITS table's columns (each table has its
+ * own `id` / `updated_at`).
  */
-export type AlgoliaSyncWhere = {
-  updatedAt?: { gt: Date; lte: Date };
-  id?: { in: string[] };
-};
+export type AlgoliaSyncFilter =
+  | { type: 'window'; gtIso: string; lteIso: string }
+  | { type: 'ids'; ids: string[] };
 
-export type AlgoliaSyncPrisma = {
-  product: {
-    findMany(args: {
-      where: Prisma.ProductWhereInput;
-      select: typeof productSyncSelect;
-    }): Promise<RawProductSyncRow[]>;
-  };
-  vendor: {
-    findMany(args: {
-      where: Prisma.VendorWhereInput;
-      select: typeof vendorSyncSelect;
-    }): Promise<RawVendorSyncRow[]>;
-  };
-  integration: {
-    findMany(args: {
-      where: Prisma.IntegrationWhereInput;
-      select: Prisma.IntegrationSelect;
-    }): Promise<Array<{ id: string }>>;
-  };
-  statsCache: {
-    findUnique(args: { where: { key: string } }): Promise<{ value: unknown } | null>;
-    upsert(args: {
-      where: { key: string };
-      create: { key: string; value: AlgoliaWatermark };
-      update: { value: AlgoliaWatermark; computedAt: Date };
-    }): Promise<unknown>;
-  };
-};
+function whereFor(
+  filter: AlgoliaSyncFilter,
+  idCol: SQLiteColumn,
+  updatedAtCol: SQLiteColumn,
+): SQL | undefined {
+  return filter.type === 'ids'
+    ? inArray(idCol, filter.ids)
+    : and(gt(updatedAtCol, filter.gtIso), lte(updatedAtCol, filter.lteIso));
+}
 
 export type IndexEntityResult = {
   entity: IndexEntity;
   indexName: string;
-  /** Records upserted (`updateObject`). */
   saved: number;
-  /** Records removed (`deleteObject`). */
   deleted: number;
-  /** Rows whose transform threw and were skipped (logged, never block the run). */
   transformErrors: number;
-  /** True when every Algolia batch for this entity succeeded. */
   ok: boolean;
-  /** First push failure message, when `ok === false`. */
   error?: string;
 };
 
 // ---------------------------------------------------------------------------
-// Request builders (one per entity — entities differ only in how membership and
-// the record body are derived)
+// Request builders
 // ---------------------------------------------------------------------------
 
 type RequestBuild = { requests: AlgoliaBatchRequest[]; transformErrors: number };
@@ -172,9 +114,6 @@ function buildFromStatusRows<TRow extends { id: string; promotionStatus: string 
       try {
         requests.push({ action: 'updateObject', body: transform(row) });
       } catch (error) {
-        // Fail loud but don't wedge the run: log + skip so the watermark can
-        // still advance past this row (a corrupt enum is surfaced via the log
-        // and the AECI-140 reconciliation, not by retrying forever).
         transformErrors += 1;
         console.warn(
           `algolia-sync: ${entity} ${row.id} transform failed — skipped`,
@@ -188,60 +127,58 @@ function buildFromStatusRows<TRow extends { id: string; promotionStatus: string 
   return { requests, transformErrors };
 }
 
-async function buildProductRequests(
-  prisma: AlgoliaSyncPrisma,
-  where: AlgoliaSyncWhere,
-): Promise<RequestBuild> {
-  const rows = await prisma.product.findMany({ where, select: productSyncSelect });
+async function buildProductRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
+  const rows = (await db.query.products.findMany({
+    ...algoliaProductConfig,
+    where: whereFor(filter, products.id, products.updatedAt),
+  })) as RawAlgoliaProductRow[];
   return buildFromStatusRows('products', rows, (row) => toAlgoliaProduct(row));
 }
 
-async function buildVendorRequests(
-  prisma: AlgoliaSyncPrisma,
-  where: AlgoliaSyncWhere,
-): Promise<RequestBuild> {
-  const rows = await prisma.vendor.findMany({ where, select: vendorSyncSelect });
+async function buildVendorRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
+  const rows = (await db.query.vendors.findMany({
+    ...algoliaVendorConfig,
+    where: whereFor(filter, vendors.id, vendors.updatedAt),
+  })) as RawAlgoliaVendorRow[];
   return buildFromStatusRows('vendors', rows, (row) => toAlgoliaVendor(row));
 }
 
 /**
  * Integrations carry no `promotion_status`; membership is "both endpoints
- * promoted" (the AECI-138 filter). Two queries over the same window: eligible →
- * upsert, ineligible → delete-by-id. Avoids merging endpoint status into the
- * AECI-137 nested `productLinkSelect`.
+ * promoted". Two queries over the same window: eligible → upsert, ineligible →
+ * delete-by-id. The both-promoted test is a subquery over the promoted product
+ * ids (Drizzle `inArray`/`notInArray` against the same `SELECT id …` subquery).
  */
-async function buildIntegrationRequests(
-  prisma: AlgoliaSyncPrisma,
-  where: AlgoliaSyncWhere,
-): Promise<RequestBuild> {
-  const bothPromoted = {
-    sourceProduct: { is: { promotionStatus: PROMOTED } },
-    targetProduct: { is: { promotionStatus: PROMOTED } },
-  } satisfies Prisma.IntegrationWhereInput;
-  const eitherNotPromoted = {
-    OR: [
-      { sourceProduct: { is: { promotionStatus: { not: PROMOTED } } } },
-      { targetProduct: { is: { promotionStatus: { not: PROMOTED } } } },
-    ],
-  } satisfies Prisma.IntegrationWhereInput;
+async function buildIntegrationRequests(db: Db, filter: AlgoliaSyncFilter): Promise<RequestBuild> {
+  const window = whereFor(filter, integrations.id, integrations.updatedAt);
+  const promotedProductIds = db
+    .select({ id: products.id })
+    .from(products)
+    .where(eq(products.promotionStatus, PROMOTED));
 
-  const eligible = await prisma.integration.findMany({
-    where: { AND: [where, bothPromoted] },
-    select: algoliaIntegrationSelect,
-  });
-  const ineligible = await prisma.integration.findMany({
-    where: { AND: [where, eitherNotPromoted] },
-    select: { id: true, updatedAt: true },
-  });
+  const bothPromoted = and(
+    inArray(integrations.sourceProductId, promotedProductIds),
+    inArray(integrations.targetProductId, promotedProductIds),
+  );
+  const eitherNotPromoted = or(
+    notInArray(integrations.sourceProductId, promotedProductIds),
+    notInArray(integrations.targetProductId, promotedProductIds),
+  );
+
+  const eligible = (await db.query.integrations.findMany({
+    ...algoliaIntegrationConfig,
+    where: and(window, bothPromoted),
+  })) as RawAlgoliaIntegrationRow[];
+  const ineligible = await db
+    .select({ id: integrations.id })
+    .from(integrations)
+    .where(and(window, eitherNotPromoted));
 
   const requests: AlgoliaBatchRequest[] = [];
   let transformErrors = 0;
   for (const row of eligible) {
     try {
-      requests.push({
-        action: 'updateObject',
-        body: toAlgoliaIntegration(row as Parameters<typeof toAlgoliaIntegration>[0]),
-      });
+      requests.push({ action: 'updateObject', body: toAlgoliaIntegration(row) });
     } catch (error) {
       transformErrors += 1;
       console.warn(
@@ -256,35 +193,32 @@ async function buildIntegrationRequests(
   return { requests, transformErrors };
 }
 
-const BUILDERS: Record<
-  IndexEntity,
-  (prisma: AlgoliaSyncPrisma, where: AlgoliaSyncWhere) => Promise<RequestBuild>
-> = {
-  products: buildProductRequests,
-  vendors: buildVendorRequests,
-  integrations: buildIntegrationRequests,
-};
+const BUILDERS: Record<IndexEntity, (db: Db, filter: AlgoliaSyncFilter) => Promise<RequestBuild>> =
+  {
+    products: buildProductRequests,
+    vendors: buildVendorRequests,
+    integrations: buildIntegrationRequests,
+  };
 
 // ---------------------------------------------------------------------------
 // Core: build → chunk → push
 // ---------------------------------------------------------------------------
 
 /**
- * Sync one entity's index for the rows matched by `where`: build the
+ * Sync one entity's index for the rows matched by `filter`: build the
  * upsert/delete batch (membership-aware), chunk to `ALGOLIA_BATCH_MAX`, and push
- * via `callAlgoliaBatch`. Stops at the first failed chunk (the watermark won't
- * advance, so the rest re-pushes next run). Never throws.
+ * via `callAlgoliaBatch`. Stops at the first failed chunk. Never throws.
  */
 export async function indexEntity(
-  prisma: AlgoliaSyncPrisma,
+  db: Db,
   fetchImpl: typeof fetch,
   creds: AlgoliaBatchCredentials,
   env: AlgoliaEnv,
   entity: IndexEntity,
-  where: AlgoliaSyncWhere,
+  filter: AlgoliaSyncFilter,
 ): Promise<IndexEntityResult> {
   const indexName = localizedIndexNamesFor(env)[entity];
-  const { requests, transformErrors } = await BUILDERS[entity](prisma, where);
+  const { requests, transformErrors } = await BUILDERS[entity](db, filter);
 
   const base: IndexEntityResult = {
     entity,
@@ -319,8 +253,10 @@ export async function indexEntity(
 export type AlgoliaWatermark = Record<IndexEntity, string>;
 
 /** Read the per-entity watermark; a missing row/field → epoch (full sweep). */
-export async function readWatermark(prisma: AlgoliaSyncPrisma): Promise<AlgoliaWatermark> {
-  const row = await prisma.statsCache.findUnique({ where: { key: ALGOLIA_WATERMARK_KEY } });
+export async function readWatermark(db: Db): Promise<AlgoliaWatermark> {
+  const row = await db.query.statsCache.findFirst({
+    where: eq(statsCache.key, ALGOLIA_WATERMARK_KEY),
+  });
   const value = (row?.value ?? {}) as Partial<AlgoliaWatermark>;
   return {
     products: value.products ?? EPOCH_ISO,
@@ -331,15 +267,17 @@ export async function readWatermark(prisma: AlgoliaSyncPrisma): Promise<AlgoliaW
 
 /** Persist the per-entity watermark (upsert the singleton row). */
 export async function writeWatermark(
-  prisma: AlgoliaSyncPrisma,
+  db: Db,
   watermark: AlgoliaWatermark,
   now: Date,
 ): Promise<void> {
-  await prisma.statsCache.upsert({
-    where: { key: ALGOLIA_WATERMARK_KEY },
-    create: { key: ALGOLIA_WATERMARK_KEY, value: watermark },
-    update: { value: watermark, computedAt: now },
-  });
+  await db
+    .insert(statsCache)
+    .values({ key: ALGOLIA_WATERMARK_KEY, value: watermark, computedAt: now.toISOString() })
+    .onConflictDoUpdate({
+      target: statsCache.key,
+      set: { value: watermark, computedAt: now.toISOString() },
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -353,33 +291,33 @@ export type DailySyncResult = {
 
 /**
  * Run the incremental sync across all three entities for `env`. Each entity that
- * pushes successfully advances its watermark to `cutoff` (the wall-clock fence
- * captured at run start); a failed entity keeps its prior watermark for retry.
- * The watermark row is written once, after the loop. Never throws.
+ * pushes successfully advances its watermark to `cutoff` (the wall-clock fence at
+ * run start); a failed entity keeps its prior watermark for retry. Never throws.
  */
 export async function runDailySync(
-  prisma: AlgoliaSyncPrisma,
+  db: Db,
   fetchImpl: typeof fetch,
   creds: AlgoliaBatchCredentials,
   env: AlgoliaEnv,
   now: Date,
 ): Promise<DailySyncResult> {
-  const cutoff = now;
-  const cutoffIso = cutoff.toISOString();
-  const watermark = await readWatermark(prisma);
+  const cutoffIso = now.toISOString();
+  const watermark = await readWatermark(db);
   const next: AlgoliaWatermark = { ...watermark };
 
   const entities: IndexEntityResult[] = [];
   for (const entity of INDEX_ENTITIES) {
-    const where: AlgoliaSyncWhere = {
-      updatedAt: { gt: new Date(watermark[entity]), lte: cutoff },
+    const filter: AlgoliaSyncFilter = {
+      type: 'window',
+      gtIso: watermark[entity],
+      lteIso: cutoffIso,
     };
-    const result = await indexEntity(prisma, fetchImpl, creds, env, entity, where);
+    const result = await indexEntity(db, fetchImpl, creds, env, entity, filter);
     entities.push(result);
     if (result.ok) next[entity] = cutoffIso;
   }
 
-  await writeWatermark(prisma, next, cutoff);
+  await writeWatermark(db, next, now);
   return { cutoff: cutoffIso, entities };
 }
 
@@ -395,12 +333,12 @@ export type PromoteIndexTargets = {
 };
 
 /**
- * Index the records a promote just wrote, by id. Returns one result per
- * non-empty entity (skips an entity with no ids — no empty batch POST). Never
- * throws; the caller emits metrics / logs and fires this via `ctx.waitUntil`.
+ * Index the records a promote just wrote, by id. Returns one result per non-empty
+ * entity. Never throws; the caller emits metrics / logs and fires this via
+ * `ctx.waitUntil`.
  */
 export async function syncPromoteTargets(
-  prisma: AlgoliaSyncPrisma,
+  db: Db,
   fetchImpl: typeof fetch,
   creds: AlgoliaBatchCredentials,
   env: AlgoliaEnv,
@@ -415,7 +353,7 @@ export async function syncPromoteTargets(
   const results: IndexEntityResult[] = [];
   for (const [entity, ids] of byEntity) {
     if (ids.length === 0) continue;
-    results.push(await indexEntity(prisma, fetchImpl, creds, env, entity, { id: { in: ids } }));
+    results.push(await indexEntity(db, fetchImpl, creds, env, entity, { type: 'ids', ids }));
   }
   return results;
 }

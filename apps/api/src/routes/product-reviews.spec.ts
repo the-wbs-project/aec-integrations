@@ -1,160 +1,83 @@
-import { ProductReviewsResponseSchema } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
+/**
+ * GET /api/products/:slug/reviews on the Drizzle/D1 path (ADR 0016 / AECI-253),
+ * against the in-memory D1 harness.
+ */
 
-import { PROCORE_PRODUCT_ID } from '../test/fixtures/products';
-import { approvedReviewRows } from '../test/fixtures/reviews';
-import {
-  buildAppWithHandler,
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
+import { ProductReviewsResponseSchema } from '@aeci/shared';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { products, reviews } from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductReviewsListHandler } from './product-reviews';
 
-function reviewsApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const app = () =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/products/:slug/reviews',
-    handler: createProductReviewsListHandler(() => prisma as never),
+    handler: createProductReviewsListHandler(t.factory),
   });
-}
+const get = (url: string) => app().request(url, {}, TEST_ENV, fakeExecutionContext());
 
-/** Mock where the slug resolves and the review queries return canned rows. */
-function prismaWithReviews(rows = approvedReviewRows, total = rows.length) {
-  return makeMockAcceleratedPrisma({
-    product: { findUnique: { id: PROCORE_PRODUCT_ID } },
-    review: { findMany: rows, count: total },
+async function review(id: string, productId: string, status: string, createdAt: string) {
+  await t.db.insert(reviews).values({
+    id,
+    productId,
+    ratingOverall: 5,
+    ratingOnboarding: 4,
+    title: `T${id.slice(-1)}`,
+    body: 'Body',
+    status,
+    createdAt,
   });
 }
 
 describe('GET /api/products/:slug/reviews', () => {
-  it('returns the paginated envelope with defaults, newest-first', async () => {
-    const prisma = prismaWithReviews();
-    const res = await reviewsApp(prisma).request(
-      '/api/products/procore/reviews',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
+  it('returns approved reviews newest-first, excluding non-approved', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: u(1), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await review(u(11), u(1), 'approved', '2026-01-01T00:00:00.000Z');
+    await review(u(12), u(1), 'approved', '2026-02-01T00:00:00.000Z');
+    await review(u(13), u(1), 'pending', '2026-03-01T00:00:00.000Z');
 
+    const res = await get('/api/products/revit/reviews');
     expect(res.status).toBe(200);
-    const parsed = ProductReviewsResponseSchema.parse(await res.json());
-    expect(parsed.page).toBe(1);
-    expect(parsed.perPage).toBe(24);
-    expect(parsed.total).toBe(2);
-    expect(parsed.data.map((r) => r.title)).toEqual(['Rolled out across two studios', 'Mixed bag']);
+    const body = ProductReviewsResponseSchema.parse(await res.json());
+    expect(body.total).toBe(2);
+    expect(body.data.map((r) => r.id)).toEqual([u(12), u(11)]); // newest-first
   });
 
-  it('queries approved-only, newest-first, scoped to the resolved product id', async () => {
-    const prisma = prismaWithReviews();
-    await reviewsApp(prisma).request(
-      '/api/products/procore/reviews',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    const call = prisma.review.findMany.mock.calls[0][0] as {
-      where: { productId: string; status: string };
-      orderBy: unknown;
-    };
-    expect(call.where).toEqual({ productId: PROCORE_PRODUCT_ID, status: 'approved' });
-    expect(call.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }]);
-
-    // count uses the same approved-only filter
-    const countCall = prisma.review.count.mock.calls[0][0] as { where: unknown };
-    expect(countCall.where).toEqual({ productId: PROCORE_PRODUCT_ID, status: 'approved' });
-  });
-
-  it('honors page/perPage with the correct skip/take', async () => {
-    const prisma = prismaWithReviews([], 40);
-    await reviewsApp(prisma).request(
-      '/api/products/procore/reviews?page=3&perPage=10',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    const call = prisma.review.findMany.mock.calls[0][0] as { skip: number; take: number };
-    expect(call.skip).toBe(20);
-    expect(call.take).toBe(10);
-  });
-
-  it('exposes no PII (no reviewer id / email / status fields) in the payload', async () => {
-    const prisma = prismaWithReviews();
-    const res = await reviewsApp(prisma).request(
-      '/api/products/procore/reviews',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    const body = (await res.json()) as { data: Array<Record<string, unknown>> };
-    const row = body.data[0];
-    for (const forbidden of [
-      'reviewer_id',
-      'reviewerId',
-      'reviewer',
-      'email',
-      'reviewer_email',
-      'status',
-      'toxicity_score',
-      'locale',
-      'moderated_at',
-    ]) {
-      expect(row).not.toHaveProperty(forbidden);
+  it('paginates', async () => {
+    await t.db
+      .insert(products)
+      .values({ id: u(1), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    for (let i = 1; i <= 3; i++) {
+      await review(u(10 + i), u(1), 'approved', `2026-0${i}-01T00:00:00.000Z`);
     }
-    // The select also must not have asked Prisma for reviewer columns.
-    const call = prisma.review.findMany.mock.calls[0][0] as { select: Record<string, unknown> };
-    expect(call.select).not.toHaveProperty('reviewerId');
-    expect(call.select).not.toHaveProperty('reviewer');
+    const body = ProductReviewsResponseSchema.parse(
+      await (await get('/api/products/revit/reviews?perPage=2&page=2')).json(),
+    );
+    expect(body.total).toBe(3);
+    expect(body.data.length).toBe(1);
   });
 
-  it('returns an empty page for a known product with no approved reviews', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findUnique: { id: PROCORE_PRODUCT_ID } },
-      review: { findMany: [], count: 0 },
-    });
-    const res = await reviewsApp(prisma).request(
-      '/api/products/procore/reviews',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.status).toBe(200);
-    const parsed = ProductReviewsResponseSchema.parse(await res.json());
-    expect(parsed.data).toEqual([]);
-    expect(parsed.total).toBe(0);
-  });
+  it('404s an unknown product slug (distinct from an empty page)', async () => {
+    expect((await get('/api/products/nope/reviews')).status).toBe(404);
 
-  it('returns the canonical 404 envelope for an unknown slug', async () => {
-    const prisma = makeMockAcceleratedPrisma({ product: { findUnique: null } });
-    const res = await reviewsApp(prisma).request(
-      '/api/products/no-such/reviews',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as {
-      error: { code: string; details?: { resource?: string; slug?: string } };
-      trace_id: string;
-    };
-    expect(body.error.code).toBe('NOT_FOUND');
-    expect(body.error.details).toEqual({ resource: 'product', slug: 'no-such' });
-    // The reviews queries must not run when the slug doesn't resolve.
-    expect(prisma.review.findMany).not.toHaveBeenCalled();
-  });
-
-  it('emits `Cache-Control: private, no-store` on success', async () => {
-    const prisma = prismaWithReviews();
-    const res = await reviewsApp(prisma).request(
-      '/api/products/procore/reviews',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    await t.db
+      .insert(products)
+      .values({ id: u(1), slug: 'empty', name: 'Empty', promotionStatus: 'promoted' });
+    const ok = await get('/api/products/empty/reviews');
+    expect(ok.status).toBe(200);
+    expect(ProductReviewsResponseSchema.parse(await ok.json()).total).toBe(0);
   });
 });

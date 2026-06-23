@@ -65,6 +65,32 @@ export type AuditLogForwarder = (entry: AuditLogEntry) => void | Promise<void>;
  * forward step is wrapped: any rejection is logged via `console.warn` and
  * swallowed so Datadog availability never blocks a state change.
  */
+/**
+ * Best-effort forward of an audit event to Datadog (§26.5), decoupled from the
+ * DB write. Under D1 (ADR 0016 / AECI-249) the audit row is inserted as a
+ * statement inside the caller's atomic `db.batch([...])` (see
+ * `apps/api/src/lib/audit.ts` `auditInsert`), so the §26.1 "no state change
+ * without an audit row" invariant is preserved by the batch, not by this helper.
+ * Call AFTER the batch commits (typically via `ctx.waitUntil`). A forward
+ * failure is logged and swallowed — Datadog availability never blocks a write.
+ */
+export async function forwardAuditLog(
+  entry: AuditLogEntry,
+  forward?: AuditLogForwarder,
+): Promise<void> {
+  if (!forward) return;
+  try {
+    await forward(entry);
+  } catch (error) {
+    console.warn('forwardAuditLog: Datadog forward failed', error);
+  }
+}
+
+/**
+ * @deprecated Prisma-coupled writer (Supabase path). Replaced by the D1 batch
+ * builder `auditInsert` (`apps/api/src/lib/audit.ts`) + {@link forwardAuditLog}
+ * (ADR 0016 / AECI-249). Removed once all call sites migrate off Prisma.
+ */
 export async function appendAuditLog(
   db: AuditLogClient,
   entry: AuditLogEntry,

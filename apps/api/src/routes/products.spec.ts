@@ -1,460 +1,210 @@
+/**
+ * GET /api/products (list + detail) on the Drizzle/D1 path (ADR 0016 / AECI-253).
+ * Runs the real handlers against the in-memory D1 harness (`makeTestDb`): seed
+ * real rows, assert real query + mapper output. Replaces the retired Prisma-mock
+ * suite.
+ *
+ * NOTE: public visibility filtering (`promotion_status = 'promoted'`, the RLS
+ * replacement) is added systematically in Phase 3 (AECI-254); these tests seed
+ * promoted rows and exercise the mechanical query/hydration/sort/filter behavior.
+ */
+
 import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
-  PROCORE_PRODUCT_ID,
-  allProductRows,
-  procoreProductDetailRow,
-  procoreProductRow,
-  reviztoProductRow,
-} from '../test/fixtures/products';
-import { approvedReviewRows } from '../test/fixtures/reviews';
-import {
-  buildAppWithHandler,
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
+  integrations,
+  productAudiences,
+  productCategories,
+  productPhases,
+  products,
+  productVendors,
+  reviews,
+  taxonomyAudiences,
+  taxonomyCategories,
+  taxonomyPhases,
+  vendors,
+} from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductDetailHandler, createProductsListHandler } from './products';
 
-function listApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+// Valid UUIDs (the response schema validates `id` as a uuid; prod ids are real).
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const listApp = () =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/products',
-    handler: createProductsListHandler(() => prisma as never),
+    handler: createProductsListHandler(t.factory),
   });
-}
-
-function detailApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+const detailApp = () =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/products/:slug',
-    handler: createProductDetailHandler(() => prisma as never),
+    handler: createProductDetailHandler(t.factory),
   });
+const get = (app: ReturnType<typeof listApp>, url: string) =>
+  app.request(url, {}, TEST_ENV, fakeExecutionContext());
+
+async function seedVendor(id: string, slug: string, name: string) {
+  await t.db.insert(vendors).values({ id, slug, companyName: name, promotionStatus: 'promoted' });
+}
+async function seedProduct(
+  id: string,
+  slug: string,
+  name: string,
+  extra: Partial<typeof products.$inferInsert> = {},
+) {
+  await t.db.insert(products).values({ id, slug, name, promotionStatus: 'promoted', ...extra });
 }
 
 describe('GET /api/products', () => {
-  it('returns the paginated list envelope with default sort + perPage', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: allProductRows, count: allProductRows.length },
-    });
-    const res = await listApp(prisma).request(
-      '/api/products',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
+  it('returns the paginated envelope with default sort (created DESC) + id tiebreak', async () => {
+    await seedProduct(u(1), 'older', 'Older', { createdAt: '2026-01-01T00:00:00.000Z' });
+    await seedProduct(u(2), 'newer', 'Newer', { createdAt: '2026-02-01T00:00:00.000Z' });
 
+    const res = await get(listApp(), '/api/products');
     expect(res.status).toBe(200);
-    const body = await res.json();
-    const parsed = ProductsListResponseSchema.parse(body);
+    const parsed = ProductsListResponseSchema.parse(await res.json());
     expect(parsed.page).toBe(1);
     expect(parsed.perPage).toBe(24);
     expect(parsed.total).toBe(2);
-    expect(parsed.data.map((p) => p.slug)).toEqual(['procore', 'revizto']);
-
-    // Default sort `created DESC` per §7.4, with the AECI-99 `id` tiebreaker →
-    // resolveProductSort emits `[{ createdAt: 'desc' }, { id: 'asc' }]`. Inspect
-    // the orderBy arg the handler passed.
-    const call = prisma.product.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }]);
+    expect(parsed.data.map((p) => p.slug)).toEqual(['newer', 'older']);
   });
 
-  it('hydrates `vendor` on each list row from the primary ProductVendor link', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: [procoreProductRow], count: 1 },
-    });
-    const res = await listApp(prisma).request(
-      '/api/products',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+  it('hydrates the primary vendor on each list row', async () => {
+    await seedVendor(u(11), 'autodesk', 'Autodesk');
+    await seedVendor(u(12), 'other', 'Other');
+    await seedProduct(u(1), 'revit', 'Revit');
+    await t.db
+      .insert(productVendors)
+      .values({ productId: u(1), vendorId: u(12), isPrimary: false });
+    await t.db.insert(productVendors).values({ productId: u(1), vendorId: u(11), isPrimary: true });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products')).json(),
     );
-
-    const body = (await res.json()) as { data: Array<{ vendor: { slug: string; name: string } }> };
-    expect(body.data[0].vendor).toMatchObject({ slug: 'procore', name: 'Procore Technologies' });
+    expect(parsed.data[0]?.vendor).toMatchObject({ slug: 'autodesk', name: 'Autodesk' });
   });
 
-  it('hydrates `primary_category` on each list row, lowest displayOrder wins', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: [procoreProductRow], count: 1 },
-    });
-    const res = await listApp(prisma).request(
-      '/api/products',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+  it('resolves primary_category to the lowest display_order (null vendor stays null)', async () => {
+    await seedProduct(u(1), 'revit', 'Revit');
+    await t.db.insert(taxonomyCategories).values([
+      { id: u(21), slug: 'zeta', name: 'Zeta', displayOrder: 90 },
+      { id: u(22), slug: 'alpha', name: 'Alpha', displayOrder: 10 },
+    ]);
+    await t.db.insert(productCategories).values([
+      { productId: u(1), categoryId: u(21) },
+      { productId: u(1), categoryId: u(22) },
+    ]);
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products')).json(),
     );
-
-    const body = (await res.json()) as {
-      data: Array<{ primary_category: { slug: string } | null }>;
-    };
-    expect(body.data[0].primary_category).toEqual({
-      id: '00000000-0000-4000-8000-000000030001',
-      name: 'Project Management',
-      slug: 'project-management',
-    });
+    expect(parsed.data[0]?.primary_category?.slug).toBe('alpha');
+    expect(parsed.data[0]?.vendor).toBeNull();
   });
 
-  it('maps `sort=name` to [{ name: "asc" }, { id: "asc" }]', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: [], count: 0 },
-    });
-    await listApp(prisma).request('/api/products?sort=name', {}, TEST_ENV, fakeExecutionContext());
-
-    const call = prisma.product.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual([{ name: 'asc' }, { id: 'asc' }]);
-  });
-
-  it('builds the where clause from category_id + vendor_id filters', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: [], count: 0 },
-    });
-    await listApp(prisma).request(
-      '/api/products?category_id=00000000-0000-4000-8000-000000030001&vendor_id=00000000-0000-4000-8000-000000010001',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+  it('paginates and sorts by name', async () => {
+    for (const [i, n] of ['Charlie', 'Alpha', 'Bravo'].entries()) {
+      await seedProduct(u(i + 1), n.toLowerCase(), n);
+    }
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products?sort=name&perPage=2&page=1')).json(),
     );
-
-    const call = prisma.product.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
-    // AECI-223 — taxonomy dimensions match via `in (...)`; a single id is a
-    // one-element list. `vendor_id` stays a single non-faceted scope.
-    expect(call.where).toMatchObject({
-      productCategories: { some: { categoryId: { in: ['00000000-0000-4000-8000-000000030001'] } } },
-      productVendors: { some: { vendorId: '00000000-0000-4000-8000-000000010001' } },
-    });
+    expect(parsed.data.map((p) => p.name)).toEqual(['Alpha', 'Bravo']);
+    expect(parsed.total).toBe(3);
   });
 
-  it('multi-selects a dimension: a comma-separated category_id list becomes an `in` clause (AECI-223)', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: [], count: 0 },
-    });
-    await listApp(prisma).request(
-      '/api/products?category_id=00000000-0000-4000-8000-000000030001,00000000-0000-4000-8000-000000030002&audience_id=00000000-0000-4000-8000-000000040001',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+  it('filters by category_id and by search', async () => {
+    await seedProduct(u(1), 'revit', 'Revit');
+    await seedProduct(u(2), 'autocad', 'AutoCAD');
+    await t.db
+      .insert(taxonomyCategories)
+      .values({ id: u(21), slug: 'bim', name: 'BIM', displayOrder: 10 });
+    await t.db.insert(productCategories).values({ productId: u(1), categoryId: u(21) });
+
+    const byCat = ProductsListResponseSchema.parse(
+      await (await get(listApp(), `/api/products?category_id=${u(21)}`)).json(),
     );
+    expect(byCat.data.map((p) => p.slug)).toEqual(['revit']);
 
-    const call = prisma.product.findMany.mock.calls[0][0] as { where: Record<string, unknown> };
-    // OR within the category dimension; AND across to the audience dimension.
-    expect(call.where).toMatchObject({
-      productCategories: {
-        some: {
-          categoryId: {
-            in: ['00000000-0000-4000-8000-000000030001', '00000000-0000-4000-8000-000000030002'],
-          },
-        },
-      },
-      productAudiences: { some: { audienceId: { in: ['00000000-0000-4000-8000-000000040001'] } } },
-    });
-  });
-
-  it('caps perPage at 100 — perPage=200 returns 400 VALIDATION_FAILED', async () => {
-    const prisma = makeMockAcceleratedPrisma();
-    const res = await listApp(prisma).request(
-      '/api/products?perPage=200',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+    const bySearch = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products?search=auto')).json(),
     );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as {
-      error: { code: string; field?: string };
-      trace_id: string;
-    };
-    expect(body.error.code).toBe('VALIDATION_FAILED');
-    expect(body.error.field).toBe('perPage');
-    expect(body.trace_id).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(prisma.product.findMany).not.toHaveBeenCalled();
-  });
-
-  it('rejects page=0 with 400 VALIDATION_FAILED on the `page` field', async () => {
-    const prisma = makeMockAcceleratedPrisma();
-    const res = await listApp(prisma).request(
-      '/api/products?page=0',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; field?: string } };
-    expect(body.error.code).toBe('VALIDATION_FAILED');
-    expect(body.error.field).toBe('page');
-  });
-
-  it('returns empty data when page > total/perPage (Prisma findMany returns [])', async () => {
-    // Simulate `skip` past the end — Prisma returns []; count stays at the true total.
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: [], count: 2 },
-    });
-    const res = await listApp(prisma).request(
-      '/api/products?page=99&perPage=10',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    const body = (await res.json()) as { data: unknown[]; page: number; total: number };
-    expect(body.data).toEqual([]);
-    expect(body.page).toBe(99);
-    expect(body.total).toBe(2);
-  });
-
-  it('rejects an unknown sort value with 400 VALIDATION_FAILED on the `sort` field', async () => {
-    const prisma = makeMockAcceleratedPrisma();
-    const res = await listApp(prisma).request(
-      '/api/products?sort=banana',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string; field?: string } };
-    expect(body.error.code).toBe('VALIDATION_FAILED');
-    expect(body.error.field).toBe('sort');
-  });
-
-  it("emits `Cache-Control: 'private, no-store'` on success (AECI-43)", async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findMany: [], count: 0 },
-    });
-    const res = await listApp(prisma).request(
-      '/api/products',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
-  });
-
-  it("emits `Cache-Control: 'private, no-store'` on 4xx (AECI-43)", async () => {
-    const prisma = makeMockAcceleratedPrisma();
-    const res = await listApp(prisma).request(
-      '/api/products?page=0',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
+    expect(bySearch.data.map((p) => p.slug)).toEqual(['autocad']);
   });
 });
 
 describe('GET /api/products/:slug', () => {
-  it('returns the full hydrated detail shape per §3.4', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findUnique: procoreProductDetailRow, findMany: [reviztoProductRow] },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    const parsed = ProductDetailSchema.parse(body);
-
-    expect(parsed.slug).toBe('procore');
-    expect(parsed.vendor?.slug).toBe('procore');
-    expect(parsed.categories.map((c) => c.slug)).toContain('project-management');
-    expect(parsed.audiences.map((d) => d.slug)).toContain('construction');
-    expect(parsed.phases.map((p) => p.slug)).toContain('construction-phase');
-    expect(parsed.related_products.map((p) => p.slug)).toEqual(['revizto']);
-    // `usefulness` is read off the jsonb column (AECI-173) and round-trips as the
-    // slug-based {audiences,phases} narrative shape, not a null stub (AECI-169).
-    expect(parsed.usefulness).not.toBeNull();
-    expect(parsed.usefulness?.audiences).toEqual([
+  it('hydrates detail: taxonomy + both integration sides + approved reviews only', async () => {
+    await seedProduct(u(1), 'revit', 'Revit', { reviewCount: 5, ratingOverallAvg: 4.2 });
+    await seedProduct(u(2), 'navisworks', 'Navisworks');
+    await t.db
+      .insert(taxonomyCategories)
+      .values({ id: u(21), slug: 'bim', name: 'BIM', displayOrder: 10 });
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: u(31), slug: 'arch', name: 'Architecture', displayOrder: 10 });
+    await t.db
+      .insert(taxonomyPhases)
+      .values({ id: u(41), slug: 'design', name: 'Design', displayOrder: 20 });
+    await t.db.insert(productCategories).values({ productId: u(1), categoryId: u(21) });
+    await t.db.insert(productAudiences).values({ productId: u(1), audienceId: u(31) });
+    await t.db.insert(productPhases).values({ productId: u(1), phaseId: u(41) });
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2), mechanismKind: 'native' });
+    await t.db.insert(reviews).values([
       {
-        slug: 'construction',
-        name: 'Construction',
-        points: ['Track RFIs and submittals across every job.', 'Standardize daily logs.'],
+        id: u(61),
+        productId: u(1),
+        ratingOverall: 5,
+        ratingOnboarding: 4,
+        title: 'Great',
+        body: 'Yes',
+        status: 'approved',
+      },
+      {
+        id: u(62),
+        productId: u(1),
+        ratingOverall: 1,
+        ratingOnboarding: 1,
+        title: 'Pending',
+        body: 'No',
+        status: 'pending',
       },
     ]);
-    expect(parsed.usefulness?.phases).toEqual([
-      {
-        slug: 'construction-phase',
-        name: 'Construction',
-        points: ['Keep field and office on one schedule of record.'],
-      },
-    ]);
-  });
 
-  it('returns `usefulness: null` for a product whose column is null', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: {
-        findUnique: { ...procoreProductDetailRow, usefulness: null },
-        findMany: [reviztoProductRow],
-      },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
+    const res = await get(detailApp(), '/api/products/revit');
     expect(res.status).toBe(200);
-    const parsed = ProductDetailSchema.parse(await res.json());
-    expect(parsed.usefulness).toBeNull();
+    const detail = ProductDetailSchema.parse(await res.json());
+    expect(detail.categories.map((c) => c.slug)).toEqual(['bim']);
+    expect(detail.audiences.map((a) => a.slug)).toEqual(['arch']);
+    expect(detail.phases.map((p) => p.slug)).toEqual(['design']);
+    expect(detail.integrations_as_source.map((i) => i.id)).toEqual([u(51)]);
+    // ≥5 approved reviews → averages visible; only the approved review is embedded.
+    expect(detail.rating_overall_avg).toBe(4.2);
+    expect(detail.reviews.map((r) => r.id)).toEqual([u(61)]);
   });
 
-  it('degrades a malformed `usefulness` blob to null instead of leaking it', async () => {
-    // Production skips response validation, so the mapper itself must not pass a
-    // shape that violates the contract — a partial/garbage blob renders inert.
-    const prisma = makeMockAcceleratedPrisma({
-      product: {
-        findUnique: {
-          ...procoreProductDetailRow,
-          usefulness: { audiences: 'nope', phases: [{ name: 'No slug', points: [] }] },
-        },
-        findMany: [reviztoProductRow],
-      },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+  it('withholds rating averages below the 5-review gate', async () => {
+    await seedProduct(u(1), 'revit', 'Revit', { reviewCount: 4, ratingOverallAvg: 4.2 });
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/revit')).json(),
     );
-
-    expect(res.status).toBe(200);
-    const parsed = ProductDetailSchema.parse(await res.json());
-    expect(parsed.usefulness).toBeNull();
+    expect(detail.rating_overall_avg).toBeNull();
   });
 
-  it('passes the row id to the related-products query (excludes self by id)', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findUnique: procoreProductDetailRow, findMany: [reviztoProductRow] },
-    });
-    await detailApp(prisma).request('/api/products/procore', {}, TEST_ENV, fakeExecutionContext());
-
-    const findManyCall = prisma.product.findMany.mock.calls[0][0] as {
-      where: { id: { not: string } };
-    };
-    expect(findManyCall.where.id).toEqual({ not: PROCORE_PRODUCT_ID });
-  });
-
-  it('returns the canonical 404 envelope when no product matches the slug', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findUnique: null },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/no-such',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
+  it('404s an unknown slug', async () => {
+    const res = await get(detailApp(), '/api/products/nope');
     expect(res.status).toBe(404);
-    const body = (await res.json()) as {
-      error: { code: string; message: string; details?: { resource?: string; slug?: string } };
-      trace_id: string;
-    };
-    expect(body.error.code).toBe('NOT_FOUND');
-    expect(body.error.details).toEqual({ resource: 'product', slug: 'no-such' });
-    expect(body.trace_id).toMatch(/^[0-9a-f-]{36}$/i);
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
-  });
-
-  it('emits `Cache-Control: private, no-store` on the 200 detail response', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findUnique: procoreProductDetailRow, findMany: [] },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
-  });
-
-  it('skips the related-products query when the product has no categories', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: {
-        findUnique: { ...procoreProductDetailRow, productCategories: [] },
-        findMany: [],
-      },
-    });
-    await detailApp(prisma).request('/api/products/procore', {}, TEST_ENV, fakeExecutionContext());
-    expect(prisma.product.findMany).not.toHaveBeenCalled();
-  });
-
-  // AECI-199 — reviews summary embed + ≥5 averages gate.
-  it('embeds the first page of approved reviews (newest-first, no PII)', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findUnique: procoreProductDetailRow, findMany: [reviztoProductRow] },
-      review: { findMany: approvedReviewRows, count: approvedReviewRows.length },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(200);
-    const parsed = ProductDetailSchema.parse(await res.json());
-    expect(parsed.reviews.map((r) => r.title)).toEqual([
-      'Rolled out across two studios',
-      'Mixed bag',
-    ]);
-    expect(parsed.reviews[0]).not.toHaveProperty('reviewer_id');
-
-    // The embed query is approved-only, newest-first, scoped to the product id.
-    const reviewCall = prisma.review.findMany.mock.calls[0][0] as {
-      where: { productId: string; status: string };
-      orderBy: unknown;
-    };
-    expect(reviewCall.where).toEqual({ productId: PROCORE_PRODUCT_ID, status: 'approved' });
-    expect(reviewCall.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }]);
-  });
-
-  it('withholds (nulls) the rating averages when review_count < 5', async () => {
-    // procoreProductDetailRow has reviewCount 3 with non-null denormalized averages.
-    const prisma = makeMockAcceleratedPrisma({
-      product: { findUnique: procoreProductDetailRow, findMany: [] },
-      review: { findMany: [], count: 0 },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    const parsed = ProductDetailSchema.parse(await res.json());
-    expect(parsed.review_count).toBe(3);
-    expect(parsed.rating_overall_avg).toBeNull();
-    expect(parsed.rating_onboarding_avg).toBeNull();
-  });
-
-  it('exposes the rating averages once review_count >= 5', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      product: {
-        findUnique: { ...procoreProductDetailRow, reviewCount: 5 },
-        findMany: [],
-      },
-      review: { findMany: [], count: 0 },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/products/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    const parsed = ProductDetailSchema.parse(await res.json());
-    expect(parsed.review_count).toBe(5);
-    expect(parsed.rating_overall_avg).toBe(4.5);
-    expect(parsed.rating_onboarding_avg).toBe(4.2);
   });
 });

@@ -1,12 +1,12 @@
 /**
- * Offline unit coverage for the Phase 5.5 authz middleware (AECI-196).
- * Mirrors `user-auth.spec.ts`: a locally-generated ES256 keypair stands in
- * for the Supabase JWKS via the `getKey` seam, tokens are minted with
- * `SignJWT`, and the profile lookup is a fake injected via `getClient`.
- * Covers the AC matrix: no token → 401, invalid → 401, missing profile →
- * 401, banned → 403 (FORBIDDEN / REVIEW_BANNED), non-admin on an admin
- * route → 403, uid+role threading, cookie-path extraction, and that the DB
- * is never touched before the JWT verifies.
+ * Unit coverage for the Phase 5.5 authz middleware (AECI-196), on the Drizzle/D1
+ * path (ADR 0016 / AECI-254). A locally-generated ES256 keypair stands in for the
+ * Supabase JWKS via the `getKey` seam, tokens are minted with `SignJWT`, and the
+ * profile lookup runs against the in-memory D1 harness (seeded `profiles` rows),
+ * injected via the `dbFor` seam. Covers the AC matrix: no token → 401, invalid →
+ * 401, missing profile → 401, banned → 403 (FORBIDDEN / REVIEW_BANNED), non-admin
+ * on an admin route → 403, uid+role threading, cookie-path extraction, and that
+ * the DB is never touched before the JWT verifies (via a `dbFor` call counter).
  */
 
 import { ApiErrorCode } from '@aeci/shared';
@@ -19,19 +19,21 @@ import {
   type JWK,
   type JWTVerifyGetKey,
 } from 'jose';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { profiles } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
+import { makeTestDb, type TestDb } from '../test/d1';
 import {
   auditActorType,
   extractSessionCookieToken,
   requireAdmin,
   requireAuth,
   type AuthzOptions,
-  type AuthzProfileClient,
   type AuthzVariables,
 } from './authz';
+import type { DbFactory } from './handler-utils';
 
 const SUPABASE_URL = 'https://test-project.supabase.co';
 const ISSUER = `${SUPABASE_URL}/auth/v1`;
@@ -64,30 +66,33 @@ async function mintToken(opts: SignOptions = {}): Promise<string> {
     .sign(privateKey);
 }
 
-type ProfileRow = { role: string; bannedAt: Date | null; banReason: string | null };
+/** Per-test in-memory D1 + a `dbFor` counter (proves the DB is untouched until
+ *  the JWT verifies). Reset in `beforeEach`. */
+let t: TestDb;
+let dbCalls: number;
+const dbFor: DbFactory = (env, bookmark) => {
+  dbCalls++;
+  return t.factory(env, bookmark);
+};
 
-/** Fake profile client recording lookups; `profiles` is keyed by user id. */
-function fakeClient(profiles: Record<string, ProfileRow>): {
-  client: AuthzProfileClient;
-  lookups: string[];
-} {
-  const lookups: string[] = [];
-  const client: AuthzProfileClient = {
-    profile: {
-      findUnique: ({ where }) => {
-        lookups.push(where.id);
-        return Promise.resolve(profiles[where.id] ?? null);
-      },
-    },
-  };
-  return { client, lookups };
+beforeEach(async () => {
+  t = await makeTestDb();
+  dbCalls = 0;
+});
+afterEach(() => t.dispose());
+
+type ProfileSeed = { role?: string; bannedAt?: string | null; banReason?: string | null };
+
+/** Seed one `profiles` row keyed by `id` (the verified token `sub`). */
+async function seedProfile(id: string, seed: ProfileSeed = {}): Promise<void> {
+  await t.db.insert(profiles).values({ id, ...seed });
 }
 
-const REVIEWER: ProfileRow = { role: 'reviewer', bannedAt: null, banReason: null };
-const ADMIN: ProfileRow = { role: 'admin', bannedAt: null, banReason: null };
-const BANNED: ProfileRow = {
+const REVIEWER: ProfileSeed = { role: 'reviewer' };
+const ADMIN: ProfileSeed = { role: 'admin' };
+const BANNED: ProfileSeed = {
   role: 'reviewer',
-  bannedAt: new Date('2026-06-01T00:00:00Z'),
+  bannedAt: '2026-06-01T00:00:00.000Z',
   banReason: 'Spam reviews',
 };
 
@@ -98,11 +103,11 @@ const BANNED: ProfileRow = {
  * `PATCH /api/admin/reviews/:id` behind `requireAdmin()`. Each handler echoes
  * `c.get('auth')` so threading is observable. The reviews handler also echoes
  * a client-supplied `reviewer_id` body field next to the server-set value to
- * pin the "client can never supply it" contract.
+ * pin the "client can never supply it" contract. The profile lookup runs against
+ * the harness via the `dbFor` seam.
  */
-function makeApp(profiles: Record<string, ProfileRow>) {
-  const { client, lookups } = fakeClient(profiles);
-  const options: AuthzOptions = { getKey, getClient: () => client };
+function makeApp() {
+  const options: AuthzOptions = { getKey, dbFor };
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
   app.post(
@@ -120,7 +125,7 @@ function makeApp(profiles: Record<string, ProfileRow>) {
   app.patch('/api/admin/reviews/:id', requireAdmin(options), (c) =>
     c.json({ auth: c.get('auth') }),
   );
-  return { app, lookups };
+  return app;
 }
 
 const ENV = { SUPABASE_URL } as Env;
@@ -161,68 +166,67 @@ function encodeSessionCookie(session: Record<string, unknown>): string {
 
 describe('requireAuth', () => {
   it('rejects a missing token with 401 UNAUTHENTICATED and never touches the DB', async () => {
-    const { app, lookups } = makeApp({ 'user-123': REVIEWER });
-    const { status, body } = await call(app, '/api/account', 'DELETE');
+    await seedProfile('user-123', REVIEWER);
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE');
     expect(status).toBe(401);
     expect(body.error?.code).toBe(ApiErrorCode.UNAUTHENTICATED);
-    expect(lookups).toEqual([]);
+    expect(dbCalls).toBe(0);
   });
 
   it('rejects an invalid token with 401 and never touches the DB', async () => {
-    const { app, lookups } = makeApp({ 'user-123': REVIEWER });
-    const { status, body } = await call(app, '/api/account', 'DELETE', bearer('not-a-jwt'));
+    await seedProfile('user-123', REVIEWER);
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', bearer('not-a-jwt'));
     expect(status).toBe(401);
     expect(body.error?.code).toBe(ApiErrorCode.UNAUTHENTICATED);
-    expect(lookups).toEqual([]);
+    expect(dbCalls).toBe(0);
   });
 
   it('rejects an expired token with 401', async () => {
-    const { app } = makeApp({ 'user-123': REVIEWER });
+    await seedProfile('user-123', REVIEWER);
     const token = await mintToken({ expiresIn: '-1h' });
-    const { status } = await call(app, '/api/account', 'DELETE', bearer(token));
+    const { status } = await call(makeApp(), '/api/account', 'DELETE', bearer(token));
     expect(status).toBe(401);
   });
 
   it('rejects a verified token whose profile row is missing with 401', async () => {
-    const { app, lookups } = makeApp({});
     const token = await mintToken({ sub: 'user-ghost' });
-    const { status, body } = await call(app, '/api/account', 'DELETE', bearer(token));
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', bearer(token));
     expect(status).toBe(401);
     expect(body.error?.code).toBe(ApiErrorCode.UNAUTHENTICATED);
-    expect(lookups).toEqual(['user-ghost']);
+    expect(dbCalls).toBe(1); // the DB WAS queried (after verify) and returned no row
   });
 
   it('rejects a banned user with 403 FORBIDDEN (default) and surfaces the ban reason', async () => {
-    const { app } = makeApp({ 'user-banned': BANNED });
+    await seedProfile('user-banned', BANNED);
     const token = await mintToken({ sub: 'user-banned' });
-    const { status, body } = await call(app, '/api/account', 'DELETE', bearer(token));
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', bearer(token));
     expect(status).toBe(403);
     expect(body.error?.code).toBe(ApiErrorCode.FORBIDDEN);
     expect(body.error?.message).toBe('Spam reviews');
   });
 
   it('rejects a banned user with 403 REVIEW_BANNED on a review write', async () => {
-    const { app } = makeApp({ 'user-banned': BANNED });
+    await seedProfile('user-banned', BANNED);
     const token = await mintToken({ sub: 'user-banned' });
-    const { status, body } = await call(app, '/api/reviews', 'POST', bearer(token));
+    const { status, body } = await call(makeApp(), '/api/reviews', 'POST', bearer(token));
     expect(status).toBe(403);
     expect(body.error?.code).toBe(ApiErrorCode.REVIEW_BANNED);
   });
 
   it('threads the verified uid, email, and DB role to the handler', async () => {
-    const { app, lookups } = makeApp({ 'user-abc': REVIEWER });
+    await seedProfile('user-abc', REVIEWER);
     const token = await mintToken({ sub: 'user-abc', email: 'a@example.com' });
-    const { status, body } = await call(app, '/api/account', 'DELETE', bearer(token));
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', bearer(token));
     expect(status).toBe(200);
     expect(body.auth).toEqual({ userId: 'user-abc', email: 'a@example.com', role: 'reviewer' });
-    expect(lookups).toEqual(['user-abc']);
+    expect(dbCalls).toBe(1);
   });
 
   it('server-sets reviewer_id from the verified uid, ignoring the client-supplied value', async () => {
-    const { app } = makeApp({ 'user-abc': REVIEWER });
+    await seedProfile('user-abc', REVIEWER);
     const token = await mintToken({ sub: 'user-abc' });
     const { status, body } = await call(
-      app,
+      makeApp(),
       '/api/reviews',
       'POST',
       { ...bearer(token), 'Content-Type': 'application/json' },
@@ -234,16 +238,16 @@ describe('requireAuth', () => {
   });
 
   it('accepts the session via an sb-*-auth-token cookie (verified, not trusted)', async () => {
-    const { app } = makeApp({ 'user-abc': REVIEWER });
+    await seedProfile('user-abc', REVIEWER);
     const token = await mintToken({ sub: 'user-abc' });
     const cookie = `sb-test-project-auth-token=${encodeSessionCookie({ access_token: token })}`;
-    const { status, body } = await call(app, '/api/account', 'DELETE', { Cookie: cookie });
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', { Cookie: cookie });
     expect(status).toBe(200);
     expect(body.auth?.userId).toBe('user-abc');
   });
 
   it('reassembles a chunked session cookie', async () => {
-    const { app } = makeApp({ 'user-abc': REVIEWER });
+    await seedProfile('user-abc', REVIEWER);
     const token = await mintToken({ sub: 'user-abc' });
     const encoded = encodeSessionCookie({ access_token: token, padding: 'x'.repeat(64) });
     const mid = Math.floor(encoded.length / 2);
@@ -251,23 +255,23 @@ describe('requireAuth', () => {
       `sb-test-project-auth-token.0=${encoded.slice(0, mid)}`,
       `sb-test-project-auth-token.1=${encoded.slice(mid)}`,
     ].join('; ');
-    const { status, body } = await call(app, '/api/account', 'DELETE', { Cookie: cookie });
+    const { status, body } = await call(makeApp(), '/api/account', 'DELETE', { Cookie: cookie });
     expect(status).toBe(200);
     expect(body.auth?.userId).toBe('user-abc');
   });
 
   it('rejects an invalid cookie session token with 401', async () => {
-    const { app } = makeApp({ 'user-abc': REVIEWER });
+    await seedProfile('user-abc', REVIEWER);
     const cookie = `sb-test-project-auth-token=${encodeSessionCookie({ access_token: 'garbage' })}`;
-    const { status } = await call(app, '/api/account', 'DELETE', { Cookie: cookie });
+    const { status } = await call(makeApp(), '/api/account', 'DELETE', { Cookie: cookie });
     expect(status).toBe(401);
   });
 
   it('does not fall back to the cookie when a bearer token is present but invalid', async () => {
-    const { app } = makeApp({ 'user-abc': REVIEWER });
+    await seedProfile('user-abc', REVIEWER);
     const token = await mintToken({ sub: 'user-abc' });
     const cookie = `sb-test-project-auth-token=${encodeSessionCookie({ access_token: token })}`;
-    const { status } = await call(app, '/api/account', 'DELETE', {
+    const { status } = await call(makeApp(), '/api/account', 'DELETE', {
       ...bearer('not-a-jwt'),
       Cookie: cookie,
     });
@@ -277,32 +281,34 @@ describe('requireAuth', () => {
 
 describe('requireAdmin', () => {
   it('rejects a non-admin with 403 FORBIDDEN', async () => {
-    const { app } = makeApp({ 'user-abc': REVIEWER });
+    await seedProfile('user-abc', REVIEWER);
     const token = await mintToken({ sub: 'user-abc' });
-    const { status, body } = await call(app, '/api/admin/reviews/r1', 'PATCH', bearer(token));
+    const { status, body } = await call(makeApp(), '/api/admin/reviews/r1', 'PATCH', bearer(token));
     expect(status).toBe(403);
     expect(body.error?.code).toBe(ApiErrorCode.FORBIDDEN);
   });
 
   it('rejects a banned admin with 403 before the role grants access', async () => {
-    const { app } = makeApp({
-      'user-banned-admin': { ...ADMIN, bannedAt: new Date(), banReason: null },
+    await seedProfile('user-banned-admin', {
+      ...ADMIN,
+      bannedAt: '2026-06-01T00:00:00.000Z',
+      banReason: null,
     });
     const token = await mintToken({ sub: 'user-banned-admin' });
-    const { status } = await call(app, '/api/admin/reviews/r1', 'PATCH', bearer(token));
+    const { status } = await call(makeApp(), '/api/admin/reviews/r1', 'PATCH', bearer(token));
     expect(status).toBe(403);
   });
 
   it('rejects a missing token with 401', async () => {
-    const { app } = makeApp({ 'user-admin': ADMIN });
-    const { status } = await call(app, '/api/admin/reviews/r1', 'PATCH');
+    await seedProfile('user-admin', ADMIN);
+    const { status } = await call(makeApp(), '/api/admin/reviews/r1', 'PATCH');
     expect(status).toBe(401);
   });
 
   it('accepts an admin and threads the session', async () => {
-    const { app } = makeApp({ 'user-admin': ADMIN });
+    await seedProfile('user-admin', ADMIN);
     const token = await mintToken({ sub: 'user-admin' });
-    const { status, body } = await call(app, '/api/admin/reviews/r1', 'PATCH', bearer(token));
+    const { status, body } = await call(makeApp(), '/api/admin/reviews/r1', 'PATCH', bearer(token));
     expect(status).toBe(200);
     expect(body.auth).toEqual({ userId: 'user-admin', email: undefined, role: 'admin' });
   });

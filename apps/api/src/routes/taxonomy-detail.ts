@@ -1,57 +1,40 @@
 /**
- * Phase 2.8 (AECI-54) taxonomy detail endpoint factory.
+ * Phase 2.8 (AECI-54) taxonomy detail endpoint factory — Drizzle/D1 (ADR 0016 /
+ * AECI-253).
  *
- *   GET /api/categories/:slug   — single category detail with embedded products.
- *   GET /api/audiences/:slug    — single audience detail with embedded products.
- *   GET /api/phases/:slug       — single phase detail with embedded products.
+ *   GET /api/categories/:slug | /api/audiences/:slug | /api/phases/:slug
  *
- * The three handlers were byte-for-byte identical apart from the Prisma model,
- * the relation/count field, the resource label, and the response schema. This
- * factory parameterises those four points (AECI-120 A6) and is called 3× from
- * `index.ts`. The *list* endpoints (`GET /api/categories|audiences|phases`) live
- * in `routes/taxonomy-list.ts` (`createTaxonomyListHandler`, generalised across
- * all three facets in AECI-157) — only the *detail* shape is shared here.
- * `GET /api/taxonomy` still returns the whole tree in one shot for the SSR
- * Worker and the nav flyouts.
+ * The three handlers differ only by facet, so this factory parameterises on
+ * `resource` (called 3× from `index.ts`). Each loads the term (+ its product
+ * count via `extras`) and the linked promoted products via the relational `with`.
+ * Visibility filtering of the embedded products is added in Phase 3 (AECI-254).
  */
 
+import { eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { taxonomyAudiences, taxonomyCategories, taxonomyPhases } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import {
-  reportMissingVendors,
-  validateResponseInDev,
-  type PrismaFactory,
-} from '../lib/handler-utils';
-import {
-  productListSelect,
-  taxonomyDetailScalarSelect,
+  audienceTermConfig,
+  categoryTermConfig,
+  phaseTermConfig,
+  productListConfig,
   toProductListItem,
   toTaxonomyTermWithCount,
-  type RawTaxonomyDetailRow,
-  type TaxonomyCountKey,
-} from '../lib/prisma-helpers';
-import { getPrisma, type AcceleratedPrisma } from '../prisma';
+  type RawProductListRow,
+  type RawTaxonomyTermRow,
+} from '../lib/drizzle-helpers';
+import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
-/** Taxonomy resources that expose a detail endpoint (subset of `ResourceKind`). */
+/** Taxonomy resources that expose a detail endpoint. */
 type TaxonomyResource = 'category' | 'audience' | 'phase';
 
-/** Minimal slice of a Prisma model delegate this handler drives. The dynamic
- * `select` (computed relation key) doesn't fit Prisma's strict per-model select
- * type, so the row is decoded with the same `as RawTaxonomyDetailRow` cast the
- * hand-written handlers used. */
-interface TaxonomyDetailDelegate {
-  findUnique(args: { where: { slug: string }; select: Record<string, unknown> }): Promise<unknown>;
-}
-
 export interface TaxonomyDetailConfig {
-  /** Selects the model delegate off the per-request client, e.g. `(p) => p.taxonomyCategory`. */
-  delegate: (prisma: AcceleratedPrisma) => unknown;
-  /** Relation field on the term — also the `_count` key and the mapper's count key (all identical). */
-  relationKey: TaxonomyCountKey;
-  /** Resource label for the 400 (`Missing <resource> slug`) and 404 `details.resource`. */
+  /** Resource label for the 400 (`Missing <resource> slug`) + 404 `details.resource`. */
   resource: TaxonomyResource;
   /** Response schema, parsed in non-production via `validateResponseInDev`. */
   schema: { parse(value: unknown): unknown };
@@ -59,7 +42,7 @@ export interface TaxonomyDetailConfig {
 
 export function createTaxonomyDetailHandler(
   config: TaxonomyDetailConfig,
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const slug = c.req.param('slug');
@@ -69,23 +52,53 @@ export function createTaxonomyDetailHandler(
       });
     }
 
-    const prisma = prismaFor(c.env);
-    const delegate = config.delegate(prisma) as TaxonomyDetailDelegate;
-    const row = (await delegate.findUnique({
-      where: { slug },
-      select: {
-        ...taxonomyDetailScalarSelect,
-        _count: { select: { [config.relationKey]: true } },
-        [config.relationKey]: { select: { product: { select: productListSelect } } },
-      },
-    })) as RawTaxonomyDetailRow | null;
+    const { db } = dbFor(c.env);
+    let row: RawTaxonomyTermRow | undefined;
+    let products: RawProductListRow[] = [];
+
+    switch (config.resource) {
+      case 'category': {
+        const r = await db.query.taxonomyCategories.findFirst({
+          ...categoryTermConfig,
+          with: { productCategories: { with: { product: productListConfig } } },
+          where: eq(taxonomyCategories.slug, slug),
+        });
+        if (r) {
+          row = r;
+          products = r.productCategories.map((x) => x.product);
+        }
+        break;
+      }
+      case 'audience': {
+        const r = await db.query.taxonomyAudiences.findFirst({
+          ...audienceTermConfig,
+          with: { productAudiences: { with: { product: productListConfig } } },
+          where: eq(taxonomyAudiences.slug, slug),
+        });
+        if (r) {
+          row = r;
+          products = r.productAudiences.map((x) => x.product);
+        }
+        break;
+      }
+      case 'phase': {
+        const r = await db.query.taxonomyPhases.findFirst({
+          ...phaseTermConfig,
+          with: { productPhases: { with: { product: productListConfig } } },
+          where: eq(taxonomyPhases.slug, slug),
+        });
+        if (r) {
+          row = r;
+          products = r.productPhases.map((x) => x.product);
+        }
+        break;
+      }
+    }
 
     if (!row) throw notFoundError(config.resource, { slug });
 
-    const products = (row[config.relationKey] ?? []).map((r) => r.product);
-
     const body = {
-      ...toTaxonomyTermWithCount(row, config.relationKey),
+      ...toTaxonomyTermWithCount(row),
       products: products.map(toProductListItem),
     };
 

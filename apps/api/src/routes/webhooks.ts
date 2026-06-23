@@ -28,26 +28,38 @@
  * No cache invalidation: `vendor_requests` are admin-only and render on no
  * cacheable SSR page, so there is no `Cache-Tag` to purge.
  *
- * The handler reads the raw body once (the HMAC is over the exact bytes) and the
- * loose structural Prisma client type follows the `routes/requests.ts` /
- * `routes/promote.ts` rationale.
+ * The handler reads the raw body once (the HMAC is over the exact bytes). The
+ * status change is one atomic `db.batch` (ADR 0016 / AECI-253, AECI-249).
  */
 
 import { ApiErrorCode, LinearWebhookSchema, type LinearWebhook } from '@aeci/shared';
-import { appendAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import {
-  appendWorkflowTransition,
+  forwardAuditLog,
+  type AuditLogEntry,
+  type AuditLogForwarder,
+} from '@aeci/shared/audit-log';
+import {
+  forwardWorkflowTransition,
+  type WorkflowTransitionEntry,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
+import { and, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { vendorRequests, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import type { PrismaFactory } from '../lib/handler-utils';
+import {
+  auditInsert,
+  workflowTransitionInsert,
+  type BatchStmt,
+  type BatchTuple,
+} from '../lib/audit';
+import type { DbFactory } from '../lib/handler-utils';
 import { verifyLinearSignature } from '../lib/linear-webhook-auth';
-import { getPrisma } from '../prisma';
 
 // ─── Status mapping ───────────────────────────────────────────────────────────
 
@@ -73,44 +85,6 @@ const STATE_TYPE_TO_STATUS: Record<string, VendorRequestStatus> = {
 const TERMINAL_OUTCOME: Partial<Record<VendorRequestStatus, string>> = {
   resolved: 'completed',
   rejected: 'rejected',
-};
-
-// ─── Loose structural Prisma surface ─────────────────────────────────────────
-// Same approach as `routes/requests.ts`: type only the slice we touch and
-// `as unknown as` the real/fake client onto it.
-type Row = { id: string } & Record<string, unknown>;
-
-type WebhookTx = {
-  vendorRequest: {
-    update(args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }): Promise<unknown>;
-  };
-  workflowInstance: {
-    update(args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }): Promise<unknown>;
-  };
-  workflowTransition: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
-  auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
-};
-
-type WebhookClient = {
-  workflowInstance: {
-    findFirst(args: {
-      where: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<Row | null>;
-  };
-  vendorRequest: {
-    findUnique(args: {
-      where: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<Row | null>;
-  };
-  $transaction<T>(fn: (tx: WebhookTx) => Promise<T>): Promise<T>;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -157,7 +131,7 @@ function ack(applied: boolean, reason: string): Response {
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 export function createLinearWebhookHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     // Read the exact bytes once — the HMAC is over the raw body, and re-reading
@@ -197,33 +171,31 @@ export function createLinearWebhookHandler(
     const targetStatus = STATE_TYPE_TO_STATUS[payload.data.state.type];
     if (!targetStatus) return ack(false, `unmapped state type: ${payload.data.state.type}`);
 
-    const prisma = prismaFor(c.env) as unknown as WebhookClient;
+    const { db } = dbFor(c.env);
 
     // 4. Resolve the vendor request behind this Linear issue. The instance's
     //    linear_issue_id is Linear's issue node id (= data.id). Unknown → no-op.
-    const workflow = await prisma.workflowInstance.findFirst({
-      where: {
-        linearIssueId: payload.data.id,
-        workflowType: { in: ['vendor_claim', 'correction_request'] },
-      },
-      select: { id: true, entityId: true, currentState: true },
+    const workflow = await db.query.workflowInstances.findFirst({
+      columns: { id: true, entityId: true },
+      where: and(
+        eq(workflowInstances.linearIssueId, payload.data.id),
+        inArray(workflowInstances.workflowType, ['vendor_claim', 'correction_request']),
+      ),
     });
     if (!workflow) return ack(false, 'unknown issue');
 
-    const request = await prisma.vendorRequest.findUnique({
-      where: { id: workflow.entityId as string },
-      select: { id: true, status: true },
+    const request = await db.query.vendorRequests.findFirst({
+      columns: { id: true, status: true },
+      where: eq(vendorRequests.id, workflow.entityId),
     });
     if (!request) return ack(false, 'request not found'); // defensive: orphaned instance
 
     const currentStatus = request.status as VendorRequestStatus;
     if (currentStatus === targetStatus) return ack(false, 'already in sync');
 
-    // 5. Apply: status + instance mirror + transition + audit, atomically.
-    const auditForward = makeAuditForwarder(c);
-    const workflowForward = makeWorkflowForwarder(c);
+    // 5. Apply: status + instance mirror + transition + audit, in one atomic batch.
     const isTerminal = targetStatus === 'resolved' || targetStatus === 'rejected';
-    const now = new Date();
+    const now = new Date().toISOString();
     const metadata = {
       source: 'linear-webhook',
       actor_type: 'workflow',
@@ -233,57 +205,57 @@ export function createLinearWebhookHandler(
       linear_state_type: payload.data.state.type,
       linear_url: payload.url,
     };
+    const workflowEntry: WorkflowTransitionEntry = {
+      workflowId: workflow.id,
+      fromState: currentStatus,
+      toState: targetStatus,
+      actorId: null,
+      reason: 'linear webhook',
+      metadata,
+    };
+    const auditEntry: AuditLogEntry = {
+      actorType: 'workflow',
+      action: 'vendor_request.status_changed',
+      entityType: 'vendor_request',
+      entityId: request.id,
+      beforeState: { status: currentStatus },
+      afterState: { status: targetStatus },
+      metadata,
+    };
 
-    await prisma.$transaction(async (tx) => {
-      await tx.vendorRequest.update({
-        where: { id: request.id },
+    const stmts: BatchStmt[] = [
+      db
+        .update(vendorRequests)
         // resolvedById stays null — the actor is the workflow, not a profile.
         // resolvedAt is set/cleared unconditionally so a reverse transition (an
         // admin reopening a resolved/rejected issue in Linear → a non-terminal
         // status) doesn't leave a stale resolution time on an active row.
-        data: { status: targetStatus, resolvedAt: isTerminal ? now : null },
-      });
-
-      await tx.workflowInstance.update({
-        where: { id: workflow.id },
+        .set({ status: targetStatus, resolvedAt: isTerminal ? now : null })
+        .where(eq(vendorRequests.id, request.id)),
+      db
+        .update(workflowInstances)
         // Mirror the request: clear completedAt/finalOutcome on a reverse
         // transition so the instance never reads as terminal while active — and
         // so a reopened instance reappears in `workflow_instances_state_idx`
         // (the `WHERE completed_at IS NULL` partial index reconciliation scans).
-        data: {
+        .set({
           currentState: targetStatus,
           completedAt: isTerminal ? now : null,
-          finalOutcome: isTerminal ? TERMINAL_OUTCOME[targetStatus] : null,
-        },
-      });
+          finalOutcome: isTerminal ? (TERMINAL_OUTCOME[targetStatus] ?? null) : null,
+        })
+        .where(eq(workflowInstances.id, workflow.id)),
+      workflowTransitionInsert(db, workflowEntry),
+      auditInsert(db, auditEntry),
+    ];
+    await db.batch(stmts as BatchTuple);
 
-      await appendWorkflowTransition(
-        tx,
-        {
-          workflowId: workflow.id,
-          fromState: currentStatus,
-          toState: targetStatus,
-          actorId: null,
-          reason: 'linear webhook',
-          metadata,
-        },
-        workflowForward,
-      );
-
-      await appendAuditLog(
-        tx,
-        {
-          actorType: 'workflow',
-          action: 'vendor_request.status_changed',
-          entityType: 'vendor_request',
-          entityId: request.id,
-          beforeState: { status: currentStatus },
-          afterState: { status: targetStatus },
-          metadata,
-        },
-        auditForward,
-      );
-    });
+    // Best-effort §26.5 forwards AFTER the atomic commit.
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(auditEntry, makeAuditForwarder(c)),
+        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+      ]),
+    );
 
     return ack(true, `${currentStatus}→${targetStatus}`);
   };

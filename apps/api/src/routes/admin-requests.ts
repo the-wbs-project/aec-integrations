@@ -1,25 +1,27 @@
 /**
- * Admin requests moderation API (AECI-216 / Phase 6.9) — the vendor
- * claim/correction read + action surface behind `requireAdmin()`:
+ * Admin requests moderation API (AECI-216 / Phase 6.9) — Drizzle/D1 (ADR 0016 /
+ * AECI-253, AECI-254). The vendor claim/correction read + action surface behind
+ * `requireAdmin()`:
  *
  *   GET   /api/admin/requests     — the requests queue, filtered by kind/status,
  *                                    paginated.
  *   PATCH /api/admin/requests/:id — resolve / reject an open (or in-review) request.
  *
  * Source of truth: `docs/API_CONTRACTS.md` §6.10, `STAGE_1_PHASE_6_SPEC.md` §8.1.
- * The shape mirrors the Phase 5 admin-reviews endpoint (`routes/admin-reviews.ts`)
- * for the list + PATCH structure, and the inbound Linear webhook
- * (`routes/webhooks.ts`) for the exact status-change transaction (status +
- * workflow instance mirror + transition + audit, with before/after state and a
- * terminal-outcome map).
+ * The shape mirrors `routes/admin-reviews.ts` for the list + PATCH structure, and
+ * the inbound Linear webhook (`routes/webhooks.ts`) for the exact status-change
+ * batch (status + workflow instance mirror + transition + audit, with
+ * before/after state and a terminal-outcome map).
  *
- * On resolve/reject: set `status` + `resolved_by`/`resolved_at`, append an
- * `audit_log` + a `workflow_transitions` row (`open|in_review → resolved|rejected`)
- * and update the workflow instance — all in one transaction (CLAUDE.md / §26.1:
- * every state-changing write logs; failure rolls back). Then fire the
- * **site → Linear sync** (§6.5) post-commit as an injectable, best-effort seam:
- * its GraphQL internals are owned by AECI-213 (out of scope here) — the default
- * is a safe no-op.
+ * On resolve/reject: a preload-gate (status), then one atomic `db.batch` — the
+ * guarded `UPDATE … WHERE status IN ('open','in_review')` + the `audit_log` + the
+ * `workflow_transitions` row (`open|in_review → resolved|rejected`) + the workflow
+ * instance update (CLAUDE.md / §26.1: every state-changing write logs; failure
+ * rolls back). Like `admin-reviews`, the guarded WHERE makes a two-admin race a
+ * no-op update that still writes its audit — accepted under the §26.3 lean
+ * relaxation (the preload covers the common case). Then the **site → Linear sync**
+ * (§6.5) fires post-commit as an injectable, best-effort seam: its GraphQL
+ * internals are owned by AECI-213 (out of scope here) — the default is a no-op.
  *
  * `is_duplicate` (Phase 6 Spec §7.2) has no column — it's computed at read time:
  * an OPEN sibling request sharing the same `(kind, target_type, target_id)` or
@@ -29,12 +31,6 @@
  *
  * No cache invalidation: `vendor_requests` are admin-only and render on no
  * cacheable SSR page, so there's no `Cache-Tag` to purge.
- *
- * The loose structural Prisma client types follow the `routes/admin-reviews.ts` /
- * `routes/webhooks.ts` rationale: we touch a known slice of the generated client,
- * so we type it structurally and `as unknown as` it rather than dragging in the
- * full edge-client generics. A real accelerated client and the test fakes both
- * satisfy these.
  */
 
 import {
@@ -47,31 +43,38 @@ import {
   type ModerateRequestResponse,
 } from '@aeci/shared';
 import {
-  appendAuditLog,
-  type AuditLogClient,
+  forwardAuditLog,
+  type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
 import {
-  appendWorkflowTransition,
-  type WorkflowTransitionClient,
+  forwardWorkflowTransition,
+  type WorkflowTransitionEntry,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
+import { and, asc, count, desc, eq, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
+import { getDb, type Db } from '../db/client';
+import { vendorRequests, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
-  adminVendorRequestSelect,
+  auditInsert,
+  workflowTransitionInsert,
+  type BatchStmt,
+  type BatchTuple,
+} from '../lib/audit';
+import {
+  adminVendorRequestConfig,
   toAdminVendorRequest,
   type RawAdminVendorRequestRow,
-} from '../lib/prisma-helpers';
-import { getPrisma } from '../prisma';
-import type { AcceleratedPrisma } from '../prisma';
+} from '../lib/drizzle-helpers';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -82,91 +85,16 @@ const TERMINAL_OUTCOME: Record<'resolved' | 'rejected', string> = {
   rejected: 'rejected',
 };
 
-// ─── Loose structural Prisma surfaces ────────────────────────────────────────
-
-/** One `groupBy` bucket. `kind` xor `submitterEmail` is present depending on the
- *  `by` tuple; both share `(targetType, targetId)` + the `_all` count. */
-type VendorRequestGroupRow = {
-  kind?: string;
-  submitterEmail?: string;
-  targetType: string;
-  targetId: string;
-  _count: { _all: number };
-};
-
-/** Read surface for `GET /api/admin/requests`: the paginated `findMany` + `count`,
- *  plus the two `groupBy` aggregations the duplicate flag derives from. */
-type AdminRequestsClient = {
-  vendorRequest: {
-    findMany(args: {
-      where: Record<string, unknown>;
-      orderBy: unknown;
-      skip: number;
-      take: number;
-      select: typeof adminVendorRequestSelect;
-    }): Promise<RawAdminVendorRequestRow[]>;
-    count(args: { where: Record<string, unknown> }): Promise<number>;
-    groupBy(args: {
-      by: readonly string[];
-      where: Record<string, unknown>;
-      _count: { _all: true };
-    }): Promise<VendorRequestGroupRow[]>;
-  };
-};
-
-type WorkflowRow = { id: string };
-
-/** Transaction surface for the moderate write: the guarded `updateMany`, plus the
- *  audit (`AuditLogClient`) and workflow (`WorkflowTransitionClient` + the
- *  `workflowInstance` find-or-create/update) surfaces. */
-type ModerateRequestTx = {
-  vendorRequest: {
-    updateMany(args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }): Promise<{ count: number }>;
-  };
-  workflowInstance: {
-    findFirst(args: {
-      where: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<WorkflowRow | null>;
-    create(args: {
-      data: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<WorkflowRow>;
-    update(args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }): Promise<unknown>;
-  };
-} & AuditLogClient &
-  WorkflowTransitionClient;
-
-/** Read + transaction surface for `PATCH /api/admin/requests/:id`. The single
- *  `findUnique` selects the full `adminVendorRequestSelect`, so the preloaded row
- *  both gates the transition (status) and builds the response (no post-commit
- *  re-read). */
-type ModerateRequestClient = {
-  vendorRequest: {
-    findUnique(args: {
-      where: { id: string };
-      select: typeof adminVendorRequestSelect;
-    }): Promise<RawAdminVendorRequestRow | null>;
-  };
-  $transaction<T>(fn: (tx: ModerateRequestTx) => Promise<T>): Promise<T>;
-};
-
 /**
  * Site → Linear sync seam (§6.5 / AECI-213). Invoked post-commit after a
- * resolve/reject so Linear and Supabase stay consistent. The GraphQL internals
+ * resolve/reject so Linear and the app DB stay consistent. The GraphQL internals
  * are owned by AECI-213; the default here is a safe no-op so this endpoint ships
  * standalone. Best-effort — tolerant of a null `linearIssueId` (issue never
  * created); failures are the sync's concern, never surfaced to the admin.
  */
 export type SyncRequestToLinear = (
   c: AdminContext,
-  prisma: AcceleratedPrisma,
+  db: Db,
   args: {
     requestId: string;
     status: 'resolved' | 'rejected';
@@ -224,8 +152,8 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
 
 /** Emit the `aeci.request.moderation.action` count — one per moderation attempt:
  *  `outcome:ok` on a committed resolve/reject, `outcome:invalid_state` when the
- *  target isn't open/in-review (the preload guard or the concurrent-race guard,
- *  both 422). Fire-and-forget; no-op without `DD_API_KEY`. */
+ *  target isn't open/in-review (the preload guard, 422). Fire-and-forget; no-op
+ *  without `DD_API_KEY`. */
 function emitRequestModeration(
   c: AdminContext,
   action: 'resolve' | 'reject',
@@ -237,9 +165,9 @@ function emitRequestModeration(
   ]);
 }
 
-/** Composite key for the duplicate-flag lookup maps. ` ` (NUL) can never
+/** Composite key for the duplicate-flag lookup maps. ` ` (space) can never
  *  appear in an email local-part or a UUID, so the parts can't run together. */
-const DUP_SEP = ' ';
+const DUP_SEP = ' ';
 function dupKey(head: string, targetType: string, targetId: string): string {
   return `${head}${DUP_SEP}${targetType}${DUP_SEP}${targetId}`;
 }
@@ -248,55 +176,63 @@ function dupKey(head: string, targetType: string, targetId: string): string {
 
 /** `GET /api/admin/requests` — the requests queue. */
 export function createAdminRequestsListHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const query = ListVendorRequestsQuerySchema.parse(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const db = prismaFor(c.env) as unknown as AdminRequestsClient;
-
-    const where: { status: string; kind?: string } = { status: query.status };
-    if (query.kind) where.kind = query.kind;
-    const skip = (query.page - 1) * query.perPage;
+    const { db } = dbFor(c.env);
+    const where = query.kind
+      ? and(eq(vendorRequests.status, query.status), eq(vendorRequests.kind, query.kind))
+      : eq(vendorRequests.status, query.status);
+    // Newest-first; `id` tiebreaks a `created_at` collision so pagination is stable
+    // across pages (AECI-99).
+    const openFilter = eq(vendorRequests.status, 'open');
 
     // Two indexed groupBy aggregations over open requests drive `is_duplicate`
     // (Phase 6 Spec §7.2). Run alongside the page query; scoped to `status='open'`
     // (covered by `vendor_requests_status_idx`), so cost is independent of page
     // size — no per-row N+1.
-    const [rows, total, kindGroups, emailGroups] = await Promise.all([
-      db.vendorRequest.findMany({
+    const [rows, countRows, kindGroups, emailGroups] = await Promise.all([
+      db.query.vendorRequests.findMany({
+        ...adminVendorRequestConfig,
         where,
-        // Newest-first; `id` tiebreaks a `created_at` collision so pagination is
-        // stable across pages (AECI-99). `as const` keeps the literal narrow.
-        orderBy: [{ createdAt: 'desc' as const }, { id: 'asc' as const }],
-        skip,
-        take: query.perPage,
-        select: adminVendorRequestSelect,
+        orderBy: [desc(vendorRequests.createdAt), asc(vendorRequests.id)],
+        limit: query.perPage,
+        offset: (query.page - 1) * query.perPage,
       }),
-      db.vendorRequest.count({ where }),
-      db.vendorRequest.groupBy({
-        by: ['kind', 'targetType', 'targetId'],
-        where: { status: 'open' },
-        _count: { _all: true },
-      }),
-      db.vendorRequest.groupBy({
-        by: ['submitterEmail', 'targetType', 'targetId'],
-        where: { status: 'open' },
-        _count: { _all: true },
-      }),
+      db.select({ value: count() }).from(vendorRequests).where(where),
+      db
+        .select({
+          kind: vendorRequests.kind,
+          targetType: vendorRequests.targetType,
+          targetId: vendorRequests.targetId,
+          n: count(),
+        })
+        .from(vendorRequests)
+        .where(openFilter)
+        .groupBy(vendorRequests.kind, vendorRequests.targetType, vendorRequests.targetId),
+      db
+        .select({
+          submitterEmail: vendorRequests.submitterEmail,
+          targetType: vendorRequests.targetType,
+          targetId: vendorRequests.targetId,
+          n: count(),
+        })
+        .from(vendorRequests)
+        .where(openFilter)
+        .groupBy(vendorRequests.submitterEmail, vendorRequests.targetType, vendorRequests.targetId),
     ]);
 
     const kindCounts = new Map<string, number>();
     for (const g of kindGroups) {
-      if (g.kind === undefined) continue;
-      kindCounts.set(dupKey(g.kind, g.targetType, g.targetId), g._count._all);
+      kindCounts.set(dupKey(g.kind, g.targetType, g.targetId), g.n);
     }
     const emailCounts = new Map<string, number>();
     for (const g of emailGroups) {
-      if (g.submitterEmail === undefined) continue;
-      emailCounts.set(dupKey(g.submitterEmail, g.targetType, g.targetId), g._count._all);
+      emailCounts.set(dupKey(g.submitterEmail, g.targetType, g.targetId), g.n);
     }
 
     // A row is a likely duplicate if an OPEN sibling shares its `(kind, target)`
@@ -315,7 +251,7 @@ export function createAdminRequestsListHandler(
       data: rows.map((row) => toAdminVendorRequest(row, isDuplicate(row))),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {
@@ -329,7 +265,7 @@ export function createAdminRequestsListHandler(
 /** `PATCH /api/admin/requests/:id` — resolve / reject an open (or in-review)
  *  request. */
 export function createModerateRequestHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
   syncToLinear: SyncRequestToLinear = noopSyncToLinear,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
@@ -342,17 +278,15 @@ export function createModerateRequestHandler(
     }
 
     const payload = await parseJsonBody(c, ModerateRequestSchema);
-
-    const prisma = prismaFor(c.env);
-    const db = prisma as unknown as ModerateRequestClient;
+    const { db } = dbFor(c.env);
 
     // Preload the full row: it both gates the transition (status) and builds the
     // response — the values we set ourselves are merged in after the commit, so
     // there's no post-commit re-read.
-    const existing = await db.vendorRequest.findUnique({
-      where: { id },
-      select: adminVendorRequestSelect,
-    });
+    const existing = (await db.query.vendorRequests.findFirst({
+      ...adminVendorRequestConfig,
+      where: eq(vendorRequests.id, id),
+    })) as RawAdminVendorRequestRow | undefined;
     if (!existing) throw notFoundError('vendor_request', { id });
     if (existing.status === 'resolved' || existing.status === 'rejected') {
       emitRequestModeration(c, payload.action, 'invalid_state');
@@ -367,11 +301,9 @@ export function createModerateRequestHandler(
       payload.action === 'resolve' ? 'resolved' : 'rejected';
     // No DB column for the reason — it's recorded in the transition + audit only.
     const reason = payload.reason?.trim() ? payload.reason.trim() : null;
-    const resolvedAt = new Date();
+    const resolvedAt = new Date().toISOString();
     const fromState = existing.status; // 'open' | 'in_review' — the real prior state.
     const workflowType = existing.kind === 'claim' ? 'vendor_claim' : 'correction_request';
-    const forward = makeForwarder(c);
-    const workflowForward = makeWorkflowForwarder(c);
     const metadata = {
       source: 'admin-moderation',
       kind: existing.kind,
@@ -380,73 +312,69 @@ export function createModerateRequestHandler(
       ...(reason ? { reason } : {}),
     };
 
-    await db.$transaction(async (tx) => {
-      // Atomic guard: only transition a still-open/in-review row. If a concurrent
-      // action already moved it (or Linear did via the webhook), `count` is 0 →
-      // 422 (rolls back) — closes the racing window the preload check can't.
-      const updated = await tx.vendorRequest.updateMany({
-        where: { id, status: { in: ['open', 'in_review'] } },
-        data: { status: newStatus, resolvedById: userId, resolvedAt },
-      });
-      if (updated.count !== 1) {
-        emitRequestModeration(c, payload.action, 'invalid_state');
-        throw new ApiError(
-          422,
-          ApiErrorCode.INVALID_STATE_TRANSITION,
-          'Request is no longer open.',
-        );
-      }
-
-      await appendAuditLog(
-        tx,
-        {
-          actorId: userId,
-          actorType: auditActorType(session),
-          action:
-            payload.action === 'resolve' ? 'vendor_request.resolved' : 'vendor_request.rejected',
-          entityType: 'vendor_request',
-          entityId: id,
-          beforeState: { status: fromState },
-          afterState: { status: newStatus },
-          metadata,
-        },
-        forward,
-      );
-
-      // Record the moderation in the shared workflow history. Find-or-create the
-      // request's `vendor_claim`/`correction_request` instance (defensive — the
-      // submit path creates it, but mirror admin-reviews' resilience), append the
-      // transition, then mark the instance complete (`current_state` keeps
-      // mirroring `vendor_requests.status`). Same tx → rolls back with the write.
-      let workflow = await tx.workflowInstance.findFirst({
-        where: { workflowType, entityId: id },
-        select: { id: true },
-      });
-      workflow ??= await tx.workflowInstance.create({
-        data: { workflowType, entityId: id, currentState: fromState },
-        select: { id: true },
-      });
-      await appendWorkflowTransition(
-        tx,
-        {
-          workflowId: workflow.id,
-          fromState,
-          toState: newStatus,
-          actorId: userId,
-          reason,
-          metadata,
-        },
-        workflowForward,
-      );
-      await tx.workflowInstance.update({
-        where: { id: workflow.id },
-        data: {
-          currentState: newStatus,
-          completedAt: resolvedAt,
-          finalOutcome: TERMINAL_OUTCOME[newStatus],
-        },
-      });
+    // Read the workflow instance up front (find-or-create can't be conditional
+    // inside a batch). The submit path creates it, but mirror admin-reviews'
+    // resilience for rows that predate the workflow retrofit.
+    const existingWf = await db.query.workflowInstances.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(workflowInstances.workflowType, workflowType),
+        eq(workflowInstances.entityId, id),
+      ),
     });
+    const workflowId = existingWf?.id ?? crypto.randomUUID();
+
+    const auditEntry: AuditLogEntry = {
+      actorId: userId,
+      actorType: auditActorType(session),
+      action: payload.action === 'resolve' ? 'vendor_request.resolved' : 'vendor_request.rejected',
+      entityType: 'vendor_request',
+      entityId: id,
+      beforeState: { status: fromState },
+      afterState: { status: newStatus },
+      metadata,
+    };
+    const workflowEntry: WorkflowTransitionEntry = {
+      workflowId,
+      fromState,
+      toState: newStatus,
+      actorId: userId,
+      reason,
+      metadata,
+    };
+
+    // The guarded update (`WHERE status IN ('open','in_review')`) makes the state
+    // change safe under a concurrent moderation; the preload gate covers the common
+    // case (a rare two-admin race leaves a no-op update with its audit — accepted
+    // under the §26.3 lean relaxation). Audit + workflow are atomic with it.
+    const stmts: BatchStmt[] = [
+      db
+        .update(vendorRequests)
+        .set({ status: newStatus, resolvedById: userId, resolvedAt })
+        .where(
+          and(eq(vendorRequests.id, id), inArray(vendorRequests.status, ['open', 'in_review'])),
+        ),
+      auditInsert(db, auditEntry),
+      existingWf
+        ? db
+            .update(workflowInstances)
+            .set({
+              currentState: newStatus,
+              completedAt: resolvedAt,
+              finalOutcome: TERMINAL_OUTCOME[newStatus],
+            })
+            .where(eq(workflowInstances.id, workflowId))
+        : db.insert(workflowInstances).values({
+            id: workflowId,
+            workflowType,
+            entityId: id,
+            currentState: newStatus,
+            completedAt: resolvedAt,
+            finalOutcome: TERMINAL_OUTCOME[newStatus],
+          }),
+      workflowTransitionInsert(db, workflowEntry),
+    ];
+    await db.batch(stmts as BatchTuple);
 
     // Committed: one `aeci.request.moderation.action{outcome:ok}` per resolve/reject.
     emitRequestModeration(c, payload.action, 'ok');
@@ -455,7 +383,7 @@ export function createModerateRequestHandler(
     // GraphQL internals). Never blocks/throws here; a failure is logged, not
     // surfaced. Tolerant of a null `linearIssueId` (issue never created).
     c.executionCtx.waitUntil(
-      syncToLinear(c, prisma, {
+      syncToLinear(c, db, {
         requestId: id,
         status: newStatus,
         reason,
@@ -471,6 +399,13 @@ export function createModerateRequestHandler(
           console.warn('admin-requests: request→Linear sync failed', error);
         }
       }),
+    );
+    // Best-effort §26.5 audit + workflow forwards AFTER the atomic commit.
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(auditEntry, makeForwarder(c)),
+        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+      ]),
     );
 
     // Build the response from the preloaded row + the values we just committed.

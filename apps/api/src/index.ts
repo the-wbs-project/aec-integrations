@@ -99,8 +99,6 @@ phase28.get('/api/categories', createTaxonomyListHandler('categories'));
 phase28.get(
   '/api/categories/:slug',
   createTaxonomyDetailHandler({
-    delegate: (p) => p.taxonomyCategory,
-    relationKey: 'productCategories',
     resource: 'category',
     schema: CategoryDetailSchema,
   }),
@@ -109,8 +107,6 @@ phase28.get('/api/audiences', createTaxonomyListHandler('audiences'));
 phase28.get(
   '/api/audiences/:slug',
   createTaxonomyDetailHandler({
-    delegate: (p) => p.taxonomyAudience,
-    relationKey: 'productAudiences',
     resource: 'audience',
     schema: AudienceDetailSchema,
   }),
@@ -119,8 +115,6 @@ phase28.get('/api/phases', createTaxonomyListHandler('phases'));
 phase28.get(
   '/api/phases/:slug',
   createTaxonomyDetailHandler({
-    delegate: (p) => p.taxonomyPhase,
-    relationKey: 'productPhases',
     resource: 'phase',
     schema: PhaseDetailSchema,
   }),

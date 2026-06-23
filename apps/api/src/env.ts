@@ -47,8 +47,30 @@ export type ScheduledJobMessageInput = { job: ScheduledJob } & Partial<
 >;
 
 export type Env = {
-  /** Prisma Accelerate URL (`prisma://...`) used by the Worker at runtime. */
+  /**
+   * Cloudflare D1 binding for the application database (ADR 0016, AECI-252).
+   * Accessed via the Drizzle client factory `getDb(env)` (`src/db/client.ts`),
+   * which asserts its presence. `wrangler dev` serves a local SQLite copy;
+   * staging/production bind per-env databases. Replaces the Prisma Accelerate
+   * `DATABASE_URL` path. Optional during the migration (test/tooling contexts
+   * lack it); tightens to required in Phase 5 (AECI-256) once Prisma is removed.
+   */
+  DB?: D1Database;
+  /**
+   * Prisma Accelerate URL (`prisma://...`). DEPRECATED by ADR 0016 — retained
+   * only while the Prisma→Drizzle query rewrite (AECI-253) is in flight; goes
+   * optional then removed in Phase 5 (AECI-256). Still required while `prisma.ts`
+   * and its call sites exist.
+   */
   DATABASE_URL: string;
+  /**
+   * Supabase service-role key (auth project only), used by the split-identity
+   * seams (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2) and GDPR
+   * erasure of the `auth.users` row (seam #3) via the Supabase Admin API. Set as
+   * a Wrangler secret per env. Optional + fail-safe: absent → email reads degrade
+   * to `null` and erasure logs a warning for manual cleanup.
+   */
+  SUPABASE_SERVICE_ROLE_KEY?: string;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
    * (`preview`/`staging`/`production`); when unset (bare `wrangler dev`, tests)

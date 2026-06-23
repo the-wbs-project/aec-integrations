@@ -1,17 +1,11 @@
 /**
- * Phase 5.8 (AECI-199) public reviews list.
+ * Phase 5.8 (AECI-199) public reviews list — Drizzle/D1 (ADR 0016 / AECI-253).
  *
  *   GET /api/products/:slug/reviews — paginated, approved-only, newest-first.
  *
  * Contracts:
- *   - Query shape: `ProductReviewsQuerySchema` (page/perPage) from `@aeci/shared`.
- *   - Response shape: `ProductReviewsResponseSchema` — a plain
- *     `PaginatedResponse<PublicReview>`. No PII (no reviewer id/email), no
- *     ratings summary (that lives on `ProductDetail`, §5.4/§5.5).
- *   - `Cache-Control: private, no-store` applied by `json()`. Edge-cacheability
- *     and the `product:<slug>` Cache-Tag are an SSR-layer concern (the public
- *     product page bakes page 1 in); approval/rejection (5.13) purges that tag.
- *   - 4xx envelope produced by `errorMiddleware()` in `errors.ts`.
+ *   - Query: `ProductReviewsQuerySchema` (page/perPage); Response:
+ *     `ProductReviewsResponseSchema` (`PaginatedResponse<PublicReview>`). No PII.
  */
 
 import {
@@ -19,17 +13,19 @@ import {
   ProductReviewsResponseSchema,
   type ProductReviewsResponse,
 } from '@aeci/shared';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { products, reviews } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import { publicReviewSelect, toPublicReview } from '../lib/prisma-helpers';
-import { getPrisma } from '../prisma';
+import { publicReviewColumns, toPublicReview } from '../lib/drizzle-helpers';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 export function createProductReviewsListHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const slug = c.req.param('slug');
@@ -41,37 +37,35 @@ export function createProductReviewsListHandler(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const prisma = prismaFor(c.env);
+    const { db } = dbFor(c.env);
 
     // Resolve the slug to its id first — an unknown slug is a 404, distinct from
     // a known product with zero approved reviews (an empty page).
-    const product = await prisma.product.findUnique({
-      where: { slug },
-      select: { id: true },
+    const product = await db.query.products.findFirst({
+      columns: { id: true },
+      where: eq(products.slug, slug),
     });
     if (!product) throw notFoundError('product', { slug });
 
-    const where = { productId: product.id, status: 'approved' };
-    const skip = (query.page - 1) * query.perPage;
+    const where = and(eq(reviews.productId, product.id), eq(reviews.status, 'approved'));
 
-    const [rows, total] = await Promise.all([
-      prisma.review.findMany({
+    const [rows, countRows] = await Promise.all([
+      db.query.reviews.findMany({
+        columns: publicReviewColumns,
         where,
-        // Newest-first (§5.4); `id` tiebreaks a `created_at` collision so
-        // pagination is stable across pages.
-        orderBy: [{ createdAt: 'desc' as const }, { id: 'asc' as const }],
-        skip,
-        take: query.perPage,
-        select: publicReviewSelect,
+        // Newest-first (§5.4); `id` tiebreaks a `created_at` collision.
+        orderBy: [desc(reviews.createdAt), asc(reviews.id)],
+        limit: query.perPage,
+        offset: (query.page - 1) * query.perPage,
       }),
-      prisma.review.count({ where }),
+      db.select({ value: count() }).from(reviews).where(where),
     ]);
 
     const body: ProductReviewsResponse = {
       data: rows.map(toPublicReview),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {

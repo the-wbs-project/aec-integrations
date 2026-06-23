@@ -30,19 +30,21 @@ import {
   AccountReviewsResponseSchema,
   type AccountReviewsResponse,
 } from '@aeci/shared';
+import { asc, count, desc, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { reviews } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import type { AuthzVariables } from '../lib/authz';
-import { accountReviewSelect, toAccountReview } from '../lib/prisma-helpers';
-import { getPrisma } from '../prisma';
+import { accountReviewConfig, toAccountReview } from '../lib/drizzle-helpers';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
 export function createGetAccountReviewsHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: AuthContext) => Promise<Response> {
   return async (c) => {
     const session = c.get('auth');
@@ -51,31 +53,29 @@ export function createGetAccountReviewsHandler(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const prisma = prismaFor(c.env);
+    const { db } = dbFor(c.env);
 
     // Server-set scope: the verified token `sub`, never a client value. No
     // `status` filter — the author sees every status of their own reviews.
-    const where = { reviewerId: session.userId };
-    const skip = (query.page - 1) * query.perPage;
+    const where = eq(reviews.reviewerId, session.userId);
 
-    const [rows, total] = await Promise.all([
-      prisma.review.findMany({
+    const [rows, countRows] = await Promise.all([
+      db.query.reviews.findMany({
+        ...accountReviewConfig,
         where,
-        // Newest-first (§6.1); `id` tiebreaks a `created_at` collision so
-        // pagination is stable across pages.
-        orderBy: [{ createdAt: 'desc' as const }, { id: 'asc' as const }],
-        skip,
-        take: query.perPage,
-        select: accountReviewSelect,
+        // Newest-first (§6.1); `id` tiebreaks a `created_at` collision.
+        orderBy: [desc(reviews.createdAt), asc(reviews.id)],
+        limit: query.perPage,
+        offset: (query.page - 1) * query.perPage,
       }),
-      prisma.review.count({ where }),
+      db.select({ value: count() }).from(reviews).where(where),
     ]);
 
     const body: AccountReviewsResponse = {
       data: rows.map(toAccountReview),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {
