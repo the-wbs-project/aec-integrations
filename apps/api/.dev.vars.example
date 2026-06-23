@@ -1,23 +1,23 @@
 # Copy this file to .dev.vars for local `wrangler dev`. .dev.vars is git-ignored.
-# In deployed environments, set these via:
-#   wrangler secret put DATABASE_URL --env preview|staging|production
 #
-# DATABASE_URL is read by the Worker at runtime (and by `prisma generate`).
-# It is a Prisma Accelerate URL (HTTPS, prisma://), NOT a direct Postgres
-# connection — the Worker uses @prisma/client/edge + withAccelerate() in EVERY
-# tier, including local `wrangler dev`. A postgresql:// value here makes every
-# query throw P6001 ("the URL must start with the protocol `prisma://`").
-# Locally (Option 1, shared dev DB) use the SAME value as the GH Actions secret
-# DATABASE_URL_STAGING — the `aeci-development` project's Accelerate URL, grabbed
-# from the Prisma Console. See docs/environments.md → "Local dev: running the
-# API Worker (Prisma Accelerate)".
-DATABASE_URL="prisma://accelerate.prisma-data.net/?api_key=REPLACE_ME"
-
-# DIRECT_URL is used ONLY by the Supabase CLI (`supabase db push / pull /
-# diff`) and by `prisma generate` for schema introspection. The deployed
-# Worker does NOT read this. It is the Supabase pooler URL.
-# See docs/migrations.md for the migration workflow.
-DIRECT_URL="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
+# ─── App database = Cloudflare D1 (ADR 0016) — NO connection secret ─────────
+# The Worker reads/writes the app database through its `DB` D1 binding, not a
+# connection URL. Local `wrangler dev` uses a per-workspace local SQLite D1 that
+# `pnpm dev` / `dev:preview` auto-migrate + seed via `db:setup:local`. So you do
+# NOT need DATABASE_URL to boot the app locally, and there is no app-DB secret to
+# set in deployed envs — schema is applied with `wrangler d1 migrations apply`.
+#
+# DATABASE_URL / DIRECT_URL below are NO LONGER read by the Worker (the Prisma
+# Accelerate runtime path is retired, AECI-253). They survive only for the
+# RETAINED Supabase-Postgres surface — the landing lead-capture tables
+# (feedback / mailing_list) — consumed by `prisma generate` and the landing /
+# integration test suites, which `describe.skipIf` themselves when unset. Leave
+# both empty unless you run those Postgres tests. (Full removal: AECI-257.)
+DATABASE_URL=
+# Supabase pooler URL — used by the Supabase CLI (`supabase db push / pull /
+# diff`, now scoped to landing + auth) and `prisma generate` introspection. The
+# deployed Worker does NOT read this. See docs/migrations.md.
+DIRECT_URL=
 
 # ─── Supabase URL + integration tests (AECI-48 / AECI-193) ──────────────────
 # SUPABASE_URL is now ALSO read by the Worker at runtime (AECI-193): it drives
