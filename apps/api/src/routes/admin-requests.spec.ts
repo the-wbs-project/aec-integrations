@@ -24,7 +24,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
+  products,
   profiles,
+  vendors,
   vendorRequests,
   workflowInstances,
   workflowTransitions,
@@ -251,6 +253,33 @@ describe('GET /api/admin/requests', () => {
     expect(parsed.data[0]?.domain_match).toBe('no_match');
   });
 
+  it('hydrates target from the products table for a product request (AECI-217)', async () => {
+    await t.db.insert(products).values({ id: TARGET_ID, slug: 'procore', name: 'Procore' });
+    await seed(reqRow()); // targetType 'product', targetId TARGET_ID
+    const parsed = ListVendorRequestsResponseSchema.parse(await (await getList()).json());
+    expect(parsed.data[0]?.target).toEqual({ id: TARGET_ID, name: 'Procore', slug: 'procore' });
+  });
+
+  it('hydrates target from the vendors table, name from company_name (AECI-217)', async () => {
+    const VENDOR_ID = '88888888-8888-4888-8888-888888888888';
+    await t.db
+      .insert(vendors)
+      .values({ id: VENDOR_ID, slug: 'autodesk', companyName: 'Autodesk, Inc.' });
+    await seed(reqRow({ targetType: 'vendor', targetId: VENDOR_ID }));
+    const parsed = ListVendorRequestsResponseSchema.parse(await (await getList()).json());
+    expect(parsed.data[0]?.target).toEqual({
+      id: VENDOR_ID,
+      name: 'Autodesk, Inc.',
+      slug: 'autodesk',
+    });
+  });
+
+  it('returns target: null when the referenced target row is missing (AECI-217)', async () => {
+    await seed(reqRow()); // no product seeded for TARGET_ID
+    const parsed = ListVendorRequestsResponseSchema.parse(await (await getList()).json());
+    expect(parsed.data[0]?.target).toBeNull();
+  });
+
   it('returns an empty page when no requests match', async () => {
     const res = await getList();
     expect(res.status).toBe(200);
@@ -392,6 +421,15 @@ describe('PATCH /api/admin/requests/:id', () => {
     const transitions = await t.db.select().from(workflowTransitions);
     expect(transitions[0]!.toState).toBe('rejected');
     expect(transitions[0]!.reason).toBeNull();
+  });
+
+  it('hydrates target in the moderation response (AECI-217)', async () => {
+    await t.db.insert(products).values({ id: TARGET_ID, slug: 'procore', name: 'Procore' });
+    await seed(reqRow());
+    await seedWorkflow('vendor_claim');
+    const res = await patchReq(moderateApp(), { action: 'resolve' });
+    const body = AdminVendorRequestSchema.parse(await res.json());
+    expect(body.target).toEqual({ id: TARGET_ID, name: 'Procore', slug: 'procore' });
   });
 
   it('resolves from in_review, recording the real prior state', async () => {

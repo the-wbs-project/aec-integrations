@@ -910,6 +910,12 @@ export const AdminVendorRequestSchema = z.object({
   status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
   target_type: z.enum(['product', 'vendor']),
   target_id: z.string().uuid(),
+  // Hydrated link to the target product/vendor (id/name/slug), resolved from
+  // `(target_type, target_id)` against the products OR vendors table (AECI-217).
+  // `null` when the referenced row is missing (deleted/un-promoted). The
+  // `target_type` discriminator stays on the row so the UI picks `/products`
+  // vs `/vendors`.
+  target: LinkRefSchema.nullable(),
   submitter_email: z.string(),
   submitter_name: z.string().nullable(),
   submitter_role: z.string().nullable(),
@@ -933,8 +939,11 @@ export type AdminVendorRequest = z.infer<typeof AdminVendorRequestSchema>;
 export type ListVendorRequestsResponse = PaginatedResponse<AdminVendorRequest>;
 ```
 
-The target is the loose-polymorphic `(target_type, target_id)` pair — no FK, and
-no name/slug hydration on the row (the `/admin/requests` UI resolves links).
+The target is the loose-polymorphic `(target_type, target_id)` pair — no FK. The
+list/PATCH handlers hydrate it into `target` (a `LinkRef`) by resolving `target_id`
+against the products OR vendors table (AECI-217), since detail pages are slug-only
+(no by-id route). A `null` `target` means the referenced row is gone; the
+`/admin/requests` UI falls back to a non-linked label.
 
 #### `PATCH /api/admin/requests/:id`
 

@@ -74,6 +74,19 @@ import { AdminSummaryStore } from './admin-summary.store';
               </li>
               <li>
                 <a
+                  routerLink="/admin/requests"
+                  routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
+                  ariaCurrentWhenActive="page"
+                  class="flex items-center gap-3 rounded-(--radius-md) px-3 py-2 text-sm
+                    font-bold text-(--text-secondary) no-underline transition-colors
+                    hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2
+                    focus-visible:outline-(--accent-primary)"
+                >
+                  <span i18n="@@admin.shell.nav.requests">Requests</span>
+                </a>
+              </li>
+              <li>
+                <a
                   routerLink="/admin/reviewers"
                   routerLinkActive="bg-(--surface-raised) text-(--text-primary)"
                   ariaCurrentWhenActive="page"

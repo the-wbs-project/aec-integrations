@@ -231,6 +231,10 @@ export const routes: Routes = [
         loadComponent: () => import('./admin/reviews/review-queue').then((m) => m.ReviewQueue),
       },
       {
+        path: 'requests',
+        loadComponent: () => import('./admin/requests/request-queue').then((m) => m.RequestQueue),
+      },
+      {
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
       },
