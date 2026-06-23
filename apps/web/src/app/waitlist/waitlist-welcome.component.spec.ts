@@ -1,12 +1,14 @@
 /**
  * Tests for `WaitlistWelcome` (AECI-243). The load-bearing guarantee is cache
  * neutrality: the SSR/pre-hydration render shows NOTHING; the banner appears only
- * after the `afterNextRender` reconciliation, and only for a `?ref=waitlist`
- * arrival that hasn't been dismissed. Mirrors the `ConsentBanner` test shape.
+ * after the `afterNextRender` reconciliation. Mirrors the `ConsentBanner` shape.
  *
- * The component reads query params straight from `location.search` (the shell is
- * not a routed outlet, so an injected ActivatedRoute carries no query params), so
- * the tests drive the URL with `history.replaceState`.
+ * The URL decision lives in `WaitlistWelcomeService.welcomeState()` (it reads
+ * `location.search`), so it is fully mocked here — the component is just the
+ * presentational reflection of that decision. This keeps the spec deterministic
+ * and free of global `location`/`history` mutation (which jsdom only partially
+ * supports — "navigation to another Document" — and which polluted across files
+ * in CI).
  */
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
@@ -19,13 +21,11 @@ function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-function create(params: Record<string, string>, dismissed = false) {
-  const query = new URLSearchParams(params).toString();
-  history.replaceState({}, '', query ? `/?${query}` : '/');
+function create(state: { showBanner: boolean; token: string | null }) {
   const welcome = {
-    isDismissed: vi.fn(() => dismissed),
-    dismiss: vi.fn(),
+    welcomeState: vi.fn(() => state),
     logAttribution: vi.fn(),
+    dismiss: vi.fn(),
   };
   TestBed.configureTestingModule({
     providers: [
@@ -45,48 +45,32 @@ async function hydrate(fixture: ReturnType<typeof create>['fixture']) {
 }
 
 describe('WaitlistWelcome', () => {
-  beforeEach(() => {
-    TestBed.resetTestingModule();
-    history.replaceState({}, '', '/');
-  });
+  beforeEach(() => TestBed.resetTestingModule());
 
-  it('reveals the banner for a waitlist arrival and logs the token', async () => {
-    const { fixture, welcome, el } = create({ ref: 'waitlist', token: 'xyz' });
+  it('reveals the banner and logs the token for a waitlist arrival', async () => {
+    const { fixture, welcome, el } = create({ showBanner: true, token: 'xyz' });
     await hydrate(fixture);
     expect(el.querySelector('#waitlist-dismiss')).not.toBeNull();
     expect(el.textContent).toContain('Thanks for waiting');
     expect(welcome.logAttribution).toHaveBeenCalledWith('xyz');
   });
 
-  it('stays hidden and logs nothing when there are no query params', async () => {
-    const { fixture, welcome, el } = create({});
+  it('stays hidden and logs nothing when there is no waitlist arrival', async () => {
+    const { fixture, welcome, el } = create({ showBanner: false, token: null });
     await hydrate(fixture);
     expect(el.querySelector('#waitlist-dismiss')).toBeNull();
-    expect(welcome.logAttribution).not.toHaveBeenCalled();
+    expect(welcome.logAttribution).toHaveBeenCalledWith(null);
   });
 
-  it('stays hidden for a non-waitlist ref (and does not log its token)', async () => {
-    const { fixture, welcome, el } = create({ ref: 'newsletter', token: 'abc' });
-    await hydrate(fixture);
-    expect(el.querySelector('#waitlist-dismiss')).toBeNull();
-    expect(welcome.logAttribution).not.toHaveBeenCalled();
-  });
-
-  it('shows for a waitlist arrival with no token, but logs nothing', async () => {
-    const { fixture, welcome, el } = create({ ref: 'waitlist' });
+  it('shows for a waitlist arrival with no token (and logs nothing)', async () => {
+    const { fixture, welcome, el } = create({ showBanner: true, token: null });
     await hydrate(fixture);
     expect(el.querySelector('#waitlist-dismiss')).not.toBeNull();
     expect(welcome.logAttribution).toHaveBeenCalledWith(null);
   });
 
-  it('stays hidden when already dismissed', async () => {
-    const { fixture, el } = create({ ref: 'waitlist', token: 'xyz' }, true);
-    await hydrate(fixture);
-    expect(el.querySelector('#waitlist-dismiss')).toBeNull();
-  });
-
   it('dismiss persists the decision and hides the banner', async () => {
-    const { fixture, welcome, el } = create({ ref: 'waitlist', token: 'xyz' });
+    const { fixture, welcome, el } = create({ showBanner: true, token: 'xyz' });
     await hydrate(fixture);
     (el.querySelector('#waitlist-dismiss') as HTMLButtonElement).click();
     fixture.detectChanges();

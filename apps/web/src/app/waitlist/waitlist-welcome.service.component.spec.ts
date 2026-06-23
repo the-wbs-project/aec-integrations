@@ -9,7 +9,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { PLATFORM_ID } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   WAITLIST_DISMISSED_KEY,
@@ -34,6 +34,7 @@ function configure(platform: 'browser' | 'server' = 'browser') {
 
 describe('WaitlistWelcomeService', () => {
   beforeEach(() => localStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
 
   it('POSTs the campaign attribution once for a fresh token', () => {
     const { svc, httpMock } = configure();
@@ -102,5 +103,36 @@ describe('WaitlistWelcomeService', () => {
     localStorage.setItem(WAITLIST_DISMISSED_KEY, '1');
     const { svc } = configure('server');
     expect(svc.isDismissed()).toBe(false);
+  });
+
+  it('welcomeState shows + extracts the token for a waitlist arrival', () => {
+    vi.stubGlobal('location', { search: '?ref=waitlist&token=tok-1' });
+    const { svc } = configure();
+    expect(svc.welcomeState()).toEqual({ showBanner: true, token: 'tok-1' });
+  });
+
+  it('welcomeState hides (and yields no token) for a non-waitlist ref', () => {
+    vi.stubGlobal('location', { search: '?ref=newsletter&token=tok-1' });
+    const { svc } = configure();
+    expect(svc.welcomeState()).toEqual({ showBanner: false, token: null });
+  });
+
+  it('welcomeState shows but yields no token when the token is absent', () => {
+    vi.stubGlobal('location', { search: '?ref=waitlist' });
+    const { svc } = configure();
+    expect(svc.welcomeState()).toEqual({ showBanner: true, token: null });
+  });
+
+  it('welcomeState stops showing once dismissed (token still surfaced)', () => {
+    vi.stubGlobal('location', { search: '?ref=waitlist&token=tok-1' });
+    const { svc } = configure();
+    svc.dismiss();
+    expect(svc.welcomeState()).toEqual({ showBanner: false, token: 'tok-1' });
+  });
+
+  it('welcomeState is inert on the server', () => {
+    vi.stubGlobal('location', { search: '?ref=waitlist&token=tok-1' });
+    const { svc } = configure('server');
+    expect(svc.welcomeState()).toEqual({ showBanner: false, token: null });
   });
 });

@@ -1,6 +1,6 @@
 import { Component, afterNextRender, inject, signal } from '@angular/core';
 
-import { WAITLIST_REF_SOURCE, WaitlistWelcomeService } from './waitlist-welcome.service';
+import { WaitlistWelcomeService } from './waitlist-welcome.service';
 
 /**
  * Waitlist welcome banner (AECI-243 / Phase 7.9, §11.2).
@@ -73,18 +73,13 @@ export class WaitlistWelcome {
 
   constructor() {
     // Browser-only (afterNextRender never runs during SSR), so neither the
-    // reveal decision nor the attribution POST can pollute the cached HTML.
-    //
-    // Read straight from `location.search`, NOT from an injected
-    // `ActivatedRoute`/`Router`: this component lives in the app shell (not a
-    // routed outlet), where the root ActivatedRoute carries no query params, and
-    // the router's initial navigation may not have resolved the query string by
-    // the time this fires. `location` is the ground truth and is browser-only.
+    // reveal decision nor the attribution POST can pollute the cached HTML. The
+    // service reads `location.search` (the shell can't get query params from an
+    // injected ActivatedRoute/Router); we just reflect its decision here.
     afterNextRender(() => {
-      const params = new URLSearchParams(globalThis.location?.search ?? '');
-      const isWaitlist = params.get('ref') === WAITLIST_REF_SOURCE;
-      this.show.set(isWaitlist && !this.welcome.isDismissed());
-      if (isWaitlist) this.welcome.logAttribution(params.get('token'));
+      const { showBanner, token } = this.welcome.welcomeState();
+      this.show.set(showBanner);
+      this.welcome.logAttribution(token);
     });
   }
 

@@ -58,6 +58,24 @@ export class WaitlistWelcomeService {
   }
 
   /**
+   * Resolve this arrival's welcome state from the URL. Reads `location.search`
+   * directly (the banner lives in the app shell, where an injected
+   * `ActivatedRoute`/`Router` carries no query params at hydration time) — so
+   * this is browser-only and returns the inert state on the server. The token is
+   * surfaced only for an actual `?ref=waitlist` arrival; the component passes it
+   * to `logAttribution()`.
+   */
+  welcomeState(): { showBanner: boolean; token: string | null } {
+    if (!this.isBrowser) return { showBanner: false, token: null };
+    const params = new URLSearchParams(globalThis.location?.search ?? '');
+    const isWaitlist = params.get('ref') === WAITLIST_REF_SOURCE;
+    return {
+      showBanner: isWaitlist && !this.isDismissed(),
+      token: isWaitlist ? params.get('token') : null,
+    };
+  }
+
+  /**
    * Log campaign attribution for this arrival, exactly once per token. Browser-
    * only and fire-and-forget (analytics must never break the page). The dedupe
    * guard is written *before* the request is issued so a fast double-invoke
