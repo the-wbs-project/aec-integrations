@@ -15,6 +15,7 @@ import { firstValueFrom } from 'rxjs';
 
 import type {
   AccountProfileResponse,
+  AccountReview,
   AccountReviewsQuery,
   AccountReviewsResponse,
   DeleteAccountResponse,
@@ -42,13 +43,23 @@ export class AccountApi {
   }
 
   /** List the caller's own reviews (all statuses), newest-first, page-based
-   *  (AECI-225). Scope is server-set to the session — no reviewer id is sent. */
+   *  (AECI-225). Scope is server-set to the session — no reviewer id is sent.
+   *  An optional `product_id` narrows the list to one product (AECI-260). */
   listReviews(query?: Partial<AccountReviewsQuery>): Promise<AccountReviewsResponse> {
     const params: Record<string, string> = {};
     if (query?.page != null) params['page'] = String(query.page);
     if (query?.perPage != null) params['perPage'] = String(query.perPage);
+    if (query?.product_id != null) params['product_id'] = query.product_id;
     return firstValueFrom(
       this.http.get<AccountReviewsResponse>('/api/account/reviews', { params }),
     );
+  }
+
+  /** The caller's own review for a single product, or `null` if none exists
+   *  (AECI-260). Drives the "you've already reviewed this" prevention UX on the
+   *  detail-page CTA + the review-form guard. Server-scoped to the session, so
+   *  no reviewer id is sent; `perPage: 1` keeps it cheap. */
+  findMyReviewForProduct(productId: string): Promise<AccountReview | null> {
+    return this.listReviews({ product_id: productId, perPage: 1 }).then((r) => r.data[0] ?? null);
   }
 }

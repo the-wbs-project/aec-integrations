@@ -76,8 +76,16 @@ export interface DeleteAccountResponse {
  * list endpoint (Phase 2 Spec §7.3) — the issue's "cursor" wording is a deviation
  * noted in `API_CONTRACTS.md` §6.8. Order is fixed newest-first server-side, so
  * there is no `sort` param.
+ *
+ * `product_id` (AECI-260) is an optional filter that **narrows** the caller's own
+ * list to a single product — it never widens scope (reviewer scope stays
+ * server-set to `session.userId`). It powers the "have I already reviewed this
+ * product?" prevention check behind the personalized review CTA + the form-route
+ * guard (`STAGE_1_PHASE_5_SPEC.md` §5.5).
  */
-export const AccountReviewsQuerySchema = PageQuerySchema;
+export const AccountReviewsQuerySchema = PageQuerySchema.extend({
+  product_id: z.string().uuid().optional(),
+});
 export type AccountReviewsQuery = z.infer<typeof AccountReviewsQuerySchema>;
 
 /** A single own-review row for `GET /api/account/reviews`. `product` is the

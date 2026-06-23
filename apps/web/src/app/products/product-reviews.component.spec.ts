@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProductReviewsResponse, PublicReview } from '@aeci/shared';
 
+import { AccountApi } from '../account/account-api';
 import { AuthService } from '../auth/auth.service';
 
 import { ProductReviews } from './product-reviews';
@@ -40,6 +41,7 @@ function makeReviews(n: number): PublicReview[] {
 
 interface Inputs {
   slug?: string;
+  productId?: string;
   reviewCount: number;
   ratingOverallAvg?: number | null;
   ratingOnboardingAvg?: number | null;
@@ -53,12 +55,19 @@ function setup(inputs: Inputs) {
       provideRouter([]),
       provideHttpClient(),
       provideHttpClientTesting(),
-      // Keep the embedded CTA neutral (no network) — its own spec covers it.
+      // Keep the embedded CTA neutral (no network) — its own spec covers it. The
+      // unconfigured auth short-circuits before the AccountApi lookup; the stub
+      // just guarantees no real request even if that ever changes.
       { provide: AuthService, useValue: { isConfigured: vi.fn(() => false), isSignedIn: vi.fn() } },
+      { provide: AccountApi, useValue: { findMyReviewForProduct: vi.fn(async () => null) } },
     ],
   });
   const fixture = TestBed.createComponent(ProductReviews);
   fixture.componentRef.setInput('slug', inputs.slug ?? 'procore');
+  fixture.componentRef.setInput(
+    'productId',
+    inputs.productId ?? '00000000-0000-4000-8000-000000000001',
+  );
   fixture.componentRef.setInput('reviewCount', inputs.reviewCount);
   fixture.componentRef.setInput('ratingOverallAvg', inputs.ratingOverallAvg ?? null);
   fixture.componentRef.setInput('ratingOnboardingAvg', inputs.ratingOnboardingAvg ?? null);

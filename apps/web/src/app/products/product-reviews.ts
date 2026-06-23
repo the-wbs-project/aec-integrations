@@ -47,6 +47,9 @@ export class ProductReviews {
   private readonly http = inject(HttpClient);
 
   readonly slug = input.required<string>();
+  /** The product's UUID — forwarded to `<aec-review-cta>` for its browser-side
+   *  "already reviewed" lookup (AECI-260). Never read during SSR render. */
+  readonly productId = input.required<string>();
   readonly reviewCount = input.required<number>();
   readonly ratingOverallAvg = input.required<number | null>();
   readonly ratingOnboardingAvg = input.required<number | null>();
