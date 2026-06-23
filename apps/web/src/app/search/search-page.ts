@@ -38,6 +38,7 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
+import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 
@@ -352,6 +353,7 @@ export class SearchPage implements OnDestroy {
   private readonly router = inject(Router);
   private readonly meta = inject(MetaService);
   private readonly engineFactory = inject(SEARCH_ENGINE_FACTORY);
+  private readonly analytics = inject(Analytics);
 
   protected readonly tabs = TABS;
   protected readonly panelId = 'search-tabpanel';
@@ -428,7 +430,14 @@ export class SearchPage implements OnDestroy {
       void this.engineFactory(config)
         .then(({ lib, searchClient }) => {
           if (this.destroyed) return;
-          const controller = new SearchController(lib, searchClient, config, this.initialQuery);
+          const controller = new SearchController(
+            lib,
+            searchClient,
+            config,
+            this.initialQuery,
+            undefined, // keep the default RUM emitter
+            (event) => this.analytics.searchPerformed(event),
+          );
           controller.start();
           // Replay anything typed while the SDK was loading. `onQueryInput`
           // buffered it in `pendingQuery` because there was no controller yet.

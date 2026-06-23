@@ -74,6 +74,19 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toContain('https://*.algolianet.com');
   });
 
+  it('allows the PostHog US ingestion + assets hosts on connect-src (AECI-239)', () => {
+    // The browser PostHog client POSTs events to us.i.posthog.com and fetches
+    // remote config from us-assets.i.posthog.com. With
+    // disable_external_dependency_loading the SDK never injects a remote script,
+    // so these live on connect-src only and script-src is untouched. Region is
+    // pinned to US — EU would need the eu.* hosts swapped in here.
+    expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*https:\/\/us\.i\.posthog\.com/);
+    expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*https:\/\/us-assets\.i\.posthog\.com/);
+    // Must NOT leak into script-src — that's the whole point of bundling + no
+    // external dependency loading.
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*posthog/);
+  });
+
   it('allows the Cloudflare Web Analytics beacon (script + report hosts)', () => {
     // Cloudflare auto-injects beacon.min.js from static.cloudflareinsights.com
     // at the edge; it then POSTs RUM data to cloudflareinsights.com/cdn-cgi/rum.

@@ -1,11 +1,13 @@
 import { NgTemplateOutlet } from '@angular/common';
-import { Component, computed, inject } from '@angular/core';
+import { Component, afterNextRender, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
+import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
@@ -50,6 +52,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
   selector: 'aec-product-detail',
   imports: [
     DetailLayout,
+    ExternalLinkTracker,
     LogoOrInitial,
     NgTemplateOutlet,
     NotFound,
@@ -126,6 +129,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 [href]="p.website"
                 target="_blank"
                 rel="noopener noreferrer"
+                aecTrackExternalLink="product_detail"
                 class="inline-flex items-center gap-2 rounded-(--radius-md)
                   border border-(--border-strong) bg-(--accent-primary)
                   px-4 py-2 text-sm font-bold text-(--surface-base) no-underline
@@ -442,6 +446,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
 })
 export class ProductDetailPage {
   private readonly route = inject(ActivatedRoute);
+  private readonly analytics = inject(Analytics);
 
   /**
    * Resolved data. `productDetailResolver` runs server-side and on hydration
@@ -452,6 +457,16 @@ export class ProductDetailPage {
     this.route.data.pipe(map((d) => (d['product'] ?? null) as ProductDetail | null)),
     { initialValue: (this.route.snapshot.data['product'] ?? null) as ProductDetail | null },
   );
+
+  constructor() {
+    // Browser-only `product_viewed` (§14.1). `afterNextRender` keeps it out of
+    // SSR; consent-gating + fire-and-forget live in `Analytics`. A fresh
+    // component instance per route means this fires once per product view.
+    afterNextRender(() => {
+      const p = this.product();
+      if (p) this.analytics.productViewed(p.id);
+    });
+  }
 
   /**
    * Normalized integration list. Each entry pairs the integration with the

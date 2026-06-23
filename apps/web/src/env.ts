@@ -78,6 +78,20 @@ export type SupabasePublicConfig = {
   anonKey: string;
 };
 
+/**
+ * Public PostHog config rendered into the SSR HTML for the browser
+ * (`window.__AECI_POSTHOG__`, AECI-239 / §14.1). Carries the project API key
+ * and the ingestion host — both client-exposed by design (the project API key
+ * is a publishable key, same security class as `ALGOLIA_SEARCH_KEY` /
+ * `DD_CLIENT_TOKEN`). Consumed at hydration by `app/analytics/posthog-config.ts`
+ * → the `Analytics` service. Absent → the bootstrap injects nothing and the
+ * browser analytics layer no-ops (fail-open).
+ */
+export type PostHogPublicConfig = {
+  key: string;
+  host: string;
+};
+
 export type WebEnv = {
   ASSETS: Fetcher;
   API: Fetcher;
@@ -139,4 +153,18 @@ export type WebEnv = {
    */
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  /**
+   * Public PostHog analytics surface (AECI-239 / Phase 7.4, §14.1).
+   *
+   * - POSTHOG_KEY — the project API key (publishable; safe to render into HTML,
+   *   same security class as `ALGOLIA_SEARCH_KEY`). Stored as a CI-pushed secret
+   *   to keep values out of git. Absent → `injectPostHogBootstrap` is a no-op
+   *   (no `window.__AECI_POSTHOG__`) and the browser analytics layer never loads
+   *   PostHog (fail-open).
+   * - POSTHOG_HOST — the ingestion host. Defaults to `https://us.i.posthog.com`
+   *   (US Cloud) when unset; the static CSP `connect-src` is pinned to the US
+   *   hosts, so changing region requires a CSP update (`server/seo-headers.ts`).
+   */
+  POSTHOG_KEY?: string;
+  POSTHOG_HOST?: string;
 };

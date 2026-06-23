@@ -1,6 +1,7 @@
 import { Component, inject } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 
+import { ConsentBanner } from './analytics/consent-banner';
 import { PageViewTracker } from './core/page-view-tracker';
 import { SiteFooter } from './layout/site-footer';
 import { SiteHeader } from './layout/site-header';
@@ -8,7 +9,7 @@ import { SkipLink } from './layout/skip-link';
 
 @Component({
   selector: 'app-root',
-  imports: [RouterOutlet, SiteHeader, SiteFooter, SkipLink],
+  imports: [RouterOutlet, SiteHeader, SiteFooter, SkipLink, ConsentBanner],
   template: `
     <div class="flex min-h-screen flex-col bg-(--surface-base) text-(--text-primary)">
       <aec-skip-link />
@@ -17,6 +18,7 @@ import { SkipLink } from './layout/skip-link';
         <router-outlet />
       </main>
       <aec-site-footer />
+      <aec-consent-banner />
     </div>
   `,
   styles: [':host { display: block; min-height: 100vh; }'],
