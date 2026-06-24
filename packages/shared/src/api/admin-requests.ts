@@ -70,6 +70,9 @@ export const AdminVendorRequestSchema = z.object({
   source_url: z.string().nullable(),
   is_duplicate: z.boolean(),
   linear_issue_id: z.string().nullable(),
+  /** AECI-261: the linked Linear issue's web permalink (`issue.url`), or null when
+   *  unlinked or persisted before this column existed. Drives the /admin/requests link. */
+  linear_issue_url: z.string().nullable(),
   created_at: z.string().datetime(),
   resolved_at: z.string().datetime().nullable(),
   resolved_by: z.string().uuid().nullable(),
