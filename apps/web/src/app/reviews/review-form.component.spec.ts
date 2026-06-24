@@ -53,16 +53,16 @@ function makeAccountMock(review: AccountReview | null = null): AccountMock {
 
 interface AuthMock {
   isConfigured: ReturnType<typeof vi.fn>;
-  isSignedIn: ReturnType<typeof vi.fn>;
+  hasSessionCookie: ReturnType<typeof vi.fn>;
 }
 
 /** Mock `AuthService` for the post-hydration sign-in gate. Defaults to
  *  `configured: false` so the auth probe is a no-op and the existing suites
  *  behave exactly as before (straight to the already-reviewed check). */
-function makeAuthMock(opts: { configured?: boolean; signedIn?: boolean } = {}): AuthMock {
+function makeAuthMock(opts: { configured?: boolean; hasCookie?: boolean } = {}): AuthMock {
   return {
     isConfigured: vi.fn(() => opts.configured ?? false),
-    isSignedIn: vi.fn(async () => opts.signedIn ?? false),
+    hasSessionCookie: vi.fn(() => opts.hasCookie ?? false),
   };
 }
 
@@ -343,7 +343,7 @@ describe('ReviewForm', () => {
       product(),
       makeApiMock(),
       makeAccountMock(null),
-      makeAuthMock({ configured: true, signedIn: true }),
+      makeAuthMock({ configured: true, hasCookie: true }),
     );
     await showForm(fixture);
 
@@ -352,7 +352,7 @@ describe('ReviewForm', () => {
   });
 
   // ── Sign-in gate ────────────────────────────────────────────────────────
-  it('shows the sign-in notice (not the form) for an unauthenticated visitor', async () => {
+  it('shows the sign-in notice (not the form) when no session cookie is present', async () => {
     const account = makeAccountMock(null);
     const {
       fixture,
@@ -362,11 +362,11 @@ describe('ReviewForm', () => {
       product(),
       makeApiMock(),
       account,
-      makeAuthMock({ configured: true, signedIn: false }),
+      makeAuthMock({ configured: true, hasCookie: false }),
     );
     await showForm(fixture);
 
-    // No fillable form for an anonymous visitor.
+    // No fillable form for a visitor with no session cookie.
     expect(el.querySelector('form')).toBeNull();
     expect(el.textContent).toContain('Sign in to leave a review');
     // The authenticated already-reviewed lookup is never reached.
@@ -378,6 +378,27 @@ describe('ReviewForm', () => {
     expect(signIn).toBeTruthy();
   });
 
+  it('falls through to the form when a session cookie is present (API stays the backstop)', async () => {
+    const account = makeAccountMock(null);
+    const {
+      fixture,
+      el,
+      account: acc,
+    } = setup(
+      product(),
+      makeApiMock(),
+      account,
+      makeAuthMock({ configured: true, hasCookie: true }),
+    );
+    await showForm(fixture);
+
+    // Cookie present → no sign-in gate; the already-reviewed lookup runs and,
+    // finding none, the form renders. A stale cookie is the API's 401 to reject.
+    expect(acc.findMyReviewForProduct).toHaveBeenCalledTimes(1);
+    expect(el.querySelector('form')).not.toBeNull();
+    expect(el.textContent).not.toContain('Sign in to leave a review');
+  });
+
   it('falls through to the form when auth is unconfigured (graceful degradation)', async () => {
     const { fixture, el, auth } = setup(
       product(),
@@ -387,19 +408,9 @@ describe('ReviewForm', () => {
     );
     await showForm(fixture);
 
-    // Unconfigured env → never probes the session, shows the form (the API's
+    // Unconfigured env → never probes the cookie, shows the form (the API's
     // requireAuth 401 stays the backstop).
-    expect(auth.isSignedIn).not.toHaveBeenCalled();
-    expect(el.querySelector('form')).not.toBeNull();
-    expect(el.textContent).not.toContain('Sign in to leave a review');
-  });
-
-  it('falls through to the form when the session probe throws', async () => {
-    const auth = makeAuthMock({ configured: true });
-    auth.isSignedIn.mockRejectedValueOnce(new Error('probe failed'));
-    const { fixture, el } = setup(product(), makeApiMock(), makeAccountMock(null), auth);
-    await showForm(fixture);
-
+    expect(auth.hasSessionCookie).not.toHaveBeenCalled();
     expect(el.querySelector('form')).not.toBeNull();
     expect(el.textContent).not.toContain('Sign in to leave a review');
   });

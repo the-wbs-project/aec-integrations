@@ -240,25 +240,20 @@ export class ReviewForm {
 
   /**
    * Post-hydration access gate. The route is redirect-gated SSR-side, but that
-   * server redirect only fires on full-page loads — an in-app SPA navigation or
-   * an expired session can still land an unauthenticated visitor on this form.
-   * So before revealing it we probe the session: no session → raise the sign-in
-   * pop-up instead of a fillable form. When auth is unconfigured or the probe
-   * throws we degrade to showing the form (the API's `requireAuth` 401 stays the
-   * real backstop), mirroring `ReviewCta`'s neutral degradation.
+   * server redirect only fires on full-page loads — an in-app SPA navigation can
+   * still land a never-signed-in visitor on this form. So before revealing it we
+   * mirror the SSR gate's cheap session-cookie *presence* check: no cookie →
+   * clearly not signed in → raise the sign-in pop-up instead of a fillable form.
+   * A present-but-stale cookie falls through to the form, where the API's
+   * `requireAuth` 401 stays the real backstop. When auth is unconfigured we also
+   * degrade to showing the form, mirroring `ReviewCta`'s neutral degradation.
    */
   private async reconcile(): Promise<void> {
-    if (this.auth.isConfigured()) {
-      try {
-        if (!(await this.auth.isSignedIn())) {
-          this.needsSignIn.set(true);
-          this.checkingExisting.set(false);
-          this.signInDialog()?.open();
-          return;
-        }
-      } catch {
-        // Fall through and show the form; submit still enforces auth server-side.
-      }
+    if (this.auth.isConfigured() && !this.auth.hasSessionCookie()) {
+      this.needsSignIn.set(true);
+      this.checkingExisting.set(false);
+      this.signInDialog()?.open();
+      return;
     }
     await this.checkExisting();
   }

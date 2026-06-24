@@ -449,14 +449,13 @@
        notice above is its dismissed-state fallback). Always present in this
        not-submitted branch so the `viewChild(BrnDialog)` resolves before
        `open()` is called. Gentle and dismissible (Esc / backdrop / "Not now"). -->
-  <brn-dialog #signInDialog="brnDialog" aria-labelledby="review-signin-title">
+  <brn-dialog #signInDialog="brnDialog">
     <ng-template brnDialogContent>
       <div
         class="w-[min(90vw,28rem)] rounded-lg border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-2xl"
       >
         <h2
           brnDialogTitle
-          id="review-signin-title"
           class="text-lg font-semibold tracking-tight"
           i18n="@@reviews.signIn.dialog.title"
         >
