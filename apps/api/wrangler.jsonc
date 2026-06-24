@@ -311,12 +311,20 @@
         // (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
-        // PUBLIC_SITE_URL is the canonical launch domain (emails are a launch
-        // feature). The RESEND_API_KEY secret is pushed by CI from
-        // RESEND_API_KEY_PRODUCTION — absent → sends skip.
+        // The RESEND_API_KEY secret is pushed by CI from RESEND_API_KEY_PRODUCTION
+        // — absent → sends skip.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
-        "PUBLIC_SITE_URL": "https://aecintegrations.com",
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // PUBLIC_SITE_URL is the canonical launch domain — SHARED by transactional
+        // email (absolute links in the approved/rejected emails, AECI-240) AND the
+        // post-promote IndexNow submission (the origin its URLs are built against,
+        // AECI-236 / §20.2; canonicals are self-referential to the serving origin,
+        // ADR 0011). Public value. IndexNow stays a no-op until the `INDEXNOW_KEY`
+        // secret is also provisioned at launch (alongside the web Worker's
+        // `ALLOW_INDEXING="true"`); on staging it points at the staging host for
+        // email links, and IndexNow still no-ops there (INDEXNOW_KEY is prod-only,
+        // staging is Access-gated / non-indexed).
+        "PUBLIC_SITE_URL": "https://aecintegrations.com",
       },
       "kv_namespaces": [
         {

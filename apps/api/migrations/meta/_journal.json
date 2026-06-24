@@ -15,6 +15,13 @@
       "when": 1782238527167,
       "tag": "0001_dapper_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782303461205,
+      "tag": "0002_solid_dark_beast",
+      "breakpoints": true
     }
   ]
 }

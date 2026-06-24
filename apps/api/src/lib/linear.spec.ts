@@ -57,15 +57,20 @@ function ctx(envOverrides: Record<string, unknown> = {}) {
 function makeStore(
   opts: { existingLinearId?: string | null; throwOnRead?: boolean; throwOnWrite?: boolean } = {},
 ) {
-  const links: Array<{ requestId: string; workflowId: string; issueId: string }> = [];
+  const links: Array<{
+    requestId: string;
+    workflowId: string;
+    issueId: string;
+    issueUrl: string;
+  }> = [];
   const store: LinearRequestStore = {
     async getLinkedIssueId() {
       if (opts.throwOnRead) throw new Error('db read failed');
       return opts.existingLinearId ?? null;
     },
-    async linkIssue(requestId, workflowId, issueId) {
+    async linkIssue(requestId, workflowId, issueId, issueUrl) {
       if (opts.throwOnWrite) throw new Error('db write failed');
-      links.push({ requestId, workflowId, issueId });
+      links.push({ requestId, workflowId, issueId, issueUrl });
     },
   };
   return { store, links };
@@ -166,8 +171,16 @@ describe('createLinearIssueForRequest — issue creation', () => {
     expect(sent.variables.input.description).toContain(`Request: ${REQUEST_ID}`);
     expect(sent.variables.input.description).toContain(INPUT.submitterEmail);
 
-    // One `linkIssue` call covers both compare-and-set updates (request + workflow).
-    expect(links).toEqual([{ requestId: REQUEST_ID, workflowId: WORKFLOW_ID, issueId: 'iss_123' }]);
+    // One `linkIssue` call covers both compare-and-set updates (request + workflow);
+    // it carries the issue url (AECI-261) for the /admin/requests link.
+    expect(links).toEqual([
+      {
+        requestId: REQUEST_ID,
+        workflowId: WORKFLOW_ID,
+        issueId: 'iss_123',
+        issueUrl: 'https://linear.app/x',
+      },
+    ]);
 
     expect(lastTags()).toEqual(expect.arrayContaining(['outcome:ok', 'kind:correction']));
     expect(submitDistribution).toHaveBeenCalledWith(

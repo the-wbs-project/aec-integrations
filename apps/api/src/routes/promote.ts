@@ -92,8 +92,10 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import type { DbFactory } from '../lib/handler-utils';
+import { callIndexNow } from '../lib/indexnow';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote } from './promote-cache-tags';
+import { affectedUrlsForPromote } from './promote-indexnow-urls';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 /** Drop keys whose value is `undefined` so the column is left untouched. */
@@ -357,6 +359,70 @@ function logAlgoliaSyncFailure(
   });
 }
 
+// ─── IndexNow notification (AECI-236) ────────────────────────────────────────
+
+/**
+ * Post-commit IndexNow submission seam. Default builds the affected public URLs
+ * from the promote response (`affectedUrlsForPromote`) and submits them to
+ * IndexNow (Bing/Yandex/…) via `callIndexNow`, gated on `INDEXNOW_KEY` +
+ * `PUBLIC_SITE_URL`. Records `aeci.indexnow.submit{source:promote,outcome:ok|failed}`
+ * and warn-logs a failure (Datadog) — never throws, never blocks the committed
+ * promote (§20.2 / §20.5). Injected for tests (mirrors the Algolia seam).
+ */
+export type PromoteIndexNowNotify = (
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+) => Promise<void>;
+
+const defaultIndexNowNotify: PromoteIndexNowNotify = (c, response) =>
+  notifyIndexNowAfterPromote(c, response);
+
+async function notifyIndexNowAfterPromote(
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+): Promise<void> {
+  const key = c.env.INDEXNOW_KEY;
+  const siteUrl = c.env.PUBLIC_SITE_URL;
+  if (!key || !siteUrl) return;
+
+  const urlList = affectedUrlsForPromote(response, siteUrl);
+  if (urlList.length === 0) return;
+
+  let host: string;
+  let keyLocation: string;
+  try {
+    host = new URL(siteUrl).host;
+    keyLocation = `${siteUrl.replace(/\/+$/, '')}/${key}.txt`;
+  } catch {
+    // PUBLIC_SITE_URL isn't a valid URL — misconfiguration; skip rather than throw.
+    logIndexNowFailure(c, urlList.length, 'invalid_public_site_url');
+    return;
+  }
+
+  const outcome = await callIndexNow(fetch, { host, key, keyLocation, urlList });
+  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.indexnow.submit', 1, [
+    'source:promote',
+    `outcome:${outcome.ok ? 'ok' : 'failed'}`,
+  ]);
+  if (!outcome.ok) {
+    logIndexNowFailure(c, urlList.length, `indexnow_${outcome.status}: ${outcome.message}`);
+  }
+}
+
+function logIndexNowFailure(
+  c: Context<{ Bindings: Env }>,
+  urlsCount: number,
+  reason: string,
+): void {
+  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    level: 'warn',
+    message: 'aeci.api.promote.indexnow_failed',
+    source: 'review-app-promote',
+    reason,
+    urls_count: urlsCount,
+  });
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 /** A taxonomy facet model (table + the columns the find-or-create reads). The
@@ -371,6 +437,7 @@ interface TaxonomyTable {
 export function createPromoteHandler(
   dbFor: DbFactory = getDb,
   syncAlgolia: PromoteAlgoliaSync = defaultAlgoliaSync,
+  notifyIndexNow: PromoteIndexNowNotify = defaultIndexNowNotify,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     let raw: unknown;
@@ -894,6 +961,15 @@ export function createPromoteHandler(
     // best-effort task). No-ops without the Algolia secrets.
     if (c.env.ALGOLIA_APP_ID && c.env.ALGOLIA_ADMIN_KEY) {
       c.executionCtx.waitUntil(syncAlgolia(c, response));
+    }
+
+    // AECI-236: notify IndexNow of the affected public URLs so Bing/Yandex/…
+    // re-crawl quickly (§20.2/§20.5). Best-effort, post-commit; no-ops without
+    // INDEXNOW_KEY + PUBLIC_SITE_URL. Those are provisioned ONLY at launch
+    // (alongside `ALLOW_INDEXING=true`): pinging IndexNow for a noindex'd site is
+    // a correctness bug, so the secret's absence is the gate.
+    if (c.env.INDEXNOW_KEY && c.env.PUBLIC_SITE_URL) {
+      c.executionCtx.waitUntil(notifyIndexNow(c, response));
     }
 
     return json(response);

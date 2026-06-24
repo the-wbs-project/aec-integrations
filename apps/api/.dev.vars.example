@@ -175,9 +175,25 @@ RESEND_API_KEY=
 # Sender for transactional email — the Resend `from`. Bare address or `Name <addr>`.
 # Must be on a Resend-verified domain. Absent → sends skip (with RESEND_API_KEY).
 EMAIL_FROM=
-# Optional. Public site base (no trailing slash) for absolute links in emails
-# (product page in the approved email, guidelines in the rejected email). Absent →
-# the link is omitted. e.g. http://localhost:8788 locally.
-PUBLIC_SITE_URL=
 # Optional. Recipient of the reconcile-sweep stuck-request admin alert (§6.2).
 ADMIN_ALERT_EMAIL=
+
+# ─── IndexNow notification after promote (AECI-236 / §20.2) ─────────────────
+# On promote, the WORKER submits the affected public URLs to IndexNow (Bing /
+# Yandex / …). Two values, both read at runtime:
+#   wrangler secret put INDEXNOW_KEY --env production   # 8–128 chars [A-Za-z0-9-]
+#   PUBLIC_SITE_URL  → a wrangler var (apps/api/wrangler.jsonc), not a secret
+# INDEXNOW_KEY must MATCH the web Worker's INDEXNOW_KEY (the SSR Worker serves the
+# `{INDEXNOW_KEY}.txt` verification file). FAIL-OPEN: absent (local dev, PR
+# previews, pre-launch) → the submission is a graceful no-op.
+# PROVISION ONLY AT LAUNCH, on the env whose web Worker has ALLOW_INDEXING="true":
+# pinging IndexNow for a noindex'd site is a correctness bug, so the key's absence
+# is the enforcement. Generate a key with e.g. `openssl rand -hex 16`.
+INDEXNOW_KEY=
+
+# Public site base URL (no trailing slash) — SHARED by transactional email (the
+# absolute links in the approved/rejected emails, AECI-240) AND the IndexNow
+# submission (the origin the affected URLs are built against, AECI-236). Local
+# default below; set the real launch host as a wrangler var in production. Absent →
+# email links are omitted and IndexNow no-ops.
+PUBLIC_SITE_URL=http://localhost:8788

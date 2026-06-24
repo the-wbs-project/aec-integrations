@@ -137,6 +137,34 @@ export type Env = {
    */
   CF_ZONE_ID?: string;
   /**
+   * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
+   * contents of the `{key}.txt` verification file the SSR Worker serves at the
+   * site root (`apps/web/src/server/routes/indexnow-key.ts`). Set as a Wrangler
+   * secret. 8–128 chars of `[A-Za-z0-9-]`. Optional + fail-open: absent (with or
+   * without `PUBLIC_SITE_URL`) → the promote IndexNow submission is a graceful
+   * no-op (local `dev:bound` / PR previews / pre-launch).
+   *
+   * **Provision ONLY at public launch**, on the env whose web Worker has
+   * `ALLOW_INDEXING="true"`. Pinging IndexNow for a `noindex` site (every env
+   * pre-launch — `apps/web/wrangler.jsonc`) is a correctness bug; the secret's
+   * absence is the enforcement.
+   */
+  INDEXNOW_KEY?: string;
+  /**
+   * Canonical public site origin (no trailing slash, e.g. `https://aecintegrations.com`),
+   * SHARED by two features: the absolute URLs submitted to IndexNow on promote
+   * (AECI-236) AND the absolute links built in transactional emails (the product
+   * page in the review-approved email, the guidelines in the rejected email —
+   * AECI-240). Public value, set as a plain wrangler `var` per env (like
+   * `SUPABASE_URL`/`CF_ZONE_ID`). The API Worker is private — its own request URL
+   * is NOT the public origin — so the canonical host must be configured here, not
+   * derived from the request. Set it to the same host the SSR Worker serves at
+   * launch (canonicals are self-referential to the serving origin, ADR 0011).
+   * Absent → the IndexNow submission no-ops and email links are omitted (never a
+   * dead host).
+   */
+  PUBLIC_SITE_URL?: string;
+  /**
    * Algolia application id (AECI-134). Single, shared across envs (one app;
    * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the
    * sync pipeline (3.5/3.6) reads it.
@@ -248,12 +276,4 @@ export type Env = {
    * absent `RESEND_API_KEY`). Set as a plain wrangler var per env. See `docs/email.md`.
    */
   EMAIL_FROM?: string;
-  /**
-   * Public site base URL (no trailing slash, e.g. `https://aecintegrations.com`)
-   * used to build absolute links in transactional emails (the product page in the
-   * review-approved email, the review guidelines in the rejected email). Optional:
-   * absent → the link is omitted, never a dead host. Set as a plain wrangler var
-   * per env (the API Worker otherwise has no notion of the public site origin).
-   */
-  PUBLIC_SITE_URL?: string;
 };

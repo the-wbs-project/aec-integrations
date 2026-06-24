@@ -683,6 +683,7 @@ export const adminVendorRequestConfig = {
     body: true,
     sourceUrl: true,
     linearIssueId: true,
+    linearIssueUrl: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -702,6 +703,7 @@ export interface RawAdminVendorRequestRow {
   body: string;
   sourceUrl: string | null;
   linearIssueId: string | null;
+  linearIssueUrl: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -777,6 +779,7 @@ export function toAdminVendorRequest(
     source_url: raw.sourceUrl,
     is_duplicate: isDuplicate,
     linear_issue_id: raw.linearIssueId,
+    linear_issue_url: raw.linearIssueUrl,
     created_at: raw.createdAt,
     resolved_at: raw.resolvedAt,
     resolved_by: raw.resolvedById,

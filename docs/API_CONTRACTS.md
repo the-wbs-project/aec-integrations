@@ -942,6 +942,10 @@ export const AdminVendorRequestSchema = z.object({
   // target_id)` (Phase 6 Spec §7.2). Informational only.
   is_duplicate: z.boolean(),
   linear_issue_id: z.string().nullable(),
+  // AECI-261: the linked Linear issue's web permalink (`issue.url`), persisted on
+  // creation and the inbound webhook so /admin/requests renders a real link. Null
+  // when unlinked or for rows linked before this column existed (no backfill).
+  linear_issue_url: z.string().nullable(),
   created_at: z.string().datetime(),
   resolved_at: z.string().datetime().nullable(),
   resolved_by: z.string().uuid().nullable(),

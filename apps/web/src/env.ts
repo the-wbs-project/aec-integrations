@@ -130,6 +130,17 @@ export type WebEnv = {
   CF_PURGE_API_TOKEN?: string;
   CF_ZONE_ID?: string;
   /**
+   * IndexNow verification key (AECI-236 / §20.2). The plaintext key served as the
+   * body of the `{INDEXNOW_KEY}.txt` file at the site root
+   * (`server/routes/indexnow-key.ts`) so search engines can verify host ownership
+   * before honoring the IndexNow submissions the API Worker sends on promote. Set
+   * as a CI-pushed Wrangler secret (kept out of git); must match the API Worker's
+   * `INDEXNOW_KEY`. Absent → the key file 404s (graceful no-op) — the expected
+   * state until public launch, when it is provisioned alongside
+   * `ALLOW_INDEXING="true"`.
+   */
+  INDEXNOW_KEY?: string;
+  /**
    * Public Algolia credentials (AECI-134). `ALGOLIA_SEARCH_KEY` is query-only
    * and index-scoped — safe to render into HTML. Both are absent until the
    * operator provisions them; absent → the Algolia bootstrap is a no-op. The
