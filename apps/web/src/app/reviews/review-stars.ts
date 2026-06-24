@@ -11,10 +11,11 @@ import { Component, ChangeDetectionStrategy, computed, input } from '@angular/co
  *
  * `rating` accepts decimals (the denormalized averages, e.g. 4.3) as well as
  * the integer per-review ratings; the glyphs round to the nearest whole star
- * while the label carries the precise value. Filled stars use
- * `--accent-primary`; empty use `--text-tertiary` (decorative, so the AA
- * small-text contrast rule that forbids `--text-tertiary` for copy does not
- * apply here).
+ * while the label carries the precise value. Filled stars use `--accent-rating`
+ * (Goldenrod #DAA520 — the gold-star fill); empty use `--border-strong` (a faint
+ * light-gray track). Both are decorative (aria-hidden), so the AA small-text /
+ * 3:1 graphic-contrast rules do not apply — the precise value is announced via
+ * the `aria-label` and shown as the adjacent numeral.
  */
 @Component({
   selector: 'aec-review-stars',
@@ -26,7 +27,7 @@ import { Component, ChangeDetectionStrategy, computed, input } from '@angular/co
         <span
           aria-hidden="true"
           class="text-sm"
-          [style.color]="n <= filled() ? 'var(--accent-primary)' : 'var(--text-tertiary)'"
+          [style.color]="n <= filled() ? 'var(--accent-rating)' : 'var(--border-strong)'"
           >★</span
         >
       }

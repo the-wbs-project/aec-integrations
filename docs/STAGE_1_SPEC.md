@@ -100,7 +100,8 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--accent-primary-hover` | `#2E5C45` | Hover state |
 | `--accent-primary-soft` | `#ECF1EE` | Forest wash — selected/active/verified-soft state fills; always paired with a border or selected affordance (AECI-230) |
 | `--accent-secondary` | `#E89668` | Clay — decorative/fill only, carrying `--text-primary` (2.33:1 on white: below even the 3:1 large-text floor — AECI-230) |
-| `--accent-secondary-deep` | `#A14D22` | Clay deep — text-capable clay: clay text, icons, star ratings (5.83:1 on white); doubles as the warning hue (AECI-230) |
+| `--accent-secondary-deep` | `#A14D22` | Clay deep — text-capable clay: clay text, icons (5.83:1 on white); doubles as the warning hue (AECI-230) |
+| `--accent-rating` | `#DAA520` | Goldenrod — gold-star fill for rating glyphs; decorative (`aria-hidden`), so its 2.24:1 on white is permitted (value carried by numeral + `aria-label`); empty stars use `--border-strong` in displays, `--text-tertiary` in the interactive review-form picker |
 | `--accent-warm` | `#F5F2EA` | Bone — subtle warm-tinted sections, never primary surface |
 | `--status-error` | `#B3261E` | Form/validation errors (6.54:1 on white); success = Forest, warning = Clay deep (AECI-230) |
 
@@ -115,7 +116,8 @@ Bone is reclassified from "the background" to "a warm-tinted accent surface." It
 ### 2a.4 Contrast validation
 
 - All text/background pairs verified for WCAG 2.1 AA contrast before launch
-- Clay `#E89668` measures ~2.3:1 on white — below AA body text (4.5:1) **and** below the 3:1 floor for large text and meaning-bearing graphics. It is therefore decorative/fill only (fills carry `--text-primary` at 8.48:1, never white). The former "large text allowed" clause was mathematically false and was struck in AECI-230. Clay-colored text, icons, and star ratings use `--accent-secondary-deep` `#A14D22` (5.83:1). See `BRAND_GUIDELINES.md` §5.
+- Clay `#E89668` measures ~2.3:1 on white — below AA body text (4.5:1) **and** below the 3:1 floor for large text and meaning-bearing graphics. It is therefore decorative/fill only (fills carry `--text-primary` at 8.48:1, never white). The former "large text allowed" clause was mathematically false and was struck in AECI-230. Clay-colored text and icons use `--accent-secondary-deep` `#A14D22` (5.83:1). See `BRAND_GUIDELINES.md` §5.
+- Star-rating glyphs use `--accent-rating` (Goldenrod `#DAA520`, ~2.24:1 on white). The sub-3:1 ratio is permitted because the glyphs are decorative (`aria-hidden`) — the value is carried by the adjacent numeral and the `aria-label`, never by color alone. Read-only displays pair the gold with `--border-strong` empties (a faint track); the interactive review-form picker uses `--text-tertiary` empties so the unselected control stays visible before a rating is chosen. See `BRAND_GUIDELINES.md` §5.1.
 - `--text-tertiary` was re-pointed `#A1A1AA` → `#71717A` in AECI-230 (the old value measured 2.56:1 on white). Tertiary text is never placed on sunken/muted surfaces (4.40:1 there).
 - Contrast verification is automated in CI via a token-pair check matrix
 
