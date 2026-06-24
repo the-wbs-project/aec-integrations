@@ -86,7 +86,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Silent catch blocks: `try { ... } catch {}` with no logging or rethrow
 - Errors caught but the original error context lost (`throw new Error('failed')` loses the cause)
 - API or Worker responses that return 200 with an error payload instead of the right HTTP status code
-- No fallback when an external dependency (Algolia, Linear, Loops) fails
+- No fallback when an external dependency (Algolia, Linear, Resend) fails
 - Errors thrown from `ctx.waitUntil()` work that silently fail and never reach Datadog
 - New code path that can throw but doesn't include the error in audit log
 

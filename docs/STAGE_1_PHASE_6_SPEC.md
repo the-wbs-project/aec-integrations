@@ -42,7 +42,7 @@ The forms that *create* requests already shipped (Phase 2 / AECI-128); Phase 6 b
 
 ### 3.3 Out of scope (Stage 2+ / deferred)
 
-Guarded FSM with enforced transitions; n8n; Slack; auto-approval; auto-applied corrections; vendor self-serve portal. **Deferred to Phase 7:** Loops transactional email (the permanent home of the failure-alert email), WAF rate limits on the request endpoints, and the daily data-quality job (§23.1).
+Guarded FSM with enforced transitions; n8n; Slack; auto-approval; auto-applied corrections; vendor self-serve portal. **Deferred to Phase 7:** transactional email (the permanent home of the failure-alert email — landed in AECI-240 / Phase 7.5 on **Resend**, not Loops; see `docs/email.md`), WAF rate limits on the request endpoints, and the daily data-quality job (§23.1).
 
 ---
 
@@ -68,7 +68,7 @@ Extend the AECI-128 request handler: after the `vendor_requests` insert, create 
 
 ### 6.2 Failure handling
 
-If the Linear API call fails: the row stays `open` with `linear_issue_id=null`, a Datadog error is logged, the reconciliation sweep (§6.4) retries, and on **persistent** failure an **admin email** fires so the request is never silently lost. (Email mechanism: Loops once it lands in Phase 7; until then a minimal stopgap send — the stuck-row visibility in `/admin/requests` + the Datadog alert are the guaranteed backstop.)
+If the Linear API call fails: the row stays `open` with `linear_issue_id=null`, a Datadog error is logged, the reconciliation sweep (§6.4) retries, and on **persistent** failure an **admin email** fires so the request is never silently lost. (Email mechanism: **Resend** — wired in AECI-240 / Phase 7.5, `docs/email.md`; fail-open, so the stuck-row visibility in `/admin/requests` + the Datadog alert remain the guaranteed backstop.)
 
 ### 6.3 `POST /api/webhooks/linear` (Linear → Site)
 
@@ -154,7 +154,7 @@ Parity with AECI-66 / AECI-141 / AECI-180 / AECI-206. Metrics (`aeci.*`): reques
 
 ## 14. Phase 7 handoff
 
-Phase 6 leaves for Phase 7: **Loops** transactional email (the permanent home of the §6.2 failure-alert email + the §5.4 account-deletion email), **WAF rate limits** on the public request endpoints, and the **daily data-quality job** (§23.1).
+Phase 6 leaves for Phase 7: **Resend** transactional email (the permanent home of the §6.2 failure-alert email + the §5.4 account-deletion email — landed in AECI-240 / Phase 7.5, `docs/email.md`; specced as "Loops", built on Resend), **WAF rate limits** on the public request endpoints, and the **daily data-quality job** (§23.1).
 
 ---
 

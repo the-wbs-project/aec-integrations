@@ -47,6 +47,7 @@ import { ApiError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { sendAccountDeletionEmail } from '../lib/email';
 import type { DbFactory } from '../lib/handler-utils';
 import { deleteAuthUser as deleteAuthUserDefault } from '../lib/supabase-admin';
 
@@ -153,6 +154,9 @@ export function createDeleteAccountHandler(
   return async (c) => {
     const session = c.get('auth');
     const { userId } = session;
+    // Capture the recipient BEFORE erasure — the auth.users row (the email's home)
+    // is deleted below, so the §11.1 confirmation must read it up front.
+    const recipientEmail = session.email;
     const { db } = dbFor(c.env);
 
     const auditEntry: AuditLogEntry = {
@@ -203,7 +207,15 @@ export function createDeleteAccountHandler(
       });
     }
 
-    c.executionCtx.waitUntil(forwardAuditLog(auditEntry, makeForwarder(c)));
+    // §26.5 forward + the §11.1 deletion confirmation, fire-and-forget after the
+    // erasure. The email fails open (absent key/email → silent skip) and never
+    // affects the response — the data is already gone.
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(auditEntry, makeForwarder(c)),
+        sendAccountDeletionEmail(c, { to: recipientEmail }),
+      ]),
+    );
 
     const body: DeleteAccountResponse = {
       message: 'Your account and personal data have been deleted.',

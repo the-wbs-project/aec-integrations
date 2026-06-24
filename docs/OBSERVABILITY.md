@@ -58,7 +58,8 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.linear.reconcile.stuck` | gauge | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214 — the every-15-min sweep) | — (backlog: count of `open`/unlinked `vendor_requests` older than the stuck threshold; **0 on a clean run**) |
 | `aeci.linear.reconcile.attempt` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | `outcome` (cleared / still_failing) — submits the **row count** as the value, so query with `sum:` |
 | `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
-| `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214) | `outcome` (sent / failed / skipped) — **`skipped` until Phase 7 wires Loops** (§14); the seam is fail-open and the Datadog alert is the backstop |
+| `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214; transport AECI-240) | `outcome` (sent / failed / skipped) — sends via Resend; `skipped` when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent (the seam is fail-open and the Datadog alert is the backstop) |
+| `aeci.email.send` | count | `apps/api/src/lib/email.ts` (the Resend transactional client, AECI-240 / Phase 7.5 — review submit/approve/reject confirmations, the account-deletion email, and the reconcile-sweep admin alert) | `outcome` (sent / failed / skipped), `template` (`review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `stuck-request-alert`) — fail-open; `skipped` when `RESEND_API_KEY` / `EMAIL_FROM` / the recipient are absent (see `docs/email.md`) |
 | `aeci.moderation.ban` | count | _deferred — the reviewer-ban handler, **AECI-218 / Phase 6.11** (the ban write-path is unbuilt; see the deferred-metric note below)_ | `action` (`ban` / `unban`), `outcome` (`ok`) — **planned contract, not yet emitted** |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
@@ -183,10 +184,20 @@ no-data monitor distinguishes "ran clean" from "didn't run"). `aeci.linear.recon
 (`outcome:cleared|still_failing`) and `aeci.linear.reconcile.persistent_failure` (still failing past
 the persistent threshold) ride the same `source:reconcile` logs; the persistent-failure count + its
 `level:error` log are **the Datadog alert** behind `monitor-linear-reconcile-stuck.json`.
-`aeci.linear.reconcile.email` tracks the admin-alert seam (`outcome:skipped` until Loops lands in
-Phase 7 — §14). The full Phase-6 **dashboard** + the pipeline-failure / HMAC / sweep-liveness monitors
+`aeci.linear.reconcile.email` tracks the admin-alert seam (Resend transport, AECI-240; `outcome:sent|failed|skipped`,
+`skipped` when the key/recipient are absent). The full Phase-6 **dashboard** + the pipeline-failure / HMAC / sweep-liveness monitors
 land in **6.12** (AECI-219, below); AECI-214 shipped only the single stuck-row (persistent-failure)
 monitor the §6.2 backstop required.
+
+`aeci.email.send` (AECI-240, Phase 7.5) is the Resend transactional-email transport health metric —
+one count per send attempt from `lib/email.ts`, `outcome` (`sent`/`failed`/`skipped`) × `template`
+(`review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `stuck-request-alert`).
+Like toxicity scoring, every send is **fail-open and fire-and-forget** (dispatched via `ctx.waitUntil`,
+never blocks the triggering action), so the count is an *outage/triage-loss* signal, never user-facing.
+`skipped` is the absent-config no-op (no `RESEND_API_KEY` / `EMAIL_FROM`, or an unresolved recipient — the
+expected local/preview state), so it doesn't pollute the `failed` error-rate denominator. The
+`stuck-request-alert` template is the same send the `aeci.linear.reconcile.email` seam metric also
+records, so a reconcile alert increments both (one transport-level, one seam-level). See `docs/email.md`.
 
 `aeci.linear.sync` / `aeci.linear.sync.duration_ms` (AECI-213, Phase 6.6) are the **outbound-resolution**
 counterpart: one count per site→Linear `ctx.waitUntil` push when an admin resolves/rejects a request.

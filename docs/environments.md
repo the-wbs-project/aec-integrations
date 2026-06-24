@@ -427,8 +427,8 @@ Secrets are stored in three places:
 | `CF_ACCESS_CLIENT_ID` + `CF_ACCESS_CLIENT_SECRET` | ❌ | ❌ | ✅ | Service token for non-prod smoke tests (`docs/access.md` §1). |
 | `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_ENDPOINT` | ❌ | ❌ | ✅ | Prod snapshot uploads (AECI-78). Bucket `aeci-prod-snapshots`, object key `prod-pre-<short-sha>.dump` (12-char truncated input SHA). Uploaded via AWS CLI against `R2_ENDPOINT` (S3-compatible). |
 | `DATADOG_API_KEY` | ❌ | ❌ | ✅ | Used by `promote-to-prod.yml` (AECI-78) to POST deploy markers to Datadog `/api/v1/events` per CICD_PLAN §9.1. |
-| `LOOPS_API_KEY` (test) | ✅ on staging Workers | ❌ | — | Sends to allowlisted addresses only in staging. |
-| `LOOPS_API_KEY` (prod) | ❌ | ✅ on prod Workers | — | Sends to real users. |
+| `RESEND_API_KEY_STAGING` | ✅ on staging API Worker (as `RESEND_API_KEY`) | ❌ | — | Transactional email (AECI-240). Graceful warn-and-skip; sends to allowlisted addresses only in staging. See `docs/email.md`. |
+| `RESEND_API_KEY_PRODUCTION` | ❌ | ✅ on prod API Worker (as `RESEND_API_KEY`) | — | Transactional email; sends to real users. |
 | Datadog `DD_*` (per `apps/web/wrangler.jsonc` header) | ✅ per env | ✅ per env | — | RUM + Logs intake. |
 | `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID` | ✅ per env | ✅ per env | — | Cache-tag purge (AECI-56). |
 | `ALGOLIA_APP_ID` | ✅ per env (both Workers) | ✅ per env (both Workers) | ✅ (shared, one value) | Algolia app id (AECI-134). Single value, all envs. |
@@ -626,7 +626,7 @@ These steps must land before the first successful `promote-to-prod.yml` run. Non
   # (see the service-role row in §Secrets). Keep it operator-held only.
   ```
 - [ ] **Datadog deploy-marker secret.** `gh secret set DATADOG_API_KEY --body "<key>"` (already exists for Worker runtime intake; CI needs its own copy to POST to `/api/v1/events`).
-- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`. **Exception:** `DATABASE_URL` on the prod API Worker is pushed automatically by `promote-to-prod.yml` from the `DATABASE_URL_PRODUCTION` GH secret (set above) on every promote, so you don't need to push it by hand — but you *can* (the manual put is the fallback and harmless). All the other secrets (`DIRECT_URL`, `DD_*`, `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID`, `LOOPS_API_KEY`, …) are still manual. (The service-role key is **not** in this list — it is never pushed to a Worker; see the service-role row in §Secrets.)
+- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`. **Exception:** `DATABASE_URL` on the prod API Worker is pushed automatically by `promote-to-prod.yml` from the `DATABASE_URL_PRODUCTION` GH secret (set above) on every promote, so you don't need to push it by hand — but you *can* (the manual put is the fallback and harmless). All the other secrets (`DIRECT_URL`, `DD_*`, `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID`, …) are still manual. (`RESEND_API_KEY` is **not** manual — `promote-to-prod.yml` pushes it from the `RESEND_API_KEY_PRODUCTION` GH secret, graceful; AECI-240.) (The service-role key is **not** in this list — it is never pushed to a Worker; see the service-role row in §Secrets.)
 - [ ] **Algolia production indexes + keys (AECI-134).** With the root creds exported (as in §6b), `node scripts/algolia/provision.mjs --env production`. Then:
   ```bash
   gh secret set ALGOLIA_SEARCH_KEY_PRODUCTION --body "<printed search key>"

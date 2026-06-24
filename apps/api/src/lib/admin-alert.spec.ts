@@ -1,9 +1,11 @@
 /**
- * Unit tests for the admin-alert seam (AECI-214 / Phase 6.7). Until Phase 7 wires
- * Loops (§14) this is a fail-open no-op: it returns `'skipped'`, emits the email
- * outcome metric, and logs — the Datadog alert raised by the sweep is the
- * backstop. These lock in that contract so Phase 7's transport swap is the only
- * change needed.
+ * Unit tests for the admin-alert seam (AECI-214 / Phase 6.7, transport wired in
+ * AECI-240 / Phase 7.5). `sendAdminAlert` now delegates to Resend via
+ * `sendStuckRequestAdminAlert` (`lib/email.ts`), then emits the
+ * `aeci.linear.reconcile.email` outcome metric and logs the digest. It stays
+ * fail-open: an absent key/recipient yields `'skipped'` and the Datadog alert
+ * raised by the sweep is the backstop. The email transport itself is covered by
+ * `email.spec.ts`; here we lock the seam's contract (delegation + metric + log).
  */
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,7 +17,12 @@ vi.mock('../datadog', () => ({
   submitCount: vi.fn(),
 }));
 
+vi.mock('./email', () => ({
+  sendStuckRequestAdminAlert: vi.fn(),
+}));
+
 import { logToDatadog, submitCount } from '../datadog';
+import { sendStuckRequestAdminAlert } from './email';
 import { sendAdminAlert, type AdminAlert } from './admin-alert';
 
 function ctx(envOverrides: Record<string, unknown> = {}) {
@@ -39,20 +46,70 @@ const ALERT: AdminAlert = {
   ],
 };
 
-beforeEach(() => vi.clearAllMocks());
+beforeEach(() => {
+  vi.clearAllMocks();
+  // Default: the transport reports a successful send.
+  vi.mocked(sendStuckRequestAdminAlert).mockResolvedValue('sent');
+});
 
 describe('sendAdminAlert', () => {
-  it('is a fail-open no-op (returns skipped + emits outcome:skipped) until Loops lands', async () => {
-    const outcome = await sendAdminAlert(ctx(), ALERT);
+  it('delegates to the Resend transport with the recipient + rows and returns its outcome', async () => {
+    const c = ctx({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com' });
+    const outcome = await sendAdminAlert(c, ALERT);
 
-    expect(outcome).toBe('skipped');
+    expect(outcome).toBe('sent');
+    expect(sendStuckRequestAdminAlert).toHaveBeenCalledWith(
+      c,
+      expect.objectContaining({ to: 'ops@aecintegrations.com', rows: ALERT.rows }),
+    );
     expect(submitCount).toHaveBeenCalledWith(
       expect.anything(),
       expect.anything(),
       expect.anything(),
       'aeci.linear.reconcile.email',
       1,
-      ['outcome:skipped'],
+      ['outcome:sent'],
+    );
+  });
+
+  it('emits outcome:failed and warns when the send fails', async () => {
+    vi.mocked(sendStuckRequestAdminAlert).mockResolvedValue('failed');
+    const outcome = await sendAdminAlert(
+      ctx({ ADMIN_ALERT_EMAIL: 'ops@aecintegrations.com' }),
+      ALERT,
+    );
+
+    expect(outcome).toBe('failed');
+    expect(submitCount).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      'aeci.linear.reconcile.email',
+      1,
+      ['outcome:failed'],
+    );
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ level: 'warn', source: 'reconcile' }),
+    );
+  });
+
+  it('passes no recipient and skips when ADMIN_ALERT_EMAIL is unset', async () => {
+    vi.mocked(sendStuckRequestAdminAlert).mockResolvedValue('skipped');
+    const outcome = await sendAdminAlert(ctx(), ALERT);
+
+    expect(outcome).toBe('skipped');
+    expect(sendStuckRequestAdminAlert).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ to: undefined }),
+    );
+    expect(logToDatadog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.objectContaining({ message: expect.stringContaining('recipient=unset') }),
     );
   });
 
@@ -70,7 +127,8 @@ describe('sendAdminAlert', () => {
     );
   });
 
-  it('never throws', async () => {
+  it('never throws (empty digest still resolves)', async () => {
+    vi.mocked(sendStuckRequestAdminAlert).mockResolvedValue('skipped');
     await expect(sendAdminAlert(ctx(), { kind: 'stuck_requests', rows: [] })).resolves.toBe(
       'skipped',
     );

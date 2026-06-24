@@ -40,6 +40,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
 | Search ranking: Algolia index settings (searchable attrs, faceting), custom ranking signals, mechanism-kind priority, tie-breakers, post-launch tuning loop | `docs/SEARCH_RANKING.md` |
 | Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
+| Transactional email (Resend client, template catalogue, secrets) + the Supabase→Resend SMTP magic-link sender + deliverability (SPF/DKIM/DMARC) | `docs/email.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
 | Auth model, GRANTs & RLS policies (3-layer authz: Worker JWT/role/ban, PostgREST GRANTs, RLS; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
 | Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
@@ -66,7 +67,7 @@ If your work touches a topic governed by one of these documents, that document i
 - **Observability:** Datadog (RUM + APM + logs) and PostHog (product analytics)
 - **Issue tracker:** Linear
 - **i18n:** `@angular/localize` (en-US only at launch; architecture supports more)
-- **Email:** Loops
+- **Email:** Resend (transactional — `apps/api/src/lib/email.ts`, AECI-240) + Microsoft 365 (mailboxes). Supabase Auth magic links send over Resend custom SMTP. See `docs/email.md`. (Supersedes the former "Loops".)
 - **Workflow automation:** Cloudflare Worker for the form→Linear request pipeline (n8n **dropped** — Phase 2 §18.1 / `docs/STAGE_1_PHASE_6_SPEC.md`). No Slack (Linear native email + admin-email-on-failure).
 - **Theme:** light/dark with system preference detection (tokens defined in `docs/STAGE_1_SPEC.md` §2a)
 

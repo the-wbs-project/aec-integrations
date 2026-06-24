@@ -8,21 +8,25 @@
  * (the `aeci.linear.reconcile.persistent_failure` count + the `source:reconcile`
  * error log) is emitted by the sweep itself and is the guaranteed backstop — per
  * `STAGE_1_PHASE_6_SPEC.md` §6.2: "the stuck-row visibility in `/admin/requests`
- * + the Datadog alert are the guaranteed backstop" until Loops lands.
+ * + the Datadog alert are the guaranteed backstop" — which holds even when the
+ * email send is fail-open `'skipped'` (no key/recipient).
  *
- * **Loops transactional email is a Phase 7 deliverable** (§14). Until then this
- * seam is a fail-open structured no-op: it emits `aeci.linear.reconcile.email`
- * with `outcome:skipped`, logs that an alert *would* be emailed (to
- * `ADMIN_ALERT_EMAIL` once set), and returns `'skipped'`. It mirrors the
- * absent-`LINEAR_API_KEY` posture (`lib/linear.ts`): the missing transport is the
- * expected state, not an error. Kept as its own module so Phase 7 swaps the
- * transport (and its test) in one place without touching the sweep.
+ * **The transport is Resend** (AECI-240 / Phase 7.5, §11.1) — `sendAdminAlert`
+ * delegates to `sendStuckRequestAdminAlert` in `lib/email.ts`, then emits
+ * `aeci.linear.reconcile.email` with the send `outcome` and logs the digest. It
+ * stays fail-open: an absent `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` resolves to
+ * `'skipped'` (the expected local/preview state, mirroring the absent-`LINEAR_API_KEY`
+ * posture), and the §6.2 Datadog alert remains the guaranteed backstop regardless.
+ * Kept as its own module so the email channel (and its test) live in one place,
+ * apart from the sweep. (Originally specced as "Loops"; the repo uses Resend — see
+ * docs/email.md.)
  */
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
 
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
+import { sendStuckRequestAdminAlert } from './email';
 
 /** The slice of Hono's `Context` the Datadog helpers need, typed structurally so
  *  a cron-synthesised context (see `lib/reconciliation-sweep.ts`) fits — same
@@ -49,10 +53,11 @@ export interface AdminAlert {
 export type AdminAlertOutcome = 'sent' | 'failed' | 'skipped';
 
 /**
- * Deliver the admin alert. **Never throws** (mirrors `linearGraphql`) — a
- * telemetry or transport failure must not break the sweep. Until Phase 7 wires
- * Loops this always returns `'skipped'`; the caller has already raised the
- * Datadog alert, which is the guaranteed backstop.
+ * Deliver the admin alert via Resend (`lib/email.ts`). **Never throws** (mirrors
+ * `linearGraphql`) — a telemetry or transport failure must not break the sweep.
+ * Returns the send `outcome`; an absent `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL`
+ * yields `'skipped'`, in which case the caller has already raised the Datadog
+ * alert, which is the guaranteed backstop (§6.2).
  *
  * The sweep injects this as a dependency so its tests can assert the seam fires
  * on a persistent failure (the issue's "persistent failure emails" criterion)
@@ -62,18 +67,16 @@ export async function sendAdminAlert(
   c: AlertContext,
   alert: AdminAlert,
 ): Promise<AdminAlertOutcome> {
-  // ── Phase 7 / Loops: replace this block with the transactional send. ──
-  // TODO(AECI Phase 7 / Loops): POST the digest to Loops' transactional API
-  //   (recipient `c.env.ADMIN_ALERT_EMAIL`), returning 'sent' / 'failed' and
-  //   emitting `outcome:sent|failed`. Keep the absent-key path below as the
-  //   fail-open no-op (mirrors LINEAR_API_KEY). See STAGE_1_PHASE_6_SPEC.md §14.
-  const outcome: AdminAlertOutcome = 'skipped';
+  const outcome: AdminAlertOutcome = await sendStuckRequestAdminAlert(c, {
+    to: c.env.ADMIN_ALERT_EMAIL,
+    rows: alert.rows,
+  });
   emitEmailMetric(c, outcome);
   log(c, {
-    level: 'info',
+    level: outcome === 'failed' ? 'warn' : 'info',
     message: `aeci.linear.reconcile.email outcome=${outcome} rows=${alert.rows.length}${
       c.env.ADMIN_ALERT_EMAIL ? ` recipient=${c.env.ADMIN_ALERT_EMAIL}` : ' recipient=unset'
-    } (Loops deferred to Phase 7 — Datadog alert is the backstop)`,
+    }`,
     request_ids: alert.rows.map((r) => r.requestId),
   });
   return outcome;

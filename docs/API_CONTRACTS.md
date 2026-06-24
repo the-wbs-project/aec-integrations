@@ -727,8 +727,10 @@ Delete the authenticated user's account (GDPR right-to-erasure, `AUTH_AND_RLS.md
 §8). In one transaction: anonymizes reviews (sets `reviewer_id = null`), nulls
 every other inbound reference to the profile, deletes the profile, then deletes
 the Supabase `auth.users` row (raw SQL, same transaction — see AUTH_AND_RLS §8 for
-why not the Admin API). Audited `account.deleted` (no PII). The Loops confirmation
-email is deferred to Phase 7.
+why not the Admin API). Audited `account.deleted` (no PII). A Resend confirmation
+email is sent fire-and-forget after erasure (AECI-240 / Phase 7.5, fail-open — the
+deletion never depends on it); recipient is captured from the session before the
+`auth.users` row is removed. See `docs/email.md`.
 
 ```typescript
 export interface DeleteAccountResponse {

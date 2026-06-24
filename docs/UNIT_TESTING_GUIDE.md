@@ -190,7 +190,7 @@ Any change that triggers `invalidateForEntity()` must include a test asserting:
 
 ## Mocking rules
 
-**Mock at the boundary.** External services (Algolia, Loops, Datadog, Linear), the network layer, the database connection. Not internal helpers.
+**Mock at the boundary.** External services (Algolia, Resend, Datadog, Linear), the network layer, the database connection. Not internal helpers.
 
 **Never mock:**
 

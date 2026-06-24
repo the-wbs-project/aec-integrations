@@ -224,12 +224,36 @@ export type Env = {
   LINEAR_API_KEY?: string;
   /**
    * Recipient for the persistent-failure admin alert raised by the reconciliation
-   * sweep (AECI-214 / Phase 6.7). Reserved slot: until Phase 7 wires Loops
-   * transactional email (§14), the sweep's `sendAdminAlert()` seam is a fail-open
-   * no-op and the **Datadog alert** (`aeci.linear.reconcile.persistent_failure` +
-   * the `source:reconcile` error log) is the guaranteed backstop (§6.2). Absent →
-   * the seam logs `outcome:skipped` and relies on that alert. When Phase 7 fills
-   * the transport, this is the `To:` address. Set as a plain wrangler var per env.
+   * sweep (AECI-214 / Phase 6.7) — the `To:` address of the §6.2 admin email now
+   * wired through Resend (`lib/email.ts`, AECI-240). Absent → the sweep's
+   * `sendAdminAlert()` seam returns `'skipped'` and the **Datadog alert**
+   * (`aeci.linear.reconcile.persistent_failure` + the `source:reconcile` error log)
+   * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env.
    */
   ADMIN_ALERT_EMAIL?: string;
+  /**
+   * Resend API key for transactional email (AECI-240 / Phase 7.5, §11.1). Set as a
+   * Wrangler **secret** per env, staging/prod only. Optional and **fail-open**
+   * (mirrors `ANTHROPIC_API_KEY`): absent → every `lib/email.ts` send is a silent
+   * `'skipped'` (the expected state in local `dev:bound` / PR previews), so the
+   * triggering action — review submit/moderate, account delete, reconcile sweep —
+   * still succeeds. The repo standardized on Resend over the spec's original
+   * "Loops"; see `docs/email.md`. Presented as a Bearer token to the Resend API.
+   */
+  RESEND_API_KEY?: string;
+  /**
+   * Sender for transactional email — the Resend `from`. Accepts a bare address or
+   * a `Name <addr>` form (e.g. `AEC Integrations <notifications@aecintegrations.com>`).
+   * Must be a verified Resend domain. Absent → sends `'skipped'` (alongside an
+   * absent `RESEND_API_KEY`). Set as a plain wrangler var per env. See `docs/email.md`.
+   */
+  EMAIL_FROM?: string;
+  /**
+   * Public site base URL (no trailing slash, e.g. `https://aecintegrations.com`)
+   * used to build absolute links in transactional emails (the product page in the
+   * review-approved email, the review guidelines in the rejected email). Optional:
+   * absent → the link is omitted, never a dead host. Set as a plain wrangler var
+   * per env (the API Worker otherwise has no notion of the public site origin).
+   */
+  PUBLIC_SITE_URL?: string;
 };

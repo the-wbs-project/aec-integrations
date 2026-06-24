@@ -160,3 +160,24 @@ ALGOLIA_ADMIN_KEY=
 # retention (ZDR) enabled, or scored review bodies are retained ~30 days outside
 # the §8 erasure boundary. (Local dev sends nothing unless you set a real key.)
 ANTHROPIC_API_KEY=
+
+# ─── Resend transactional email (AECI-240 / Phase 7.5, §11.1) ───────────────
+# RESEND_API_KEY is read at runtime by lib/email.ts for the review confirmation /
+# approved / rejected emails, the account-deletion confirmation, and the
+# reconcile-sweep admin alert. Set it as a Wrangler secret in deployed envs:
+#   wrangler secret put RESEND_API_KEY --env staging|production
+# Optional and FAIL-OPEN: absent (local dev, PR previews) → every send is a silent
+# 'skipped' and the triggering action still succeeds. Get a key from
+# https://resend.com (API Keys). The repo uses Resend, not the spec's original
+# "Loops" — see docs/email.md. To exercise real sends locally, set a key AND
+# EMAIL_FROM to a verified-domain sender below.
+RESEND_API_KEY=
+# Sender for transactional email — the Resend `from`. Bare address or `Name <addr>`.
+# Must be on a Resend-verified domain. Absent → sends skip (with RESEND_API_KEY).
+EMAIL_FROM=
+# Optional. Public site base (no trailing slash) for absolute links in emails
+# (product page in the approved email, guidelines in the rejected email). Absent →
+# the link is omitted. e.g. http://localhost:8788 locally.
+PUBLIC_SITE_URL=
+# Optional. Recipient of the reconcile-sweep stuck-request admin alert (§6.2).
+ADMIN_ALERT_EMAIL=

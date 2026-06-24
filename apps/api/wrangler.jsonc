@@ -56,6 +56,15 @@
   //                 → issue creation is a silent no-op and the request row sits open
   //                 for the §6.7 reconciliation sweep. Set per env via `wrangler
   //                 secret put LINEAR_API_KEY --env <env>` when ready (no CI gate).
+  //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
+  //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
+  //                 approve/reject confirmations, the account-deletion email, and the
+  //                 reconcile-sweep admin alert. Optional + fail-open like
+  //                 ANTHROPIC_API_KEY: absent (local/preview) → every send is a silent
+  //                 `'skipped'`, never blocking the action. CI pushes it per env from
+  //                 the RESEND_API_KEY_{STAGING,PRODUCTION} GH secrets (graceful — no
+  //                 hard gate). Pairs with the `EMAIL_FROM` var (sender). The repo uses
+  //                 Resend, not the spec's original "Loops"; see docs/email.md.
   //
   // AECI-139: the API Worker also runs `scheduled` + `queue` handlers (daily
   // scheduled jobs). The cron `scheduled` handler does not work inline — it
@@ -198,6 +207,13 @@
         // on the API Worker — it verifies with public JWKS material only
         // (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        // AECI-240 / Phase 7.5: transactional email (Resend). EMAIL_FROM is the
+        // verified sender; PUBLIC_SITE_URL builds absolute links in emails;
+        // ADMIN_ALERT_EMAIL receives the §6.2 reconcile-sweep stuck-request alert.
+        // The RESEND_API_KEY secret is pushed by CI (graceful) — absent → sends skip.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
       },
       "kv_namespaces": [
         {
@@ -294,6 +310,13 @@
         // on the API Worker — it verifies with public JWKS material only
         // (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
+        // PUBLIC_SITE_URL is the canonical launch domain (emails are a launch
+        // feature). The RESEND_API_KEY secret is pushed by CI from
+        // RESEND_API_KEY_PRODUCTION — absent → sends skip.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "PUBLIC_SITE_URL": "https://aecintegrations.com",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
       },
       "kv_namespaces": [
         {

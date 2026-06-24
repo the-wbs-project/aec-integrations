@@ -565,8 +565,9 @@ outage, no action — it clears when Linear recovers. If a single row is un-rebu
 product/vendor was deleted, or it has no workflow instance — logged `cannot rebuild request <id>`),
 resolve it manually in `/admin/requests`.
 
-**Escalation:** until Loops lands (Phase 7 — §14), the admin "email" seam (`lib/admin-alert.ts`) is a
-fail-open no-op (`aeci.linear.reconcile.email{outcome:skipped}`), so **this Datadog alert + the
-`/admin/requests` queue ARE the notification** (§6.2). Make sure on-call routes a persistent failure to
-whoever owns the Linear pipeline. (The 15-min cadence + ~60m persistent threshold are launch-tunable —
+**Escalation:** the admin email seam (`lib/admin-alert.ts`) now sends via Resend (AECI-240 / Phase 7.5)
+to `ADMIN_ALERT_EMAIL` (`aeci.linear.reconcile.email{outcome:sent|failed|skipped}`), but it is fail-open:
+when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent the outcome is `skipped`, so **this Datadog alert +
+the `/admin/requests` queue remain the guaranteed notification** (§6.2). Make sure on-call routes a
+persistent failure to whoever owns the Linear pipeline. (The 15-min cadence + ~60m persistent threshold are launch-tunable —
 see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)

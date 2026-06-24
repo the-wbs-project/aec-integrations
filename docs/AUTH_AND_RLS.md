@@ -357,8 +357,9 @@ usually `page_views.user_id`. The full list:
    `on_auth_user_deleted` trigger still fires (its `DELETE FROM public.profiles`
    matches 0 rows — already deleted), and gotrue's own child tables
    (`sessions`/`refresh_tokens`/`identities`) cascade off `auth.users`.
-5. **Loops confirmation email is deferred to Phase 7** — a TODO stub; deletion
-   never blocks on email.
+5. **Confirmation email is sent via Resend** (AECI-240 / Phase 7.5, `docs/email.md`)
+   — fire-and-forget and fail-open, captured from the session before erasure;
+   deletion never blocks on email.
 
 The "background sweep" once imagined for `page_views`/`audit_log` is performed
 **synchronously, inside the erasure transaction, before the profile delete** —
