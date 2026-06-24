@@ -12,6 +12,7 @@ import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
+import { ReviewStars } from '../reviews/review-stars';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
@@ -60,6 +61,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     ProductUsefulnessSection,
     RequestDrawer,
     RequestTrigger,
+    ReviewStars,
     RouterLink,
     SectionNav,
     TaxonomyBadge,
@@ -122,6 +124,26 @@ import { ProductUsefulnessSection } from './product-usefulness';
               </h1>
             </div>
           </div>
+
+          @if (p.rating_overall_avg !== null) {
+            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <aec-review-stars [rating]="p.rating_overall_avg" kind="overall" />
+              <span class="font-display text-xl font-semibold text-(--text-primary)">{{
+                decimal(p.rating_overall_avg)
+              }}</span>
+              <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+              <a
+                [href]="'/products/' + p.slug + '#reviews'"
+                class="text-sm font-medium text-(--text-secondary) no-underline transition-colors
+                  hover:text-(--accent-primary) focus-visible:outline-none
+                  focus-visible:rounded-(--radius-sm) focus-visible:ring-2
+                  focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2
+                  focus-visible:ring-offset-(--surface-base)"
+              >
+                {{ reviewCountLabel(p.review_count) }}
+              </a>
+            </div>
+          }
 
           @if (p.website) {
             <div class="flex flex-wrap items-center gap-3">
@@ -467,6 +489,20 @@ export class ProductDetailPage {
       const p = this.product();
       if (p) this.analytics.productViewed(p.id);
     });
+  }
+
+  /** One-decimal display of an average rating, e.g. 4 → "4.0", 4.25 → "4.3". */
+  protected decimal(value: number): string {
+    return value.toFixed(1);
+  }
+
+  /**
+   * Hero "N reviews" jump-link label. The API nulls the averages below 5
+   * reviews (`toProductDetail`), so this only renders when `count >= 5` — no
+   * singular branch is needed.
+   */
+  protected reviewCountLabel(count: number): string {
+    return $localize`:@@products.detail.hero.reviewCount:${count}:COUNT: reviews`;
   }
 
   /**
