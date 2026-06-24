@@ -32,7 +32,11 @@ import type { DbFactory } from '../lib/handler-utils';
 import { requireReviewAppAuth } from '../lib/review-auth';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
-import { createPromoteHandler, type PromoteAlgoliaSync } from './promote';
+import {
+  createPromoteHandler,
+  type PromoteAlgoliaSync,
+  type PromoteIndexNowNotify,
+} from './promote';
 import { cacheTagsForPromote } from './promote-cache-tags';
 
 /** Deterministic UUID for seeded rows referenced via `supabaseId`. */
@@ -48,6 +52,10 @@ const baseEnv: Env = {
  *  never hit; the wiring tests inject a spy instead. */
 const noopAlgolia: PromoteAlgoliaSync = async () => {};
 
+/** A no-op IndexNow seam — default for all tests so the real default (which calls
+ *  the global `fetch`) is never hit; the wiring tests inject a spy instead. */
+const noopIndexNow: PromoteIndexNowNotify = async () => {};
+
 let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
@@ -58,11 +66,20 @@ afterEach(() => {
 });
 
 function buildApp(
-  opts: { withAuth?: boolean; syncAlgolia?: PromoteAlgoliaSync; dbFor?: DbFactory } = {},
+  opts: {
+    withAuth?: boolean;
+    syncAlgolia?: PromoteAlgoliaSync;
+    notifyIndexNow?: PromoteIndexNowNotify;
+    dbFor?: DbFactory;
+  } = {},
 ) {
   const app = new Hono<{ Bindings: Env }>();
   app.onError(errorHandler());
-  const handler = createPromoteHandler(opts.dbFor ?? t.factory, opts.syncAlgolia ?? noopAlgolia);
+  const handler = createPromoteHandler(
+    opts.dbFor ?? t.factory,
+    opts.syncAlgolia ?? noopAlgolia,
+    opts.notifyIndexNow ?? noopIndexNow,
+  );
   if (opts.withAuth) app.post('/api/promote', requireReviewAppAuth(), handler);
   else app.post('/api/promote', handler);
   return app;
@@ -649,6 +666,64 @@ describe('Algolia index sync after promote (AECI-139)', () => {
       algoliaEnv,
       { product: { ref: 'p1', name: 'Revit' } },
       syncAlgolia,
+    );
+    expect(res.status).toBe(200); // returned before the waitUntil settles
+    await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+  });
+});
+
+describe('IndexNow submission after promote (AECI-236)', () => {
+  const indexNowEnv: Env = {
+    ...baseEnv,
+    INDEXNOW_KEY: 'a1b2c3d4e5f6a7b8',
+    PUBLIC_SITE_URL: 'https://aecintegrations.com',
+  };
+
+  async function promoteWithSeam(env: Env, body: unknown, notifyIndexNow: PromoteIndexNowNotify) {
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp({ notifyIndexNow }).request(
+      '/api/promote',
+      post(body),
+      env,
+      execCtx,
+    );
+    return { res, execCtx };
+  }
+
+  it('schedules the IndexNow notify (with the touched response) when creds are present', async () => {
+    const notifyIndexNow = vi.fn<PromoteIndexNowNotify>(async () => {});
+    const { res, execCtx } = await promoteWithSeam(
+      indexNowEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyIndexNow,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+
+    expect(res.status).toBe(200);
+    expect(notifyIndexNow).toHaveBeenCalledTimes(1);
+    const response = notifyIndexNow.mock.calls[0]![1] as PromoteResponse;
+    expect(response.product?.slug).toBe('revit');
+  });
+
+  it('does not schedule the IndexNow notify when creds are absent (graceful no-op)', async () => {
+    const notifyIndexNow = vi.fn<PromoteIndexNowNotify>(async () => {});
+    const { res } = await promoteWithSeam(
+      baseEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyIndexNow,
+    );
+    expect(res.status).toBe(200);
+    expect(notifyIndexNow).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 when the IndexNow notify rejects (post-response, never fails the promote)', async () => {
+    const notifyIndexNow = vi.fn<PromoteIndexNowNotify>(async () => {
+      throw new Error('indexnow unreachable');
+    });
+    const { res, execCtx } = await promoteWithSeam(
+      indexNowEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyIndexNow,
     );
     expect(res.status).toBe(200); // returned before the waitUntil settles
     await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));

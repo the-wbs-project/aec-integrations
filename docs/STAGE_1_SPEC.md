@@ -1124,7 +1124,7 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 **Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs).
 
 **Phase 7.1–7.13 (the remainder):**
-- [ ] 7.1 — IndexNow on the write-event pipeline (§20.2)
+- [x] 7.1 — IndexNow on the write-event pipeline (§20.2) — AECI-236 (Google Indexing API ping deferred → AECI-263)
 - [ ] 7.2 — Legal pages: Terms, Privacy, Review Guidelines, Listing Accuracy (§13, §27); counsel-reviewed
 - [ ] 7.3 — About + Contact pages
 - [ ] 7.4 — PostHog integration (event set + locale/theme dimensions; §14.1)
@@ -1214,6 +1214,8 @@ Generated on request by a Cloudflare Worker, not built statically.
 On any write to products, vendors, or integrations, a Cloudflare Worker submits the affected URLs to IndexNow (Bing, Yandex, others). Google Indexing API pinged for the same URLs as a best-effort signal.
 
 This runs as part of the single write-event pipeline described in Section 20.5.
+
+> **Implemented (AECI-236):** the API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and submits them to IndexNow (`apps/api/src/lib/indexnow.ts`) right where the Cache-Tag purge fires — best-effort, failures logged to Datadog, never blocking the write. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged. The **Google Indexing API** ping is deferred to **AECI-263** (it needs an OAuth2 service account + JWT signing and officially supports only `JobPosting`/`BroadcastEvent`; Google discovers via the sitemap `<lastmod>` meanwhile, §20.5 step 5).
 
 ### 20.3 Structured data (Schema.org JSON-LD)
 
