@@ -15,6 +15,12 @@
  * `--test-scheduled` tick is never silently dropped.
  *
  * Cron triggers (`wrangler.jsonc`), staging + production:
+ * 04:00 UTC — daily §23.1 data-quality suite (`./lib/data-quality`, AECI-241 /
+ * Phase 7.6): ten read-only integrity checks (orphan products/vendors, stale
+ * `ready` products, broken integration refs, anonymized-review integrity, stale
+ * `stats_cache`, duplicate candidates, a Brandfetch logo-404 sample, and the
+ * reused AECI-140 Algolia drift) → an email digest to Chris + Bill via Resend
+ * (`./lib/email`). Report-only — no auto-remediation; humans triage.
  * 07:00 UTC (= 02:00 EST) — daily home-stats compute (`./lib/home-stats`,
  * AECI-178 / Phase 4.3 / §10): recompute the seven `home.*` `stats_cache` keys
  * and upsert each. Runs before the Algolia sync so a fresh stats row is ready at
@@ -54,11 +60,15 @@ import { logToDatadog, submitCount, submitDistribution, submitGauge } from './da
 import type { ScheduledJob, ScheduledJobMessage, ScheduledJobMessageInput, Env } from './env';
 import {
   createAlgoliaCounter,
+  findAlgoliaIndexDrift,
   reportAlgoliaDrift,
   type AlgoliaIndexDrift,
   type DriftCount,
 } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
+import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
+import { buildDataQualityDigest } from './lib/data-quality-email';
+import { parseRecipients, sendEmail } from './lib/email';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
 import { runHomeStats, type HomeStatsResult } from './lib/home-stats';
 import { emitHomeStatsMetrics } from './lib/home-stats-metrics';
@@ -102,8 +112,21 @@ const MODERATION_CRON = '0 6 * * *';
  *  stay byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
 const RECONCILE_CRON = '*/15 * * * *';
 
+/** Cron expression for the daily §23.1 data-quality job (`wrangler.jsonc`,
+ *  AECI-241 / Phase 7.6). 04:00 UTC — the §23.1 slot, two hours ahead of the
+ *  06:00 moderation snapshot, in the same dead-of-night daily window. Runs the
+ *  ten checks and emails the digest when they finish (~04:30 UTC). MUST stay
+ *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
+const DATA_QUALITY_CRON = '0 4 * * *';
+
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
+
+/** Metric names for the daily data-quality job (AECI-241; see docs/OBSERVABILITY.md). */
+const DQ_JOB_METRIC = 'aeci.data_quality.job';
+const DQ_DURATION_METRIC = 'aeci.data_quality.job.duration_ms';
+const DQ_CHECK_METRIC = 'aeci.data_quality.check';
+const DQ_EMAIL_METRIC = 'aeci.data_quality.email';
 
 /** Synthetic request so the Datadog helpers can derive a `host` tag (the cron
  *  has no incoming Request; `hostnameFromRequest` uses the URL host or falls
@@ -410,6 +433,91 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
   await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
 }
 
+/** Run the daily §23.1 data-quality suite (AECI-241 / Phase 7.6): ten read-only
+ *  checks → per-check gauge + job heartbeat/duration → email digest to Chris +
+ *  Bill. Report-only — no auto-remediation. The Algolia-drift check (#10) reuses
+ *  the AECI-140 count (`findAlgoliaIndexDrift`) when creds are present; otherwise
+ *  it skips (local/preview). The email transport is fail-open: a missing
+ *  `RESEND_API_KEY`/recipients logs `outcome:skipped`, the Datadog monitors are
+ *  the delivery backstop. Errors per check are captured, not thrown (the suite is
+ *  best-effort), so reaching the catch is a pre-run crash. */
+async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/data-quality');
+  const started = Date.now();
+  const { db } = getDb(env);
+
+  // Reuse the AECI-140 drift count when Algolia creds are present (same posture as
+  // runAlgoliaDrift); absent → the drift check skips rather than erroring.
+  const appId = env.ALGOLIA_APP_ID;
+  const adminKey = env.ALGOLIA_ADMIN_KEY;
+  const runDrift =
+    appId && adminKey
+      ? () =>
+          findAlgoliaIndexDrift(
+            { db: drizzleDriftCounter(env), algolia: createAlgoliaCounter(appId, adminKey) },
+            { env: algoliaEnvFor(env) },
+          )
+      : undefined;
+
+  let results: DataQualityCheckResult[];
+  try {
+    results = await runDataQualityChecks({ db, now: new Date(), runDrift });
+  } catch (error) {
+    // The suite is itself best-effort, so a throw here is a pre-run crash (e.g. a
+    // missing DB binding). Count the failure heartbeat + log; never rethrow.
+    submitCount(ctx, env, req, DQ_JOB_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.data_quality.crashed',
+      source: 'data-quality-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  // Per-check gauge — always emitted (0 when clean) so a monitor can break down by
+  // `check` tag and tell "clean" from "didn't run". An errored check emits -1.
+  for (const r of results) {
+    submitGauge(ctx, env, req, DQ_CHECK_METRIC, r.error ? -1 : r.count, [
+      `check:${r.id}`,
+      `severity:${r.severity}`,
+    ]);
+    logToDatadog(ctx, env, req, {
+      level: r.error ? 'error' : r.count > 0 ? 'warn' : 'info',
+      message: `aeci.data_quality.check ${r.id} count=${r.count}${r.skipped ? ' (skipped)' : ''}`,
+      source: 'data-quality-cron',
+      check: r.id,
+      count: r.count,
+      ...(r.error ? { reason: r.error } : {}),
+    });
+  }
+
+  const outcome = hasErrors(results) ? 'failed' : 'success';
+  submitCount(ctx, env, req, DQ_JOB_METRIC, 1, ['trigger:cron', `outcome:${outcome}`]);
+  submitDistribution(ctx, env, req, DQ_DURATION_METRIC, Date.now() - started, ['trigger:cron']);
+
+  // Build + send the digest (always — a clean run still emails so silence means
+  // the cron failed). Fail-open: a missing transport returns 'skipped'.
+  const digest = buildDataQualityDigest(results, {
+    env: algoliaEnvFor(env),
+    generatedAt: new Date(),
+  });
+  const recipients = parseRecipients(env.DATA_QUALITY_EMAIL_TO);
+  const emailOutcome = await sendEmail(env, {
+    from: env.DATA_QUALITY_EMAIL_FROM ?? '',
+    to: recipients,
+    subject: digest.subject,
+    text: digest.text,
+    html: digest.html,
+  });
+  submitCount(ctx, env, req, DQ_EMAIL_METRIC, 1, [`outcome:${emailOutcome}`]);
+  logToDatadog(ctx, env, req, {
+    level: emailOutcome === 'failed' ? 'error' : 'info',
+    message: `aeci.data_quality.email outcome=${emailOutcome} recipients=${recipients.length}: ${digest.subject}`,
+    source: 'data-quality-cron',
+  });
+}
+
 /** The producer queue binding for a job (absent on local/preview → inline run). */
 function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | undefined {
   switch (job) {
@@ -421,6 +529,8 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       return env.STATS_QUEUE;
     case 'reconcile':
       return env.RECONCILE_QUEUE;
+    case 'data_quality':
+      return env.DATA_QUALITY_QUEUE;
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
@@ -448,6 +558,13 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/reconcile',
       message: 'aeci.linear.reconcile.enqueue_failed',
       source: 'reconcile',
+    };
+  }
+  if (job === 'data_quality') {
+    return {
+      path: '/cron/data-quality',
+      message: 'aeci.data_quality.enqueue_failed',
+      source: 'data-quality-cron',
     };
   }
   return {
@@ -511,6 +628,9 @@ async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJo
     case 'reconcile':
       await runReconcileJob(env, ctx);
       return;
+    case 'data_quality':
+      await runDataQualityJob(env, ctx);
+      return;
   }
 }
 
@@ -536,6 +656,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case RECONCILE_CRON:
       await enqueueOrRun(env, ctx, 'reconcile');
+      return;
+    case DATA_QUALITY_CRON:
+      await enqueueOrRun(env, ctx, 'data_quality');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently

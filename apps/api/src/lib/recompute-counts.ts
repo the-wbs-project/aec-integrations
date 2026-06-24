@@ -26,6 +26,10 @@ export type ExpectedProductCounts = {
 
 export type ProductCountField = keyof ExpectedProductCounts;
 
+/** A product's STORED aggregates — same shape as `ExpectedProductCounts`, but the
+ *  values read off the `products` row rather than recomputed from source rows. */
+export type StoredProductCounts = ExpectedProductCounts;
+
 export type ProductCountDrift = {
   productId: string;
   field: ProductCountField;
@@ -80,6 +84,54 @@ export async function recomputeProductCounts(db: Db, productIds: Iterable<string
   }
 }
 
+/**
+ * Compare one product's STORED aggregates against freshly-computed EXPECTED
+ * values; return one entry per drifted field. Pure (no I/O) — the single
+ * definition of the drift RULE, shared by `findProductCountDrift` (live Db) and
+ * the scheduled reconcile CLI (`scripts/reconcile-product-counts.ts`, which works
+ * off raw D1 rows because it can't hold a Worker binding). Counts must match
+ * exactly; averages tolerate `< 0.005` (both are already rounded to 2dp) and
+ * treat a null↔value transition as drift — see `pushAvgDrift`.
+ */
+export function diffProductCounts(
+  productId: string,
+  stored: StoredProductCounts,
+  expected: ExpectedProductCounts,
+): ProductCountDrift[] {
+  const drift: ProductCountDrift[] = [];
+  if (stored.integrationCount !== expected.integrationCount) {
+    drift.push({
+      productId,
+      field: 'integrationCount',
+      stored: stored.integrationCount,
+      expected: expected.integrationCount,
+    });
+  }
+  if (stored.reviewCount !== expected.reviewCount) {
+    drift.push({
+      productId,
+      field: 'reviewCount',
+      stored: stored.reviewCount,
+      expected: expected.reviewCount,
+    });
+  }
+  pushAvgDrift(
+    drift,
+    productId,
+    'ratingOverallAvg',
+    stored.ratingOverallAvg,
+    expected.ratingOverallAvg,
+  );
+  pushAvgDrift(
+    drift,
+    productId,
+    'ratingOnboardingAvg',
+    stored.ratingOnboardingAvg,
+    expected.ratingOnboardingAvg,
+  );
+  return drift;
+}
+
 /** Recompute expected aggregates for every product; return drifted fields. */
 export async function findProductCountDrift(db: Db): Promise<ProductCountDrift[]> {
   const rows = await db.query.products.findMany({
@@ -95,29 +147,17 @@ export async function findProductCountDrift(db: Db): Promise<ProductCountDrift[]
   const drift: ProductCountDrift[] = [];
   for (const p of rows) {
     const expected = await computeExpected(db, p.id);
-    if (p.integrationCount !== expected.integrationCount) {
-      drift.push({
-        productId: p.id,
-        field: 'integrationCount',
-        stored: p.integrationCount,
-        expected: expected.integrationCount,
-      });
-    }
-    if (p.reviewCount !== expected.reviewCount) {
-      drift.push({
-        productId: p.id,
-        field: 'reviewCount',
-        stored: p.reviewCount,
-        expected: expected.reviewCount,
-      });
-    }
-    pushAvgDrift(drift, p.id, 'ratingOverallAvg', p.ratingOverallAvg, expected.ratingOverallAvg);
-    pushAvgDrift(
-      drift,
-      p.id,
-      'ratingOnboardingAvg',
-      p.ratingOnboardingAvg,
-      expected.ratingOnboardingAvg,
+    drift.push(
+      ...diffProductCounts(
+        p.id,
+        {
+          integrationCount: p.integrationCount,
+          reviewCount: p.reviewCount,
+          ratingOverallAvg: p.ratingOverallAvg,
+          ratingOnboardingAvg: p.ratingOnboardingAvg,
+        },
+        expected,
+      ),
     );
   }
   return drift;

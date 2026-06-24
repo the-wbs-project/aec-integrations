@@ -160,3 +160,20 @@ ALGOLIA_ADMIN_KEY=
 # retention (ZDR) enabled, or scored review bodies are retained ~30 days outside
 # the §8 erasure boundary. (Local dev sends nothing unless you set a real key.)
 ANTHROPIC_API_KEY=
+
+# ─── IndexNow notification after promote (AECI-236 / §20.2) ─────────────────
+# On promote, the WORKER submits the affected public URLs to IndexNow (Bing /
+# Yandex / …). Two values, both read at runtime:
+#   wrangler secret put INDEXNOW_KEY --env production   # 8–128 chars [A-Za-z0-9-]
+#   PUBLIC_SITE_URL  → a wrangler var (apps/api/wrangler.jsonc), not a secret
+# INDEXNOW_KEY must MATCH the web Worker's INDEXNOW_KEY (the SSR Worker serves the
+# `{INDEXNOW_KEY}.txt` verification file). FAIL-OPEN: absent (local dev, PR
+# previews, pre-launch) → the submission is a graceful no-op.
+# PROVISION ONLY AT LAUNCH, on the env whose web Worker has ALLOW_INDEXING="true":
+# pinging IndexNow for a noindex'd site is a correctness bug, so the key's absence
+# is the enforcement. Generate a key with e.g. `openssl rand -hex 16`.
+INDEXNOW_KEY=
+# Canonical public origin the submitted URLs are built against (e.g.
+# https://aecintegrations.com). Local default below; set the real launch host as a
+# wrangler var in production. Absent → IndexNow no-ops.
+PUBLIC_SITE_URL=http://localhost:8788

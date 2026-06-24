@@ -24,6 +24,9 @@ vi.mock('./lib/algolia-sync', () => ({ runDailySync: vi.fn() }));
 vi.mock('./lib/algolia-drift', () => ({
   createAlgoliaCounter: vi.fn(() => ({})),
   reportAlgoliaDrift: vi.fn(),
+  // The data-quality job (AECI-241) reuses this for its drift check; default to a
+  // clean (empty) drift so the job runs without an Algolia round-trip.
+  findAlgoliaIndexDrift: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
@@ -45,6 +48,7 @@ const STATS_CRON = '0 7 * * *';
 const SYNC_CRON = '0 8 * * *';
 const DRIFT_CRON = '0 9 * * *';
 const RECONCILE_CRON = '*/15 * * * *';
+const DATA_QUALITY_CRON = '0 4 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -196,6 +200,49 @@ describe('scheduled (cron producer)', () => {
     expect(gauges[0]![4]).toBe(3);
   });
 
+  it('enqueues the data-quality job onto its own queue (AECI-241)', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ DATA_QUALITY_QUEUE: { send } as never });
+
+    await scheduled(cronController(DATA_QUALITY_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'data_quality', trigger: 'cron' }),
+    );
+    // Did not run inline: no per-run heartbeat was emitted.
+    expect(submitCount).not.toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.job',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('runs the data-quality job inline when no DATA_QUALITY_QUEUE binding is present', async () => {
+    // Real checks/email run against the in-memory D1 (empty → all clean) and the
+    // fail-open email skips with no RESEND_API_KEY — assert the run heartbeat fired.
+    await scheduled(cronController(DATA_QUALITY_CRON), makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.job',
+      1,
+      ['trigger:cron', 'outcome:success'],
+    );
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.email',
+      1,
+      ['outcome:skipped'],
+    );
+  });
+
   it('falls back to an inline run and logs to Datadog when queue.send rejects', async () => {
     const send = vi.fn().mockRejectedValue(new Error('queue down'));
     const env = makeEnv({ ALGOLIA_SYNC_QUEUE: { send } as never });
@@ -271,6 +318,23 @@ describe('queue (consumer)', () => {
     await queue(batch, makeEnv(), ctx);
 
     expect(runReconciliationSweep).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('ack()s a data-quality job message and emits its run heartbeat (AECI-241)', async () => {
+    const { batch, ack, retry } = makeBatch('data_quality', 'aeci-data-quality-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.job',
+      1,
+      ['trigger:cron', 'outcome:success'],
+    );
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
   });

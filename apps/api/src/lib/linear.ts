@@ -253,9 +253,15 @@ export interface LinearRequestStore {
   /** Current `linear_issue_id` of the request — null if unlinked OR the row is
    *  gone (both mean "proceed to create", matching the old `findUnique` guard). */
   getLinkedIssueId(requestId: string): Promise<string | null>;
-  /** Compare-and-set the issue id onto the request row AND its workflow instance,
-   *  by PK with a `linear_issue_id IS NULL` guard (idempotent under a retry race). */
-  linkIssue(requestId: string, workflowId: string, issueId: string): Promise<void>;
+  /** Compare-and-set the issue id (and the issue's web url, AECI-261) onto the
+   *  request row AND the issue id onto its workflow instance, by PK with a
+   *  `linear_issue_id IS NULL` guard (idempotent under a retry race). */
+  linkIssue(
+    requestId: string,
+    workflowId: string,
+    issueId: string,
+    issueUrl: string,
+  ): Promise<void>;
 }
 
 /** Drizzle/D1 `LinearRequestStore` (`routes/requests.ts`; the §6.7 sweep once it
@@ -269,10 +275,11 @@ export function drizzleLinearStore(db: Db): LinearRequestStore {
       });
       return row?.linearIssueId ?? null;
     },
-    async linkIssue(requestId, workflowId, issueId) {
+    async linkIssue(requestId, workflowId, issueId, issueUrl) {
       await db
         .update(vendorRequests)
-        .set({ linearIssueId: issueId })
+        // AECI-261: persist the issue url alongside its id so /admin/requests links.
+        .set({ linearIssueId: issueId, linearIssueUrl: issueUrl })
         .where(and(eq(vendorRequests.id, requestId), isNull(vendorRequests.linearIssueId)));
       await db
         .update(workflowInstances)
@@ -422,10 +429,11 @@ export async function createLinearIssueForRequest(
     }
   }
 
-  // Persist the id on both the request row and its workflow instance, compare-and-
-  // set by PK so only the first writer wins (idempotent under a retry race).
+  // Persist the id (+ url, AECI-261) on the request row and the id on its workflow
+  // instance, compare-and-set by PK so only the first writer wins (idempotent under
+  // a retry race).
   try {
-    await store.linkIssue(input.requestId, input.workflowId, issue.id);
+    await store.linkIssue(input.requestId, input.workflowId, issue.id, issue.url);
   } catch (err) {
     // The issue exists but we couldn't link it — row stays open; §6.7 reconciles
     // via the embedded `Request: <id>` marker. Reported as a pipeline failure.

@@ -80,3 +80,13 @@ SUPABASE_TEST_USER_PASSWORD=
 # dev boots cleanly without a PostHog account.
 POSTHOG_KEY=
 POSTHOG_HOST=https://us.i.posthog.com
+
+# ─── IndexNow verification key (AECI-236 / §20.2) ─────────────────────────────
+# The SSR Worker serves `{INDEXNOW_KEY}.txt` at the site root so search engines
+# can verify host ownership before honoring the IndexNow submissions the API
+# Worker sends on promote. Read at runtime; set as a CI-pushed Wrangler secret:
+#   wrangler secret put INDEXNOW_KEY --env production
+# Must MATCH the API Worker's INDEXNOW_KEY. 8–128 chars [A-Za-z0-9-]. Absent →
+# the key file 404s (graceful no-op) — the expected state until public launch,
+# when it is provisioned alongside ALLOW_INDEXING="true".
+INDEXNOW_KEY=

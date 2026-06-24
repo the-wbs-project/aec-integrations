@@ -175,6 +175,8 @@ describe('POST /api/webhooks/linear — state → status mapping', () => {
     const request = await requestRow();
     expect(request!.status).toBe('resolved');
     expect(request!.resolvedAt).not.toBeNull();
+    // AECI-261: the webhook persists the issue permalink onto the request row.
+    expect(request!.linearIssueUrl).toBe('https://linear.app/acme/issue/AECI-1');
 
     const wf = await workflowRow();
     expect(wf!.currentState).toBe('resolved');

@@ -198,6 +198,12 @@
         // on the API Worker — it verifies with public JWKS material only
         // (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
+        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // parseRecipients). Staging sends to Chris only.
+        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
       },
       "kv_namespaces": [
         {
@@ -218,16 +224,17 @@
       ],
       // Scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
       // Staging + production only (base config / preview have no `triggers`, so PR
-      // previews don't run them). 06:00 UTC (= 01:00 EST) — moderation-queue health
-      // snapshot (AECI-206, inline gauge); 07:00 UTC (= 02:00 EST) — home-stats compute
-      // (AECI-178, §10); 08:00 UTC (= 03:00 EST, US-East launch base) — incremental
-      // Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
+      // previews don't run them). 04:00 UTC — §23.1 data-quality suite + email
+      // digest (AECI-241 / Phase 7.6); 06:00 UTC (= 01:00 EST) — moderation-queue
+      // health snapshot (AECI-206, inline gauge); 07:00 UTC (= 02:00 EST) — home-stats
+      // compute (AECI-178, §10); 08:00 UTC (= 03:00 EST, US-East launch base) —
+      // incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
       // reconciliation (AECI-140, §23.1). The five-field "*/15 * * * *" runs every
       // 15 min — the request→Linear reconciliation sweep (AECI-214 / Phase 6.7), a
       // tight backstop that retries stuck vendor_requests. UTC is DST-unaware
       // (accepted). Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
-        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
+        "crons": ["0 4 * * *", "0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
       // `queue` consumer (same Worker) runs the job. `binding` is the producer
@@ -242,6 +249,7 @@
           { "queue": "aeci-algolia-drift-staging", "binding": "ALGOLIA_DRIFT_QUEUE" },
           { "queue": "aeci-stats-staging", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-staging", "binding": "RECONCILE_QUEUE" },
+          { "queue": "aeci-data-quality-staging", "binding": "DATA_QUALITY_QUEUE" },
         ],
         "consumers": [
           {
@@ -264,6 +272,12 @@
           },
           {
             "queue": "aeci-reconcile-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-data-quality-staging",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -294,6 +308,21 @@
         // on the API Worker — it verifies with public JWKS material only
         // (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
+        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // parseRecipients). TODO: append Bill's address alongside Chris?
+        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // AECI-236 (§20.2): canonical public origin the post-promote IndexNow
+        // submission builds its URLs against. Public value. The IndexNow ping
+        // stays a no-op until the `INDEXNOW_KEY` secret is also provisioned at
+        // launch (alongside the web Worker's `ALLOW_INDEXING="true"`); set this to
+        // the host the web Worker actually serves at launch (canonicals are
+        // self-referential to the serving origin, ADR 0011). Not set on
+        // preview/staging — those are Access-gated, non-indexed, so IndexNow
+        // no-ops there regardless.
+        "PUBLIC_SITE_URL": "https://aecintegrations.com",
       },
       "kv_namespaces": [
         {
@@ -312,13 +341,14 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Scheduled crons (see staging note): 06:00 UTC (= 01:00 EST) moderation-queue
+      // Scheduled crons (see staging note): 04:00 UTC §23.1 data-quality suite +
+      // email digest (AECI-241 / Phase 7.6); 06:00 UTC (= 01:00 EST) moderation-queue
       // health snapshot (AECI-206); 07:00 UTC (= 02:00 EST) home-stats compute (AECI-178);
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
       // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
       // reconciliation sweep (AECI-214 / Phase 6.7). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
+        "crons": ["0 4 * * *", "0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {
@@ -327,6 +357,7 @@
           { "queue": "aeci-algolia-drift-production", "binding": "ALGOLIA_DRIFT_QUEUE" },
           { "queue": "aeci-stats-production", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-production", "binding": "RECONCILE_QUEUE" },
+          { "queue": "aeci-data-quality-production", "binding": "DATA_QUALITY_QUEUE" },
         ],
         "consumers": [
           {
@@ -349,6 +380,12 @@
           },
           {
             "queue": "aeci-reconcile-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-data-quality-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

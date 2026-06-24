@@ -525,6 +525,7 @@ create table reviews (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references products(id) on delete cascade,
   reviewer_id uuid references profiles(id) on delete set null, -- null after anonymization
+  anonymized_at timestamptz, -- stamped when reviewer_id is nulled on GDPR account deletion (§23.3); a null reviewer_id with a null anonymized_at is a data-integrity defect the §23.1 daily job flags
 
   rating_overall smallint not null check (rating_overall between 1 and 5),
   rating_onboarding smallint not null check (rating_onboarding between 1 and 5),
@@ -604,6 +605,9 @@ create table vendor_requests (
 
   -- External system link
   linear_issue_id text,
+  -- AECI-261: the linked Linear issue's web permalink (issue.url), persisted on
+  -- creation + inbound webhook so /admin/requests renders a real link. Nullable.
+  linear_issue_url text,
 
   -- Duplicate-detection signal computed at submission time (Phase 6.8, AECI-215).
   -- Points at the earliest matching `open` request for the same target that shares
@@ -815,9 +819,9 @@ create trigger products_updated_at before update on products
 
 ### 11.2 Denormalized counts
 
-`products.integration_count`, `products.review_count`, `products.rating_overall_avg`, and `products.rating_onboarding_avg` are denormalized for read performance. In Stage 1 they are maintained by **application code in the API Worker**: every write path that mutates `integrations` or `reviews` calls the shared `recomputeProductCounts()` helper (`apps/api/src/lib/product-counts.ts`) inside the same transaction. `review_count` and the rating averages count only reviews with `status = 'approved'` (the only publicly visible state — see §4.7, §12); the averages are NULL when a product has no approved reviews.
+`products.integration_count`, `products.review_count`, `products.rating_overall_avg`, and `products.rating_onboarding_avg` are denormalized for read performance. In Stage 1 they are maintained by **application code in the API Worker**: every write path that mutates `integrations` or `reviews` calls the shared `recomputeProductCounts()` helper (`apps/api/src/lib/recompute-counts.ts`) right after the mutating `db.batch` commits. Because D1 has no interactive transactions the recompute is a **separate, non-atomic write** that may lag briefly (ADR 0016). `review_count` and the rating averages count only reviews with `status = 'approved'` (the only publicly visible state — see §4.7, §12); the averages are NULL when a product has no approved reviews.
 
-**Drift protection.** `findProductCountDrift()` and `scripts/reconcile-product-counts.ts` recompute the expected values from the source rows and flag any product whose stored columns disagree (run via `pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via Datadog. A unit test (`src/lib/product-counts.spec.ts`) and a `TEST_DATABASE_URL`-gated integration test (`src/integration/product-counts.spec.ts`) cover both the recompute and the drift check.
+**Drift protection.** The drift rule lives once in `apps/api/src/lib/recompute-counts.ts` — `diffProductCounts()` (the pure comparison) and `findProductCountDrift()` (over a live Db). `scripts/reconcile-product-counts.ts` is the CLI/CI caller: it recomputes the expected values from the source rows against the **deployed D1** via `wrangler d1 execute --remote` and flags any product whose stored columns disagree (run via `RECONCILE_ENV=<staging|production> CLOUDFLARE_API_TOKEN=… pnpm --filter @aeci/api db:reconcile-counts`; `--fix` repairs in place; `--local` targets the seeded local D1). A scheduled CI job (`.github/workflows/reconcile-counts.yml`) runs the check report-only against staging/prod daily and alerts on drift via the Datadog gauge `aeci.product_counts.drift`. A unit test (`src/lib/recompute-counts.spec.ts`) covers the comparison rule.
 
 Database triggers on the source tables are **reserved for Phase 2** if write performance becomes an issue; Stage 1 deliberately keeps this at the application layer. (The `invalidateForEntity()` helper referenced by earlier drafts was never built and is superseded — cache invalidation now goes through the Cache-Tag strategy, a separate concern from count maintenance; see CLAUDE.md "Cache invalidation".)
 

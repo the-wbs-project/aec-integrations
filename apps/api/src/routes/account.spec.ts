@@ -107,10 +107,12 @@ describe('DELETE /api/account', () => {
     const res = await run(createDeleteAccountHandler(t.factory, deleteAuthUser), 'delete');
     expect(res.status).toBe(200);
 
-    // Profile gone; review survives but is anonymized.
+    // Profile gone; review survives but is anonymized — `reviewer_id` nulled AND
+    // `anonymized_at` stamped in the same batch (the §23.1 / AECI-241 invariant).
     expect(await t.db.select().from(profiles)).toHaveLength(0);
     const [review] = await t.db.select().from(reviews);
     expect(review!.reviewerId).toBeNull();
+    expect(review!.anonymizedAt).not.toBeNull();
 
     // account.deleted audit written with a null actor.
     const audit = await t.db.select().from(auditLog);

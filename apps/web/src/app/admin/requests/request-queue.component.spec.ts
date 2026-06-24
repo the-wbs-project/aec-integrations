@@ -40,6 +40,7 @@ function makeRequest(over: Partial<AdminVendorRequest> & { id: string }): AdminV
     source_url: over.source_url ?? null,
     is_duplicate: over.is_duplicate ?? false,
     linear_issue_id: over.linear_issue_id ?? null,
+    linear_issue_url: over.linear_issue_url ?? null,
     created_at: over.created_at ?? '2026-06-01T00:00:00.000Z',
     resolved_at: over.resolved_at ?? null,
     resolved_by: over.resolved_by ?? null,
@@ -157,6 +158,28 @@ describe('RequestQueue', () => {
     );
     expect(cardFor(el, 'Procore').textContent).toContain('Domain mismatch');
     expect(cardFor(el, 'Bluebeam').textContent).not.toContain('Domain mismatch');
+  });
+
+  it('renders a real Linear link when linear_issue_url is present (AECI-261)', async () => {
+    const url = 'https://linear.app/aec-integrations/issue/AECI-901';
+    const { el } = await setup(
+      makeApiMock([makeRequest({ id: 'r1', linear_issue_id: 'iss_123', linear_issue_url: url })]),
+    );
+    const link = cardFor(el, 'Procore').querySelector<HTMLAnchorElement>('a[href*="linear.app"]');
+    expect(link).not.toBeNull();
+    expect(link!.getAttribute('href')).toBe(url);
+    expect(link!.getAttribute('target')).toBe('_blank');
+    expect(link!.getAttribute('rel')).toContain('noopener');
+    expect(link!.textContent?.trim()).toBe('Tracked in Linear');
+  });
+
+  it('falls back to a non-clickable indicator when linear_issue_url is null', async () => {
+    const { el } = await setup(
+      makeApiMock([makeRequest({ id: 'r1', linear_issue_id: 'iss_123', linear_issue_url: null })]),
+    );
+    const card = cardFor(el, 'Procore');
+    expect(card.querySelector('a[href*="linear.app"]')).toBeNull();
+    expect(card.textContent).toContain('Tracked in Linear');
   });
 
   it('refetches with the kind filter and marks it aria-pressed', async () => {

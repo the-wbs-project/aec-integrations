@@ -23,6 +23,7 @@
     "db:setup:local": "pnpm db:migrate:local && pnpm db:seed:local",
     "db:export:catalog": "tsx scripts/export-catalog-to-d1.ts",
     "db:seed-reviews": "tsx scripts/seed-reviews.ts",
+    "db:reconcile-counts": "tsx scripts/reconcile-product-counts.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest",
     "test:unit": "vitest run",
