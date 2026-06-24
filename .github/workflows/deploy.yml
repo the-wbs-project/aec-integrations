@@ -637,6 +637,7 @@ jobs:
           create_queue aeci-algolia-drift-staging
           create_queue aeci-stats-staging
           create_queue aeci-reconcile-staging
+          create_queue aeci-data-quality-staging
 
       # API deploys FIRST. The SSR Worker's `services.API` binding talks to
       # ADR 0016 / AECI-256: apply the app database's D1 schema to the staging D1

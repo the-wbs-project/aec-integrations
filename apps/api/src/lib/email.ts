@@ -1,6 +1,15 @@
 /**
- * Transactional email via Resend (AECI-240 / Phase 7.5) — the single email
- * transport for the API Worker.
+ * Email transport for the API Worker (Resend).
+ *
+ * Two layers live here:
+ *
+ *   1. **Transactional templates** (AECI-240 / Phase 7.5, §11.1) — `sendTransactionalEmail`
+ *      plus the per-template helpers (review submitted/approved/rejected, account
+ *      deletion, the reconcile-sweep admin alert). These ride the Datadog triple
+ *      (`EmailContext`) and emit the `aeci.email.send` metric.
+ *   2. **Low-level transport** (AECI-241 / Phase 7.6) — `sendEmail` + `parseRecipients`,
+ *      a dependency-free `fetch` POST with an injectable fetch/logger, used by the
+ *      daily data-quality digest cron (`scheduled.ts`).
  *
  * **Provider note.** `STAGE_1_SPEC.md` §11.1 and the AECI-240 issue originally said
  * "Loops", but the repo standardized on **Resend** (the landing app already ships a
@@ -8,19 +17,19 @@
  * Microsoft 365. The full decision + template catalogue + the Supabase→Resend SMTP
  * setup for magic links live in `docs/email.md`.
  *
- * This module mirrors the canonical third-party-client posture of `lib/toxicity.ts`:
+ * Both layers mirror the canonical third-party-client posture (`lib/toxicity.ts` /
+ * `LINEAR_API_KEY`):
  *
  *   - **Never throws.** Every failure mode (absent key/sender, no recipient,
  *     non-2xx, network error, timeout) resolves to an `EmailOutcome`, so a send can
- *     never break the action that triggered it. Callers fire it via `ctx.waitUntil`
- *     (§11.1: fire-and-forget; failures logged to Datadog, never block the action).
- *   - **Absent key → `'skipped'`, silently.** No `RESEND_API_KEY` is the expected
- *     local `dev:bound` / PR-preview state (the secret is staging/prod only), so it
- *     no-ops without a warning — only genuine outages warn (mirrors `ANTHROPIC_API_KEY`).
+ *     never break the action that triggered it. Callers fire it via `ctx.waitUntil`.
+ *   - **Absent key → `'skipped'`.** No `RESEND_API_KEY` is the expected local
+ *     `dev:bound` / PR-preview state (the secret is staging/prod only), so it
+ *     no-ops; only genuine outages warn (mirrors `ANTHROPIC_API_KEY`).
  *   - **Sane timeout** via `AbortSignal.timeout` so a slow provider never hangs the
- *     `waitUntil` budget.
+ *     `waitUntil` budget (transactional layer).
  *
- * Observability: every attempt emits the `aeci.email.send` count tagged
+ * Observability: every transactional attempt emits the `aeci.email.send` count tagged
  * `outcome:sent|failed|skipped` + `template:<id>`; failures also `warn` to Datadog
  * (`source: 'email'`). Telemetry is wrapped so it can never turn a send into a throw.
  */
@@ -66,10 +75,10 @@ interface SendInput {
 }
 
 /**
- * Low-level Resend send. Returns an `EmailOutcome`; **never throws**. An absent
- * `RESEND_API_KEY` / `EMAIL_FROM`, or an empty recipient (an address we couldn't
- * resolve), is a silent `'skipped'`. POST shape matches the landing app's tested
- * `sendNotification` (Bearer auth, `from/to/subject/text/html`).
+ * Low-level Resend send for the transactional templates. Returns an `EmailOutcome`;
+ * **never throws**. An absent `RESEND_API_KEY` / `EMAIL_FROM`, or an empty recipient
+ * (an address we couldn't resolve), is a silent `'skipped'`. POST shape matches the
+ * landing app's tested `sendNotification` (Bearer auth, `from/to/subject/text/html`).
  */
 export async function sendTransactionalEmail(
   c: EmailContext,
@@ -246,6 +255,84 @@ export function sendStuckRequestAdminAlert(
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
   });
+}
+
+// ─── Low-level transport (AECI-241 / Phase 7.6) ─────────────────────────────────
+// Used by the daily data-quality digest cron (`scheduled.ts`). Dependency-free with
+// an injectable fetch/logger; no Datadog metric here (the cron emits its own).
+
+export interface EmailMessage {
+  from: string;
+  /** One or more recipients. */
+  to: string[];
+  subject: string;
+  text: string;
+  html?: string;
+}
+
+/** The env slice the transport reads. `RESEND_API_KEY` is a per-env Wrangler secret. */
+export interface EmailEnv {
+  RESEND_API_KEY?: string;
+}
+
+/**
+ * Send one email via Resend. Returns the outcome instead of throwing:
+ *   - `'skipped'` — no API key, or no recipients (fail-open no-op).
+ *   - `'failed'`  — Resend returned non-2xx or the request threw.
+ *   - `'sent'`    — accepted by Resend.
+ * The optional `logger` records the reason on skip/fail (defaults to `console`).
+ */
+export async function sendEmail(
+  env: EmailEnv,
+  message: EmailMessage,
+  fetchImpl: typeof fetch = fetch,
+  logger: Pick<Console, 'warn' | 'error'> = console,
+): Promise<EmailOutcome> {
+  if (!env.RESEND_API_KEY) {
+    logger.warn('email: skipped — RESEND_API_KEY not configured');
+    return 'skipped';
+  }
+  if (!message.from || message.to.length === 0) {
+    logger.warn('email: skipped — from/to not configured');
+    return 'skipped';
+  }
+
+  try {
+    const res = await fetchImpl(RESEND_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: message.from,
+        to: message.to,
+        subject: message.subject,
+        text: message.text,
+        ...(message.html ? { html: message.html } : {}),
+      }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      logger.error(
+        `email: Resend error ${res.status}${detail ? ` — ${detail.slice(0, 200)}` : ''}`,
+      );
+      return 'failed';
+    }
+    return 'sent';
+  } catch (error) {
+    logger.error(`email: send threw — ${error instanceof Error ? error.message : String(error)}`);
+    return 'failed';
+  }
+}
+
+/** Parse a comma/semicolon/whitespace-separated recipient var into a clean list. */
+export function parseRecipients(raw: string | undefined): string[] {
+  if (!raw) return [];
+  return raw
+    .split(/[,;\s]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
 }
 
 // ─── Internals ─────────────────────────────────────────────────────────────────

@@ -1,12 +1,15 @@
 /**
- * Unit coverage for the Resend transactional-email client (AECI-240 / Phase 7.5).
+ * Unit coverage for the email transport (`lib/email.ts`).
  *
- * Contract under test: every send NEVER throws and resolves to an `EmailOutcome`.
- * An absent `RESEND_API_KEY` / `EMAIL_FROM`, or an empty recipient, is a silent
- * `'skipped'` (no fetch); a 2xx is `'sent'`; a non-2xx / network / timeout is
- * `'failed'` (logged, never thrown). Each template helper is asserted to POST the
- * right `to` / subject / body to Resend. Global `fetch` is stubbed; `DD_API_KEY` is
- * unset so the `warn`/metric paths are no-ops. Mirrors `toxicity.spec.ts`.
+ * Two layers, two suites:
+ *   - Transactional templates (AECI-240): every send NEVER throws and resolves to
+ *     an `EmailOutcome`. Absent `RESEND_API_KEY`/`EMAIL_FROM` or empty recipient →
+ *     silent `'skipped'` (no fetch); 2xx → `'sent'`; non-2xx/network/timeout →
+ *     `'failed'` (logged, never thrown). Each template helper POSTs the right
+ *     `to`/subject/body. Global `fetch` is stubbed; `DD_API_KEY` is unset so the
+ *     `warn`/metric paths are no-ops. Mirrors `toxicity.spec.ts`.
+ *   - Low-level transport (AECI-241): `sendEmail` + `parseRecipients` with a faked
+ *     `fetch` — skip/sent/failed outcomes and the never-throw guarantee.
  */
 
 import type { Context } from 'hono';
@@ -15,7 +18,9 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { submitCount } from '../datadog';
 import type { Env } from '../env';
 import {
+  parseRecipients,
   sendAccountDeletionEmail,
+  sendEmail,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
   sendReviewSubmittedEmail,
@@ -280,5 +285,101 @@ describe('sendStuckRequestAdminAlert', () => {
       ],
     });
     expect(lastBody(fetchSpy).subject).toBe('[AECi] 1 request stuck in the Linear pipeline');
+  });
+});
+
+// ─── Low-level transport (AECI-241) ─────────────────────────────────────────────
+
+const MSG = {
+  from: 'AECi <dq@aecintegrations.com>',
+  to: ['a@x.com', 'b@x.com'],
+  subject: 'subj',
+  text: 'body',
+};
+
+const silent = { warn: () => {}, error: () => {} };
+
+describe('sendEmail', () => {
+  it('skips (no fetch) when RESEND_API_KEY is unset', async () => {
+    const fetchImpl = vi.fn();
+    const out = await sendEmail({}, MSG, fetchImpl as unknown as typeof fetch, silent);
+    expect(out).toBe('skipped');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('skips when there are no recipients or no sender', async () => {
+    const fetchImpl = vi.fn();
+    expect(
+      await sendEmail(
+        { RESEND_API_KEY: 'k' },
+        { ...MSG, to: [] },
+        fetchImpl as unknown as typeof fetch,
+        silent,
+      ),
+    ).toBe('skipped');
+    expect(
+      await sendEmail(
+        { RESEND_API_KEY: 'k' },
+        { ...MSG, from: '' },
+        fetchImpl as unknown as typeof fetch,
+        silent,
+      ),
+    ).toBe('skipped');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('posts to Resend and returns sent on 2xx', async () => {
+    const fetchImpl = vi.fn(
+      async (_url: string | URL, _init?: RequestInit) => new Response('{}', { status: 200 }),
+    );
+    const out = await sendEmail(
+      { RESEND_API_KEY: 'secret' },
+      MSG,
+      fetchImpl as unknown as typeof fetch,
+      silent,
+    );
+    expect(out).toBe('sent');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    const call = fetchImpl.mock.calls[0]!;
+    const init = call[1]!;
+    expect(call[0]).toBe('https://api.resend.com/emails');
+    expect(init.method).toBe('POST');
+    const headers = init.headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer secret');
+    const body = JSON.parse(init.body as string) as { to: string[]; subject: string };
+    expect(body.to).toEqual(['a@x.com', 'b@x.com']);
+    expect(body.subject).toBe('subj');
+  });
+
+  it('returns failed on a non-2xx response', async () => {
+    const fetchImpl = vi.fn(async () => new Response('bad', { status: 422 }));
+    expect(
+      await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
+    ).toBe('failed');
+  });
+
+  it('returns failed (never throws) when fetch rejects', async () => {
+    const fetchImpl = vi.fn(async () => {
+      throw new Error('network');
+    });
+    expect(
+      await sendEmail({ RESEND_API_KEY: 'k' }, MSG, fetchImpl as unknown as typeof fetch, silent),
+    ).toBe('failed');
+  });
+});
+
+describe('parseRecipients', () => {
+  it('splits on commas/semicolons/whitespace and trims', () => {
+    expect(parseRecipients('a@x.com, b@x.com;c@x.com\n d@x.com')).toEqual([
+      'a@x.com',
+      'b@x.com',
+      'c@x.com',
+      'd@x.com',
+    ]);
+  });
+
+  it('returns [] for undefined/empty', () => {
+    expect(parseRecipients(undefined)).toEqual([]);
+    expect(parseRecipients('   ')).toEqual([]);
   });
 });

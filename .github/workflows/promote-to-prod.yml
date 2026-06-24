@@ -532,6 +532,7 @@ jobs:
           create_queue aeci-algolia-drift-production
           create_queue aeci-stats-production
           create_queue aeci-reconcile-production
+          create_queue aeci-data-quality-production
 
       # ADR 0016 / AECI-256: apply the app database's D1 schema to the production D1
       # (aeci-app-production) and reconcile the taxonomy reference data BEFORE the API

@@ -429,6 +429,12 @@ export const reviews = sqliteTable(
       .notNull()
       .references(() => products.id, { onDelete: 'cascade' }),
     reviewerId: text('reviewer_id').references(() => profiles.id, { onDelete: 'set null' }),
+    /** Stamped when a review is GDPR-anonymized — the reviewer's profile is
+     *  hard-deleted and `reviewer_id` is nulled in the same `DELETE /api/account`
+     *  batch (`routes/account.ts`). A null `reviewer_id` with a null
+     *  `anonymized_at` is a data-integrity defect the §23.1 daily data-quality
+     *  job flags (AECI-241). */
+    anonymizedAt: text('anonymized_at'),
 
     ratingOverall: integer('rating_overall').notNull(),
     ratingOnboarding: integer('rating_onboarding').notNull(),

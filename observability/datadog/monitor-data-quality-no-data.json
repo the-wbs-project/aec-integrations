@@ -1,0 +1,15 @@
+{
+  "name": "AECi — Data quality job not running (no daily run)",
+  "type": "query alert",
+  "query": "sum(last_2d):sum:aeci.data_quality.job{trigger:cron,env:production}.as_count() < 1",
+  "message": "The daily §23.1 data-quality job has reported no completed run in ~26h (AECI-241 / Phase 7.6, 04:00 UTC cron). Every completed invocation emits exactly one `aeci.data_quality.job{trigger:cron}` point (any outcome — success/failed, plus the pre-run crash path), so a silent series means the cron (apps/api/src/scheduled.ts) is not running: the integrity checks are not being evaluated and Chris + Bill are getting no digest. This is the liveness check — a missed run emits nothing, so no-data on the heartbeat IS the signal. It relies on notify_no_data, so the outcome-agnostic `{trigger:cron}` scope is load-bearing; the per-run failure quality check is the companion monitor 'AECi — Data quality job failed'.\n\nFirst checks: the staging/production API Worker's scheduled invocation in the Cloudflare dashboard / `wrangler tail` (search `source:data-quality-cron`); that the `aeci-data-quality-production` queue exists.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#data-quality-job-failed-or-not-running\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:7", "managed-by:aeci-241"],
+  "options": {
+    "thresholds": { "critical": 1 },
+    "notify_no_data": true,
+    "no_data_timeframe": 1560,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

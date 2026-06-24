@@ -571,3 +571,45 @@ when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent the outcome is `skipped`,
 the `/admin/requests` queue remain the guaranteed notification** (§6.2). Make sure on-call routes a
 persistent failure to whoever owns the Linear pipeline. (The 15-min cadence + ~60m persistent threshold are launch-tunable —
 see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
+
+---
+
+## Data quality job failed or not running
+
+**Alerts:**
+- `AECi — Data quality check found issues (by check)` — a §23.1 check found one or more defects.
+- `AECi — Data quality job failed (daily cron)` — a check threw or a pre-run crash.
+- `AECi — Data quality job not running (no daily run)` — the cron stopped firing.
+
+**Metrics:**
+- `aeci.data_quality.check{check:<id>}` — per-check issue count (0 = clean; **-1** = the check threw).
+- `aeci.data_quality.job{outcome:failed}` — run-level failure heartbeat.
+- `aeci.data_quality.job{trigger:cron}` — liveness heartbeat (one per completed run).
+- `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped).
+
+**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the ten
+read-only integrity checks (orphan products/vendors, products stuck `ready` >30d, integrations pointing
+at a pulled product, anonymized reviews missing `anonymized_at`, stale `stats_cache`, duplicate
+vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140 Algolia drift). The job
+**does not auto-repair** — humans triage. The email digest to Chris + Bill carries the offending rows.
+
+**First checks**
+
+1. **Which check?** The "found issues" alert is split `by {check}`. Pivot on the `check:` tag (or read
+   the digest) to see the specific check and its count. The full offending rows are in the email and in
+   the `source:data-quality-cron` logs (`aeci.data_quality.check <id> count=…`).
+2. **A check errored (-1 / job failed)?** Read the `source:data-quality-cron` error logs
+   (`aeci.data_quality.check <id>` with `reason`, or `aeci.data_quality.crashed` for a pre-run crash).
+   A pre-run crash is usually a missing `DB` binding or a deploy regression — check `GET /api/version`.
+3. **No-data (job not running)?** The cron isn't firing. Check the staging/production API Worker's
+   scheduled invocation in the Cloudflare dashboard / `wrangler tail` (`source:data-quality-cron`), and
+   that the `aeci-data-quality-<env>` queue exists.
+4. **Digest not received?** If the run fired (metrics present) but Chris + Bill got no email, check
+   `aeci.data_quality.email{outcome}`: `skipped` = `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_FROM` /
+   `DATA_QUALITY_EMAIL_TO` not set on the Worker (fail-open by design); `failed` = a Resend error — check
+   the `source:data-quality-cron` log for the HTTP status and Resend's delivery log.
+
+**Repair:** report-only — triage the digest and fix the underlying data (promote a stuck product, remove
+a pulled product's integration, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.); the next
+daily run auto-detects the fix. A no-data/liveness failure is a Worker scheduling issue — escalate to
+whoever owns the API Worker's crons.

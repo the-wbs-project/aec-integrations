@@ -10,9 +10,10 @@
  * inline (`queueForJob` returns `undefined`), so it never appears on the wire as
  * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
  * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
- * daily batch.
+ * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
+ * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
  */
-export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation' | 'reconcile';
+export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation' | 'reconcile' | 'data_quality';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -201,6 +202,12 @@ export type Env = {
   STATS_QUEUE?: Queue<ScheduledJobMessage>;
   RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
   /**
+   * Queue carrying the daily §23.1 data-quality job (AECI-241 / Phase 7.6).
+   * Same producer/consumer split as the others; absent on local/preview → the
+   * cron runs the job inline (`enqueueOrRun`).
+   */
+  DATA_QUALITY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
    * env. Used ONLY to derive the JWKS endpoint
@@ -260,20 +267,31 @@ export type Env = {
    */
   ADMIN_ALERT_EMAIL?: string;
   /**
-   * Resend API key for transactional email (AECI-240 / Phase 7.5, §11.1). Set as a
-   * Wrangler **secret** per env, staging/prod only. Optional and **fail-open**
-   * (mirrors `ANTHROPIC_API_KEY`): absent → every `lib/email.ts` send is a silent
-   * `'skipped'` (the expected state in local `dev:bound` / PR previews), so the
-   * triggering action — review submit/moderate, account delete, reconcile sweep —
-   * still succeeds. The repo standardized on Resend over the spec's original
-   * "Loops"; see `docs/email.md`. Presented as a Bearer token to the Resend API.
+   * Resend API key — the single transactional-email secret for the API Worker.
+   * Powers BOTH the §11.1 transactional templates (AECI-240 / Phase 7.5 — review
+   * submit/moderate, account delete, the reconcile-sweep admin alert) AND the daily
+   * data-quality digest (AECI-241 / Phase 7.6, `sendEmail`). Set as a Wrangler
+   * **secret** per env, staging/prod only. Optional and **fail-open** (mirrors
+   * `ANTHROPIC_API_KEY`): absent → every `lib/email.ts` send is a silent `'skipped'`
+   * (the expected state in local `dev:bound` / PR previews), so the triggering
+   * action / cron still succeeds. The repo standardized on Resend over the spec's
+   * original "Loops"; see `docs/email.md`. Presented as a Bearer token to Resend.
    */
   RESEND_API_KEY?: string;
   /**
-   * Sender for transactional email — the Resend `from`. Accepts a bare address or
-   * a `Name <addr>` form (e.g. `AEC Integrations <notifications@aecintegrations.com>`).
-   * Must be a verified Resend domain. Absent → sends `'skipped'` (alongside an
-   * absent `RESEND_API_KEY`). Set as a plain wrangler var per env. See `docs/email.md`.
+   * Sender for the §11.1 transactional emails — the Resend `from` (AECI-240).
+   * Accepts a bare address or a `Name <addr>` form (e.g.
+   * `AEC Integrations <notifications@aecintegrations.com>`). Must be a verified
+   * Resend domain. Absent → sends `'skipped'` (alongside an absent `RESEND_API_KEY`).
+   * Set as a plain wrangler var per env. See `docs/email.md`.
    */
   EMAIL_FROM?: string;
+  /**
+   * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
+   * single verified Resend sender; `_TO` is a comma/whitespace-separated list
+   * (Chris + Bill), parsed by `parseRecipients` (`lib/email.ts`). Plain wrangler
+   * vars per env. Either absent → the send is a `skipped` no-op.
+   */
+  DATA_QUALITY_EMAIL_FROM?: string;
+  DATA_QUALITY_EMAIL_TO?: string;
 };
