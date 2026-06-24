@@ -294,6 +294,15 @@
         // on the API Worker — it verifies with public JWKS material only
         // (AUTH_AND_RLS.md §4).
         "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // AECI-236 (§20.2): canonical public origin the post-promote IndexNow
+        // submission builds its URLs against. Public value. The IndexNow ping
+        // stays a no-op until the `INDEXNOW_KEY` secret is also provisioned at
+        // launch (alongside the web Worker's `ALLOW_INDEXING="true"`); set this to
+        // the host the web Worker actually serves at launch (canonicals are
+        // self-referential to the serving origin, ADR 0011). Not set on
+        // preview/staging — those are Access-gated, non-indexed, so IndexNow
+        // no-ops there regardless.
+        "PUBLIC_SITE_URL": "https://aecintegrations.com",
       },
       "kv_namespaces": [
         {
