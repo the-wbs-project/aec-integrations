@@ -97,6 +97,7 @@ function reqRow(
     body: 'We build this product and would like to claim the listing.',
     sourceUrl: null,
     linearIssueId: null,
+    linearIssueUrl: null,
     createdAt: '2026-06-01T00:00:00.000Z',
     resolvedAt: null,
     resolvedById: null,
@@ -138,6 +139,20 @@ describe('GET /api/admin/requests', () => {
     expect(parsed.data[0]?.kind).toBe('claim');
     expect(parsed.data[0]?.target_type).toBe('product');
     expect(parsed.data[0]?.linear_issue_id).toBeNull();
+    expect(parsed.data[0]?.linear_issue_url).toBeNull();
+  });
+
+  it('surfaces linear_issue_url when persisted (AECI-261)', async () => {
+    await seed(
+      reqRow({
+        linearIssueId: 'iss_123',
+        linearIssueUrl: 'https://linear.app/aec-integrations/issue/AECI-901',
+      }),
+    );
+    const parsed = ListVendorRequestsResponseSchema.parse(await (await getList()).json());
+    expect(parsed.data[0]?.linear_issue_url).toBe(
+      'https://linear.app/aec-integrations/issue/AECI-901',
+    );
   });
 
   it('filters by status=resolved', async () => {
@@ -331,7 +346,7 @@ const seedWorkflow = (workflowType: string, entityId = REQUEST_ID, currentState 
 
 describe('PATCH /api/admin/requests/:id', () => {
   it('resolves an open request: status, resolver fields, audit, transition, sync', async () => {
-    await seed(reqRow());
+    await seed(reqRow({ linearIssueUrl: 'https://linear.app/aec-integrations/issue/AECI-901' }));
     await seedWorkflow('vendor_claim');
     const sync = vi.fn<SyncRequestToLinear>(async () => {});
 
@@ -342,6 +357,8 @@ describe('PATCH /api/admin/requests/:id', () => {
     expect(body.resolved_by).toBe(ADMIN_ID);
     expect(body.resolved_at).toEqual(expect.any(String));
     expect(body.is_duplicate).toBe(false);
+    // AECI-261: the persisted issue url survives the moderation action.
+    expect(body.linear_issue_url).toBe('https://linear.app/aec-integrations/issue/AECI-901');
 
     // Row mutated.
     const [row] = await t.db.select().from(vendorRequests).where(eq(vendorRequests.id, REQUEST_ID));

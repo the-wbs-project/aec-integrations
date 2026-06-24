@@ -230,7 +230,13 @@ export function createLinearWebhookHandler(
         // resolvedAt is set/cleared unconditionally so a reverse transition (an
         // admin reopening a resolved/rejected issue in Linear → a non-terminal
         // status) doesn't leave a stale resolution time on an active row.
-        .set({ status: targetStatus, resolvedAt: isTerminal ? now : null })
+        // linearIssueUrl (AECI-261): the webhook carries the issue permalink, so
+        // persist it here too — also backfills rows linked before this column existed.
+        .set({
+          status: targetStatus,
+          resolvedAt: isTerminal ? now : null,
+          linearIssueUrl: payload.url,
+        })
         .where(eq(vendorRequests.id, request.id)),
       db
         .update(workflowInstances)
