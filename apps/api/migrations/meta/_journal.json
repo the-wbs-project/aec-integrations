@@ -15,6 +15,13 @@
       "when": 1782238527167,
       "tag": "0001_dapper_spot",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1782303866417,
+      "tag": "0002_confused_whirlwind",
+      "breakpoints": true
     }
   ]
 }

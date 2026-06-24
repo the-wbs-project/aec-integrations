@@ -525,6 +525,7 @@ create table reviews (
   id uuid primary key default gen_random_uuid(),
   product_id uuid not null references products(id) on delete cascade,
   reviewer_id uuid references profiles(id) on delete set null, -- null after anonymization
+  anonymized_at timestamptz, -- stamped when reviewer_id is nulled on GDPR account deletion (§23.3); a null reviewer_id with a null anonymized_at is a data-integrity defect the §23.1 daily job flags
 
   rating_overall smallint not null check (rating_overall between 1 and 5),
   rating_onboarding smallint not null check (rating_onboarding between 1 and 5),
