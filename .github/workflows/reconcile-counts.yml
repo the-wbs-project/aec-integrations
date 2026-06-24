@@ -3,24 +3,35 @@
 # Scheduled drift guard for the app-maintained product aggregates
 # (`products.integration_count`, `review_count`, `rating_overall_avg`,
 # `rating_onboarding_avg`). Runs `scripts/reconcile-product-counts.ts`
-# REPORT-ONLY against staging (and prod) via `DIRECT_URL`: it recomputes the
-# expected values from the `integrations` / `reviews` source rows and exits
-# non-zero if any product's stored columns have drifted — which fails the job
-# and notifies. The script also emits a Datadog gauge `aeci.product_counts.drift`
-# (and an error log on drift) when `DD_API_KEY` is set, so a monitor can alert
+# REPORT-ONLY against staging (and prod) on the DEPLOYED Cloudflare D1 via
+# `wrangler d1 execute --remote`: it recomputes the expected values from the
+# `integrations` / `reviews` source rows and exits non-zero if any product's
+# stored columns have drifted — which fails the job and notifies. The script
+# also emits a Datadog gauge `aeci.product_counts.drift` (count of drifted
+# products; 0 when clean) when DD_API_KEY is set, so a monitor can alert
 # independently of the GitHub run.
 #
+# Drift means a write path mutated integrations/reviews without the post-batch
+# `recomputeProductCounts()` landing (under D1 that recompute is a separate,
+# non-atomic write after the mutating batch — see
+# apps/api/src/lib/recompute-counts.ts). The drift RULE itself lives once in that
+# file (`diffProductCounts` / `findProductCountDrift`); this job is the caller.
+#
+# Stack note (ADR 0016 / AECI-248→257): the app DB is Cloudflare D1, not
+# Postgres. This job authenticates wrangler with CLOUDFLARE_API_TOKEN (the same
+# secret deploy.yml / promote-to-prod.yml use for `wrangler d1 migrations
+# apply`); the account id is read from apps/api/wrangler.jsonc. No Prisma, no
+# DIRECT_URL.
+#
 # This is the DATA-drift counterpart to `drift-check.yml` (which only checks
-# SCHEMA drift on a fresh empty DB at PR time). Reconciliation only has meaning
-# against real data, hence a scheduled run against the linked remotes rather than
-# a PR check.
+# SCHEMA drift). Reconciliation only has meaning against real data, hence a
+# scheduled run against the linked remotes rather than a PR check.
 #
 # NEVER runs `--fix` here — repair is a deliberate, reviewed action a human runs
-# locally (`pnpm --filter @aeci/api db:reconcile-counts -- --fix`).
+# (`RECONCILE_ENV=<env> CLOUDFLARE_API_TOKEN=… pnpm --filter @aeci/api db:reconcile-counts -- --fix`).
 #
 # Required secrets:
-#   DIRECT_URL_STAGING       Supabase pooler `postgresql://...` for the dev/staging project
-#   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod
+#   CLOUDFLARE_API_TOKEN     scoped to Account → D1 → Read (CICD_PLAN §7.1)
 #   DATADOG_API_KEY          Datadog API key (mapped to the script's DD_API_KEY)
 
 name: reconcile-counts
@@ -54,11 +65,7 @@ jobs:
       # Independent targets — don't cancel prod just because staging drifted.
       fail-fast: false
       matrix:
-        include:
-          - target: staging
-            secret_name: DIRECT_URL_STAGING
-          - target: production
-            secret_name: DIRECT_URL_PRODUCTION
+        target: [staging, production]
     steps:
       - uses: actions/checkout@v4
 
@@ -72,22 +79,17 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The reconcile script imports the generated Prisma client transitively
-      # through src/lib/product-counts.ts → @prisma/client. Same step as
-      # drift-check.yml / refresh-staging.yml.
-      - name: Generate Prisma client
-        run: pnpm --filter @aeci/api exec prisma generate
-
       - name: Reconcile product counts (report-only)
         env:
-          # `secrets[matrix.secret_name]` selects the staging/prod URL per target.
-          DIRECT_URL: ${{ secrets[matrix.secret_name] }}
+          # wrangler reads the account id from apps/api/wrangler.jsonc; the token
+          # authenticates the remote D1 query.
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          RECONCILE_ENV: ${{ matrix.target }}
           DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DD_ENV: ${{ matrix.target }}
-          SECRET_NAME: ${{ matrix.secret_name }}
         run: |
-          if [ -z "$DIRECT_URL" ]; then
-            echo "::error::${SECRET_NAME} secret is empty. Configure it under repo Settings → Secrets and variables → Actions."
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::CLOUDFLARE_API_TOKEN secret is empty. Configure it under repo Settings → Secrets and variables → Actions."
             exit 1
           fi
           pnpm --filter @aeci/api exec tsx scripts/reconcile-product-counts.ts
@@ -96,12 +98,11 @@ jobs:
         if: failure()
         env:
           TARGET: ${{ matrix.target }}
-          SECRET_NAME: ${{ matrix.secret_name }}
         run: |
           {
             echo "::error::Product-count drift detected on ${TARGET} (or the job failed to run)."
-            echo "::error::A write path likely mutated integrations/reviews without calling recomputeProductCounts()."
-            echo "::error::To inspect + repair against the affected env:"
-            echo "::error::  DIRECT_URL=<${SECRET_NAME}> pnpm --filter @aeci/api db:reconcile-counts -- --fix"
-            echo "::error::See docs/DATABASE_SCHEMA.md §11.2 and apps/api/src/lib/product-counts.ts."
+            echo "::error::A write path likely mutated integrations/reviews without the post-batch recomputeProductCounts() landing."
+            echo "::error::To inspect + repair against the affected env (deliberate; never in CI):"
+            echo "::error::  RECONCILE_ENV=${TARGET} CLOUDFLARE_API_TOKEN=<token> pnpm --filter @aeci/api db:reconcile-counts -- --fix"
+            echo "::error::See docs/DATABASE_SCHEMA.md §11.2 and apps/api/src/lib/recompute-counts.ts."
           }
