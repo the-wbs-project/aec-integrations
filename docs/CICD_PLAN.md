@@ -50,7 +50,7 @@ Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-
 - Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
 - **DB:** shared dev project `main` branch via the shared `aeci-api-preview` Worker and Prisma Accelerate. No per-PR Supabase branches (Option 1; see `docs/environments.md` §"PR previews" for the trade-off and revisit conditions for Options 2/3).
 - Fronted by the "AECi Non-Prod" Cloudflare Access app — service token for CI, OTP-to-email for humans (see `docs/access.md`).
-- Datadog, Loops, and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to). **Algolia is the exception:** previews use their own dedicated `preview_*` index set (and `preview` scoped keys), per §7.5 — so preview/local search can't poison staging data. Local `pnpm dev:bound` (`ENV=preview`) rides the same `preview_*` set.
+- Datadog, Resend, and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to). **Algolia is the exception:** previews use their own dedicated `preview_*` index set (and `preview` scoped keys), per §7.5 — so preview/local search can't poison staging data. Local `pnpm dev:bound` (`ENV=preview`) rides the same `preview_*` set.
 
 ### 2.2 Staging environment
 
@@ -60,7 +60,7 @@ Mirror of production, but with test data and isolated from real users.
 - Connects to a dedicated staging Supabase project
 - Algolia connects to dedicated staging indexes (`staging_*`; physical naming per §7.5)
 - Datadog under `env:staging` tag
-- Loops sends real emails but only to allowlisted internal addresses
+- Resend sends real emails but only to allowlisted internal addresses
 - Linear creates real issues in a "Staging Test" project
 - Used for smoke tests, manual QA, and demos
 - **Network-level access control:** staging and `*.aec-integrations.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI). Production is intentionally public. See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
@@ -74,7 +74,7 @@ The real site. Promoted from staging via manual approval — see `docs/environme
 - Connects to production Supabase
 - Production Algolia indexes
 - Datadog under `env:production` tag, with deployment markers
-- Loops sends to real users
+- Resend sends to real users
 - Linear is the live vendor request destination
 
 ---
@@ -379,7 +379,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `POSTHOG_KEY_STAGING` / `_PRODUCTION` | Per-env PostHog **project API key** (publishable, client-exposed). Pushed to the **web Worker** as `POSTHOG_KEY` by `deploy.yml` (staging), `promote-to-prod.yml` (production), and `pr-preview.yml` (per-PR, reuses `_STAGING`) — all **warn-and-skip** (analytics no-ops/fail-open if unset). `POSTHOG_HOST` is a public `var` (US Cloud). AECI-239. **Never on the API Worker.** | staging, production (+ preview reuses `_STAGING`) |
 | `DATADOG_API_KEY` | RUM and APM | All |
 | `DATADOG_APP_KEY` | Deployment markers | staging, production |
-| `LOOPS_API_KEY` | Transactional email | staging, production |
+| `RESEND_API_KEY_STAGING` / `_PRODUCTION` | Resend key for transactional email (AECI-240, §11.1); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging) / `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. | staging, production |
 | `LINEAR_API_TOKEN` | Issue creation | All |
 | `LINEAR_WEBHOOK_SECRET` | Webhook signature verification | All |
 | `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
@@ -611,7 +611,7 @@ Before the first deploy:
 - [ ] Supabase projects created for dev/staging/production
 - [ ] Algolia app created; per-env indexes + scoped keys provisioned via `scripts/algolia/provision.mjs` (`preview_*` / `staging_*` / `production_*`, per §7.5)
 - [ ] Datadog account configured with appropriate API keys
-- [ ] Loops account configured with environment-specific senders
+- [ ] Resend account configured: verified sending domain (SPF/DKIM/DMARC), `EMAIL_FROM` sender, and `RESEND_API_KEY_{STAGING,PRODUCTION}` GH secrets; Supabase Auth SMTP pointed at Resend for magic links (see `docs/email.md`)
 - [ ] Linear workspace configured per `STAGE_1_SPEC.md` §24
 - [ ] DNS configured for `demo.aecintegrations.com` (web prod), `staging.aecintegrations.com`, and the landing apex + `www.aecintegrations.com`
 - [ ] `.dev.vars.example` committed showing all required local secrets

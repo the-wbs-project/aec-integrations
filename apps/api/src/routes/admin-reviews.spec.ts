@@ -19,9 +19,17 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './admin-reviews';
+
+// The §11.1 reviewer notifications are fire-and-forget; mock them so we can assert
+// the right template fires with the product + reason without a real Resend call.
+vi.mock('../lib/email', () => ({
+  sendReviewApprovedEmail: vi.fn(() => Promise.resolve('sent')),
+  sendReviewRejectedEmail: vi.fn(() => Promise.resolve('sent')),
+}));
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const ADMIN = u(900);
@@ -29,6 +37,8 @@ const REVIEWER = u(901);
 
 let t: TestDb;
 beforeEach(async () => {
+  vi.mocked(sendReviewApprovedEmail).mockClear();
+  vi.mocked(sendReviewRejectedEmail).mockClear();
   t = await makeTestDb();
   await t.db.insert(profiles).values([{ id: ADMIN, role: 'admin' }, { id: REVIEWER }]);
   await t.db
@@ -118,6 +128,17 @@ describe('PATCH /api/admin/reviews/:id', () => {
     const wf = await t.db.select().from(workflowInstances);
     expect(wf[0]!.currentState).toBe('approved');
     expect((await t.db.select().from(workflowTransitions))[0]!.toState).toBe('approved');
+
+    // §11.1: the "now live" email fires to the reviewer with the product details.
+    expect(sendReviewApprovedEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        to: 'rev@example.com',
+        productName: 'Revit',
+        productSlug: 'revit',
+      }),
+    );
+    expect(sendReviewRejectedEmail).not.toHaveBeenCalled();
   });
 
   it('rejects with a reason', async () => {
@@ -130,6 +151,17 @@ describe('PATCH /api/admin/reviews/:id', () => {
     const [row] = await t.db.select().from(reviews);
     expect(row!.status).toBe('rejected');
     expect(row!.rejectionReason).toBe('Spam / not a genuine review.');
+
+    // §11.1: the "needs revision" email fires with the moderator's reason.
+    expect(sendReviewRejectedEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        to: 'rev@example.com',
+        productName: 'Revit',
+        reason: 'Spam / not a genuine review.',
+      }),
+    );
+    expect(sendReviewApprovedEmail).not.toHaveBeenCalled();
   });
 
   it('422s a non-pending review', async () => {

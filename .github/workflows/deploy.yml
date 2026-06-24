@@ -96,6 +96,12 @@
 #                              absent → scoring no-ops (toxicity_score=null) and the
 #                              review still enters the moderation queue. Production
 #                              uses ANTHROPIC_API_KEY_PRODUCTION (promote-to-prod.yml).
+#   RESEND_API_KEY_STAGING    — Resend key for transactional email (AECI-240).
+#                              deploy-staging pushes it to the staging API Worker as
+#                              `RESEND_API_KEY`. Optional + fail-open: absent → every
+#                              email send no-ops ('skipped') and the triggering action
+#                              still succeeds. Production uses RESEND_API_KEY_PRODUCTION
+#                              (promote-to-prod.yml).
 #
 # Required repo variables:
 #   STAGING_ENABLED          — set to "true" after the manual prerequisites
@@ -571,11 +577,13 @@ jobs:
           # surfaces ship. AECI-258: ANTHROPIC_API_KEY_STAGING is recommended too —
           # review toxicity scoring is fail-open, so a missing key only degrades
           # the moderation-queue triage signal, never a launch-critical surface.
+          # AECI-240: RESEND_API_KEY_STAGING is recommended on the same footing —
+          # transactional email is fail-open (absent → sends 'skipped').
           # AECI-236: there is NO INDEXNOW_KEY_STAGING — IndexNow is production /
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
           # pushed only in promote-to-prod.yml.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING ALGOLIA_SEARCH_KEY_STAGING SUPABASE_ANON_KEY_STAGING ANTHROPIC_API_KEY_STAGING'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING ALGOLIA_SEARCH_KEY_STAGING SUPABASE_ANON_KEY_STAGING ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -757,6 +765,27 @@ jobs:
           fi
           printf '%s' "$ANTHROPIC_API_KEY_VALUE" \
             | pnpm exec wrangler secret put ANTHROPIC_API_KEY --env staging
+
+      # AECI-240: push the Resend API key to the staging API Worker so transactional
+      # email (lib/email.ts — review submit/approve/reject, account deletion, the
+      # reconcile-sweep admin alert) sends on staging. Optional + FAIL-OPEN — a
+      # missing key is a silent 'skipped' (the action still succeeds), so this is
+      # graceful warn-and-skip and is NOT in REQUIRED_WORKER_SECRETS. Same idempotent
+      # deploy→secret order.
+      - name: Push RESEND_API_KEY to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEND_API_KEY_VALUE: ${{ secrets.RESEND_API_KEY_STAGING }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$RESEND_API_KEY_VALUE" ]; then
+            echo "::warning::RESEND_API_KEY_STAGING not set — skipping push. Transactional email will no-op on staging (sends 'skipped') until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$RESEND_API_KEY_VALUE" \
+            | pnpm exec wrangler secret put RESEND_API_KEY --env staging
 
       - name: Deploy SSR
         env:

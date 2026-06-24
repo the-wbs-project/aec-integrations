@@ -5,7 +5,7 @@
  */
 
 import { Hono } from 'hono';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   auditLog,
@@ -18,15 +18,24 @@ import {
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { sendReviewSubmittedEmail } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createSubmitReviewHandler } from './reviews';
 
+// The §11.1 confirmation send is fire-and-forget; mock it so the route specs can
+// assert it fires with the reviewer's email without a real Resend call.
+vi.mock('../lib/email', () => ({
+  sendReviewSubmittedEmail: vi.fn(() => Promise.resolve('sent')),
+}));
+
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const USER = u(900);
+const USER_EMAIL = 'reviewer@example.com';
 
 let t: TestDb;
 beforeEach(async () => {
+  vi.mocked(sendReviewSubmittedEmail).mockClear();
   t = await makeTestDb();
   await t.db.insert(profiles).values({ id: USER });
   await t.db
@@ -39,7 +48,7 @@ function app() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: USER, email: undefined, role: 'reviewer' });
+    c.set('auth', { userId: USER, email: USER_EMAIL, role: 'reviewer' });
     await next();
   });
   // score injected as a fixed null (fail-open path); no external call.
@@ -94,6 +103,12 @@ describe('POST /api/reviews', () => {
     expect(audit).toHaveLength(1);
     expect(audit[0]!.action).toBe('review.submitted');
     expect(audit[0]!.entityId).toBe(body.id);
+
+    // §11.1: the "in moderation" confirmation fires to the reviewer (fire-and-forget).
+    expect(sendReviewSubmittedEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ to: USER_EMAIL }),
+    );
   });
 
   it('rejects a duplicate (non-archived) review for the same product → 409', async () => {

@@ -158,7 +158,7 @@ Non-cacheable, auth-gated. Shows the user's profile (display name, email — rea
 
 ### 6.2 `DELETE /api/account` (Phase 5.11, backend)
 
-Per `API_CONTRACTS.md` §6.8 and `AUTH_AND_RLS.md` §8 (right-to-erasure). In one transaction: set `reviewer_id = null` on all of the user's reviews (anonymize, content survives — the `SetNull` FK already supports this), delete the `profiles` row, then delete the `auth.users` row via the Supabase Auth Admin API. `appendAuditLog()` records the erasure (actor = the user; no PII in the log). Errors: `UNAUTHENTICATED`. **The Loops confirmation email is deferred to Phase 7** (Loops setup is Phase 7) — log a stub/TODO; do not block deletion on email.
+Per `API_CONTRACTS.md` §6.8 and `AUTH_AND_RLS.md` §8 (right-to-erasure). In one transaction: set `reviewer_id = null` on all of the user's reviews (anonymize, content survives — the `SetNull` FK already supports this), delete the `profiles` row, then delete the `auth.users` row via the Supabase Auth Admin API. `appendAuditLog()` records the erasure (actor = the user; no PII in the log). Errors: `UNAUTHENTICATED`. **The confirmation email is sent via Resend** (AECI-240 / Phase 7.5, `docs/email.md`; specced as "Loops", built on Resend) — fire-and-forget and fail-open, captured from the session before erasure; deletion never blocks on it.
 
 ---
 

@@ -161,6 +161,23 @@ ALGOLIA_ADMIN_KEY=
 # the §8 erasure boundary. (Local dev sends nothing unless you set a real key.)
 ANTHROPIC_API_KEY=
 
+# ─── Resend transactional email (AECI-240 / Phase 7.5, §11.1) ───────────────
+# RESEND_API_KEY is read at runtime by lib/email.ts for the review confirmation /
+# approved / rejected emails, the account-deletion confirmation, and the
+# reconcile-sweep admin alert. Set it as a Wrangler secret in deployed envs:
+#   wrangler secret put RESEND_API_KEY --env staging|production
+# Optional and FAIL-OPEN: absent (local dev, PR previews) → every send is a silent
+# 'skipped' and the triggering action still succeeds. Get a key from
+# https://resend.com (API Keys). The repo uses Resend, not the spec's original
+# "Loops" — see docs/email.md. To exercise real sends locally, set a key AND
+# EMAIL_FROM to a verified-domain sender below.
+RESEND_API_KEY=
+# Sender for transactional email — the Resend `from`. Bare address or `Name <addr>`.
+# Must be on a Resend-verified domain. Absent → sends skip (with RESEND_API_KEY).
+EMAIL_FROM=
+# Optional. Recipient of the reconcile-sweep stuck-request admin alert (§6.2).
+ADMIN_ALERT_EMAIL=
+
 # ─── IndexNow notification after promote (AECI-236 / §20.2) ─────────────────
 # On promote, the WORKER submits the affected public URLs to IndexNow (Bing /
 # Yandex / …). Two values, both read at runtime:
@@ -173,7 +190,10 @@ ANTHROPIC_API_KEY=
 # pinging IndexNow for a noindex'd site is a correctness bug, so the key's absence
 # is the enforcement. Generate a key with e.g. `openssl rand -hex 16`.
 INDEXNOW_KEY=
-# Canonical public origin the submitted URLs are built against (e.g.
-# https://aecintegrations.com). Local default below; set the real launch host as a
-# wrangler var in production. Absent → IndexNow no-ops.
+
+# Public site base URL (no trailing slash) — SHARED by transactional email (the
+# absolute links in the approved/rejected emails, AECI-240) AND the IndexNow
+# submission (the origin the affected URLs are built against, AECI-236). Local
+# default below; set the real launch host as a wrangler var in production. Absent →
+# email links are omitted and IndexNow no-ops.
 PUBLIC_SITE_URL=http://localhost:8788

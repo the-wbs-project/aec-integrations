@@ -152,14 +152,17 @@ export type Env = {
    */
   INDEXNOW_KEY?: string;
   /**
-   * Canonical public site origin used to build the absolute URLs submitted to
-   * IndexNow on promote (AECI-236), e.g. `https://aecintegrations.com`. Public
-   * value, set as a plain wrangler `var` per env (like `SUPABASE_URL`/`CF_ZONE_ID`).
-   * The API Worker is private — its own request URL is NOT the public origin — so
-   * the canonical host must be configured here, not derived from the request.
-   * Set it to the same host the SSR Worker serves at launch (canonicals are
-   * self-referential to the serving origin, ADR 0011). Absent → the IndexNow
-   * submission is a graceful no-op.
+   * Canonical public site origin (no trailing slash, e.g. `https://aecintegrations.com`),
+   * SHARED by two features: the absolute URLs submitted to IndexNow on promote
+   * (AECI-236) AND the absolute links built in transactional emails (the product
+   * page in the review-approved email, the guidelines in the rejected email —
+   * AECI-240). Public value, set as a plain wrangler `var` per env (like
+   * `SUPABASE_URL`/`CF_ZONE_ID`). The API Worker is private — its own request URL
+   * is NOT the public origin — so the canonical host must be configured here, not
+   * derived from the request. Set it to the same host the SSR Worker serves at
+   * launch (canonicals are self-referential to the serving origin, ADR 0011).
+   * Absent → the IndexNow submission no-ops and email links are omitted (never a
+   * dead host).
    */
   PUBLIC_SITE_URL?: string;
   /**
@@ -256,23 +259,33 @@ export type Env = {
   LINEAR_API_KEY?: string;
   /**
    * Recipient for the persistent-failure admin alert raised by the reconciliation
-   * sweep (AECI-214 / Phase 6.7). Reserved slot: until Phase 7 wires Loops
-   * transactional email (§14), the sweep's `sendAdminAlert()` seam is a fail-open
-   * no-op and the **Datadog alert** (`aeci.linear.reconcile.persistent_failure` +
-   * the `source:reconcile` error log) is the guaranteed backstop (§6.2). Absent →
-   * the seam logs `outcome:skipped` and relies on that alert. When Phase 7 fills
-   * the transport, this is the `To:` address. Set as a plain wrangler var per env.
+   * sweep (AECI-214 / Phase 6.7) — the `To:` address of the §6.2 admin email now
+   * wired through Resend (`lib/email.ts`, AECI-240). Absent → the sweep's
+   * `sendAdminAlert()` seam returns `'skipped'` and the **Datadog alert**
+   * (`aeci.linear.reconcile.persistent_failure` + the `source:reconcile` error log)
+   * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env.
    */
   ADMIN_ALERT_EMAIL?: string;
   /**
-   * Resend API key for the daily data-quality digest (AECI-241 / Phase 7.6).
-   * Read by `lib/email.ts` (`sendEmail`) to POST the §23.1 summary to Chris +
-   * Bill. Set as a Wrangler secret per env. Optional and **fail-open**: absent →
-   * the send is a logged `outcome:skipped` no-op (the local `dev:bound` / PR-preview
-   * default) and the job still runs + emits metrics. The cron/Datadog no-data
-   * monitor is the delivery backstop, so deploys are NOT gated on this secret.
+   * Resend API key — the single transactional-email secret for the API Worker.
+   * Powers BOTH the §11.1 transactional templates (AECI-240 / Phase 7.5 — review
+   * submit/moderate, account delete, the reconcile-sweep admin alert) AND the daily
+   * data-quality digest (AECI-241 / Phase 7.6, `sendEmail`). Set as a Wrangler
+   * **secret** per env, staging/prod only. Optional and **fail-open** (mirrors
+   * `ANTHROPIC_API_KEY`): absent → every `lib/email.ts` send is a silent `'skipped'`
+   * (the expected state in local `dev:bound` / PR previews), so the triggering
+   * action / cron still succeeds. The repo standardized on Resend over the spec's
+   * original "Loops"; see `docs/email.md`. Presented as a Bearer token to Resend.
    */
   RESEND_API_KEY?: string;
+  /**
+   * Sender for the §11.1 transactional emails — the Resend `from` (AECI-240).
+   * Accepts a bare address or a `Name <addr>` form (e.g.
+   * `AEC Integrations <notifications@aecintegrations.com>`). Must be a verified
+   * Resend domain. Absent → sends `'skipped'` (alongside an absent `RESEND_API_KEY`).
+   * Set as a plain wrangler var per env. See `docs/email.md`.
+   */
+  EMAIL_FROM?: string;
   /**
    * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
    * single verified Resend sender; `_TO` is a comma/whitespace-separated list

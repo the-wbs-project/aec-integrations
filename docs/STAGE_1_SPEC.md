@@ -60,7 +60,7 @@ When a section of this spec references one of these documents, the companion doc
 | ORM | Prisma (via `@prisma/extension-accelerate`; HTTPS — independent of `nodejs_compat`; see `DATABASE_SCHEMA.md` §1a) |
 | Search | Algolia + InstantSearch Angular |
 | Auth | Supabase Auth (magic link + Google OAuth) |
-| Email | Loops |
+| Email | Resend (transactional) + Microsoft 365 (mailboxes) |
 | Issue tracking | Linear (with GitHub integration via API) |
 | Design | Figma |
 | AI development | Claude Code (manual, against Linear issues) |
@@ -425,7 +425,7 @@ High-level intent:
 - All reviews by that user have `reviewer_id` set to `null` (anonymized, content remains)
 - `profiles` row deleted
 - `auth.users` row deleted via Supabase Auth API
-- Confirmation email sent via Loops
+- Confirmation email sent via Resend
 
 This satisfies right-to-erasure while preserving the directory's content integrity.
 
@@ -798,21 +798,28 @@ Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggreg
 
 ## 11. Email & Communication
 
-### 11.1 Loops integration
+### 11.1 Transactional email (Resend)
 
-Transactional emails sent via Loops:
+> **Provider: Resend, not Loops (AECI-240 / Phase 7.5).** This section originally
+> specced Loops; the build standardized on **Resend** for transactional email
+> (mailboxes are Microsoft 365). The wiring, the template catalogue, the secret/env
+> setup, and the Supabase→Resend SMTP step for magic links live in `docs/email.md`.
+
+Transactional emails sent via Resend (`apps/api/src/lib/email.ts`, fire-and-forget
+via `ctx.waitUntil`, fail-open):
 - Review submission confirmation: "Thanks — your review is in moderation"
 - Review approved: "Your review of {product} is now live"
 - Review rejected: "Your review needs revision — {reason}"
 - Account deletion confirmation
-- Magic link emails (via Supabase Auth — Loops is the sender)
+- Request-pipeline-failure admin alert (the §6.2 stuck-request email)
+- Magic link emails (via Supabase Auth — Resend is the SMTP sender; dashboard config)
 
 ### 11.2 Waitlist transition
 
 The existing coming-soon landing page captures emails to a `marketing.waitlist` table (already in Supabase per existing setup).
 
 **On launch:**
-- One-time Loops campaign sends to entire waitlist: "We're live — explore the directory"
+- One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"
 - Landing page DNS flips to the new Angular SSR app
 
 **Welcome state for waitlist subscribers:**
@@ -923,7 +930,7 @@ Single platform for performance, error tracking, logs, and audit log forwarding.
 
 **Backend (Datadog Worker SDK in both SSR Worker and API Worker):**
 - APM traces across the full request lifecycle
-- Distributed tracing: SSR Worker → API Worker → Supabase → Algolia → Loops
+- Distributed tracing: SSR Worker → API Worker → Supabase → Algolia → Resend
 - Logs structured as JSON with trace correlation IDs
 - Error tracking with grouping and alerting
 
@@ -1099,7 +1106,7 @@ Governed by `docs/STAGE_1_PHASE_5_SPEC.md` (decomposed into AECI Phase 5.1–5.1
 - [ ] `GET /api/products/:slug/reviews` (public, approved-only) + ProductDetail summary + ≥5 threshold
 - [ ] Review submission form `/products/:slug/review` (Signal Forms + Angular Aria — satisfies AECI-133)
 - [ ] Reviews display + "Be the first to review" empty state + cache-neutral personalized CTA
-- [ ] `/account` + `DELETE /api/account` (GDPR anonymization; Loops email deferred to Phase 7)
+- [ ] `/account` + `DELETE /api/account` (GDPR anonymization; Resend email deferred to Phase 7.5 / AECI-240)
 - [ ] Admin moderation: `/admin` guard, `GET`/`PATCH /api/admin/reviews`, `/admin/reviews` queue UI
 - [ ] Auth/reviews observability + Phase 5 completion checkpoint
 
@@ -1128,7 +1135,7 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 - [ ] 7.2 — Legal pages: Terms, Privacy, Review Guidelines, Listing Accuracy (§13, §27); counsel-reviewed
 - [ ] 7.3 — About + Contact pages
 - [ ] 7.4 — PostHog integration (event set + locale/theme dimensions; §14.1)
-- [ ] 7.5 — Loops transactional email (review + account-deletion + magic-link sender; §11.1) — home for the Phase 5/6 deferred emails
+- [ ] 7.5 — Resend transactional email (review + account-deletion + magic-link sender; §11.1) — home for the Phase 5/6 deferred emails
 - [ ] 7.6 — Daily data-quality job (full §23.1 suite + email summary; Algolia-drift line already shipped in AECI-140)
 - [x] 7.7 — WAF rate limits on the public endpoints (§15.1) — dashboard runbook `docs/waf-rate-limits.md` (AECI-242)
 - [ ] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154)
@@ -1722,7 +1729,7 @@ For users who care about historical versions:
 
 ### 27.4 Significant changes
 
-When a change materially affects users (e.g. new data collection, expanded use of personal data), Stage 2+ may require notification to affected users via Loops. Stage 1 has no notification mechanism since users don't have persistent accounts that need notifying.
+When a change materially affects users (e.g. new data collection, expanded use of personal data), Stage 2+ may require notification to affected users via Resend. Stage 1 has no notification mechanism since users don't have persistent accounts that need notifying.
 
 For Stage 1 launch, initial drafts of all four legal documents are produced from templates and reviewed by counsel before launch. The launch versions become version 1.0 of each document.
 

@@ -54,6 +54,7 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
+import { sendReviewSubmittedEmail } from '../lib/email';
 import type { DbFactory } from '../lib/handler-utils';
 import { scoreToxicity } from '../lib/toxicity';
 
@@ -229,11 +230,14 @@ export function createSubmitReviewHandler(
       throw err;
     }
 
-    // Best-effort §26.5 forwards AFTER the atomic commit.
+    // Best-effort §26.5 forwards + the §11.1 "in moderation" confirmation email,
+    // all fire-and-forget AFTER the atomic commit. The email fails open: an absent
+    // RESEND_API_KEY or session email is a silent skip and never affects the 201.
     c.executionCtx.waitUntil(
       Promise.all([
         forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
         forwardAuditLog(auditEntry, makeForwarder(c)),
+        sendReviewSubmittedEmail(c, { to: session.email }),
       ]),
     );
 

@@ -56,6 +56,7 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { adminReviewConfig, toAdminReview, type RawAdminReviewRow } from '../lib/drizzle-helpers';
+import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
@@ -323,6 +324,25 @@ export function createModerateReviewHandler(
     const emailByReviewerId = await fetchEmails(
       c.env,
       existing.reviewerId ? [existing.reviewerId] : [],
+    );
+
+    // §11.1 reviewer notification, fire-and-forget. Reuses the email already
+    // fetched for the response; fails open (absent key/email → silent skip).
+    const reviewerEmail = existing.reviewerId
+      ? emailByReviewerId.get(existing.reviewerId)
+      : undefined;
+    c.executionCtx.waitUntil(
+      approve
+        ? sendReviewApprovedEmail(c, {
+            to: reviewerEmail,
+            productName: existing.product.name,
+            productSlug: existing.product.slug,
+          })
+        : sendReviewRejectedEmail(c, {
+            to: reviewerEmail,
+            productName: existing.product.name,
+            reason: rejectionReason ?? '',
+          }),
     );
 
     const repeatOffender = await computeRepeatOffenderPrompt(

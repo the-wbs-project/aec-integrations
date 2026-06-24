@@ -12,6 +12,7 @@ import { auditLog, products, profiles, reviews } from '../db/schema';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import { sendAccountDeletionEmail } from '../lib/email';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
@@ -20,11 +21,18 @@ import {
   createUpdateAccountHandler,
 } from './account';
 
+// The §11.1 deletion confirmation is fire-and-forget; mock it so we can assert it
+// fires to the captured pre-erasure email without a real Resend call.
+vi.mock('../lib/email', () => ({
+  sendAccountDeletionEmail: vi.fn(() => Promise.resolve('sent')),
+}));
+
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const USER = u(900);
 
 let t: TestDb;
 beforeEach(async () => {
+  vi.mocked(sendAccountDeletionEmail).mockClear();
   t = await makeTestDb();
 });
 afterEach(() => t.dispose());
@@ -122,6 +130,12 @@ describe('DELETE /api/account', () => {
 
     // Seam #3 invoked with the user id.
     expect(deleteAuthUser).toHaveBeenCalledWith(expect.anything(), USER);
+
+    // §11.1: the deletion confirmation fires to the email captured pre-erasure.
+    expect(sendAccountDeletionEmail).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ to: 'me@example.com' }),
+    );
   });
 
   it('still succeeds (data erased) when the auth-user delete fails', async () => {
