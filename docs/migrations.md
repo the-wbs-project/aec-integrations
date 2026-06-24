@@ -10,16 +10,17 @@ How to write, test, and ship a schema change in this repo.
 > the only workflow for the app database — start there.**
 >
 > **Everything below §0 (§§1–10) is the legacy Supabase-CLI / Prisma workflow.** It
-> no longer governs the app tables (vendors, products, reviews, …). It is retained,
-> scoped down, only for the surfaces still on Supabase Postgres: **Supabase Auth**
-> (`auth.users`) and the **landing lead-capture tables** (`feedback`, `mailing_list`),
-> which keep their own `supabase/migrations/` + `schema.prisma` until their separate
-> cut-over. Caveat: the local Supabase Postgres still *physically* contains the old
-> app tables (from the baseline migration); they are now **stale — D1 is the source
-> of truth**. Per-env cloud D1 provisioning + CI apply steps are Phase 5 (AECI-256);
-> full removal of the legacy sections lands with the Supabase-DB decommission (AECI-257).
+> no longer governs the app tables (vendors, products, reviews, …), and as of the
+> AECI-257 landing cut-over no longer governs the lead-capture tables (`feedback`,
+> `mailing_list`) either — those are now D1 tables written via the API Worker. It is
+> retained, scoped down, only for the surface still on Supabase Postgres: **Supabase
+> Auth** (`auth.users`), which keeps its `supabase/migrations/` + `schema.prisma`
+> drift gate. Caveat: the local Supabase Postgres still *physically* contains the old
+> app + landing tables (from the baseline migrations); they are now **stale — D1 is
+> the source of truth**. Removing Prisma + the legacy sections lands with the
+> Supabase-DB decommission (AECI-256 removes Prisma; AECI-257 the rest).
 
-The legacy migration system below is **Supabase CLI**, now scoped to Auth + the landing tables. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client (for the landing-Postgres integration test), but `prisma migrate` is not.
+The legacy migration system below is **Supabase CLI**, now scoped to Supabase Auth. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client for the CI `schema.prisma` drift gate (AECI-77), but `prisma migrate` is not. Application code no longer imports `@prisma/client` (AECI-256).
 
 This document is the source of truth for the workflow. The constraints in [`CLAUDE.md`](../CLAUDE.md) ("Constraints that aren't negotiable") incorporate the rules below by reference.
 
@@ -62,11 +63,11 @@ Rules:
 
 ---
 
-> **⚠️ Legacy — Supabase-CLI / Prisma workflow (landing + auth Postgres only).**
+> **⚠️ Legacy — Supabase-CLI / Prisma workflow (Supabase Auth Postgres only).**
 > Sections §§1–10 below predate the D1 cut-over. They **do not apply to the app
-> database** (now D1 — see [§0](#0-d1--drizzle-the-target-workflow)). They remain only
-> for Supabase Auth and the `feedback` / `mailing_list` landing tables, pending their
-> own cut-over, and are removed at decommission (AECI-257).
+> database** (now D1 — see [§0](#0-d1--drizzle-the-target-workflow)), nor to the
+> `feedback` / `mailing_list` lead-capture tables (moved to D1 in AECI-257). They
+> remain only for Supabase Auth, and are removed at decommission (AECI-256/257).
 
 ## 1. When to write a migration
 

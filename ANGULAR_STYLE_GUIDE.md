@@ -15,7 +15,7 @@ This guide governs every `.ts` and `.html` file under `apps/web/`. It defers to:
 - **`DESIGN.md`** (repo root) for color tokens, typography scales, component visual specs.
 - **`PRODUCT.md`** (repo root) for voice, tone, anti-references.
 - **`docs/design/v0-porting-rules.md`** for v0.dev → Angular porting mechanics.
-- **`CLAUDE.md`** (repo root) for stack-wide constraints (Prisma Accelerate, cache invalidation, i18n, both themes, no pay-for-placement).
+- **`CLAUDE.md`** (repo root) for stack-wide constraints (Drizzle/D1 data layer, cache invalidation, i18n, both themes, no pay-for-placement).
 - **`docs/STAGE_1_SPEC.md`** §2a.2 + §16 Phase 1 for the spec contract these rules implement.
 
 If a rule here contradicts one of those, the more-specific document wins.
@@ -309,7 +309,7 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 - **i18n from day one.** Every visible string wrapped in `i18n="@@unique.id"` (templates) or `$localize` (TS). See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §7a.
 - **Both themes always.** Light and dark must both render correctly. See `CLAUDE.md` constraints and `docs/CODE_REVIEW_CHECKLIST.md` "Theming".
-- **Prisma uses Accelerate.** Worker-runtime Prisma imports from `@prisma/client/edge` + `withAccelerate()`. See `CLAUDE.md` constraints and `docs/DATABASE_SCHEMA.md` §1a.
+- **Data layer is Drizzle over D1.** The Worker reaches the app DB through its `DB` binding via `getDb(env)` — no Prisma, no Accelerate. See `CLAUDE.md` constraints and ADR 0016.
 - **Cached SSR is visitor-state-neutral.** See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §9.1a.
 - **No pay-for-placement.** Ranking is algorithmic. See `PRODUCT.md`.
 
@@ -320,7 +320,7 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 - Visual tokens, colors, typography, spacing scales — see `DESIGN.md`.
 - Voice, tone, anti-references, strategic positioning — see `PRODUCT.md`.
 - v0 → Angular porting mechanics — see `docs/design/v0-porting-rules.md`.
-- Prisma, Worker, cache invalidation rules — see `CLAUDE.md` constraints and `docs/DATABASE_SCHEMA.md`.
+- Drizzle/D1, Worker, cache invalidation rules — see `CLAUDE.md` constraints and `docs/DATABASE_SCHEMA.md`.
 - Testing patterns — see `docs/TESTING_STRATEGY.md` and `docs/UNIT_TESTING_GUIDE.md`.
 
 ---
@@ -380,7 +380,7 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 | Lazy-loaded feature routes | §18 |
 | Spartan brain composition without wrappers | §19 |
 | Token usage; no hex / oklch literals | §20 |
-| i18n; both themes; cache; Prisma; no pay-for-placement | §22 |
+| i18n; both themes; cache; Drizzle/D1; no pay-for-placement | §22 |
 
 ### Future enforcement (deferred)
 

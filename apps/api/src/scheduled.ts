@@ -56,7 +56,7 @@ import {
   createAlgoliaCounter,
   reportAlgoliaDrift,
   type AlgoliaIndexDrift,
-  type DriftCountPrisma,
+  type DriftCount,
 } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from './lib/algolia-sync-metrics';
@@ -118,11 +118,11 @@ function algoliaEnvFor(env: Env): AlgoliaEnv {
   return env.ENV ?? 'development';
 }
 
-/** A Drizzle-backed `DriftCountPrisma` (the index-drift check's injected count
+/** A Drizzle-backed `DriftCount` (the index-drift check's injected count
  *  surface). Counts promoted products/vendors and integrations whose BOTH
  *  endpoints are promoted — the same membership filter `algolia-sync` indexes on.
  *  algolia-drift stays ORM-agnostic; only this adapter knows about D1. */
-function drizzleDriftCounter(env: Env): DriftCountPrisma {
+function drizzleDriftCounter(env: Env): DriftCount {
   const { db } = getDb(env);
   return {
     product: {
@@ -262,14 +262,14 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
     return;
   }
 
-  const prisma = drizzleDriftCounter(env);
+  const driftCounter = drizzleDriftCounter(env);
   const algolia = createAlgoliaCounter(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY);
   const ddEnv = algoliaEnvFor(env);
 
   try {
     await reportAlgoliaDrift(
       {
-        prisma,
+        db: driftCounter,
         algolia,
         // Gauge per entity, always (0 when clean) so a no-data monitor can tell
         // "ran clean" from "didn't run".

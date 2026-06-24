@@ -35,6 +35,7 @@ import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
 } from './routes/integrations';
+import { createFeedbackHandler, createSubscribeHandler } from './routes/landing-forms';
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
@@ -133,6 +134,14 @@ phase28.get('/api/stats/home', createStatsHomeHandler());
 // is out of scope — see `routes/requests.ts`.
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
+
+// Landing lead-capture (ADR 0016 / AECI-257) — the `apps/landing` feedback +
+// mailing-list signup forms, moved off Supabase Postgres onto D1. Public (no
+// auth), no audit row (write-once analytics, §26.1 exemption). `subscribe` is
+// idempotent on email. Reached only over the service binding (from the landing
+// Worker), like every other route — no new public ingress.
+phase28.post('/api/feedback', createFeedbackHandler());
+phase28.post('/api/subscribe', createSubscribeHandler());
 
 // Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the
 // moderation sync. Public URL; auth is the `Linear-Signature` HMAC verified

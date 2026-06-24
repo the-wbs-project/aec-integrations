@@ -6,12 +6,22 @@ import { subscribe } from './subscribe';
 
 type CfProps = Record<string, unknown>;
 
-function makeEnv(overrides: Partial<Env> = {}): Env {
+/** A mock `env.API` service binding whose `.fetch` is a vitest spy. */
+function makeApi(...responses: Response[]): { API: Fetcher; fetch: ReturnType<typeof vi.fn> } {
+  const fetch = vi.fn();
+  if (responses.length === 0) {
+    fetch.mockResolvedValue(new Response(JSON.stringify({ created: true }), { status: 201 }));
+  } else {
+    for (const r of responses) fetch.mockResolvedValueOnce(r);
+  }
+  return { API: { fetch } as unknown as Fetcher, fetch };
+}
+
+function makeEnv(api: Fetcher, overrides: Partial<Env> = {}): Env {
   return {
     ASSETS: {} as Fetcher,
     ANALYTICS: {} as AnalyticsEngineDataset,
-    SUPABASE_URL: 'https://supabase.test',
-    SUPABASE_PUBLISHABLE_KEY: 'anon-key',
+    API: api,
     // Resend deliberately left unconfigured: the notification path no-ops so
     // tests assert the subscribe contract without a second mocked endpoint.
     RESEND_API_KEY: '',
@@ -56,36 +66,36 @@ afterEach(() => {
 });
 
 describe('subscribe', () => {
-  it('rejects a missing email with 400 and does not call Supabase', async () => {
-    // Guards: validation runs before any network call — a junk request never
-    // touches the database.
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const res = await post(buildApp(), makeEnv(), {});
+  it('rejects a missing email with 400 and does not call the API', async () => {
+    // Guards: validation runs before any persist — a junk request never touches
+    // the database.
+    const { API, fetch } = makeApi();
+    const res = await post(buildApp(), makeEnv(API), {});
 
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({ error: 'A valid email address is required.' });
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('rejects a malformed email with 400', async () => {
-    const fetchSpy = vi.spyOn(globalThis, 'fetch');
-    const res = await post(buildApp(), makeEnv(), { email: 'not-an-email' });
+    const { API, fetch } = makeApi();
+    const res = await post(buildApp(), makeEnv(API), { email: 'not-an-email' });
 
     expect(res.status).toBe(400);
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('normalizes the email (trim + lowercase) and maps cf geo + UTM into the row', async () => {
-    // Guards: the Supabase row shape — normalized email plus the geo/UTM columns
-    // sourced from request.cf and the query string. The numeric asn/metro_code
-    // coercion matters: Supabase columns are typed.
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 201 }));
+    // Guards: the row shape sent over the binding — normalized email plus the
+    // geo/UTM columns sourced from request.cf and the query string. The numeric
+    // asn/metro_code coercion matters: D1 columns are typed.
+    const { API, fetch } = makeApi(
+      new Response(JSON.stringify({ created: true }), { status: 201 }),
+    );
 
     const res = await post(
       buildApp(),
-      makeEnv(),
+      makeEnv(API),
       { email: '  Casey@Example.COM ' },
       {
         url: 'https://www.aecintegrations.com/api/subscribe?utm_source=reddit&utm_medium=social&utm_campaign=launch',
@@ -105,9 +115,8 @@ describe('subscribe', () => {
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ success: true });
 
-    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe('https://supabase.test/rest/v1/mailing_list');
-    expect((init.headers as Record<string, string>).apikey).toBe('anon-key');
+    const [url, init] = fetch.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('https://api/api/subscribe');
     const row = JSON.parse(init.body as string) as Record<string, unknown>;
     expect(row.email).toBe('casey@example.com');
     expect(row.country).toBe('US');
@@ -123,14 +132,14 @@ describe('subscribe', () => {
 
   it('nulls geo/UTM columns when cf and query string are empty', async () => {
     // Guards: a direct signup with no edge metadata yields explicit nulls, not
-    // undefined — so the JSON body stays well-formed for PostgREST.
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response(null, { status: 201 }));
+    // undefined — so the JSON body stays well-formed.
+    const { API, fetch } = makeApi(
+      new Response(JSON.stringify({ created: true }), { status: 201 }),
+    );
 
-    await post(buildApp(), makeEnv(), { email: 'a@b.co' });
+    await post(buildApp(), makeEnv(API), { email: 'a@b.co' });
 
-    const row = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string) as Record<
+    const row = JSON.parse((fetch.mock.calls[0][1] as RequestInit).body as string) as Record<
       string,
       unknown
     >;
@@ -141,35 +150,24 @@ describe('subscribe', () => {
     expect(row.referrer).toBeNull();
   });
 
-  it('returns 409 when Supabase reports an HTTP 409 conflict', async () => {
-    // Guards: the "already on the list" UX — a duplicate must be a friendly 409,
-    // not a generic 500.
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('conflict', { status: 409 }));
+  it('returns 409 when the API reports the email is already on the list (created:false)', async () => {
+    // Guards: the "already on the list" UX — an idempotent no-op (the unique
+    // index conflict) comes back as { created: false }, which must map to a
+    // friendly 409, not a generic 500.
+    const { API } = makeApi(new Response(JSON.stringify({ created: false }), { status: 200 }));
 
-    const res = await post(buildApp(), makeEnv(), { email: 'dup@example.com' });
+    const res = await post(buildApp(), makeEnv(API), { email: 'dup@example.com' });
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'This email is already on the list.' });
   });
 
-  it('returns 409 when a non-409 response body mentions a unique/duplicate violation', async () => {
-    // Guards: PostgREST sometimes returns 400/500 with a "duplicate key ...
-    // unique constraint" body rather than 409 — that still means "already on
-    // the list", so the body sniff must catch it.
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(
-      new Response('duplicate key value violates unique constraint', { status: 400 }),
-    );
-
-    const res = await post(buildApp(), makeEnv(), { email: 'dup@example.com' });
-    expect(res.status).toBe(409);
-  });
-
-  it('returns 500 on an unexpected Supabase error', async () => {
+  it('returns 500 on an unexpected API error', async () => {
     // Guards: a genuine server failure surfaces as a generic 500 with the
     // retry-friendly message (and is logged for ops).
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('boom', { status: 503 }));
+    const { API } = makeApi(new Response('boom', { status: 503 }));
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
-    const res = await post(buildApp(), makeEnv(), { email: 'x@example.com' });
+    const res = await post(buildApp(), makeEnv(API), { email: 'x@example.com' });
     expect(res.status).toBe(500);
     expect(await res.json()).toEqual({ error: 'Something went wrong. Please try again.' });
     expect(errorSpy).toHaveBeenCalled();
@@ -178,7 +176,7 @@ describe('subscribe', () => {
   it('schedules the admin notification via ctx.waitUntil on success', async () => {
     // Guards: the signup notification is fire-and-forget through waitUntil so it
     // never blocks the 201 — but it must actually be scheduled.
-    vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(null, { status: 201 }));
+    const { API } = makeApi(new Response(JSON.stringify({ created: true }), { status: 201 }));
     const ctx = fakeExecutionContext();
 
     const req = new Request('https://www.aecintegrations.com/api/subscribe', {
@@ -187,7 +185,7 @@ describe('subscribe', () => {
       body: JSON.stringify({ email: 'x@example.com' }),
     });
     (req as unknown as { cf: CfProps }).cf = {};
-    await buildApp().request(req, undefined, makeEnv(), ctx);
+    await buildApp().request(req, undefined, makeEnv(API), ctx);
 
     expect(ctx.waitUntil).toHaveBeenCalledOnce();
   });

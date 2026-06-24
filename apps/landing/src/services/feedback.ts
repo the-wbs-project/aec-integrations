@@ -26,6 +26,8 @@ export async function feedback(c: Context<{ Bindings: Env }>) {
   const cf = c.req.raw.cf as Record<string, unknown> | undefined;
   const subscribe = Boolean(body.subscribe);
 
+  // request.cf is read HERE (it does not survive the env.API service binding) and
+  // sent in the body; the API Worker persists it to the D1 `feedback` table.
   const row = {
     features,
     tools,
@@ -38,20 +40,15 @@ export async function feedback(c: Context<{ Bindings: Env }>) {
     referrer: c.req.header('referer') ?? null,
   };
 
-  const res = await fetch(`${c.env.SUPABASE_URL}/rest/v1/feedback`, {
+  const res = await c.env.API.fetch('https://api/api/feedback', {
     method: 'POST',
-    headers: {
-      apikey: c.env.SUPABASE_PUBLISHABLE_KEY,
-      Authorization: `Bearer ${c.env.SUPABASE_PUBLISHABLE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=minimal',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(row),
   });
 
   if (!res.ok) {
     const text = await res.text();
-    console.error('Supabase error:', res.status, text);
+    console.error('Feedback persist error:', res.status, text);
     return c.json({ error: 'Something went wrong. Please try again.' }, 500);
   }
 
@@ -102,14 +99,9 @@ export async function feedback(c: Context<{ Bindings: Env }>) {
     };
 
     // Best-effort — don't fail the feedback submission if this errors
-    await fetch(`${c.env.SUPABASE_URL}/rest/v1/mailing_list`, {
+    await c.env.API.fetch('https://api/api/subscribe', {
       method: 'POST',
-      headers: {
-        apikey: c.env.SUPABASE_PUBLISHABLE_KEY,
-        Authorization: `Bearer ${c.env.SUPABASE_PUBLISHABLE_KEY}`,
-        'Content-Type': 'application/json',
-        Prefer: 'return=minimal',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(subRow),
     }).catch(() => {});
   }

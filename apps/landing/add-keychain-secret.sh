@@ -7,15 +7,13 @@ set -euo pipefail
 #   ./add-keychain-secret.sh <keychain_key> <value>
 #
 # Examples:
-#   ./add-keychain-secret.sh aec-integrations-supabase-anon-key "eyJhbGci..."
-#   ./add-keychain-secret.sh aec-integrations-supabase-anon-key-prod "eyJhbGci..."
+#   ./add-keychain-secret.sh aec-integrations-resend-api-key "re_..."
+#   ./add-keychain-secret.sh aec-integrations-resend-api-key-prod "re_..."
 
 if [ $# -lt 2 ]; then
   echo "Usage: $0 <keychain_key> <value>" >&2
   echo "" >&2
   echo "Keychain keys used by this project:" >&2
-  echo "  aec-integrations-supabase-anon-key       (local dev)" >&2
-  echo "  aec-integrations-supabase-anon-key-prod   (production)" >&2
   echo "  aec-integrations-resend-api-key          (local dev)" >&2
   echo "  aec-integrations-resend-api-key-prod     (production)" >&2
   exit 1

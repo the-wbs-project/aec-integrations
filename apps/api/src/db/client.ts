@@ -1,7 +1,6 @@
-// Drizzle/D1 client factory (ADR 0016 / AECI-252, AECI-253). Replaces the Prisma
-// Accelerate factory `getPrisma(env)` (`src/prisma.ts`). One Drizzle client per
-// request, bound to the Worker's `env.DB` D1 binding — no external proxy, no
-// `nodejs_compat`.
+// Drizzle/D1 client factory (ADR 0016 / AECI-252, AECI-253) — one Drizzle client
+// per request, bound to the Worker's `env.DB` D1 binding (no external proxy, no
+// `nodejs_compat`). Replaces the former Prisma Accelerate per-request factory.
 //
 // Sessions API (AECI-250): D1 read replication + read-your-writes is threaded via
 // a session bookmark. The factory returns a `DbContext` whose shape already
