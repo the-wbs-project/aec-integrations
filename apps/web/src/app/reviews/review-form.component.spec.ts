@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AccountReview, ProductDetail, SubmitReviewResponse } from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
+import { AuthService } from '../auth/auth.service';
 
 import { ReviewForm } from './review-form';
 import { ReviewsApi } from './reviews-api';
@@ -50,6 +51,21 @@ function makeAccountMock(review: AccountReview | null = null): AccountMock {
   return { findMyReviewForProduct: vi.fn(async () => review) };
 }
 
+interface AuthMock {
+  isConfigured: ReturnType<typeof vi.fn>;
+  isSignedIn: ReturnType<typeof vi.fn>;
+}
+
+/** Mock `AuthService` for the post-hydration sign-in gate. Defaults to
+ *  `configured: false` so the auth probe is a no-op and the existing suites
+ *  behave exactly as before (straight to the already-reviewed check). */
+function makeAuthMock(opts: { configured?: boolean; signedIn?: boolean } = {}): AuthMock {
+  return {
+    isConfigured: vi.fn(() => opts.configured ?? false),
+    isSignedIn: vi.fn(async () => opts.signedIn ?? false),
+  };
+}
+
 const existingReview: AccountReview = {
   id: '00000000-0000-4000-8000-0000000000aa',
   product: { id: 'f47ac10b-58cc-4372-a567-0e02b2c3d479', name: 'Acme Build', slug: 'acme-build' },
@@ -73,6 +89,7 @@ function setup(
   p: ProductDetail | null = product(),
   api: ApiMock = makeApiMock(),
   account: AccountMock = makeAccountMock(),
+  auth: AuthMock = makeAuthMock(),
 ) {
   TestBed.configureTestingModule({
     providers: [
@@ -83,12 +100,13 @@ function setup(
       { provide: ActivatedRoute, useValue: mockRoute(p) },
       { provide: ReviewsApi, useValue: api },
       { provide: AccountApi, useValue: account },
+      { provide: AuthService, useValue: auth },
     ],
   });
   const fixture = TestBed.createComponent(ReviewForm);
   fixture.detectChanges();
   const httpMock = TestBed.inject(HttpTestingController);
-  return { fixture, api, account, httpMock, el: fixture.nativeElement as HTMLElement };
+  return { fixture, api, account, auth, httpMock, el: fixture.nativeElement as HTMLElement };
 }
 
 /** Settle the `afterNextRender` already-reviewed check + re-render, so the form
@@ -321,10 +339,68 @@ describe('ReviewForm', () => {
   });
 
   it('renders the form when the caller has no existing review', async () => {
-    const { fixture, el } = setup(product(), makeApiMock(), makeAccountMock(null));
+    const { fixture, el } = setup(
+      product(),
+      makeApiMock(),
+      makeAccountMock(null),
+      makeAuthMock({ configured: true, signedIn: true }),
+    );
     await showForm(fixture);
 
     expect(el.querySelector('form')).not.toBeNull();
     expect(el.textContent).not.toContain("You've already reviewed this product");
+  });
+
+  // ── Sign-in gate ────────────────────────────────────────────────────────
+  it('shows the sign-in notice (not the form) for an unauthenticated visitor', async () => {
+    const account = makeAccountMock(null);
+    const {
+      fixture,
+      el,
+      account: acc,
+    } = setup(
+      product(),
+      makeApiMock(),
+      account,
+      makeAuthMock({ configured: true, signedIn: false }),
+    );
+    await showForm(fixture);
+
+    // No fillable form for an anonymous visitor.
+    expect(el.querySelector('form')).toBeNull();
+    expect(el.textContent).toContain('Sign in to leave a review');
+    // The authenticated already-reviewed lookup is never reached.
+    expect(acc.findMyReviewForProduct).not.toHaveBeenCalled();
+    // The inline sign-in link routes to login carrying the (encoded) return path.
+    const signIn = [...el.querySelectorAll('a')].find(
+      (a) => a.getAttribute('href') === '/auth/login?return=%2Fproducts%2Facme-build%2Freview',
+    );
+    expect(signIn).toBeTruthy();
+  });
+
+  it('falls through to the form when auth is unconfigured (graceful degradation)', async () => {
+    const { fixture, el, auth } = setup(
+      product(),
+      makeApiMock(),
+      makeAccountMock(null),
+      makeAuthMock({ configured: false }),
+    );
+    await showForm(fixture);
+
+    // Unconfigured env → never probes the session, shows the form (the API's
+    // requireAuth 401 stays the backstop).
+    expect(auth.isSignedIn).not.toHaveBeenCalled();
+    expect(el.querySelector('form')).not.toBeNull();
+    expect(el.textContent).not.toContain('Sign in to leave a review');
+  });
+
+  it('falls through to the form when the session probe throws', async () => {
+    const auth = makeAuthMock({ configured: true });
+    auth.isSignedIn.mockRejectedValueOnce(new Error('probe failed'));
+    const { fixture, el } = setup(product(), makeApiMock(), makeAccountMock(null), auth);
+    await showForm(fixture);
+
+    expect(el.querySelector('form')).not.toBeNull();
+    expect(el.textContent).not.toContain('Sign in to leave a review');
   });
 });

@@ -58,6 +58,41 @@
     <div class="h-11 w-44 rounded-(--radius-md) bg-(--surface-sunken)"></div>
     <div class="h-28 w-full rounded-(--radius-md) bg-(--surface-sunken)"></div>
   </div>
+  } @else if (needsSignIn()) {
+  <!-- Not signed in: a notice + sign-in link instead of the form. The pop-up
+       below auto-opens over this; if it's dismissed this notice remains, so an
+       unauthenticated visitor is never shown a fillable form. -->
+  <div
+    class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+  >
+    <p class="text-base font-semibold text-(--text-primary)" i18n="@@reviews.signIn.notice.title">
+      Sign in to leave a review
+    </p>
+    <p
+      class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+      i18n="@@reviews.signIn.notice.body"
+    >
+      You need an account to share your experience. We'll bring you right back here after you sign
+      in.
+    </p>
+    <div class="mt-5 flex flex-wrap gap-3">
+      <a
+        [routerLink]="['/auth/login']"
+        [queryParams]="{ return: reviewPath() }"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-3 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@reviews.signIn.notice.cta"
+      >
+        Sign in
+      </a>
+      <a
+        [routerLink]="backRouterLink()"
+        class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+        i18n="@@reviews.signIn.notice.back"
+      >
+        Back to {{ product.name }}
+      </a>
+    </div>
+  </div>
   } @else if (existingReview()) {
   <!-- Already reviewed: a notice + links instead of the form (AECI-260). The
        copy is status-agnostic — a rejected review still blocks re-submission;
@@ -407,6 +442,55 @@
       }
     </button>
   </form>
-  } }
+  }
+
+  <!-- ── Sign-in pop-up ────────────────────────────────────────────────────
+       Auto-opened from `reconcile()` for an unauthenticated visitor (the inline
+       notice above is its dismissed-state fallback). Always present in this
+       not-submitted branch so the `viewChild(BrnDialog)` resolves before
+       `open()` is called. Gentle and dismissible (Esc / backdrop / "Not now"). -->
+  <brn-dialog #signInDialog="brnDialog" aria-labelledby="review-signin-title">
+    <ng-template brnDialogContent>
+      <div
+        class="w-[min(90vw,28rem)] rounded-lg border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-2xl"
+      >
+        <h2
+          brnDialogTitle
+          id="review-signin-title"
+          class="text-lg font-semibold tracking-tight"
+          i18n="@@reviews.signIn.dialog.title"
+        >
+          Sign in to leave a review
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@reviews.signIn.dialog.description"
+        >
+          You need an account to share your experience. Sign in and we'll bring you right back here
+          to finish your review.
+        </p>
+        <div class="mt-6 flex flex-wrap justify-end gap-3">
+          <button
+            brnDialogClose
+            type="button"
+            class="cursor-pointer rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@reviews.signIn.dialog.cancel"
+          >
+            Not now
+          </button>
+          <a
+            [routerLink]="['/auth/login']"
+            [queryParams]="{ return: reviewPath() }"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@reviews.signIn.dialog.signIn"
+          >
+            Sign in
+          </a>
+        </div>
+      </div>
+    </ng-template>
+  </brn-dialog>
+  }
 </section>
 }
