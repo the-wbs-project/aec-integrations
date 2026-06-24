@@ -10,7 +10,7 @@
  *
  * This endpoint doubles as the SSR admin gate: the `/admin` resolver reads a 200
  * as "the caller is an admin" and a 401/403 as "render a 404" (don't reveal the
- * surface). Because it is a read, there is NO `appendAuditLog` write and no cache
+ * surface). Because it is a read, there is NO audit-log write and no cache
  * work.
  *
  * The full paginated moderation queue (`GET /api/admin/reviews`) is Phase 5.13 —

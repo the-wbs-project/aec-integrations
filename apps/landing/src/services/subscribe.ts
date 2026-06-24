@@ -17,6 +17,8 @@ export async function subscribe(c: Context<{ Bindings: Env }>) {
   const cf = c.req.raw.cf as Record<string, unknown> | undefined;
   const url = new URL(c.req.url);
 
+  // request.cf is read HERE (it does not survive the env.API service binding) and
+  // sent in the body; the API Worker persists it to the D1 `mailing_list` table.
   const row = {
     email,
     country: cf?.country ?? null,
@@ -32,24 +34,23 @@ export async function subscribe(c: Context<{ Bindings: Env }>) {
     referrer: c.req.header('referer') ?? null,
   };
 
-  const res = await fetch(`${c.env.SUPABASE_URL}/rest/v1/mailing_list`, {
+  const res = await c.env.API.fetch('https://api/api/subscribe', {
     method: 'POST',
-    headers: {
-      apikey: c.env.SUPABASE_PUBLISHABLE_KEY,
-      Authorization: `Bearer ${c.env.SUPABASE_PUBLISHABLE_KEY}`,
-      'Content-Type': 'application/json',
-      Prefer: 'return=minimal',
-    },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(row),
   });
 
   if (!res.ok) {
     const text = await res.text();
-    if (res.status === 409 || text.includes('duplicate') || text.includes('unique')) {
-      return c.json({ error: 'This email is already on the list.' }, 409);
-    }
-    console.error('Supabase error:', res.status, text);
+    console.error('Subscribe persist error:', res.status, text);
     return c.json({ error: 'Something went wrong. Please try again.' }, 500);
+  }
+
+  // The API returns `{ created }`: `false` means the email is already on the list
+  // (idempotent ON CONFLICT DO NOTHING no-op) → the friendly "already on the list".
+  const result = (await res.json().catch(() => ({ created: true }))) as { created?: boolean };
+  if (result.created === false) {
+    return c.json({ error: 'This email is already on the list.' }, 409);
   }
 
   c.executionCtx.waitUntil(

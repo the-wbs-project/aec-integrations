@@ -246,9 +246,8 @@ export function labelIdsFor(kind: RequestKind, domainMatch?: string | null): str
  * ORM-neutral persistence seam for the issue link-back + idempotency guard. The
  * post-commit task runs OUTSIDE any transaction, so these are top-level reads/
  * writes. `createLinearIssueForRequest` depends only on this seam: both
- * `routes/requests.ts` and `lib/reconciliation-sweep.ts` pass a Drizzle-backed
- * store (`drizzleLinearStore`). `prismaLinearStore` is a deprecated transitional
- * surface retained until AECI-253.
+ * `routes/requests.ts` and `lib/reconciliation-sweep.ts` (the §6.7 sweep) pass the
+ * Drizzle-backed store (`drizzleLinearStore`).
  */
 export interface LinearRequestStore {
   /** Current `linear_issue_id` of the request — null if unlinked OR the row is
@@ -286,48 +285,6 @@ export function drizzleLinearStore(db: Db): LinearRequestStore {
         .update(workflowInstances)
         .set({ linearIssueId: issueId })
         .where(and(eq(workflowInstances.id, workflowId), isNull(workflowInstances.linearIssueId)));
-    },
-  };
-}
-
-type UpdateManyArgs = { where: Record<string, unknown>; data: Record<string, unknown> };
-
-/**
- * @deprecated Transitional Prisma surface for {@link prismaLinearStore}. Removed
- * when `lib/reconciliation-sweep.ts` (its only remaining caller) moves to Drizzle
- * (AECI-253). A real accelerated client and the sweep's test fake both satisfy it.
- */
-export type LinearPersistClient = {
-  vendorRequest: {
-    findUnique(args: {
-      where: { id: string };
-      select: { linearIssueId: true };
-    }): Promise<{ linearIssueId: string | null } | null>;
-    updateMany(args: UpdateManyArgs): Promise<{ count: number }>;
-  };
-  workflowInstance: { updateMany(args: UpdateManyArgs): Promise<{ count: number }> };
-};
-
-/** @deprecated Transitional Prisma-backed `LinearRequestStore` (the §6.7 sweep
- *  until it migrates to Drizzle). */
-export function prismaLinearStore(client: LinearPersistClient): LinearRequestStore {
-  return {
-    async getLinkedIssueId(requestId) {
-      const row = await client.vendorRequest.findUnique({
-        where: { id: requestId },
-        select: { linearIssueId: true },
-      });
-      return row?.linearIssueId ?? null;
-    },
-    async linkIssue(requestId, workflowId, issueId, issueUrl) {
-      await client.vendorRequest.updateMany({
-        where: { id: requestId, linearIssueId: null },
-        data: { linearIssueId: issueId, linearIssueUrl: issueUrl },
-      });
-      await client.workflowInstance.updateMany({
-        where: { id: workflowId, linearIssueId: null },
-        data: { linearIssueId: issueId },
-      });
     },
   };
 }

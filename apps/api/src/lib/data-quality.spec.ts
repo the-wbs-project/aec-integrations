@@ -305,8 +305,8 @@ describe('checkLogo404Sample', () => {
 describe('checkAlgoliaDrift', () => {
   it('flags drifted indexes from the injected count', async () => {
     const rows: AlgoliaIndexDrift[] = [
-      { entity: 'products', indexName: 'prod_products', supabase: 43, algolia: 43, drift: 0 },
-      { entity: 'vendors', indexName: 'prod_vendors', supabase: 30, algolia: 28, drift: 2 },
+      { entity: 'products', indexName: 'prod_products', database: 43, algolia: 43, drift: 0 },
+      { entity: 'vendors', indexName: 'prod_vendors', database: 30, algolia: 28, drift: 2 },
     ];
     const { lines, skipped } = await checkAlgoliaDrift(async () => rows);
     expect(skipped).toBeFalsy();

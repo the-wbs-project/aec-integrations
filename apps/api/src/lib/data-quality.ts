@@ -275,7 +275,7 @@ export async function checkLogo404Sample(
   };
 }
 
-/** #10 — Algolia ↔ Supabase index drift. Reuses the AECI-140 count
+/** #10 — Algolia ↔ D1 index drift. Reuses the AECI-140 count
  *  (`findAlgoliaIndexDrift`), injected as `runDrift`; absent → skipped (no creds). */
 export async function checkAlgoliaDrift(
   runDrift?: () => Promise<AlgoliaIndexDrift[]>,
@@ -288,7 +288,7 @@ export async function checkAlgoliaDrift(
   return {
     lines: drifted.map(
       (r) =>
-        `${r.indexName}: supabase ${r.supabase} vs algolia ${r.algolia} (${r.drift > 0 ? '+' : ''}${r.drift})`,
+        `${r.indexName}: database ${r.database} vs algolia ${r.algolia} (${r.drift > 0 ? '+' : ''}${r.drift})`,
     ),
   };
 }

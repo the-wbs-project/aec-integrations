@@ -19,8 +19,7 @@ function makeEnv(writeDataPoint: ReturnType<typeof vi.fn>): Env {
   return {
     ASSETS: {} as Fetcher,
     ANALYTICS: { writeDataPoint } as unknown as AnalyticsEngineDataset,
-    SUPABASE_URL: 'https://supabase.test',
-    SUPABASE_PUBLISHABLE_KEY: 'anon-key',
+    API: {} as Fetcher,
     RESEND_API_KEY: 'resend-key',
     NOTIFICATION_FROM: 'from@test',
     NOTIFICATION_TO: 'to@test',

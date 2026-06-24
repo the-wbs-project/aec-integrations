@@ -1,39 +1,45 @@
 # @aeci/api
 
-Private Cloudflare Worker exposing the AEC Integrations API. Reads and writes Supabase via Prisma using the **per-request Accelerate pattern** (`docs/DATABASE_SCHEMA.md` §1a, `CLAUDE.md` "Constraints").
+Private Cloudflare Worker exposing the AEC Integrations API. Reads and writes the
+application database — Cloudflare D1 (SQLite) — through its `DB` binding via
+Drizzle ORM (ADR 0016, `docs/DATABASE_SCHEMA.md`, `CLAUDE.md` "Constraints").
+
+Reached only over a Cloudflare service binding — the SSR Worker's `env.API`, and
+the landing Worker's `env.API` for lead-capture — so it has no public ingress.
 
 ## Constraints (do not break)
 
-- `PrismaClient` imported from `@prisma/client/edge`
-- `withAccelerate()` applied **per request**, never cached on a module-level singleton
-- `DATABASE_URL` is the Prisma Accelerate URL (`prisma://...`) — Worker runtime secret
-- `DIRECT_URL` is the Supabase pooler URL — **only** the Prisma CLI uses it (migrations); the deployed Worker does not read it
-- Do not install the pg-worker Prisma adapter. No TCP pooler from the Worker.
-- No `nodejs_compat` — Accelerate is HTTPS and does not need it
+- The app DB is **Drizzle over the `DB` D1 binding**. Get a request-scoped client
+  via `getDb(env)` (`src/db/client.ts`) — no Prisma, no Accelerate, no pg adapter,
+  no TCP pooler from the Worker.
+- **D1 has no interactive transactions.** Atomic multi-statement writes go through
+  `db.batch([...])`, and every state-changing write emits its `audit_log`
+  (+ `workflow_transitions`) row into the SAME batch via the `src/lib/audit.ts`
+  builders (the §26.1 invariant). The §26.5 Datadog forwards run post-commit in
+  `ctx.waitUntil`.
+- No `nodejs_compat` on this Worker — the native D1 binding needs no Node polyfills.
+- Supabase is retained for **Auth only**: JWKS user-JWT verification
+  (`src/lib/user-auth.ts`) and the Admin-API split-identity seams
+  (`src/lib/supabase-admin.ts`). No app data lives in Supabase.
 
 ## Local development
 
-Schema migrations are owned by the Supabase CLI (`supabase/migrations/`), not
-Prisma. Prisma is used here only to generate the typed client. See
-`docs/migrations.md` and `docs/prisma.md` for the full contract.
+The app DB is a per-workspace local SQLite D1 that `pnpm dev` migrates + seeds
+automatically. Migrations are generated from `src/db/schema.ts` with drizzle-kit
+and applied with `wrangler d1 migrations apply` (see `docs/migrations.md` §0).
 
 ```bash
-cp .dev.vars.example .dev.vars
-# Fill in real DATABASE_URL (Accelerate) and DIRECT_URL (Supabase pooler)
+cp .dev.vars.example .dev.vars              # SUPABASE_URL (auth) etc.; no app-DB secret
 
 pnpm install
-pnpm db:start                                 # local Supabase stack
-pnpm db:reset                                 # apply supabase/migrations + seed (incl. GRANTs/RLS)
-pnpm --filter @aeci/api prisma:generate       # produce typed client
-
-pnpm --filter @aeci/api dev
-curl -i http://localhost:8788/api/health
+pnpm --filter @aeci/api dev                  # runs db:setup:local (migrate + seed), then wrangler dev
+curl -i http://localhost:8787/api/health
 # Expect: 200, { ok: true, db: "ok", latencyMs: <int> }
 ```
 
-After authoring a new migration with `pnpm db:new <name>` and applying it via
-`pnpm db:reset`, run `pnpm db:pull` from the repo root to refresh
-`prisma/schema.prisma` against the local DB and regenerate the client.
+After editing `src/db/schema.ts`, run `pnpm --filter @aeci/api db:generate` to
+write a new migration under `migrations/`, then `pnpm --filter @aeci/api
+db:migrate:local`. See `docs/migrations.md`.
 
 ## Tests
 
@@ -43,7 +49,9 @@ pnpm --filter @aeci/api test:unit
 pnpm --filter @aeci/api test:coverage
 ```
 
-Unit-test conventions live in `docs/UNIT_TESTING_GUIDE.md`. This package establishes the per-app Vitest pattern future apps will copy.
+Handler specs run against a real in-memory D1 (better-sqlite3 + the generated
+migrations) via `src/test/d1.ts`. Unit-test conventions live in
+`docs/UNIT_TESTING_GUIDE.md`.
 
 ## Deploy
 
@@ -56,30 +64,25 @@ pnpm --filter @aeci/api deploy:staging
 pnpm --filter @aeci/api deploy:production
 ```
 
-## Secrets (one-time per environment)
-
-```bash
-# DATABASE_URL is the only secret the deployed Worker reads at runtime.
-wrangler secret put DATABASE_URL --env preview
-wrangler secret put DATABASE_URL --env staging
-wrangler secret put DATABASE_URL --env production
-
-# DIRECT_URL is intentionally NOT set as a Worker secret — it is only needed
-# by the Prisma CLI when running migrations from a workstation or CI.
-```
+D1 binds per-env (`aeci-app-{preview,staging,production}`); apply migrations to a
+deployed DB with `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote`.
+Environment topology + the Worker secret set live in `docs/environments.md`.
 
 ## Layout
 
 ```
 src/
   index.ts              Hono app, route registration only
-  env.ts                Env type binding
-  prisma.ts             getPrisma(env) per-request client factory (injected via prismaFor)
+  env.ts                Env type binding (incl. the `DB` D1 binding)
+  db/
+    client.ts           getDb(env) — request-scoped Drizzle/D1 client factory
+    schema.ts           Drizzle schema — source of truth for the app DB
+  lib/
+    audit.ts            auditInsert / workflowTransitionInsert batch builders
+    drizzle-helpers.ts  shared read configs + mappers
   http.ts               json / noContent (BigInt-safe)
-  routes/
-    health.ts           createHealthHandler factory (injectable for tests)
+  routes/               one factory per endpoint (injectable DbFactory for tests)
   test/
-    factories/prisma.ts makeMockPrisma helper for handler tests
-prisma/
-  schema.prisma         baseline (HealthCheck placeholder; replaced in Phase 2)
+    d1.ts               in-memory D1 harness (better-sqlite3 + real migrations)
+migrations/             drizzle-kit-generated SQL, applied by `wrangler d1`
 ```

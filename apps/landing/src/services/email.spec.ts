@@ -7,8 +7,7 @@ function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
     ASSETS: {} as Fetcher,
     ANALYTICS: {} as AnalyticsEngineDataset,
-    SUPABASE_URL: 'https://supabase.test',
-    SUPABASE_PUBLISHABLE_KEY: 'anon-key',
+    API: {} as Fetcher,
     RESEND_API_KEY: 'resend-key',
     NOTIFICATION_FROM: 'noreply@aecintegrations.com',
     NOTIFICATION_TO: 'team@aecintegrations.com',
