@@ -168,7 +168,13 @@ export function createDeleteAccountHandler(
     // One atomic unit: null every inbound reference (six NO ACTION + the SET NULL
     // reviewer ref made explicit) → PII-free audit → delete the profile.
     const stmts: BatchStmt[] = [
-      db.update(reviews).set({ reviewerId: null }).where(eq(reviews.reviewerId, userId)),
+      db
+        .update(reviews)
+        // Stamp `anonymized_at` in the same statement that nulls the reviewer ref
+        // so the pair is atomic — a null `reviewer_id` always carries its
+        // anonymization timestamp (the §23.1 / AECI-241 data-quality invariant).
+        .set({ reviewerId: null, anonymizedAt: new Date().toISOString() })
+        .where(eq(reviews.reviewerId, userId)),
       db.update(reviews).set({ moderatedBy: null }).where(eq(reviews.moderatedBy, userId)),
       db
         .update(vendorRequests)

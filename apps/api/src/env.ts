@@ -10,9 +10,10 @@
  * inline (`queueForJob` returns `undefined`), so it never appears on the wire as
  * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
  * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
- * daily batch.
+ * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
+ * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
  */
-export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation' | 'reconcile';
+export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation' | 'reconcile' | 'data_quality';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -198,6 +199,12 @@ export type Env = {
   STATS_QUEUE?: Queue<ScheduledJobMessage>;
   RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
   /**
+   * Queue carrying the daily §23.1 data-quality job (AECI-241 / Phase 7.6).
+   * Same producer/consumer split as the others; absent on local/preview → the
+   * cron runs the job inline (`enqueueOrRun`).
+   */
+  DATA_QUALITY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
    * env. Used ONLY to derive the JWKS endpoint
@@ -257,4 +264,21 @@ export type Env = {
    * the transport, this is the `To:` address. Set as a plain wrangler var per env.
    */
   ADMIN_ALERT_EMAIL?: string;
+  /**
+   * Resend API key for the daily data-quality digest (AECI-241 / Phase 7.6).
+   * Read by `lib/email.ts` (`sendEmail`) to POST the §23.1 summary to Chris +
+   * Bill. Set as a Wrangler secret per env. Optional and **fail-open**: absent →
+   * the send is a logged `outcome:skipped` no-op (the local `dev:bound` / PR-preview
+   * default) and the job still runs + emits metrics. The cron/Datadog no-data
+   * monitor is the delivery backstop, so deploys are NOT gated on this secret.
+   */
+  RESEND_API_KEY?: string;
+  /**
+   * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
+   * single verified Resend sender; `_TO` is a comma/whitespace-separated list
+   * (Chris + Bill), parsed by `parseRecipients` (`lib/email.ts`). Plain wrangler
+   * vars per env. Either absent → the send is a `skipped` no-op.
+   */
+  DATA_QUALITY_EMAIL_FROM?: string;
+  DATA_QUALITY_EMAIL_TO?: string;
 };
