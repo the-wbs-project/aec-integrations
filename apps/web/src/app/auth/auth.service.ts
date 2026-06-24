@@ -46,6 +46,19 @@ export class AuthService {
   }
 
   /**
+   * Cheap, synchronous "is a Supabase session cookie present?" check — the same
+   * *presence* signal the SSR auth-gate uses, with no Auth-server round-trip and
+   * no browser-SDK load. Used by the review form's post-hydration gate to decide
+   * whether to raise the sign-in pop-up: an absent cookie means the visitor is
+   * clearly not signed in. A present-but-stale cookie falls through to the form,
+   * where the API's `requireAuth` 401 is the backstop (and `POST /api/reviews`
+   * stays the real enforcement point). Browser-only; returns `false` during SSR.
+   */
+  hasSessionCookie(): boolean {
+    return hasSupabaseAuthCookie();
+  }
+
+  /**
    * Browser-only probe for "is there a signed-in session right now?", used by
    * the cache-neutral review CTA (AECI-201) to flip from its neutral SSR
    * default to a personalized label *after* hydration — never during SSR (that
