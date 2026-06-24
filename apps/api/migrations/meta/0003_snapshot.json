@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "01867809-0ad5-4d93-b17e-ad9b3fdfe903",
-  "prevId": "5c46638a-c5f2-4983-a5e6-10d59b16f3a0",
+  "id": "13346c43-a7fd-415c-a1c1-d5f0f4e4f05d",
+  "prevId": "01867809-0ad5-4d93-b17e-ad9b3fdfe903",
   "tables": {
     "audit_log": {
       "name": "audit_log",
@@ -1664,6 +1664,13 @@
         },
         "reviewer_id": {
           "name": "reviewer_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "anonymized_at": {
+          "name": "anonymized_at",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

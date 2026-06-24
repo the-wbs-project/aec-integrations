@@ -571,6 +571,10 @@ jobs:
           # surfaces ship. AECI-258: ANTHROPIC_API_KEY_STAGING is recommended too —
           # review toxicity scoring is fail-open, so a missing key only degrades
           # the moderation-queue triage signal, never a launch-critical surface.
+          # AECI-236: there is NO INDEXNOW_KEY_STAGING — IndexNow is production /
+          # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
+          # is unset on staging, so the submission gate is off there). The secret is
+          # pushed only in promote-to-prod.yml.
           RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING ALGOLIA_SEARCH_KEY_STAGING SUPABASE_ANON_KEY_STAGING ANTHROPIC_API_KEY_STAGING'
         run: bash scripts/require-secrets.sh
 

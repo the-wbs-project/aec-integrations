@@ -1,11 +1,18 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
 import { OverlayModule } from '@angular/cdk/overlay';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import {
+  BrnDialog,
+  BrnDialogClose,
+  BrnDialogContent,
+  BrnDialogDescription,
+  BrnDialogTitle,
+} from '@spartan-ng/brain/dialog';
 
 import {
   ApiErrorCode,
@@ -18,6 +25,7 @@ import {
 
 import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
+import { AuthService } from '../auth/auth.service';
 import { NotFound } from '../not-found/not-found';
 
 import { ReviewsApi } from './reviews-api';
@@ -93,6 +101,11 @@ interface ReviewModel {
     OverlayModule,
     RouterLink,
     NotFound,
+    BrnDialog,
+    BrnDialogClose,
+    BrnDialogContent,
+    BrnDialogDescription,
+    BrnDialogTitle,
   ],
   templateUrl: './review-form.html',
 })
@@ -100,6 +113,7 @@ export class ReviewForm {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ReviewsApi);
   private readonly account = inject(AccountApi);
+  private readonly auth = inject(AuthService);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
   private readonly analytics = inject(Analytics);
@@ -109,6 +123,11 @@ export class ReviewForm {
   protected readonly product = this.route.snapshot.data['product'] as ProductDetail | null;
 
   protected readonly backRouterLink = computed(() => ['/products', this.product?.slug ?? '']);
+
+  /** Absolute path to this (auth-gated) review form — the `?return=` target the
+   *  sign-in pop-up threads into `/auth/login` so the visitor lands back here
+   *  after authenticating (same shape as `ReviewCta.reviewPath`). */
+  protected readonly reviewPath = computed(() => `/products/${this.product?.slug ?? ''}/review`);
 
   /** Set to the API response on a successful submit; flips to the confirmation. */
   protected readonly submitted = signal<SubmitReviewResponse | null>(null);
@@ -123,12 +142,24 @@ export class ReviewForm {
   protected readonly submitDuplicate = signal(false);
 
   // ── Already-reviewed guard (AECI-260, defense in depth) ───────────────────
-  /** True while the browser-side "have I already reviewed this?" check runs.
-   *  Starts `true` so SSR/pre-hydration paints a placeholder, never the full
-   *  form (which would flash then swap out for an already-reviewed user). */
+  /** True while the browser-side post-hydration access probe runs (auth, then
+   *  the "have I already reviewed this?" check). Starts `true` so SSR/pre-
+   *  hydration paints a placeholder, never the full form (which would flash then
+   *  swap out for an already-reviewed — or not-signed-in — visitor). */
   protected readonly checkingExisting = signal(true);
   /** The caller's existing review for this product, if any — gates the form. */
   protected readonly existingReview = signal<AccountReview | null>(null);
+
+  // ── Sign-in gate ──────────────────────────────────────────────────────────
+  /** True when the post-hydration probe finds no session: render the sign-in
+   *  notice + pop-up instead of a fillable form. The route is redirect-gated
+   *  SSR-side, but that only covers full-page loads — an in-app navigation or an
+   *  expired cookie can still land an unauthenticated visitor here. */
+  protected readonly needsSignIn = signal(false);
+  /** The sign-in pop-up overlay. Opened imperatively from `reconcile()` (a plain
+   *  method, never an `effect`) so `BrnDialog.open()`'s internal effect is legal
+   *  (NG0602). Always present in the not-submitted template so this resolves. */
+  private readonly signInDialog = viewChild(BrnDialog);
 
   // ── Aria control bridge / state signals (value is always an array) ────────
   /** Selected overall-rating star (bridged into the form). */
@@ -198,14 +229,33 @@ export class ReviewForm {
     // Utility write surface — keep it out of the index (mirrors request-form).
     this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
 
-    // Browser-only: before showing the form, check whether the caller already
-    // reviewed this product (AECI-260). The route is auth-gated SSR-side, so a
-    // session cookie is always present and the same-origin lookup authenticates.
-    // A null product is the 404 shell — nothing to check.
+    // Browser-only: gate the form on auth, then on the already-reviewed check
+    // (AECI-260). Both run only after hydration so the cached SSR HTML is never
+    // personalized. A null product is the 404 shell — nothing to check.
     afterNextRender(() => {
-      if (this.product) void this.checkExisting();
+      if (this.product) void this.reconcile();
       else this.checkingExisting.set(false);
     });
+  }
+
+  /**
+   * Post-hydration access gate. The route is redirect-gated SSR-side, but that
+   * server redirect only fires on full-page loads — an in-app SPA navigation can
+   * still land a never-signed-in visitor on this form. So before revealing it we
+   * mirror the SSR gate's cheap session-cookie *presence* check: no cookie →
+   * clearly not signed in → raise the sign-in pop-up instead of a fillable form.
+   * A present-but-stale cookie falls through to the form, where the API's
+   * `requireAuth` 401 stays the real backstop. When auth is unconfigured we also
+   * degrade to showing the form, mirroring `ReviewCta`'s neutral degradation.
+   */
+  private async reconcile(): Promise<void> {
+    if (this.auth.isConfigured() && !this.auth.hasSessionCookie()) {
+      this.needsSignIn.set(true);
+      this.checkingExisting.set(false);
+      this.signInDialog()?.open();
+      return;
+    }
+    await this.checkExisting();
   }
 
   /** Look up the caller's existing review for this product. On any failure the

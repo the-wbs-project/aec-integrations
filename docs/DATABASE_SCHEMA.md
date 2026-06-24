@@ -605,6 +605,9 @@ create table vendor_requests (
 
   -- External system link
   linear_issue_id text,
+  -- AECI-261: the linked Linear issue's web permalink (issue.url), persisted on
+  -- creation + inbound webhook so /admin/requests renders a real link. Nullable.
+  linear_issue_url text,
 
   -- Duplicate-detection signal computed at submission time (Phase 6.8, AECI-215).
   -- Points at the earliest matching `open` request for the same target that shares

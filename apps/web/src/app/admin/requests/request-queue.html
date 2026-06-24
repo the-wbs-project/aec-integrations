@@ -173,16 +173,25 @@
             class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
             >{{ domainMatchLabel(r.domain_match) }}</span
           >
-          } } @if (r.linear_issue_id) {
-          <!-- Linear stores the issue UUID (not URL-addressable), so this is a
-               presence indicator, not a deep link (AECI-217; follow-up to persist
-               the issue URL for a real link). -->
+          } } @if (r.linear_issue_id) { @if (r.linear_issue_url) {
+          <!-- AECI-261: the issue permalink is persisted, so this is a real deep link. -->
+          <a
+            [href]="r.linear_issue_url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) no-underline transition-colors hover:text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@admin.requests.linear"
+            >Tracked in Linear</a
+          >
+          } @else {
+          <!-- Fallback: linked by UUID but no URL persisted (created before AECI-261,
+               or the link-back hasn't run) — non-clickable presence indicator. -->
           <span
             class="inline-flex items-center rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
             i18n="@@admin.requests.linear"
             >Tracked in Linear</span
           >
-          } @if (r.source_url) {
+          } } @if (r.source_url) {
           <a
             [href]="r.source_url"
             target="_blank"

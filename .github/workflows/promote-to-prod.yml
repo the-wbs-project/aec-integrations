@@ -199,8 +199,11 @@ jobs:
           # ANTHROPIC_API_KEY_PRODUCTION is recommended (NOT required) — toxicity
           # scoring is fail-open, so a missing key only drops the moderation-queue
           # triage signal (reviews still submit + enter the queue), never a
-          # launch-critical surface, so prod does NOT fail closed on it.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY_PRODUCTION ANTHROPIC_API_KEY_PRODUCTION'
+          # launch-critical surface, so prod does NOT fail closed on it. AECI-236:
+          # INDEXNOW_KEY_PRODUCTION is recommended (NOT required) — the post-promote
+          # IndexNow submission + the {key}.txt file are fail-open no-ops until it's
+          # provisioned at launch, never blocking a promote.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY_PRODUCTION ANTHROPIC_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -657,6 +660,30 @@ jobs:
           printf '%s' "$ANTHROPIC_API_KEY_VALUE" \
             | pnpm exec wrangler secret put ANTHROPIC_API_KEY --env production
 
+      # AECI-236/§20.2: push INDEXNOW_KEY to the prod API Worker so the
+      # post-promote IndexNow submission (lib/indexnow.ts, gated on INDEXNOW_KEY +
+      # the PUBLIC_SITE_URL var) can fire. Optional + FAIL-OPEN: a missing key is a
+      # silent no-op (the submission is skipped, the promote still succeeds), so
+      # warn-and-skip and NOT in REQUIRED_WORKER_SECRETS. Provision only at public
+      # launch (alongside the web Worker's ALLOW_INDEXING="true") — pinging IndexNow
+      # for a noindex'd site is a correctness bug. The SAME value must go to the web
+      # Worker below (it serves the {key}.txt verification file). Same idempotent
+      # deploy→secret order.
+      - name: Push INDEXNOW_KEY to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          INDEXNOW_KEY_VALUE: ${{ secrets.INDEXNOW_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$INDEXNOW_KEY_VALUE" ]; then
+            echo "::warning::INDEXNOW_KEY_PRODUCTION not set — skipping push. The post-promote IndexNow submission will no-op until it is provisioned at launch."
+            exit 0
+          fi
+          printf '%s' "$INDEXNOW_KEY_VALUE" \
+            | pnpm exec wrangler secret put INDEXNOW_KEY --env production
+
       - name: Deploy SSR (production)
         id: deploy_ssr
         env:
@@ -737,6 +764,27 @@ jobs:
           fi
           printf '%s' "$POSTHOG_KEY_VALUE" \
             | pnpm exec wrangler secret put POSTHOG_KEY --env production
+
+      # AECI-236/§20.2: push the SAME INDEXNOW_KEY to the prod WEB Worker so it
+      # serves the `{key}.txt` verification file at the site root (search engines
+      # fetch it to confirm host ownership before honoring the API Worker's IndexNow
+      # submissions). Must MATCH the API Worker's INDEXNOW_KEY pushed above.
+      # Warn-and-skip (fail-open): absent → the key file 404s and IndexNow no-ops,
+      # never aborting the promote. Same idempotent deploy→secret order.
+      - name: Push INDEXNOW_KEY to web Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          INDEXNOW_KEY_VALUE: ${{ secrets.INDEXNOW_KEY_PRODUCTION }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$INDEXNOW_KEY_VALUE" ]; then
+            echo "::warning::INDEXNOW_KEY_PRODUCTION not set — skipping push. The IndexNow {key}.txt verification file will 404 until it is provisioned at launch."
+            exit 0
+          fi
+          printf '%s' "$INDEXNOW_KEY_VALUE" \
+            | pnpm exec wrangler secret put INDEXNOW_KEY --env production
 
       # Postflight enforcement of THE RULE at the Worker level: assert the prod
       # API Worker actually carries its required runtime secrets after the pushes

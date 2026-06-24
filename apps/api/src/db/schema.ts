@@ -502,6 +502,9 @@ export const vendorRequests = sqliteTable(
 
     status: text('status').notNull().default('open'),
     linearIssueId: text('linear_issue_id'),
+    // AECI-261: the linked Linear issue's web permalink (issue.url), persisted so
+    // /admin/requests can render a real link. Null until creation/webhook supplies it.
+    linearIssueUrl: text('linear_issue_url'),
 
     // AECI-215 (Phase 6.8): self-FK to the earliest matching open request.
     duplicateOfRequestId: text('duplicate_of_request_id'),

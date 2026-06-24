@@ -72,6 +72,7 @@ import { applySeoHeaders } from './server/seo-headers';
 import { createAdminPurgeHandler } from './server/routes/admin-purge';
 import { createAuthCallbackHandler, sanitizeReturnPath } from './server/routes/auth-callback';
 import { createAuthWhoamiHandler } from './server/routes/auth-whoami';
+import { createIndexNowKeyHandler } from './server/routes/indexnow-key';
 import { createVersionHandler } from './server/routes/version';
 import { buildSitemapXml, resolveSitemapEntries } from './server/sitemap';
 
@@ -891,6 +892,15 @@ export function createApp(options: {
       },
     });
   });
+
+  // GET /{INDEXNOW_KEY}.txt — IndexNow key-verification file (AECI-236, §20.2).
+  // Search engines fetch it to confirm host ownership before honoring the
+  // IndexNow submissions the API Worker sends on promote. Only the configured key
+  // file is served (text/plain = the key); every other root-level `*.txt` (and a
+  // wrong/unset key) falls through to the SSR catch-all → branded 404. The literal
+  // `/robots.txt` above is registered first, so this param route never intercepts
+  // it. No-op until INDEXNOW_KEY is provisioned at launch.
+  app.get('/:file{[^/]+\\.txt}', createIndexNowKeyHandler());
 
   // GET /_version — the SSR Worker's OWN build metadata (AECI-92). Served here,
   // NOT proxied: `/api/version` forwards raw to the API Worker and so only ever
