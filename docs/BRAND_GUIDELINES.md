@@ -33,7 +33,8 @@ Near-black `#0A0A0A` (rather than pure `#000000`) is intentional in dark mode: m
 | Forest | `#1E3A2F` | Primary brand. CTAs, links, headings, primary accent. |
 | Forest hover | `#2E5C45` | Hover state for Forest interactive elements. |
 | Clay | `#E89668` | Decorative/fill only (badge fills carry near-black text, never white). **Cannot carry text or meaning-bearing graphics** — see §5. |
-| Clay deep | `#A14D22` | Text-capable Clay (AECI-230): clay-colored text, icons, star ratings. 5.83:1 on white. Doubles as the warning hue. |
+| Clay deep | `#A14D22` | Text-capable Clay (AECI-230): clay-colored text and icons. 5.83:1 on white. Doubles as the warning hue. |
+| Goldenrod | `#DAA520` | Gold-star fill for rating glyphs (`--accent-rating`). Decorative (`aria-hidden`) — the rating value is carried by the numeral + `aria-label` — so its ~2.2:1 on white is permitted; empty stars use Border strong `#D4D4D8` in displays, Text tertiary `#71717A` in the interactive review-form picker. See §5.1. |
 | Bone | `#F5F2EA` | Warm-tinted accent surface (callout sections, marketing hero bands, About page hero). **Not a page background** — see §4. |
 
 ---
@@ -74,10 +75,19 @@ Clay is the rarest color in the system. Use it sparingly — the connector mark,
 
 - This is stricter than the previous "large text allowed" wording, which was mathematically false and was struck in **AECI-230**: Clay on white measures ~2.3:1, below WCAG 2.1 AA for body text (4.5:1) *and* below the 3:1 floor for large text and non-text UI components (WCAG 1.4.11).
 - Permitted Clay `#E89668` uses: decorative graphics (the connector mark, accent strokes) and fills that carry near-black `text-primary` on top (8.48:1). White text on Clay (2.33:1) is forbidden.
-- Anything clay-colored that carries meaning — text, icons, star ratings — uses **Clay deep `#A14D22`** (5.83:1 on white, 5.21:1 on Bone), added in AECI-230.
+- Anything clay-colored that carries meaning — text, icons — uses **Clay deep `#A14D22`** (5.83:1 on white, 5.21:1 on Bone), added in AECI-230. (Star ratings are not clay — see §5.1.)
 - In **dark theme** (Stage 2), Clay dark `#F0A887` on `#0A0A0A` is ~10.3:1 and technically passes AAA. The restriction there is **brand policy, not contrast** — keeping Clay rare preserves its meaning as a high-emphasis accent.
 
 See `docs/STAGE_1_SPEC.md` §2a.4 for the contrast-validation rule this maps to.
+
+---
+
+## 5.1 Rating gold (Goldenrod)
+
+Star-rating glyphs use **Goldenrod `#DAA520`** (`--accent-rating`), the conventional gold star, tuned warm to sit with the Clay/Bone family rather than a neon yellow. In read-only displays (`<aec-review-stars>`, vendor-detail), empty stars use **Border strong `#D4D4D8`** as a faint track so the gold reads against it. The **interactive review-form rating picker** instead uses **Text tertiary `#71717A`** for unselected stars: it has no adjacent numeral and renders fully unselected on first load, so a faint `#D4D4D8` track would leave the whole control near-invisible until hovered.
+
+- Goldenrod measures ~2.2:1 on white — *below* the 3:1 floor for meaning-bearing graphics. This is permitted **only because the star glyphs are decorative** (`aria-hidden`): the precise rating is announced via the `aria-label` and shown as the adjacent numeral, so color is never the sole signal — the same allowance the empty-star track relies on.
+- Goldenrod is **rating glyphs only**. It is not a text, icon, CTA, or general-accent color. Meaning-bearing clay stays Clay deep; CTAs stay Forest.
 
 ---
 
@@ -93,6 +103,7 @@ Computed against the spec's surface tokens. WCAG 2.1 AA requires 4.5:1 for norma
 | Near-black `#0A0A0A` | Clay `#E89668` | ~8.5 : 1 | AAA — the only sanctioned text-on-Clay pairing |
 | Clay deep `#A14D22` | White `#FFFFFF` | ~5.8 : 1 | AA normal (text-capable Clay, AECI-230) |
 | Clay deep `#A14D22` | Bone `#F5F2EA` | ~5.2 : 1 | AA normal |
+| Goldenrod `#DAA520` | White `#FFFFFF` | ~2.2 : 1 | Below the 3:1 graphic floor — **decorative star glyphs only** (`aria-hidden`; value carried by numeral + `aria-label`). See §5.1 |
 | Text tertiary `#71717A` | White `#FFFFFF` | ~4.8 : 1 | AA normal (re-pointed from `#A1A1AA` ≈ 2.6:1, AECI-230) |
 | Forest `#1E3A2F` | Forest soft `#ECF1EE` | ~10.8 : 1 | AAA (selected/active wash, AECI-230) |
 | Error `#B3261E` | White `#FFFFFF` | ~6.5 : 1 | AA normal (status token, AECI-230) |

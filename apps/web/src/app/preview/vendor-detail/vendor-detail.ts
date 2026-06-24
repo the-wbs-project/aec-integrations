@@ -101,7 +101,7 @@ export class VendorDetail implements OnInit {
 
   protected starClass(position: number, score: number): string {
     return position <= this.roundedScore(score)
-      ? 'text-sm text-(--accent-primary)'
+      ? 'text-sm text-(--accent-rating)'
       : 'text-sm text-(--border-strong)';
   }
 

@@ -57,6 +57,16 @@
   /* Text-capable Clay: 5.83:1 on white, 5.59:1 on raised, 5.21:1 on Bone.
      Doubles as the warning hue. */
   --accent-secondary-deep: oklch(51.86% 0.1245 45.13); /* #A14D22 (Clay deep) */
+  /* Goldenrod — the gold-star fill for rating glyphs (review-stars, review-form).
+     2.24:1 on white: a decorative, meaning-redundant glyph (aria-hidden; the value
+     is carried by the adjacent numeral + aria-label), so it sits below the 3:1
+     graphic floor by design, the same allowance the empty star track relies on.
+     Read-only displays (review-stars, vendor-detail) pair gold with --border-strong
+     empties so it reads against a faint gray track; the interactive review-form
+     picker pairs gold with the more visible --text-tertiary, because before any
+     rating is selected the whole control is empties and a faint track would be
+     near-invisible. Editorial gold tuned to the warm Clay/Bone family, not neon. */
+  --accent-rating: oklch(75.16% 0.1469 83.99); /* #DAA520 (Goldenrod — rating stars) */
   --accent-warm: oklch(95.62% 0.0149 95.45); /* #F5F2EA (Bone) */
   /* Form/validation error text + icons (6.54:1 on white). Success maps to
      Forest, warning to Clay deep — no separate tokens. */
@@ -85,6 +95,7 @@
   --color-accent-primary-soft: var(--accent-primary-soft);
   --color-accent-secondary: var(--accent-secondary);
   --color-accent-secondary-deep: var(--accent-secondary-deep);
+  --color-accent-rating: var(--accent-rating);
   --color-accent-warm: var(--accent-warm);
   --color-status-error: var(--status-error);
   --font-display: var(--font-display);

@@ -190,7 +190,11 @@ A neutral surface palette with three brand accents (Forest, Clay, Bone) and two 
 ### Secondary
 
 - **Clay** (`#E89668` / `oklch(76.10% 0.1144 47.10)`): warm secondary accent — **decorative and fill only**. The connector mark, badge fills (carrying `text-primary` at 8.48:1 — never white text, which is 2.33:1), accent strokes. It measures ~2.3:1 on white, below even the 3:1 large-text/non-text floor, so it can never carry text or meaning-bearing graphics — see the Clay restriction below.
-- **Clay deep** (`#A14D22` / `oklch(51.86% 0.1245 45.13)`): the text-capable member of the Clay family — clay-colored text, icons, and meaning-bearing graphics (star ratings). 5.83:1 on white, 5.59:1 on raised, 5.21:1 on Bone. Doubles as the warning hue.
+- **Clay deep** (`#A14D22` / `oklch(51.86% 0.1245 45.13)`): the text-capable member of the Clay family — clay-colored text and icons. 5.83:1 on white, 5.59:1 on raised, 5.21:1 on Bone. Doubles as the warning hue.
+
+### Rating
+
+- **Goldenrod** (`#DAA520` / `oklch(75.16% 0.1469 83.99)`): the gold-star fill for rating glyphs (`<aec-review-stars>` and the review-form rating listboxes) — token `--accent-rating`. The conventional gold star, tuned warm to sit with the Clay/Bone family rather than a neon yellow. It measures 2.24:1 on white, *below* the 3:1 meaning-bearing-graphic floor — permitted because the star glyphs are **decorative** (`aria-hidden`): the rating is carried by the `aria-label` (and, in displays, the adjacent numeral), never by glyph color alone. In read-only displays (`<aec-review-stars>`, vendor-detail) empty stars use **Border strong** `#D4D4D8` as a faint track so the gold reads against it. The **interactive review-form picker** instead uses **Text tertiary** `#71717A` for unselected stars: it has no adjacent numeral and renders fully unselected on first load, so a faint `#D4D4D8` track would leave the whole control near-invisible until hovered. (The dedicated Goldenrod gives ratings their own recognizable color and frees Clay deep to mean "text-capable clay / warning.")
 
 ### Tertiary
 
@@ -222,7 +226,7 @@ The dark palette was removed from the active design system in **AECI-226**: Stag
 
 **The Forest-Anchor Rule.** Forest is the primary brand accent and the anchor of the system. Every CTA, every link, every heading color, every primary badge fill: Forest. No alternative primary color exists — proposals for "a second primary" are rejected.
 
-**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Clay `#E89668` is **decorative and fill only**: the connector mark, accent strokes, and badge fills carrying `text-primary` (8.48:1) — never white text (2.33:1). It measures ~2.3:1 on white, which fails not just AA body text but the 3:1 floor for large text and meaning-bearing graphics — the former "large-text allowed" clause was mathematically false and was struck in AECI-230. Anything clay-colored that *carries meaning* — text, icons, star ratings — uses **Clay deep** `#A14D22` (5.83:1). Clay never fills a CTA: the Forest-Anchor Rule owns every CTA. Keeping Clay rare preserves its meaning as the high-emphasis accent. (The brand policy carries forward to Dark Clay when the dark theme returns at Stage 2.)
+**The Clay-Restriction Rule.** Clay is the rarest color in the system. ≤5% of any screen. Clay `#E89668` is **decorative and fill only**: the connector mark, accent strokes, and badge fills carrying `text-primary` (8.48:1) — never white text (2.33:1). It measures ~2.3:1 on white, which fails not just AA body text but the 3:1 floor for large text and meaning-bearing graphics — the former "large-text allowed" clause was mathematically false and was struck in AECI-230. Anything clay-colored that *carries meaning* — text, icons — uses **Clay deep** `#A14D22` (5.83:1). (Star-rating glyphs are *not* clay: they use the dedicated **Goldenrod** `--accent-rating` — see the Rating palette above.) Clay never fills a CTA: the Forest-Anchor Rule owns every CTA. Keeping Clay rare preserves its meaning as the high-emphasis accent. (The brand policy carries forward to Dark Clay when the dark theme returns at Stage 2.)
 
 **The No-Pure-Black-Or-White Rule.** `#000` and `#fff` never appear in this system. The text-primary token is `#0A0A0A` (a near-black) on a `#FFFFFF` surface base. Pure-black-on-pure-white is harsher than the near-tones and creates unnecessary halation. (The same principle governs the dark variants documented in `BRAND_GUIDELINES.md` §3 when dark returns at Stage 2.)
 
@@ -461,7 +465,7 @@ The strategic anti-references in `PRODUCT.md` carry through here as concrete vis
 - **Do** pair Source Serif 4 (display) with Atkinson Hyperlegible Next (body) — the chosen system pair. Use them in their assigned roles (display for headings, body for prose, label for buttons / badges / table headers, overline for eyebrows / kickers / sidebar microheadings).
 - **Do** use sentence case everywhere. Headings, buttons, labels, navigation, table headers, page titles, section titles. The overline role is the single uppercase exception (§3).
 - **Do** use 0.5px borders to separate surfaces (`border-default`); 1px for emphasis; 2px for featured states.
-- **Do** keep Clay rare (≤5% per screen, decorative/fill only — fills carry `text-primary`, never white). Clay-colored text, icons, and star ratings use Clay deep (`#A14D22`). CTAs are always Forest (the Forest-Anchor Rule).
+- **Do** keep Clay rare (≤5% per screen, decorative/fill only — fills carry `text-primary`, never white). Clay-colored text and icons use Clay deep (`#A14D22`); star-rating glyphs use Goldenrod (`#DAA520` / `--accent-rating`). CTAs are always Forest (the Forest-Anchor Rule).
 - **Do** use Bone as a *warm-tinted accent surface* — hero bands, callout sections — never as a page background.
 - **Do** vary spacing for visual rhythm (4pt scale: 4 / 8 / 12 / 16 / 24 / 32 / 48 / 64 / 96). Tight groupings, generous separations.
 - **Do** use container queries (`@container`) for component-level responsiveness; viewport queries for page layout.

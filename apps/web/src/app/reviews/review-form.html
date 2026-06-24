@@ -154,7 +154,7 @@
           [value]="n"
           [attr.aria-label]="starLabel(n)"
           class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          [style.color]="n <= (overallSel()[0] ?? 0) ? 'var(--accent-primary)' : 'var(--text-tertiary)'"
+          [style.color]="n <= (overallSel()[0] ?? 0) ? 'var(--accent-rating)' : 'var(--text-tertiary)'"
         >
           <span aria-hidden="true">★</span>
         </li>
@@ -197,7 +197,7 @@
           [value]="n"
           [attr.aria-label]="starLabel(n)"
           class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          [style.color]="n <= (onboardingSel()[0] ?? 0) ? 'var(--accent-primary)' : 'var(--text-tertiary)'"
+          [style.color]="n <= (onboardingSel()[0] ?? 0) ? 'var(--accent-rating)' : 'var(--text-tertiary)'"
         >
           <span aria-hidden="true">★</span>
         </li>
