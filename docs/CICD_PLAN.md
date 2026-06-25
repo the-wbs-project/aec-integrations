@@ -344,9 +344,11 @@ enable row level security`/`create or replace function` statements are inherentl
 idempotent. (Once recorded in `supabase_migrations`, `supabase db push` skips it;
 a correction is a new forward migration — never edit a merged migration.)
 
-**Verification.** Each of `drift-check.yml` (fresh local DB), `refresh-staging.yml`
-(after the migrate step), and `promote-to-prod.yml` (after the prod migrate) runs
+**Verification.** Each of `refresh-staging.yml` (after the migrate step) and
+`promote-to-prod.yml` (after the prod migrate) runs
 `psql "$URL" -v ON_ERROR_STOP=1 -f scripts/verify-rls.sql` as a hard-stop gate.
+(`drift-check.yml` no longer runs this probe — it moved to D1/Drizzle schema-vs-migrations
+drift in AECI-264; the Postgres RLS gate now lives only in the refresh/promote workflows.)
 The probe impersonates the PostgREST roles at the SQL layer (`SET ROLE anon`) and
 asserts:
 

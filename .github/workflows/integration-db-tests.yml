@@ -102,8 +102,8 @@ jobs:
         run: npm install -g supabase@latest
       # `supabase start` boots the FULL stack (Postgres + GoTrue + …). GoTrue must be
       # running because the JWKS spec mints a token via `/auth/v1/admin/*` and verifies
-      # it against GoTrue's published JWKS, so the Postgres-only `supabase db start`
-      # that drift-check.yml uses would not be enough.
+      # it against GoTrue's published JWKS, so a Postgres-only boot (`supabase db start`)
+      # would not be enough.
       - name: Boot local Supabase (full stack)
         run: supabase start
       # Remap the local stack's connection details into the env-var names the
