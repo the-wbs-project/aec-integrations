@@ -55,11 +55,24 @@ export class AccountApi {
     );
   }
 
+  /** In-flight `findMyReviewForProduct` probes, keyed by product id, so the two
+   *  `aec-review-cta` instances on a product page (hero + Reviews section) share
+   *  one request instead of each firing its own after hydration. The entry is
+   *  cleared on settle, so a later visit still re-checks fresh state. */
+  private readonly pendingReviewProbes = new Map<string, Promise<AccountReview | null>>();
+
   /** The caller's own review for a single product, or `null` if none exists
    *  (AECI-260). Drives the "you've already reviewed this" prevention UX on the
    *  detail-page CTA + the review-form guard. Server-scoped to the session, so
-   *  no reviewer id is sent; `perPage: 1` keeps it cheap. */
+   *  no reviewer id is sent; `perPage: 1` keeps it cheap. Concurrent calls for
+   *  the same product are coalesced onto a single in-flight request. */
   findMyReviewForProduct(productId: string): Promise<AccountReview | null> {
-    return this.listReviews({ product_id: productId, perPage: 1 }).then((r) => r.data[0] ?? null);
+    const pending = this.pendingReviewProbes.get(productId);
+    if (pending) return pending;
+    const probe = this.listReviews({ product_id: productId, perPage: 1 })
+      .then((r) => r.data[0] ?? null)
+      .finally(() => this.pendingReviewProbes.delete(productId));
+    this.pendingReviewProbes.set(productId, probe);
+    return probe;
   }
 }
