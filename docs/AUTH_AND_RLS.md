@@ -443,10 +443,12 @@ CREATE TRIGGER <trigger_name>
   FOR EACH ROW EXECUTE FUNCTION public.<name>();
 ```
 
-Coverage: `apps/api/src/integration/auth_user_delete_trigger.spec.ts`
-asserts the DELETE trigger fires for both the Supabase admin API
-delete path and a direct `DELETE FROM auth.users`. Any new sync
-trigger should land with the same dual-path test.
+Coverage: the original `auth_user_delete_trigger.spec.ts` integration spec was
+removed in the D1 migration (PR #359) — under ADR 0016 the app tables it
+cascaded into live on Cloudflare D1, not Postgres. Any **new** `auth.users`
+sync trigger should land with its own dual-path test (Supabase admin-API delete
++ a direct `DELETE FROM auth.users`). (Reconciling this section's trigger model
+with the D1 app DB is part of the AECI-256/257 Supabase-Postgres decommission.)
 
 ---
 

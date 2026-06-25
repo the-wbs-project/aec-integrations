@@ -1,53 +1,54 @@
-# AEC Integrations — apps/api integration suites against a full local Supabase
-# stack (AECI-90). Extracted from deploy.yml so it runs ONLY when something that
-# could affect its outcome changes, instead of booting a full Supabase stack
-# (~4 billable min) on every PR push.
+# AEC Integrations — apps/api live-auth integration suite (AECI-90; pruned AECI-265).
 #
-# These are the security-/correctness-critical suites that need a real Postgres +
-# PostgREST + GoTrue stack (not Miniflare). NOTE (ADR 0016 / AECI-234): most of the
-# suites this harness was designed around were planned under the pre-ADR-0016
-# Prisma/Supabase-Postgres architecture and were never created — ADR 0016 moved the
-# application DB to Cloudflare D1 (no RLS, no PostgREST). The only spec currently
-# present in src/integration/ is `user-auth.jwks.spec.ts` (live Supabase JWKS — auth
-# is retained on Supabase). The originally-listed specs never landed:
-#   src/integration/vendor_requests.rls.spec.ts          (PostgREST deny matrix — never created)
-#   src/integration/landing_forms.rls.spec.ts            (PostgREST deny matrix — never created)
-#   src/integration/auth_user_delete_trigger.spec.ts     (GDPR delete trigger — never created)
-#   src/integration/airtable-to-supabase-bulk-migrate.spec.ts (idempotent migrate — never created)
-#   src/integration/product-counts.spec.ts               (denormalized-count drift — never created)
-#   src/integration/backfill-slugs.spec.ts               (slug backfill — never created)
-# The reviews/profiles authorization deny-matrix is NOT here: under D1 it is an
+# This lane runs the ONE integration spec that survived the Cloudflare-D1 migration
+# (PR #359, AECI-248→257): apps/api/src/integration/user-auth.jwks.spec.ts. It is a
+# standing regression guard for `requireUserAuth()` — it fetches a Supabase project's
+# published signing keys over the network (`createRemoteJWKSet`) and verifies a real,
+# freshly-minted access token, asserting issued tokens stay ES256. A dashboard
+# signing-key rotation back to HS256 would silently break the production JWKS-only
+# verification contract, and this is the only test that exercises that real network
+# path (the offline unit spec mocks it).
+#
+# Auth is the one thing RETAINED on Supabase (ADR 0015 / ADR 0016) — the application DB
+# is Cloudflare D1 (no Postgres, no PostgREST, no RLS). The Postgres/PostgREST/RLS suites
+# this harness was originally built for were DELETED in PR #359:
+#   src/integration/vendor_requests.rls.spec.ts          (PostgREST deny matrix)
+#   src/integration/auth_user_delete_trigger.spec.ts     (GDPR delete trigger)
+#   src/integration/auth_users_email_read.spec.ts        (privileged email read)
+#   src/integration/account_delete.spec.ts               (GDPR erasure)
+#   src/integration/airtable-to-supabase-bulk-migrate.spec.ts (idempotent migrate)
+#   src/integration/product-counts.spec.ts               (denormalized-count drift)
+#   src/integration/backfill-slugs.spec.ts               (slug backfill)
+# The planned src/integration/landing_forms.rls.spec.ts was never created, and the
+# landing lead-capture tables (feedback/mailing_list) themselves moved to D1 (AECI-257),
+# so NOTHING remains on Supabase Postgres — only this Supabase-Auth (GoTrue/JWKS) spec.
+# The reviews/profiles authorization deny-matrix is NOT here either: under D1 it is an
 # app-layer no-leakage matrix in the UNIT lane —
-# apps/api/src/routes/{reviews,profiles}.authz-matrix.spec.ts (AECI-234). This whole
-# Supabase-Postgres harness is ADR-0016 Phase-6 decommission scope.
+# apps/api/src/routes/{reviews,profiles}.authz-matrix.spec.ts (AECI-234).
 #
-# Why local Supabase (not the shared dev DB): the auth-delete suite
-# creates+deletes auth.users and the bulk-migrate suite inserts+deletes
-# products/vendors/taxonomy. Running those against the shared dev/legacy-Postgres
-# DB would be destructive and flaky. A local stack isolates the writes and supplies every key the specs
-# need with NO repo secrets. These suites need the FULL stack (Postgres +
-# PostgREST + GoTrue), not a bare Postgres — see the boot step below.
+# Why local Supabase (not the shared project): booting the stack gives a zero-secret
+# GoTrue that both (a) mints a fresh ES256 access token for the spec and (b) serves the
+# JWKS endpoint the spec verifies against — no repo secrets, isolated from any shared DB.
+# (Removing Prisma / `@prisma/client` from apps/api entirely is AECI-256, not this lane;
+# this spec's import graph never touches Prisma, so no `prisma generate` is needed here.)
 #
-# WHEN THIS RUNS (path gate). The suites' outcome depends only on the migrated
-# DB shape + the source they exercise, so the `paths:` filter below is the
-# complete set of inputs (traced from the specs' imports):
-#   - supabase/migrations/**         RLS policies, triggers, grants, schema
-#   - supabase/config.toml           stack / Postgres version
-#   - apps/api/prisma/schema.prisma  Prisma model the specs assert against
-#   - apps/api/src/integration/**    the specs themselves
-#   - apps/api/src/lib/**            product-counts.ts (imported directly)
-#   - apps/api/scripts/**            bulk-migrate, backfill-slugs, lib/airtable
+# WHEN THIS RUNS (path gate). The spec's outcome depends only on the auth/JWKS source it
+# exercises plus the stack that issues the token, so the `paths:` filter below is the
+# complete set of inputs:
+#   - supabase/config.toml                    stack / auth signing config
+#   - apps/api/src/integration/**             the spec itself
+#   - apps/api/src/lib/**                      user-auth.ts (imported directly)
 #   - apps/api/vitest.integration.config.ts
 #   - this workflow file
-# A UI-only (apps/web/**), docs, or unrelated-config PR can't change any of
-# these, so it skips entirely and bills nothing.
+# A UI-only (apps/web/**), docs, schema/migrations, or unrelated-config PR can't change
+# any of these, so it skips entirely and bills nothing.
 #
-# Backstop: a nightly `schedule:` run (and `workflow_dispatch:`) re-runs the
-# full suite against a fresh stack on main once a day, so anything a transitive
-# dependency outside the path set might have missed still surfaces within 24h.
+# Backstop: a nightly `schedule:` run (and `workflow_dispatch:`) re-runs the suite
+# against a fresh stack on main once a day, catching anything a transitive dependency
+# outside the path set might have missed within 24h.
 #
-# NON-BLOCKING posture is unchanged: this was never in deploy-staging.needs and
-# isn't a required check. It reports red/green on PRs that touch DB code.
+# NON-BLOCKING posture is unchanged: this was never in deploy-staging.needs and isn't a
+# required check. It reports red/green on PRs that touch the auth/JWKS path.
 
 name: integration-db-tests
 
@@ -55,12 +56,9 @@ on:
   pull_request:
     branches: [main]
     paths:
-      - 'supabase/migrations/**'
       - 'supabase/config.toml'
-      - 'apps/api/prisma/schema.prisma'
       - 'apps/api/src/integration/**'
       - 'apps/api/src/lib/**'
-      - 'apps/api/scripts/**'
       - 'apps/api/vitest.integration.config.ts'
       - '.github/workflows/integration-db-tests.yml'
   schedule:
@@ -83,7 +81,7 @@ env:
 
 jobs:
   integration-db-tests:
-    name: Integration suites (local Supabase)
+    name: Auth integration suite (live Supabase JWKS)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -97,22 +95,20 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      # The integration specs import @prisma/client directly (e.g.
-      # auth_user_delete_trigger.spec.ts asserts via Prisma raw SQL). Generate
-      # the client before running. `prisma generate` does not hit the DB.
-      - run: pnpm --filter @aeci/api exec prisma generate
+      # No `prisma generate` here: the surviving JWKS spec's import graph
+      # (lib/user-auth.ts → @aeci/shared / hono / jose) never reaches
+      # @prisma/client. Removing Prisma from apps/api wholesale is AECI-256.
       - name: Install Supabase CLI
         run: npm install -g supabase@latest
-      # `supabase start` boots the FULL stack (Postgres + GoTrue + PostgREST +
-      # …) and replays every supabase/migrations/** file on a fresh DB. The RLS
-      # suites hit PostgREST `/rest/v1/*` and the auth-delete suite hits GoTrue
-      # `/auth/v1/admin/*`, so a Postgres-only boot (`supabase db start`) would
-      # not be enough.
+      # `supabase start` boots the FULL stack (Postgres + GoTrue + …). GoTrue must be
+      # running because the JWKS spec mints a token via `/auth/v1/admin/*` and verifies
+      # it against GoTrue's published JWKS, so a Postgres-only boot (`supabase db start`)
+      # would not be enough.
       - name: Boot local Supabase (full stack)
         run: supabase start
       # Remap the local stack's connection details into the env-var names the
-      # specs read (see apps/api/.dev.vars.example). `supabase status -o env`
-      # prints KEY="value" lines including API_URL, DB_URL, ANON_KEY,
+      # spec + mint step read (see apps/api/.dev.vars.example). `supabase status
+      # -o env` prints KEY="value" lines including API_URL, ANON_KEY,
       # SERVICE_ROLE_KEY — all well-known local values, not secrets.
       - name: Export Supabase connection env
         run: |
@@ -126,7 +122,7 @@ jobs:
           . /tmp/supabase-status.env
           set +a
           missing=
-          for v in API_URL DB_URL ANON_KEY SERVICE_ROLE_KEY; do
+          for v in API_URL ANON_KEY SERVICE_ROLE_KEY; do
             if [ -z "${!v:-}" ]; then missing="${missing} ${v}"; fi
           done
           if [ -n "${missing}" ]; then
@@ -135,16 +131,14 @@ jobs:
           fi
           {
             echo "SUPABASE_URL=${API_URL}"
-            echo "TEST_DATABASE_URL=${DB_URL}"
             echo "SUPABASE_ANON_KEY=${ANON_KEY}"
             echo "SUPABASE_SERVICE_ROLE_KEY=${SERVICE_ROLE_KEY}"
           } >> "$GITHUB_ENV"
-      # Mint a non-admin authenticated-user JWT for the PostgREST RLS suites
-      # (vendor_requests.rls / landing_forms.rls). Without it those suites
-      # describe.skipIf themselves and the guard step below fails the job. The
-      # service-role key creates a confirmed user (mirrors
-      # auth_user_delete_trigger.spec.ts adminCreateUser); the password grant
-      # returns that user's access_token.
+      # Mint a fresh authenticated-user JWT for the JWKS spec. Without
+      # SUPABASE_TEST_USER_JWT the spec describe.skipIf's itself and the guard
+      # step below fails the job. The service-role key creates a confirmed user;
+      # the password grant returns that user's access_token (ES256 from the
+      # local stack's asymmetric signing keys — exactly what the spec asserts).
       - name: Mint SUPABASE_TEST_USER_JWT
         run: |
           set -euo pipefail
@@ -172,12 +166,12 @@ jobs:
       # $GITHUB_ENV). Writes apps/api/integration-results.json for the guard.
       - name: Run apps/api integration suites
         run: pnpm --filter @aeci/api run test:integration:ci
-      # Guard against silent exclusion (AECI-90 AC #1). Every spec is wrapped in
-      # describe.skipIf(<env unset>); if the DB/keys above were not wired the
-      # suites would be COLLECTED but SKIPPED and vitest would still exit 0
-      # (numTotalTests>0 yet numPendingTests==33). So fail on 0-collected AND on
-      # any pending/skipped test — a green check must mean these security tests
-      # actually ran.
+      # Guard against silent exclusion (AECI-90 AC #1). The JWKS spec is wrapped
+      # in describe.skipIf(<env unset>); if SUPABASE_URL / the minted JWT above
+      # were not wired the spec would be COLLECTED but SKIPPED and vitest would
+      # still exit 0 (numTotalTests>0 yet numPendingTests>0). So fail on
+      # 0-collected AND on any pending/skipped test — a green check must mean the
+      # JWKS regression guard actually ran.
       - name: Guard — fail on 0-collected or silently-skipped tests
         run: |
           set -euo pipefail
@@ -192,11 +186,11 @@ jobs:
           failed=$(jq '.numFailedTests' "${results}")
           echo "integration totals: total=${total} passed=${passed} pending=${pending} failed=${failed}"
           if [ "${total}" -eq 0 ]; then
-            echo "::error::0 integration tests collected — suites were excluded or no specs matched."
+            echo "::error::0 integration tests collected — the suite was excluded or no specs matched."
             exit 1
           fi
           if [ "${pending}" -gt 0 ]; then
-            echo "::error::${pending} integration test(s) were skipped — the DB/Supabase env was not fully wired (describe.skipIf fired). Refusing a green check for un-run security tests."
+            echo "::error::${pending} integration test(s) were skipped — the Supabase env was not fully wired (describe.skipIf fired). Refusing a green check for the un-run JWKS regression guard."
             exit 1
           fi
       - name: Stop local Supabase

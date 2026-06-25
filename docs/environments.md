@@ -399,10 +399,11 @@ the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
    pnpm --filter @aeci/api test:integration
    ```
 
-> ⚠️ **Never run the service-role trigger specs against the shared dev
-> project.** `auth_user_delete_trigger.spec.ts` creates and deletes real
-> `auth.users` via the admin API. Keep `SUPABASE_SERVICE_ROLE_KEY` empty in
-> `apps/api/.dev.vars` (the spec self-skips) and supply it **only** in a
+> ⚠️ **Never run service-role admin-API specs against the shared dev project.**
+> Any integration spec (or the CI lane's mint step) that creates/deletes real
+> `auth.users` via the admin API must run only against a throwaway local
+> `supabase start` stack. Keep `SUPABASE_SERVICE_ROLE_KEY` empty in
+> `apps/api/.dev.vars` (specs that need it self-skip) and supply it **only** in a
 > local-stack override like the one above.
 
 ## Deployed Supabase Auth: redirect-URL configuration (dashboard)

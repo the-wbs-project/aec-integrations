@@ -31,11 +31,13 @@ maintain. The schema is now single-schema (`public` only) and the
 gotrue-side churn that used to land in every `db:pull` no longer touches
 this repo.
 
-Coverage: `apps/api/src/integration/auth_user_delete_trigger.spec.ts`
-asserts the trigger fires for both the Supabase admin API delete path
-and a direct `DELETE FROM auth.users` via Prisma `$executeRaw` — the
-second case protects against a future admin-API cleanup path that would
-silently bypass the trigger.
+Coverage: the `auth_user_delete_trigger.spec.ts` integration spec this ADR
+originally cited was removed in the D1 migration (PR #359) — under ADR 0016 the
+app tables it cascaded into live on Cloudflare D1, not Postgres. Any **new**
+`auth.users` sync trigger should land with its own dual-path test (Supabase
+admin-API delete + a direct `DELETE FROM auth.users`). Reconciling the trigger
+model with the D1 app DB is part of the AECI-256/257 Supabase-Postgres
+decommission.
 
 Canonical doc: `docs/AUTH_AND_RLS.md` → "Auth → public sync triggers".
 

@@ -111,25 +111,26 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 4. Coverage is **reported, not gated** — a drop does not fail the job
    (`TESTING_STRATEGY.md` §3.3). There is no Codecov integration today.
 
-**Job: `integration-db-tests`** (~5 min, AECI-90) — *non-blocking*
-1. Checkout, install, `prisma generate`
+**Job: `integration-db-tests`** (~3 min, AECI-90; its own workflow `integration-db-tests.yml`, extracted from `deploy.yml`) — *non-blocking*
+1. Checkout, install
 2. Boot a full local Supabase stack on the runner (`supabase start`)
-3. Map `supabase status -o env` → the spec env vars; mint a non-admin
+3. Map `supabase status -o env` → the spec env vars; mint a
    `SUPABASE_TEST_USER_JWT`
-4. Run the `apps/api` `src/integration/**` suites (PostgREST RLS deny matrix,
-   auth-user-delete GDPR trigger, idempotent Airtable→Supabase bulk migrate,
-   landing-form RLS, product-count drift, slug backfill) via
-   `test:integration:ci`
-5. Fail on a **0-collected or silently-skipped** result (the suites
-   `describe.skipIf` on env, so a misconfigured job would skip-and-pass). Not in
+4. Run the `apps/api` `src/integration/**` lane — post-D1 a **single** spec,
+   `user-auth.jwks.spec.ts` (live ES256 JWKS regression guard for
+   `requireUserAuth()`; auth is retained on Supabase) — via `test:integration:ci`.
+   No `prisma generate`: the spec never imports `@prisma/client`.
+5. Fail on a **0-collected or silently-skipped** result (the spec
+   `describe.skipIf`s on env, so a misconfigured job would skip-and-pass). Not in
    `deploy-staging`'s `needs` yet — promote to a required check once stable. See
    `TESTING_STRATEGY.md` §6.5.
 
 > **ADR 0016 / AECI-234:** the reviews/profiles authorization deny-matrix is **not** in this
-> PostgREST job — under D1 (no RLS) it is an app-layer **no-leakage matrix in the unit lane**
+> job — under D1 (no RLS) it is an app-layer **no-leakage matrix in the unit lane**
 > (`apps/api/src/routes/reviews.authz-matrix.spec.ts` / `profiles.authz-matrix.spec.ts`), run by
-> the `unit` job on every PR. The `*.rls.spec.ts` specs listed in step 4 (PostgREST RLS deny
-> matrix, landing-form RLS) were never created and are ADR-0016 Phase-6 decommission scope.
+> the `unit` job on every PR. The Postgres/PostgREST suites this lane once planned (RLS deny
+> matrices, GDPR delete trigger, Airtable bulk migrate, count/backfill checks) were removed in
+> PR #359 and the references pruned in AECI-265; only the auth/JWKS spec remains.
 
 **Job: `build`** (~3 min)
 1. Checkout, install
@@ -503,7 +504,7 @@ Every PR must pass these gates before merge:
 - ✓ Lighthouse scores meet budget (Performance / Accessibility / Best-Practices / SEO ≥ 90 mobile) — **partially enforced** (AECI-188): Accessibility / Best-Practices / SEO / TBT / the `/search` TTFB are error-level on the post-merge run; Performance / LCP / CLS / the JS budgets remain advisory pending the perf follow-up (see the note below)
 - ✓ At least one human reviewer approval
 
-Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3), and the `integration-db-tests` suites report red/green without gating the staging deploy until they're promoted to a required check (`TESTING_STRATEGY.md` §6.5).
+Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3), and the `integration-db-tests` lane reports red/green without gating the staging deploy until it's promoted to a required check (`TESTING_STRATEGY.md` §6.5).
 
 **axe + Lighthouse wiring (AECI-65 / Phase 2.19).** Both harnesses (scaffolded in AECI-33) run against **every Phase 2 page type** on a local `dev:bound` server, using committed seed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`'s `db:setup:local` → `db:seed:fixtures:local`):
 
