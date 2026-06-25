@@ -1,13 +1,16 @@
 # ADR 0010: Angular Aria for new interactive/form patterns, alongside Spartan
 
-**Status:** **Proposed** (2026-06-05)
+**Status:** **Accepted** (2026-06-25; proposed 2026-06-05)
 
 **Context owner:** Chris Walton
 
 Spike outcome for AECI-129 ("Evaluate Angular Aria vs Spartan/CDK"), PR 6 of the Angular v22 adoption
-epic (AECI-122). A **recommendation**, not yet ratified — see "Decision" for the proposed posture and
-"Follow-ups" for what flips this to **Accepted**. Builds on ADR 0005 (Spartan over Syncfusion) and
-ADR 0009 (Signal Forms); does not supersede either.
+epic (AECI-122). **Ratified by AECI-231 (2026-06-25)** once the first real Aria-in-forms adopter landed —
+the review-submission form (`apps/web/src/app/reviews/review-form.ts`, AECI-200) — joining the Tabs pilot
+(AECI-132) and the header search combobox (AECI-144). See "Ratification (AECI-231)" at the end for the
+sign-off and the two real-world deviations the reference implementation took (which qualify the
+`[formField]` claim below). Builds on ADR 0005 (Spartan over Syncfusion) and ADR 0009 (Signal Forms);
+does not supersede either.
 
 ---
 
@@ -56,17 +59,19 @@ override block is the "peer-override cleanup" tracked under the v22 epic.
 
 ## Decision
 
-**Proposed posture: adopt Angular Aria as the default for _new_ interactive and form-control patterns it
-covers, keep Spartan for the overlay primitives it uniquely provides, and migrate nothing reactively.**
+**Posture (ratified — AECI-231): adopt Angular Aria as the default for _new_ interactive and form-control
+patterns it covers, keep Spartan for the overlay primitives it uniquely provides, and migrate nothing
+reactively.**
 **Do not rip out Spartan** (per the issue's explicit constraint).
 
 1. **New interactive/form-control patterns → Angular Aria.** When the app first needs a select, combobox,
    multiselect, listbox, radio group, accordion, tree, grid, menu/menubar, or toolbar, build it on
    `@angular/aria`. Rationale: it is **first-party and now stable** (removing reliance on a third-party
-   _alpha_ for new surfaces), it **integrates with Signal Forms out of the box** (the `[formField]`
-   directive detects `ngCombobox`/`ngListbox` as custom controls via their `value` model — ADR 0009
-   synergy), and Angular's own "when to use Aria" (design system / custom brand / headless, needs custom
-   CSS) describes AECi precisely.
+   _alpha_ for new surfaces), it **integrates with Signal Forms** (the `[formField]` directive detects
+   `ngCombobox`/`ngListbox` as custom controls via their `value` model — ADR 0009 synergy; **qualified —
+   see Ratification deviation (b): this holds for native `<input>`/`<textarea>`, but discrete-choice Aria
+   controls bridge via `[(value)]`+`(valueChange)`, not `[formField]`**), and Angular's own "when to use
+   Aria" (design system / custom brand / headless, needs custom CSS) describes AECi precisely.
 
 2. **Form controls are the highest-value entry point.** The Phase 5/6 forms (auth, reviews, moderation)
    will be the first to need selects/comboboxes/radios. They already use Signal Forms over plain HTML, so
@@ -97,10 +102,13 @@ covers, keep Spartan for the overlay primitives it uniquely provides, and migrat
 | Tree | Yes | none | **Aria** |
 | Grid (keyboard data grid) | Yes | none | **Aria** |
 
-**Design-system implications.** Angular Aria is styled exactly like Spartan brain: Tailwind utilities
-targeting the `aria-*` attributes the directives toggle (`[aria-selected]`, `[aria-expanded]`,
-`[aria-checked]`, …), bound to the OKLCH tokens, borders-not-shadows, rendered correctly in **both
-themes**. Running **two headless behavior providers is not a "mashup"** under the Anchor-Site Rule — that
+**Design-system implications.** Angular Aria is styled exactly like Spartan brain: Tailwind `aria-*:`
+variant utilities targeting the attributes the directives toggle (`aria-selected:`, `aria-expanded:`,
+`aria-checked:`, …) — plus the `data-[active=true]:` variant Aria sets on the active option — bound to the
+OKLCH tokens, borders-not-shadows, rendered correctly in the active theme. (Stage 1 ships **light-only**
+per AECI-226; the semantic token model keeps dark a token-block + toggle re-introduction at the Stage 2
+vendor portal, so the historical "both themes" validations recorded below predate that scope cut.) Running
+**two headless behavior providers is not a "mashup"** under the Anchor-Site Rule — that
 rule governs **visual** composition (which Mobbin site anchors a surface's hierarchy, density, atmosphere),
 which is owned by tokens and layout, not by which library supplies keyboard/ARIA behavior. Editorial
 coherence is unaffected by the behavior provider. (`DESIGN.md` §5, Named Rules.)
@@ -117,8 +125,10 @@ not resolve the peer-override cleanup.**
 
 - New interactive and form behavior comes from a **first-party, stable** package, reducing reliance on a
   third-party `alpha` for greenfield surfaces.
-- **Native Signal Forms integration** — Aria controls bind to `[formField]` with no adapter, extending the
-  ADR 0009 "one forms standard" story to rich controls (select/combobox/multiselect).
+- **Signal Forms integration** — native `<input>`/`<textarea>` Aria-adjacent fields bind to `[formField]`
+  with no adapter, extending the ADR 0009 "one forms standard" story. (Qualified by Ratification deviation
+  (b): discrete-choice Aria controls — listbox/combobox — bridge their `value` model into the form via
+  `[(value)]`+`(valueChange)` rather than `[formField]`.)
 - No design-system conflict: same headless styling model, same tokens, same both-theme + axe discipline;
   the Anchor-Site Rule still owns visual coherence.
 - CDK stays the single shared overlay/positioning/testing foundation under both Spartan and Aria — no new
@@ -144,16 +154,18 @@ not resolve the peer-override cleanup.**
   low-priority issue.
 - **First real use:** adopt Aria select/combobox/radio for the first Phase 5/6 form that needs them; treat
   it as the reference implementation (mirroring how `requests/` is the Signal Forms exemplar).
-- **Ratify:** on sign-off, flip this ADR **Proposed → Accepted** and harden the companion-doc wording
-  (`ANGULAR_STYLE_GUIDE.md` §19, `DESIGN.md` §5) from "proposed default" to a rule.
+- **Ratify:** ✅ **Done — AECI-231 (2026-06-25).** Flipped **Proposed → Accepted** and hardened the
+  companion-doc wording (`ANGULAR_STYLE_GUIDE.md` §19; `DESIGN.md` §5 → "Behavior providers", "Auth &
+  Reviews", and "Inputs / Fields"; `CLAUDE.md`; `docs/STAGE_1_PHASE_5_SPEC.md`) from "proposed default" to
+  a rule. See "Ratification (AECI-231)".
 - **Peer overrides:** revisit the `@spartan-ng/brain>@angular/*` overrides once Popover/Dialog's future is
   decided (keep on Spartan vs. move to CDK Overlay), since that — not Aria adoption — is what can remove
   the last Spartan peer dependency.
 
 ## Pilot results (AECI-132)
 
-Status stays **Proposed** — this records the pilot evidence the "Ratify" follow-up needs; the
-Proposed → Accepted flip is a separate sign-off.
+Status stayed **Proposed** at the time — this records the pilot evidence the "Ratify" follow-up needed;
+the Proposed → Accepted flip came later as its own sign-off (AECI-231 — see "Ratification (AECI-231)").
 
 The demo/preview Tabs in `apps/web/src/app/preview/vendor-detail/` were ported from Spartan
 `BrnTabs`/`BrnTabsList`/`BrnTabsTrigger` to Angular Aria `@angular/aria@22.0.0`
@@ -216,8 +228,9 @@ to document for adopters.
 
 ## First combobox adoption (AECI-144)
 
-Status stays **Proposed** — this records the first real `@angular/aria` **combobox** adoption (the
-"First real use" follow-up's trigger). The Proposed → Accepted flip is a separate sign-off; this adoption
+Status stayed **Proposed** at the time — this records the first real `@angular/aria` **combobox** adoption
+(the "First real use" follow-up's trigger). The Proposed → Accepted flip came later as its own sign-off
+(AECI-231 — see "Ratification (AECI-231)"); this adoption
 is the evidence for it and the **recommendation here is to ratify**.
 
 The header search-as-you-type autocomplete (`apps/web/src/app/search/search-autocomplete.ts`,
@@ -270,4 +283,69 @@ widget/keyboard/overlay. This is the reusable shape for "search box that jumps t
   fixture-dependent cases. **Recommend a staging smoke before ratifying** the mobile mount.
 - **Ratification:** with this non-form adoption + the tabs pilot, the recommendation is to flip Proposed →
   Accepted and harden `ANGULAR_STYLE_GUIDE.md` §19 / `DESIGN.md` §5 wording — pending Chris's sign-off and
-  the staging smoke above.
+  the staging smoke above. **(Done — see "Ratification (AECI-231)" below.)**
+
+## Ratification (AECI-231)
+
+**Accepted — 2026-06-25.** The "Ratify" follow-up's gate (a first real Aria-in-forms adopter) is met. The
+review-submission form (`apps/web/src/app/reviews/review-form.ts`, AECI-200 — closing AECI-133) is the
+app's **first Angular Aria _form_** and the reference Aria-in-forms implementation, joining the Tabs pilot
+(AECI-132) and the header search combobox (AECI-144, a non-form combobox). Nothing in the three adoptions
+argues against the posture in "Decision"; the token-binding ergonomics held up (declarative `aria-*:` /
+`data-[active=true]:` variants bound to OKLCH tokens, no TS state mirror). This section records the **two
+real-world deviations** the reference implementation took, so the guidance stays honest, and lists the
+companion docs hardened in the same change.
+
+### Deviation (a): Aria@22 GA ships no `radio` and no `select` — listbox/combobox stand in
+
+The shipped `@angular/aria@22` surface has **no `radio` directive and no `select` directive** (the
+"Select" pattern named in the original spike's overview did not land as a standalone GA directive). The
+reference form therefore realises those patterns with the directives that _did_ ship:
+
+- **Star ratings (overall + onboarding), 1–5** → a horizontal **`ngListbox` + `ngOption`**
+  (`orientation="horizontal"`, `selectionMode="explicit"`), in place of a radio group. Roving `tabindex`,
+  `aria-selected`, and arrow/Home/End keying come from the directive; we supply only token CSS.
+- **Role-at-company** → a non-editable **`ngCombobox`** trigger + **`ngListbox`/`ngOption`** popup, in place
+  of a `select`. The popup is positioned by `cdkConnectedOverlay` (`usePopover: 'inline'`) driven by the
+  `[(expanded)]` signal, because `ComboboxPopup` content renders in-flow rather than in a CDK overlay (the
+  inline-render finding from AECI-232; the same `cdkConnectedOverlay` pattern is reused by the `/search`
+  sort dropdown, `search/widgets/search-sort-by.ts`).
+
+So when this ADR or its companions say "select / radio → Angular Aria", read it as **"realised via
+combobox / listbox"** until Aria ships first-class `select`/`radio` directives.
+
+### Deviation (b): discrete-choice controls bridge to Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`
+
+The Decision/Consequences claim that Aria controls "bind to `[formField]` out of the box" holds for the
+**native `<input>`/`<textarea>`** fields (`title`, `body` bind `[formField]` directly, exactly like
+`requests/request-form.ts`). It does **not** hold for the **discrete-choice** Aria controls. There, the
+reference form bridges instead:
+
+- A local `signal<number[]>` is two-way bound to the control via **`[(value)]`** (Aria exposes `value` as a
+  `ModelSignal<V[]>` — always an array, even single-select; this drives the `aria-selected` highlight +
+  roving state).
+- A **`(valueChange)`** handler reads `values[0]` and writes it into the Signal Forms field with
+  `form.<field>().value.set(v)` + `.markAsTouched()`.
+
+Two reasons this bridge is necessary rather than `[formField]`:
+
+1. **Undefined-seeded Signal Forms fields aren't materialised.** A field with no seeded value isn't a live
+   control to bind a `[formField]` against, so the rating fields are seeded — which forces the next point.
+2. **The rating `0`-sentinel can't be told apart from a real pick.** The ratings seed to `0` (an
+   out-of-range "unset" sentinel, since valid picks are 1–5). If the Aria control bound its own `value`
+   straight onto the field, a real selection of the first option and the `0` seed would be
+   indistinguishable; the separate bridge signal + explicit `values[0]` write keeps "unset" and "picked"
+   distinct and lets validation fire on first touch.
+
+This is the reusable shape for **"Aria discrete-choice control → Signal Forms"**: `[(value)]` for the
+widget/roving/`aria-selected` state, `(valueChange)` to commit into the field. Native text inputs keep
+`[formField]`.
+
+### Companion docs hardened (same change)
+
+`ANGULAR_STYLE_GUIDE.md` §19, `DESIGN.md` §5 ("Behavior providers", "Auth & Reviews", "Inputs / Fields"), `CLAUDE.md` "Stack at a glance",
+`docs/STAGE_1_PHASE_5_SPEC.md`, and the `docs/adr/README.md` index — all flipped from "proposed default /
+pending sign-off" to the ratified rule, with the two deviations folded in and the stale "both themes"
+phrasing corrected to Stage-1 light-only (AECI-226). The point-in-time `docs/PHASE_5_COMPLETION.md`
+snapshot is intentionally left as written (it correctly records "proposed" as the status at Phase 5
+completion).
