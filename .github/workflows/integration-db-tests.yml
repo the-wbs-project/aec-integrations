@@ -25,8 +25,8 @@
 # creates+deletes auth.users and the bulk-migrate suite inserts+deletes
 # products/vendors/taxonomy. Running those against the shared dev/legacy-Postgres
 # DB would be destructive and flaky. A local stack isolates the writes and supplies every key the specs
-# need with NO repo secrets. Pattern mirrors drift-check.yml, but boots the FULL
-# stack (PostgREST + GoTrue), not Postgres-only.
+# need with NO repo secrets. These suites need the FULL stack (Postgres +
+# PostgREST + GoTrue), not a bare Postgres — see the boot step below.
 #
 # WHEN THIS RUNS (path gate). The suites' outcome depends only on the migrated
 # DB shape + the source they exercise, so the `paths:` filter below is the
@@ -106,8 +106,8 @@ jobs:
       # `supabase start` boots the FULL stack (Postgres + GoTrue + PostgREST +
       # …) and replays every supabase/migrations/** file on a fresh DB. The RLS
       # suites hit PostgREST `/rest/v1/*` and the auth-delete suite hits GoTrue
-      # `/auth/v1/admin/*`, so the Postgres-only `supabase db start` that
-      # drift-check.yml uses would not be enough.
+      # `/auth/v1/admin/*`, so a Postgres-only boot (`supabase db start`) would
+      # not be enough.
       - name: Boot local Supabase (full stack)
         run: supabase start
       # Remap the local stack's connection details into the env-var names the
