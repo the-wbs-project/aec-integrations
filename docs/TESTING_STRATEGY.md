@@ -396,15 +396,16 @@ from `apps/web/.dev.vars`, and in CI they come from the Playwright step `env:` i
 `deploy.yml` (warn-and-skip when the secrets are absent). Remaining manual step to activate
 it in CI: set the `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` GH secrets.
 
-### 7.7 Cross-browser & real-device — BrowserStack (Phase 7)
+### 7.7 Cross-browser & real-device — BrowserStack (Phase 7.8 — shipped, AECI-154)
 
-The projects list above is **chromium-only** by design — cross-browser/mobile is deferred to Phase 7 (see the `apps/web/playwright.config.ts` comment). The chosen Phase 7 approach is **BrowserStack** (real-device cloud), recorded in **ADR 0012** (Proposed) and tracked by **AECI-154**. Planned shape:
+The `projects` list above is **chromium-only** by design — cross-browser/mobile is handled by a separate **BrowserStack** (real-device cloud) lane, recorded in **ADR 0012** (**Accepted**) and shipped in Phase 7.8 (AECI-154). The lane:
 
-- Fan the *existing* Playwright suite out to **BrowserStack Automate** (`browserstack-node-sdk` + `browserstack.yml`) running a **curated cross-browser smoke subset** — critical journeys only, not the full suite (parallel-session quota).
-- Matrix: **real iOS Safari** + **real Android Chrome** (the gap local WebKit can't reproduce — bundled WebKit ≈ Safari, not the real engine), plus desktop Safari, Firefox, Edge.
-- A **separate, non-blocking** CI job — the fast PR lane (unit / component / integration / chromium-E2E / axe) stays fast and free and keeps gating merge.
-- Access-gated staging/preview are reached with the CF Access **service-token headers** (`CF-Access-Client-Id` / `CF-Access-Client-Secret`); `demo.aecintegrations.com` is public and needs none.
-- A BrowserStack **MCP server** (`@browserstack/mcp-server`) is already wired for ad-hoc real-device checks during UI work — that part is *not* CI.
+- Fans the *existing* Playwright suite out to **BrowserStack Automate** via `browserstack-node-sdk` + `apps/web/browserstack.yml`, running a **curated cross-browser smoke subset** — critical **read-only render journeys only** (`smoke`, `home`, `products-detail`, `search`, `facets`), not the full suite (parallel-session quota). The selection lives in `apps/web/playwright.browserstack.config.ts` (`testMatch`); the mutating journeys (auth / review-submission / account-delete) stay on the local chromium lane.
+- Matrix (`apps/web/browserstack.yml`): **real iOS Safari** + **real Android Chrome** (the gap local WebKit can't reproduce — bundled WebKit ≈ Safari, not the real engine), plus desktop Safari, Firefox, Edge.
+- Runs as a **separate, non-blocking** workflow — `.github/workflows/browserstack.yml`, triggered **post-merge** (`workflow_run` after the `deploy` workflow succeeds) + `workflow_dispatch` + a weekly schedule, against **deployed staging**. It is never in any deploy `needs:`, so the fast PR lane (unit / component / integration / chromium-E2E / axe) stays fast, free, and keeps gating merge.
+- Reaches Access-gated staging over the public internet with the CF Access **service-token headers** (`CF-Access-Client-Id` / `CF-Access-Client-Secret`, sent via Playwright `extraHTTPHeaders`) — **no BrowserStackLocal tunnel**; `demo.aecintegrations.com` is public and needs none.
+- **Inert until provisioned:** the lane **skips green** (does not gate, does not fail) until the personal-subscription secrets `BROWSERSTACK_USERNAME` / `BROWSERSTACK_ACCESS_KEY` are set (`gh secret set …`). The real iOS Safari row requires the **Automate** product specifically.
+- A BrowserStack **MCP server** (`@browserstack/mcp-server`) is also wired for ad-hoc real-device checks during UI work — that part is *not* CI.
 
 ---
 
@@ -476,7 +477,7 @@ Visual diffs appear as a check on the PR. Reviewers approve or reject visual cha
 
 ### 9.5 Why not Percy (BrowserStack)
 
-BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run both.** Chromatic stays the visual-regression tool (above); Percy is only worth adopting if cross-*real*-browser visual diffs become a requirement, in which case it consolidates billing under BrowserStack alongside the Phase 7 cross-browser work (ADR 0012, AECI-154).
+BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run both.** Phase 7.8 (AECI-154) shipped the BrowserStack **Automate** *functional* cross-browser lane (§7.7) **without Percy** — Percy was evaluated and deliberately not adopted. Chromatic stays the visual-regression tool (above); Percy is only worth revisiting if cross-*real*-browser visual diffs become a requirement, in which case it consolidates billing under BrowserStack alongside the cross-browser lane (ADR 0012, AECI-154).
 
 ---
 
