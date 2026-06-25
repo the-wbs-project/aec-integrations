@@ -43,7 +43,7 @@
 #
 # This workflow requires the manual prerequisites in `docs/environments.md`
 # §1-§7 (Supabase projects, DNS, GH Environments, Worker secrets) plus the
-# `vars.SUPABASE_DEV_PROJECT_REF` repo variable that this PR adds to the
+# `vars.SUPABASE_PROJECT_REF` repo variable in the
 # `docs/environments.md` repo-variable table.
 #
 # Required GH Actions secrets:
@@ -57,7 +57,7 @@
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
 #
 # Required GH Actions repo variables:
-#   SUPABASE_DEV_PROJECT_REF Dev (= staging) Supabase project ref.
+#   SUPABASE_PROJECT_REF     Legacy-Postgres public-schema gate project ref (dev = staging).
 
 name: refresh-staging
 
@@ -253,7 +253,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_DEV_PROJECT_REF }}"
+          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
           supabase db push --linked --include-all
 
       # ---------------------------------------------------------------------
@@ -366,11 +366,11 @@ jobs:
         env:
           DIRECT_URL: ${{ secrets.DIRECT_URL_STAGING }}
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         run: |
           set -euo pipefail
           if [ -z "${DIRECT_URL:-}" ] || [ -z "${ALGOLIA_APP_ID:-}" ] || [ -z "${ALGOLIA_ADMIN_KEY:-}" ]; then
-            echo "::warning::Algolia staging secrets not fully provisioned (need ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY_STAGING + DIRECT_URL_STAGING); skipping reindex. staging_* search will stay stale until the secrets are set and this step reruns — the daily sync cron won't catch up (step 5 restores prod's watermark)."
+            echo "::warning::Algolia staging secrets not fully provisioned (need ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY + DIRECT_URL_STAGING); skipping reindex. staging_* search will stay stale until the secrets are set and this step reruns — the daily sync cron won't catch up (step 5 restores prod's watermark)."
             exit 0
           fi
           pnpm --filter @aeci/api exec tsx scripts/algolia-bulk-sync.ts --env staging
