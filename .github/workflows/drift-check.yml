@@ -25,9 +25,10 @@
 #
 # Scope note: this guards only the D1 app schema. The retired Supabase **Auth**
 # Postgres still has its own schema/RLS drift gate (`scripts/prisma-drift-check.sh`
-# + `scripts/verify-rls.sql`), which now runs only in `refresh-staging.yml` and
-# `promote-to-prod.yml` — not here. The sibling DATA-drift guard for the D1
-# product aggregates is `reconcile-counts.yml`.
+# + `scripts/verify-rls.sql`), which now runs only in `refresh-staging.yml` — not
+# here, and no longer in `promote-to-prod.yml` (AECI-256 removed the prod-promote
+# Postgres steps; the prod promote touches no Supabase Postgres). The sibling
+# DATA-drift guard for the D1 product aggregates is `reconcile-counts.yml`.
 
 name: drift-check
 

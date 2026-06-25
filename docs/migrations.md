@@ -20,7 +20,7 @@ How to write, test, and ship a schema change in this repo.
 > the source of truth**. Removing Prisma + the legacy sections lands with the
 > Supabase-DB decommission (AECI-256 removes Prisma; AECI-257 the rest).
 
-The legacy migration system below is **Supabase CLI**, now scoped to Supabase Auth. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client for the CI `schema.prisma` drift gate (AECI-77) — which, as of AECI-264, runs only in the `refresh-staging.yml` / `promote-to-prod.yml` Postgres-Auth checks, no longer at PR time (the PR-time gate moved to D1/Drizzle; see [§0](#0-d1--drizzle-the-target-workflow)) — but `prisma migrate` is not. Application code no longer imports `@prisma/client` (AECI-256).
+The legacy migration system below is **Supabase CLI**, now scoped to Supabase Auth. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client for the CI `schema.prisma` drift gate (AECI-77) — which, as of AECI-264, runs only in the `refresh-staging.yml` Postgres-Auth check, no longer at PR time (the PR-time gate moved to D1/Drizzle; see [§0](#0-d1--drizzle-the-target-workflow)) and no longer in `promote-to-prod.yml` (AECI-256 dropped its Postgres steps) — but `prisma migrate` is not. Application code no longer imports `@prisma/client` (AECI-256).
 
 This document is the source of truth for the workflow. The constraints in [`CLAUDE.md`](../CLAUDE.md) ("Constraints that aren't negotiable") incorporate the rules below by reference.
 

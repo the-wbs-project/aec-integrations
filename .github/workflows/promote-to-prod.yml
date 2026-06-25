@@ -6,50 +6,42 @@
 # docs/environments.md "Promotion model"). The upstream gate is the DEMO tier:
 # promote staging→demo first (promote-to-demo.yml), then demo→production here.
 #
-# Three jobs, in order:
+# Two jobs, in order:
 #
 #   1. pre-promotion-checks (unattended)
 #      - Validates `confirm == PROMOTE`.
+#      - `scripts/require-secrets.sh` over the prod secrets (REQUIRED fail-fast,
+#        BEFORE the approval gate, so a misconfigured prod never half-deploys).
 #      - Checks out the repo at `inputs.commit_sha`.
-#      - Hits `demo.aecintegrations.com/api/version` and asserts the SHA
-#        matches `inputs.commit_sha`. The verbatim failure message —
-#        `demo is not at <input>, refusing to promote` — gates the promote on the
-#        immediate upstream tier (demo).
-#      - Prints `supabase migration list --linked` against prod into the run
-#        log and step summary so Chris reads the pending SQL inline before
-#        approving the next job.
+#      - Hits `demo.aecintegrations.com/api/version` (+ the SSR `/_version`) and
+#        asserts the SHA matches `inputs.commit_sha`. The verbatim failure
+#        message — `demo is not at <input>, refusing to promote` — gates the
+#        promote on the immediate upstream tier (demo).
 #
-#   2. apply-prod-migrations  (gated by GH Environment `production`)
-#      - Approval pause: the run blocks here until Chris (the required
-#        reviewer per docs/environments.md §4) clicks Approve.
-#      - `pg_dump` of prod (public + auth data + supabase_migrations) into
-#        `prod-pre-<sha>.dump`, uploaded to R2 bucket `aeci-prod-snapshots`
-#        via the S3-compatible API. This is the rollback-insurance snapshot.
-#      - `supabase db push --linked` against the linked prod project.
-#      - `scripts/prisma-drift-check.sh` (AECI-77) against `DIRECT_URL_PRODUCTION`.
-#        HARD STOP on non-zero exit — workflow does not proceed to Worker deploys.
-#
-#   3. deploy-prod-workers
-#      - Same shape as `deploy.yml` `deploy-staging`: API deploys FIRST so any
-#        brief mismatch lands with the safer (API-ahead-of-SSR) ordering.
-#      - Both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
-#        per CLAUDE.md non-negotiable.
-#      - (No DATABASE_URL push — the app DB is Cloudflare D1 (ADR 0016) reached
-#        via the `DB` binding; the Prisma Accelerate runtime path is retired,
-#        AECI-253.)
+#   2. deploy-prod-workers  (gated by GH Environment `production`)
+#      - Approval pause: the run blocks here until Chris (the required reviewer
+#        per docs/environments.md §4) clicks Approve before ANY mutation.
+#      - Provisions the prod scheduled-job queues (idempotent).
+#      - Applies the prod app DB migrations to Cloudflare D1 (aeci-app-production)
+#        via `wrangler d1 migrations apply` and reconciles the D1 taxonomy seed
+#        (seed/taxonomy.sql), then purges the taxonomy cache tags. This is the
+#        ONLY data migration — the app DB is D1 (ADR 0016). The promote touches
+#        NO Supabase Postgres: auth is the single shared project (ADR 0017) whose
+#        schema is maintained once by the staging deploy lane (deploy.yml's
+#        `supabase db push`), so there is nothing prod-specific to push, pg_dump,
+#        drift-check, or RLS-verify here. (Mirrors promote-to-demo.yml, the
+#        post-D1 "no Postgres" template — AECI-256.)
+#      - Deploys API FIRST, then SSR (so any brief mismatch lands API-ahead-of-SSR);
+#        both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
+#        per CLAUDE.md non-negotiable, then pushes the Worker runtime secrets.
 #      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
 #      - Polls `prod.aecintegrations.com` (Access-gated until launch — ADR 0017;
 #        the smoke step passes the `aeci-gh-actions` service-token headers, a
 #        no-op if the host is public) until BOTH Workers report
 #        `inputs.commit_sha` AND `/api/health` is `db:ok`. Fails after 60s (a
-#        DB-unreachable prod fails the promote rather than shipping).
-#
-# Historical gotcha (carried over from AECI-77): `prisma-drift-check.sh`
-# used to fail with Prisma P4002 against any DB containing the cross-schema
-# FK `public.profiles.id -> auth.users(id)`. AECI-69 removed that FK
-# (replaced by a trigger-based sync — see docs/AUTH_AND_RLS.md §8.1), so
-# the P4002 landmine is gone and the drift step now reports real drift.
-# Hard-stop-on-drift behaviour is still in force per the AECI-71 spec.
+#        DB-unreachable prod fails the promote rather than shipping). A smoke
+#        failure auto-rolls-back both Workers; the D1 app DB is restored by hand
+#        via Cloudflare D1 time-travel (the failure runbook prints the command).
 #
 # THE RULE (do not promote if required secrets are missing): the first job
 # (pre-promotion-checks) runs `scripts/require-secrets.sh` over the secrets below
@@ -60,19 +52,17 @@
 # secrets (ADMIN_PURGE_TOKEN, DATADOG_API_KEY, CF_PURGE_API_TOKEN, CF_ZONE_ID)
 # only warn. See docs/environments.md §Secrets.
 #
-# Required GH Actions secrets:
-#   (No DATABASE_URL_PRODUCTION — the app DB is Cloudflare D1 (ADR 0016); the
-#    Prisma Accelerate runtime path is retired, AECI-253. The Worker reaches D1
-#    through its `DB` binding, applied via `wrangler d1 migrations apply`.)
+# Required GH Actions secrets. The app DB is Cloudflare D1 (ADR 0016) and auth is
+# the single shared Supabase project (ADR 0017), so the promote needs NO Postgres
+# connection secret — DATABASE_URL_PRODUCTION, DIRECT_URL_PRODUCTION,
+# SUPABASE_ACCESS_TOKEN, and the R2 snapshot keys are all retired with the Postgres
+# steps (AECI-256). The Worker reaches D1 through its `DB` binding, applied via
+# `wrangler d1 migrations apply`.
 #   REVIEW_APP_TOKEN         Bearer gating the API Worker's POST /api/promote
 #                            (review-app → Supabase push). Pushed to the prod API
 #                            Worker each promote; absent → promote is 401
 #                            fail-closed. Worker RUNTIME path. Shared across envs.
-#   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod
-#                            (read+write — pg_dump and supabase db push).
-#   SUPABASE_ACCESS_TOKEN    For `supabase link` / `supabase migration list`
-#                            / `supabase db push --linked`.
-#   CLOUDFLARE_API_TOKEN     Scoped per docs/CICD_PLAN.md §7.1.
+#   CLOUDFLARE_API_TOKEN     Scoped per docs/CICD_PLAN.md §7.1 (Workers + D1 + Queues edit).
 #   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`,
 #                            docs/access.md §1) — used for the demo `/api/version`
@@ -82,21 +72,14 @@
 #                            well as the non-prod one; on a public host the headers
 #                            are a harmless no-op.
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
-#   ADMIN_PURGE_TOKEN        Bearer token for the SSR Worker's POST /admin/purge
-#                            (same value as the Worker's `ADMIN_PURGE_TOKEN`
-#                            Wrangler secret; docs/CACHE_STRATEGY.md §5). Used to
-#                            purge the taxonomy cache tags after the seed step.
-#   R2_ACCESS_KEY_ID         R2 access key for bucket `aeci-prod-snapshots`.
-#   R2_SECRET_ACCESS_KEY     Matching secret.
-#   R2_ENDPOINT              S3-compatible R2 endpoint URL
-#                            (https://<account>.r2.cloudflarestorage.com).
-#   DATADOG_API_KEY          Datadog deploy-marker intake (docs/CICD_PLAN.md §9.1).
-#
-# Required GH Actions repo variables:
-#   SUPABASE_PROJECT_REF       Legacy-Postgres project ref (jgxebjufabtwkcgxjqvk
-#                              per docs/environments.md §1) — the retained
-#                              public-schema gate, NOT auth (auth is the single
-#                              shared project per ADR 0017).
+#   ALGOLIA_APP_ID           Shared Algolia app id. REQUIRED on prod (search is
+#   ALGOLIA_ADMIN_KEY        launch-critical, fail-closed): the management key + the
+#   ALGOLIA_SEARCH_KEY       query-only search key, pushed to the Workers below.
+#   ADMIN_PURGE_TOKEN        Bearer for the SSR Worker's POST /admin/purge (same
+#                            value as the Worker's `ADMIN_PURGE_TOKEN` Wrangler
+#                            secret; docs/CACHE_STRATEGY.md §5). Purges the taxonomy
+#                            cache tags after the D1 taxonomy seed. Recommended.
+#   DATADOG_API_KEY          Datadog deploy-marker intake (docs/CICD_PLAN.md §9.1). Recommended.
 
 name: promote-to-prod
 
@@ -173,13 +156,8 @@ jobs:
       - name: Preflight — required secrets present (production)
         env:
           REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
-          DIRECT_URL_PRODUCTION: ${{ secrets.DIRECT_URL_PRODUCTION }}
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
@@ -197,7 +175,7 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           ENV_LABEL: production
-          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY'
+          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
           # project's key (un-suffixed; identical for every env). Recommended
           # (warn-and-skip) during the Phase 5 spike — flips to REQUIRED in 5.5
@@ -216,14 +194,7 @@ jobs:
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
-      # Step 3: Toolchain
-      #   Supabase CLI only — pre-promotion-checks doesn't run pnpm/Prisma.
-      # -----------------------------------------------------------------------
-      - name: Install Supabase CLI
-        run: npm install -g supabase@latest
-
-      # -----------------------------------------------------------------------
-      # Step 4: Assert DEMO (the immediate upstream tier) is at the SHA we are
+      # Step 3: Assert DEMO (the immediate upstream tier) is at the SHA we are
       #         about to promote — on BOTH the API Worker (/api/version) and the
       #         SSR Worker (/_version, AECI-92). /api/version is proxied raw to the
       #         API Worker, so on its own it can't catch a stale SSR deploy. Demo
@@ -245,237 +216,21 @@ jobs:
           fi
           echo "Demo API + SSR both match input SHA: $EXPECTED_SHA"
 
-      # -----------------------------------------------------------------------
-      # Step 5: Print the pending-migration list against prod into the run
-      #         log AND $GITHUB_STEP_SUMMARY so Chris can read it before
-      #         approving the next job. Uses `supabase migration list --linked`
-      #         which talks to the linked project via SUPABASE_ACCESS_TOKEN
-      #         (no DIRECT_URL needed at this stage).
-      # -----------------------------------------------------------------------
-      - name: List pending migrations vs prod
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
-
-          # Capture the migration list so we can both print it and embed it
-          # in the step summary. `supabase migration list --linked` exits 0
-          # whether or not there are pending migrations.
-          supabase migration list --linked | tee /tmp/migration-list.txt
-
-          {
-            echo "## Pending migrations (prod)"
-            echo
-            echo '```'
-            cat /tmp/migration-list.txt
-            echo '```'
-            echo
-            echo "Approve the **apply-prod-migrations** job to apply any rows above that are missing on prod."
-          } >> "$GITHUB_STEP_SUMMARY"
-
   # ===========================================================================
-  # Job 2: Apply prod migrations (gated by GH Environment `production`)
-  # ===========================================================================
-  apply-prod-migrations:
-    name: Apply prod migrations
-    needs: pre-promotion-checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    # The `production` GH Environment has chrisw@thewbsproject.com as a
-    # required reviewer (docs/environments.md §4). The run blocks here until
-    # he clicks Approve in the GitHub Actions UI.
-    environment:
-      name: production
-      url: https://prod.aecintegrations.com
-    permissions:
-      contents: read
-    outputs:
-      r2_object_key: ${{ steps.snapshot.outputs.r2_object_key }}
-      auth_object_key: ${{ steps.snapshot.outputs.auth_object_key }}
-      dump_size_bytes: ${{ steps.snapshot.outputs.dump_size_bytes }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.commit_sha }}
-
-      # -----------------------------------------------------------------------
-      # Toolchain: pnpm + Node + Prisma client (for the drift check),
-      # postgresql-client-17 (matches supabase/postgres:17.x per
-      # docs/migrations.md §4), and the Supabase CLI.
-      # -----------------------------------------------------------------------
-      - name: Install pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @aeci/api exec prisma generate
-
-      - name: Install PostgreSQL 17 client
-        run: |
-          set -euo pipefail
-          sudo install -d /etc/apt/keyrings
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | sudo gpg --dearmor -o /etc/apt/keyrings/pgdg.gpg
-          echo "deb [signed-by=/etc/apt/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
-          # GH runners ship a PostgreSQL 16 cluster, so Debian's pg_wrapper
-          # routes bare `pg_dump`/`pg_restore`/`psql` to v16 even with
-          # postgresql-client-17 installed — and pg_dump refuses to dump a
-          # newer (17.x) server (prod is 17.6). Put the real v17 binaries first
-          # on PATH for every subsequent step, and assert v17 here by full path
-          # (`$GITHUB_PATH` only affects later steps, not this one).
-          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
-          /usr/lib/postgresql/17/bin/pg_dump --version | grep -E ' 17\.' \
-            || { echo "::error::pg_dump is not v17"; exit 1; }
-
-      - name: Install Supabase CLI
-        run: npm install -g supabase@latest
-
-      # -----------------------------------------------------------------------
-      # Snapshot: pg_dump prod into R2 BEFORE we touch the DB.
-      #   - public schema (full)
-      #   - auth schema (data only — Supabase manages structure)
-      #   - supabase_migrations.schema_migrations (so a restore can rebuild
-      #     migration history without re-running every SQL file)
-      # Object key: prod-pre-<sha>.dump (truncated to 12 chars in the name for
-      # readability; full SHA appears in the summary block).
-      # -----------------------------------------------------------------------
-      - name: Snapshot prod -> R2
-        id: snapshot
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          AWS_DEFAULT_REGION: auto
-          R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
-          INPUT_SHA: ${{ inputs.commit_sha }}
-        run: |
-          set -euo pipefail
-          short_sha="${INPUT_SHA:0:12}"
-          dump_path="/tmp/prod-pre-${short_sha}.dump"
-          object_key="prod-pre-${short_sha}.dump"
-          auth_dump_path="/tmp/prod-pre-${short_sha}-auth.dump"
-          auth_object_key="prod-pre-${short_sha}-auth.dump"
-
-          # Single custom-format archive containing public + auth-data +
-          # supabase_migrations. Custom format compresses and lets pg_restore
-          # selectively replay schemas if we ever need to.
-          pg_dump \
-            --format=custom \
-            --no-owner --no-privileges \
-            --schema=public \
-            --schema=supabase_migrations \
-            --file="$dump_path" \
-            "$PGURL"
-          # auth schema data-only dump (separate file because pg_dump can't
-          # mix --schema and --data-only --schema cleanly in one invocation).
-          pg_dump \
-            --format=custom \
-            --no-owner --no-privileges \
-            --data-only --schema=auth \
-            --file="$auth_dump_path" \
-            "$PGURL"
-
-          ls -lh /tmp/prod-pre-*.dump
-
-          aws --endpoint-url "$R2_ENDPOINT" s3 cp \
-            "$dump_path" \
-            "s3://aeci-prod-snapshots/${object_key}"
-          aws --endpoint-url "$R2_ENDPOINT" s3 cp \
-            "$auth_dump_path" \
-            "s3://aeci-prod-snapshots/${auth_object_key}"
-
-          dump_size_bytes=$(stat -c '%s' "$dump_path")
-          {
-            echo "r2_object_key=${object_key}"
-            echo "auth_object_key=${auth_object_key}"
-            echo "dump_size_bytes=${dump_size_bytes}"
-          } >> "$GITHUB_OUTPUT"
-
-      # -----------------------------------------------------------------------
-      # Apply pending migrations to prod via supabase db push --linked.
-      # -----------------------------------------------------------------------
-      - name: Apply pending migrations
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
-          supabase db push --linked --include-all
-
-      # -----------------------------------------------------------------------
-      # Drift check (HARD STOP).
-      #   set -e + no `if: always()` on downstream means a non-zero exit here
-      #   prevents the Worker deploys from running. Acceptance criterion is
-      #   that drift is treated as a stop condition.
-      # -----------------------------------------------------------------------
-      - name: Drift check (prod vs schema.prisma)
-        env:
-          DIRECT_URL_PRODUCTION: ${{ secrets.DIRECT_URL_PRODUCTION }}
-        run: ./scripts/prisma-drift-check.sh "$DIRECT_URL_PRODUCTION"
-
-      # -----------------------------------------------------------------------
-      # Verify RLS GRANT matrix (AECI-87, HARD STOP).
-      #   Proves 20260602051513_rls_grants_and_policies.sql is in effect on prod
-      #   after the db push above — the PostgREST GRANT/RLS deny matrix + the
-      #   feedback/mailing_list carve-out. SET ROLE probe (no PostgREST/JWT). As
-      #   with the drift check, a non-zero exit here keeps deploy-prod-workers
-      #   from running (set -e, no `if: always()` downstream).
-      # -----------------------------------------------------------------------
-      - name: Verify RLS GRANT matrix
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
-        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/verify-rls.sql
-
-      # -----------------------------------------------------------------------
-      # Seed taxonomy reference data (idempotent upserts).
-      #   Code-owned taxonomy vocabulary, reconciled to prod. Runs only after
-      #   the drift + RLS gates above pass (both hard stops), so we only write
-      #   to a validated schema. `db push` is schema-only; this carries the data.
-      #   See docs/adr/0008-taxonomy-reference-data.md.
-      # -----------------------------------------------------------------------
-      - name: Seed taxonomy reference data
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
-        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
-
-      # -----------------------------------------------------------------------
-      # Purge the taxonomy cache tags (idempotent).
-      #   The seed above writes taxonomy_* directly in Postgres, bypassing the
-      #   app's POST /admin/purge path — so the edge would keep serving the old
-      #   vocabulary until TTL (≤5 min browse, ≤1 hr nav). Purge `taxonomy`
-      #   (home + /categories index) and the coarse `route:browse` tag (every
-      #   category/discipline/phase browse page) — a deliberate bulk
-      #   invalidation, the documented use of route-class tags (CACHE_STRATEGY
-      #   §3). Non-fatal: continue-on-error so a purge hiccup never blocks the
-      #   release; the TTL is the fallback. See docs/adr/0008-taxonomy-reference-data.md.
-      # -----------------------------------------------------------------------
-      - name: Purge taxonomy cache tags
-        continue-on-error: true
-        env:
-          HOST: https://prod.aecintegrations.com
-          PURGE_TAGS: 'taxonomy route:browse'
-          ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
-          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
-          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
-        run: ./scripts/purge-cache.sh
-
-  # ===========================================================================
-  # Job 3: Deploy production Workers
+  # Job 2: Deploy production Workers (gated by GH Environment `production`)
   # ===========================================================================
   deploy-prod-workers:
     name: Deploy production Workers
-    needs: apply-prod-migrations
+    needs: pre-promotion-checks
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    # No environment block — approval already happened on the migrations job.
-    # Re-attaching the production environment here would request a second
-    # approval for the same release.
+    # The `production` GH Environment has chrisw@thewbsproject.com as a required
+    # reviewer (docs/environments.md §4). The run blocks here — before ANY
+    # mutation (queue/D1/deploy) — until he clicks Approve in the GitHub Actions
+    # UI. This is the single approval gate for the promote.
+    environment:
+      name: production
+      url: https://prod.aecintegrations.com
     permissions:
       contents: read
     steps:
@@ -546,11 +301,13 @@ jobs:
       # (aeci-app-production) and reconcile the taxonomy reference data BEFORE the API
       # Worker deploys — the Worker reads/writes via its `DB` D1 binding (getDb(env)),
       # so the schema must exist first. Idempotent: an already-applied migration is a
-      # tracked no-op; taxonomy is upserts. Runs after apply-prod-migrations (the
-      # Supabase landing+auth push + drift/RLS hard-stops) and the `production`
-      # approval gate. Requires CLOUDFLARE_API_TOKEN to carry Account → D1 → Edit
-      # (docs/CICD_PLAN.md §7.1). The DATABASE_URL push has been removed (the
-      # Worker no longer reads it — AECI-253; Prisma Accelerate runtime retired).
+      # tracked no-op; taxonomy is upserts. This is the promote's ONLY data migration
+      # — the app DB is D1, and the promote touches no Supabase Postgres (ADR 0017:
+      # auth is the single shared project, its schema maintained once by the staging
+      # deploy lane). Runs after the `production` approval gate. Requires
+      # CLOUDFLARE_API_TOKEN to carry Account → D1 → Edit (docs/CICD_PLAN.md §7.1). No
+      # DATABASE_URL push (the Worker no longer reads it — AECI-253; Prisma Accelerate
+      # runtime retired).
       - name: Apply D1 migrations (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -560,6 +317,29 @@ jobs:
           set -euo pipefail
           pnpm exec wrangler d1 migrations apply aeci-app-production --env production --remote
           pnpm exec wrangler d1 execute aeci-app-production --env production --remote --file=seed/taxonomy.sql
+
+      # -----------------------------------------------------------------------
+      # Purge the taxonomy cache tags (idempotent, non-fatal).
+      #   The D1 taxonomy reconcile above can change the published vocabulary,
+      #   bypassing the app's POST /admin/purge path — so the edge would keep
+      #   serving the old taxonomy until TTL (≤5 min browse, ≤1 hr nav). Purge
+      #   `taxonomy` (home + /categories index) and the coarse `route:browse` tag
+      #   (every category/discipline/phase browse page) — the documented use of
+      #   route-class tags (CACHE_STRATEGY §3). continue-on-error so a purge hiccup
+      #   never blocks the release; the TTL is the fallback. The seed is almost
+      #   always a no-op on a promote, so this usually purges nothing. (Relocated
+      #   here from the retired Postgres seed step — AECI-256.) See
+      #   docs/adr/0008-taxonomy-reference-data.md.
+      # -----------------------------------------------------------------------
+      - name: Purge taxonomy cache tags
+        continue-on-error: true
+        env:
+          HOST: https://prod.aecintegrations.com
+          PURGE_TAGS: 'taxonomy route:browse'
+          ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: ./scripts/purge-cache.sh
 
       # API deploys FIRST. The SSR Worker's `services.API` binding talks to
       # `aeci-api-production`; deploying API ahead of SSR means any brief
@@ -972,20 +752,20 @@ jobs:
                   }')" || echo "::warning::Datadog rollback event POST failed (non-fatal)"
 
       # -----------------------------------------------------------------------
-      # AECI-91: operator runbook on ANY failure of this job. Prints both manual
-      # `wrangler rollback` commands, BOTH R2 snapshot keys (public + auth), and
-      # the DB-restore command block to the step summary. `if: failure()` is
-      # broader than the rollback guard on purpose — the operator needs the
-      # snapshot keys even when a deploy step itself failed (auto-rollback
-      # skipped). The DB is NOT auto-restored (docs/CICD_PLAN.md §6.2,
-      # forward-only); this surfaces the exact steps to do it by hand.
+      # AECI-91: operator runbook on ANY failure of this job. Prints the manual
+      # `wrangler rollback` commands and the Cloudflare D1 time-travel restore
+      # block to the step summary. `if: failure()` is broader than the rollback
+      # guard on purpose — the operator needs the restore steps even when a deploy
+      # step itself failed (auto-rollback skipped). The DB is NOT auto-restored
+      # (docs/CICD_PLAN.md §6.2, forward-only); this surfaces the exact steps to do
+      # it by hand. (The pre-promote R2 pg_dump is retired — the app DB is D1 with
+      # 30-day time-travel; auth is the shared Supabase project, untouched by the
+      # promote — AECI-256.)
       # -----------------------------------------------------------------------
       - name: Failure runbook
         if: failure()
         env:
           INPUT_SHA: ${{ inputs.commit_sha }}
-          PUB_KEY: ${{ needs.apply-prod-migrations.outputs.r2_object_key }}
-          AUTH_KEY: ${{ needs.apply-prod-migrations.outputs.auth_object_key }}
           ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
           ROLLBACK_RC: ${{ steps.rollback.outputs.rollback_rc }}
         run: |
@@ -1004,31 +784,15 @@ jobs:
             echo "( cd apps/api && pnpm exec wrangler rollback --env production --message \"AECI-91 manual rollback ${INPUT_SHA}\" )"
             echo '```'
             echo
-            echo "### 2. R2 pre-promote snapshots (bucket \`aeci-prod-snapshots\`)"
-            echo "| dump | key |"
-            echo "|---|---|"
-            echo "| public + supabase_migrations | \`${PUB_KEY}\` |"
-            echo "| auth (data-only) | \`${AUTH_KEY}\` |"
-            echo
-            echo "### 3. DB restore (OPERATOR-RUN — DB is forward-only, NOT auto-restored; see CICD_PLAN.md §6.2)"
-            echo "> WARNING: restores prod to its PRE-promote state and DISCARDS any writes made after the migration applied. Only run if abandoning this promote entirely."
+            echo "### 2. App DB restore — Cloudflare D1 time-travel (OPERATOR-RUN; DB is forward-only, NOT auto-restored; see CICD_PLAN.md §6.2)"
+            echo "> The app DB is Cloudflare D1 (\`aeci-app-production\`), which keeps **30 days** of time-travel history — a bad migration is reverted by restoring to a bookmark/timestamp just BEFORE this promote ran, with no pre-promote dump needed."
+            echo "> WARNING: this DISCARDS every write since that point. Only run if abandoning this promote entirely. **Auth lives in the single shared Supabase project (ADR 0017) and is NOT touched by the promote — do not restore it here.**"
             echo '```bash'
-            echo "PGURL='<DIRECT_URL_PRODUCTION>'   # prod pooler, read+write"
-            echo "# Fetch both archives from R2 (S3-compatible API), then wipe+restore:"
-            echo "aws --endpoint-url \"\$R2_ENDPOINT\" s3 cp s3://aeci-prod-snapshots/${PUB_KEY} ./${PUB_KEY}"
-            echo "aws --endpoint-url \"\$R2_ENDPOINT\" s3 cp s3://aeci-prod-snapshots/${AUTH_KEY} ./${AUTH_KEY}"
-            echo "psql -v ON_ERROR_STOP=1 \"\$PGURL\" <<'SQL'"
-            echo "  DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
-            echo "  GRANT ALL ON SCHEMA public TO postgres;"
-            echo "  GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;"
-            echo "  TRUNCATE auth.refresh_tokens;"
-            echo "  TRUNCATE auth.sessions CASCADE;"
-            echo "  TRUNCATE auth.users CASCADE;"
-            echo "  TRUNCATE supabase_migrations.schema_migrations;"
-            echo "SQL"
-            echo "# public dump bundles supabase_migrations; --clean --if-exists makes that restore idempotent:"
-            echo "pg_restore --no-owner --no-privileges --clean --if-exists --dbname=\"\$PGURL\" ./${PUB_KEY}"
-            echo "pg_restore --no-owner --no-privileges --data-only --dbname=\"\$PGURL\" ./${AUTH_KEY}"
+            echo "cd apps/api"
+            echo "# 1) Find a restore point just before the promote (prints the current bookmark + 30-day window):"
+            echo "pnpm exec wrangler d1 time-travel info aeci-app-production --env production"
+            echo "# 2) Restore to an ISO-8601 timestamp (or a --bookmark from step 1) just before the promote:"
+            echo "pnpm exec wrangler d1 time-travel restore aeci-app-production --env production --timestamp=<ISO8601-before-promote>"
             echo '```'
             echo
             echo "See **docs/CICD_PLAN.md §6** (rollback strategy) and **§9.2** (smoke + failure path)."
@@ -1049,9 +813,7 @@ jobs:
             echo "|---|---|"
             echo "| commit SHA | \`$INPUT_SHA\` |"
             echo "| job status | ${{ job.status }} |"
-            echo "| R2 snapshot (public) | s3://aeci-prod-snapshots/${{ needs.apply-prod-migrations.outputs.r2_object_key }} |"
-            echo "| R2 snapshot (auth) | s3://aeci-prod-snapshots/${{ needs.apply-prod-migrations.outputs.auth_object_key }} |"
-            echo "| snapshot size (bytes) | ${{ needs.apply-prod-migrations.outputs.dump_size_bytes }} |"
+            echo "| app DB | Cloudflare D1 \`aeci-app-production\` (migrated in-job; restore via D1 time-travel) |"
             echo "| DEPLOYED_AT | ${{ steps.ts.outputs.deployed_at }} |"
             echo "| triggered by | ${{ github.actor }} |"
           } >> "$GITHUB_STEP_SUMMARY"
