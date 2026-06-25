@@ -14,8 +14,8 @@
  *     Worker (`apps/landing`) — we are not promoting the app to the apex yet.
  *   - Preview deploys use `workers_dev` URLs per PR; staging is
  *     `staging.aecintegrations.com`.
- * demo + production share the prod Supabase auth project, so one admin login
- * works on both.
+ * All tiers share ONE Supabase auth project (ADR 0017); per-environment
+ * isolation is via Cloudflare Access, not project separation.
  *
  * The `services` bindings (`API`) call the private API Worker (`apps/api/`)
  * over Cloudflare's internal RPC fabric — the API has no public ingress.
@@ -47,8 +47,8 @@
  * docs/CICD_PLAN.md §7.5 and docs/environments.md §6/§8.
  *
  * Supabase auth (AECI-193 / Phase 5.2):
- *   SUPABASE_URL        public var per env (dev project for preview/staging,
- *                       prod project for production) — set in `vars` below
+ *   SUPABASE_URL        public var — the SINGLE shared auth project across all
+ *                       environments (ADR 0017); same value in every `vars` below
  *   SUPABASE_ANON_KEY   publishable/anon key. Secret (NOT a var) only to keep
  *                       values out of git — same convention as
  *                       ALGOLIA_SEARCH_KEY. CI pushes it after deploy
@@ -90,17 +90,18 @@
         // X-Robots-Tag: noindex header (plus a sitemap-less robots.txt that
         // still allows crawling, so the noindex is actually seen and honored).
         // Pre-launch this stays "false" on EVERY env, including production —
-        // demo.aecintegrations.com is public (NOT behind Access) but must not be
-        // indexed yet. At public launch, set the indexable env's value to
-        // "true". Do NOT key off ENV: production is the pre-launch demo.
+        // demo.aecintegrations.com is gated by Cloudflare Access until launch
+        // (ADR 0017) and must not be indexed yet either way. At public launch,
+        // set the indexable env's value to "true". Do NOT key off ENV:
+        // production is the pre-launch demo.
         "ALLOW_INDEXING": "false",
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193: Supabase base URL (public; dev project for preview/staging,
-        // prod project for production). Pairs with the CI-pushed
-        // SUPABASE_ANON_KEY secret — see the header comment.
-        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        // AECI-193 / ADR 0017: Supabase base URL (public). The SINGLE shared
+        // auth project — identical across preview/staging/production. Pairs with
+        // the CI-pushed SUPABASE_ANON_KEY secret — see the header comment.
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         // AECI-239: PostHog ingestion host (public; US Cloud). The CSP
         // connect-src is pinned to the US hosts. The POSTHOG_KEY is a CI-pushed
         // secret (absent → analytics no-ops, fail-open).
@@ -117,7 +118,7 @@
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
       },
       "observability": { "enabled": true },
@@ -139,9 +140,8 @@
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // Shares the PROD Supabase auth project with production (one admin login
-        // works on demo + prod).
-        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // ADR 0017: the single shared auth project (same value in every env).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
       },
       "observability": { "enabled": true },
@@ -161,14 +161,15 @@
       "name": "aeci-web-production",
       "vars": {
         "ENV": "production",
-        // See the preview env's note. prod.aecintegrations.com is public but
-        // PRE-LAUNCH — keep "false" until the apex cutover (when the app takes
-        // over aecintegrations.com), then flip to "true" to allow indexing.
+        // See the preview env's note. prod.aecintegrations.com is gated by
+        // Cloudflare Access until launch (ADR 0017) and no-index — keep "false"
+        // until the apex cutover (when the app takes over aecintegrations.com),
+        // then flip to "true" to allow indexing.
         "ALLOW_INDEXING": "false",
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         "POSTHOG_HOST": "https://us.i.posthog.com",
       },
       "observability": { "enabled": true },

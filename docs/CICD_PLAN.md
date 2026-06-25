@@ -64,7 +64,7 @@ Mirror of production, but with test data and isolated from real users.
 - Resend sends real emails but only to allowlisted internal addresses
 - Linear creates real issues in a "Staging Test" project
 - Used for smoke tests, manual QA, and demos
-- **Network-level access control:** staging and `*.aec-integrations.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI). Demo and production are intentionally public. See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
+- **Network-level access control:** staging and `*.aec-integrations.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI). The demo tier is intentionally public (showcase); production is also behind Cloudflare Access until launch (ADR 0017), then made public. See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
 
 ### 2.3 Demo environment
 
@@ -84,7 +84,7 @@ The real site (`prod.aecintegrations.com`, the eventual home page). Promoted fro
 - Connects to production Supabase + the `aeci-app-production` D1
 - Production Algolia indexes (`production_*`)
 - Datadog under `env:production` tag, with deployment markers
-- Public, `ALLOW_INDEXING="false"` until the apex cutover (when the app takes over `aecintegrations.com`)
+- Cloudflare Access-gated until launch (ADR 0017); `ALLOW_INDEXING="false"` (no-index) until the apex cutover (when the app takes over `aecintegrations.com`)
 - Resend sends to real users
 - Linear is the live vendor request destination
 
@@ -493,7 +493,7 @@ Every PR must pass these gates before merge:
 
 Two checks run **advisory / non-blocking** rather than as merge gates: coverage is generated and reported but never fails a build (target: 70% line coverage — see §3.1 and `TESTING_STRATEGY.md` §3.3), and the `integration-db-tests` suites report red/green without gating the staging deploy until they're promoted to a required check (`TESTING_STRATEGY.md` §6.5).
 
-**axe + Lighthouse wiring (AECI-65 / Phase 2.19).** Both harnesses (scaffolded in AECI-33) run against **every Phase 2 page type** on a local `dev:bound` server, using committed seed fixtures (`supabase/fixtures/phase2-fixtures.sql`, seeded by `db-migrate-dev`):
+**axe + Lighthouse wiring (AECI-65 / Phase 2.19).** Both harnesses (scaffolded in AECI-33) run against **every Phase 2 page type** on a local `dev:bound` server, using committed seed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`'s `db:setup:local` → `db:seed:fixtures:local`):
 
 - **axe** runs in the `e2e-and-integration` job of `deploy.yml` (`apps/web/e2e/phase2-a11y.spec.ts`) across all 13 page types in **light and dark** themes — **zero AA violations, blocking** (the site footer's pre-existing dark-mode contrast debt is carved out and tracked separately). Runs on **every PR**.
 - **Lighthouse** (mobile, simulated throttle, median of 3 runs) runs in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow on **push-to-main only** — _not_ on PRs. Running it on every PR was pure noise when it gated nothing; it now **error-gates the post-merge run** (AECI-188), just before/alongside the staging deploy. It builds + boots its own `dev:bound` and uses a per-commit concurrency group so each merged SHA gets an uncancelled report (deploy.yml's run-level cancel-in-progress would otherwise kill it on a rapid follow-up merge). Budgets (§12 of `STAGE_1_PHASE_2_SPEC.md`: scores ≥ 90, LCP ≤ 2.5s, CLS ≤ 0.1, detail-page JS ≤ 200 KB) are **partially enforced**: Accessibility / Best-Practices / SEO / TBT (and the `/search` TTFB) assert at `'error'` — a miss exits 1 and turns the workflow red — while Performance / LCP / CLS / the JS budgets stay `'warn'` until the measured misses are fixed (perf follow-up issue referenced in `.lighthouserc.cjs`; budgets must not be lowered to pass, per the AECI-65 note). A red here means `main` already regressed — fix forward or revert.

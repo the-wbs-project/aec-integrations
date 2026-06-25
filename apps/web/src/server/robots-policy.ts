@@ -1,13 +1,12 @@
 /**
  * Crawler-indexing policy for the SSR Worker.
  *
- * AECi is pre-launch. The publicly reachable web surfaces are the two public
- * tiers — `prod.aecintegrations.com` (the `production` Worker env) and
- * `demo.aecintegrations.com` (the `demo` env) — which, UNLIKE
- * `staging.aecintegrations.com` and the `*.workers.dev` PR previews, are NOT
- * behind Cloudflare Access (`docs/access.md` §"Locked decisions": "No Access on
- * production … those are public"). So both are genuinely crawlable, and until we
- * deliberately launch (the apex cutover), NO environment should be indexed.
+ * AECi is pre-launch. The audience-facing web surfaces are the two real-build
+ * tiers — `prod.aecintegrations.com` (the `production` Worker env, behind
+ * Cloudflare Access until launch per ADR 0017) and `demo.aecintegrations.com`
+ * (the `demo` env, the public showcase — NOT behind Access). The public demo
+ * host is genuinely crawlable, so until we deliberately launch (the apex
+ * cutover), NO environment should be indexed.
  *
  * Indexing is therefore FAIL-CLOSED: every environment blocks crawlers unless
  * `ALLOW_INDEXING` is explicitly the string `"true"`. Keying on the `ENV` label

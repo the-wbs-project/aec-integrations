@@ -3,8 +3,9 @@
  *
  * Runs Lighthouse MOBILE against every live Phase 2 page type — plus the Phase 3
  * `/search` page (AECI-146) — on the local `dev:bound` SSR Worker (:8788), using
- * the committed seed fixtures (`supabase/fixtures/phase2-fixtures.sql`) so the
- * detail/browse pages have real content to measure. Replaces the Phase 1
+ * the committed seed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into
+ * the local D1 by `dev:bound`) so the detail/browse pages have real content to
+ * measure. Replaces the Phase 1
  * single-`/`, desktop, parked config.
  *
  * ENFORCEMENT POSTURE — PARTIAL ERROR GATE (AECI-188; TBT relaxed 2026-06-11).
@@ -57,7 +58,7 @@
  * one. Chrome comes from the CI runner image (a CHROME_PATH env can pin it
  * further); locking the exact Chrome build rides along with AECI-221.
  *
- * Fixture identities mirror supabase/fixtures/phase2-fixtures.sql and
+ * Fixture identities mirror apps/api/seed/phase2-fixtures.sql and
  * apps/web/e2e/phase2-a11y.spec.ts. Taxonomy slugs are existing reference data.
  */
 

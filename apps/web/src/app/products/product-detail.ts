@@ -12,6 +12,7 @@ import { DetailLayout } from '../layouts/detail-layout';
 import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
+import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
@@ -61,6 +62,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     ProductUsefulnessSection,
     RequestDrawer,
     RequestTrigger,
+    ReviewCta,
     ReviewStars,
     RouterLink,
     SectionNav,
@@ -125,13 +127,29 @@ import { ProductUsefulnessSection } from './product-usefulness';
             </div>
           </div>
 
-          @if (p.rating_overall_avg !== null) {
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <!-- Rating / review meta line. Always rendered: a rated product (≥5
+               approved reviews) shows the aggregate; below that §5.5 threshold the
+               API nulls the average, so we show a "Not Yet Rated" label + the live
+               review count instead of hiding the line. Every value derives from
+               static product fields, so this stays edge-cache-neutral (§8). -->
+          <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
+            @if (p.rating_overall_avg !== null) {
               <aec-review-stars [rating]="p.rating_overall_avg" kind="overall" />
               <span class="font-display text-xl font-semibold text-(--text-primary)">{{
                 decimal(p.rating_overall_avg)
               }}</span>
-              <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+            } @else {
+              <span
+                class="inline-flex items-center rounded-(--radius-sm) border border-(--border-default)
+                  bg-(--surface-raised) px-2 py-0.5 text-xs font-medium uppercase tracking-[0.08em]
+                  text-(--text-secondary)"
+                i18n="@@products.detail.hero.notRated"
+              >
+                Not Yet Rated
+              </span>
+            }
+            <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+            @if (p.review_count > 0) {
               <a
                 [href]="'/products/' + p.slug + '#reviews'"
                 class="text-sm font-medium text-(--text-secondary) no-underline transition-colors
@@ -142,11 +160,20 @@ import { ProductUsefulnessSection } from './product-usefulness';
               >
                 {{ reviewCountLabel(p.review_count) }}
               </a>
-            </div>
-          }
+            } @else {
+              <span class="text-sm font-medium text-(--text-secondary)">{{
+                reviewCountLabel(p.review_count)
+              }}</span>
+            }
+          </div>
 
-          @if (p.website) {
-            <div class="flex flex-wrap items-center gap-3">
+          <!-- Primary action ("Visit website", when present) sits beside the
+               write-a-review CTA. The CTA reuses the cache-neutral, auth-aware
+               aec-review-cta (its SSR render is the generic "Write a review"); the
+               secondary variant keeps "Visit website" the single accent button.
+               The row renders even with no website so the CTA is always present. -->
+          <div class="flex flex-wrap items-center gap-3">
+            @if (p.website) {
               <a
                 [href]="p.website"
                 target="_blank"
@@ -163,8 +190,9 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 <ng-container i18n="@@products.detail.visitWebsite">Visit website</ng-container>
                 <span aria-hidden="true" class="inline-block rtl:-scale-x-100">↗</span>
               </a>
-            </div>
-          }
+            }
+            <aec-review-cta [slug]="p.slug" [productId]="p.id" variant="secondary" />
+          </div>
         </div>
 
         <div slot="metadata" class="space-y-6">
@@ -497,12 +525,15 @@ export class ProductDetailPage {
   }
 
   /**
-   * Hero "N reviews" jump-link label. The API nulls the averages below 5
-   * reviews (`toProductDetail`), so this only renders when `count >= 5` — no
-   * singular branch is needed.
+   * Hero review-count label. Now renders for any count (the meta line shows
+   * "Not Yet Rated · N reviews" below the §5.5 5-review rating threshold, not
+   * just for rated products), so it pluralizes all three cases. Pluralization
+   * lives in the component rather than a template ICU, matching `IntegrationStat`.
    */
   protected reviewCountLabel(count: number): string {
-    return $localize`:@@products.detail.hero.reviewCount:${count}:COUNT: reviews`;
+    if (count === 0) return $localize`:@@products.detail.hero.reviewCount.none:No reviews yet`;
+    if (count === 1) return $localize`:@@products.detail.hero.reviewCount.one:1 review`;
+    return $localize`:@@products.detail.hero.reviewCount.other:${count}:COUNT: reviews`;
   }
 
   /**

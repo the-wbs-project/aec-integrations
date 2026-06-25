@@ -8,10 +8,12 @@
 # edge keeps serving the old vocabulary until TTL (≤5 min browse, ≤1 hr nav)
 # unless we purge explicitly here. See docs/adr/0008-taxonomy-reference-data.md.
 #
-# Like smoke-test.sh: staging/preview hostnames sit behind Cloudflare Access and
-# are reachable from CI only via the `aeci-gh-actions` service token; the public
-# tiers (prod.aecintegrations.com, demo.aecintegrations.com) ignore the headers,
-# so we always attach them and never branch on host.
+# Like smoke-test.sh: staging, PR previews, AND prod (prod.aecintegrations.com,
+# gated by Cloudflare Access until launch per ADR 0017) are reachable from CI only
+# via the `aeci-gh-actions` service token, so we always attach the headers and
+# never branch on host. The public demo tier (demo.aecintegrations.com) ignores
+# them; at the prod launch, dropping the prod Access app makes the headers a
+# harmless no-op there too (they're ignored once the destination is public).
 #
 # Usage (env):
 #   HOST                    https://prod.aecintegrations.com

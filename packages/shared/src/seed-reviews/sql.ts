@@ -1,0 +1,164 @@
+/**
+ * SQL surface for the review seeder — shared by the CLI and the datatool Worker.
+ *
+ * The CLI (`apps/api/scripts/seed-reviews.ts`) renders a whole `.sql` file via
+ * `buildSeedSql`/`buildTeardownSql` and runs it through `wrangler d1 execute`.
+ * The Worker (`apps/datatool`) does NOT use the string-file builders — it binds
+ * `reviewCells()` as D1 parameters and runs the static statements
+ * (`DELETE_SEEDED`, `RECOMPUTE_PRODUCTS`, `touchSeededProducts`) directly. Both
+ * share `REVIEW_COLUMNS` + `reviewCells`, so a given plan produces the same rows
+ * regardless of which caller writes them.
+ */
+
+import { ID_MARKER, type Plan, type PlannedReview } from './generator';
+
+/** Read the catalog (id, slug, name, comma-joined category slugs) the planner
+ * needs. Run against the target D1 — by the CLI via `wrangler d1 execute --json`,
+ * by the Worker via `db.prepare(PRODUCTS_QUERY).all()`. */
+export const PRODUCTS_QUERY = `SELECT p.id, p.slug, p.name, (SELECT group_concat(tc.slug, ',') FROM product_categories pc JOIN taxonomy_categories tc ON tc.id = pc.category_id WHERE pc.product_id = p.id) AS category_slugs FROM products p`;
+
+/** SQLite string literal — single-quote escaped. */
+export function sqlText(s: string): string {
+  return `'${s.replaceAll("'", "''")}'`;
+}
+
+export const REVIEW_COLUMNS = [
+  'id',
+  'product_id',
+  'reviewer_id',
+  'rating_overall',
+  'rating_onboarding',
+  'title',
+  'body',
+  'role_at_company',
+  'years_using',
+  'would_recommend',
+  'status',
+  'moderated_at',
+  'verified_work_email',
+  'locale',
+  'created_at',
+  'updated_at',
+] as const;
+
+/** Ordered cell VALUES for a planned review, matching `REVIEW_COLUMNS`. Returns
+ * raw JS values: the Worker binds them as D1 parameters; `reviewValuesRow`
+ * renders them as SQL literals for the CLI's `.sql` file. `reviewer_id` is always
+ * NULL (anonymous); `updated_at` mirrors `moderated_at` (last touched at moderation). */
+export function reviewCells(rv: PlannedReview): Array<string | number | null> {
+  const createdIso = rv.createdAt.toISOString();
+  const moderatedIso = rv.moderatedAt.toISOString();
+  return [
+    rv.id,
+    rv.productId,
+    null, // reviewer_id — anonymous
+    rv.ratingOverall,
+    rv.ratingOnboarding,
+    rv.title,
+    rv.body,
+    rv.roleAtCompany,
+    rv.yearsUsing,
+    rv.wouldRecommend,
+    rv.status,
+    moderatedIso,
+    rv.verifiedWorkEmail ? 1 : 0,
+    rv.locale,
+    createdIso,
+    moderatedIso, // updated_at — last touched at moderation
+  ];
+}
+
+/** One `(…)` VALUES tuple for the CLI's multi-row INSERT. Renders `reviewCells`
+ * as SQL literals (string → escaped-quote, number → as-is, null → NULL). */
+export function reviewValuesRow(rv: PlannedReview): string {
+  const cells = reviewCells(rv).map((v) =>
+    v === null ? 'NULL' : typeof v === 'number' ? String(v) : sqlText(v),
+  );
+  return `  (${cells.join(',')})`;
+}
+
+export const DELETE_SEEDED = `DELETE FROM "reviews" WHERE "id" LIKE '${ID_MARKER}%';`;
+
+/** Recompute the denormalized product aggregates for EVERY product — the SQL
+ * equivalent of `recomputeProductCounts` (apps/api/src/lib/recompute-counts.ts):
+ * approved-only counts/averages, NULL averages when there are zero approved
+ * reviews. Cheap over the small dev catalog and correct whether reviews were
+ * added or torn down. */
+export const RECOMPUTE_PRODUCTS = `UPDATE "products" SET
+  "review_count" = (SELECT COUNT(*) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
+  "rating_overall_avg" = (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
+  "rating_onboarding_avg" = (SELECT ROUND(AVG(r."rating_onboarding"), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved');`;
+
+/** Bump `updated_at` to the run time on the products that carry seeded reviews. The
+ * app bumps `updated_at` on every review approval (Drizzle `$onUpdate`); this mirrors
+ * that so the daily Algolia incremental-sync cron — which only resyncs rows whose
+ * `updated_at` moved into its watermark window — picks these products up and refreshes
+ * their `review_count` / rating in search. Scoped to affected products so it never
+ * disturbs "recently updated" ordering for the rest of the catalog. */
+export function touchSeededProducts(nowIso: string): string {
+  return `UPDATE "products" SET "updated_at" = ${sqlText(nowIso)}
+  WHERE "id" IN (SELECT DISTINCT "product_id" FROM "reviews" WHERE "id" LIKE '${ID_MARKER}%');`;
+}
+
+/** Options for the CLI's `.sql` file headers — just enough to label the artifact
+ * (decoupled from the CLI's full `Args`). */
+export interface SeedSqlOptions {
+  db: string;
+  seed: number;
+}
+
+function fileHeader(
+  opts: SeedSqlOptions,
+  kind: 'seed' | 'teardown',
+  reviewCount: number,
+  stamp: string,
+): string {
+  return [
+    '-- ===========================================================================',
+    `-- GENERATED by apps/api/scripts/seed-reviews.ts — DO NOT EDIT BY HAND.`,
+    `-- ${kind === 'teardown' ? 'Teardown' : 'Seed'} for the D1 (${opts.db}). Dev/demo only.`,
+    `-- seed=${opts.seed}  reviews=${reviewCount}  generated=${stamp}`,
+    `-- Re-run: pnpm --filter @aeci/api db:seed-reviews -- --apply`,
+    '-- ===========================================================================',
+    '',
+  ].join('\n');
+}
+
+/** Idempotent seed file: clear the seeded block, insert the plan in chunks, then
+ * recompute every product's aggregates. CLI-only (the Worker binds statements). */
+export function buildSeedSql(plan: Plan, opts: SeedSqlOptions): string {
+  const nowIso = new Date().toISOString();
+  const parts: string[] = [
+    fileHeader(opts, 'seed', plan.reviews.length, nowIso),
+    DELETE_SEEDED,
+    '',
+  ];
+
+  const insertHeader = `INSERT INTO "reviews" (${REVIEW_COLUMNS.map((c) => `"${c}"`).join(',')}) VALUES`;
+  const CHUNK = 25;
+  for (let i = 0; i < plan.reviews.length; i += CHUNK) {
+    const rows = plan.reviews.slice(i, i + CHUNK).map(reviewValuesRow);
+    parts.push(`${insertHeader}\n${rows.join(',\n')};`, '');
+  }
+
+  // Recompute aggregates, then touch updated_at (after the inserts exist) so the
+  // daily Algolia sync cron resyncs the affected products' review_count/rating.
+  parts.push(RECOMPUTE_PRODUCTS, '', touchSeededProducts(nowIso), '');
+  return parts.join('\n');
+}
+
+/** Teardown file: remove the seeded block + recompute. CLI-only. */
+export function buildTeardownSql(opts: SeedSqlOptions): string {
+  const nowIso = new Date().toISOString();
+  // Touch updated_at BEFORE the delete (while the seeded reviews still identify
+  // their products) so the next Algolia sync resyncs them back to review_count=0.
+  return [
+    fileHeader(opts, 'teardown', 0, nowIso),
+    touchSeededProducts(nowIso),
+    '',
+    DELETE_SEEDED,
+    '',
+    RECOMPUTE_PRODUCTS,
+    '',
+  ].join('\n');
+}

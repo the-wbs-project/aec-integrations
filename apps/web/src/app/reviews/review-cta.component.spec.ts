@@ -171,4 +171,27 @@ describe('ReviewCta', () => {
     expect(el.textContent).not.toContain('Sign in to review');
     expect(el.textContent).not.toContain('Submit a review');
   });
+
+  it('renders the primary (accent-filled) button skin by default', () => {
+    const { fixture, el } = create();
+    fixture.detectChanges();
+
+    const cls = anchor(el).className;
+    expect(cls).toContain('bg-(--accent-primary)');
+    expect(cls).not.toContain('bg-(--surface-raised)');
+  });
+
+  it('renders the secondary (bordered) skin when variant="secondary" (hero placement)', () => {
+    const { fixture, el } = create();
+    fixture.componentRef.setInput('variant', 'secondary');
+    fixture.detectChanges();
+
+    const cls = anchor(el).className;
+    expect(cls).toContain('bg-(--surface-raised)');
+    expect(cls).toContain('text-(--text-primary)');
+    expect(cls).not.toContain('bg-(--accent-primary)');
+    // Skin only — the neutral default label + working link are unchanged.
+    expect(el.textContent).toContain('Write a review');
+    expect(anchor(el).getAttribute('href')).toBe('/products/procore/review');
+  });
 });

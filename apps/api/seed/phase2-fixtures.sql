@@ -1,8 +1,9 @@
 -- =============================================================================
--- Phase 2 CI fixtures for Cloudflare D1 (AECI-65 harness) — the SQLite port of
--- supabase/fixtures/phase2-fixtures.sql, carried over in the D1 cutover
--- (ADR 0016 / AECI-248→257). Deterministic detail/browse content so the axe +
--- Lighthouse harness has stable, indexable pages to measure.
+-- Phase 2 CI fixtures for Cloudflare D1 (AECI-65 harness) — the sole, authoritative
+-- fixture seed. (Originally the SQLite port of a Supabase fixtures file, which was
+-- retired in AECI-268 once the API Worker reads D1, not Supabase — ADR 0016 /
+-- AECI-248→257.) Deterministic detail/browse content so the axe + Lighthouse
+-- harness has stable, indexable pages to measure.
 --
 -- WHY a separate file (not catalog.sql)
 --   catalog.sql is a small REPRESENTATIVE local catalog. These are SYNTHETIC CI
@@ -15,7 +16,7 @@
 --   ⚠️  TEST FIXTURES — dev / CI ONLY. Like catalog.sql, this never runs in
 --   staging/production (those re-promote from Airtable via POST /api/promote).
 --
--- CONTRACT (mirrors the Supabase original)
+-- CONTRACT
 --   * Idempotent: vendors/products upsert on slug, integration + join rows
 --     no-op on conflict — same posture as catalog.sql.
 --   * promotion_status = 'promoted' EXPLICITLY (publicly visible).

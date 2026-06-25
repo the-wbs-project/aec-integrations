@@ -108,9 +108,10 @@
     // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
     "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-    // AECI-193: Supabase project base URL (public) — see env comment in the
-    // preview block. Base config mirrors preview (bare `wrangler dev`).
-    "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+    // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared auth
+    // project (see the preview block). Base config mirrors preview (bare
+    // `wrangler dev`).
+    "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
   },
   "dev": {
     "port": 8787,
@@ -158,12 +159,12 @@
         // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193: Supabase base URL (public; dev project for preview/staging,
-        // prod project for production). Drives JWKS user-JWT verification in
-        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
-        // on the API Worker — it verifies with public JWKS material only
-        // (AUTH_AND_RLS.md §4).
-        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
+        // auth project across all environments. Drives JWKS user-JWT
+        // verification in lib/user-auth.ts. The anon key is never on the API
+        // Worker; the service-role key is a Worker SECRET (not a var here), used
+        // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
       },
       "kv_namespaces": [
         {
@@ -201,12 +202,12 @@
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193: Supabase base URL (public; dev project for preview/staging,
-        // prod project for production). Drives JWKS user-JWT verification in
-        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
-        // on the API Worker — it verifies with public JWKS material only
-        // (AUTH_AND_RLS.md §4).
-        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
+        // auth project across all environments. Drives JWKS user-JWT
+        // verification in lib/user-auth.ts. The anon key is never on the API
+        // Worker; the service-role key is a Worker SECRET (not a var here), used
+        // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         // AECI-240 / Phase 7.5: transactional email (Resend). EMAIL_FROM is the
         // verified sender; PUBLIC_SITE_URL builds absolute links in emails;
         // ADMIN_ALERT_EMAIL receives the §6.2 reconcile-sweep stuck-request alert.
@@ -310,19 +311,20 @@
     "demo": {
       "name": "aeci-api-demo",
       "workers_dev": false,
-      // The public showcase tier. Shares the PROD Supabase auth project + zone
-      // with production, but has its OWN D1, KV, queues, and Algolia (`demo_*`)
-      // index set. AECI-105 / Option B: promote purges the edge cache by calling
-      // Cloudflare directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
+      // The public showcase tier. Shares the single shared Supabase auth project
+      // (ADR 0017) + the prod zone, but has its OWN D1, KV, queues, and Algolia
+      // (`demo_*`) index set. AECI-105 / Option B: promote purges the edge cache by
+      // calling Cloudflare directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
       "vars": {
         "ENV": "demo",
         "DD_SITE": "us5.datadoghq.com",
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // Prod Supabase project (shared with production). Drives JWKS user-JWT
-        // verification only (lib/user-auth.ts) — public material, no DB round-trip.
-        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // ADR 0017: the single shared auth project (same value in every env).
+        // Drives JWKS user-JWT verification only (lib/user-auth.ts) — public
+        // material, no DB round-trip.
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
@@ -411,12 +413,12 @@
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193: Supabase base URL (public; dev project for preview/staging,
-        // prod project for production). Drives JWKS user-JWT verification in
-        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
-        // on the API Worker — it verifies with public JWKS material only
-        // (AUTH_AND_RLS.md §4).
-        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
+        // auth project across all environments. Drives JWKS user-JWT
+        // verification in lib/user-auth.ts. The anon key is never on the API
+        // Worker; the service-role key is a Worker SECRET (not a var here), used
+        // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
         // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
         // The RESEND_API_KEY secret is pushed by CI from RESEND_API_KEY_PRODUCTION
         // — absent → sends skip.

@@ -1,7 +1,7 @@
 /**
  * AECI-65 / Phase 2.19 — accessibility (axe) success-path coverage for every
  * live Phase 2 page type, against the committed seed fixtures
- * (`supabase/fixtures/phase2-fixtures.sql`).
+ * (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`).
  *
  * This is the spec the per-entity detail specs deliberately defer their
  * success-path coverage to (see `products-detail.spec.ts` header). The 404 and
@@ -14,12 +14,13 @@
  *
  * FIXTURE GATING — the three detail pages (products/:slug, vendors/:slug,
  *   integrations/:id) 404 when their row is absent. A `beforeAll` probe checks
- *   whether the fixtures are seeded in the dev DB the app reads (shared
- *   `aeci-development` via Accelerate). If they aren't (e.g. DIRECT_URL_STAGING
- *   not yet configured so CI's seed step skipped), the detail cases self-skip
- *   with a loud warning rather than fail — so the harness lands safely and
- *   "lights up" automatically once the fixtures are present. Index / browse /
- *   flat-index / 404 pages need no fixtures and always run.
+ *   whether the fixtures are present in the D1 the app reads. Locally + in CI the
+ *   `dev:bound` server seeds them into the local D1 automatically
+ *   (`db:setup:local` → `db:seed:fixtures:local`), so they're normally present;
+ *   the guard stays defensive for a run pointed at a deployed URL
+ *   (`PLAYWRIGHT_BASE_URL`) whose D1 lacks them — the detail cases then self-skip
+ *   with a loud warning rather than fail. Index / browse / flat-index / 404 pages
+ *   need no fixtures and always run.
  *
  * SITE CHROME — both the HEADER (incl. the AECI-155 taxonomy-driven flyout nav,
  *   a new interactive a11y surface present on every page) and the FOOTER are in
@@ -42,8 +43,8 @@ const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
 /**
  * Fixture identities — the single source of truth is
- * `supabase/fixtures/phase2-fixtures.sql`. The taxonomy slugs are existing
- * reference data (`supabase/reference-data/taxonomy.sql`). Keep in sync with
+ * `apps/api/seed/phase2-fixtures.sql`. The taxonomy slugs are existing
+ * reference data (`apps/api/seed/taxonomy.sql`). Keep in sync with
  * `.lighthouserc.cjs`.
  */
 const FIXTURE = {
@@ -94,8 +95,8 @@ test.beforeAll(async () => {
       console.warn(
         `[phase2-a11y] Fixtures absent: GET /products/${FIXTURE.productSlug} -> ${res.status()}. ` +
           'Detail-page (product/vendor/integration) success cases will be SKIPPED. ' +
-          'Seed supabase/fixtures/phase2-fixtures.sql into the dev DB (CI: set DIRECT_URL_STAGING) ' +
-          'to enable them.',
+          'Seed the local D1 via `pnpm --filter @aeci/api db:seed:fixtures:local` ' +
+          '(run automatically by `dev:bound`) to enable them.',
       );
     }
   } finally {

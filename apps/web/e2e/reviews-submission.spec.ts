@@ -36,7 +36,7 @@ import {
 const BASE_URL = process.env['PLAYWRIGHT_BASE_URL'] ?? 'http://localhost:8788';
 const WCAG_AA_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
 
-// Shared seed product (`supabase/fixtures/phase2-fixtures.sql`).
+// Shared seed product (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`).
 const PRODUCT_SLUG = 'fixture-procore';
 const REVIEW_PATH = `/products/${PRODUCT_SLUG}/review`;
 
@@ -51,7 +51,8 @@ test.beforeAll(async () => {
       console.warn(
         `[reviews-submission] Fixtures absent: GET /products/${PRODUCT_SLUG} -> ${res.status()}. ` +
           'Render / a11y / submit cases will be SKIPPED (the redirect case still runs). ' +
-          'Seed supabase/fixtures/phase2-fixtures.sql into the dev DB to enable them.',
+          'Seed the local D1 via `pnpm --filter @aeci/api db:seed:fixtures:local` ' +
+          '(run automatically by `dev:bound`) to enable them.',
       );
     }
   } finally {
