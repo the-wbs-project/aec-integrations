@@ -123,6 +123,31 @@ describe('GET /api/products', () => {
     expect(parsed.total).toBe(3);
   });
 
+  it('sorts by review count desc (Most reviewed)', async () => {
+    await seedProduct(u(1), 'few', 'Few', { reviewCount: 3 });
+    await seedProduct(u(2), 'many', 'Many', { reviewCount: 12 });
+    await seedProduct(u(3), 'none', 'None', { reviewCount: 0 });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products?sort=reviews')).json(),
+    );
+    expect(parsed.data.map((p) => p.slug)).toEqual(['many', 'few', 'none']);
+  });
+
+  it('sorts by rating desc and ranks sub-5-review products last (Highest rated, §5.5 gate)', async () => {
+    await seedProduct(u(1), 'good', 'Good', { reviewCount: 10, ratingOverallAvg: 4.0 });
+    await seedProduct(u(2), 'best', 'Best', { reviewCount: 8, ratingOverallAvg: 4.8 });
+    // 5.0 average but only 2 reviews — withheld by the §5.5 gate, so it ranks
+    // last despite the highest raw average (statistically misleading otherwise).
+    await seedProduct(u(3), 'hidden', 'Hidden', { reviewCount: 2, ratingOverallAvg: 5.0 });
+    await seedProduct(u(4), 'ok', 'Ok', { reviewCount: 6, ratingOverallAvg: 3.0 });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products?sort=rating')).json(),
+    );
+    expect(parsed.data.map((p) => p.slug)).toEqual(['best', 'good', 'ok', 'hidden']);
+  });
+
   it('filters by category_id and by search', async () => {
     await seedProduct(u(1), 'revit', 'Revit');
     await seedProduct(u(2), 'autocad', 'AutoCAD');

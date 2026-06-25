@@ -87,19 +87,18 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*posthog/);
   });
 
-  it('allows both Supabase project origins on connect-src (browser auth, AECI-194)', () => {
+  it('allows the shared Supabase auth project origin on connect-src (browser auth, AECI-194 / ADR 0017)', () => {
     // The @supabase/ssr browser client XHRs to https://<ref>.supabase.co/auth/v1/*
-    // (getSession/token-refresh, magic-link OTP, sign-out). The CSP is static
-    // but SUPABASE_URL is per-env, so BOTH known project refs are allowlisted
-    // explicitly: dmbygwupskttzsvfzluq (dev/preview/staging) + jgxebjufabtwkcgxjqvk
-    // (production). Missing the origin makes every signed-in page CSP-refuse its
-    // SessionStatus probe in a refresh-retry loop (the staging regression).
+    // (getSession/token-refresh, magic-link OTP, sign-out). Per ADR 0017 there is
+    // ONE shared auth project across all environments, so the SINGLE ref
+    // (ktuhnlypztujpsseujzx) is allowlisted explicitly. Missing the origin makes
+    // every signed-in page CSP-refuse its SessionStatus probe in a refresh-retry
+    // loop (the staging regression).
     expect(CONTENT_SECURITY_POLICY).toMatch(
-      /connect-src[^;]*https:\/\/dmbygwupskttzsvfzluq\.supabase\.co/,
+      /connect-src[^;]*https:\/\/ktuhnlypztujpsseujzx\.supabase\.co/,
     );
-    expect(CONTENT_SECURITY_POLICY).toMatch(
-      /connect-src[^;]*https:\/\/jgxebjufabtwkcgxjqvk\.supabase\.co/,
-    );
+    // The retired per-env project refs must NOT linger in the CSP.
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/dmbygwupskttzsvfzluq|jgxebjufabtwkcgxjqvk/);
     // Auth is REST-only (no realtime subscriptions) and OAuth is a top-level
     // navigation — neither needs script-src, so Supabase stays out of it.
     expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*supabase/);

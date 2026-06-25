@@ -298,7 +298,7 @@ export class ProductsIndex {
 
   protected readonly idx = createPaginatedIndex<ProductsListResponse>({
     apiPath: '/api/products',
-    validSorts: new Set(['created', 'name', 'updated']),
+    validSorts: new Set(['created', 'name', 'updated', 'rating', 'reviews']),
     defaultSort: 'created',
     // Accumulate pages for the scroll-based listing UX (page 1 still SSRs +
     // edge-caches; pages 2..N append client-side). See createPaginatedIndex.
@@ -308,7 +308,7 @@ export class ProductsIndex {
     meta: {
       entity: 'index',
       name: $localize`:@@products.index.metaName:Products`,
-      description: $localize`:@@products.index.metaDescription:The directory of every AEC software product on AEC Integrations. Sortable by name, recency, and last update.`,
+      description: $localize`:@@products.index.metaDescription:The directory of every AEC software product on AEC Integrations. Sortable by name, recency, last update, rating, and review count.`,
       canonical: canonicalUrl('/products'),
     },
   });
@@ -317,6 +317,8 @@ export class ProductsIndex {
     { value: 'created', label: $localize`:@@products.index.sort.newest:Newest` },
     { value: 'name', label: $localize`:@@products.index.sort.name:Name (A–Z)` },
     { value: 'updated', label: $localize`:@@products.index.sort.updated:Recently updated` },
+    { value: 'rating', label: $localize`:@@products.index.sort.rating:Highest rated` },
+    { value: 'reviews', label: $localize`:@@products.index.sort.reviews:Most reviewed` },
   ];
 
   protected readonly view = computed<ViewKey>(() =>

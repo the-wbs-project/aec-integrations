@@ -36,9 +36,10 @@
 #        `DATABASE_URL_PRODUCTION` (idempotent) so the prod API Worker always has
 #        a DB connection — secrets aren't set by `wrangler deploy`.
 #      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
-#      - Polls `demo.aecintegrations.com` (public, no Access headers) until BOTH
-#        Workers report `inputs.commit_sha` AND `/api/health` is `db:ok`. Fails
-#        after 60s (a DB-unreachable prod fails the promote rather than shipping).
+#      - Polls `demo.aecintegrations.com` (Access-gated until launch — ADR 0017;
+#        the smoke step passes the `aeci-gh-actions` service-token headers) until
+#        BOTH Workers report `inputs.commit_sha` AND `/api/health` is `db:ok`.
+#        Fails after 60s (a DB-unreachable prod fails the promote, not ships).
 #
 # Historical gotcha (carried over from AECI-77): `prisma-drift-check.sh`
 # used to fail with Prisma P4002 against any DB containing the cross-schema
@@ -75,7 +76,10 @@
 #   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`,
 #                            docs/access.md §1) — used for the staging
-#                            `/api/version` probe in pre-promotion-checks.
+#                            `/api/version` probe in pre-promotion-checks AND the
+#                            production smoke (prod is Access-gated until launch,
+#                            ADR 0017). The token must be allowed on the prod
+#                            Access policy as well as the non-prod one.
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
 #   ADMIN_PURGE_TOKEN        Bearer token for the SSR Worker's POST /admin/purge
 #                            (same value as the Worker's `ADMIN_PURGE_TOKEN`
@@ -88,8 +92,10 @@
 #   DATADOG_API_KEY          Datadog deploy-marker intake (docs/CICD_PLAN.md §9.1).
 #
 # Required GH Actions repo variables:
-#   SUPABASE_PROD_PROJECT_REF  Prod Supabase project ref (jgxebjufabtwkcgxjqvk
-#                              per docs/environments.md §1).
+#   SUPABASE_PROD_PROJECT_REF  Legacy-Postgres prod project ref (jgxebjufabtwkcgxjqvk
+#                              per docs/environments.md §1) — the retained
+#                              public-schema gate, NOT auth (auth is the single
+#                              shared project per ADR 0017).
 
 name: promote-to-prod
 
@@ -868,14 +874,19 @@ jobs:
       #     promoted without its DATABASE_URL secret would pass green while every
       #     DB endpoint 500s and /categories 404s. A failure here trips the
       #     auto-rollback below (smoke.outcome == 'failure').
-      # Production is public so no Cloudflare Access headers are set; both scripts
-      # omit them when CF_ACCESS_* are unset.
+      # Production is gated by Cloudflare Access until launch (ADR 0017), so the
+      # service-token headers are required to reach it from CI; both scripts
+      # attach them when CF_ACCESS_* are set. At launch, dropping the prod Access
+      # app makes these a harmless no-op (the scripts only add the headers when
+      # the vars are present) — no workflow change needed.
       # -----------------------------------------------------------------------
       - name: Smoke test production (API + SSR at SHA, DB healthy)
         id: smoke
         env:
           HOST: https://demo.aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           for attempt in 1 2 3 4 5 6 7 8 9 10; do

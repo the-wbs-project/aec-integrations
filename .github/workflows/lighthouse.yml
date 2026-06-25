@@ -33,11 +33,15 @@
 # SELF-CONTAINED. Unlike the old job it can't `needs:` build-web / download that
 #   workflow's `web-dist` artifact (artifacts don't cross workflow runs), so it
 #   builds the SSR Worker itself and boots `dev:bound` exactly like the old job.
-#   The Phase 2 detail/browse fixtures it measures live on the shared dev DB,
-#   kept at HEAD + seeded by deploy.yml's `db-migrate-dev` (which ran on the PR
-#   before merge). NOTE (error gate): if the dev DB is wiped/unseeded, detail
-#   URLs render the 404 shell and the error-level SEO/a11y assertions go red —
-#   that is a deliberate alarm, not a flake; re-seed and re-run.
+#   The Phase 2 detail/browse fixtures it measures come from the LOCAL D1
+#   (`aeci-app-preview`), seeded by `dev:bound`'s `db:setup:local` →
+#   `db:seed:fixtures:local` (apps/api/seed/phase2-fixtures.sql) — post-D1 cutover
+#   (ADR 0016) the API Worker reads D1, not Supabase, so there is no longer a
+#   shared-dev-DB fixture seed to depend on (AECI-268). NOTE (error gate): if that
+#   local D1 seed fails, detail URLs render the 404 shell and the error-level
+#   SEO/a11y assertions go red — that is a deliberate alarm, not a flake; re-run.
+#   (The `DATABASE_URL_STAGING` wiring below no longer feeds the measured pages —
+#   the Worker reads D1 — and is retained as legacy dead-weight pending AECI-257.)
 #
 # Chrome comes from the ubuntu-latest runner image (lhci/chrome-launcher finds
 #   /usr/bin/google-chrome) — no Playwright/Chromium install needed, matching the

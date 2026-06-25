@@ -241,6 +241,8 @@ describe('ProductSortSchema', () => {
     expect(ProductSortSchema.parse('created')).toBe('created');
     expect(ProductSortSchema.parse('name')).toBe('name');
     expect(ProductSortSchema.parse('updated')).toBe('updated');
+    expect(ProductSortSchema.parse('rating')).toBe('rating');
+    expect(ProductSortSchema.parse('reviews')).toBe('reviews');
   });
 });
 

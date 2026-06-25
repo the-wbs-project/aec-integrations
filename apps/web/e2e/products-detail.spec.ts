@@ -127,7 +127,7 @@ test.describe('product detail — claim/correction request forms (AECI-128)', ()
 test.describe('product detail — "How teams use it" usefulness section (AECI-170/-173)', () => {
   // The section renders only when the API returns a non-null `usefulness` (AECI-173
   // reads the jsonb column; AECI-170 renders it). Both states are exercised against
-  // the seed fixture (supabase/fixtures/phase2-fixtures.sql): `fixture-procore`
+  // the seed fixture (apps/api/seed/phase2-fixtures.sql): `fixture-procore`
   // carries a usefulness blob (populated) and `fixture-acme-connector` does not
   // (null path). Each test gates on the API ACTUALLY returning the expected
   // usefulness state — so a product that exists but wasn't re-seeded skips loudly
@@ -156,8 +156,9 @@ test.describe('product detail — "How teams use it" usefulness section (AECI-17
         console.warn(
           `[products-detail] usefulness not seeded: GET /api/products/${POPULATED_SLUG} -> ` +
             `${populated.ok() ? 'usefulness=null' : `HTTP ${populated.status()}`}. ` +
-            'Populated-state test will be SKIPPED. Seed supabase/fixtures/phase2-fixtures.sql ' +
-            'into the dev DB (CI: set DIRECT_URL_STAGING) after the AECI-171 migration.',
+            'Populated-state test will be SKIPPED. Seed the local D1 via ' +
+            '`pnpm --filter @aeci/api db:seed:fixtures:local` (run automatically by `dev:bound`) ' +
+            'after the AECI-171 migration.',
         );
       }
     } finally {

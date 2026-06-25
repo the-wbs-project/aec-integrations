@@ -41,7 +41,9 @@ export function registerSchemaStructuralCases(s: SchemaSuiteScenario): void {
       });
 
       it('rejects unknown keys', () => {
-        expect(s.sortSchema.safeParse('rating').success).toBe(false);
+        // A value that is not a valid sort for ANY entity (products added
+        // `rating`/`reviews`, so the prior `'rating'` sample is now valid there).
+        expect(s.sortSchema.safeParse('not-a-real-sort').success).toBe(false);
       });
     });
 
