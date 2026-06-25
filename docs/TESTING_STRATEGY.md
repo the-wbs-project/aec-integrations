@@ -296,6 +296,8 @@ In CI the `integration-db-tests` job in `.github/workflows/deploy.yml` boots a *
 
 The job is **non-blocking** today (intentionally not in `deploy-staging`'s `needs`); promote it to a required check once it has proven stable.
 
+> **ADR-0016 note (AECI-234).** The reviews/profiles authorization deny-matrix is **not** a PostgREST RLS suite. ADR 0016 moved the application DB to Cloudflare D1 (no RLS, no PostgREST), so the reviews/profiles **no-leakage matrix is an app-layer test in the normal unit lane** — `apps/api/src/routes/reviews.authz-matrix.spec.ts` + `profiles.authz-matrix.spec.ts` — composing the real `requireAuth`/`requireAdmin` guard with the real read and write handlers over the in-memory D1 harness (read-leakage cells plus write paths rejecting anon/banned/non-admin before the handler). It runs on every PR (no Supabase boot, not path-gated). The `*.rls.spec.ts` deny-matrix specs named above (`vendor_requests.rls`, `landing_forms.rls`) were never created; the Supabase integration lane retains only `user-auth.jwks.spec.ts` and is ADR-0016 Phase-6 decommission scope.
+
 ---
 
 ## 7. E2E testing — Playwright

@@ -6,6 +6,31 @@
 
 ---
 
+> **⚠️ ADR-0016 status banner (added AECI-234, 2026-06-25).** This document (v3.0)
+> describes the **pre-ADR-0016** authorization model: Prisma Accelerate over Supabase
+> Postgres with a 3-layer stack (Worker guard → PostgREST GRANTs → RLS). **ADR 0016**
+> (accepted 2026-06-22) moved the **application database to Cloudflare D1 (SQLite)**,
+> which has **no row-level security and no PostgREST**. Consequently:
+>
+> - **Layer 1 (the Worker guard) is now the *only* authorization layer for app tables.**
+>   `requireAuth()` / `requireAdmin()` (`apps/api/src/lib/authz.ts`) verify the JWT,
+>   re-fetch role + ban state from D1, and **every read carries its own
+>   ownership/visibility filter** — there is **no DB backstop** if a query forgets one
+>   (ADR 0016 §4 + "Consequences").
+> - **Layers 2–3 below (PostgREST GRANTs + RLS) no longer apply to `reviews` / `profiles`
+>   / the other app tables.** The policies in `supabase/migrations/20260602051513_*`
+>   still physically exist but describe the retained-but-unused Supabase Postgres public
+>   schema, which is **ADR-0016 Phase-6 decommission scope**. Treat the GRANT/RLS sections
+>   here as historical until this doc is rewritten "from RLS + GRANTs to app-layer guards"
+>   (ADR 0016 §4). Supabase is retained for **Auth only**.
+> - **The acceptance gate is the app-layer "no-leakage test matrix"** (ADR 0016 §4), not
+>   a PostgREST RLS deny-matrix. For `reviews` / `profiles` it lives in the unit lane:
+>   `apps/api/src/routes/reviews.authz-matrix.spec.ts` +
+>   `profiles.authz-matrix.spec.ts` (AECI-234) — they compose the real guards with the
+>   real read **and write** handlers over the in-memory D1 harness and assert the full
+>   deny-matrix (anon / non-owner / banned-owner / admin × approved·pending·rejected, plus
+>   the write paths rejecting anon/banned/non-admin before the handler) end-to-end.
+
 ## 1. Authorization model at a glance
 
 There are **three layers** of authorization in front of the database. Layer 1 handles ~all real traffic; Layers 2 and 3 are defense in depth against PostgREST exposure.
