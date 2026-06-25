@@ -6,6 +6,8 @@
 
 Supersedes — for the taxonomy vocabulary only — the "Airtable owns taxonomy" stance in `docs/DATABASE_SCHEMA.md` §13. Vendors, products, and integrations are unaffected: they remain Airtable-owned content.
 
+> **Amendment (AECI-248→257 D1 migration + AECI-256 prod-promote cleanup).** The taxonomy vocabulary now lives in **Cloudflare D1** (the app DB; ADR 0016), not Supabase Postgres. The canonical seed for the running app is **`apps/api/seed/taxonomy.sql`**, applied via `wrangler d1 execute … --file=seed/taxonomy.sql` right after `wrangler d1 migrations apply` in `deploy.yml` (staging), `promote-to-prod.yml` (production), and `promote-to-demo.yml` (demo). The Postgres `psql … supabase/reference-data/taxonomy.sql` step described in **Decision** below now survives only on the legacy-Postgres paths (`deploy.yml` db-migrate-dev, `refresh-staging.yml`); it was **removed from `promote-to-prod.yml`**, which no longer touches Postgres and no longer needs `DIRECT_URL_PRODUCTION` or the drift/RLS gates. The post-seed cache purge still runs in the prod promote, now following the **D1** seed. The decision itself — taxonomy is code-managed, idempotent, byte-identical reference data — is unchanged.
+
 ---
 
 ## Context

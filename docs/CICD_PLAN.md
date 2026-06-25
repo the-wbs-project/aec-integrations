@@ -80,7 +80,7 @@ The public showcase tier (`demo.aecintegrations.com`), inserted between staging 
 The real site (`prod.aecintegrations.com`, the eventual home page). Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
 
 - Deployed only after the demo deployment is verified (the pre-promotion check asserts demo is at the SHA)
-- Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `apply-prod-migrations` job in `.github/workflows/promote-to-prod.yml`)
+- Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `deploy-prod-workers` job in `.github/workflows/promote-to-prod.yml`)
 - Connects to production Supabase + the `aeci-app-production` D1
 - Production Algolia indexes (`production_*`)
 - Datadog under `env:production` tag, with deployment markers
@@ -193,25 +193,22 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 
 Production deploys run via `.github/workflows/promote-to-prod.yml` (AECI-78). See `docs/environments.md` → "Promote runbook" for the operator flow.
 
-Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inputs) and gated by the `production` GH Environment approval on the `apply-prod-migrations` job. Promotes from the **demo** tier (chain: staging → demo → production). Three jobs in order:
+Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inputs) and gated by the `production` GH Environment approval on the `deploy-prod-workers` job. Promotes from the **demo** tier (chain: staging → demo → production). Two jobs in order:
 
 **Job: `pre-promotion-checks`**
 1. Validate `confirm == PROMOTE`
 2. Checkout at `inputs.commit_sha`
 3. Assert **demo** reports the same SHA on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `demo is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
-4. Print `supabase migration list --linked` against the (shared) prod Supabase project into the step summary
+4. `scripts/require-secrets.sh` — refuse to promote if a required prod secret is missing (before the approval gate, so nothing is deployed)
 
-**Job: `apply-prod-migrations`** (gated by GH Environment `production`)
-1. `pg_dump` prod → R2 (`aeci-prod-snapshots/prod-pre-<short-sha>.dump`)
-2. `supabase db push --linked`
-3. `scripts/prisma-drift-check.sh` against `DIRECT_URL_PRODUCTION` — HARD STOP on drift
-
-**Job: `deploy-prod-workers`**
-1. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
-2. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
-3. Post Datadog deployment marker (§9.1)
-4. Poll both `prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA (60s budget) via `scripts/verify-version.sh`
-5. Write summary (commit, R2 snapshot path, snapshot size, DEPLOYED_AT, actor)
+**Job: `deploy-prod-workers`** (gated by GH Environment `production` — the single approval gate; blocks before any mutation)
+1. Provision the prod scheduled-job queues (idempotent)
+2. Apply the app DB migrations to **Cloudflare D1** (`wrangler d1 migrations apply aeci-app-production --remote`) + reconcile the D1 taxonomy seed, then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose schema is maintained by the staging deploy lane). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256)
+3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
+4. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
+5. Post Datadog deployment marker (§9.1)
+6. Poll both `prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA **and** `/api/health` is `db:ok` (60s budget) via `scripts/verify-version.sh` + `scripts/verify-health.sh`; a smoke failure auto-rolls-back both Workers
+7. Write summary (commit, DEPLOYED_AT, actor)
 
 The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues → apply `aeci-app-demo` D1 migrations → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
@@ -548,7 +545,7 @@ Checking both (AECI-92) proves the whole site — not just the API behind the pr
 If the smoke check fails, the deployment is marked failed and:
 
 - **Staging:** the red CI run is the signal. No Slack notification and no auto-rollback — a developer investigates and re-runs.
-- **Production:** the `deploy-prod-workers` job auto-rolls-back **both** Workers to the previous deployment (`wrangler rollback --env production` for `apps/web` then `apps/api`, the reverse of deploy order, so API stays ahead of SSR on the way down), emits an alert-grade **Datadog event** (`alert_type: error`, `event:auto_rollback`), and writes an operator runbook to the run summary. The runbook carries the manual `wrangler rollback` commands, both R2 pre-promote snapshot keys (public + `supabase_migrations`, and auth), and the exact `pg_restore` block. The **database is not auto-restored** — migrations are forward-only (§6.2), and the snapshot predates any post-migration writes, so restoring is an operator decision made with the surfaced commands in hand.
+- **Production:** the `deploy-prod-workers` job auto-rolls-back **both** Workers to the previous deployment (`wrangler rollback --env production` for `apps/web` then `apps/api`, the reverse of deploy order, so API stays ahead of SSR on the way down), emits an alert-grade **Datadog event** (`alert_type: error`, `event:auto_rollback`), and writes an operator runbook to the run summary. The runbook carries the manual `wrangler rollback` commands and the **Cloudflare D1 time-travel** restore block (`wrangler d1 time-travel info|restore aeci-app-production`) — the app DB is D1 with 30-day time-travel (AECI-256), so a bad migration is reverted to a point just before the promote without any pre-promote dump. The **database is not auto-restored** — migrations are forward-only (§6.2), so restoring is an operator decision made with the surfaced commands in hand. (Auth lives in the single shared Supabase project, ADR 0017, and is not touched by the promote.)
 
 > Slack alerting was intentionally dropped from Phase 1; Datadog events are the prod alert channel. A Playwright smoke suite (home / product / vendor / search / auth-login page renders) is **deferred to a later phase** — until then the dual-Worker version verification above is the smoke gate.
 

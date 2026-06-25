@@ -1,13 +1,17 @@
 # AEC Integrations — PR-time drift detection (AECI-80, sub-issue (e) of AECI-71).
 #
-# This is layer 1 of the three-layer drift model in AECI-71's "Drift detection"
-# section:
+# This is layer 1 of the (now) two-layer drift model in AECI-71's "Drift
+# detection" section:
 #
 #   1. PR check         — THIS workflow. Fresh DB built from all migrations,
 #                         then `prisma db pull` + `prisma migrate diff`.
-#   2. Post-refresh     — `refresh-staging.yml` step 9, against staging.
-#   3. Post-promote     — `promote-to-prod.yml` apply-prod-migrations job,
-#                         against prod.
+#   2. Post-refresh     — `refresh-staging.yml` step 9, against the shared
+#                         legacy-Postgres project.
+#
+# (The former layer 3 — a post-promote drift check in `promote-to-prod.yml` —
+# was removed in AECI-256: the prod promote no longer touches Supabase Postgres
+# (the app DB is D1, ADR 0016), and the shared legacy-Postgres project it would
+# have checked is the SAME one layer 2 already covers (ADR 0017).)
 #
 # How it works:
 #   - Path-filtered. Only fires on PRs that touch `supabase/migrations/**`,
