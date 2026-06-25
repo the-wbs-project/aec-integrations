@@ -393,14 +393,23 @@ jobs:
       # (ADR 0016 / AECI-253). The /api/health smoke gate below still proves the
       # DB is reachable. Algolia/REVIEW_APP_TOKEN are recommended, not required.)
 
+      # Warn-and-skip when DATADOG_API_KEY is absent (demo is a showcase, the
+      # marker is non-critical). The presence check lives in the step body, not a
+      # step-level `if:` — the `secrets` context is NOT available in `if:`
+      # (GitHub rejects the whole workflow at parse time → a startup failure that
+      # surfaces as a failed run on every push). Mirrors the other optional-secret
+      # steps in this workflow (REVIEW_APP_TOKEN, ALGOLIA, …).
       - name: Datadog deployment marker
-        if: ${{ secrets.DATADOG_API_KEY != '' }}
         env:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           INPUT_SHA: ${{ inputs.commit_sha }}
           ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
+          if [ -z "${DATADOG_API_KEY:-}" ]; then
+            echo "::warning::DATADOG_API_KEY not set — skipping the demo deployment marker."
+            exit 0
+          fi
           curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \
             -H "DD-API-KEY: ${DATADOG_API_KEY}" \
             -H "Content-Type: application/json" \
