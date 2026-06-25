@@ -430,13 +430,14 @@ jobs:
             exit 1
           fi
           printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
-          # AECI-193: give both local Workers the shared-dev Supabase config so
-          # the /auth/whoami 401 e2e actually exercises the auth path (without
-          # SUPABASE_URL the SSR route 503s and the spec skips itself). The anon
-          # key is web-only; the API Worker needs only the URL (JWKS + issuer).
-          printf 'SUPABASE_URL="https://dmbygwupskttzsvfzluq.supabase.co"\n' >> apps/api/.dev.vars
+          # AECI-193 / ADR 0017: give both local Workers the shared auth-project
+          # Supabase config so the /auth/whoami 401 e2e actually exercises the
+          # auth path (without SUPABASE_URL the SSR route 503s and the spec skips
+          # itself). The anon key (SUPABASE_ANON_KEY_STAGING = the shared auth
+          # project's key) is web-only; the API Worker needs only the URL.
+          printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\n' >> apps/api/.dev.vars
           if [ -n "$SUPABASE_ANON_KEY_VALUE" ]; then
-            printf 'SUPABASE_URL="https://dmbygwupskttzsvfzluq.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
+            printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
           else
             echo "::warning::SUPABASE_ANON_KEY_STAGING not set — /auth/whoami will 503 and its e2e spec will skip."
           fi

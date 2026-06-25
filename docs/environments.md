@@ -8,12 +8,14 @@
 
 AECi runs three tiers of environment plus local. Worker and Supabase project naming is rigid — workflows, smoke tests, and docs assume these exact names.
 
-| Tier | Cloudflare Workers | Supabase | Public URL | Access control |
+| Tier | Cloudflare Workers | Supabase Auth | Public URL | Access control |
 | --- | --- | --- | --- | --- |
-| **Local** | `wrangler dev` / `pnpm dev:bound` | Local Postgres (`supabase start`, port 54322) | `http://localhost:8788` | None (loopback) |
-| **PR preview** | `aeci-{api,web}-pr-<N>` (`*.aec-integrations.workers.dev`) | Dev project, ephemeral branch DB per PR (AECI-79) | `*.workers.dev` (PR-specific) | Cloudflare Access — service token for CI, OTP-to-email for humans |
-| **Staging** | `aeci-{api,web}-staging` | Dev project, `main` branch | `https://staging.aecintegrations.com` | Cloudflare Access — same allowlist as previews |
-| **Production** | `aeci-{api,web}-production` | Prod project | `https://demo.aecintegrations.com` | Public |
+| **Local** | `wrangler dev` / `pnpm dev:bound` | Shared auth project (or local `supabase start`) | `http://localhost:8788` | None (loopback) |
+| **PR preview** | `aeci-{api,web}-pr-<N>` (`*.aec-integrations.workers.dev`) | Shared auth project | `*.workers.dev` (PR-specific) | Cloudflare Access — service token for CI, OTP-to-email for humans |
+| **Staging** | `aeci-{api,web}-staging` | Shared auth project | `https://staging.aecintegrations.com` | Cloudflare Access — same allowlist as previews |
+| **Production** | `aeci-{api,web}-production` | Shared auth project | `https://demo.aecintegrations.com` | Cloudflare Access until launch (ADR 0017), then public |
+
+> **Supabase is auth-only** (app data is on D1 — ADR 0016). Per **[ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md)** a single shared auth project (`ktuhnlypztujpsseujzx`) backs **every** tier; per-environment isolation is provided by Cloudflare Access, not project separation. (The retained legacy Supabase-Postgres `public`-schema gate still lives on the old `dmbygwupskttzsvfzluq` / `jgxebjufabtwkcgxjqvk` projects until AECI-256/257 retire it — that's what the `SUPABASE_*_PROJECT_REF` repo variables below point at, unrelated to auth.)
 
 > Pre-launch, the web app serves `demo.aecintegrations.com` only. The apex (`aecintegrations.com`) and `www.aecintegrations.com` remain served by the **landing** Worker (`apps/landing`) — we are not promoting the app to `www` yet.
 
@@ -118,7 +120,7 @@ Cost note: branch DBs bill per active day. A forgotten branch is the silent budg
 
 ## Refresh-staging runbook
 
-The [`refresh-staging.yml`](../.github/workflows/refresh-staging.yml) workflow (AECI-77) restores prod data into the dev project's `main` branch (= staging), scrubs credentials, seeds test accounts, and redeploys staging Workers. It's the "give me realistic data" button. Trigger it from the GitHub Actions UI:
+The [`refresh-staging.yml`](../.github/workflows/refresh-staging.yml) workflow (AECI-77) restores prod **public-schema** data into the dev project's `main` branch (= staging) and redeploys staging Workers. It's the "give me realistic data" button. Per [ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md) it **no longer touches the auth schema** — auth is one shared project across all environments, so staging auth is never sourced from prod and the test accounts are seeded into the shared auth project out of band (see "Test accounts" / `scripts/seed-staging-users.sql`). Trigger it from the GitHub Actions UI:
 
 1. Repo → Actions → **refresh-staging** → **Run workflow** → branch `main` → **Run workflow**.
 2. No inputs, no approval gate. The `staging-refresh` GH Environment is configured with no reviewers because the workflow is idempotent.
@@ -128,17 +130,17 @@ What happens, in order (each numbered step matches a job step in the workflow):
 
 1. Checkout `main`.
 2. Install pnpm, Node, PostgreSQL 17 client, Supabase CLI, generate Prisma client.
-3. `pg_dump` prod (DIRECT_URL_PRODUCTION) into three artifacts: full public schema, auth-data-only, and `supabase_migrations.schema_migrations` history.
-4. Wipe staging (`DROP SCHEMA public CASCADE`, truncate `auth.users`/`sessions`/`refresh_tokens`, truncate migration history).
-5. `pg_restore` the three dumps into staging.
+3. `pg_dump` prod (DIRECT_URL_PRODUCTION) into two artifacts: full public schema and `supabase_migrations.schema_migrations` history. (Auth is not dumped — ADR 0017.)
+4. Wipe staging (`DROP SCHEMA public CASCADE`, truncate migration history). The auth schema is left untouched.
+5. `pg_restore` the public dump + replay the migration-history into staging.
 6. `supabase db push --linked --include-all` — applies any migration committed under `supabase/migrations/` that isn't yet in the migration-history table just restored from prod. This is the **only** moment staging schema can be ahead of prod schema.
-7. `psql -f scripts/scrub-auth-credentials.sql` — nulls passwords + tokens for every `auth.users` row carried over from prod. Real users remain enumerable (so RLS / FKs work for debugging) but cannot authenticate.
-8. `psql -f scripts/seed-staging-users.sql` — idempotent seed of four test accounts (chrisw, billh, reviewer, admin) with known passwords. See the SQL file for the credentials.
+7. Re-assert the PostgREST authorization surface + verify the RLS GRANT matrix (HARD STOP on a missing policy/GRANT).
+8. Seed taxonomy reference data (idempotent upserts). _(The former auth credential-scrub + test-account seed steps were removed per ADR 0017 — auth lives in the shared project, seeded out of band.)_
 9. **Drift check (HARD STOP).** `scripts/prisma-drift-check.sh $DIRECT_URL_STAGING`. If staging's actual schema doesn't match `apps/api/prisma/schema.prisma`, the workflow exits before deploying Workers. This is the spec's "do not let an inconsistent staging hide from operators" rule.
 10. Deploy `aeci-api-staging` then `aeci-web-staging` via `wrangler-action`, passing `--var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
 11. **Reindex Algolia (AECI-229).** `pnpm --filter @aeci/api exec tsx scripts/algolia-bulk-sync.ts --env staging` upserts every promoted product/vendor/integration from the just-restored DB into the `staging_*` indexes, so staging search is fresh the moment the refresh finishes. Without it staging search stays stale: the daily 08:00 UTC sync cron can't self-heal the index, because step 5 restores prod's `stats_cache` — including the `algolia_sync_watermark` row — so the cron reads prod's recent fence and finds almost nothing to push. Runs on the Actions runner — direct `tsx` over `DIRECT_URL_STAGING` with the vanilla Prisma driver, **not** a Cloudflare Worker. Skips with a `::warning::` if the Algolia staging secrets (`ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY_STAGING`) aren't provisioned; a genuine sync failure hard-stops the refresh (post-deploy, so nothing rolls back).
 12. Smoke test `https://staging.aecintegrations.com/api/health` with Cloudflare Access headers; then via `scripts/verify-version.sh` poll until **both** `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the workflow's commit SHA (60-second budget). `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy.
-13. Job summary table: migrations applied, auth.users count, seeded-account count, commit SHA, actor, status.
+13. Job summary table: migrations applied, commit SHA, actor, status. (Auth-user counts are no longer reported — this workflow doesn't touch auth; ADR 0017.)
 
 **What to expect:** total runtime ~5-10 minutes. The drift check (step 9) is the most likely failure point — see "Common failure modes" below.
 
@@ -156,7 +158,6 @@ What happens, in order (each numbered step matches a job step in the workflow):
 | `supabase db push --linked` says "no migrations to apply" but `pnpm db:list` shows pending | Step 6 | The migration-history table from prod is ahead of the committed `supabase/migrations/` files. Usually means an out-of-band manual migration was applied to prod. Resolve with `supabase migration repair`. |
 | Algolia reindex fails | Step 11 | A genuine failure (Algolia API error, bad `ALGOLIA_ADMIN_KEY_STAGING`, or `DIRECT_URL_STAGING` unreachable) hard-stops the refresh after the Workers already deployed — nothing rolls back. Re-run the button, or reindex by hand: `pnpm --filter @aeci/api db:algolia-bulk-sync -- --env staging` (with the staging secrets in env). If the secrets are simply unset the step skips with a warning instead of failing. |
 | Smoke test (step 12) times out at 60s | Step 12 | Worker deploy completed but propagation lagging, or the Cloudflare Access service token (CF_ACCESS_CLIENT_ID/SECRET) rotated. Check `docs/access.md` §2. |
-| `auth.users` count after step 8 is lower than expected | Step 4 wiped too much | Verify `auth.users CASCADE` didn't take out something else. Re-run the workflow — it's idempotent. |
 
 If a refresh leaves staging in an inconsistent state (drift fired, but you need staging usable for unrelated work), the fix is to either resolve the drift cause and re-press the button, or hand-revert by re-applying the prior good dump from R2 (the prod snapshots in `aeci-prod-snapshots` are functionally interchangeable as "any prod-shaped data").
 
@@ -327,16 +328,17 @@ The script:
 ## Local dev: Supabase auth (Phase 5)
 
 AECI-193 wired Supabase Auth into both Workers. To exercise it locally against
-the **shared dev project** (`dmbygwupskttzsvfzluq`):
+the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
 
 1. **`.dev.vars` setup.**
-   - `apps/web/.dev.vars`: set `SUPABASE_URL=https://dmbygwupskttzsvfzluq.supabase.co`
-     and `SUPABASE_ANON_KEY=<dev publishable key>` (fetch with
-     `supabase projects api-keys --project-ref dmbygwupskttzsvfzluq`). Also set
+   - `apps/web/.dev.vars`: set `SUPABASE_URL=https://ktuhnlypztujpsseujzx.supabase.co`
+     and `SUPABASE_ANON_KEY=<publishable key>` (fetch with
+     `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`). Also set
      `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` for the mint
      script (these are **never** Worker bindings).
    - `apps/api/.dev.vars`: set the same `SUPABASE_URL` (the API Worker reads it
-     for JWKS + issuer). It needs **no** anon/service-role key.
+     for JWKS + issuer). It needs **no** anon key to verify tokens; the
+     service-role key is optional locally (only the ADR-0016 admin seams use it).
 
 2. **Mint a session.** From `apps/web`:
    ```bash
@@ -360,7 +362,7 @@ the **shared dev project** (`dmbygwupskttzsvfzluq`):
    auth_not_configured` instead of 401 — distinct on purpose.
 
 4. **`SUPABASE_URL` override for local-stack RLS specs.** The API Worker runtime
-   `SUPABASE_URL` points at the shared dev project, but the PostgREST/RLS
+   `SUPABASE_URL` points at the shared auth project, but the PostgREST/RLS
    integration suites can run against a **local** `supabase start` stack by
    overriding per-invocation — a shell-set var beats `dotenv -e .dev.vars`:
    ```bash
@@ -387,21 +389,19 @@ magic link **point at localhost** — even though the request came from staging.
 
 > `supabase/config.toml` `[auth].site_url` / `additional_redirect_urls` configure
 > only the **local `supabase start` stack**. They do **not** reach the deployed
-> projects — the dashboard (Authentication → URL Configuration) is the source of
-> truth for `dmbygwupskttzsvfzluq` (preview/staging) and `jgxebjufabtwkcgxjqvk`
-> (production). Set these per project; there is no per-env split inside one
-> project, so the dev project must allow-list **every** origin that points at it.
+> project — the dashboard (Authentication → URL Configuration) is the source of
+> truth. Per **[ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md)**
+> there is now **one** shared auth project, so it must allow-list **every** origin
+> across all environments (there is no per-env split inside one project).
 
-**Dev project `dmbygwupskttzsvfzluq`** (serves local dev + PR previews + staging):
+**Shared auth project `ktuhnlypztujpsseujzx`** (serves local dev + PR previews + staging + production):
 - **Redirect URLs** (wildcards allowed; `/**` covers `/auth/callback?…`):
-  - `https://staging.aecintegrations.com/**` — staging (the missing entry behind the localhost-redirect bug)
+  - `https://demo.aecintegrations.com/**` — production
+  - `https://staging.aecintegrations.com/**` — staging
+  - `https://*.aec-integrations.workers.dev/**` — PR-preview SSR origins
   - `http://localhost:8788/**` and `http://localhost:8790/**` — local dev (primary + agent workspaces; `globalThis.location.origin` is the SSR port)
-  - the PR-preview SSR origin if auth is exercised there
-- **Site URL**: `https://staging.aecintegrations.com` — a sane deployed fallback (only used when a request omits/​mismatches `emailRedirectTo`).
-
-**Prod project `jgxebjufabtwkcgxjqvk`**:
-- **Redirect URLs**: `https://demo.aecintegrations.com/**` (and the public launch domain when it lands).
-- **Site URL**: the prod origin.
+  - `https://aecintegrations.com/**` — the public launch domain, when it lands
+- **Site URL**: `https://demo.aecintegrations.com` — the deployed fallback (only used when a request omits/​mismatches `emailRedirectTo`).
 
 After editing the allow-list, re-request the magic link — the email's `redirect_to`
 should now carry the staging callback, not localhost. No deploy is needed (it's
@@ -434,7 +434,7 @@ Secrets are stored in three places:
 | `ALGOLIA_APP_ID` | ✅ per env (both Workers) | ✅ per env (both Workers) | ✅ (shared, one value) | Algolia app id (AECI-134). Single value, all envs. |
 | `ALGOLIA_SEARCH_KEY` (per-env, query-only) | ✅ on web Worker (CI-pushed) | ✅ on web Worker (CI-pushed) | ✅ as `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION`; also `_PREVIEW` (consumed by `lighthouse.yml`, which provisions `/search` with the real SDK for the post-merge error gate — AECI-188) | Search-only key, scoped to the env's indexes; client-exposed. CI-pushed to the web Worker alongside `ALGOLIA_APP_ID` by `deploy.yml` (staging — recommended/warn-and-skip) and `promote-to-prod.yml` (production — required/fail-closed); same pattern as `SUPABASE_ANON_KEY`. **Never on the API Worker.** |
 | `ALGOLIA_ADMIN_KEY` (per-env management) | ✅ on API Worker | ✅ on API Worker | ✅ as `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env management key (search + index-mutation, index-scoped) — sync from 3.5. **Never on the web Worker / never client-exposed.** Not the app-wide root admin key. |
-| `SUPABASE_URL` (per-env project URL) | ✅ per env (both Workers, as a wrangler `var`) | ✅ per env (both Workers, as a wrangler `var`) | — (it's a public `var` in `wrangler.jsonc`, not a GH secret) | AECI-193 / Phase 5. Public base URL (dev project for preview/staging, prod project for production). Web Worker → cookie-session factory; API Worker → JWKS user-JWT verify (no DB round-trip). |
+| `SUPABASE_URL` (shared auth project URL) | ✅ all envs (both Workers, as a wrangler `var`) | ✅ all envs (both Workers, as a wrangler `var`) | — (it's a public `var` in `wrangler.jsonc`, not a GH secret) | AECI-193 / Phase 5 / ADR 0017. Public base URL — the **single shared auth project** (`ktuhnlypztujpsseujzx`) across every environment. Web Worker → cookie-session factory; API Worker → JWKS user-JWT verify (no DB round-trip). |
 | `SUPABASE_ANON_KEY` (publishable/anon) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `SUPABASE_ANON_KEY_STAGING` / `_PRODUCTION` | AECI-193 / Phase 5. Publishable key; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). **Never on the API Worker** (it verifies with public JWKS material). **Recommended, not required, during Phase 5 — warn-and-skip; flips to REQUIRED in 5.5.** Absent → SSR auth surfaces return `503 auth_not_configured`. |
 | `ANTHROPIC_API_KEY` (review toxicity scoring) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ as `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-258. Anthropic key for Claude-Haiku toxicity scoring on `POST /api/reviews`. CI-pushed to the API Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), and `pr-preview.yml` (per-PR). **Optional + fail-open on every env (prod included) — warn-and-skip:** a missing key stores `toxicity_score=null` ("Not scored") and the review still enters the moderation queue, so it is **never** in `REQUIRED_WORKER_SECRETS`. **Never on the web Worker.** Supersedes the sunsetting Perspective API. **GDPR prerequisite:** the Messages API has no per-request no-store control (Perspective's `doNotStore` had no equivalent), so the Anthropic org behind the key **must** have zero data retention (ZDR) enabled before a real key is provisioned — confirm as a launch gate, otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. |
 | `POSTHOG_KEY` (publishable project key) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `POSTHOG_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-239 / Phase 7.4. Client-exposed project API key for the browser product-analytics layer; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). CI-pushed to the web Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), `pr-preview.yml` (per-PR). **Optional + fail-open on every env — warn-and-skip:** absent → no `window.__AECI_POSTHOG__` and analytics no-ops. Also gated client-side by the consent banner + DNT. **Never on the API Worker.** |
@@ -473,8 +473,8 @@ To make a recommended secret blocking, move its name from `RECOMMENDED_SECRETS` 
 | Variable | Value | Purpose |
 | --- | --- | --- |
 | `STAGING_ENABLED` | `"true"` once Chris finishes the manual checklist below | Gates the `deploy-staging` job. Skipped (not failed) while empty/false, so merges to main stay green during bootstrap. |
-| `SUPABASE_DEV_PROJECT_REF` | The Supabase project ref for `aeci-development` (the dev/staging project, host the `main` branch DB used as staging) | Consumed by `refresh-staging.yml` (AECI-77) for `supabase link --project-ref` before `supabase db push --linked`. Set once when the dev project is provisioned per §1 below. |
-| `SUPABASE_PROD_PROJECT_REF` | The Supabase project ref for `aeci-production` (`jgxebjufabtwkcgxjqvk` per §1) | Consumed by `promote-to-prod.yml` (AECI-78) for `supabase link --project-ref` before `supabase migration list --linked` (pre-promotion check) and `supabase db push --linked` (apply-prod-migrations). |
+| `SUPABASE_DEV_PROJECT_REF` | The **legacy Postgres** project ref `dmbygwupskttzsvfzluq`. **Not** the auth project (auth is the single shared `ktuhnlypztujpsseujzx`, ADR 0017). | Consumed by `refresh-staging.yml` (AECI-77) for `supabase link --project-ref` before `supabase db push --linked` against the retained public-schema gate (AECI-256/257). |
+| `SUPABASE_PROD_PROJECT_REF` | The **legacy Postgres** project ref `jgxebjufabtwkcgxjqvk`. **Not** the auth project (ADR 0017). | Consumed by `promote-to-prod.yml` (AECI-78) for `supabase link --project-ref` before `supabase migration list --linked` (pre-promotion check) and `supabase db push --linked` (apply-prod-migrations) against the retained public-schema gate. |
 
 ## Manual prerequisites — Chris's checklist before `STAGING_ENABLED=true`
 
@@ -482,11 +482,22 @@ The following must be done by hand (Supabase and Cloudflare dashboards + `gh sec
 
 ### 1. Supabase projects
 
-Production existed before the AECI Stage 1 migration system did — it holds the
-live landing-page `feedback` and `mailing_list` tables written by
-`apps/landing/` via PostgREST (see `20260101000000_landing_baseline.sql`). So
-the dual-environment split is built around keeping that DB *as production* and
-provisioning a fresh empty project for development:
+> **Auth (ADR 0017).** Authentication for **every** environment runs on a single
+> shared project, `ktuhnlypztujpsseujzx`. Provision it on a **paid tier** (Free
+> pauses + caps MAU), configure its redirect-URL allow-list + Site URL (see
+> "Deployed Supabase Auth: redirect-URL configuration" above), wire Resend custom
+> SMTP (`docs/email.md`) and Google OAuth, then point `SUPABASE_URL` (both
+> `wrangler.jsonc`s, already flipped) at it and set `SUPABASE_ANON_KEY_{STAGING,PRODUCTION}`
+> + per-env `SUPABASE_SERVICE_ROLE_KEY`. Per-environment isolation is Cloudflare
+> Access (`docs/access.md`), not project separation. The two projects below are
+> the **legacy Postgres** gate (app data is on D1 — ADR 0016), retained only until
+> AECI-256/257 decommission it; they no longer serve auth.
+
+The legacy Postgres production project existed before the AECI Stage 1 migration
+system did — it holds the live landing-page `feedback` and `mailing_list` tables
+written by `apps/landing/` via PostgREST (see `20260101000000_landing_baseline.sql`).
+So the dual-environment Postgres split is built around keeping that DB *as
+production* and provisioning a fresh empty project for development:
 
 - [x] **Rename** the existing Supabase project to `aeci-production` (Supabase Dashboard → Project Settings → General → Project name). Project ref `jgxebjufabtwkcgxjqvk` stays the same. This is the prod URL the landing Worker already points at.
 - [x] **Provision a new empty project** named `aeci-development` in the same Supabase org. Region: match the prod project (lowest latency to Workers).
