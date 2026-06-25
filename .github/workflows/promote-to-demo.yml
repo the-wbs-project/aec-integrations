@@ -37,11 +37,9 @@
 #   CLOUDFLARE_API_TOKEN       Scoped per docs/CICD_PLAN.md §7.1 (Workers + D1 +
 #                              Queues edit).
 #   CLOUDFLARE_ACCOUNT_ID      e62ec9d8012c3e0c225f8e4dbab76b79.
-#   DATABASE_URL_PRODUCTION    Prisma Accelerate `prisma://...` for the SHARED
-#                              prod Supabase project. Pushed to the demo API
-#                              Worker as its `DATABASE_URL` secret so /api/health
-#                              is db:ok and admin email reads work. (Demo shares
-#                              the prod Supabase project — same value as prod.)
+#   (No DATABASE_URL_PRODUCTION — the demo app DB is Cloudflare D1 `aeci-app-demo`
+#    (ADR 0016); /api/health's db:ok check runs over the `DB` binding. The Prisma
+#    Accelerate runtime path is retired, AECI-253.)
 #
 # Recommended GH Actions secrets (warn-and-skip; demo is not launch-critical):
 #   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET  Service token for the staging
@@ -126,7 +124,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL_PRODUCTION: ${{ secrets.DATABASE_URL_PRODUCTION }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
@@ -139,7 +136,7 @@ jobs:
           POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           ENV_LABEL: demo
-          REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID DATABASE_URL_PRODUCTION'
+          REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
           RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION POSTHOG_KEY_PRODUCTION DATADOG_API_KEY'
         run: bash scripts/require-secrets.sh
 
@@ -251,25 +248,10 @@ jobs:
         working-directory: apps/api
         run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # Push DATABASE_URL to the demo API Worker (from DATABASE_URL_PRODUCTION —
-      # demo shares the prod Supabase project). Required: /api/health is db:ok only
-      # with it, and the smoke gate below fails the promote otherwise. printf (not
-      # echo) avoids a trailing newline that would corrupt the URL.
-      - name: Push DATABASE_URL to API Worker (demo)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_PRODUCTION }}
-        working-directory: apps/api
-        run: |
-          set -euo pipefail
-          if [ -z "$DATABASE_URL_VALUE" ]; then
-            echo "::error::DATABASE_URL_PRODUCTION secret is empty. The demo API Worker reuses the prod Supabase Accelerate URL for /api/health + admin email reads."
-            exit 1
-          fi
-          printf '%s' "$DATABASE_URL_VALUE" \
-            | pnpm exec wrangler secret put DATABASE_URL --env demo
-
+      # (No DATABASE_URL push — the demo app DB is Cloudflare D1 `aeci-app-demo`
+      # (ADR 0016), reached via the `DB` binding and applied with `wrangler d1
+      # migrations apply`; the Prisma Accelerate runtime path is retired, AECI-253.
+      # /api/health's db:ok check runs over the D1 binding.)
       # Push REVIEW_APP_TOKEN (shared) so the demo catalog can be (re)promoted from
       # the review app. Warn-and-skip: absent → POST /api/promote is 401 on demo,
       # which only blocks re-seeding via the promote API (a clone/datatool seed
@@ -406,17 +388,10 @@ jobs:
           printf '%s' "$POSTHOG_KEY_VALUE" \
             | pnpm exec wrangler secret put POSTHOG_KEY --env demo
 
-      # Postflight: assert the demo API Worker carries the one secret it can't run
-      # without (DATABASE_URL → /api/health). Algolia is recommended on demo, so
-      # it is NOT in REQUIRED_WORKER_SECRETS (unlike production).
-      - name: Verify demo API Worker has required secrets
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_ENV: demo
-          REQUIRED_WORKER_SECRETS: 'DATABASE_URL'
-        working-directory: apps/api
-        run: bash ../../scripts/verify-worker-secrets.sh
+      # (No Worker-secrets postflight on demo: the app DB is D1 `aeci-app-demo`
+      # reached via the `DB` binding — not a secret — and DATABASE_URL is retired
+      # (ADR 0016 / AECI-253). The /api/health smoke gate below still proves the
+      # DB is reachable. Algolia/REVIEW_APP_TOKEN are recommended, not required.)
 
       - name: Datadog deployment marker
         if: ${{ secrets.DATADOG_API_KEY != '' }}
