@@ -64,6 +64,10 @@
     "./workflow-transition": {
       "types": "./src/workflow-transition.ts",
       "default": "./src/workflow-transition.ts"
+    },
+    "./seed-reviews": {
+      "types": "./src/seed-reviews/index.ts",
+      "default": "./src/seed-reviews/index.ts"
     }
   },
   "scripts": {
