@@ -375,7 +375,24 @@ the **single shared auth project** (`ktuhnlypztujpsseujzx`, ADR 0017):
    An unprovisioned Worker (no `SUPABASE_ANON_KEY`) returns `503
    auth_not_configured` instead of 401 — distinct on purpose.
 
-4. **`SUPABASE_URL` override for local-stack RLS specs.** The API Worker runtime
+4. **Authed console-health e2e (AECI-235).** `apps/web/e2e/authed-console.spec.ts`
+   reuses the same mint recipe to visit the four auth-gated Phase 5 pages
+   (`/account`, `/admin`, `/admin/reviews`, `/products/:slug/review`) with a real
+   admin session and assert zero console errors. To run it locally, the **test user
+   must be the admin** — set `SUPABASE_TEST_USER_EMAIL=test@thewbsproject.com` /
+   `SUPABASE_TEST_USER_PASSWORD=<password>` in `apps/web/.dev.vars`
+   (`playwright.config.ts` reads the `SUPABASE_*` keys from there). The admin role is
+   re-read from the **D1 `profiles`** table on every API request, so the admin's
+   `role='admin'` profile (`apps/api/seed/auth-fixtures.sql`, keyed to that account's
+   Supabase user id `519f1e77-6e60-440e-81a9-3354d06be0b6`) must be seeded — `dev:bound`
+   → `db:seed:local` does this automatically. If the account is ever recreated, re-mint
+   it and update the id in `auth-fixtures.sql` to match the new `sub`. The spec **skips**
+   (never fails) when the
+   creds/anon key are absent or sign-in fails. In CI it stays skipped until the
+   `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` GH secrets are set (see
+   "Secrets"); the `deploy.yml` Playwright step already passes them through.
+
+5. **`SUPABASE_URL` override for local-stack RLS specs.** The API Worker runtime
    `SUPABASE_URL` points at the shared auth project, but the PostgREST/RLS
    integration suites can run against a **local** `supabase start` stack by
    overriding per-invocation — a shell-set var beats `dotenv -e .dev.vars`:
@@ -450,6 +467,7 @@ Secrets are stored in three places:
 | `ALGOLIA_ADMIN_KEY` (per-env management) | ✅ on API Worker | ✅ on API Worker | ✅ as `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env management key (search + index-mutation, index-scoped) — sync from 3.5. **Never on the web Worker / never client-exposed.** Not the app-wide root admin key. |
 | `SUPABASE_URL` (shared auth project URL) | ✅ all envs (both Workers, as a wrangler `var`) | ✅ all envs (both Workers, as a wrangler `var`) | — (it's a public `var` in `wrangler.jsonc`, not a GH secret) | AECI-193 / Phase 5 / ADR 0017. Public base URL — the **single shared auth project** (`ktuhnlypztujpsseujzx`) across every environment. Web Worker → cookie-session factory; API Worker → JWKS user-JWT verify (no DB round-trip). |
 | `SUPABASE_ANON_KEY` (publishable/anon) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `SUPABASE_ANON_KEY_STAGING` / `_PRODUCTION` | AECI-193 / Phase 5. Publishable key; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). **Never on the API Worker** (it verifies with public JWKS material). **Recommended, not required, during Phase 5 — warn-and-skip; flips to REQUIRED in 5.5.** Absent → SSR auth surfaces return `503 auth_not_configured`. |
+| `SUPABASE_TEST_USER_EMAIL` + `SUPABASE_TEST_USER_PASSWORD` | ❌ never on a Worker | ❌ never on a Worker | ✅ (CI test only) | AECI-235. Credentials for the **admin** test user (`test@thewbsproject.com`, an admin account in the shared Supabase project; its `role='admin'` D1 profile is keyed to Supabase user id `519f1e77-…` in `apps/api/seed/auth-fixtures.sql`) that `apps/web/e2e/authed-console.spec.ts` signs in to console-check the auth-gated Phase 5 pages. Consumed only by the `deploy.yml` Playwright step `env:` (never a Worker binding, never client-exposed). **Optional — warn-and-skip:** absent → the spec skips its 4 cases. Local dev sets the same pair in `apps/web/.dev.vars`. **Remaining manual step** to activate the gate in CI. |
 | `ANTHROPIC_API_KEY` (review toxicity scoring) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ as `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-258. Anthropic key for Claude-Haiku toxicity scoring on `POST /api/reviews`. CI-pushed to the API Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), and `pr-preview.yml` (per-PR). **Optional + fail-open on every env (prod included) — warn-and-skip:** a missing key stores `toxicity_score=null` ("Not scored") and the review still enters the moderation queue, so it is **never** in `REQUIRED_WORKER_SECRETS`. **Never on the web Worker.** Supersedes the sunsetting Perspective API. **GDPR prerequisite:** the Messages API has no per-request no-store control (Perspective's `doNotStore` had no equivalent), so the Anthropic org behind the key **must** have zero data retention (ZDR) enabled before a real key is provisioned — confirm as a launch gate, otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. |
 | `POSTHOG_KEY` (publishable project key) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `POSTHOG_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-239 / Phase 7.4. Client-exposed project API key for the browser product-analytics layer; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). CI-pushed to the web Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), `pr-preview.yml` (per-PR). **Optional + fail-open on every env — warn-and-skip:** absent → no `window.__AECI_POSTHOG__` and analytics no-ops. Also gated client-side by the consent banner + DNT. **Never on the API Worker.** |
 | `POSTHOG_HOST` (ingestion host) | ✅ per env (web Worker, wrangler `var`) | ✅ per env (web Worker, wrangler `var`) | — (public `var` in `wrangler.jsonc`, not a GH secret) | AECI-239. `https://us.i.posthog.com` (US Cloud). The static CSP `connect-src` is pinned to the US hosts, so a non-US host needs a matching CSP change. Defaulted in code when unset. |

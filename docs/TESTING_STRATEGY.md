@@ -361,12 +361,38 @@ test('user can search and find a product', async ({ page }) => {
 
 ### 7.6 Auth in tests
 
-Magic link doesn't work well in E2E (requires real email). Two options:
+Magic link doesn't work in E2E (real email), and there is **no** `TEST_MODE`/`?test_user=`
+bypass — the API Worker verifies a real Supabase JWT against the project's JWKS on every
+request (`apps/api/src/lib/authz.ts`), so the only way an auth-gated page renders its real
+content is a real session. Two postures, by what the page needs:
 
-- **Test mode bypass**: API Worker has a `TEST_MODE=true` flag that accepts a `?test_user=email@example.com` query param to create a session. Only enabled in preview environment.
-- **Direct Supabase JWT**: tests use the Supabase admin SDK to mint a JWT for a test user, set it as a cookie.
+- **Cookie-presence + API stubs** — for pages whose SSR gate is only a cookie *presence*
+  check and which fetch their data **client-side** (`/account`, `/products/:slug/review`):
+  a dummy `sb-…-auth-token` cookie passes the gate and `page.route()` stubs the
+  `/api/*` reads. See `account-delete.spec.ts` / `reviews-submission.spec.ts`. Deterministic,
+  no secrets — but it never exercises a real signed-in hydration (the client's
+  `@supabase/ssr` `getSession()` sees no real session) and **cannot** cover the admin pages.
+- **Real minted session** — for pages that authorize **server-side inside the SSR Worker**
+  (`/admin`, `/admin/reviews`: `adminSummaryResolver` → `GET /api/admin/summary`, a
+  service-binding call `page.route()` can't intercept). `apps/web/e2e/auth-session.ts`
+  mints a session with the `@supabase/ssr` capture-jar recipe (the same one
+  `apps/web/scripts/mint-dev-session.mjs` prints) and hands Playwright the real cookies.
 
-Recommend the test mode bypass for simplicity. Enable only with `ENV !== 'production'`.
+**Authed console-health (AECI-235, Spec §15.15).** `apps/web/e2e/authed-console.spec.ts` is
+the Phase 5 analogue of the AECI-162 console crawler: it visits the four auth-gated pages
+(`/account`, `/admin`, `/admin/reviews`, `/products/:slug/review`) with one minted **admin**
+session (admin is also an authed user, so it covers all four) and asserts zero console
+`error`/`pageerror` via the shared, single-sourced `console-capture.ts` helpers (warnings
+stay reported-not-gated). It **skips when unconfigured** (no anon key / no
+`SUPABASE_TEST_USER_*` creds / sign-in fails), matching `auth-whoami.spec.ts`. To run it the
+test user must be `test@thewbsproject.com` (an admin account in the shared Supabase project)
+and its `role='admin'` D1 profile must exist — seeded automatically by `dev:bound` →
+`db:seed:local` (`apps/api/seed/auth-fixtures.sql`, keyed to that account's Supabase user
+id; update both together if the account is recreated). Env is
+read from `process.env`; locally `playwright.config.ts` hydrates the four `SUPABASE_*` keys
+from `apps/web/.dev.vars`, and in CI they come from the Playwright step `env:` in
+`deploy.yml` (warn-and-skip when the secrets are absent). Remaining manual step to activate
+it in CI: set the `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` GH secrets.
 
 ### 7.7 Cross-browser & real-device — BrowserStack (Phase 7)
 

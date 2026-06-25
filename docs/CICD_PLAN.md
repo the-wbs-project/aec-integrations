@@ -139,6 +139,13 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 3. Capture screenshots and traces on failure
 4. Upload Playwright report as artifact
 
+> The E2E suite that actually gates PRs is the local **`e2e-and-integration`** job
+> (against `dev:bound`), not this parked preview-URL job. Its Playwright step also
+> passes `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_TEST_USER_EMAIL` /
+> `SUPABASE_TEST_USER_PASSWORD` (AECI-235) so `authed-console.spec.ts` can mint a real
+> admin session and console-check the auth-gated Phase 5 pages — warn-and-skip when the
+> `SUPABASE_TEST_USER_*` secrets are unset. See `TESTING_STRATEGY.md` §7.6.
+
 **Job: `accessibility`** (depends on `deploy-preview`, ~2 min)
 1. Run axe-core via Playwright against key pages on preview
 2. Fail if any violations above "moderate" severity
