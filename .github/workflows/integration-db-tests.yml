@@ -3,13 +3,23 @@
 # could affect its outcome changes, instead of booting a full Supabase stack
 # (~4 billable min) on every PR push.
 #
-# These are the security-/correctness-critical suites:
-#   src/integration/vendor_requests.rls.spec.ts          (PostgREST deny matrix)
-#   src/integration/landing_forms.rls.spec.ts            (PostgREST deny matrix)
-#   src/integration/auth_user_delete_trigger.spec.ts     (GDPR delete trigger)
-#   src/integration/airtable-to-supabase-bulk-migrate.spec.ts (idempotent migrate)
-#   src/integration/product-counts.spec.ts               (denormalized-count drift)
-#   src/integration/backfill-slugs.spec.ts               (slug backfill)
+# These are the security-/correctness-critical suites that need a real Postgres +
+# PostgREST + GoTrue stack (not Miniflare). NOTE (ADR 0016 / AECI-234): most of the
+# suites this harness was designed around were planned under the pre-ADR-0016
+# Prisma/Supabase-Postgres architecture and were never created — ADR 0016 moved the
+# application DB to Cloudflare D1 (no RLS, no PostgREST). The only spec currently
+# present in src/integration/ is `user-auth.jwks.spec.ts` (live Supabase JWKS — auth
+# is retained on Supabase). The originally-listed specs never landed:
+#   src/integration/vendor_requests.rls.spec.ts          (PostgREST deny matrix — never created)
+#   src/integration/landing_forms.rls.spec.ts            (PostgREST deny matrix — never created)
+#   src/integration/auth_user_delete_trigger.spec.ts     (GDPR delete trigger — never created)
+#   src/integration/airtable-to-supabase-bulk-migrate.spec.ts (idempotent migrate — never created)
+#   src/integration/product-counts.spec.ts               (denormalized-count drift — never created)
+#   src/integration/backfill-slugs.spec.ts               (slug backfill — never created)
+# The reviews/profiles authorization deny-matrix is NOT here: under D1 it is an
+# app-layer no-leakage matrix in the UNIT lane —
+# apps/api/src/routes/{reviews,profiles}.authz-matrix.spec.ts (AECI-234). This whole
+# Supabase-Postgres harness is ADR-0016 Phase-6 decommission scope.
 #
 # Why local Supabase (not the shared dev DB): the auth-delete suite
 # creates+deletes auth.users and the bulk-migrate suite inserts+deletes

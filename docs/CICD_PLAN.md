@@ -125,6 +125,12 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
    `deploy-staging`'s `needs` yet — promote to a required check once stable. See
    `TESTING_STRATEGY.md` §6.5.
 
+> **ADR 0016 / AECI-234:** the reviews/profiles authorization deny-matrix is **not** in this
+> PostgREST job — under D1 (no RLS) it is an app-layer **no-leakage matrix in the unit lane**
+> (`apps/api/src/routes/reviews.authz-matrix.spec.ts` / `profiles.authz-matrix.spec.ts`), run by
+> the `unit` job on every PR. The `*.rls.spec.ts` specs listed in step 4 (PostgREST RLS deny
+> matrix, landing-form RLS) were never created and are ADR-0016 Phase-6 decommission scope.
+
 **Job: `build`** (~3 min)
 1. Checkout, install
 2. `pnpm run build` (Angular SSR build for Cloudflare Workers)
