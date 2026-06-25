@@ -164,6 +164,16 @@ function clickSort(el: HTMLElement, label: string): void {
   buttonByText(group, label).click();
 }
 
+/** The toxicity badge button within a card (the one whose accessible name names
+ *  the toxicity score — distinguishes it from Approve/Reject). */
+function toxicityBadge(card: HTMLElement): HTMLButtonElement {
+  const btn = [...card.querySelectorAll('button')].find((b) =>
+    (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'),
+  );
+  if (!btn) throw new Error('No toxicity badge button');
+  return btn as HTMLButtonElement;
+}
+
 describe('ReviewQueue', () => {
   beforeEach(() => TestBed.resetTestingModule());
   afterEach(() => vi.restoreAllMocks());
@@ -198,6 +208,40 @@ describe('ReviewQueue', () => {
     expect(bravo.textContent).toContain('80');
     const charlie = cardFor(el, 'Charlie'); // toxicity null
     expect(charlie.textContent).toContain('Not scored');
+  });
+
+  it('exposes each toxicity badge as a button whose label gives the number meaning', async () => {
+    const { el } = await setup();
+    const bravo = toxicityBadge(cardFor(el, 'Bravo')); // 80
+    expect(bravo.tagName).toBe('BUTTON');
+    expect(bravo.getAttribute('aria-label')).toContain('80');
+    expect(bravo.getAttribute('aria-label')).toContain('of 100');
+
+    const charlie = toxicityBadge(cardFor(el, 'Charlie')); // null
+    expect(charlie.getAttribute('aria-label')?.toLowerCase()).toContain('not scored');
+  });
+
+  it('reveals the toxicity scale legend when a badge is opened', async () => {
+    const { el, fixture } = await setup();
+    toxicityBadge(cardFor(el, 'Bravo')).click();
+    await settle();
+    fixture.detectChanges();
+    // The popover content mounts in the CDK overlay container on document.body
+    // (jsdom has no Popover API, so the overlay isn't in the host element).
+    expect(document.body.textContent).toContain('Toxicity score');
+    expect(document.body.textContent).toContain('Normal');
+    expect(document.body.textContent).toContain('High (flagged)');
+    expect(document.body.textContent).toContain('never auto-rejects');
+  });
+
+  it('offers a shared toxicity-scale explainer beside the sort control', async () => {
+    const { el } = await setup();
+    const sortRow = (el.querySelector('[aria-labelledby="admin-reviews-sort-label"]')
+      ?.parentElement ?? el) as HTMLElement;
+    const info = [...sortRow.querySelectorAll('button')].find((b) =>
+      (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'),
+    );
+    expect(info).toBeTruthy();
   });
 
   it('re-sorts by queue age (oldest first)', async () => {

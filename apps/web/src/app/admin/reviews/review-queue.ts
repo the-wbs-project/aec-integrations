@@ -1,6 +1,19 @@
+import {
+  OverlayModule,
+  type CdkConnectedOverlayConfig,
+  type ConnectedPosition,
+} from '@angular/cdk/overlay';
 import { DatePipe } from '@angular/common';
 import { HttpErrorResponse } from '@angular/common/http';
-import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
+import {
+  Component,
+  DestroyRef,
+  afterNextRender,
+  computed,
+  inject,
+  signal,
+  viewChild,
+} from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { RouterLink } from '@angular/router';
 import {
@@ -67,6 +80,7 @@ const BanReasonSchema = z.object({
   selector: 'aec-review-queue',
   imports: [
     DatePipe,
+    OverlayModule,
     RouterLink,
     FormField,
     BrnDialog,
@@ -159,9 +173,35 @@ export class ReviewQueue {
 
   private readonly banDialog = viewChild(BrnDialog);
 
+  /** Exposed so the legend can name the high-toxicity band without hard-coding 70. */
+  protected readonly highToxicityThreshold = HIGH_TOXICITY_THRESHOLD;
+
+  /** Which trigger the shared toxicity-scale legend is anchored to (null = closed).
+   *  The legend is a `cdkConnectedOverlay`, not a focus-trapping dialog, so revealing
+   *  it (hover, click, or keyboard) never pulls focus out of what the admin is doing. */
+  protected readonly legendOrigin = signal<HTMLElement | null>(null);
+  /** Below the trigger, end-aligned with a 6px gap; flips above when there's no room. */
+  protected readonly legendPositions: ConnectedPosition[] = [
+    { originX: 'end', originY: 'bottom', overlayX: 'end', overlayY: 'top', offsetY: 6 },
+    { originX: 'end', originY: 'top', overlayX: 'end', overlayY: 'bottom', offsetY: -6 },
+  ];
+  /** Connected-overlay config (origin + positions); recomputed only when the active
+   *  trigger changes, so an idle queue never churns the overlay. */
+  protected readonly legendOverlayConfig = computed<CdkConnectedOverlayConfig>(() => ({
+    origin: this.legendOrigin() ?? undefined,
+    positions: this.legendPositions,
+  }));
+  /** Grace timer so the pointer can travel from a trigger onto the panel without the
+   *  legend flickering shut; cleared on destroy. */
+  private legendCloseTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly destroyRef = inject(DestroyRef);
+
   constructor() {
     afterNextRender(() => {
       void this.load();
+    });
+    this.destroyRef.onDestroy(() => {
+      if (this.legendCloseTimer) clearTimeout(this.legendCloseTimer);
     });
   }
 
@@ -194,6 +234,57 @@ export class ReviewQueue {
 
   protected isHighToxicity(score: number | null): boolean {
     return score !== null && score >= HIGH_TOXICITY_THRESHOLD;
+  }
+
+  /** Accessible name for a toxicity badge — gives the bare number meaning ("of 100")
+   *  for screen-reader users and signals the badge reveals the scale. Built in TS
+   *  with `$localize` because interpolated `i18n-*` attributes don't extract. */
+  protected toxicityAriaLabel(score: number | null): string {
+    return score === null
+      ? $localize`:@@admin.reviews.toxicity.aria.notScored:Toxicity not scored. Show the toxicity scale.`
+      : $localize`:@@admin.reviews.toxicity.aria.scored:Toxicity score ${score}:score: of 100. Show the toxicity scale.`;
+  }
+
+  /** Anchor the shared legend to a trigger and show it. Cancels any pending close so
+   *  moving between a badge and the panel keeps it open; re-anchoring to a different
+   *  trigger just repositions the single overlay (only one legend open at a time). */
+  protected openLegend(origin: HTMLElement): void {
+    this.cancelLegendClose();
+    this.legendOrigin.set(origin);
+  }
+
+  /** Keep the legend open while the pointer is over the panel. */
+  protected keepLegendOpen(): void {
+    this.cancelLegendClose();
+  }
+
+  /** Toggle the legend for a trigger (click / Enter / Space). */
+  protected toggleLegend(origin: HTMLElement): void {
+    if (this.legendOrigin() === origin) this.closeLegend();
+    else this.openLegend(origin);
+  }
+
+  /** Close after a short grace, so the pointer can travel from the trigger onto the
+   *  panel (which re-opens via its own `mouseenter`) without it flickering shut. */
+  protected scheduleCloseLegend(): void {
+    this.cancelLegendClose();
+    this.legendCloseTimer = setTimeout(() => {
+      this.legendOrigin.set(null);
+      this.legendCloseTimer = null;
+    }, 120);
+  }
+
+  /** Close the legend immediately (re-click, blur, or Escape). */
+  protected closeLegend(): void {
+    this.cancelLegendClose();
+    this.legendOrigin.set(null);
+  }
+
+  private cancelLegendClose(): void {
+    if (this.legendCloseTimer) {
+      clearTimeout(this.legendCloseTimer);
+      this.legendCloseTimer = null;
+    }
   }
 
   /** Relative queue age (e.g. "3 d", "5 h", "12 min"). Browser-only — the list
