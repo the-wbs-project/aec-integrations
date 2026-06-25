@@ -34,9 +34,9 @@
 #        brief mismatch lands with the safer (API-ahead-of-SSR) ordering.
 #      - Both `wrangler deploy` lines pass `--var COMMIT_SHA --var DEPLOYED_AT`
 #        per CLAUDE.md non-negotiable.
-#      - After the API deploy, pushes the `DATABASE_URL` Worker secret from
-#        `DATABASE_URL_PRODUCTION` (idempotent) so the prod API Worker always has
-#        a DB connection — secrets aren't set by `wrangler deploy`.
+#      - (No DATABASE_URL push — the app DB is Cloudflare D1 (ADR 0016) reached
+#        via the `DB` binding; the Prisma Accelerate runtime path is retired,
+#        AECI-253.)
 #      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
 #      - Polls `prod.aecintegrations.com` (Access-gated until launch — ADR 0017;
 #        the smoke step passes the `aeci-gh-actions` service-token headers, a
@@ -56,17 +56,14 @@
 # BEFORE the approval gate or any snapshot/migration. A missing REQUIRED secret
 # fails the run immediately — nothing is deployed and the DB is never touched.
 # After deploy, `scripts/verify-worker-secrets.sh` asserts the prod API Worker
-# actually carries DATABASE_URL + REVIEW_APP_TOKEN. Recommended-but-optional
+# actually carries REVIEW_APP_TOKEN + the Algolia keys. Recommended-but-optional
 # secrets (ADMIN_PURGE_TOKEN, DATADOG_API_KEY, CF_PURGE_API_TOKEN, CF_ZONE_ID)
 # only warn. See docs/environments.md §Secrets.
 #
 # Required GH Actions secrets:
-#   DATABASE_URL_PRODUCTION  Prisma Accelerate `prisma://...` for prod. Pushed to
-#                            the prod API Worker as its `DATABASE_URL` secret on
-#                            every promote (idempotent) so a fresh
-#                            `aeci-api-production` can never go live without a DB
-#                            connection. Worker RUNTIME path only — never the
-#                            pooler URL. (docs/environments.md §8.)
+#   (No DATABASE_URL_PRODUCTION — the app DB is Cloudflare D1 (ADR 0016); the
+#    Prisma Accelerate runtime path is retired, AECI-253. The Worker reaches D1
+#    through its `DB` binding, applied via `wrangler d1 migrations apply`.)
 #   REVIEW_APP_TOKEN         Bearer gating the API Worker's POST /api/promote
 #                            (review-app → Supabase push). Pushed to the prod API
 #                            Worker each promote; absent → promote is 401
@@ -96,7 +93,7 @@
 #   DATADOG_API_KEY          Datadog deploy-marker intake (docs/CICD_PLAN.md §9.1).
 #
 # Required GH Actions repo variables:
-#   SUPABASE_PROD_PROJECT_REF  Legacy-Postgres prod project ref (jgxebjufabtwkcgxjqvk
+#   SUPABASE_PROJECT_REF       Legacy-Postgres project ref (jgxebjufabtwkcgxjqvk
 #                              per docs/environments.md §1) — the retained
 #                              public-schema gate, NOT auth (auth is the single
 #                              shared project per ADR 0017).
@@ -168,14 +165,13 @@ jobs:
       #   secret. Runs in pre-promotion-checks (unattended, BEFORE the approval
       #   gate and BEFORE any snapshot/migration), so a misconfigured prod fails
       #   here and nothing destructive runs. Required = every secret the promote
-      #   and the prod Workers' runtime need (Worker DATABASE_URL/REVIEW_APP_TOKEN
-      #   are pushed in deploy-prod-workers from the GH secrets asserted here).
+      #   and the prod Workers' runtime need (Worker REVIEW_APP_TOKEN + Algolia
+      #   keys are pushed in deploy-prod-workers from the GH secrets asserted here).
       #   Recommended-but-optional (Datadog / cache-purge) only warn. Keep in
       #   sync with apps/api/src/env.ts + docs/environments.md §Secrets.
       # -----------------------------------------------------------------------
       - name: Preflight — required secrets present (production)
         env:
-          DATABASE_URL_PRODUCTION: ${{ secrets.DATABASE_URL_PRODUCTION }}
           REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
           DIRECT_URL_PRODUCTION: ${{ secrets.DIRECT_URL_PRODUCTION }}
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
@@ -196,15 +192,16 @@ jobs:
           # rather than silently shipping a Worker whose AECI-139 sync cron +
           # promote→index hook no-op and let the index go stale.
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY_PRODUCTION: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
-          ALGOLIA_SEARCH_KEY_PRODUCTION: ${{ secrets.ALGOLIA_SEARCH_KEY_PRODUCTION }}
-          SUPABASE_ANON_KEY_PRODUCTION: ${{ secrets.SUPABASE_ANON_KEY_PRODUCTION }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+          ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           ENV_LABEL: production
-          REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_PRODUCTION ALGOLIA_SEARCH_KEY_PRODUCTION'
-          # AECI-193: SUPABASE_ANON_KEY_PRODUCTION is recommended (warn-and-skip)
-          # during the Phase 5 spike — flips to REQUIRED in 5.5 when real auth
-          # surfaces ship. Until then a missing key only degrades the (throwaway)
+          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY'
+          # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
+          # project's key (un-suffixed; identical for every env). Recommended
+          # (warn-and-skip) during the Phase 5 spike — flips to REQUIRED in 5.5
+          # when real auth surfaces ship. Until then a missing key only degrades the (throwaway)
           # /auth/whoami smoke to 503, never a launch-critical surface. AECI-258:
           # ANTHROPIC_API_KEY_PRODUCTION is recommended (NOT required) — toxicity
           # scoring is fail-open, so a missing key only drops the moderation-queue
@@ -215,7 +212,7 @@ jobs:
           # INDEXNOW_KEY_PRODUCTION is recommended (NOT required) — the post-promote
           # IndexNow submission + the {key}.txt file are fail-open no-ops until it's
           # provisioned at launch, never blocking a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY_PRODUCTION ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -260,7 +257,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_PROD_PROJECT_REF }}"
+          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
 
           # Capture the migration list so we can both print it and embed it
           # in the step summary. `supabase migration list --linked` exits 0
@@ -408,7 +405,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_PROD_PROJECT_REF }}"
+          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
           supabase db push --linked --include-all
 
       # -----------------------------------------------------------------------
@@ -552,8 +549,8 @@ jobs:
       # tracked no-op; taxonomy is upserts. Runs after apply-prod-migrations (the
       # Supabase landing+auth push + drift/RLS hard-stops) and the `production`
       # approval gate. Requires CLOUDFLARE_API_TOKEN to carry Account → D1 → Edit
-      # (docs/CICD_PLAN.md §7.1). The DATABASE_URL push below is now dead weight (the
-      # Worker no longer reads it), removed at the Supabase-DB decommission (AECI-257).
+      # (docs/CICD_PLAN.md §7.1). The DATABASE_URL push has been removed (the
+      # Worker no longer reads it — AECI-253; Prisma Accelerate runtime retired).
       - name: Apply D1 migrations (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -575,38 +572,8 @@ jobs:
         working-directory: apps/api
         run: pnpm exec wrangler deploy --env production --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # Ensure the prod API Worker has its DATABASE_URL secret before it serves
-      # traffic. Worker secrets persist across `wrangler deploy`, so once set this
-      # is a no-op — but pushing it idempotently here means a freshly-created
-      # `aeci-api-production` can never go live without a DB connection. A missing
-      # DATABASE_URL makes every DB endpoint 500, turning blocking-resolver SSR
-      # routes (e.g. /categories) into 404s while httpResource routes (/products,
-      # /vendors) render empty — the incident this guards against. Runs AFTER
-      # `Deploy API` (the Worker must exist) and BEFORE the smoke test, whose
-      # /api/health gate (added below) now fails the promote if the DB is still
-      # unreachable instead of shipping a broken prod. `secret put` preserves the
-      # --var COMMIT_SHA/DEPLOYED_AT from the deploy above (it patches one
-      # binding, not the whole version) — the deploy→secret order pr-preview.yml
-      # relies on. `DATABASE_URL_PRODUCTION` is the prod Accelerate prisma:// URL
-      # (docs/environments.md §8). printf (not echo) avoids a trailing newline
-      # that would corrupt the URL.
-      - name: Push DATABASE_URL to API Worker (production)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_PRODUCTION }}
-        working-directory: apps/api
-        run: |
-          set -euo pipefail
-          if [ -z "$DATABASE_URL_VALUE" ]; then
-            echo "::error::DATABASE_URL_PRODUCTION secret is empty. The prod API Worker needs it (Prisma Accelerate prisma:// URL) or every DB endpoint 500s. Set it with: gh secret set DATABASE_URL_PRODUCTION --body '<prisma:// URL>' (docs/environments.md §8)."
-            exit 1
-          fi
-          printf '%s' "$DATABASE_URL_VALUE" \
-            | pnpm exec wrangler secret put DATABASE_URL --env production
-
-      # Push REVIEW_APP_TOKEN to the prod API Worker (same idempotent pattern as
-      # DATABASE_URL). It gates `POST /api/promote` (the review-app → Supabase
+      # Push REVIEW_APP_TOKEN to the prod API Worker (idempotent `secret put` on
+      # every promote). It gates `POST /api/promote` (the review-app → Supabase
       # push); absent → the endpoint is 401 fail-closed and the promotion
       # pipeline is dead. The preflight already proved the GH secret is non-empty;
       # this places it on the Worker and the postflight (verify-worker-secrets.sh)
@@ -631,19 +598,19 @@ jobs:
       # launch-critical surface, so production FAILS CLOSED: a missing secret
       # aborts the promote (here + the preflight REQUIRED gate + the postflight
       # verify-worker-secrets check below). ALGOLIA_APP_ID is the shared app id;
-      # ALGOLIA_ADMIN_KEY is the per-env MANAGEMENT key (never the search-only or
-      # root key). Same idempotent deploy→secret order as DATABASE_URL above.
+      # ALGOLIA_ADMIN_KEY is the shared MANAGEMENT key (never the search-only or
+      # root key). Idempotent `secret put` in the deploy→secret order.
       - name: Push Algolia credentials to API Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
+          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         working-directory: apps/api
         run: |
           set -euo pipefail
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_ADMIN_KEY_VALUE" ]; then
-            echo "::error::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY_PRODUCTION secret is empty. The prod API Worker needs them or the AECI-139 sync cron + promote→index hook silently no-op (search goes stale). Set them under Settings → Secrets and variables → Actions."
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY secret is empty. The prod API Worker needs them or the AECI-139 sync cron + promote→index hook silently no-op (search goes stale). Set them under Settings → Secrets and variables → Actions."
             exit 1
           fi
           printf '%s' "$ALGOLIA_APP_ID_VALUE" \
@@ -738,12 +705,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_PRODUCTION }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$SUPABASE_ANON_KEY_VALUE" ]; then
-            echo "::warning::SUPABASE_ANON_KEY_PRODUCTION not set — skipping push. Production auth surfaces will return 503 auth_not_configured until it is provisioned (flips to required in 5.5)."
+            echo "::warning::SUPABASE_ANON_KEY not set — skipping push. Production auth surfaces will return 503 auth_not_configured until it is provisioned (flips to required in 5.5)."
             exit 0
           fi
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
@@ -756,19 +723,19 @@ jobs:
       # (that goes to the API Worker above). Fail-closed on prod (search is
       # launch-critical), matching the prod API Algolia push: a missing GH secret
       # aborts the promote rather than shipping a broken /search. `ALGOLIA_APP_ID`
-      # + `ALGOLIA_SEARCH_KEY_PRODUCTION` are gated REQUIRED in the preflight above.
+      # + `ALGOLIA_SEARCH_KEY` are gated REQUIRED in the preflight above.
       # Same idempotent deploy→secret order.
       - name: Push Algolia public config to web Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_PRODUCTION }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
-            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY_PRODUCTION secret is empty. The prod web Worker needs them or /search renders the degraded shell (no window.__AECI_ALGOLIA__). Set them under Settings → Secrets and variables → Actions."
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY secret is empty. The prod web Worker needs them or /search renders the degraded shell (no window.__AECI_ALGOLIA__). Set them under Settings → Secrets and variables → Actions."
             exit 1
           fi
           printf '%s' "$ALGOLIA_APP_ID_VALUE" \
@@ -835,7 +802,7 @@ jobs:
           # AECI-139: ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY are required on prod —
           # the daily-sync cron + promote→index hook need them, and search is
           # launch-critical (fail closed if a push silently no-op'd).
-          REQUIRED_WORKER_SECRETS: 'DATABASE_URL REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY'
+          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
 
@@ -874,9 +841,9 @@ jobs:
       #     proxied raw to the API Worker, so on its own it can't catch a stale
       #     SSR deploy.
       #   - verify-health.sh: /api/health returns {"ok":true,"db":"ok"}, proving
-      #     the prod API Worker can actually reach the DB (DATABASE_URL is set).
-      #     The version gate reads vars, not the DB, so without this a Worker
-      #     promoted without its DATABASE_URL secret would pass green while every
+      #     the prod API Worker can actually reach the D1 database (via its `DB`
+      #     binding). The version gate reads vars, not the DB, so without this a
+      #     Worker whose D1 binding is misconfigured would pass green while every
       #     DB endpoint 500s and /categories 404s. A failure here trips the
       #     auto-rollback below (smoke.outcome == 'failure').
       # Production is gated by Cloudflare Access until launch (ADR 0017), so the
@@ -919,7 +886,7 @@ jobs:
       - name: Update Algolia production index settings
         env:
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         run: pnpm algolia:apply-settings --env production
 
       # -----------------------------------------------------------------------

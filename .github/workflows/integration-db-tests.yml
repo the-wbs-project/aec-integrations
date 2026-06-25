@@ -13,9 +13,8 @@
 #
 # Why local Supabase (not the shared dev DB): the auth-delete suite
 # creates+deletes auth.users and the bulk-migrate suite inserts+deletes
-# products/vendors/taxonomy. Running those against DATABASE_URL_STAGING (the
-# dev DB staging serves, Option 1 in docs/environments.md) would be destructive
-# and flaky. A local stack isolates the writes and supplies every key the specs
+# products/vendors/taxonomy. Running those against the shared dev/legacy-Postgres
+# DB would be destructive and flaky. A local stack isolates the writes and supplies every key the specs
 # need with NO repo secrets. Pattern mirrors drift-check.yml, but boots the FULL
 # stack (PostgREST + GoTrue), not Postgres-only.
 #

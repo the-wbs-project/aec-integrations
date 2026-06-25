@@ -124,18 +124,22 @@ function printNextSteps({ env, appId, searchKey, managementKey }) {
   console.log(rule);
 
   console.log('\n# GitHub Actions secrets');
-  console.log(`#   ALGOLIA_APP_ID is shared across envs — set it ONCE (skip if already set).`);
+  console.log(`#   ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY and ALGOLIA_ADMIN_KEY are now`);
+  console.log(`#   SINGLE shared secrets across every env (no _STAGING/_PRODUCTION/_PREVIEW/`);
+  console.log(`#   _DEMO suffix). CAUTION: every env's deploy reads the SAME secret, so a`);
+  console.log(`#   per-env key minted here OVERWRITES the shared value — the search key you`);
+  console.log(`#   set must be able to query ALL envs' indexes (staging_*/production_*/`);
+  console.log(`#   preview_*/demo_*), or scope it to the env that actually serves users.`);
   console.log(`gh secret set ALGOLIA_APP_ID --body '${appId}'`);
+  console.log(`gh secret set ALGOLIA_SEARCH_KEY --body '${searchKey}'`);
   if (env === 'preview') {
     console.log(
       '#   preview search key → lighthouse.yml (AECI-188): the post-merge Lighthouse\n' +
         '#   workflow hard-fails without it (it provisions /search with the real SDK).\n' +
         '#   No preview ADMIN GitHub secret: sync (3.5) uses the management key directly.',
     );
-    console.log(`gh secret set ALGOLIA_SEARCH_KEY_PREVIEW --body '${searchKey}'`);
   } else {
-    console.log(`gh secret set ALGOLIA_SEARCH_KEY_${SUFFIX} --body '${searchKey}'`);
-    console.log(`gh secret set ALGOLIA_ADMIN_KEY_${SUFFIX}  --body '${managementKey}'`);
+    console.log(`gh secret set ALGOLIA_ADMIN_KEY --body '${managementKey}'`);
   }
 
   console.log('\n# Cloudflare Worker secrets (persist across deploys)');

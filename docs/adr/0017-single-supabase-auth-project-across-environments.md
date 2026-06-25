@@ -95,8 +95,12 @@ Access** at the network edge — not by Supabase project separation.
 2. Flip `SUPABASE_URL` in `apps/web/wrangler.jsonc` (3 env blocks) and
    `apps/api/wrangler.jsonc` (4 spots); replace the CSP ref in
    `apps/web/src/server/seo-headers.ts` (+ same-PR spec edit); update `.dev.vars.example`.
-3. Set both `SUPABASE_ANON_KEY_{STAGING,PRODUCTION}` GH secrets to the new anon key; set
-   `SUPABASE_SERVICE_ROLE_KEY` per env Worker.
+3. Set the single un-suffixed `SUPABASE_ANON_KEY` GH secret to the new project's anon key
+   — every deploy/promote/preview workflow pushes that one secret (the former per-env
+   `SUPABASE_ANON_KEY_{STAGING,PRODUCTION}` secrets are retired; leaving the URL flipped to
+   the new project while a workflow still pushed an old per-project key is what produced the
+   `Invalid API key` sign-in failure). Set the un-suffixed `SUPABASE_SERVICE_ROLE_KEY` for
+   operator shell use (no workflow or Worker consumes it — see `docs/environments.md` §Secrets).
 4. Add `demo.aecintegrations.com` to a Cloudflare Access app; allow the `aeci-gh-actions`
    service token; plumb `CF_ACCESS_CLIENT_*` into the prod smoke in `promote-to-prod.yml`.
 5. Seed test users into the new project; establish admin in all three D1s against the single

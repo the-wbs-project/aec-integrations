@@ -40,19 +40,17 @@
 #   shared-dev-DB fixture seed to depend on (AECI-268). NOTE (error gate): if that
 #   local D1 seed fails, detail URLs render the 404 shell and the error-level
 #   SEO/a11y assertions go red — that is a deliberate alarm, not a flake; re-run.
-#   (The `DATABASE_URL_STAGING` wiring below no longer feeds the measured pages —
-#   the Worker reads D1 — and is retained as legacy dead-weight pending AECI-257.)
+#   (No DATABASE_URL wiring — the measured pages read the local D1 the Worker
+#   boots via `db:setup:local`; the Prisma Accelerate path is retired, AECI-253.)
 #
 # Chrome comes from the ubuntu-latest runner image (lhci/chrome-launcher finds
 #   /usr/bin/google-chrome) — no Playwright/Chromium install needed, matching the
 #   former job.
 #
 # Required repo secrets:
-#   - DATABASE_URL_STAGING — dev project's Accelerate prisma:// URL (the API
-#     Worker needs it or every Prisma query 500s and the measured pages render
-#     empty/404). Same secret deploy.yml + pr-preview.yml use.
-#   - ALGOLIA_APP_ID + ALGOLIA_SEARCH_KEY_PREVIEW — the preview env's
-#     client-exposed, query-only search key (AECI-188). Without it `/search`
+#   - ALGOLIA_APP_ID + ALGOLIA_SEARCH_KEY — the single shared client-exposed,
+#     query-only search key (AECI-188; must be able to query the preview_*
+#     indexes this run measures against). Without it `/search`
 #     renders the degraded "search unavailable" shell, the InstantSearch SDK
 #     never loads, and the /search JS budget + a11y numbers measure a page that
 #     doesn't exist in production. The preview_* indexes it queries are created/
@@ -104,17 +102,9 @@ jobs:
       # `dev:preview` serves the prebuilt dist/ via `wrangler dev` — it does NOT
       # build — so the bundle must exist before dev:bound boots.
       - run: pnpm --filter @aeci/web build
-      # Wire DATABASE_URL into the API Worker before dev:bound boots it. Without
-      # it every Prisma query 500s and the measured pages render empty/404.
-      - name: Write apps/api/.dev.vars for `pnpm dev:bound`
-        env:
-          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
-        run: |
-          if [ -z "$DATABASE_URL_VALUE" ]; then
-            echo "::error::DATABASE_URL_STAGING secret is empty. Lighthouse needs it to boot the API Worker with a working Prisma connection."
-            exit 1
-          fi
-          printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
+      # No DATABASE_URL wiring: the app DB is local D1 (ADR 0016) — dev:bound runs
+      # `db:setup:local` to migrate + seed it, and the Prisma Accelerate runtime
+      # path is retired (AECI-253). The measured pages read D1 via the `DB` binding.
       # Wire the preview Algolia search key into the SSR Worker so `/search`
       # boots the REAL InstantSearch SDK (AECI-188): the JS budget + a11y
       # assertions on /search are meaningless against the degraded shell.
@@ -137,10 +127,10 @@ jobs:
       - name: Write apps/web/.dev.vars (Algolia search key + indexing gate)
         env:
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_PREVIEW }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
         run: |
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
-            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY_PREVIEW secret is empty. The /search Lighthouse budgets must measure the real InstantSearch SDK, not the degraded shell. Seed it from the preview search-only key (scripts/algolia/provision.mjs prints the gh secret command; the key is client-exposed/query-only by design)."
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY secret is empty. The /search Lighthouse budgets must measure the real InstantSearch SDK, not the degraded shell. Seed it from the shared search-only key (scripts/algolia/provision.mjs prints the gh secret command; the key is client-exposed/query-only by design and must cover the preview_* indexes)."
             exit 1
           fi
           {

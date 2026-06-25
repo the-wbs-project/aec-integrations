@@ -67,16 +67,9 @@
 #   REVIEW_APP_TOKEN         — bearer gating the API Worker's POST /api/promote.
 #                              deploy-staging pushes it to the staging API Worker
 #                              each deploy; absent → promote is 401 fail-closed.
-#   DATABASE_URL_STAGING     — Prisma Accelerate URL for the dev project's main
-#                              branch. e2e-tests-local writes this into the API
-#                              Worker's `.dev.vars` so `pnpm dev:bound` can
-#                              actually serve `/api/*` (otherwise Prisma throws
-#                              `PrismaClientInitializationError`). Same secret
-#                              pr-preview.yml uses for Option 1 (shared dev DB).
-#                              deploy-staging ALSO pushes it to the staging API
-#                              Worker as the `DATABASE_URL` secret on every
-#                              deploy (idempotent) so a fresh `aeci-api-staging`
-#                              can never go live without a DB connection.
+#   (No DATABASE_URL secret — the app DB is Cloudflare D1 (ADR 0016); the Prisma
+#    Accelerate runtime path is retired, AECI-253. dev:bound boots a local D1 via
+#    `db:setup:local`, and the deployed Workers reach D1 through the `DB` binding.)
 #
 # Optional repo secrets:
 #   DIRECT_URL_STAGING       — Direct Postgres URL (pooler) for the shared
@@ -106,8 +99,8 @@
 # Required repo variables:
 #   STAGING_ENABLED          — set to "true" after the manual prerequisites
 #                              in docs/environments.md are complete.
-#   SUPABASE_DEV_PROJECT_REF — Project ref of the `aeci-development` Supabase
-#                              project (the shared dev/staging DB). Consumed by
+#   SUPABASE_PROJECT_REF     — Project ref of the legacy-Postgres `public`-schema
+#                              gate DB (the shared dev/staging DB). Consumed by
 #                              db-migrate-dev to keep its schema at HEAD on
 #                              every PR push, and by refresh-staging.yml when
 #                              a human triggers a prod→staging data refresh.
@@ -264,28 +257,27 @@ jobs:
         run: npm install -g supabase@latest
       # Fail loudly and early when the bootstrap secrets/vars are missing —
       # otherwise `supabase link` produces a generic "unauthorized" or
-      # "project not found" error that's harder to diagnose. Matches the
-      # gating style of the DATABASE_URL_STAGING check in e2e-tests-local.
+      # "project not found" error that's harder to diagnose.
       - name: Verify required secrets and vars
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DEV_PROJECT_REF: ${{ vars.SUPABASE_DEV_PROJECT_REF }}
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
         run: |
           if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
             echo "::error::SUPABASE_ACCESS_TOKEN secret is not set. Generate one at https://supabase.com/dashboard/account/tokens and add via Settings → Secrets and variables → Actions → New repository secret."
             exit 1
           fi
-          if [ -z "$SUPABASE_DEV_PROJECT_REF" ]; then
-            echo "::error::SUPABASE_DEV_PROJECT_REF variable is not set. Add via Settings → Secrets and variables → Actions → Variables tab. Value is the project ref of the aeci-development Supabase project (the dashboard URL is supabase.com/dashboard/project/<ref>)."
+          if [ -z "$SUPABASE_PROJECT_REF" ]; then
+            echo "::error::SUPABASE_PROJECT_REF variable is not set. Add via Settings → Secrets and variables → Actions → Variables tab. Value is the project ref of the legacy-Postgres public-schema gate DB (the dashboard URL is supabase.com/dashboard/project/<ref>)."
             exit 1
           fi
       - name: supabase link
         if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_DEV_PROJECT_REF: ${{ vars.SUPABASE_DEV_PROJECT_REF }}
-        run: supabase link --project-ref "$SUPABASE_DEV_PROJECT_REF"
+          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
       # `--include-all` applies every migration whose version is newer than
       # what's in `supabase_migrations.schema_migrations` on dev. No-op when
       # already at HEAD. Forward-only by definition (Supabase doesn't run
@@ -326,8 +318,8 @@ jobs:
       # seed served nothing post-cutover and was the source of the searchable
       # "Fixture Procore" orphans (it placed promoted rows where the pre-cutover
       # Algolia sync indexed them). The remaining Supabase dead-weight here (this
-      # taxonomy seed, the DATABASE_URL push) is removed at the Supabase-DB
-      # decommission (AECI-257).
+      # taxonomy seed) is removed at the Supabase-DB decommission (AECI-257); the
+      # DATABASE_URL push was already removed (AECI-253, Prisma runtime retired).
       # Wait for Prisma Accelerate to pick up the schema change before any
       # downstream job (e2e-tests-local, integration-runner-local, per-PR
       # Workers) issues typed Prisma queries against the dev DB. See
@@ -405,30 +397,25 @@ jobs:
         run: pnpm --filter @aeci/web exec playwright install --with-deps chromium
       - if: steps.playwright-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @aeci/web exec playwright install-deps chromium
-      # Wire DATABASE_URL into the API Worker before dev:bound boots it. Without
-      # it the API Worker boots with DATABASE_URL unset and every Prisma query
-      # 500s (see AECI-57/58). DATABASE_URL_STAGING = the dev project's Accelerate
-      # URL (Option 1 shared dev DB); the e2e suite is data-shape-tolerant.
+      # Wire the shared-auth Supabase config into both local Workers before
+      # dev:bound boots them. The app DB is local D1 (ADR 0016): dev:bound runs
+      # `db:setup:local` to migrate + seed it, so NO DATABASE_URL is needed — the
+      # Prisma Accelerate runtime path is retired (AECI-253).
       - name: Write apps/api/.dev.vars for `pnpm dev:bound`
         env:
-          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
-          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
-          if [ -z "$DATABASE_URL_VALUE" ]; then
-            echo "::error::DATABASE_URL_STAGING secret is empty. This job needs it to boot the API Worker with a working Prisma connection. Configure under repo Settings -> Secrets and variables -> Actions."
-            exit 1
-          fi
-          printf 'DATABASE_URL="%s"\n' "$DATABASE_URL_VALUE" > apps/api/.dev.vars
           # AECI-193 / ADR 0017: give both local Workers the shared auth-project
           # Supabase config so the /auth/whoami 401 e2e actually exercises the
           # auth path (without SUPABASE_URL the SSR route 503s and the spec skips
-          # itself). The anon key (SUPABASE_ANON_KEY_STAGING = the shared auth
-          # project's key) is web-only; the API Worker needs only the URL.
-          printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\n' >> apps/api/.dev.vars
+          # itself). The anon key (the un-suffixed SUPABASE_ANON_KEY = the SINGLE
+          # shared auth project's key, ADR 0017) is web-only; the API Worker needs
+          # only the URL.
+          printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\n' > apps/api/.dev.vars
           if [ -n "$SUPABASE_ANON_KEY_VALUE" ]; then
             printf 'SUPABASE_URL="https://ktuhnlypztujpsseujzx.supabase.co"\nSUPABASE_ANON_KEY="%s"\n' "$SUPABASE_ANON_KEY_VALUE" > apps/web/.dev.vars
           else
-            echo "::warning::SUPABASE_ANON_KEY_STAGING not set — /auth/whoami will 503 and its e2e spec will skip."
+            echo "::warning::SUPABASE_ANON_KEY not set — /auth/whoami will 503 and its e2e spec will skip."
           fi
       # Boot both Workers once and wait on /api/health (NOT the SSR root `/`):
       # `/api/health` proxies through the `env.API` service binding and only
@@ -543,7 +530,6 @@ jobs:
       # the secrets pushed below. See docs/environments.md §Secrets.
       - name: Preflight — required secrets present (staging)
         env:
-          DATABASE_URL_STAGING: ${{ secrets.DATABASE_URL_STAGING }}
           REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -556,15 +542,16 @@ jobs:
           # "Update Algolia staging index settings" step below skips cleanly
           # (search degraded, not broken) — so staging stays green pre-provision.
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY_STAGING: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
-          ALGOLIA_SEARCH_KEY_STAGING: ${{ secrets.ALGOLIA_SEARCH_KEY_STAGING }}
-          SUPABASE_ANON_KEY_STAGING: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+          ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_STAGING: ${{ secrets.ANTHROPIC_API_KEY_STAGING }}
           ENV_LABEL: staging
-          REQUIRED_SECRETS: 'DATABASE_URL_STAGING REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
-          # AECI-193: SUPABASE_ANON_KEY_STAGING is recommended (warn-and-skip)
-          # during the Phase 5 spike — flip to REQUIRED in 5.5 when real auth
-          # surfaces ship. AECI-258: ANTHROPIC_API_KEY_STAGING is recommended too —
+          REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
+          # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
+          # project's key (un-suffixed; identical for every env). Recommended
+          # (warn-and-skip) during the Phase 5 spike — flip to REQUIRED in 5.5
+          # when real auth surfaces ship. AECI-258: ANTHROPIC_API_KEY_STAGING is recommended too —
           # review toxicity scoring is fail-open, so a missing key only degrades
           # the moderation-queue triage signal, never a launch-critical surface.
           # AECI-240: RESEND_API_KEY_STAGING is recommended on the same footing —
@@ -573,7 +560,7 @@ jobs:
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
           # pushed only in promote-to-prod.yml.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_STAGING ALGOLIA_SEARCH_KEY_STAGING SUPABASE_ANON_KEY_STAGING ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -637,8 +624,8 @@ jobs:
       # tracked no-op and the taxonomy seed is upserts. Requires CLOUDFLARE_API_TOKEN
       # to carry Account → D1 → Edit (see docs/CICD_PLAN.md §7.1). The legacy
       # `supabase db push` (db-migrate-dev job) is retained for the landing + auth
-      # Postgres; the DATABASE_URL push below is now dead weight (the Worker no longer
-      # reads it) and is removed at the Supabase-DB decommission (AECI-257).
+      # Postgres until the Supabase-DB decommission (AECI-257); the DATABASE_URL
+      # push has been removed (the Worker no longer reads it — AECI-253).
       - name: Apply D1 migrations (staging)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -658,38 +645,8 @@ jobs:
         working-directory: apps/api
         run: pnpm exec wrangler deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # Ensure the staging API Worker has its DATABASE_URL secret. Worker secrets
-      # persist across `wrangler deploy`, so once set this is a no-op — but
-      # pushing it idempotently on every deploy means a freshly (re)created
-      # `aeci-api-staging` can never serve traffic without a DB connection. A
-      # missing DATABASE_URL makes every DB endpoint 500, which turns SSR routes
-      # with a BLOCKING resolver (e.g. /categories) into 404s while
-      # httpResource-backed routes (/products, /vendors) silently render empty —
-      # the exact prod failure mode this guards against (see verify-health.sh).
-      # Runs AFTER `Deploy API` (the Worker must exist) and BEFORE the smoke test
-      # so its /api/health gate is meaningful. `secret put` preserves the
-      # --var COMMIT_SHA/DEPLOYED_AT set above (it patches one binding, not the
-      # whole version) — the same deploy→secret order pr-preview.yml relies on.
-      # `DATABASE_URL_STAGING` is the dev project's Accelerate prisma:// URL
-      # (Option 1 shared dev DB; same value pr-preview.yml + e2e-tests-local use).
-      # printf (not echo) avoids a trailing newline that would corrupt the URL.
-      - name: Push DATABASE_URL to API Worker (staging)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
-        working-directory: apps/api
-        run: |
-          set -euo pipefail
-          if [ -z "$DATABASE_URL_VALUE" ]; then
-            echo "::error::DATABASE_URL_STAGING secret is empty. The staging API Worker needs it (Prisma Accelerate prisma:// URL) or every DB endpoint 500s. Configure under Settings → Secrets and variables → Actions."
-            exit 1
-          fi
-          printf '%s' "$DATABASE_URL_VALUE" \
-            | pnpm exec wrangler secret put DATABASE_URL --env staging
-
-      # Push REVIEW_APP_TOKEN to the staging API Worker (same idempotent pattern
-      # as DATABASE_URL). It gates `POST /api/promote` (the review-app → Supabase
+      # Push REVIEW_APP_TOKEN to the staging API Worker (idempotent `secret put`
+      # on every deploy). It gates `POST /api/promote` (the review-app → Supabase
       # push); when absent the endpoint is 401 fail-closed, so the promotion
       # pipeline is dead until it's set. `REVIEW_APP_TOKEN` is a single shared GH
       # secret (REVIEW_APP_PROMOTE_API.md) reused across envs — split it per env
@@ -722,12 +679,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         working-directory: apps/api
         run: |
           set -euo pipefail
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_ADMIN_KEY_VALUE" ]; then
-            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY_STAGING not set — skipping push. The AECI-139 sync cron + promote→index hook will no-op on staging until these are provisioned."
+            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY not set — skipping push. The AECI-139 sync cron + promote→index hook will no-op on staging until these are provisioned."
             exit 0
           fi
           printf '%s' "$ALGOLIA_APP_ID_VALUE" \
@@ -794,12 +751,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$SUPABASE_ANON_KEY_VALUE" ]; then
-            echo "::warning::SUPABASE_ANON_KEY_STAGING not set — skipping push. Staging auth surfaces will return 503 auth_not_configured until it is provisioned."
+            echo "::warning::SUPABASE_ANON_KEY not set — skipping push. Staging auth surfaces will return 503 auth_not_configured until it is provisioned."
             exit 0
           fi
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
@@ -818,12 +775,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_STAGING }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
-            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY_STAGING not set — skipping push. /search renders the degraded shell (no window.__AECI_ALGOLIA__) until these are provisioned."
+            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY not set — skipping push. /search renders the degraded shell (no window.__AECI_ALGOLIA__) until these are provisioned."
             exit 0
           fi
           printf '%s' "$ALGOLIA_APP_ID_VALUE" \
@@ -863,7 +820,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           WRANGLER_ENV: staging
-          REQUIRED_WORKER_SECRETS: 'DATABASE_URL REVIEW_APP_TOKEN'
+          REQUIRED_WORKER_SECRETS: 'REVIEW_APP_TOKEN'
         working-directory: apps/api
         run: bash ../../scripts/verify-worker-secrets.sh
 
@@ -874,9 +831,9 @@ jobs:
       #     Worker) both report the new SHA (AECI-92). /api/version is proxied raw
       #     to the API Worker, so alone it can't catch a stale SSR deploy.
       #   - verify-health.sh: /api/health returns {"ok":true,"db":"ok"}, proving
-      #     the API Worker can actually reach the DB (i.e. DATABASE_URL is set).
-      #     The version gate reads vars, not the DB, so without this a Worker that
-      #     shipped without its DATABASE_URL secret would pass green while every
+      #     the API Worker can actually reach the D1 database (via its `DB`
+      #     binding). The version gate reads vars, not the DB, so without this a
+      #     Worker whose D1 binding is misconfigured would pass green while every
       #     DB endpoint 500s and /categories 404s.
       - name: Smoke test staging (API + SSR at SHA, DB healthy)
         env:
@@ -908,7 +865,7 @@ jobs:
       - name: Update Algolia staging index settings
         env:
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         run: pnpm algolia:apply-settings --env staging
 
       # CICD §3.2 step 5 (AECI-140 / AECI-266): report-only post-deploy verification
@@ -927,7 +884,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
           DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           DD_ENV: staging
         run: pnpm --filter @aeci/api exec tsx scripts/reconcile-algolia-drift.ts --env staging

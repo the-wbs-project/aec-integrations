@@ -49,9 +49,9 @@ There is intentionally **no auto-deploy to demo or production** — both are del
 
 Every PR against `main` gets a pair of ephemeral preview Workers — `aeci-api-pr-<N>` (private; bound to via service binding) and `aeci-web-pr-<N>` (public on the `*.aec-integrations.workers.dev` wildcard) — deployed by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) on `pull_request` `opened` / `synchronize` / `reopened` and torn down on `closed`. First-party PRs only — fork PRs skip cleanly since they receive no secrets.
 
-### DB strategy: Option 1 (shared dev DB)
+### DB strategy: Cloudflare D1 (ADR 0016)
 
-Per-PR API Workers connect via Prisma Accelerate to the dev project's `main` branch — the same DB that staging serves — by reusing the `DATABASE_URL_STAGING` GH Actions secret (pushed to the per-PR Worker via `wrangler secret put DATABASE_URL --name aeci-api-pr-<N>` on every deploy). The DB is shared; the Worker is not.
+Per-PR API Workers reach the app database through their `DB` D1 binding, inherited from the `env.preview` block in `apps/api/wrangler.jsonc` — no Prisma Accelerate, no `DATABASE_URL` secret. The Prisma Accelerate runtime path is retired (AECI-253), so the per-PR deploy no longer pushes `DATABASE_URL`. (Migrations are applied with `wrangler d1 migrations apply`.)
 
 The SSR Worker's `env.preview.services` binding is defined statically in `apps/web/wrangler.jsonc` as `aeci-api-preview`. Wrangler 4 has no CLI override for service bindings, so the workflow sed-rewrites the binding to `aeci-api-pr-<N>` on the runner before deploying SSR. The repo file is untouched.
 
@@ -109,7 +109,7 @@ Documented for completeness — under Option 1 (current) no per-PR branches exis
 # 1. List branches on the dev project. Look for the orphan by `git_branch` or `name`.
 curl -sS \
   -H "Authorization: Bearer $SUPABASE_MANAGEMENT_API_TOKEN" \
-  "https://api.supabase.com/v1/projects/$SUPABASE_DEV_PROJECT_REF/branches" \
+  "https://api.supabase.com/v1/projects/$SUPABASE_PROJECT_REF/branches" \
   | jq '.[] | {id, name, git_branch, status}'
 
 # 2. Delete the orphan by its branch ID (NOT name).
@@ -142,7 +142,7 @@ What happens, in order (each numbered step matches a job step in the workflow):
 8. Seed taxonomy reference data (idempotent upserts). _(The former auth credential-scrub + test-account seed steps were removed per ADR 0017 — auth lives in the shared project, seeded out of band.)_
 9. **Drift check (HARD STOP).** `scripts/prisma-drift-check.sh $DIRECT_URL_STAGING`. If staging's actual schema doesn't match `apps/api/prisma/schema.prisma`, the workflow exits before deploying Workers. This is the spec's "do not let an inconsistent staging hide from operators" rule.
 10. Deploy `aeci-api-staging` then `aeci-web-staging` via `wrangler-action`, passing `--var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
-11. **Reindex Algolia (AECI-229).** `pnpm --filter @aeci/api exec tsx scripts/algolia-bulk-sync.ts --env staging` upserts every promoted product/vendor/integration from the just-restored DB into the `staging_*` indexes, so staging search is fresh the moment the refresh finishes. Without it staging search stays stale: the daily 08:00 UTC sync cron can't self-heal the index, because step 5 restores prod's `stats_cache` — including the `algolia_sync_watermark` row — so the cron reads prod's recent fence and finds almost nothing to push. Runs on the Actions runner — direct `tsx` over `DIRECT_URL_STAGING` with the vanilla Prisma driver, **not** a Cloudflare Worker. Skips with a `::warning::` if the Algolia staging secrets (`ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY_STAGING`) aren't provisioned; a genuine sync failure hard-stops the refresh (post-deploy, so nothing rolls back).
+11. **Reindex Algolia (AECI-229).** `pnpm --filter @aeci/api exec tsx scripts/algolia-bulk-sync.ts --env staging` upserts every promoted product/vendor/integration from the just-restored DB into the `staging_*` indexes, so staging search is fresh the moment the refresh finishes. Without it staging search stays stale: the daily 08:00 UTC sync cron can't self-heal the index, because step 5 restores prod's `stats_cache` — including the `algolia_sync_watermark` row — so the cron reads prod's recent fence and finds almost nothing to push. Runs on the Actions runner — direct `tsx` over `DIRECT_URL_STAGING` with the vanilla Prisma driver, **not** a Cloudflare Worker. Skips with a `::warning::` if the Algolia secrets (`ALGOLIA_APP_ID` / the shared `ALGOLIA_ADMIN_KEY`) aren't provisioned; a genuine sync failure hard-stops the refresh (post-deploy, so nothing rolls back).
 12. Smoke test `https://staging.aecintegrations.com/api/health` with Cloudflare Access headers; then via `scripts/verify-version.sh` poll until **both** `/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report the workflow's commit SHA (60-second budget). `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy.
 13. Job summary table: migrations applied, commit SHA, actor, status. (Auth-user counts are no longer reported — this workflow doesn't touch auth; ADR 0017.)
 
@@ -160,7 +160,7 @@ What happens, in order (each numbered step matches a job step in the workflow):
 | `permission denied for schema public` during step 4/5 | Step 4 wipe or step 5 restore | `DIRECT_URL_STAGING` doesn't have owner-level access. The staging DB role used by the secret must own the public schema; the Supabase pooler URL with the `postgres` user does. |
 | Drift check exits 1 | Step 9 | Staging schema diverges from `apps/api/prisma/schema.prisma`. Almost always means a migration was committed without re-pulling. Resolve by running `pnpm db:reset && pnpm db:pull` against the local DB used to author the migration, committing the regenerated schema, and re-deploying. Workflow hard-stops here on purpose — Workers don't deploy against a drifted DB. |
 | `supabase db push --linked` says "no migrations to apply" but `pnpm db:list` shows pending | Step 6 | The migration-history table from prod is ahead of the committed `supabase/migrations/` files. Usually means an out-of-band manual migration was applied to prod. Resolve with `supabase migration repair`. |
-| Algolia reindex fails | Step 11 | A genuine failure (Algolia API error, bad `ALGOLIA_ADMIN_KEY_STAGING`, or `DIRECT_URL_STAGING` unreachable) hard-stops the refresh after the Workers already deployed — nothing rolls back. Re-run the button, or reindex by hand: `pnpm --filter @aeci/api db:algolia-bulk-sync -- --env staging` (with the staging secrets in env). If the secrets are simply unset the step skips with a warning instead of failing. |
+| Algolia reindex fails | Step 11 | A genuine failure (Algolia API error, bad `ALGOLIA_ADMIN_KEY`, or `DIRECT_URL_STAGING` unreachable) hard-stops the refresh after the Workers already deployed — nothing rolls back. Re-run the button, or reindex by hand: `pnpm --filter @aeci/api db:algolia-bulk-sync -- --env staging` (with the staging secrets in env). If the secrets are simply unset the step skips with a warning instead of failing. |
 | Smoke test (step 12) times out at 60s | Step 12 | Worker deploy completed but propagation lagging, or the Cloudflare Access service token (CF_ACCESS_CLIENT_ID/SECRET) rotated. Check `docs/access.md` §2. |
 
 If a refresh leaves staging in an inconsistent state (drift fired, but you need staging usable for unrelated work), the fix is to either resolve the drift cause and re-press the button, or hand-revert by re-applying the prior good dump from R2 (the prod snapshots in `aeci-prod-snapshots` are functionally interchangeable as "any prod-shaped data").
@@ -430,8 +430,7 @@ Secrets are stored in three places:
 
 | Secret | Staging Worker | Prod Worker | GH Actions | Notes |
 | --- | --- | --- | --- | --- |
-| `DATABASE_URL` (staging Prisma Accelerate `prisma://…`) | ✅ on `aeci-{api}-staging` (CI-pushed) | ❌ | ✅ as `DATABASE_URL_STAGING` (CI tooling that needs raw access uses `DIRECT_URL_STAGING` instead) | Worker runtime path only. Never the pooler URL. `deploy-staging` re-pushes it to the Worker from the GH secret each deploy (see note below table). Also the value to put in local `apps/api/.dev.vars` to run the API Worker locally — see "Local dev: running the API Worker". |
-| `DATABASE_URL` (prod Prisma Accelerate `prisma://…`) | ❌ | ✅ on `aeci-{api}-production` (CI-pushed) | ✅ as `DATABASE_URL_PRODUCTION` | Worker runtime path only. `promote-to-prod.yml` re-pushes it to the Worker from the GH secret each promote (see note below table). |
+| `DATABASE_URL` — **RETIRED** | ❌ | ❌ | ❌ — the `DATABASE_URL_{STAGING,PRODUCTION}` GH secrets have been removed | The app DB is Cloudflare D1 (ADR 0016), reached via the Worker's `DB` binding — there is **no DB connection secret**. The Prisma Accelerate runtime path is retired (AECI-253), so CI no longer pushes `DATABASE_URL` to any Worker and the e2e/Lighthouse runs boot a local D1 via `db:setup:local`. (The legacy `DIRECT_URL`/`supabase` Postgres gate survives until AECI-257.) |
 | `DIRECT_URL_STAGING` (Supabase pooler `postgresql://…`) | ❌ | ❌ | ✅ | Used by `supabase db push`, `pg_dump`, `pg_restore`. Workers never see this. |
 | `DIRECT_URL_PRODUCTION` | ❌ | ❌ | ✅ | Same. |
 | `SUPABASE_ACCESS_TOKEN` | ❌ | ❌ | ✅ | For `supabase` CLI in CI. |
@@ -446,18 +445,18 @@ Secrets are stored in three places:
 | Datadog `DD_*` (per `apps/web/wrangler.jsonc` header) | ✅ per env | ✅ per env | — | RUM + Logs intake. |
 | `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID` | ✅ per env | ✅ per env | — | Cache-tag purge (AECI-56). |
 | `ALGOLIA_APP_ID` | ✅ per env (both Workers) | ✅ per env (both Workers) | ✅ (shared, one value) | Algolia app id (AECI-134). Single value, all envs. |
-| `ALGOLIA_SEARCH_KEY` (per-env, query-only) | ✅ on web Worker (CI-pushed) | ✅ on web Worker (CI-pushed) | ✅ as `ALGOLIA_SEARCH_KEY_STAGING` / `_PRODUCTION`; also `_PREVIEW` (consumed by `lighthouse.yml`, which provisions `/search` with the real SDK for the post-merge error gate — AECI-188) | Search-only key, scoped to the env's indexes; client-exposed. CI-pushed to the web Worker alongside `ALGOLIA_APP_ID` by `deploy.yml` (staging — recommended/warn-and-skip) and `promote-to-prod.yml` (production — required/fail-closed); same pattern as `SUPABASE_ANON_KEY`. **Never on the API Worker.** |
-| `ALGOLIA_ADMIN_KEY` (per-env management) | ✅ on API Worker | ✅ on API Worker | ✅ as `ALGOLIA_ADMIN_KEY_STAGING` / `_PRODUCTION` | Per-env management key (search + index-mutation, index-scoped) — sync from 3.5. **Never on the web Worker / never client-exposed.** Not the app-wide root admin key. |
+| `ALGOLIA_SEARCH_KEY` (query-only) | ✅ on web Worker (CI-pushed) | ✅ on web Worker (CI-pushed) | ✅ **single shared** un-suffixed `ALGOLIA_SEARCH_KEY` (one value for every env — staging/production/demo, and the `lighthouse.yml` preview `/search` measurement, AECI-188). The former `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` secrets are retired. | Search-only key, client-exposed. **Must be scoped to cover every env's indexes it serves** (`staging_*`/`production_*`/`demo_*`/`preview_*`) — it's now one shared value, so a key scoped to a single env breaks the others. CI-pushed to the web Worker alongside `ALGOLIA_APP_ID` by `deploy.yml` (staging — recommended/warn-and-skip), `promote-to-prod.yml` (production — required/fail-closed), `promote-to-demo.yml` (demo). **Never on the API Worker.** |
+| `ALGOLIA_ADMIN_KEY` (management) | ✅ on API Worker | ✅ on API Worker | ✅ **single shared** un-suffixed `ALGOLIA_ADMIN_KEY` (one value, all envs). The former `_STAGING`/`_PRODUCTION` secrets are retired. | Management key (search + index-mutation) — sync from 3.5. One Algolia app spans all envs and the admin key reaches every index (`--env` is only an index-name prefix). **Never on the web Worker / never client-exposed.** |
 | `SUPABASE_URL` (shared auth project URL) | ✅ all envs (both Workers, as a wrangler `var`) | ✅ all envs (both Workers, as a wrangler `var`) | — (it's a public `var` in `wrangler.jsonc`, not a GH secret) | AECI-193 / Phase 5 / ADR 0017. Public base URL — the **single shared auth project** (`ktuhnlypztujpsseujzx`) across every environment. Web Worker → cookie-session factory; API Worker → JWKS user-JWT verify (no DB round-trip). |
-| `SUPABASE_ANON_KEY` (publishable/anon) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `SUPABASE_ANON_KEY_STAGING` / `_PRODUCTION` | AECI-193 / Phase 5. Publishable key; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). **Never on the API Worker** (it verifies with public JWKS material). **Recommended, not required, during Phase 5 — warn-and-skip; flips to REQUIRED in 5.5.** Absent → SSR auth surfaces return `503 auth_not_configured`. |
+| `SUPABASE_ANON_KEY` (publishable/anon) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as the un-suffixed `SUPABASE_ANON_KEY` — a **single shared key**, one value for every env (ADR 0017); demo + per-PR previews push the same secret | AECI-193 / Phase 5 / ADR 0017. Publishable key for the **single shared auth project** (`ktuhnlypztujpsseujzx`); stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). Pushed by `deploy.yml` (staging), `promote-to-prod.yml` (production), `promote-to-demo.yml` (demo), `pr-preview.yml` (per-PR). **It must match `SUPABASE_URL`'s project** — a stale per-project key against the shared URL is what produces the browser `Invalid API key` sign-in error. **Never on the API Worker** (it verifies with public JWKS material). **Recommended, not required, during Phase 5 — warn-and-skip; flips to REQUIRED in 5.5.** Absent → SSR auth surfaces return `503 auth_not_configured`. |
 | `ANTHROPIC_API_KEY` (review toxicity scoring) | ✅ on **API Worker only** (CI-pushed) | ✅ on **API Worker only** (CI-pushed) | ✅ as `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-258. Anthropic key for Claude-Haiku toxicity scoring on `POST /api/reviews`. CI-pushed to the API Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), and `pr-preview.yml` (per-PR). **Optional + fail-open on every env (prod included) — warn-and-skip:** a missing key stores `toxicity_score=null` ("Not scored") and the review still enters the moderation queue, so it is **never** in `REQUIRED_WORKER_SECRETS`. **Never on the web Worker.** Supersedes the sunsetting Perspective API. **GDPR prerequisite:** the Messages API has no per-request no-store control (Perspective's `doNotStore` had no equivalent), so the Anthropic org behind the key **must** have zero data retention (ZDR) enabled before a real key is provisioned — confirm as a launch gate, otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. |
 | `POSTHOG_KEY` (publishable project key) | ✅ on **web Worker only** (CI-pushed) | ✅ on **web Worker only** (CI-pushed) | ✅ as `POSTHOG_KEY_STAGING` / `_PRODUCTION` (previews reuse `_STAGING`) | AECI-239 / Phase 7.4. Client-exposed project API key for the browser product-analytics layer; stored as a secret only to keep it out of git (like `ALGOLIA_SEARCH_KEY`). CI-pushed to the web Worker by `deploy.yml` (staging), `promote-to-prod.yml` (production), `pr-preview.yml` (per-PR). **Optional + fail-open on every env — warn-and-skip:** absent → no `window.__AECI_POSTHOG__` and analytics no-ops. Also gated client-side by the consent banner + DNT. **Never on the API Worker.** |
 | `POSTHOG_HOST` (ingestion host) | ✅ per env (web Worker, wrangler `var`) | ✅ per env (web Worker, wrangler `var`) | — (public `var` in `wrangler.jsonc`, not a GH secret) | AECI-239. `https://us.i.posthog.com` (US Cloud). The static CSP `connect-src` is pinned to the US hosts, so a non-US host needs a matching CSP change. Defaulted in code when unset. |
 | Supabase **service-role** key | ❌ never on a Worker | ❌ never on a Worker | operator-held `SUPABASE_SERVICE_ROLE_KEY` GH secret; **no workflow reads it** | The Worker runtime has no use for the service role (`AUTH_AND_RLS.md` §3) — it is **never** pushed to a Worker, and **no GitHub workflow consumes it**: the `integration-db-tests` job mints its own service-role key from a local `supabase start` stack (`supabase status -o env`), not from a repo secret. The GH secret exists only for transient operator-shell use (e.g. provisioning the dev test user, AECI-193). Not a per-env runtime secret and **not involved in sign-in** — auth uses `SUPABASE_URL` + the anon key (rows above). |
 
-All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL --env staging` (and the same for `--env production` once the prod project exists).
+All Worker secrets are pushed per environment: `wrangler secret put REVIEW_APP_TOKEN --env staging` (and the same for `--env production`).
 
-> **`DATABASE_URL` and `REVIEW_APP_TOKEN` are pushed automatically by CI.** `deploy.yml` (`deploy-staging`) re-pushes them to the staging API Worker from `DATABASE_URL_STAGING` + `REVIEW_APP_TOKEN`; `promote-to-prod.yml` (`deploy-prod-workers`) does the same to the prod API Worker from `DATABASE_URL_PRODUCTION` + `REVIEW_APP_TOKEN`. Idempotent, right after the API Worker deploys. The manual `wrangler secret put` is only needed to bootstrap a Worker *before* its first CI deploy (and as a fallback). The other Worker secrets in §6 are still pushed by hand.
+> **`REVIEW_APP_TOKEN` is pushed automatically by CI.** `deploy.yml` (`deploy-staging`) re-pushes it to the staging API Worker from `REVIEW_APP_TOKEN`; `promote-to-prod.yml` (`deploy-prod-workers`) does the same to the prod API Worker. Idempotent, right after the API Worker deploys. The manual `wrangler secret put` is only needed to bootstrap a Worker *before* its first CI deploy (and as a fallback). The other Worker secrets in §6 are still pushed by hand. (`DATABASE_URL` is no longer pushed — the app DB is D1, ADR 0016 / AECI-253.)
 
 ### The required-secrets rule (CI fails closed)
 
@@ -469,7 +468,7 @@ All Worker secrets are pushed per environment: `wrangler secret put DATABASE_URL
 
 | Tier | Staging (`deploy.yml`) | Production (`promote-to-prod.yml`) | Effect if missing |
 | --- | --- | --- | --- |
-| **Required (fail)** | `DATABASE_URL_STAGING`, `REVIEW_APP_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | + `DATABASE_URL_PRODUCTION`, `DIRECT_URL_PRODUCTION`, `SUPABASE_ACCESS_TOKEN`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT` | Deploy/promote refused |
+| **Required (fail)** | `REVIEW_APP_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | + `DIRECT_URL_PRODUCTION`, `SUPABASE_ACCESS_TOKEN`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT`, `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY`, `ALGOLIA_SEARCH_KEY` | Deploy/promote refused |
 | **Recommended (warn)** | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `DIRECT_URL_STAGING` | `ADMIN_PURGE_TOKEN`, `DATADOG_API_KEY`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID` | Degraded only (observability / cache-purge); deploy proceeds |
 
 To make a recommended secret blocking, move its name from `RECOMMENDED_SECRETS` to `REQUIRED_SECRETS` in the relevant workflow's preflight step (and, if it's a Worker runtime secret, add a push step + the postflight `REQUIRED_WORKER_SECRETS` list).
@@ -487,8 +486,7 @@ To make a recommended secret blocking, move its name from `RECOMMENDED_SECRETS` 
 | Variable | Value | Purpose |
 | --- | --- | --- |
 | `STAGING_ENABLED` | `"true"` once Chris finishes the manual checklist below | Gates the `deploy-staging` job. Skipped (not failed) while empty/false, so merges to main stay green during bootstrap. |
-| `SUPABASE_DEV_PROJECT_REF` | The **legacy Postgres** project ref `dmbygwupskttzsvfzluq`. **Not** the auth project (auth is the single shared `ktuhnlypztujpsseujzx`, ADR 0017). | Consumed by `refresh-staging.yml` (AECI-77) for `supabase link --project-ref` before `supabase db push --linked` against the retained public-schema gate (AECI-256/257). |
-| `SUPABASE_PROD_PROJECT_REF` | The **legacy Postgres** project ref `jgxebjufabtwkcgxjqvk`. **Not** the auth project (ADR 0017). | Consumed by `promote-to-prod.yml` (AECI-78) for `supabase link --project-ref` before `supabase migration list --linked` (pre-promotion check) and `supabase db push --linked` (apply-prod-migrations) against the retained public-schema gate. |
+| `SUPABASE_PROJECT_REF` | The **legacy Postgres** project ref for the retained `public`-schema gate. **Not** the auth project (auth is the single shared `ktuhnlypztujpsseujzx`, ADR 0017). **⚠️ Single value for both gates:** `deploy.yml`/`refresh-staging.yml` (staging) and `promote-to-prod.yml` (production) now both `supabase link --project-ref` against this one variable — formerly two distinct DBs (`dmbygwupskttzsvfzluq` dev, `jgxebjufabtwkcgxjqvk` prod). Confirm the single value is the DB whose schema both `supabase db push` calls should target, or keep the legacy gate's two DBs distinct until AECI-256/257 retire it. | Consumed by `deploy.yml` (db-migrate-dev) + `refresh-staging.yml` (AECI-77) and `promote-to-prod.yml` (AECI-78) for `supabase link --project-ref` before `supabase migration list --linked` / `db push --linked` against the retained public-schema gate. |
 
 ## Manual prerequisites — Chris's checklist before `STAGING_ENABLED=true`
 
@@ -501,8 +499,10 @@ The following must be done by hand (Supabase and Cloudflare dashboards + `gh sec
 > pauses + caps MAU), configure its redirect-URL allow-list + Site URL (see
 > "Deployed Supabase Auth: redirect-URL configuration" above), wire Resend custom
 > SMTP (`docs/email.md`) and Google OAuth, then point `SUPABASE_URL` (both
-> `wrangler.jsonc`s, already flipped) at it and set `SUPABASE_ANON_KEY_{STAGING,PRODUCTION}`
-> + per-env `SUPABASE_SERVICE_ROLE_KEY`. Per-environment isolation is Cloudflare
+> `wrangler.jsonc`s, already flipped) at it and set the single un-suffixed
+> `SUPABASE_ANON_KEY` GH secret (one value, every env — `deploy.yml` /
+> `promote-to-prod.yml` / `promote-to-demo.yml` / `pr-preview.yml` all push it)
+> + the un-suffixed `SUPABASE_SERVICE_ROLE_KEY`. Per-environment isolation is Cloudflare
 > Access (`docs/access.md`), not project separation. The two projects below are
 > the **legacy Postgres** gate (app data is on D1 — ADR 0016), retained only until
 > AECI-256/257 decommission it; they no longer serve auth.
@@ -570,12 +570,13 @@ From the Secrets table above, set at minimum:
 - [ ] `CLOUDFLARE_API_TOKEN`
 - [ ] `CLOUDFLARE_ACCOUNT_ID`
 - [ ] `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` (already done per AECI-75)
-- [ ] `DATABASE_URL_STAGING` (Prisma Accelerate `prisma://…` for the dev project's main branch)
-- [ ] `DIRECT_URL_STAGING` (Supabase pooler `postgresql://…` for the dev project)
+- [ ] (No `DATABASE_URL_STAGING` — the app DB is Cloudflare D1, ADR 0016; the Prisma Accelerate runtime path is retired, AECI-253.)
+- [ ] `DIRECT_URL_STAGING` (Supabase pooler `postgresql://…` for the legacy-Postgres gate; retained until AECI-257)
 - [ ] `SUPABASE_ACCESS_TOKEN` (used by `supabase` CLI in CI)
+- [ ] `SUPABASE_ANON_KEY` — the **single shared** publishable/anon key for the auth project `ktuhnlypztujpsseujzx` (un-suffixed; the SAME value drives staging, demo, production, and per-PR previews — ADR 0017). It must belong to the project named in `SUPABASE_URL`; a leftover per-project key (`…_STAGING` / `…_PRODUCTION` from before the consolidation) is what surfaces as `Invalid API key` at sign-in. Recommended (warn-and-skip) until 5.5.
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` — *optional*; operator-held for transient shell provisioning only. No workflow or Worker reads it, so it is **not** required for any deploy and **not** per-env (the live secret is the un-suffixed `SUPABASE_SERVICE_ROLE_KEY`). See the service-role row in §Secrets.
 
-Prod-only secrets (`DATABASE_URL_PRODUCTION`, `DIRECT_URL_PRODUCTION`, R2 keys) can wait until AECI-78.
+Prod-only secrets (`DIRECT_URL_PRODUCTION`, R2 keys) can wait until AECI-78. (There is no `DATABASE_URL_PRODUCTION` — the app DB is D1, ADR 0016 / AECI-253.)
 
 ### 6. Cloudflare Worker secrets (`wrangler secret put <KEY> --env staging`)
 
@@ -583,7 +584,8 @@ Run from `apps/api` and `apps/web` respectively:
 
 ```bash
 cd apps/api
-wrangler secret put DATABASE_URL --env staging              # Prisma Accelerate prisma://… — OPTIONAL: deploy-staging re-pushes this from DATABASE_URL_STAGING on every deploy; run it by hand only to bootstrap before the first CI deploy
+# No DATABASE_URL — the app DB is Cloudflare D1 (ADR 0016), reached via the `DB`
+# binding; the Prisma Accelerate runtime path is retired (AECI-253).
 wrangler secret put DIRECT_URL --env staging                # Supabase pooler postgresql://… (only used by `prisma db pull` locally; harmless on Worker)
 # NOTE: do NOT push the Supabase service-role key to any Worker — it is never read at runtime (see the service-role row in §Secrets / AUTH_AND_RLS.md §3).
 wrangler secret put DD_API_KEY --env staging
@@ -613,8 +615,8 @@ node scripts/algolia/provision.mjs --env staging   # prints the keys + the comma
 ```
 
 - [ ] `gh secret set ALGOLIA_APP_ID` (shared — set once across all envs).
-- [ ] `gh secret set ALGOLIA_SEARCH_KEY_STAGING` and `ALGOLIA_ADMIN_KEY_STAGING` (the printed search + management keys).
-- [ ] Web Worker `ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY`: **CI-pushed** by `deploy.yml` (staging) / `promote-to-prod.yml` (production) from the `ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY_<ENV>` GH secrets above — set those and the next deploy/promote wires the web Worker (no manual `wrangler secret put` needed in steady state). To unblock _before_ the next deploy, push manually: `cd apps/web && wrangler secret put ALGOLIA_APP_ID --env staging` + `wrangler secret put ALGOLIA_SEARCH_KEY --env staging`. **Never the admin key on web.**
+- [ ] `gh secret set ALGOLIA_SEARCH_KEY` and `ALGOLIA_ADMIN_KEY` (the printed search + management keys) — **single shared** secrets, one value for every env (no `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` suffix). The shared search key must cover every env's indexes it serves.
+- [ ] Web Worker `ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY`: **CI-pushed** by `deploy.yml` (staging) / `promote-to-prod.yml` (production) / `promote-to-demo.yml` (demo) from the shared `ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY` GH secrets above — set those and the next deploy/promote wires the web Worker (no manual `wrangler secret put` needed in steady state). To unblock _before_ the next deploy, push manually: `cd apps/web && wrangler secret put ALGOLIA_APP_ID --env staging` + `wrangler secret put ALGOLIA_SEARCH_KEY --env staging`. **Never the admin key on web.**
 - [ ] API Worker: `cd apps/api && wrangler secret put ALGOLIA_APP_ID --env staging` + `wrangler secret put ALGOLIA_ADMIN_KEY --env staging`.
 - [ ] Also run `node scripts/algolia/provision.mjs --env preview` and push its keys to the shared `aeci-api-preview` Worker (no GitHub secret — pr-preview.yml is untouched until 3.9).
 
@@ -626,7 +628,7 @@ node scripts/algolia/provision.mjs --env staging   # prints the keys + the comma
 
 ### 7. Flip the gate
 
-- [ ] `gh variable set SUPABASE_DEV_PROJECT_REF --body "<dev-ref>"` (consumed by `refresh-staging.yml` — AECI-77).
+- [ ] `gh variable set SUPABASE_PROJECT_REF --body "<legacy-postgres-ref>"` (consumed by `deploy.yml` db-migrate-dev + `refresh-staging.yml` — AECI-77; the single legacy-Postgres gate ref shared with `promote-to-prod.yml`).
 - [ ] `gh variable set STAGING_ENABLED --body "true"` (or set in the UI).
 
 The next push to `main` will trigger `deploy-staging`. The smoke test (`scripts/verify-version.sh`) will assert that **both** `staging.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: <merge commit>`.
@@ -645,23 +647,24 @@ These steps must land before the first successful `promote-to-prod.yml` run. Non
   ```
 - [ ] **Production Supabase secrets.** Once prod Supabase is fully bootstrapped (per §1):
   ```bash
-  gh secret set DATABASE_URL_PRODUCTION --body "<prisma:// Accelerate URL>"
-  gh secret set DIRECT_URL_PRODUCTION   --body "<postgresql://... pooler URL>"
+  # No DATABASE_URL_PRODUCTION — the app DB is Cloudflare D1 (ADR 0016); the
+  # Prisma Accelerate runtime path is retired (AECI-253).
+  gh secret set DIRECT_URL_PRODUCTION   --body "<postgresql://... pooler URL>"   # legacy-Postgres gate, retained until AECI-257
   # The service-role key is NOT provisioned here — no workflow or Worker reads it
   # (see the service-role row in §Secrets). Keep it operator-held only.
   ```
 - [ ] **Datadog deploy-marker secret.** `gh secret set DATADOG_API_KEY --body "<key>"` (already exists for Worker runtime intake; CI needs its own copy to POST to `/api/v1/events`).
-- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`. **Exception:** `DATABASE_URL` on the prod API Worker is pushed automatically by `promote-to-prod.yml` from the `DATABASE_URL_PRODUCTION` GH secret (set above) on every promote, so you don't need to push it by hand — but you *can* (the manual put is the fallback and harmless). All the other secrets (`DIRECT_URL`, `DD_*`, `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID`, …) are still manual. (`RESEND_API_KEY` is **not** manual — `promote-to-prod.yml` pushes it from the `RESEND_API_KEY_PRODUCTION` GH secret, graceful; AECI-240.) (The service-role key is **not** in this list — it is never pushed to a Worker; see the service-role row in §Secrets.)
+- [ ] **Production Worker secrets.** Run the same `wrangler secret put …` list from §6 against `--env production` from `apps/api/` and `apps/web/`. There is **no** `DATABASE_URL` to push — the app DB is Cloudflare D1 (ADR 0016), reached via the `DB` binding. `REVIEW_APP_TOKEN` is pushed automatically by `promote-to-prod.yml` on every promote (the manual put is a bootstrap fallback). All the other secrets (`DIRECT_URL`, `DD_*`, `ADMIN_PURGE_TOKEN`, `CF_PURGE_API_TOKEN`, `CF_ZONE_ID`, …) are still manual. (`RESEND_API_KEY` is **not** manual — `promote-to-prod.yml` pushes it from the `RESEND_API_KEY_PRODUCTION` GH secret, graceful; AECI-240.) (The service-role key is **not** in this list — it is never pushed to a Worker; see the service-role row in §Secrets.)
 - [ ] **Algolia production indexes + keys (AECI-134).** With the root creds exported (as in §6b), `node scripts/algolia/provision.mjs --env production`. Then:
   ```bash
-  gh secret set ALGOLIA_SEARCH_KEY_PRODUCTION --body "<printed search key>"
-  gh secret set ALGOLIA_ADMIN_KEY_PRODUCTION  --body "<printed management key>"
+  gh secret set ALGOLIA_SEARCH_KEY --body "<printed search key>"   # single shared key (covers production_* + the other envs' indexes)
+  gh secret set ALGOLIA_ADMIN_KEY  --body "<printed management key>"  # single shared key, all envs
   # ALGOLIA_APP_ID is shared — already set in §6b.
   cd apps/web && wrangler secret put ALGOLIA_APP_ID --env production && wrangler secret put ALGOLIA_SEARCH_KEY --env production   # never the admin key on web
   cd ../api  && wrangler secret put ALGOLIA_APP_ID --env production && wrangler secret put ALGOLIA_ADMIN_KEY  --env production
   ```
 - [ ] **PostHog production key (AECI-239).** `gh secret set POSTHOG_KEY_PRODUCTION --body "<prod project api key>"` — `promote-to-prod.yml` CI-pushes it to the prod web Worker (warn-and-skip; analytics no-ops if unset). `POSTHOG_HOST` is a public `var` (US Cloud). To unblock manually: `cd apps/web && wrangler secret put POSTHOG_KEY --env production`. **Never on the API Worker.**
-- [ ] **Production project ref repo variable.** `gh variable set SUPABASE_PROD_PROJECT_REF --body "jgxebjufabtwkcgxjqvk"` (per §1).
+- [ ] **Project ref repo variable.** `gh variable set SUPABASE_PROJECT_REF --body "<legacy-postgres-ref>"` (per §1) — single shared variable; `promote-to-prod.yml` and `deploy.yml`/`refresh-staging.yml` both link against it. ⚠️ Was two distinct DBs (dev `dmbygwupskttzsvfzluq` / prod `jgxebjufabtwkcgxjqvk`); confirm one ref is correct for both `db push` gates.
 - [ ] **Verify GH Environment.** The `production` GH Environment (created in §4) must list `chrisw@thewbsproject.com` as a required reviewer. Without that, the workflow's `apply-prod-migrations` job will not pause for approval.
 
 Once all boxes are ticked, dry-run the workflow with a deliberately wrong `commit_sha` to verify the negative path: `pre-promotion-checks` must fail at step 4 with `demo is not at <input> on both Workers (API + SSR), refusing to promote` and the run must stop before any downstream job.
@@ -685,9 +688,8 @@ The demo tier (`demo.aecintegrations.com`) is the public showcase, inserted betw
   ```bash
   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
     node scripts/algolia/provision.mjs --env demo           # creates demo_* indexes + prints a demo search key
-  gh secret set ALGOLIA_SEARCH_KEY_DEMO --body "<printed search key>"
   ```
-  `ALGOLIA_APP_ID` and `ALGOLIA_ADMIN_KEY` are the **single** shared app id + admin key — one Algolia app spans all envs and the admin key reaches every index (`--env` is only an index-name prefix, NOT a per-env key scope). They're reused across envs (set `ALGOLIA_ADMIN_KEY` once if it isn't already a repo secret), so the per-`demo_*` query key `ALGOLIA_SEARCH_KEY_DEMO` is the ONLY net-new GH secret. Every other demo secret reuses the shared `*_PRODUCTION` values (demo shares the prod Supabase project + zone).
+  `ALGOLIA_APP_ID`, `ALGOLIA_ADMIN_KEY` **and `ALGOLIA_SEARCH_KEY` are all single shared** secrets now — one Algolia app spans all envs and the admin key reaches every index (`--env` is only an index-name prefix, NOT a per-env key scope). Demo therefore adds **no net-new Algolia GH secret**: it reads the same shared `ALGOLIA_SEARCH_KEY` as staging/production. ⚠️ Because the search key is shared, it must be scoped to cover `demo_*` (and every other env's indexes) — the old per-`demo_*` `ALGOLIA_SEARCH_KEY_DEMO` isolation no longer applies. Every other demo secret reuses the shared `*_PRODUCTION` values (demo shares the prod Supabase project + zone).
 - [ ] **GitHub Environment.** Create a `demo` GH Environment (Settings → Environments) — already done. `promote-to-demo.yml`'s deploy job targets it; leave reviewers empty for an unattended promote, or add a required reviewer to gate it.
 - [ ] **DNS — nothing to do.** `custom_domain: true` makes wrangler create `prod.aecintegrations.com` on the first prod deploy and `demo.aecintegrations.com` on the first demo deploy (the latter reassigns the hostname off the old production Worker). No manual zone edits.
 - [ ] **Cutover order (avoids any `demo.` downtime).** Run **promote-to-demo first** — `aeci-web-demo` claims `demo.aecintegrations.com` (reassigning it off the old production Worker) — then seed `aeci-app-demo` (clone via `apps/datatool`, or re-promote the catalog + `scripts/seed-reviews`). **Then** run **promote-to-prod** — `aeci-web-production` picks up `prod.aecintegrations.com` and keeps serving the existing production data.

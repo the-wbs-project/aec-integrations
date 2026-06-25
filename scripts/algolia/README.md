@@ -54,7 +54,7 @@ Or via the package script: `pnpm algolia:provision --env staging`.
 
 For each env the script prints the live `ALGOLIA_SEARCH_KEY` and `ALGOLIA_ADMIN_KEY` (management) values, then a copy-pasteable block of:
 
-- `gh secret set ALGOLIA_APP_ID` (shared — set once), and `ALGOLIA_SEARCH_KEY_<ENV>` / `ALGOLIA_ADMIN_KEY_<ENV>` for staging/production.
+- `gh secret set ALGOLIA_APP_ID`, `ALGOLIA_SEARCH_KEY`, `ALGOLIA_ADMIN_KEY` — all **single shared** secrets now (one value across every env; no `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` suffix). The shared search key must cover every env's indexes it serves.
 - `wrangler secret put` for the web Worker (`ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY`) and the API Worker (`ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY`).
 
 `preview` has no GitHub secret (per-PR previews are untouched until 3.9); push its Worker secrets directly.
@@ -87,7 +87,7 @@ This is the script the CI "update Algolia indexes" step (CICD §3.2) runs on eve
 
 ```bash
 export ALGOLIA_APP_ID=…
-export ALGOLIA_ADMIN_KEY=<per-env MANAGEMENT key>   # the ALGOLIA_ADMIN_KEY_<ENV> value (ACL includes editSettings)
+export ALGOLIA_ADMIN_KEY=<shared MANAGEMENT key>   # the single shared ALGOLIA_ADMIN_KEY (ACL includes editSettings)
 
 node scripts/algolia/apply-settings.mjs --env staging
 ```
