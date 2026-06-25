@@ -37,7 +37,7 @@ import { BrandLogo } from './brand-logo';
         <div class="lg:max-w-xs">
           <aec-brand-logo [height]="28" />
           <p class="mt-3 max-w-xs text-sm text-(--text-secondary)" i18n="@@app.footer.tagline">
-            Vendor-verified reviews for AEC software integrations.
+            The independent directory of AEC software integrations.
           </p>
         </div>
         <div class="grid grid-cols-2 gap-x-10 gap-y-8 sm:grid-cols-3">

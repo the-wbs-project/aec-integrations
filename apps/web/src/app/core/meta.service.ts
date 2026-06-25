@@ -171,7 +171,7 @@ export class MetaService {
    */
   setHomeMeta(input: { canonical: string }): void {
     const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent directory of AEC software integrations`;
-    const description = $localize`:@@meta.homeDescription:The independent directory of integrations between AEC software tools. No vendor marketing, no pay-for-placement.`;
+    const description = $localize`:@@meta.homeDescription:The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement.`;
 
     this.title.setTitle(title);
     this.meta.updateTag({ name: 'description', content: description });
