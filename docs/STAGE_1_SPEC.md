@@ -1140,7 +1140,7 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 - [ ] 7.5 — Resend transactional email (review + account-deletion + magic-link sender; §11.1) — home for the Phase 5/6 deferred emails
 - [ ] 7.6 — Daily data-quality job (full §23.1 suite + email summary; Algolia-drift line already shipped in AECI-140)
 - [x] 7.7 — WAF rate limits on the public endpoints (§15.1) — dashboard runbook `docs/waf-rate-limits.md` (AECI-242)
-- [ ] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154)
+- [x] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154) — non-blocking BrowserStack Automate lane wired (`.github/workflows/browserstack.yml` + `apps/web/browserstack.yml` + `playwright.browserstack.config.ts`); ADR 0012 Accepted. Inert until the personal-subscription `BROWSERSTACK_*` secrets are set (skips green); pre-launch full sweep + a11y audit still pending.
 - [ ] 7.9 — Waitlist welcome banner + token attribution (§11.2)
 - [ ] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3)
 - [ ] 7.11 — Performance / Core Web Vitals audit

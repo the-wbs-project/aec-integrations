@@ -13,6 +13,8 @@ dist
 # Test artifacts (Playwright, Vitest coverage, Lighthouse CI)
 playwright-report/
 test-results/
+# BrowserStack Automate lane junit/report output (AECI-154)
+browserstack-results/
 .lighthouseci/
 coverage/
 out-tsc/

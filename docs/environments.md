@@ -624,6 +624,15 @@ node scripts/algolia/provision.mjs --env staging   # prints the keys + the comma
 - [ ] `gh secret set POSTHOG_KEY_STAGING --body "<project api key>"` — CI-pushes to the staging web Worker (`deploy.yml`) and to every PR-preview web Worker (`pr-preview.yml`, which reuses `_STAGING`). Until set, analytics no-ops (fail-open, warn-and-skip).
 - [ ] To unblock _before_ the next deploy, push manually: `cd apps/web && wrangler secret put POSTHOG_KEY --env staging`. **Never on the API Worker.** `POSTHOG_HOST` is a public `var` in `wrangler.jsonc` (US Cloud) — no secret needed.
 
+#### 6d. BrowserStack cross-browser smoke (AECI-154 / Phase 7.8)
+
+Optional, non-blocking. The `.github/workflows/browserstack.yml` lane runs the curated Playwright smoke subset on real iOS Safari + real Android Chrome + desktop Safari/Firefox/Edge against deployed staging (reusing the existing `CF_ACCESS_*` service-token secrets — no new CF Access work). It is **inert and skips green** until these personal-subscription secrets are set:
+
+- [ ] `gh secret set BROWSERSTACK_USERNAME --body "<username>"`
+- [ ] `gh secret set BROWSERSTACK_ACCESS_KEY --body "<access key>"`
+
+The subscription must include the **Automate** product (real iOS Safari Playwright is Automate-only) with a parallel-session quota ≥ the 5-platform matrix in `apps/web/browserstack.yml`. No Worker secret is involved — this is a CI-only lane that never gates merge.
+
 ### 7. Flip the gate
 
 - [ ] `gh variable set SUPABASE_DEV_PROJECT_REF --body "<dev-ref>"` (consumed by `refresh-staging.yml` — AECI-77).
