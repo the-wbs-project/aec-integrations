@@ -268,14 +268,19 @@ Lint: 🟡 review-only.
 
 ---
 
-## 19. Spartan brain primitives
+## 19. Headless behavior: Spartan brain primitives + Angular Aria
 
 - Use Spartan brain (`@spartan-ng/brain/<primitive>`) for behavior; layer Tailwind utility classes for style.
 - Import primitives directly: `import { BrnButton } from '@spartan-ng/brain/button';`. No barrel imports from `@spartan-ng/brain` root.
 - **No project-level wrapper components** around brain primitives. Compose with Tailwind in the consuming template. Reference: `apps/web/src/app/preview/vendor-detail/vendor-detail.ts:2-4`, `apps/web/src/app/demo/spartan-demo.ts`.
 - No `@spartan-ng/helm` codegen (per `docs/STAGE_1_SPEC.md` §16 Phase 1).
 - Angular CDK is fine where Spartan doesn't cover (overlays, drag-drop, virtual scroll).
-- **New interactive/form-control patterns → Angular Aria (proposed).** For _new_ selects, comboboxes, listboxes, radio groups, accordions, trees, grids, menus, toolbars, and tabs, Angular Aria (`@angular/aria`, stable in v22) is the proposed default — it's first-party and binds to Signal Forms (§13) via `[formField]` out of the box. Spartan stays for the overlay primitives Aria lacks (Popover, Dialog); CDK remains the shared overlay/positioning foundation under both. Style Aria like brain primitives (Tailwind utilities targeting `aria-*` attributes, bound to tokens, both themes). Pending sign-off — see `docs/adr/0010-angular-aria-alongside-spartan.md`.
+- **New interactive/form-control patterns → Angular Aria.** This is the **rule** (ADR 0010, **Accepted**), not a proposal. For _new_ selects, comboboxes, listboxes, radio groups, accordions, trees, grids, menus, toolbars, and tabs, build on Angular Aria (`@angular/aria`, stable in v22) — it's first-party and Signal-Forms-friendly (§13). Spartan stays for the overlay primitives Aria lacks (Popover, Dialog); CDK remains the shared overlay/positioning foundation under both. Reference implementations: the review-submission form (`apps/web/src/app/reviews/review-form.ts`), the header search combobox (`apps/web/src/app/search/search-autocomplete.ts`), and the `/search` sort dropdown (`apps/web/src/app/search/widgets/search-sort-by.ts`).
+  - **`select`/`radio` are realised via combobox/listbox** — Aria@22 GA ships neither directive, so a non-editable `ngCombobox` + `ngListbox` popup stands in for a select, and a horizontal `ngListbox`/`ngOption` stands in for a radio group (e.g. the review-form star ratings).
+  - **Signal Forms wiring depends on the control kind.** Native `<input>`/`<textarea>` bind `[formField]` directly (like `requests/request-form.ts`). **Discrete-choice Aria controls (listbox/combobox) do _not_ — bridge them** with a local `signal` two-way bound via `[(value)]` (Aria's `value` is a `ModelSignal<V[]>`; drives `aria-selected` + roving state) plus a `(valueChange)` handler that writes `values[0]` into the field with `.value.set()` + `.markAsTouched()`. `[formField]` fails here because undefined-seeded fields aren't materialised and a seeded `0`-sentinel can't be told apart from a real first pick. See `reviews/review-form.ts` (`onOverallChange`/`onOnboardingChange`).
+  - **Style Aria like brain primitives:** Tailwind `aria-*:` variant utilities (`aria-selected:`, `aria-expanded:`, `aria-checked:`) and the `data-[active=true]:` variant Aria sets on the active option, bound to the OKLCH tokens — no TS state mirror. Stage 1 is **light-only** (AECI-226); do not add `dark:` variants.
+  - **Overlay glue:** `ComboboxPopup` content renders **in-flow**, not in a CDK overlay. For a floating popup, nest `ngComboboxPopup` inside `cdkConnectedOverlay` (`usePopover: 'inline'`) driven by the `[(expanded)]` signal (AECI-232).
+  - Full rationale + the two deviations: `docs/adr/0010-angular-aria-alongside-spartan.md`.
 
 Lint: 🟡 review-only.
 

@@ -282,7 +282,7 @@ The system is flat by default. Depth is conveyed through color (Bone callouts, s
 
 Components are bound to tokens via the front-matter `{...}` references. Concrete behavior, states, and Spartan brain primitive bindings below.
 
-> **Behavior providers (proposed — ADR 0010).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the proposed provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically (Tailwind utilities targeting the `aria-*` attributes the directives toggle). The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
+> **Behavior providers (ADR 0010, Accepted).** Component _behavior_ here is headless. **Spartan brain** (ADR 0005) covers the overlay primitives — buttons, popovers, dialogs. **Angular Aria** (`@angular/aria`, stable in v22) is the provider for _new_ interactive and form-control patterns: select, combobox, listbox, radio, accordion, tree, grid, menu, toolbar, tabs. Both bind to the tokens below identically, via Tailwind **`aria-*:` variant utilities** (`aria-selected:`, `aria-expanded:`, `aria-checked:`) plus the **`data-[active=true]:`** variant Aria sets on the active option — token-bound, no TS state mirror. (Two adopter-facing deviations: Aria@22 ships no `radio`/`select`, so listbox/combobox stand in; and discrete-choice Aria controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]` — a styling-invisible detail, but see the ADR.) The behavior provider is invisible to the visual system — the **Anchor-Site Rule** governs composition, hierarchy, density, and atmosphere, not which library supplies keyboard/ARIA logic, so two providers is not a mashup. See `docs/adr/0010-angular-aria-alongside-spartan.md`.
 
 ### Buttons
 
@@ -375,7 +375,7 @@ The home page (`/`, `apps/web/src/app/home/`) assembles the §4.1 surface from n
 
 ### Auth & Reviews (Phase 5)
 
-Phase 5 adds the authenticated surfaces — sign-in, review submission + display, account, and the admin moderation queue (`apps/web/src/app/{auth,reviews,account,admin}/`, plus the reviews section on the product page). They were built through the v0 → Angular workflow and reuse the established catalog token + type vocabulary so the signed-in experience reads as the **same publication** as the public directory (the Anchor-Site Rule). Every component is token-only (zero hardcoded color), i18n-wraps every visible string, and ships **light-only** (AECI-226 — no `dark:` variants). New form controls follow **ADR 0009** (Signal Forms) and the proposed **Angular Aria** ADR (overlay primitives stay Spartan); the cacheable product page stays visitor-state-neutral (see the cache-neutrality constraint in CLAUDE.md).
+Phase 5 adds the authenticated surfaces — sign-in, review submission + display, account, and the admin moderation queue (`apps/web/src/app/{auth,reviews,account,admin}/`, plus the reviews section on the product page). They were built through the v0 → Angular workflow and reuse the established catalog token + type vocabulary so the signed-in experience reads as the **same publication** as the public directory (the Anchor-Site Rule). Every component is token-only (zero hardcoded color), i18n-wraps every visible string, and ships **light-only** (AECI-226 — no `dark:` variants). New form controls follow **ADR 0009** (Signal Forms) and the **Angular Aria** ADR (0010, Accepted — overlay primitives stay Spartan); the cacheable product page stays visitor-state-neutral (see the cache-neutrality constraint in CLAUDE.md).
 
 - **Login** (`<aec-login-page>`, `auth/login.ts`) — the `/auth/login` page: a magic-link email field (a real `<label for>`, never placeholder-as-label) and a Google OAuth button, driven by Signal Forms with a validated `return` path. Non-cacheable, `noindex`. Degrades gracefully when Supabase is unconfigured (the field still renders; no console error).
 
@@ -395,7 +395,7 @@ Phase 5 adds the authenticated surfaces — sign-in, review submission + display
 
 ### Inputs / Fields
 
-Native inputs driven by Signal Forms today (ADR 0009); richer controls (select, combobox, radio) use Angular Aria per the proposed provider note above (ADR 0010). Styling binds to tokens.
+Native inputs driven by Signal Forms today (ADR 0009); richer controls use Angular Aria per the provider note above (ADR 0010, Accepted) — `select`/`radio` are realised via combobox/listbox (Aria@22 ships neither), and these discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]`. Styling binds to tokens.
 
 - **Style:** 1px solid `border-default`, `surface-base` background, `rounded.md` corner. Padding `spacing.3 spacing.4` (12px / 16px). Body typography role.
 - **Focus:** border shifts to 1px solid `accent-primary`, paired with the focus-ring elevation. No glow halo, no underline animation — clean border swap.
