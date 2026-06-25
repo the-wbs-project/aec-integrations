@@ -34,6 +34,8 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
 | `aeci.algolia.sync` | count | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/src/routes/promote.ts` (`syncAlgoliaAfterPromote`) | `trigger` (cron / promote), `entity` (products / vendors / integrations / all), `outcome` (ok / failed / skipped_no_creds) |
 | `aeci.algolia.index_drift` | gauge | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/scripts/reconcile-algolia-drift.ts` (CLI / deploy-staging hook) | `entity` (products/vendors/integrations), `index` (physical index name) |
+| `aeci.algolia.orphans_removed` | gauge | `apps/api/src/scheduled.ts` (daily drift cron, post-report sweep) + `apps/api/scripts/reconcile-algolia-drift.ts` (CLI) — AECI-266 | `entity` (products/vendors/integrations), `index` (physical index name) |
+| `aeci.algolia.orphans_skipped_cap` | gauge | `apps/api/src/scheduled.ts` (daily drift cron) — AECI-266; emitted only when the safety cap refuses a large purge | `entity` (products/vendors/integrations), `index` (physical index name) |
 | `aeci.algolia.sync.records` | count | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `entity` (products / vendors / integrations), `op` (saved / deleted) |
 | `aeci.algolia.sync.duration_ms` | distribution | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
 | `aeci.search.query` | RUM action | `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`), called by `search-controller.ts` (per-index `connectStats` render + instance `error` event) and `autocomplete-controller.ts` (`runSearch`) — AECI-174; see "Browser search RUM" below | `index` (products/vendors/integrations/federated), `status` (ok/error), `results_bucket` (none/1-5/6-20/21+), `duration_ms` |
@@ -103,6 +105,20 @@ level, not a delta) via the shared transport's `submitGauge` (AECI-140 added it 
 `submitCount`); the daily 09:00 UTC (= 04:00 EST) run is the API Worker cron (`apps/api/src/scheduled.ts`),
 and the deploy-staging hook + manual triage reuse the same comparison via
 `apps/api/scripts/reconcile-algolia-drift.ts`.
+
+`aeci.algolia.orphans_removed` / `aeci.algolia.orphans_skipped_cap` (AECI-266) promote the
+drift check from report-only to **self-healing** for the negative-drift case. Right after the
+`index_drift` report, the same 09:00 cron sweeps each index (`apps/api/src/lib/algolia-orphans.ts`):
+browse every objectID, diff against the authoritative promoted-id set from D1, and
+`deleteObject` the orphans (objects with no promoted D1 row — what the incremental sync
+can't see to delete). `orphans_removed` is a per-`entity`/`index` gauge (0 on a clean run);
+`orphans_skipped_cap` is emitted **only** when the safety cap (≤50 objects and ≤20% of an
+index per pass) refuses an unexpectedly large purge — the `AECi — Algolia orphan sweep capped`
+monitor (`observability/datadog/monitor-algolia-orphan-sweep-capped.json`) pages on a non-zero
+value, and the operator runs `db:reconcile-algolia-drift --apply --force` after confirming it's
+intended. The sweep is delete-only; **positive** drift (records missing from the index) stays
+repaired by the 08:00 incremental sync, not here. The next day's `index_drift` reads 0 once
+the orphans are gone.
 
 `aeci.algolia.sync.records` and `aeci.algolia.sync.duration_ms` (AECI-141) round out the
 sync-health picture the `aeci.algolia.sync` outcome count only hinted at. Both are emitted for
@@ -357,6 +373,7 @@ nine monitors were applied 2026-06-12 with that substitution.
 | Algolia index drift | any index's \|drift\| > 0 (daily); or no data for 48h | `observability/datadog/monitor-algolia-index-drift.json` |
 | Algolia sync failed | any `outcome:failed` push in the last 1d | `observability/datadog/monitor-algolia-sync-failed.json` |
 | Algolia sync not running | no successful (`outcome:ok`) cron push for 48h | `observability/datadog/monitor-algolia-sync-no-data.json` |
+| Algolia orphan sweep capped | any `aeci.algolia.orphans_skipped_cap` > 0 (the safety cap refused a large orphan purge) | `observability/datadog/monitor-algolia-orphan-sweep-capped.json` |
 | Home stats compute failed | any `aeci.stats.compute.key{outcome:failed}` or job-level `aeci.stats.compute{outcome:failed}` (the latter covers a pre-compute crash) in the last 1d | `observability/datadog/monitor-stats-compute-failed.json` |
 | Home stats not running | no `aeci.stats.compute{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-stats-compute-no-data.json` |
 | page_views write errors | write error rate > 10% over 10m | `observability/datadog/monitor-pageviews-write-errors.json` |

@@ -82,41 +82,64 @@ mitigating so the post-mortem can reconstruct the failure.
 
 ## Algolia index drift
 
-**Alert:** `AECi — Algolia index drift (Supabase ≠ Algolia)`
-**Metric:** `aeci.algolia.index_drift` — signed `supabase − algolia` count per `entity`/`index`
-(AECI-140, §23.1 daily data-quality check).
+**Alert:** `AECi — Algolia index drift (D1 ≠ Algolia)`
+**Metric:** `aeci.algolia.index_drift` — signed `D1 − algolia` count per `entity`/`index`
+(AECI-140, §23.1 daily data-quality check). Companion sweep signals:
+`aeci.algolia.orphans_removed` / `aeci.algolia.orphans_skipped_cap` (AECI-266; see below).
 
-**What it means:** An Algolia index's object count no longer matches the promoted Supabase
-rows it should mirror. **Positive** drift = the index is *missing* rows (a sync didn't run
-or half-failed). **Negative** = the index holds *orphans* (rows fell out of `promoted` but
-weren't pruned — the AECI-138 bulk sync upserts and does not delete). This is **report-only**;
-nothing auto-repairs.
+**What it means:** An Algolia index's object count no longer matches the promoted D1 rows it
+should mirror. **Positive** drift = the index is *missing* rows (a sync didn't run or
+half-failed). **Negative** = the index holds *orphans* (objects with no promoted D1 row —
+hard-deleted/stranded rows the incremental sync structurally can't see to delete). The gauge
+captures the **pre-heal** state: right after this report the same 09:00 UTC cron runs the orphan
+sweep (`apps/api/src/lib/algolia-orphans.ts`), which deletes the orphans — so **negative drift
+self-heals** (AECI-266) and the next day's run reads 0. **Positive** drift is *not* auto-repaired;
+it is fixed by the 08:00 incremental sync.
 
 **First checks**
 
-1. Which index? The alert is split `by {index}` — note `<env>_products` / `_vendors` /
-   `_integrations` and the sign/magnitude (logged with the gauge).
+1. Which index, and which sign? The alert is split `by {index}` — note `<env>_products` /
+   `_vendors` / `_integrations` and the sign/magnitude (logged with the gauge). Negative =
+   orphans (self-healing); positive = missing rows.
 2. Recent promotes? Drift right after a `POST /api/promote` is expected until a sync runs.
-3. No-data variant: if the alert is "no data for 48h", the daily cron
+3. Did the sweep heal it? For negative drift, check `aeci.algolia.orphans_removed` and the
+   `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` for the same run; the
+   next day's `index_drift` should read 0.
+4. No-data variant: if the alert is "no data for 48h", the daily cron
    (`apps/api/src/scheduled.ts`) didn't report — check the staging/production API Worker's
    scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that
    `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` are set on the Worker.
 
-**Repair:** re-run the AECI-138 bulk reindex for the affected env (idempotent upsert):
+**Repair**
+
+- **Negative drift (orphans):** normally self-heals via the post-report sweep. If the safety cap
+  refused the purge (the `AECi — Algolia orphan sweep capped` alert / a non-zero
+  `aeci.algolia.orphans_skipped_cap`), confirm the orphan count is legitimate, then force it. The
+  script reads the deployed D1 over `wrangler d1 execute --remote`, so it needs the Cloudflare D1
+  token (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`), **not** `DIRECT_URL`:
+
+  ```bash
+  CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
+    pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env <staging|production> --apply --force
+  ```
+
+  (production also requires `--allow-production`.)
+- **Positive drift (missing rows):** repaired by the 08:00 incremental sync — a row updated
+  within the watermark window is re-upserted on the next run; a record stuck outside the window
+  re-syncs when it is next touched (e.g. re-promoted). The Node bulk-reindex CLI was retired under
+  D1 (ADR 0016); a Worker-triggered full re-sync is a tracked follow-up.
+
+To re-check (dry-run, deletes nothing) on demand without waiting for the 09:00 UTC (= 04:00 EST)
+cron:
 
 ```bash
-pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
-```
-
-To re-check on demand without waiting for the 09:00 UTC (= 04:00 EST) cron:
-
-```bash
-DIRECT_URL=<DIRECT_URL_{STAGING,PRODUCTION}> ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
+CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
   pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env <staging|production>
 ```
 
-**Escalation:** persistent negative drift after a re-sync means orphan objects the upsert
-can't remove — a deliberate prune is out of scope for AECI-140; open a follow-up.
+**Escalation:** if the cap keeps refusing, or orphans reappear every day, that points at a
+misconfigured promoted-id read (wrong env/DB) or a churning source; capture the
+`source:algolia-drift-cron` sweep logs and page on-call before forcing a large purge.
 
 ---
 

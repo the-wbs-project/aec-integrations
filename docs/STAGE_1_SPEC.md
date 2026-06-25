@@ -1370,7 +1370,7 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Brandfetch logo URLs returning 404 (sample check, not exhaustive)
 - Algolia index drift (record count mismatch with Supabase)
 
-Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage.
+Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage (exception: the Algolia index-drift check self-heals the orphan / negative-drift case; see the AECI-266 note below).
 
 > **Implementation note (AECI-140):** the "Algolia index drift" line item ships as the
 > API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 09:00
@@ -1380,8 +1380,18 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 > promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
 > gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`),
 > not the email summary (the full §23.1 email + the other nine checks remain to be built). A
-> report-only post-deploy check also runs in `deploy-staging` (CICD §3.2). Report-only — re-run
-> the AECI-138 bulk sync to repair.
+> report-only (dry-run) post-deploy check also runs in `deploy-staging` (CICD §3.2).
+>
+> **Self-healing update (AECI-266):** the daily 09:00 cron no longer stops at reporting — right
+> after emitting the `index_drift` gauge it runs the orphan sweep (`apps/api/src/lib/algolia-orphans.ts`):
+> browse every objectID per index, diff against the authoritative promoted-id set from D1, and
+> `deleteObject` the orphans (objects with no promoted D1 row — what the incremental sync
+> structurally can't see to delete). The sweep is **delete-only and safety-capped** (≤50 objects
+> and ≤20% of an index per pass; a larger purge is refused and surfaced via
+> `aeci.algolia.orphans_skipped_cap` for an operator to confirm with
+> `db:reconcile-algolia-drift --apply --force`). It heals **negative** drift only; **positive**
+> drift (records missing from the index) stays repaired by the 08:00 incremental sync. The
+> AECI-138 bulk sync this note once pointed to as the repair path never landed.
 
 ### 23.2 Duplicate detection on submission
 

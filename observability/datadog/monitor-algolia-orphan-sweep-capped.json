@@ -1,0 +1,14 @@
+{
+  "name": "AECi — Algolia orphan sweep capped",
+  "type": "query alert",
+  "query": "max(last_1d):max:aeci.algolia.orphans_skipped_cap{env:production} by {index} > 0",
+  "message": "The daily 09:00 UTC orphan sweep (AECI-266, §23.1) refused to delete an unexpectedly large set of orphan objects from an Algolia index — more than the safety cap allows (≤50 objects and ≤20% of an index per pass). This is the guard against a misconfigured/empty promoted-id read nuking a live search index, so it does NOT auto-purge; the orphans stay searchable (404-on-click) until an operator confirms and forces the purge. The alert is split `by {index}` — the value is the orphan count refused. Read the `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` (it names the capped index) and verify the count is legitimate before forcing `db:reconcile-algolia-drift -- --env <env> --apply --force` (production also needs --allow-production).\n\nNote: this monitor deliberately does NOT use notify_no_data — `orphans_skipped_cap` is absent on a healthy run (it is emitted only when the cap fires), so no-data here would be a constant false alarm. The per-run heal volume is the companion gauge `aeci.algolia.orphans_removed` (0 on a clean run).\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#algolia-index-drift\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:3", "managed-by:aeci-266"],
+  "options": {
+    "thresholds": { "critical": 0 },
+    "notify_no_data": false,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

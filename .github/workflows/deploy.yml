@@ -921,19 +921,21 @@ jobs:
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
         run: pnpm algolia:apply-settings --env staging
 
-      # CICD §3.2 step 5 (AECI-140): report-only post-deploy verification that the
-      # staging Algolia indexes match the promoted Supabase rows, right after the
+      # CICD §3.2 step 5 (AECI-140 / AECI-266): report-only post-deploy verification
+      # that the staging Algolia indexes match the promoted D1 rows, right after the
       # settings apply above. NON-BLOCKING (`continue-on-error`) — drift is
-      # report-only (§23.1; humans triage) and the script itself exits 0 on drift;
-      # the alert is the Datadog monitor on `aeci.algolia.index_drift`. Skips
-      # cleanly when ALGOLIA_* are unset. Uses the vanilla Prisma client over
-      # DIRECT_URL (the `prisma generate` above produced it). The daily 09:00 UTC
-      # (= 04:00 EST) run is the API Worker cron (apps/api/src/scheduled.ts); this is the
-      # immediate post-deploy check.
+      # report-only (§23.1; humans triage) and the script exits 0 on found drift; the
+      # alert is the Datadog monitor on `aeci.algolia.index_drift`. DRY-RUN (no
+      # `--apply`) — the daily 09:00 UTC API Worker cron (apps/api/src/scheduled.ts)
+      # does the actual orphan removal; this is only the immediate post-deploy report.
+      # Reads the deployed D1 via `wrangler d1 execute --remote` (no Prisma/DIRECT_URL
+      # under ADR 0016), so it needs the Cloudflare D1 token. Skips cleanly when
+      # ALGOLIA_* are unset.
       - name: Reconcile Algolia staging index drift (report-only)
         continue-on-error: true
         env:
-          DIRECT_URL: ${{ secrets.DIRECT_URL_STAGING }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_STAGING }}
           DD_API_KEY: ${{ secrets.DATADOG_API_KEY }}

@@ -140,6 +140,7 @@ describe('managementKeyParams', () => {
     const params = managementKeyParams('production');
     expect(params.acl).toEqual([
       'search',
+      'browse',
       'addObject',
       'deleteObject',
       'editSettings',

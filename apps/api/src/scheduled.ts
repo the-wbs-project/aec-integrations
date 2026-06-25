@@ -31,12 +31,13 @@
  * indexes, removing `retracted`/`rejected` records. A full reindex is the same
  * `indexEntity` over all rows (the Node-Prisma bulk CLI was retired under D1 —
  * ADR 0016; a Worker-triggered full sweep is the follow-up).
- * 09:00 UTC (= 04:00 EST) — Algolia ↔ Supabase index-drift reconciliation
- * (`./lib/algolia-drift`, AECI-140 / §23.1): compare promoted-row counts to
- * Algolia object counts per entity and emit the `aeci.algolia.index_drift` gauge.
- * Report-only — no auto-remediation; the alert is the Datadog monitor
- * (`observability/datadog/monitor-algolia-index-drift.json`). Re-run a full
- * Algolia reindex to repair.
+ * 09:00 UTC (= 04:00 EST) — Algolia ↔ D1 index-drift reconciliation + orphan
+ * sweep (`./lib/algolia-drift` + `./lib/algolia-orphans`, AECI-140 / AECI-266 /
+ * §23.1): compare promoted-row counts to Algolia object counts per entity and emit
+ * the `aeci.algolia.index_drift` gauge (the Datadog-monitored alert), THEN heal the
+ * negative-drift case — sweep orphan objects (in the index, no promoted D1 row) the
+ * incremental sync can't see to delete. The sweep is delete-only + safety-capped;
+ * positive drift (records MISSING from the index) stays repaired by the 08:00 sync.
  * Every 15 minutes (the one sub-hourly trigger; see `RECONCILE_CRON`) —
  * request→Linear reconciliation sweep (`./lib/reconciliation-sweep`, AECI-214 /
  * Phase 6.7 / §6.2/§6.4): retry `vendor_requests` stuck
@@ -66,6 +67,14 @@ import {
   type DriftCount,
 } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
+import {
+  createAlgoliaDeleteClient,
+  createAlgoliaObjectIdClient,
+  DEFAULT_SAFETY_CAP,
+  sweepAlgoliaOrphans,
+  type EntityOrphanResult,
+  type PromotedIdProvider,
+} from './lib/algolia-orphans';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import { parseRecipients, sendEmail } from './lib/email';
@@ -121,6 +130,16 @@ const DATA_QUALITY_CRON = '0 4 * * *';
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
+
+/** Orphan-sweep gauges (AECI-266): objects removed per entity (0 on a clean run)
+ *  and — when the safety cap blocks an unexpectedly large purge — the count it
+ *  refused (so a monitor can page an operator). See docs/OBSERVABILITY.md. */
+const ORPHANS_REMOVED_METRIC = 'aeci.algolia.orphans_removed';
+const ORPHANS_SKIPPED_CAP_METRIC = 'aeci.algolia.orphans_skipped_cap';
+
+/** `promotion_status` value marking a row live (the value `POST /api/promote`
+ *  writes). The orphan sweep's authoritative-membership filter. */
+const PROMOTED = 'promoted';
 
 /** Metric names for the daily data-quality job (AECI-241; see docs/OBSERVABILITY.md). */
 const DQ_JOB_METRIC = 'aeci.data_quality.job';
@@ -186,6 +205,51 @@ function drizzleDriftCounter(env: Env): DriftCount {
           )[0]?.value ?? 0
         );
       },
+    },
+  };
+}
+
+/** A Drizzle-backed `PromotedIdProvider` (the orphan sweep's injected
+ *  authoritative-membership id-sets). Returns the promoted product/vendor ids and
+ *  the integration ids whose BOTH endpoints are promoted — the same membership
+ *  `drizzleDriftCounter` counts and `algolia-sync` indexes on, but as id SETS (no
+ *  transforms). algolia-orphans stays ORM-agnostic; only this adapter knows D1. */
+function drizzlePromotedIds(env: Env): PromotedIdProvider {
+  const { db } = getDb(env);
+  return {
+    productIds: async () =>
+      new Set(
+        (
+          await db
+            .select({ id: products.id })
+            .from(products)
+            .where(eq(products.promotionStatus, PROMOTED))
+        ).map((r) => r.id),
+      ),
+    vendorIds: async () =>
+      new Set(
+        (
+          await db
+            .select({ id: vendors.id })
+            .from(vendors)
+            .where(eq(vendors.promotionStatus, PROMOTED))
+        ).map((r) => r.id),
+      ),
+    integrationIds: async () => {
+      const promoted = db
+        .select({ id: products.id })
+        .from(products)
+        .where(eq(products.promotionStatus, PROMOTED));
+      const rows = await db
+        .select({ id: integrations.id })
+        .from(integrations)
+        .where(
+          and(
+            inArray(integrations.sourceProductId, promoted),
+            inArray(integrations.targetProductId, promoted),
+          ),
+        );
+      return new Set(rows.map((r) => r.id));
     },
   };
 }
@@ -306,7 +370,9 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
             level: 'error',
             message: `aeci.algolia.index_drift on ${ddEnv}: ${drifted
               .map((d) => `${d.indexName} ${d.drift > 0 ? '+' : ''}${d.drift}`)
-              .join(', ')} (report-only; re-run a full Algolia reindex to repair)`,
+              .join(
+                ', ',
+              )} (negative drift = orphans, auto-healed by the sweep below; positive drift = records missing from the index, repaired by the incremental sync)`,
             source: 'algolia-drift-cron',
             drift: drifted,
           }),
@@ -320,6 +386,63 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
     logToDatadog(ctx, env, req, {
       level: 'error',
       message: 'aeci.algolia.index_drift.crashed',
+      source: 'algolia-drift-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Remediation half (AECI-266): the report above MEASURES; this sweep HEALS the
+  // negative-drift case (orphan objects with no promoted D1 row — records the
+  // incremental sync structurally can't see to delete). It runs AFTER the
+  // measurement so the `index_drift` gauge captures the pre-heal state for the
+  // monitor; the next day's drift run confirms 0 (we deliberately don't re-measure
+  // in-run — that could mask a partial-failure heal or read a mid-propagation
+  // replica). `apply:true` is safe because the safety cap (`override:false`)
+  // refuses an unexpectedly large purge (e.g. an empty/misconfigured D1 read).
+  // Independent try/catch so a drift-report failure doesn't block the heal.
+  try {
+    const sweep = await sweepAlgoliaOrphans(
+      {
+        ids: drizzlePromotedIds(env),
+        browse: createAlgoliaObjectIdClient(env.ALGOLIA_APP_ID, env.ALGOLIA_ADMIN_KEY),
+        remove: createAlgoliaDeleteClient({
+          appId: env.ALGOLIA_APP_ID,
+          apiKey: env.ALGOLIA_ADMIN_KEY,
+        }),
+        emit: (r: EntityOrphanResult) => {
+          submitGauge(ctx, env, req, ORPHANS_REMOVED_METRIC, r.deleted, [
+            `entity:${r.entity}`,
+            `index:${r.indexName}`,
+          ]);
+          if (r.skippedBySafetyCap) {
+            submitGauge(ctx, env, req, ORPHANS_SKIPPED_CAP_METRIC, r.orphanIds.length, [
+              `entity:${r.entity}`,
+              `index:${r.indexName}`,
+            ]);
+          }
+        },
+      },
+      { env: ddEnv, apply: true, safetyCap: DEFAULT_SAFETY_CAP },
+    );
+
+    const capped = sweep.entities.filter((e) => e.skippedBySafetyCap);
+    const failed = sweep.entities.filter((e) => !e.ok);
+    if (sweep.totalDeleted > 0 || capped.length > 0 || failed.length > 0) {
+      logToDatadog(ctx, env, req, {
+        level: capped.length > 0 || failed.length > 0 ? 'warn' : 'info',
+        message: `aeci.algolia.orphans_removed on ${ddEnv}: removed ${sweep.totalDeleted} orphan object(s)${
+          capped.length > 0
+            ? `; ${capped.length} index(es) refused by safety cap (re-run the CLI with --force)`
+            : ''
+        }${failed.length > 0 ? `; ${failed.length} index(es) errored` : ''}`,
+        source: 'algolia-drift-cron',
+        sweep: sweep.entities,
+      });
+    }
+  } catch (error) {
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.algolia.orphans_sweep.crashed',
       source: 'algolia-drift-cron',
       reason: error instanceof Error ? error.message : String(error),
     });
