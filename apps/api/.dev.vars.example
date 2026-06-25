@@ -23,9 +23,9 @@ DIRECT_URL=
 # SUPABASE_URL is now ALSO read by the Worker at runtime (AECI-193): it drives
 # JWKS user-JWT verification in `lib/user-auth.ts` (no DB round-trip). In
 # deployed envs it's a wrangler `vars` entry (see wrangler.jsonc); locally,
-# point it at the SHARED DEV project (https://dmbygwupskttzsvfzluq.supabase.co)
-# so `pnpm dev:bound` verifies real tokens minted by the web mint script
-# (apps/web/scripts/mint-dev-session.mjs).
+# point it at the single SHARED AUTH project (ADR 0017 —
+# https://ktuhnlypztujpsseujzx.supabase.co) so `pnpm dev:bound` verifies real
+# tokens minted by the web mint script (apps/web/scripts/mint-dev-session.mjs).
 #
 # The integration suites (`pnpm test:integration`) read the same variable for
 # PostgREST/RLS probes. For LOCAL-STACK RLS runs (supabase start), override
@@ -34,7 +34,8 @@ DIRECT_URL=
 #   SUPABASE_ANON_KEY=<local anon> SUPABASE_SERVICE_ROLE_KEY=<local secret> \
 #   pnpm test:integration
 # NEVER run the service-role trigger specs (auth_user_delete_trigger) against
-# the shared dev project — they create/delete auth users. Keep
+# the shared auth project — they create/delete auth users (and that project now
+# backs every environment, including production — ADR 0017). Keep
 # SUPABASE_SERVICE_ROLE_KEY empty here so they self-skip; supply it only in a
 # local-stack override. Tests `describe.skipIf` themselves when vars are unset.
 SUPABASE_URL=

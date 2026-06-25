@@ -52,9 +52,9 @@ ALGOLIA_SEARCH_KEY=
 # the cookie-session factory behind /auth/*. The anon (publishable) key is not
 # truly secret — it's stored as a secret only to keep values out of git (same
 # convention as ALGOLIA_SEARCH_KEY). Both empty → auth surfaces return 503
-# `auth_not_configured` and everything else works. For local dev use the shared
-# dev project (https://dmbygwupskttzsvfzluq.supabase.co); fetch the key with
-# `supabase projects api-keys --project-ref dmbygwupskttzsvfzluq`.
+# `auth_not_configured` and everything else works. For local dev use the single
+# shared auth project (ADR 0017 — https://ktuhnlypztujpsseujzx.supabase.co);
+# fetch the key with `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`.
 # The service-role key is NEVER set on any Worker (AUTH_AND_RLS.md §3).
 SUPABASE_URL=
 SUPABASE_ANON_KEY=

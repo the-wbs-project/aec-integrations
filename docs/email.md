@@ -79,10 +79,12 @@ real sends (see `.dev.vars.example`).
 
 Supabase Auth sends magic links itself; to send them **from Resend** (rather than
 Supabase's rate-limited built-in sender, which 429s `over_email_send_rate_limit`),
-configure **custom SMTP** in each Supabase project's dashboard
+configure **custom SMTP** in the Supabase project's dashboard
 (Authentication → Emails → SMTP). There is no app code for this.
 
-For **both** projects (dev `dmbygwupskttzsvfzluq`, prod `jgxebjufabtwkcgxjqvk`):
+Per [ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md) there
+is now **one** shared auth project across all environments, so custom SMTP is
+configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
 
 - **Host:** `smtp.resend.com`  **Port:** `465` (TLS; `587` STARTTLS also works)
 - **Username:** `resend`  **Password:** a Resend API key (`re_…`)

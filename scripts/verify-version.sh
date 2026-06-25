@@ -16,10 +16,13 @@
 # a `::error::` annotation — that would spam one annotation per retry; the
 # caller emits the single `::error::` after its budget is exhausted).
 #
-# Cloudflare Access (docs/access.md): non-prod hostnames sit behind Access and
-# are reachable from CI only via the `aeci-gh-actions` service token. Prod is
-# public. The service-token headers are attached only when both env vars are
-# set, so the same script works for staging/preview (gated) and prod (public).
+# Cloudflare Access (docs/access.md): every environment hostname — staging,
+# PR-preview, AND production (gated until launch, ADR 0017) — sits behind Access
+# and is reachable from CI only via the `aeci-gh-actions` service token. The
+# service-token headers are attached only when both env vars are set; the caller
+# now passes them for every environment (it is the presence of the vars, not the
+# hostname, that decides). At launch, dropping the production Access app makes
+# the prod vars a harmless no-op — no script change needed.
 #
 # Usage (env):
 #   HOST                    https://staging.aecintegrations.com   (required)
@@ -36,7 +39,8 @@ set -euo pipefail
 : "${HOST:?HOST is required, e.g. https://staging.aecintegrations.com}"
 : "${EXPECTED_SHA:?EXPECTED_SHA is required (the commit both Workers must report)}"
 
-# Attach Access service-token headers only when provided (prod is public).
+# Attach Access service-token headers only when provided (every env is gated
+# until launch; ADR 0017).
 hdrs=()
 if [ -n "${CF_ACCESS_CLIENT_ID:-}" ] && [ -n "${CF_ACCESS_CLIENT_SECRET:-}" ]; then
   hdrs+=(-H "CF-Access-Client-Id: $CF_ACCESS_CLIENT_ID")
