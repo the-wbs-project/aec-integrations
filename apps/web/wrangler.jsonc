@@ -49,12 +49,15 @@
  * Supabase auth (AECI-193 / Phase 5.2):
  *   SUPABASE_URL        public var — the SINGLE shared auth project across all
  *                       environments (ADR 0017); same value in every `vars` below
- *   SUPABASE_ANON_KEY   publishable/anon key. Secret (NOT a var) only to keep
- *                       values out of git — same convention as
- *                       ALGOLIA_SEARCH_KEY. CI pushes it after deploy
- *                       (warn-and-skip when the GH secret is absent this
- *                       phase; flips to REQUIRED in 5.5). The service-role
- *                       key is NEVER set on any Worker (AUTH_AND_RLS.md §3).
+ *   SUPABASE_ANON_KEY   publishable/anon key for that single shared project.
+ *                       Secret (NOT a var) only to keep values out of git —
+ *                       same convention as ALGOLIA_SEARCH_KEY. CI pushes the
+ *                       single un-suffixed `SUPABASE_ANON_KEY` GH secret after
+ *                       deploy (same value for every env — ADR 0017; warn-and-skip
+ *                       when absent this phase; flips to REQUIRED in 5.5). It must
+ *                       match SUPABASE_URL's project or the browser sign-in fails
+ *                       with `Invalid API key`. The service-role key is NEVER set
+ *                       on any Worker (AUTH_AND_RLS.md §3).
  *
  * Push secrets per env (`wrangler secret put`); set `CF_ZONE_ID` under the
  * per-env `vars` block once the production / preview zone IDs are known.

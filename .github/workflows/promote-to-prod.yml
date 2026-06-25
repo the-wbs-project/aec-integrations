@@ -96,7 +96,7 @@
 #   DATADOG_API_KEY          Datadog deploy-marker intake (docs/CICD_PLAN.md §9.1).
 #
 # Required GH Actions repo variables:
-#   SUPABASE_PROD_PROJECT_REF  Legacy-Postgres prod project ref (jgxebjufabtwkcgxjqvk
+#   SUPABASE_PROJECT_REF       Legacy-Postgres project ref (jgxebjufabtwkcgxjqvk
 #                              per docs/environments.md §1) — the retained
 #                              public-schema gate, NOT auth (auth is the single
 #                              shared project per ADR 0017).
@@ -196,15 +196,16 @@ jobs:
           # rather than silently shipping a Worker whose AECI-139 sync cron +
           # promote→index hook no-op and let the index go stale.
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY_PRODUCTION: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
-          ALGOLIA_SEARCH_KEY_PRODUCTION: ${{ secrets.ALGOLIA_SEARCH_KEY_PRODUCTION }}
-          SUPABASE_ANON_KEY_PRODUCTION: ${{ secrets.SUPABASE_ANON_KEY_PRODUCTION }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+          ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           ENV_LABEL: production
-          REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY_PRODUCTION ALGOLIA_SEARCH_KEY_PRODUCTION'
-          # AECI-193: SUPABASE_ANON_KEY_PRODUCTION is recommended (warn-and-skip)
-          # during the Phase 5 spike — flips to REQUIRED in 5.5 when real auth
-          # surfaces ship. Until then a missing key only degrades the (throwaway)
+          REQUIRED_SECRETS: 'DATABASE_URL_PRODUCTION REVIEW_APP_TOKEN DIRECT_URL_PRODUCTION SUPABASE_ACCESS_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID R2_ACCESS_KEY_ID R2_SECRET_ACCESS_KEY R2_ENDPOINT CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY'
+          # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
+          # project's key (un-suffixed; identical for every env). Recommended
+          # (warn-and-skip) during the Phase 5 spike — flips to REQUIRED in 5.5
+          # when real auth surfaces ship. Until then a missing key only degrades the (throwaway)
           # /auth/whoami smoke to 503, never a launch-critical surface. AECI-258:
           # ANTHROPIC_API_KEY_PRODUCTION is recommended (NOT required) — toxicity
           # scoring is fail-open, so a missing key only drops the moderation-queue
@@ -215,7 +216,7 @@ jobs:
           # INDEXNOW_KEY_PRODUCTION is recommended (NOT required) — the post-promote
           # IndexNow submission + the {key}.txt file are fail-open no-ops until it's
           # provisioned at launch, never blocking a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY_PRODUCTION ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -260,7 +261,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_PROD_PROJECT_REF }}"
+          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
 
           # Capture the migration list so we can both print it and embed it
           # in the step summary. `supabase migration list --linked` exits 0
@@ -408,7 +409,7 @@ jobs:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
         run: |
           set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_PROD_PROJECT_REF }}"
+          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
           supabase db push --linked --include-all
 
       # -----------------------------------------------------------------------
@@ -638,12 +639,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
+          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         working-directory: apps/api
         run: |
           set -euo pipefail
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_ADMIN_KEY_VALUE" ]; then
-            echo "::error::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY_PRODUCTION secret is empty. The prod API Worker needs them or the AECI-139 sync cron + promote→index hook silently no-op (search goes stale). Set them under Settings → Secrets and variables → Actions."
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY secret is empty. The prod API Worker needs them or the AECI-139 sync cron + promote→index hook silently no-op (search goes stale). Set them under Settings → Secrets and variables → Actions."
             exit 1
           fi
           printf '%s' "$ALGOLIA_APP_ID_VALUE" \
@@ -738,12 +739,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_PRODUCTION }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$SUPABASE_ANON_KEY_VALUE" ]; then
-            echo "::warning::SUPABASE_ANON_KEY_PRODUCTION not set — skipping push. Production auth surfaces will return 503 auth_not_configured until it is provisioned (flips to required in 5.5)."
+            echo "::warning::SUPABASE_ANON_KEY not set — skipping push. Production auth surfaces will return 503 auth_not_configured until it is provisioned (flips to required in 5.5)."
             exit 0
           fi
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
@@ -756,19 +757,19 @@ jobs:
       # (that goes to the API Worker above). Fail-closed on prod (search is
       # launch-critical), matching the prod API Algolia push: a missing GH secret
       # aborts the promote rather than shipping a broken /search. `ALGOLIA_APP_ID`
-      # + `ALGOLIA_SEARCH_KEY_PRODUCTION` are gated REQUIRED in the preflight above.
+      # + `ALGOLIA_SEARCH_KEY` are gated REQUIRED in the preflight above.
       # Same idempotent deploy→secret order.
       - name: Push Algolia public config to web Worker (production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_PRODUCTION }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
-            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY_PRODUCTION secret is empty. The prod web Worker needs them or /search renders the degraded shell (no window.__AECI_ALGOLIA__). Set them under Settings → Secrets and variables → Actions."
+            echo "::error::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY secret is empty. The prod web Worker needs them or /search renders the degraded shell (no window.__AECI_ALGOLIA__). Set them under Settings → Secrets and variables → Actions."
             exit 1
           fi
           printf '%s' "$ALGOLIA_APP_ID_VALUE" \
@@ -919,7 +920,7 @@ jobs:
       - name: Update Algolia production index settings
         env:
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY_PRODUCTION }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
         run: pnpm algolia:apply-settings --env production
 
       # -----------------------------------------------------------------------
