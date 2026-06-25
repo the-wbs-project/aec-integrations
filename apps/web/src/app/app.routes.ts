@@ -205,8 +205,9 @@ export const routes: Routes = [
   },
   // Dev-only preview routes for v0.dev → Angular ports. Always registered in
   // the Angular bundle (lazy-loaded, no eager-bundle cost) but blocked at the
-  // SSR Worker for `ENV === 'production'`. See `apps/web/src/server-runtime.ts`
-  // (`isPreviewPath`) and `apps/web/src/app/preview/preview.routes.ts`.
+  // SSR Worker on the public tiers (production + demo, `isPublicSite`). See
+  // `apps/web/src/server-runtime.ts` (`isPreviewPath`) and
+  // `apps/web/src/app/preview/preview.routes.ts`.
   {
     path: 'preview',
     loadChildren: () => import('./preview/preview.routes').then((m) => m.previewRoutes),

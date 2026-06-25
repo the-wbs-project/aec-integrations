@@ -6,38 +6,42 @@
 
 ## Topology
 
-AECi runs three tiers of environment plus local. Worker and Supabase project naming is rigid — workflows, smoke tests, and docs assume these exact names.
+AECi runs four tiers of environment plus local. Worker and Supabase project naming is rigid — workflows, smoke tests, and docs assume these exact names.
 
 | Tier | Cloudflare Workers | Supabase | Public URL | Access control |
 | --- | --- | --- | --- | --- |
 | **Local** | `wrangler dev` / `pnpm dev:bound` | Local Postgres (`supabase start`, port 54322) | `http://localhost:8788` | None (loopback) |
 | **PR preview** | `aeci-{api,web}-pr-<N>` (`*.aec-integrations.workers.dev`) | Dev project, ephemeral branch DB per PR (AECI-79) | `*.workers.dev` (PR-specific) | Cloudflare Access — service token for CI, OTP-to-email for humans |
 | **Staging** | `aeci-{api,web}-staging` | Dev project, `main` branch | `https://staging.aecintegrations.com` | Cloudflare Access — same allowlist as previews |
-| **Production** | `aeci-{api,web}-production` | Prod project | `https://demo.aecintegrations.com` | Public |
+| **Demo** | `aeci-{api,web}-demo` | Prod project (shared with Production) | `https://demo.aecintegrations.com` | Public |
+| **Production** | `aeci-{api,web}-production` | Prod project | `https://prod.aecintegrations.com` | Public |
 
-> Pre-launch, the web app serves `demo.aecintegrations.com` only. The apex (`aecintegrations.com`) and `www.aecintegrations.com` remain served by the **landing** Worker (`apps/landing`) — we are not promoting the app to `www` yet.
+> Pre-launch, the **production** tier serves `prod.aecintegrations.com` (the eventual home page) and the **demo** tier serves `demo.aecintegrations.com` (the public showcase). Both are public but **no-index** (`ALLOW_INDEXING="false"`) until the apex cutover. The apex (`aecintegrations.com`) and `www.aecintegrations.com` remain served by the **landing** Worker (`apps/landing`) — we are not promoting the app to the apex yet.
+>
+> **Demo and Production share the prod Supabase project** (auth-only; the app DB is Cloudflare D1 per ADR 0016), so one admin login works on both. They have **independent** D1, KV, Cloudflare Queues, and Algolia index sets: production keeps `aeci-app-production` / `aeci-*-production` / `production_*`; demo has its own `aeci-app-demo` / `aeci-*-demo` / `demo_*`. The `ENV` var (and therefore Algolia prefix + Datadog `env` tag) is `production` vs `demo`; the two are the public tiers recognised by `isPublicSite()` (`@aeci/shared/deploy-env`) — both block `/preview/*`, strip per-request response validation, and bound per-render Datadog log volume.
 
 Worker `name` (deployed) values in `apps/{web,api}/wrangler.jsonc`:
 
-| Worker | Preview env | Staging env | Production env |
-| --- | --- | --- | --- |
-| `apps/api` | `aeci-api-preview` | `aeci-api-staging` | `aeci-api-production` |
-| `apps/web` | `aeci-web` (`workers_dev: true`) | `aeci-web-staging` | `aeci-web-production` |
+| Worker | Preview env | Staging env | Demo env | Production env |
+| --- | --- | --- | --- | --- |
+| `apps/api` | `aeci-api-preview` | `aeci-api-staging` | `aeci-api-demo` | `aeci-api-production` |
+| `apps/web` | `aeci-web` (`workers_dev: true`) | `aeci-web-staging` | `aeci-web-demo` | `aeci-web-production` |
 
 The SSR Worker (`apps/web`) is the only public ingress. The API Worker (`apps/api`) is reachable only via the SSR Worker's `services.API` binding. This is enforced per environment by matching `services.binding.service` to the API Worker's deployed `name` in the same tier.
 
 ## Promotion model
 
 ```
-local → PR preview → staging (auto on merge to main) → production (manual)
+local → PR preview → staging (auto on merge to main) → demo (manual) → production (manual)
 ```
 
 - **PR previews**: created by `.github/workflows/pr-preview.yml` (AECI-79) on `pull_request` open/sync; torn down on close.
 - **Staging**: deployed by `.github/workflows/deploy.yml` `deploy-staging` job on every push to `main`, gated by `vars.STAGING_ENABLED`.
 - **Staging refresh** (prod data → staging): `.github/workflows/refresh-staging.yml` (AECI-77), `workflow_dispatch` only.
-- **Production**: deployed by `.github/workflows/promote-to-prod.yml` (AECI-78), `workflow_dispatch` with required `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate.
+- **Demo**: deployed by `.github/workflows/promote-to-demo.yml`, `workflow_dispatch` with `commit_sha` + `confirm=PROMOTE`. Verifies **staging** is at the SHA, then deploys the demo tier (GH Environment `demo`; no required reviewer unless you add one). The light sibling of promote-to-prod — it touches no Postgres (demo shares the prod Supabase project, which production owns), only the demo D1/queues/Workers/Algolia.
+- **Production**: deployed by `.github/workflows/promote-to-prod.yml` (AECI-78), `workflow_dispatch` with required `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. Verifies **demo** (the immediate upstream tier) is at the SHA before promoting.
 
-There is intentionally **no auto-deploy to production**.
+There is intentionally **no auto-deploy to demo or production** — both are deliberate `workflow_dispatch` buttons.
 
 ## PR previews
 
@@ -204,22 +208,32 @@ That's the literal command CI runs.
 
 **Historical note.** AECI-80 originally inherited a P4002 hard-stop from the cross-schema FK `public.profiles.id → auth.users(id)`. AECI-80 first worked around it by enabling Prisma's `multiSchema` feature and mirroring the full `auth.*` shape in `apps/api/prisma/schema.prisma`; AECI-69 then dropped the FK entirely in favour of a trigger-based sync (see `docs/AUTH_AND_RLS.md` §8.1) and reverted the schema to single-schema `public` only. P4002 cannot recur in this shape. The full story is in `docs/prisma.md` §7 and `docs/adr/0007-prisma-migrate-dev-unsupported.md`.
 
+## Promote-to-demo runbook
+
+The [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml) workflow promotes a staging-verified SHA to the public **demo** tier (`demo.aecintegrations.com`). It is the light sibling of promote-to-prod: demo shares the prod Supabase project (which production owns), so this workflow touches **no Postgres** — no R2 snapshot, no `supabase db push`, no RLS/drift gate. It only provisions the demo queues, applies the **demo D1** (`aeci-app-demo`) migrations, deploys the `aeci-{web,api}-demo` Workers, pushes the demo Worker secrets, and smoke-tests `demo.aecintegrations.com`.
+
+1. Repo → Actions → **promote-to-demo** → **Run workflow**.
+2. `commit_sha`: paste the full 40-char SHA you verified on staging (matches `https://staging.aecintegrations.com/api/version`).
+3. `confirm`: type `PROMOTE` exactly, then **Run workflow**.
+
+What happens, in order: validate `confirm` → preflight required secrets → assert **staging** is at the SHA (both Workers, with Access headers) → (GH Environment `demo`) provision `aeci-*-demo` queues → apply `aeci-app-demo` D1 migrations + taxonomy seed → deploy API then SSR (`--env demo`) → push demo Worker secrets (warn-and-skip for the non-critical ones) → smoke-test `demo.aecintegrations.com` (both Workers at SHA + `/api/health` db:ok) → apply demo Algolia index settings → auto-rollback both demo Workers on a smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). Demo is a showcase, so only `DATABASE_URL` (the `/api/health` gate) is fail-closed; Algolia/email/analytics are warn-and-skip.
+
 ## Promote runbook
 
-The [`promote-to-prod.yml`](../.github/workflows/promote-to-prod.yml) workflow (AECI-78) is the only way prod gets new code. Trigger it from the GitHub Actions UI:
+The [`promote-to-prod.yml`](../.github/workflows/promote-to-prod.yml) workflow (AECI-78) is the only way prod gets new code. **It promotes from the demo tier** (chain: staging → demo → production), so promote a SHA to **demo** first via [`promote-to-demo.yml`](#promote-to-demo-runbook). Trigger it from the GitHub Actions UI:
 
 1. Repo → Actions → **promote-to-prod** → **Run workflow**.
-2. `commit_sha`: paste the full 40-char SHA you already verified on staging (matches what `https://staging.aecintegrations.com/api/version` reports).
+2. `commit_sha`: paste the full 40-char SHA you already verified on demo (matches what `https://demo.aecintegrations.com/api/version` reports).
 3. `confirm`: type `PROMOTE` exactly.
 4. Click **Run workflow**.
 
 What happens, in order:
 
-- **Pre-promotion checks (unattended, ~2 min)** — `pre-promotion-checks` job. Validates `confirm`, then via `scripts/verify-version.sh` asserts the staging SHA matches `inputs.commit_sha` on **both** `staging.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) with Cloudflare Access headers, refusing to continue unless both match. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Then prints `supabase migration list --linked` against prod into the run log **and** the job summary so you can read the pending SQL inline before approving the next job.
+- **Pre-promotion checks (unattended, ~2 min)** — `pre-promotion-checks` job. Validates `confirm`, then via `scripts/verify-version.sh` asserts the **demo** SHA matches `inputs.commit_sha` on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) — demo is public, so the Cloudflare Access headers are harmless — refusing to continue unless both match. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Then prints `supabase migration list --linked` against the (shared) prod Supabase project into the run log **and** the job summary so you can read the pending SQL inline before approving the next job.
 - **Approval pause** — the `apply-prod-migrations` job enters the `production` GH Environment and blocks. The GitHub Actions UI shows "Waiting for review". Read the migration list in the previous job's summary before clicking Approve.
 - **After approval (~5–10 min)** — `pg_dump` of prod → R2 (`aeci-prod-snapshots/prod-pre-<short-sha>.dump` plus a companion `-auth.dump` for auth-schema data), `supabase db push --linked`, drift check via `scripts/prisma-drift-check.sh` against `DIRECT_URL_PRODUCTION`. **HARD STOP on drift** — Workers don't deploy if drift is detected.
 - **Worker deploys** — API first (`aeci-api-production`), SSR second (`aeci-web-production`). Each `wrangler deploy` line passes `--var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:<shared timestamp>` per the CLAUDE.md non-negotiable.
-- **Deploy marker + smoke** — Datadog `/api/v1/events` marker (docs/CICD_PLAN.md §9.1) tagged `env:production`, `service:aeci-ssr`, `commit:<sha>`. Then via `scripts/verify-version.sh` polls until **both** `https://demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` — public, so no Access headers. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Fails after a 60-second budget.
+- **Deploy marker + smoke** — Datadog `/api/v1/events` marker (docs/CICD_PLAN.md §9.1) tagged `env:production`, `service:aeci-ssr`, `commit:<sha>`. Then via `scripts/verify-version.sh` polls until **both** `https://prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) report `sha: "<input>"` — public, so no Access headers. `/api/version` is proxied raw to the API Worker, so on its own it can't catch a stale SSR deploy. Fails after a 60-second budget.
 
 **Recovering from a bad promote.** The R2 snapshot is the rollback insurance. For DB:
 
@@ -234,7 +248,7 @@ For Worker code: `wrangler rollback --env production` against `apps/api` and `ap
 
 | Failure | Where | What it means / what to do |
 | --- | --- | --- |
-| `staging is not at <sha> on both Workers (API + SSR), refusing to promote` | `pre-promotion-checks` | Staging's `/api/version` (API Worker) and/or `/_version` (SSR Worker) don't match `inputs.commit_sha`; `scripts/verify-version.sh` logs the actual per-Worker SHAs. Either re-deploy staging on the target SHA or change the input. |
+| `demo is not at <sha> on both Workers (API + SSR), refusing to promote` | `pre-promotion-checks` | Demo's `/api/version` (API Worker) and/or `/_version` (SSR Worker) don't match `inputs.commit_sha`; `scripts/verify-version.sh` logs the actual per-Worker SHAs. Promote the SHA to demo first (`promote-to-demo`), or change the input. |
 | Drift check exits 1 | `apply-prod-migrations` | Prod schema diverges from `apps/api/prisma/schema.prisma`. Almost always means a migration was applied to prod without the corresponding `schema.prisma` update being merged. Hard-stop; Workers don't deploy. Fix by syncing `schema.prisma` via `pnpm db:pull` against a fresh DB built from migrations, opening a follow-up PR. |
 | Migrations applied but `/api/version` or `/_version` doesn't return the new SHA within 60s | `deploy-prod-workers` | Wrangler deploy completed but propagation hasn't caught up, or the SSR deploy failed half-way (a stale `/_version` with a current `/api/version` is exactly the AECI-92 case the dual check catches). Inspect the `wrangler-action` step logs; if SSR is wedged, `wrangler rollback --env production` on `apps/web`. |
 | R2 upload fails | `apply-prod-migrations` | The snapshot is step 4 — migrations have NOT run yet, so it's safe to re-run after fixing R2 access. Check `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_ENDPOINT`. |
@@ -509,7 +523,7 @@ provisioning a fresh empty project for development:
 
 - [ ] Confirm `aecintegrations.com` is on Cloudflare with the AEC account and a Pro plan.
 - [ ] Add a custom hostname for `staging.aecintegrations.com` pointing at the Workers zone (Cloudflare Dashboard → Workers & Pages → `aeci-web-staging` → Settings → Triggers → Custom Domains → Add). Wrangler will reconcile the route on first deploy.
-- [ ] Add `demo.aecintegrations.com` as the custom domain on `aeci-web-production` (Wrangler reconciles it on first prod promote; `custom_domain: true` provisions the DNS record + cert on the zone). The apex + `www` stay on the landing Worker.
+- [ ] `demo.aecintegrations.com` and `prod.aecintegrations.com` need **no manual zone edits** — `custom_domain: true` in each web env block makes wrangler provision the DNS record + cert on deploy: `prod.` on the first prod deploy, `demo.` on the first demo deploy (the latter **reassigns** the hostname off the old production Worker, so deploy demo BEFORE re-deploying production). The apex (`aecintegrations.com`) + `www` stay on the landing Worker until the apex cutover.
 
 ### 2a. Cloudflare Queues — Algolia jobs (ADR 0013)
 
@@ -639,17 +653,46 @@ These steps must land before the first successful `promote-to-prod.yml` run. Non
 - [ ] **Production project ref repo variable.** `gh variable set SUPABASE_PROD_PROJECT_REF --body "jgxebjufabtwkcgxjqvk"` (per §1).
 - [ ] **Verify GH Environment.** The `production` GH Environment (created in §4) must list `chrisw@thewbsproject.com` as a required reviewer. Without that, the workflow's `apply-prod-migrations` job will not pause for approval.
 
-Once all boxes are ticked, dry-run the workflow with a deliberately wrong `commit_sha` to verify the negative path: `pre-promotion-checks` must fail at step 4 with `staging is not at <input> on both Workers (API + SSR), refusing to promote` and the run must stop before any downstream job (acceptance criterion #2).
+Once all boxes are ticked, dry-run the workflow with a deliberately wrong `commit_sha` to verify the negative path: `pre-promotion-checks` must fail at step 4 with `demo is not at <input> on both Workers (API + SSR), refusing to promote` and the run must stop before any downstream job.
+
+### 9. Demo tier bootstrap — Chris's checklist for `promote-to-demo.yml`
+
+The demo tier (`demo.aecintegrations.com`) is the public showcase, inserted between staging and production. It SHARES the prod Supabase project (so no new Supabase setup) but needs its own Cloudflare data-plane resources + a few GH secrets. Wrangler binds D1/KV by id, so the new ids must be pasted into `apps/api/wrangler.jsonc`'s `env.demo` block (placeholders ship as all-zeros).
+
+- [ ] **Provision demo Cloudflare resources** and paste the printed ids into `apps/api/wrangler.jsonc` (`env.demo`):
+  ```bash
+  cd apps/api
+  pnpm exec wrangler d1 create aeci-app-demo                 # → database_id
+  pnpm exec wrangler kv namespace create aeci-api-taxonomy-demo  # → id
+  for q in aeci-algolia-sync-demo aeci-algolia-drift-demo aeci-stats-demo \
+           aeci-reconcile-demo aeci-data-quality-demo; do
+    pnpm exec wrangler queues create "$q"                    # "already exists" is fine
+  done
+  ```
+  (The queues are also created idempotently by `promote-to-demo.yml`; pre-creating is optional.)
+- [ ] **Provision the demo Algolia index set + the one net-new key:**
+  ```bash
+  ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
+    node scripts/algolia/provision.mjs --env demo           # creates demo_* indexes + prints a demo search key
+  gh secret set ALGOLIA_SEARCH_KEY_DEMO --body "<printed search key>"
+  ```
+  `ALGOLIA_APP_ID` and `ALGOLIA_ADMIN_KEY` are the **single** shared app id + admin key — one Algolia app spans all envs and the admin key reaches every index (`--env` is only an index-name prefix, NOT a per-env key scope). They're reused across envs (set `ALGOLIA_ADMIN_KEY` once if it isn't already a repo secret), so the per-`demo_*` query key `ALGOLIA_SEARCH_KEY_DEMO` is the ONLY net-new GH secret. Every other demo secret reuses the shared `*_PRODUCTION` values (demo shares the prod Supabase project + zone).
+- [ ] **GitHub Environment.** Create a `demo` GH Environment (Settings → Environments) — already done. `promote-to-demo.yml`'s deploy job targets it; leave reviewers empty for an unattended promote, or add a required reviewer to gate it.
+- [ ] **DNS — nothing to do.** `custom_domain: true` makes wrangler create `prod.aecintegrations.com` on the first prod deploy and `demo.aecintegrations.com` on the first demo deploy (the latter reassigns the hostname off the old production Worker). No manual zone edits.
+- [ ] **Cutover order (avoids any `demo.` downtime).** Run **promote-to-demo first** — `aeci-web-demo` claims `demo.aecintegrations.com` (reassigning it off the old production Worker) — then seed `aeci-app-demo` (clone via `apps/datatool`, or re-promote the catalog + `scripts/seed-reviews`). **Then** run **promote-to-prod** — `aeci-web-production` picks up `prod.aecintegrations.com` and keeps serving the existing production data.
+
+> **Future — apex cutover (out of scope here).** When the directory launches, move `aecintegrations.com` + `www` off the landing Worker onto `aeci-web-production`, set the production web Worker's `ALLOW_INDEXING="true"`, and flip the API Worker's `PUBLIC_SITE_URL` to the apex.
 
 ## What lives where
 
 | File | Purpose |
 | --- | --- |
-| `apps/web/wrangler.jsonc` | SSR Worker — has `[env.preview]`, `[env.staging]`, `[env.production]`. |
-| `apps/api/wrangler.jsonc` | API Worker — has `[env.preview]`, `[env.staging]`, `[env.production]`. `COMMIT_SHA` and `DEPLOYED_AT` declared with placeholder defaults per env; overridden at deploy via `--var`. |
+| `apps/web/wrangler.jsonc` | SSR Worker — has `[env.preview]`, `[env.staging]`, `[env.demo]`, `[env.production]`. |
+| `apps/api/wrangler.jsonc` | API Worker — has `[env.preview]`, `[env.staging]`, `[env.demo]`, `[env.production]`. `COMMIT_SHA` and `DEPLOYED_AT` declared with placeholder defaults per env; overridden at deploy via `--var`. |
 | `.github/workflows/deploy.yml` | CI: lint, typecheck, unit, build, e2e local, integration local, then **`deploy-staging`** on push to `main` (gated by `vars.STAGING_ENABLED`). |
 | `.github/workflows/refresh-staging.yml` | (AECI-77) one-button workflow to restore prod data into staging with credentials scrubbed. |
-| `.github/workflows/promote-to-prod.yml` | (AECI-78) two-button workflow to promote a staging commit to production with manual approval. |
+| `.github/workflows/promote-to-demo.yml` | One-button workflow to promote a staging commit to the public demo tier (`--env demo`). Light sibling of promote-to-prod — no Postgres (shared prod Supabase project). |
+| `.github/workflows/promote-to-prod.yml` | (AECI-78) two-button workflow to promote a **demo** commit to production with manual approval. |
 | `.github/workflows/pr-preview.yml` | (AECI-79) per-PR ephemeral preview lifecycle. |
 | `.github/workflows/drift-check.yml` | (AECI-80) PR-time drift detection between `supabase/migrations/` and `apps/api/prisma/schema.prisma`. |
 | `scripts/scrub-auth-credentials.sql` | (AECI-77) nulls credentials on `auth.users`, deletes `auth.sessions`/`auth.refresh_tokens`. |

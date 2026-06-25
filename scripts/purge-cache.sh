@@ -8,13 +8,13 @@
 # edge keeps serving the old vocabulary until TTL (≤5 min browse, ≤1 hr nav)
 # unless we purge explicitly here. See docs/adr/0008-taxonomy-reference-data.md.
 #
-# Like smoke-test.sh: non-prod hostnames sit behind Cloudflare Access and are
-# reachable from CI only via the `aeci-gh-actions` service token; web prod
-# (demo.aecintegrations.com) is public and ignores the headers, so we always
-# attach them and never branch on host.
+# Like smoke-test.sh: staging/preview hostnames sit behind Cloudflare Access and
+# are reachable from CI only via the `aeci-gh-actions` service token; the public
+# tiers (prod.aecintegrations.com, demo.aecintegrations.com) ignore the headers,
+# so we always attach them and never branch on host.
 #
 # Usage (env):
-#   HOST                    https://demo.aecintegrations.com
+#   HOST                    https://prod.aecintegrations.com
 #   PURGE_TAGS              space-separated tag list, e.g. "taxonomy route:browse"
 #   ADMIN_PURGE_TOKEN       Bearer token (SSR Worker `ADMIN_PURGE_TOKEN` secret)
 #   CF_ACCESS_CLIENT_ID     service-token client id
@@ -30,7 +30,7 @@
 
 set -euo pipefail
 
-: "${HOST:?HOST is required, e.g. https://demo.aecintegrations.com}"
+: "${HOST:?HOST is required, e.g. https://prod.aecintegrations.com}"
 : "${PURGE_TAGS:?PURGE_TAGS is required, e.g. \"taxonomy route:browse\"}"
 : "${ADMIN_PURGE_TOKEN:?ADMIN_PURGE_TOKEN is required (SSR Worker bearer secret)}"
 : "${CF_ACCESS_CLIENT_ID:?CF_ACCESS_CLIENT_ID is required (Cloudflare Access service token)}"

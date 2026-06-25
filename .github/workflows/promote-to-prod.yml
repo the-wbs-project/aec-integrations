@@ -1,18 +1,20 @@
 # AEC Integrations — production promote button (AECI-78, sub-issue (c) of AECI-71).
 #
-# Two-button workflow that promotes a known-good staging commit to production.
-# This is the ONLY way production gets new code — there is no auto-deploy to
-# prod (see docs/CICD_PLAN.md §2.3 and docs/environments.md "Promotion model").
+# Two-button workflow that promotes a known-good DEMO commit to production.
+# Promotion chain: staging → demo → production. This is the ONLY way production
+# gets new code — there is no auto-deploy to prod (see docs/CICD_PLAN.md §2.3 and
+# docs/environments.md "Promotion model"). The upstream gate is the DEMO tier:
+# promote staging→demo first (promote-to-demo.yml), then demo→production here.
 #
 # Three jobs, in order:
 #
 #   1. pre-promotion-checks (unattended)
 #      - Validates `confirm == PROMOTE`.
 #      - Checks out the repo at `inputs.commit_sha`.
-#      - Hits `staging.aecintegrations.com/api/version` and asserts the SHA
+#      - Hits `demo.aecintegrations.com/api/version` and asserts the SHA
 #        matches `inputs.commit_sha`. The verbatim failure message —
-#        `staging is at <actual>, refusing to promote <input>` — is what
-#        AECI-78 acceptance criterion #2 looks for.
+#        `demo is not at <input>, refusing to promote` — gates the promote on the
+#        immediate upstream tier (demo).
 #      - Prints `supabase migration list --linked` against prod into the run
 #        log and step summary so Chris reads the pending SQL inline before
 #        approving the next job.
@@ -36,7 +38,7 @@
 #        `DATABASE_URL_PRODUCTION` (idempotent) so the prod API Worker always has
 #        a DB connection — secrets aren't set by `wrangler deploy`.
 #      - Datadog deployment marker per docs/CICD_PLAN.md §9.1.
-#      - Polls `demo.aecintegrations.com` (public, no Access headers) until BOTH
+#      - Polls `prod.aecintegrations.com` (public, no Access headers) until BOTH
 #        Workers report `inputs.commit_sha` AND `/api/health` is `db:ok`. Fails
 #        after 60s (a DB-unreachable prod fails the promote rather than shipping).
 #
@@ -74,8 +76,9 @@
 #   CLOUDFLARE_API_TOKEN     Scoped per docs/CICD_PLAN.md §7.1.
 #   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`,
-#                            docs/access.md §1) — used for the staging
-#                            `/api/version` probe in pre-promotion-checks.
+#                            docs/access.md §1). Harmless on the demo `/api/version`
+#                            probe (demo is public, ignores the headers) — kept so
+#                            verify-version.sh is host-agnostic.
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
 #   ADMIN_PURGE_TOKEN        Bearer token for the SSR Worker's POST /admin/purge
 #                            (same value as the Worker's `ADMIN_PURGE_TOKEN`
@@ -216,26 +219,27 @@ jobs:
         run: npm install -g supabase@latest
 
       # -----------------------------------------------------------------------
-      # Step 4: Assert staging is at the SHA we are about to promote — on BOTH
-      #         the API Worker (/api/version) and the SSR Worker (/_version,
-      #         AECI-92). /api/version is proxied raw to the API Worker, so on
-      #         its own it can't catch a stale SSR deploy. Staging sits behind
-      #         Cloudflare Access (docs/access.md §1); verify-version.sh attaches
-      #         the service-token headers when CF_ACCESS_* are set.
+      # Step 4: Assert DEMO (the immediate upstream tier) is at the SHA we are
+      #         about to promote — on BOTH the API Worker (/api/version) and the
+      #         SSR Worker (/_version, AECI-92). /api/version is proxied raw to the
+      #         API Worker, so on its own it can't catch a stale SSR deploy. Demo
+      #         is PUBLIC (no Cloudflare Access); the CF_ACCESS_* headers are
+      #         harmless (the public host ignores them) and kept so
+      #         verify-version.sh stays host-agnostic.
       # -----------------------------------------------------------------------
-      - name: Verify staging is at inputs.commit_sha (API + SSR)
+      - name: Verify demo is at inputs.commit_sha (API + SSR)
         env:
-          HOST: https://staging.aecintegrations.com
+          HOST: https://demo.aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
         run: |
           set -euo pipefail
           if ! bash scripts/verify-version.sh; then
-            echo "::error::staging is not at $EXPECTED_SHA on both Workers (API + SSR), refusing to promote"
+            echo "::error::demo is not at $EXPECTED_SHA on both Workers (API + SSR), refusing to promote"
             exit 1
           fi
-          echo "Staging API + SSR both match input SHA: $EXPECTED_SHA"
+          echo "Demo API + SSR both match input SHA: $EXPECTED_SHA"
 
       # -----------------------------------------------------------------------
       # Step 5: Print the pending-migration list against prod into the run
@@ -279,7 +283,7 @@ jobs:
     # he clicks Approve in the GitHub Actions UI.
     environment:
       name: production
-      url: https://demo.aecintegrations.com
+      url: https://prod.aecintegrations.com
     permissions:
       contents: read
     outputs:
@@ -450,7 +454,7 @@ jobs:
       - name: Purge taxonomy cache tags
         continue-on-error: true
         env:
-          HOST: https://demo.aecintegrations.com
+          HOST: https://prod.aecintegrations.com
           PURGE_TAGS: 'taxonomy route:browse'
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
@@ -874,7 +878,7 @@ jobs:
       - name: Smoke test production (API + SSR at SHA, DB healthy)
         id: smoke
         env:
-          HOST: https://demo.aecintegrations.com
+          HOST: https://prod.aecintegrations.com
           EXPECTED_SHA: ${{ inputs.commit_sha }}
         run: |
           set -euo pipefail

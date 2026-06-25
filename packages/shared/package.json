@@ -41,6 +41,10 @@
       "types": "./src/algolia.ts",
       "default": "./src/algolia.ts"
     },
+    "./deploy-env": {
+      "types": "./src/deploy-env.ts",
+      "default": "./src/deploy-env.ts"
+    },
     "./algolia-records": {
       "types": "./src/algolia-records.ts",
       "default": "./src/algolia-records.ts"

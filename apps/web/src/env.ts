@@ -97,20 +97,23 @@ export type WebEnv = {
   API: Fetcher;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
-   * (`preview`/`staging`/`production`); when unset (bare `wrangler dev`, tests)
-   * Datadog logs/metrics and the RUM bootstrap report `development` — matching
-   * the API Worker's `/api/version` convention (AECI-119).
+   * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
+   * tests) Datadog logs/metrics and the RUM bootstrap report `development` —
+   * matching the API Worker's `/api/version` convention (AECI-119). `demo` +
+   * `production` are the two public, non-Access-gated tiers (see
+   * `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
   /**
    * Crawler-indexing gate (`server/robots-policy.ts`). FAIL-CLOSED: indexing is
    * blocked on every environment unless this is exactly the string `"true"`.
-   * Pre-launch, no env sets it — so `demo.aecintegrations.com` (public, the
-   * `production` env, NOT behind Cloudflare Access), staging, and PR previews
-   * all emit `X-Robots-Tag: noindex` (the authoritative block) plus a
-   * sitemap-less `robots.txt` that still allows crawling so the noindex is seen.
-   * Deliberately NOT derived from `ENV` — `production` is the pre-launch demo.
-   * Set to `"true"` on the env that should be indexed at public launch.
+   * Pre-launch, no env sets it — so `prod.aecintegrations.com` (the `production`
+   * env) and `demo.aecintegrations.com` (the `demo` env), both public and NOT
+   * behind Cloudflare Access, plus staging and PR previews, all emit
+   * `X-Robots-Tag: noindex` (the authoritative block) plus a sitemap-less
+   * `robots.txt` that still allows crawling so the noindex is seen. Deliberately
+   * NOT derived from `ENV` — both public tiers stay no-index until the apex
+   * cutover. Set to `"true"` on the env that should be indexed at public launch.
    */
   ALLOW_INDEXING?: string;
   /**

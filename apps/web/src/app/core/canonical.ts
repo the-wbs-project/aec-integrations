@@ -5,11 +5,12 @@
  * Canonicals are **self-referential**: each host canonicalises to itself (the serving
  * origin), rather than a hardcoded production apex. This is deliberate and multi-host:
  *
- *   - Production web currently serves `demo.aecintegrations.com`; the apex
- *     (`aecintegrations.com`) is served by the landing Worker. A hardcoded-apex canonical
- *     would point crawlers at a host the web app doesn't serve. Self-referential follows
- *     the serving host, so when the directory promotes to the apex/www at launch the
- *     canonicals are already correct — no code change at launch.
+ *   - The web app currently serves `prod.aecintegrations.com` (production) and
+ *     `demo.aecintegrations.com` (demo); the apex (`aecintegrations.com`) is served by the
+ *     landing Worker. A hardcoded-apex canonical would point crawlers at a host the web app
+ *     doesn't serve. Self-referential follows the serving host, so when the directory
+ *     promotes to the apex/www at the apex cutover the canonicals are already correct — no
+ *     code change at launch.
  *   - Non-prod hosts (PR previews `*.workers.dev`, `staging.`) sit behind Cloudflare Access
  *     (`docs/access.md`), so their self-canonicals never reach the public index.
  *   - The sitemap (`server/sitemap.ts`) and `robots.txt` already build against the serving

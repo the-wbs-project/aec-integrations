@@ -36,6 +36,12 @@ describe('validateResponseInDev (AECI-111 — hoisted from route handlers)', () 
     expect(validate).not.toHaveBeenCalled();
   });
 
+  it('skips the validator when ENV is "demo" (public tier, same as production)', () => {
+    const validate = vi.fn();
+    validateResponseInDev(envWith('demo'), validate);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
   it('propagates a throw from the validator in non-production (mapper drift fails loudly)', () => {
     const boom = () => {
       throw new Error('shape drift');

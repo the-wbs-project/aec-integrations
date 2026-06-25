@@ -307,6 +307,99 @@
         },
       },
     },
+    "demo": {
+      "name": "aeci-api-demo",
+      "workers_dev": false,
+      // The public showcase tier. Shares the PROD Supabase auth project + zone
+      // with production, but has its OWN D1, KV, queues, and Algolia (`demo_*`)
+      // index set. AECI-105 / Option B: promote purges the edge cache by calling
+      // Cloudflare directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
+      "vars": {
+        "ENV": "demo",
+        "DD_SITE": "us5.datadoghq.com",
+        // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // Prod Supabase project (shared with production). Drives JWKS user-JWT
+        // verification only (lib/user-auth.ts) — public material, no DB round-trip.
+        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+      },
+      "kv_namespaces": [
+        {
+          "binding": "TAXONOMY_KV",
+          "id": "b05173e9891e4b93948f55b62c4dac84",
+        },
+      ],
+      // promote-to-demo CI applies migrations via
+      // `wrangler d1 migrations apply aeci-app-demo --env demo --remote`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-demo",
+          "database_id": "a2c7d838-66da-484c-bbfb-80688aac888e",
+          "migrations_dir": "migrations",
+        },
+      ],
+      // Same six crons as staging/production (see staging note). Dispatched by
+      // `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
+      "triggers": {
+        "crons": ["0 4 * * *", "0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
+      },
+      // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
+      "queues": {
+        "producers": [
+          { "queue": "aeci-algolia-sync-demo", "binding": "ALGOLIA_SYNC_QUEUE" },
+          { "queue": "aeci-algolia-drift-demo", "binding": "ALGOLIA_DRIFT_QUEUE" },
+          { "queue": "aeci-stats-demo", "binding": "STATS_QUEUE" },
+          { "queue": "aeci-reconcile-demo", "binding": "RECONCILE_QUEUE" },
+          { "queue": "aeci-data-quality-demo", "binding": "DATA_QUALITY_QUEUE" },
+        ],
+        "consumers": [
+          {
+            "queue": "aeci-algolia-sync-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-algolia-drift-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-stats-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-reconcile-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-data-quality-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true,
+        },
+      },
+    },
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
@@ -339,12 +432,12 @@
         // email (absolute links in the approved/rejected emails, AECI-240) AND the
         // post-promote IndexNow submission (the origin its URLs are built against,
         // AECI-236 / §20.2; canonicals are self-referential to the serving origin,
-        // ADR 0011). Public value. IndexNow stays a no-op until the `INDEXNOW_KEY`
-        // secret is also provisioned at launch (alongside the web Worker's
-        // `ALLOW_INDEXING="true"`); on staging it points at the staging host for
-        // email links, and IndexNow still no-ops there (INDEXNOW_KEY is prod-only,
-        // staging is Access-gated / non-indexed).
-        "PUBLIC_SITE_URL": "https://aecintegrations.com",
+        // ADR 0011). Public value. Pre-launch the production tier serves
+        // `prod.aecintegrations.com` (no-index), so this points there for email
+        // links; it flips to the apex (`https://aecintegrations.com`) at the apex
+        // cutover, alongside the web Worker's `ALLOW_INDEXING="true"` + the
+        // `INDEXNOW_KEY` secret (IndexNow stays a no-op until then).
+        "PUBLIC_SITE_URL": "https://prod.aecintegrations.com",
       },
       "kv_namespaces": [
         {

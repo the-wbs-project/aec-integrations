@@ -1,19 +1,20 @@
 /**
  * Crawler-indexing policy for the SSR Worker.
  *
- * AECi is pre-launch. The only publicly reachable web surface today is
- * `demo.aecintegrations.com` (the `production` Worker env) which — UNLIKE
- * `staging.aecintegrations.com` and the `*.workers.dev` PR previews — is NOT
+ * AECi is pre-launch. The publicly reachable web surfaces are the two public
+ * tiers — `prod.aecintegrations.com` (the `production` Worker env) and
+ * `demo.aecintegrations.com` (the `demo` env) — which, UNLIKE
+ * `staging.aecintegrations.com` and the `*.workers.dev` PR previews, are NOT
  * behind Cloudflare Access (`docs/access.md` §"Locked decisions": "No Access on
- * production … those are public"). So `demo` is genuinely crawlable, and until
- * we deliberately launch, NO environment should be indexed.
+ * production … those are public"). So both are genuinely crawlable, and until we
+ * deliberately launch (the apex cutover), NO environment should be indexed.
  *
  * Indexing is therefore FAIL-CLOSED: every environment blocks crawlers unless
- * `ALLOW_INDEXING` is explicitly the string `"true"`. Keying on
- * `ENV === 'production'` would be wrong here — `production` IS the pre-launch
- * demo. When the public site launches, set `ALLOW_INDEXING=true` on (only) the
- * env that should be indexed; both enforcement layers below then revert to the
- * normal allow-with-per-page-`<meta robots>` behavior.
+ * `ALLOW_INDEXING` is explicitly the string `"true"`. Keying on the `ENV` label
+ * would be wrong here — both public tiers are pre-launch no-index. When the
+ * public site launches, set `ALLOW_INDEXING=true` on (only) the env that should
+ * be indexed; both enforcement layers below then revert to the normal
+ * allow-with-per-page-`<meta robots>` behavior.
  *
  * Two layers consume this, both gated on `indexingAllowed`:
  *   1. `X-Robots-Tag: noindex, nofollow` HTTP header on every non-`/api/*`

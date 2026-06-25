@@ -6,10 +6,16 @@
  * for the SSR runtime (Node polyfills used by `@angular/ssr`); see
  * `CLAUDE.md` and `docs/CICD_PLAN.md` §4.1.
  *
- * Web production serves `demo.aecintegrations.com` ONLY (pre-launch). The apex
- * (`aecintegrations.com`) and `www.` remain served by the landing Worker
- * (`apps/landing`) — we are not promoting the app to `www` yet. Preview deploys
- * use `workers_dev` URLs per PR; staging is `staging.aecintegrations.com`.
+ * Tiers (promotion order): preview → staging → demo → production.
+ *   - Web production serves `prod.aecintegrations.com` (the eventual home page;
+ *     pre-launch, no-index until the apex cutover).
+ *   - Web demo serves `demo.aecintegrations.com` (the public showcase tier).
+ *   - The apex (`aecintegrations.com`) and `www.` remain served by the landing
+ *     Worker (`apps/landing`) — we are not promoting the app to the apex yet.
+ *   - Preview deploys use `workers_dev` URLs per PR; staging is
+ *     `staging.aecintegrations.com`.
+ * demo + production share the prod Supabase auth project, so one admin login
+ * works on both.
  *
  * The `services` bindings (`API`) call the private API Worker (`apps/api/`)
  * over Cloudflare's internal RPC fabric — the API has no public ingress.
@@ -123,13 +129,41 @@
       ],
       "services": [{ "binding": "API", "service": "aeci-api-staging" }],
     },
+    "demo": {
+      "name": "aeci-web-demo",
+      "vars": {
+        "ENV": "demo",
+        // Public (NOT behind Access), pre-launch — no-index. Keep "false". See
+        // the preview env's note; `indexingAllowed` keys off this, not `ENV`.
+        "ALLOW_INDEXING": "false",
+        "DD_SITE": "us5.datadoghq.com",
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // Shares the PROD Supabase auth project with production (one admin login
+        // works on demo + prod).
+        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        "POSTHOG_HOST": "https://us.i.posthog.com",
+      },
+      "observability": { "enabled": true },
+      // The public showcase tier. `custom_domain: true` makes wrangler reconcile
+      // the demo.aecintegrations.com DNS record + cert on deploy — on the first
+      // demo deploy it REASSIGNS that hostname off the old production Worker, so
+      // deploy demo BEFORE re-deploying production onto prod.aecintegrations.com.
+      "routes": [
+        {
+          "pattern": "demo.aecintegrations.com",
+          "custom_domain": true,
+        },
+      ],
+      "services": [{ "binding": "API", "service": "aeci-api-demo" }],
+    },
     "production": {
       "name": "aeci-web-production",
       "vars": {
         "ENV": "production",
-        // See the preview env's note. demo.aecintegrations.com is public but
-        // PRE-LAUNCH — keep "false" until the directory actually launches, then
-        // flip to "true" to allow crawling/indexing.
+        // See the preview env's note. prod.aecintegrations.com is public but
+        // PRE-LAUNCH — keep "false" until the apex cutover (when the app takes
+        // over aecintegrations.com), then flip to "true" to allow indexing.
         "ALLOW_INDEXING": "false",
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
@@ -138,14 +172,14 @@
         "POSTHOG_HOST": "https://us.i.posthog.com",
       },
       "observability": { "enabled": true },
-      // Web prod serves demo.aecintegrations.com ONLY (pre-launch). The apex
-      // (aecintegrations.com) and www stay on the landing Worker (apps/landing)
-      // — we are not promoting the app to www yet. `custom_domain: true` makes
-      // wrangler reconcile the DNS record + cert on the aecintegrations.com zone
-      // on deploy; the next promote also detaches apex/www from this Worker.
+      // Web prod serves prod.aecintegrations.com (the demo tier serves
+      // demo.aecintegrations.com). The apex (aecintegrations.com) and www stay
+      // on the landing Worker (apps/landing) until the apex cutover.
+      // `custom_domain: true` makes wrangler reconcile the DNS record + cert on
+      // the aecintegrations.com zone on deploy.
       "routes": [
         {
-          "pattern": "demo.aecintegrations.com",
+          "pattern": "prod.aecintegrations.com",
           "custom_domain": true,
         },
       ],

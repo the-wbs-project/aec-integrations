@@ -58,6 +58,7 @@
  */
 
 import { PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
+import { isPublicSite } from '@aeci/shared/deploy-env';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
@@ -980,10 +981,11 @@ export function createApp(options: {
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {
-    // `/preview/*` is dev/preview-only. Block in production before invoking
-    // Angular so the lazy preview chunks never load on the production Worker.
-    // See `isPreviewPath` above for the path-shape contract.
-    if (c.env.ENV === 'production') {
+    // `/preview/*` is dev/preview-only. Block on the public tiers (production +
+    // demo) before invoking Angular so the lazy preview chunks never load on a
+    // public, non-Access-gated Worker. See `isPreviewPath` above for the
+    // path-shape contract and `@aeci/shared/deploy-env` for `isPublicSite`.
+    if (isPublicSite(c.env.ENV)) {
       const url = new URL(c.req.url);
       if (isPreviewPath(url.pathname)) {
         return new Response('Page not found.', {

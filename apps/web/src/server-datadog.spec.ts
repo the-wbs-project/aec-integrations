@@ -98,14 +98,19 @@ describe('SSR Worker datadog adapter (config wiring)', () => {
 describe('shouldEmitRenderLog (AECI-103 ssr.render log gate)', () => {
   // Errors are kept at full fidelity in every env — including production —
   // because the non-cacheable branch's 404/5xx visibility leans on this log.
-  it.each([404, 500, 503])('logs error status %i even in production', (status) => {
-    expect(shouldEmitRenderLog(makeEnv({ ENV: 'production' }), status)).toBe(true);
-  });
+  it.each<WebEnv['ENV']>(['production', 'demo'])(
+    'logs error status even on the public tier %s',
+    (env) => {
+      for (const status of [404, 500, 503]) {
+        expect(shouldEmitRenderLog(makeEnv({ ENV: env }), status)).toBe(true);
+      }
+    },
+  );
 
-  // Non-prod keeps every render (dev volume is tiny; the full stream verifies
-  // the pipe end-to-end).
+  // Non-public tiers keep every render (dev/preview/staging volume is tiny; the
+  // full stream verifies the pipe end-to-end).
   it.each<WebEnv['ENV']>(['development', 'preview', 'staging'])(
-    'logs 2xx renders in non-prod env %s',
+    'logs 2xx renders in non-public env %s',
     (env) => {
       expect(shouldEmitRenderLog(makeEnv({ ENV: env }), 200)).toBe(true);
     },
@@ -115,9 +120,14 @@ describe('shouldEmitRenderLog (AECI-103 ssr.render log gate)', () => {
     expect(shouldEmitRenderLog(makeEnv({ ENV: undefined }), 200)).toBe(true);
   });
 
-  // Production 2xx is the unbounded firehose we drop — the aeci.ssr.render
-  // count metric carries that signal instead.
-  it.each([200, 204, 301, 304])('drops non-error status %i in production', (status) => {
-    expect(shouldEmitRenderLog(makeEnv({ ENV: 'production' }), status)).toBe(false);
-  });
+  // Public-tier 2xx (production + demo) is the unbounded firehose we drop — the
+  // aeci.ssr.render count metric carries that signal instead.
+  it.each<WebEnv['ENV']>(['production', 'demo'])(
+    'drops non-error 2xx/3xx on the public tier %s',
+    (env) => {
+      for (const status of [200, 204, 301, 304]) {
+        expect(shouldEmitRenderLog(makeEnv({ ENV: env }), status)).toBe(false);
+      }
+    },
+  );
 });

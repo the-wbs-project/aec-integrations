@@ -30,17 +30,18 @@ GitHub Actions is the CI/CD platform. Cloudflare Workers Builds is rejected for 
 
 > **Current state (deviation from spec) — set 2026-05-18, updated 2026-05-26.**
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
-> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with explicit `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. There is intentionally **no auto-deploy to production**.
+> - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with `commit_sha` + `confirm=PROMOTE`. The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres).
+> - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with explicit `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
 > - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `*.aec-integrations.workers.dev`); the API Worker is shared (`aeci-api-preview`) and connects to the dev project's `main` branch via Prisma Accelerate. See `docs/environments.md` §"PR previews" for the DB-strategy decision (Option 1 — shared dev DB).
-> The 3-env target below is now wired end-to-end.
 
-Three environments, all on Cloudflare:
+Four environments, all on Cloudflare:
 
 | Environment | URL pattern | Triggered by | Auto/Manual | Data |
 |---|---|---|---|---|
 | **Preview** | `aeci-web-pr-<N>.aec-integrations.workers.dev` | Every PR push | Auto | Shared dev DB via `aeci-api-preview` (Option 1, see environments.md) |
 | **Staging** | `staging.aecintegrations.com` | Merge to `main` | Auto | Staging Supabase project |
-| **Production** | `demo.aecintegrations.com` | Manual approval after staging | Manual | Production Supabase |
+| **Demo** | `demo.aecintegrations.com` | Manual, after staging | Manual | Own D1 (`aeci-app-demo`); shares the prod Supabase auth project |
+| **Production** | `prod.aecintegrations.com` | Manual approval, after demo | Manual | Production D1 + Supabase |
 
 ### 2.1 Preview environment
 
@@ -63,17 +64,27 @@ Mirror of production, but with test data and isolated from real users.
 - Resend sends real emails but only to allowlisted internal addresses
 - Linear creates real issues in a "Staging Test" project
 - Used for smoke tests, manual QA, and demos
-- **Network-level access control:** staging and `*.aec-integrations.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI). Production is intentionally public. See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
+- **Network-level access control:** staging and `*.aec-integrations.workers.dev` previews sit behind Cloudflare Access (email-allowlist OTP for humans, service token for CI). Demo and production are intentionally public. See [`access.md`](./access.md) for the runbook (allowlist management, service-token rotation, lockout recovery).
 
-### 2.3 Production environment
+### 2.3 Demo environment
 
-The real site. Promoted from staging via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
+The public showcase tier (`demo.aecintegrations.com`), inserted between staging and production. Promoted from staging via [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml) — see `docs/environments.md` → "Promote-to-demo runbook".
 
-- Deployed only after staging deployment is verified
+- Public (no Cloudflare Access), but `ALLOW_INDEXING="false"` (no-index) like production.
+- **Shares the prod Supabase auth project** (one admin login works on demo + prod; the app DB is Cloudflare D1 per ADR 0016), but has its **own** D1 (`aeci-app-demo`), KV, queues (`aeci-*-demo`), and Algolia (`demo_*`) index set.
+- `ENV=demo` → Datadog `env:demo` tag, `demo_*` Algolia prefix. Recognised as a public site by `isPublicSite()` alongside production (blocks `/preview/*` etc.).
+- Touches no Postgres on promote — `promote-to-demo.yml` is the light sibling of promote-to-prod.
+
+### 2.4 Production environment
+
+The real site (`prod.aecintegrations.com`, the eventual home page). Promoted from **demo** via manual approval — see `docs/environments.md` → "Promote runbook" for the operator flow.
+
+- Deployed only after the demo deployment is verified (the pre-promotion check asserts demo is at the SHA)
 - Manual approval gate in GitHub Environments (Chris clicks "Approve" button on the `apply-prod-migrations` job in `.github/workflows/promote-to-prod.yml`)
-- Connects to production Supabase
-- Production Algolia indexes
+- Connects to production Supabase + the `aeci-app-production` D1
+- Production Algolia indexes (`production_*`)
 - Datadog under `env:production` tag, with deployment markers
+- Public, `ALLOW_INDEXING="false"` until the apex cutover (when the app takes over `aecintegrations.com`)
 - Resend sends to real users
 - Linear is the live vendor request destination
 
@@ -169,13 +180,13 @@ Re-runs all PR checks against the merged code (in case of merge conflicts), then
 
 Production deploys run via `.github/workflows/promote-to-prod.yml` (AECI-78). See `docs/environments.md` → "Promote runbook" for the operator flow.
 
-Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inputs) and gated by the `production` GH Environment approval on the `apply-prod-migrations` job. Three jobs in order:
+Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inputs) and gated by the `production` GH Environment approval on the `apply-prod-migrations` job. Promotes from the **demo** tier (chain: staging → demo → production). Three jobs in order:
 
 **Job: `pre-promotion-checks`**
 1. Validate `confirm == PROMOTE`
 2. Checkout at `inputs.commit_sha`
-3. Assert staging reports the same SHA on **both** `staging.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `staging is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
-4. Print `supabase migration list --linked` against prod into the step summary
+3. Assert **demo** reports the same SHA on **both** `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) via `scripts/verify-version.sh`, else fail with `demo is not at <input> on both Workers (API + SSR), refusing to promote` (the script logs the actual per-Worker SHAs). `/api/version` alone is proxied raw to the API Worker, so it can't catch a stale SSR deploy.
+4. Print `supabase migration list --linked` against the (shared) prod Supabase project into the step summary
 
 **Job: `apply-prod-migrations`** (gated by GH Environment `production`)
 1. `pg_dump` prod → R2 (`aeci-prod-snapshots/prod-pre-<short-sha>.dump`)
@@ -186,8 +197,10 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 1. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 2. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`
 3. Post Datadog deployment marker (§9.1)
-4. Poll both `demo.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA (60s budget) via `scripts/verify-version.sh`
+4. Poll both `prod.aecintegrations.com/api/version` (API Worker) and `/_version` (SSR Worker, AECI-92) until **both** return the promoted SHA (60s budget) via `scripts/verify-version.sh`
 5. Write summary (commit, R2 snapshot path, snapshot size, DEPLOYED_AT, actor)
+
+The **demo** tier is deployed by the light sibling [`promote-to-demo.yml`](../.github/workflows/promote-to-demo.yml): validate `confirm` → assert **staging** is at the SHA → (GH Environment `demo`) provision `aeci-*-demo` queues → apply `aeci-app-demo` D1 migrations → deploy `aeci-{api,web}-demo` → push demo Worker secrets → smoke `demo.aecintegrations.com` → auto-rollback on smoke failure. The `demo` GH Environment has no required reviewer by default (add one to gate it). It touches no Postgres (demo shares the prod Supabase project, which production owns).
 
 Algolia index updates, release-tag automation, and Slack notifications are out of scope until later epics.
 
@@ -209,7 +222,7 @@ Triggered when a release tag is pushed.
 Wrangler is the only deployment tool. Single source of truth for Worker configuration.
 
 **Configuration files:**
-- `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.preview`, `env.staging`, `env.production`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`.
+- `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.preview`, `env.staging`, `env.demo`, `env.production`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`.
 - Compatibility date locked per environment to prevent surprise Worker runtime changes
 - SSR Worker requires `"compatibility_flags": ["nodejs_compat"]` — needed for `@angular/ssr` runtime Node polyfills. This is unrelated to database access; Prisma still uses Accelerate (HTTPS), see `DATABASE_SCHEMA.md` §1a.
 - API Worker does not need `nodejs_compat` (it talks to Supabase via Accelerate HTTPS).
@@ -230,10 +243,15 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
       "vars": { "ENV": "staging" },
       "routes": [{ "pattern": "staging.aecintegrations.com", "custom_domain": true }]
     },
+    "demo": {
+      "vars": { "ENV": "demo" },
+      // public showcase tier; shares the prod Supabase auth project
+      "routes": [{ "pattern": "demo.aecintegrations.com", "custom_domain": true }]
+    },
     "production": {
       "vars": { "ENV": "production" },
-      // demo.aecintegrations.com ONLY (pre-launch); apex + www stay on the landing Worker
-      "routes": [{ "pattern": "demo.aecintegrations.com", "custom_domain": true }]
+      // prod.aecintegrations.com (pre-apex-cutover); apex + www stay on the landing Worker
+      "routes": [{ "pattern": "prod.aecintegrations.com", "custom_domain": true }]
     }
   }
 }
@@ -434,15 +452,16 @@ For the API keys with dev/prod separation (Algolia, Datadog), rotate independent
 
 ### 7.5 Algolia topology (AECI-134)
 
-**One application, per-env indexes.** A single AECi Algolia app (one `ALGOLIA_APP_ID`, shared) holds three index sets, one per environment. Physical names are `<prefix>_<entity>`:
+**One application, per-env indexes.** A single AECi Algolia app (one `ALGOLIA_APP_ID`, shared) holds four index sets, one per environment. Physical names are `<prefix>_<entity>`:
 
 | Prefix | Indexes | Used by |
 |---|---|---|
 | `preview` | `preview_products`, `preview_vendors`, `preview_integrations` | PR previews + local `pnpm dev:bound` (`ENV=preview`) + `development` (bare `wrangler dev`/tests fold here) |
 | `staging` | `staging_products`, `staging_vendors`, `staging_integrations` | staging |
+| `demo` | `demo_products`, `demo_vendors`, `demo_integrations` | demo (`ENV=demo`) |
 | `production` | `production_products`, `production_vendors`, `production_integrations` | production |
 
-The prefix is derived from the Worker `ENV` label (matching the Datadog tags + `/api/version` convention); `development` folds onto `preview` so there is no fourth set. The names and the key shapes are defined once in `packages/shared/src/algolia.ts` and consumed by the Workers and the provision script alike.
+The prefix is derived from the Worker `ENV` label (matching the Datadog tags + `/api/version` convention); `development` folds onto `preview` so there is no fifth set. `demo` and `production` keep separate sets so the showcase never reads or writes the live `production_*` indexes. The names and the key shapes are defined once in `packages/shared/src/algolia.ts` and consumed by the Workers and the provision script alike.
 
 **Three keys per app, two of them per-env-scoped:**
 
