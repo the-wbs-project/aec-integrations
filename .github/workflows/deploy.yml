@@ -436,7 +436,23 @@ jobs:
       - name: E2E + axe (Playwright)
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:8788
-        run: pnpm --filter @aeci/web run test:e2e
+          # AECI-235: `authed-console.spec.ts` mints a real Supabase admin session
+          # from these to console-check the auth-gated Phase 5 pages. When the
+          # SUPABASE_TEST_USER_* creds (or the anon key) are unset, `auth-session.ts`
+          # returns null and the spec skips — no red CI. Same warn-and-skip posture
+          # as the SUPABASE_ANON_KEY wiring above (the single shared un-suffixed key,
+          # ADR 0017). The test user is the admin account (test@thewbsproject.com),
+          # and its `role='admin'` D1 profile is seeded by `dev:bound` ->
+          # `db:seed:local` (apps/api/seed/auth-fixtures.sql).
+          SUPABASE_URL: https://ktuhnlypztujpsseujzx.supabase.co
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          SUPABASE_TEST_USER_EMAIL: ${{ secrets.SUPABASE_TEST_USER_EMAIL }}
+          SUPABASE_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_TEST_USER_PASSWORD }}
+        run: |
+          if [ -z "$SUPABASE_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_TEST_USER_PASSWORD" ]; then
+            echo "::warning::SUPABASE_TEST_USER_EMAIL/PASSWORD not set — authed-console.spec.ts (AECI-235) will skip its 4 authed-page console checks."
+          fi
+          pnpm --filter @aeci/web run test:e2e
       # Edge-cache assertions against the same server. `!cancelled()` so it still
       # runs (and reports) even if the e2e step above failed — both signals land.
       - name: Edge-cache integration runner

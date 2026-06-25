@@ -1,4 +1,34 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+
+// AECI-235: the Playwright runner process doesn't inherit the Workers' `.dev.vars`,
+// but `authed-console.spec.ts` mints a real Supabase session from `process.env`. For
+// LOCAL runs, hydrate the four `SUPABASE_*` keys from `apps/web/.dev.vars` (cwd is
+// `apps/web` under `pnpm --filter @aeci/web`). Never overwrites an already-set var, so
+// CI's step `env:` wins. Absent file / keys → the spec skips. No new dependency.
+function loadDevVarsAuthEnv(): void {
+  const wanted = new Set([
+    'SUPABASE_URL',
+    'SUPABASE_ANON_KEY',
+    'SUPABASE_TEST_USER_EMAIL',
+    'SUPABASE_TEST_USER_PASSWORD',
+  ]);
+  let text: string;
+  try {
+    text = readFileSync(resolve(process.cwd(), '.dev.vars'), 'utf8');
+  } catch {
+    return; // no local .dev.vars — rely on process.env (CI) or skip
+  }
+  for (const line of text.split('\n')) {
+    const match = line.match(/^\s*([A-Z0-9_]+)\s*=\s*(.*?)\s*$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (!wanted.has(key) || process.env[key]) continue;
+    process.env[key] = rawValue.replace(/^["']|["']$/g, '');
+  }
+}
+loadDevVarsAuthEnv();
 
 // Playwright config for the SSR Worker (apps/web).
 //
