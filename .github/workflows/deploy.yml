@@ -316,29 +316,18 @@ jobs:
             exit 0
           fi
           psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
-      # Seed the Phase 2 CI fixtures (AECI-65): a representative
-      # product/vendor/integration + taxonomy links, so the axe success-path
-      # specs (e2e-and-integration) and the Lighthouse job have real detail/browse
-      # pages to measure. Idempotent UPSERTs — safe to re-run. UNGATED (no
-      # migration-change `if:`): both consumer jobs run on EVERY PR and need the
-      # fixtures present, and a refresh-staging wipe (or a never-seeded fresh DB)
-      # would otherwise leave detail pages 404. Runs AFTER the taxonomy seed so the
-      # fixture taxonomy-link subselects resolve. Same DIRECT_URL_STAGING + skip-
-      # with-warning contract as the taxonomy seed above: when the secret is unset
-      # the consumer specs self-skip, so THIS workflow stays green until it's
-      # configured — but the post-merge lighthouse.yml run is error-gated
-      # (AECI-188) and WILL go red measuring 404 shells on an unseeded DB. That
-      # red is the deliberate alarm for a wiped/never-seeded dev DB; re-seed and
-      # re-run it. See supabase/fixtures/phase2-fixtures.sql.
-      - name: Seed Phase 2 CI fixtures
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: |
-          if [ -z "$PGURL" ]; then
-            echo "::warning::DIRECT_URL_STAGING is not set; skipping the Phase 2 fixtures seed. Detail/browse axe + Lighthouse coverage self-skips until the secret is configured."
-            exit 0
-          fi
-          psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/fixtures/phase2-fixtures.sql
+      # NOTE (AECI-268): the former "Seed Phase 2 CI fixtures" step that ran
+      # `psql … -f supabase/fixtures/phase2-fixtures.sql` against this Supabase
+      # Postgres was REMOVED. Post-D1 cutover (ADR 0016) the API Worker reads
+      # Cloudflare D1, not Supabase, so the e2e/axe (e2e-and-integration) + the
+      # post-merge lighthouse.yml jobs get the `fixture-procore` fixtures from the
+      # LOCAL D1 instead — seeded by `dev:bound` → `db:setup:local` →
+      # `db:seed:fixtures:local` (apps/api/seed/phase2-fixtures.sql). The Supabase
+      # seed served nothing post-cutover and was the source of the searchable
+      # "Fixture Procore" orphans (it placed promoted rows where the pre-cutover
+      # Algolia sync indexed them). The remaining Supabase dead-weight here (this
+      # taxonomy seed, the DATABASE_URL push) is removed at the Supabase-DB
+      # decommission (AECI-257).
       # Wait for Prisma Accelerate to pick up the schema change before any
       # downstream job (e2e-tests-local, integration-runner-local, per-PR
       # Workers) issues typed Prisma queries against the dev DB. See

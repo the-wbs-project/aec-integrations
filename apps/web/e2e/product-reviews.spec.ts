@@ -32,7 +32,8 @@ test.beforeAll(async () => {
     if (!productSeeded) {
       console.warn(
         `[product-reviews] Fixture absent: GET /api/products/${PRODUCT_SLUG} -> ${res.status()}. ` +
-          'Cache-neutrality tests SKIPPED. Seed the dev DB (supabase/fixtures/phase2-fixtures.sql).',
+          'Cache-neutrality tests SKIPPED. Seed the local D1 via ' +
+          '`pnpm --filter @aeci/api db:seed:fixtures:local` (run automatically by `dev:bound`).',
       );
     }
   } finally {
