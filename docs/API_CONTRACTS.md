@@ -98,7 +98,7 @@ Each Phase 2 list endpoint exposes a **combined sort key** — a single enum tha
 // Per-entity sort enums live alongside their endpoint schemas
 // (`packages/shared/src/api/products.ts` etc.).
 export const ProductSortSchema = z
-  .enum(['created', 'name', 'updated'])
+  .enum(['created', 'name', 'updated', 'rating', 'reviews'])
   .default('created');
 
 export const VendorSortSchema = z
@@ -117,11 +117,15 @@ export const IntegrationSortSchema = z
 | `created` | DESC |
 | `updated` | DESC |
 | `name` | ASC |
+| `rating` | DESC |
+| `reviews` | DESC |
 
 Per-entity defaults (Phase 2 Spec §7.4):
 
 - `/api/products`, `/api/vendors` → `created` (i.e. created DESC, "newest first")
 - `/api/integrations` → `name` (alphabetical; groups by source product since names render as `"Source → Target"`)
+
+`rating` ("Highest rated") and `reviews` ("Most reviewed") are **products-only** sorts (the `/products` index dropdown). For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` itself is applied on the **detail** mapper only (the list endpoint returns the raw average, since the index cards render no rating today).
 
 `SortOrderSchema = z.enum(['asc', 'desc'])` is retained in `common.ts` for server-side helpers, but does not appear in any Phase 2 public query.
 

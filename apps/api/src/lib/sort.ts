@@ -6,6 +6,13 @@
  *   - `name    → ASC`  (alphabetical)
  *   - `updated → DESC` (most recently touched first)
  *
+ * Products additionally expose two review-driven sorts (both `DESC`):
+ *
+ *   - `rating  → DESC` ("Highest rated") — products whose rating is hidden by
+ *                      the §5.5 gate (`review_count < 5`) sort last (see
+ *                      `resolveProductOrderBy`).
+ *   - `reviews → DESC` ("Most reviewed")
+ *
  * Each resolver returns an **array** whose last element is a unique `id` ASC
  * tiebreaker. The list handlers paginate with page-based `skip`/`take`, and a
  * single-column sort with ties (very likely on `name`; possible on
@@ -25,7 +32,7 @@
  */
 
 import type { IntegrationSort, ProductSort, VendorSort } from '@aeci/shared';
-import { asc, desc, type SQL } from 'drizzle-orm';
+import { asc, desc, sql, type SQL } from 'drizzle-orm';
 
 import { integrations, products, vendors } from '../db/schema';
 
@@ -45,6 +52,19 @@ export function resolveProductOrderBy(sort: ProductSort): SQL[] {
       return [asc(products.name), asc(products.id)];
     case 'updated':
       return [desc(products.updatedAt), asc(products.id)];
+    case 'rating':
+      // §5.5: a product's rating is hidden until it has ≥5 reviews
+      // (drizzle-helpers.ts `ratingsVisible`), so rank those last. The CASE
+      // nulls the sort key below the threshold and SQLite orders NULLs last
+      // under DESC — so the order matches what the card actually shows. Tie-break
+      // by review_count (more reviews = more confidence), then the stable id.
+      return [
+        desc(sql`case when ${products.reviewCount} >= 5 then ${products.ratingOverallAvg} end`),
+        desc(products.reviewCount),
+        asc(products.id),
+      ];
+    case 'reviews':
+      return [desc(products.reviewCount), asc(products.id)];
     default:
       return sort satisfies never;
   }
@@ -86,10 +106,16 @@ function withTiebreaker<T>(primary: T): [T, typeof ID_ASC] {
 const CREATED_DESC = { createdAt: 'desc' as Direction };
 const UPDATED_DESC = { updatedAt: 'desc' as Direction };
 
+// NOTE: legacy Prisma-style object form, kept only for the AECI-99 tiebreaker
+// test and type exhaustiveness — no route uses it (the live path is
+// `resolveProductOrderBy`). The object form can't express the §5.5 `rating`
+// CASE gate, so the gated behavior lives solely in `resolveProductOrderBy`.
 export function resolveProductSort(sort: ProductSort): Array<{
   createdAt?: Direction;
   updatedAt?: Direction;
   name?: Direction;
+  ratingOverallAvg?: Direction;
+  reviewCount?: Direction;
   id?: Direction;
 }> {
   switch (sort) {
@@ -99,6 +125,10 @@ export function resolveProductSort(sort: ProductSort): Array<{
       return withTiebreaker({ name: 'asc' as Direction });
     case 'updated':
       return withTiebreaker(UPDATED_DESC);
+    case 'rating':
+      return withTiebreaker({ ratingOverallAvg: 'desc' as Direction });
+    case 'reviews':
+      return withTiebreaker({ reviewCount: 'desc' as Direction });
     default:
       return sort satisfies never;
   }
