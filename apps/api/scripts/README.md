@@ -78,6 +78,12 @@ For **production**, repeat with the production source URL and
 
 ## `backfill-slugs.ts` — AECI-53 / Phase 2 §6.4
 
+> **Removed in the D1 migration (PR #359).** Both this script and its integration
+> spec (`apps/api/src/integration/backfill-slugs.spec.ts`) were deleted when the
+> app DB moved to Cloudflare D1 (ADR 0016); slugs are now generated inline on the
+> `POST /api/promote` write path. The section is retained for historical context
+> only — full removal rides with the AECI-256/257 Supabase-Postgres decommission.
+
 Normalizes `products.slug` and `vendors.slug` in Supabase against the canonical
 generator in `packages/shared/src/slug.ts`. For every row whose stored `slug`
 differs from `slugify(displayName)`, the script rewrites it (resolving
@@ -139,7 +145,8 @@ when they differ. Running it twice in a row against the same DB produces:
 - Run 1: zero or more `UPDATED`.
 - Run 2: every row `SKIPPED`. Zero writes.
 
-This is covered by `apps/api/src/integration/backfill-slugs.spec.ts`.
+This was covered by `apps/api/src/integration/backfill-slugs.spec.ts`, deleted
+alongside the script in PR #359 (see the removal note above).
 
 ### Ordering
 

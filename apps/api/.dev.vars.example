@@ -48,20 +48,21 @@ SUPABASE_ANON_KEY=
 # (src/integration/user-auth.jwks.spec.ts), which skips itself when unset or
 # expired.
 SUPABASE_TEST_USER_JWT=
-# Service-role key. Required by the AECI-69 trigger test, which mints and
-# deletes throwaway auth users via the Supabase admin API. Local Supabase
-# exposes this as the "Secret" key (`pnpm exec supabase status`). Never
-# commit a real value — the Worker has no use for the service role at
-# runtime and shouldn't see it.
+# Service-role key. Used by the integration CI lane's mint step
+# (.github/workflows/integration-db-tests.yml) to create a throwaway confirmed
+# user via the Supabase admin API, whose freshly-issued access token feeds the
+# JWKS spec. Local Supabase exposes this as the "Secret" key
+# (`pnpm exec supabase status`). Never commit a real value — the Worker has no
+# use for the service role at runtime and shouldn't see it.
 SUPABASE_SERVICE_ROLE_KEY=
 
-# ─── Slug backfill integration test (AECI-53) ──────────────────────────────
-# Direct Postgres URL used by `apps/api/src/integration/backfill-slugs.spec.ts`
-# only. Points at a local Supabase dev DB or any throwaway Postgres with the
-# schema migrations applied. The script under test (`scripts/backfill-slugs.ts`)
-# uses the Accelerate-flavoured `DATABASE_URL` in production; the test bypasses
-# Accelerate for speed. The test `describe.skipIf` itself when this is unset.
-# Example: postgresql://postgres:postgres@127.0.0.1:54322/postgres
+# ─── TEST_DATABASE_URL (retired) ───────────────────────────────────────────
+# DEAD as of the D1 migration (PR #359, AECI-248→257). Its only consumers were
+# the deleted Postgres integration specs (backfill-slugs / product-counts and
+# the scripts they exercised); the surviving JWKS integration spec doesn't read
+# it, and the application DB is now Cloudflare D1. Left here only to record that
+# the var is no longer read — safe to leave unset. Full removal rides with the
+# Prisma/Supabase-Postgres decommission (AECI-256/257).
 TEST_DATABASE_URL=
 
 # ─── Local seeding from staging (AECI-80) ──────────────────────────────────
