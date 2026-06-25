@@ -22,8 +22,16 @@ export type ProductRole = z.infer<typeof ProductRoleSchema>;
  * Public sort key for `GET /api/products`. Phase 2 Spec §7.4: default
  * `created DESC`. Server-side maps `created → DESC`, `name → ASC`,
  * `updated → DESC` per the §7.4 default-direction rule.
+ *
+ * `rating` ("Highest rated") and `reviews` ("Most reviewed") are the two
+ * review-driven sorts, both `DESC`. For `rating`, products whose rating is
+ * hidden by the §5.5 gate (`review_count < 5`) sort **last** so the order
+ * matches what the card actually displays — the gate lives in
+ * `resolveProductOrderBy` (`apps/api/src/lib/sort.ts`).
  */
-export const ProductSortSchema = z.enum(['created', 'name', 'updated']).default('created');
+export const ProductSortSchema = z
+  .enum(['created', 'name', 'updated', 'rating', 'reviews'])
+  .default('created');
 
 export type ProductSort = z.infer<typeof ProductSortSchema>;
 

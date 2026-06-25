@@ -243,7 +243,7 @@ Per `API_CONTRACTS.md` §2, contracts are TypeScript types + Zod schemas in `pac
 
 ```
 GET /api/products
-  query: ?page=1&perPage=24&sort=created|name|updated   (default: created DESC)
+  query: ?page=1&perPage=24&sort=created|name|updated|rating|reviews   (default: created DESC)
   → { data: ProductListItem[], page, perPage, total }
 
 GET /api/products/:slug
@@ -295,6 +295,8 @@ Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUs
 
 - `/products`, `/vendors`: **`created DESC`** ("newest first") — gives a sense of liveliness, surfaces fresh content
 - `/integrations`: **`name ASC`** — since names are `"Source → Target"`, alphabetical groups by source product, which is useful for browsing
+
+**Review-driven product sorts** (`/products` only): `rating` ("Highest rated") and `reviews` ("Most reviewed"), both **DESC**. For `rating`, products whose average is withheld by the §5.5 ≥5-review gate sort **last** (the orderBy nulls the sort key below the threshold, so a lone 5★ review can't top a well-reviewed 4.8★ product). Both are mostly inert until reviews accumulate post-launch, but ship now so the option is ready. Vendors do not expose these (no vendor rating field; no live `/vendors` list).
 
 ---
 

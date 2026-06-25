@@ -12,6 +12,12 @@ describe('resolveProductSort (§7.4 default-direction rule + AECI-99 tiebreaker)
   it('maps `updated` to `[{ updatedAt: "desc" }, { id: "asc" }]`', () => {
     expect(resolveProductSort('updated')).toEqual([{ updatedAt: 'desc' }, { id: 'asc' }]);
   });
+  it('maps `rating` to `[{ ratingOverallAvg: "desc" }, { id: "asc" }]`', () => {
+    expect(resolveProductSort('rating')).toEqual([{ ratingOverallAvg: 'desc' }, { id: 'asc' }]);
+  });
+  it('maps `reviews` to `[{ reviewCount: "desc" }, { id: "asc" }]`', () => {
+    expect(resolveProductSort('reviews')).toEqual([{ reviewCount: 'desc' }, { id: 'asc' }]);
+  });
 });
 
 describe('resolveVendorSort (§"Sort & direction": name → company_name + AECI-99 tiebreaker)', () => {
@@ -46,6 +52,8 @@ describe('AECI-99 tiebreaker shape', () => {
     ['product/created', resolveProductSort('created')],
     ['product/name', resolveProductSort('name')],
     ['product/updated', resolveProductSort('updated')],
+    ['product/rating', resolveProductSort('rating')],
+    ['product/reviews', resolveProductSort('reviews')],
     ['vendor/created', resolveVendorSort('created')],
     ['vendor/name', resolveVendorSort('name')],
     ['vendor/updated', resolveVendorSort('updated')],
