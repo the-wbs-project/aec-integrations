@@ -1,0 +1,69 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "aeci-datatool",
+  "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-04-07",
+  // INTERNAL ADMIN TOOL. Publishes to `aeci-datatool.aec-integrations.workers.dev`,
+  // which is already inside the single `AECi Non-Prod` Cloudflare Access app's
+  // `*.aec-integrations.workers.dev` destination (docs/access.md §1) — so it is
+  // OTP-gated to the chrisw/billh allowlist with no new Access app/policy. The
+  // Worker ALSO verifies the Access JWT in-process (src/access.ts) so a direct
+  // origin hit can't bypass the edge gate. workers_dev:true is required for that
+  // hostname to exist.
+  //
+  // This Worker binds all THREE remote D1 databases at once (preview/staging/
+  // production) and can wipe-and-replace any of them — see docs/access.md and the
+  // README. Deliberately NOT wired into CI (deployed by hand like apps/landing).
+  //
+  // No `migrations_dir`: this Worker must NEVER run migrations — apps/api owns the
+  // schema. No `nodejs_compat`: D1 is reached via the native bindings.
+  //
+  // Secrets (set via `wrangler secret put`; all graceful-skip if absent):
+  //   ALGOLIA_APP_ID                  — shared Algolia app id (post-write reindex)
+  //   ALGOLIA_ADMIN_KEY_{PREVIEW,STAGING,PRODUCTION} — per-env management keys
+  //   CF_PURGE_API_TOKEN_{PREVIEW,STAGING,PRODUCTION} — per-env Zone.Cache-Purge token
+  //   CF_ZONE_ID_{PREVIEW,STAGING,PRODUCTION}         — per-env zone id (purge target)
+  //   TOOL_TOKEN                      — optional bearer fallback for curl/CI auth
+  "workers_dev": true,
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+    },
+  },
+  "vars": {
+    "ENV": "tool",
+    // AECI-74 convention: overridden at dev/deploy time via
+    // `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+    "COMMIT_SHA": "unknown",
+    "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+    // Cloudflare Access application AUD (docs/access.md §1 — `AECi Non-Prod`).
+    // Public value; the in-Worker JWT check verifies the Cf-Access-Jwt-Assertion
+    // header carries this `aud`.
+    "ACCESS_AUD": "6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643",
+    // Cloudflare Zero-Trust team domain that issues/serves the Access JWKS at
+    // `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. FILL THIS from
+    // the Zero Trust dashboard (Settings → Custom Pages / team domain). Until it
+    // is set, the Access-JWT path can't verify — use the TOOL_TOKEN bearer
+    // fallback for curl/CI in the meantime.
+    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
+  },
+  "d1_databases": [
+    {
+      "binding": "DB_PREVIEW",
+      "database_name": "aeci-app-preview",
+      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+    },
+    {
+      "binding": "DB_STAGING",
+      "database_name": "aeci-app-staging",
+      "database_id": "6cd91530-20f3-4264-b6ba-3b2bf611c2aa",
+    },
+    {
+      "binding": "DB_PRODUCTION",
+      "database_name": "aeci-app-production",
+      "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+    },
+  ],
+}

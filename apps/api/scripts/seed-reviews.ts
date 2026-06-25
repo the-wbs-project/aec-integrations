@@ -1,5 +1,5 @@
 /**
- * Review seeder — DEV/DEMO ONLY (not a migration, not Worker runtime).
+ * Review seeder — DEV/DEMO ONLY (Node CLI; not a migration, not Worker runtime).
  *
  * Inserts ~150–200 realistic, AEC-flavored reviews across the EXISTING products
  * so an operator can preview a "fully going" catalog: rating summaries, the
@@ -7,6 +7,12 @@
  * products. Every seeded review is ANONYMOUS (`reviewer_id = NULL`) and APPROVED,
  * so no Supabase auth / profiles seeding is needed and the public review cards
  * (which render no reviewer name) look identical to real ones.
+ *
+ * The deterministic PLAN + SQL generation now lives in `@aeci/shared/seed-reviews`
+ * (so the `apps/datatool` Worker can reuse it against a D1 binding); this file is
+ * the Node CLI shell around it — arg parsing, the `wrangler d1 execute` I/O, and
+ * the `.sql` artifact. The same `--seed` produces byte-identical reviews here and
+ * in the Worker because both call the shared `buildPlan`.
  *
  * Stack: the app database is Cloudflare D1 (SQLite) + Drizzle (ADR 0016). This is
  * a Node CLI that does NOT touch the Worker — it works the same way the committed
@@ -26,13 +32,12 @@
  * `pnpm --filter @aeci/api db:setup:local` first if the LOCAL DB is empty.
  *
  * What it does:
- *   1. reads products (+ their category slugs) from the local D1,
+ *   1. reads products (+ their category slugs) from the target D1,
  *   2. builds a deterministic plan (seeded PRNG → stable output per `--seed`),
  *   3. emits an idempotent SQL file (`seed/reviews.sql`, gitignored): a
  *      `DELETE … WHERE id LIKE 'aeceed00-%'` header, the review `INSERT`s, then an
- *      `UPDATE products` recompute of `review_count` + both rating averages (the
- *      SQL equivalent of `lib/recompute-counts.ts`),
- *   4. on `--apply`, runs the file through `wrangler d1 execute --local`.
+ *      `UPDATE products` recompute of `review_count` + both rating averages,
+ *   4. on `--apply`, runs the file through `wrangler d1 execute`.
  *
  * Idempotent + reversible: every seeded row gets a recognizable id prefix
  * (`aeceed00-…`). The file delete-then-inserts that block, so re-running never
@@ -49,10 +54,6 @@
  *     pnpm --filter @aeci/api db:seed-reviews -- --remote --env staging            # dry-run
  *     pnpm --filter @aeci/api db:seed-reviews -- --remote --env staging --apply    # write
  *     pnpm --filter @aeci/api db:seed-reviews -- --remote --env staging --teardown --apply
- *
- * After applying, the product detail pages on `pnpm dev:agent` show the seeded
- * ratings. (The Worker's own `findProductCountDrift` is the runtime backstop; the
- * recompute baked into the file keeps the denormalized aggregates correct.)
  */
 
 import { spawnSync } from 'node:child_process';
@@ -60,27 +61,16 @@ import { writeFileSync } from 'node:fs';
 
 import {
   DISTRIBUTION,
-  MAX_AGE_DAYS,
-  REVIEW_FRAGMENTS,
-  ROLES,
-  SENTIMENT_MIX,
-  VERIFIED_WORK_EMAIL_RATE,
-  type ReviewFragment,
-  type Sentiment,
-} from './seed-reviews.data';
-
-/** Recognizable marker that opens every seeded review id — used to delete/teardown
- * the seeded block. Matching on the marker (not the full prefix) catches rows from
- * any past seed run, so a format change still cleans up the old ids. */
-const ID_MARKER = 'aeceed00-';
-/** Full id prefix for GENERATION: marker + a valid RFC-4122 version/variant
- * (`-4000-8000-`, i.e. version 4 + variant 8, matching the repo's deterministic-UUID
- * convention in seed/*.sql). The `-4xxx-[89ab]xxx-` shape is REQUIRED — the API's
- * review contract validates `id` with a strict `z.uuid()`, which rejects a 0 version
- * or variant nibble (the original `…-0000-0000-…` ids 400'd every detail page). */
-const ID_PREFIX = `${ID_MARKER}0000-4000-8000-`;
-const HOUR_MS = 60 * 60 * 1000;
-const DAY_MS = 24 * HOUR_MS;
+  ID_MARKER,
+  Rng,
+  buildPlan,
+  buildSeedSql,
+  buildTeardownSql,
+  mulberry32,
+  PRODUCTS_QUERY,
+  type Plan,
+  type ProductInput,
+} from '@aeci/shared/seed-reviews';
 
 /** Local D1 database name (the `--local` SQLite). Matches apps/api/wrangler.jsonc
  * + the `db:seed:*:local` scripts. */
@@ -134,219 +124,6 @@ function readValueFlag(argv: string[], name: string): string | undefined {
   return undefined;
 }
 
-// ─── Seeded PRNG (mulberry32) + helpers ──────────────────────────────────────────
-
-export function mulberry32(seed: number): () => number {
-  let a = seed >>> 0;
-  return () => {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-export class Rng {
-  constructor(private readonly next: () => number) {}
-  /** float [0,1) */
-  float(): number {
-    return this.next();
-  }
-  /** integer in [min, max] inclusive */
-  int(min: number, max: number): number {
-    return min + Math.floor(this.next() * (max - min + 1));
-  }
-  chance(p: number): boolean {
-    return this.next() < p;
-  }
-  pick<T>(items: readonly T[]): T {
-    return items[Math.floor(this.next() * items.length)];
-  }
-  /** Weighted pick over {item, weight}. Weights need not be normalized. */
-  weighted<T>(entries: ReadonlyArray<{ item: T; weight: number }>): T {
-    const total = entries.reduce((s, e) => s + e.weight, 0);
-    let r = this.next() * total;
-    for (const e of entries) {
-      r -= e.weight;
-      if (r < 0) return e.item;
-    }
-    return entries[entries.length - 1].item;
-  }
-}
-
-// ─── Plan model ──────────────────────────────────────────────────────────────────
-
-export interface ProductInput {
-  id: string;
-  slug: string;
-  name: string;
-  categorySlugs: string[];
-}
-
-interface PlannedReview {
-  id: string;
-  productId: string;
-  reviewerId: null;
-  ratingOverall: number;
-  ratingOnboarding: number;
-  title: string;
-  body: string;
-  roleAtCompany: string | null;
-  yearsUsing: number | null;
-  wouldRecommend: string | null;
-  status: 'approved';
-  moderatedAt: Date;
-  verifiedWorkEmail: boolean;
-  locale: 'en-US';
-  createdAt: Date;
-}
-
-interface Plan {
-  reviews: PlannedReview[];
-  /** product id → planned review count (includes 0-count products). */
-  perProduct: Map<string, number>;
-}
-
-const YEARS_POOL = [0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 10, 12, 15] as const;
-
-/** Derive a 1–5 overall/onboarding pair consistent with a sentiment tier.
- * Onboarding is drawn at or below overall — the "great product, rough setup"
- * story that motivates the dual rating. */
-function ratingsFor(sentiment: Sentiment, rng: Rng): { overall: number; onboarding: number } {
-  if (sentiment === 'positive') {
-    const overall = rng.chance(0.6) ? 5 : 4;
-    const onboarding = clamp(overall - rng.pick([0, 1, 1, 2]), 3, 5);
-    return { overall, onboarding };
-  }
-  if (sentiment === 'mixed') {
-    const overall = rng.chance(0.7) ? 3 : 4;
-    const onboarding = clamp(overall - rng.pick([0, 1, 1, 2]), 2, overall);
-    return { overall, onboarding };
-  }
-  // critical
-  const overall = rng.chance(0.6) ? 2 : 1;
-  const onboarding = clamp(overall + rng.pick([-1, 0, 0, 1]), 1, 3);
-  return { overall, onboarding };
-}
-
-function clamp(n: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, n));
-}
-
-function recommendFor(sentiment: Sentiment, rng: Rng): string | null {
-  if (rng.chance(0.12)) return null;
-  if (sentiment === 'positive')
-    return rng.weighted([
-      { item: 'yes', weight: 0.85 },
-      { item: 'maybe', weight: 0.15 },
-    ]);
-  if (sentiment === 'mixed')
-    return rng.weighted([
-      { item: 'maybe', weight: 0.6 },
-      { item: 'yes', weight: 0.25 },
-      { item: 'no', weight: 0.15 },
-    ]);
-  return rng.weighted([
-    { item: 'no', weight: 0.65 },
-    { item: 'maybe', weight: 0.35 },
-  ]);
-}
-
-function tagMatchesProduct(fragment: ReviewFragment, product: ProductInput): boolean {
-  if (!fragment.tags?.length) return false;
-  return fragment.tags.some((tag) => product.categorySlugs.some((slug) => slug.includes(tag)));
-}
-
-/** Pick a fragment for `product`, preferring the desired sentiment + a category
- * match, falling back gracefully. Returns the fragment AND its effective
- * sentiment (ratings are derived from this so text never contradicts the stars). */
-function pickFragment(
-  product: ProductInput,
-  desired: Sentiment,
-  usedTitles: Set<string>,
-  rng: Rng,
-): { fragment: ReviewFragment; sentiment: Sentiment } {
-  const unusedSameSentiment = REVIEW_FRAGMENTS.filter(
-    (f) => f.sentiment === desired && !usedTitles.has(f.title),
-  );
-  const catMatched = unusedSameSentiment.filter((f) => tagMatchesProduct(f, product));
-  if (catMatched.length) return { fragment: rng.pick(catMatched), sentiment: desired };
-  if (unusedSameSentiment.length)
-    return { fragment: rng.pick(unusedSameSentiment), sentiment: desired };
-
-  // Desired-sentiment pool exhausted for this product → any unused fragment,
-  // adopting its sentiment so ratings stay consistent.
-  const anyUnused = REVIEW_FRAGMENTS.filter((f) => !usedTitles.has(f.title));
-  if (anyUnused.length) {
-    const f = rng.pick(anyUnused);
-    return { fragment: f, sentiment: f.sentiment };
-  }
-  // Everything used (product wants more reviews than the whole bank) → reuse.
-  const f = rng.pick(REVIEW_FRAGMENTS.filter((x) => x.sentiment === desired));
-  return { fragment: f ?? rng.pick(REVIEW_FRAGMENTS), sentiment: desired };
-}
-
-function render(text: string, product: ProductInput): string {
-  return text.replaceAll('{product}', product.name);
-}
-
-function toUuid(counter: number): string {
-  return ID_PREFIX + counter.toString(16).padStart(12, '0');
-}
-
-export function buildPlan(products: ProductInput[], rng: Rng, now: number): Plan {
-  const sorted = [...products].sort((a, b) => a.slug.localeCompare(b.slug));
-  const buckets = DISTRIBUTION.map((b) => ({ item: b, weight: b.weight }));
-  const sentimentEntries: ReadonlyArray<{ item: Sentiment; weight: number }> = [
-    { item: 'positive', weight: SENTIMENT_MIX.positive },
-    { item: 'mixed', weight: SENTIMENT_MIX.mixed },
-    { item: 'critical', weight: SENTIMENT_MIX.critical },
-  ];
-
-  const reviews: PlannedReview[] = [];
-  const perProduct = new Map<string, number>();
-  let counter = 1;
-
-  for (const product of sorted) {
-    const bucket = rng.weighted(buckets);
-    const count = rng.int(bucket.min, bucket.max);
-    perProduct.set(product.id, count);
-
-    const usedTitles = new Set<string>();
-    for (let i = 0; i < count; i++) {
-      const desired = rng.weighted(sentimentEntries);
-      const { fragment, sentiment } = pickFragment(product, desired, usedTitles, rng);
-      usedTitles.add(fragment.title);
-
-      const { overall, onboarding } = ratingsFor(sentiment, rng);
-      const ageDays = rng.int(1, MAX_AGE_DAYS);
-      const createdAt = new Date(now - ageDays * DAY_MS - rng.int(0, 23) * HOUR_MS);
-      const moderatedAt = new Date(Math.min(now, createdAt.getTime() + rng.int(1, 72) * HOUR_MS));
-
-      reviews.push({
-        id: toUuid(counter++),
-        productId: product.id,
-        reviewerId: null,
-        ratingOverall: overall,
-        ratingOnboarding: onboarding,
-        title: render(fragment.title, product),
-        body: render(fragment.body, product),
-        roleAtCompany: rng.chance(0.15) ? null : rng.pick(ROLES),
-        yearsUsing: rng.chance(0.15) ? null : rng.pick(YEARS_POOL),
-        wouldRecommend: recommendFor(sentiment, rng),
-        status: 'approved',
-        moderatedAt,
-        verifiedWorkEmail: rng.chance(VERIFIED_WORK_EMAIL_RATE),
-        locale: 'en-US',
-        createdAt,
-      });
-    }
-  }
-
-  return { reviews, perProduct };
-}
-
 // ─── Reporting ───────────────────────────────────────────────────────────────────
 
 function printPlanSummary(plan: Plan, products: ProductInput[]): void {
@@ -388,145 +165,7 @@ function printPlanSummary(plan: Plan, products: ProductInput[]): void {
   }
 }
 
-// ─── SQL generation ───────────────────────────────────────────────────────────────
-
-/** SQLite string literal — single-quote escaped. */
-function sqlText(s: string): string {
-  return `'${s.replaceAll("'", "''")}'`;
-}
-
-function sqlTextOrNull(s: string | null): string {
-  return s === null ? 'NULL' : sqlText(s);
-}
-
-function sqlIntOrNull(n: number | null): string {
-  return n === null ? 'NULL' : String(n);
-}
-
-const REVIEW_COLUMNS = [
-  'id',
-  'product_id',
-  'reviewer_id',
-  'rating_overall',
-  'rating_onboarding',
-  'title',
-  'body',
-  'role_at_company',
-  'years_using',
-  'would_recommend',
-  'status',
-  'moderated_at',
-  'verified_work_email',
-  'locale',
-  'created_at',
-  'updated_at',
-] as const;
-
-function reviewValuesRow(rv: PlannedReview): string {
-  const createdIso = rv.createdAt.toISOString();
-  const moderatedIso = rv.moderatedAt.toISOString();
-  const cells = [
-    sqlText(rv.id),
-    sqlText(rv.productId),
-    'NULL', // reviewer_id — anonymous
-    String(rv.ratingOverall),
-    String(rv.ratingOnboarding),
-    sqlText(rv.title),
-    sqlText(rv.body),
-    sqlTextOrNull(rv.roleAtCompany),
-    sqlIntOrNull(rv.yearsUsing),
-    sqlTextOrNull(rv.wouldRecommend),
-    sqlText(rv.status),
-    sqlText(moderatedIso),
-    rv.verifiedWorkEmail ? '1' : '0',
-    sqlText(rv.locale),
-    sqlText(createdIso),
-    sqlText(moderatedIso), // updated_at — last touched at moderation
-  ];
-  return `  (${cells.join(',')})`;
-}
-
-const DELETE_SEEDED = `DELETE FROM "reviews" WHERE "id" LIKE '${ID_MARKER}%';`;
-
-/** Recompute the denormalized product aggregates for EVERY product — the SQL
- * equivalent of `recomputeProductCounts` (lib/recompute-counts.ts): approved-only
- * counts/averages, NULL averages when there are zero approved reviews. Cheap over
- * the small dev catalog and correct whether reviews were added or torn down. */
-const RECOMPUTE_PRODUCTS = `UPDATE "products" SET
-  "review_count" = (SELECT COUNT(*) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
-  "rating_overall_avg" = (SELECT ROUND(AVG(r."rating_overall"), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved'),
-  "rating_onboarding_avg" = (SELECT ROUND(AVG(r."rating_onboarding"), 2) FROM "reviews" r WHERE r."product_id" = "products"."id" AND r."status" = 'approved');`;
-
-/** Bump `updated_at` to the run time on the products that carry seeded reviews. The
- * app bumps `updated_at` on every review approval (Drizzle `$onUpdate`); this mirrors
- * that so the daily Algolia incremental-sync cron — which only resyncs rows whose
- * `updated_at` moved into its watermark window — picks these products up and refreshes
- * their `review_count` / rating in search. Scoped to affected products so it never
- * disturbs "recently updated" ordering for the rest of the catalog. */
-function touchSeededProducts(nowIso: string): string {
-  return `UPDATE "products" SET "updated_at" = ${sqlText(nowIso)}
-  WHERE "id" IN (SELECT DISTINCT "product_id" FROM "reviews" WHERE "id" LIKE '${ID_MARKER}%');`;
-}
-
-function fileHeader(
-  args: Args,
-  kind: 'seed' | 'teardown',
-  reviewCount: number,
-  stamp: string,
-): string {
-  return [
-    '-- ===========================================================================',
-    `-- GENERATED by apps/api/scripts/seed-reviews.ts — DO NOT EDIT BY HAND.`,
-    `-- ${kind === 'teardown' ? 'Teardown' : 'Seed'} for the LOCAL D1 (${args.db}). Dev/demo only.`,
-    `-- seed=${args.seed}  reviews=${reviewCount}  generated=${stamp}`,
-    `-- Re-run: pnpm --filter @aeci/api db:seed-reviews -- --apply`,
-    '-- ===========================================================================',
-    '',
-  ].join('\n');
-}
-
-/** Idempotent seed file: clear the seeded block, insert the plan in chunks, then
- * recompute every product's aggregates. */
-function buildSeedSql(plan: Plan, args: Args): string {
-  const nowIso = new Date().toISOString();
-  const parts: string[] = [
-    fileHeader(args, 'seed', plan.reviews.length, nowIso),
-    DELETE_SEEDED,
-    '',
-  ];
-
-  const insertHeader = `INSERT INTO "reviews" (${REVIEW_COLUMNS.map((c) => `"${c}"`).join(',')}) VALUES`;
-  const CHUNK = 25;
-  for (let i = 0; i < plan.reviews.length; i += CHUNK) {
-    const rows = plan.reviews.slice(i, i + CHUNK).map(reviewValuesRow);
-    parts.push(`${insertHeader}\n${rows.join(',\n')};`, '');
-  }
-
-  // Recompute aggregates, then touch updated_at (after the inserts exist) so the
-  // daily Algolia sync cron resyncs the affected products' review_count/rating.
-  parts.push(RECOMPUTE_PRODUCTS, '', touchSeededProducts(nowIso), '');
-  return parts.join('\n');
-}
-
-/** Teardown file: remove the seeded block + recompute. */
-function buildTeardownSql(args: Args): string {
-  const nowIso = new Date().toISOString();
-  // Touch updated_at BEFORE the delete (while the seeded reviews still identify
-  // their products) so the next Algolia sync resyncs them back to review_count=0.
-  return [
-    fileHeader(args, 'teardown', 0, nowIso),
-    touchSeededProducts(nowIso),
-    '',
-    DELETE_SEEDED,
-    '',
-    RECOMPUTE_PRODUCTS,
-    '',
-  ].join('\n');
-}
-
 // ─── Local D1 I/O (via Wrangler) ──────────────────────────────────────────────────
-
-const PRODUCTS_QUERY = `SELECT p.id, p.slug, p.name, (SELECT group_concat(tc.slug, ',') FROM product_categories pc JOIN taxonomy_categories tc ON tc.id = pc.category_id WHERE pc.product_id = p.id) AS category_slugs FROM products p`;
 
 interface RawProductRow {
   id: string;
@@ -642,7 +281,7 @@ export async function main(): Promise<number> {
 
   // ── Teardown: remove the seeded block + recompute ─────────────────────────────
   if (args.teardown) {
-    writeFileSync(args.out, buildTeardownSql(args));
+    writeFileSync(args.out, buildTeardownSql({ db: args.db, seed: args.seed }));
     console.log(`\nWrote teardown SQL → ${args.out}`);
     if (!args.apply) {
       console.log(
@@ -661,7 +300,7 @@ export async function main(): Promise<number> {
   const plan = buildPlan(products, rng, Date.now());
   printPlanSummary(plan, products);
 
-  writeFileSync(args.out, buildSeedSql(plan, args));
+  writeFileSync(args.out, buildSeedSql(plan, { db: args.db, seed: args.seed }));
   console.log(`\nWrote ${plan.reviews.length} review(s) → ${args.out}`);
 
   if (!args.apply) {
