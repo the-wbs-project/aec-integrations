@@ -57,7 +57,7 @@ The SSR Worker's `env.preview.services` binding is defined statically in `apps/w
 
 This is the simplest of three options the AECI-79 issue body enumerated:
 
-1. **(picked)** Shared dev DB. No per-PR Supabase branches; no Management API calls. Trade-off: previews cannot exercise migrations that haven't yet landed on `main`. Migration safety is covered by the PR-level drift check (`drift-check.yml`, future per AECI-71 build sequence) and by `refresh-staging.yml`'s drift gate.
+1. **(picked)** Shared dev DB. No per-PR Supabase branches; no Management API calls. Trade-off: previews cannot exercise migrations that haven't yet landed on `main`. Migration safety is covered by the PR-level D1 schema drift check (`drift-check.yml`) and by `refresh-staging.yml`'s Postgres-Auth drift gate.
 2. Per-PR Supabase branch DB enrolled in Prisma Accelerate via the Prisma Data Platform API. Preserves migration isolation and respects the CLAUDE.md Accelerate-only baseline, but requires PDP API access from CI plus a different secret-management approach (each branch DB has its own Accelerate URL).
 3. Per-PR Supabase branch DB consumed by `@prisma/adapter-pg-worker` (preview-only carve-out from CLAUDE.md), with `nodejs_compat` enabled on the preview API Worker. Same isolation as (2) without PDP API dependency, but introduces a documented exception to the Accelerate-only contract.
 
@@ -167,48 +167,44 @@ If a refresh leaves staging in an inconsistent state (drift fired, but you need 
 
 ## Drift check (PR-time)
 
-The [`drift-check.yml`](../.github/workflows/drift-check.yml) workflow (AECI-80) is the **first** of the two drift layers from AECI-71 (the former third — a post-promote prod check — was retired in AECI-256; see the recap table below). It runs on every PR that touches `supabase/migrations/**`, `apps/api/prisma/schema.prisma`, `scripts/prisma-drift-check.sh`, or itself. Most PRs skip it entirely thanks to the `paths:` filter — you'll only see it on schema-changing work.
+The [`drift-check.yml`](../.github/workflows/drift-check.yml) workflow (AECI-264) is the PR-time **schema-vs-migrations** gate for the **D1 app database** (ADR 0016 / AECI-248→257). It runs on every PR that touches `apps/api/src/db/schema.ts`, `apps/api/drizzle.config.ts`, `apps/api/migrations/**`, or itself. Most PRs skip it entirely thanks to the `paths:` filter — you'll only see it on schema-changing work.
 
 **What it does:**
 
-1. Boots a fresh local Supabase Postgres 17 on the runner (`supabase db start`).
-2. Applies every migration in `supabase/migrations/` via `supabase db reset --local --no-seed`. Same path `pnpm db:reset` runs locally — CI and local stay in lock-step.
-3. Runs `scripts/prisma-drift-check.sh` against the fresh DB. The script does `prisma db pull --print` + `prisma migrate diff --exit-code` and exits 1 on any non-empty diff.
+1. `pnpm install --frozen-lockfile`, then `pnpm --filter @aeci/api db:generate` (drizzle-kit generate). No database is booted — drizzle-kit reads the TS schema (`apps/api/src/db/schema.ts`) and writes SQL into `apps/api/migrations/`.
+2. Fails if `git status --porcelain -- apps/api/migrations` is non-empty afterwards — i.e. `schema.ts` produced a migration that isn't committed. New untracked files are caught (porcelain, not `git diff`).
 
 **When it fails — how to fix:**
 
-Drift means the committed `apps/api/prisma/schema.prisma` doesn't match what the migrations actually produce. Almost always: a migration was committed without re-pulling the schema. Fix locally:
+Drift means you edited `apps/api/src/db/schema.ts` but didn't generate + commit the migration. Fix locally:
 
 ```bash
 git checkout <your-branch>
-pnpm db:reset                          # apply all migrations to local
-pnpm db:pull                           # regenerate schema.prisma from local DB
-git add apps/api/prisma/schema.prisma
-git commit -m "chore: regenerate schema.prisma after migration"
+pnpm --filter @aeci/api db:generate    # drizzle-kit writes the new migration SQL + snapshot
+git add apps/api/migrations            # includes meta/_journal.json + the snapshot
+git commit -m "chore: generate migration for schema.ts change"
 git push
 ```
 
 The drift-check job will re-run on the new commit and pass.
 
-**Two layers, recap.** This is layer 1. The remaining one is documented above:
+**Drift layers, recap.** Layer 1 (this workflow) guards the **D1 app schema**. Layer 2 is a *separate* gate for the retained Supabase **Auth** Postgres (`scripts/prisma-drift-check.sh` against `schema.prisma`), documented above — it no longer covers the app tables:
 
-| Layer | Workflow | Step | Against |
+| Layer | Workflow | Step | Guards |
 | --- | --- | --- | --- |
-| 1. PR check | `drift-check.yml` | every step (whole job) | fresh local DB built from migrations |
-| 2. Post-refresh | `refresh-staging.yml` | step 9 | staging post-restore + post-migrate |
+| 1. PR check | `drift-check.yml` | drift step (whole job) | D1 app schema: `schema.ts` ↔ `apps/api/migrations/` |
+| 2. Post-refresh | `refresh-staging.yml` | drift step | Supabase Auth Postgres: `schema.prisma` ↔ staging |
 
-_(The former layer 3 — a post-promote drift check in `promote-to-prod.yml` — was removed in AECI-256: the prod promote no longer touches Supabase Postgres (the app DB is D1, ADR 0016), and the shared legacy-Postgres project it would have checked is the SAME one layer 2 already covers, ADR 0017.)_
+_(The former layer 3 — a post-promote drift check in `promote-to-prod.yml`'s `apply-prod-migrations` job — was removed in AECI-256: the prod promote no longer touches Supabase Postgres (the app DB is D1, ADR 0016), and the shared legacy-Postgres project it would have checked is the SAME one layer 2 already covers, ADR 0017.)_
 
-**Re-running manually.** If you want to reproduce the PR-time check on your laptop:
+**Re-running manually.** To reproduce the PR-time check on your laptop:
 
 ```bash
-pnpm db:reset
-./scripts/prisma-drift-check.sh 'postgresql://postgres:postgres@127.0.0.1:54322/postgres'
+pnpm --filter @aeci/api db:generate
+git status --porcelain -- apps/api/migrations   # empty output = no drift
 ```
 
-That's the literal command CI runs.
-
-**Historical note.** AECI-80 originally inherited a P4002 hard-stop from the cross-schema FK `public.profiles.id → auth.users(id)`. AECI-80 first worked around it by enabling Prisma's `multiSchema` feature and mirroring the full `auth.*` shape in `apps/api/prisma/schema.prisma`; AECI-69 then dropped the FK entirely in favour of a trigger-based sync (see `docs/AUTH_AND_RLS.md` §8.1) and reverted the schema to single-schema `public` only. P4002 cannot recur in this shape. The full story is in `docs/prisma.md` §7 and `docs/adr/0007-prisma-migrate-dev-unsupported.md`.
+That's the literal check CI runs.
 
 ## Promote-to-demo runbook
 
@@ -728,10 +724,10 @@ The demo tier (`demo.aecintegrations.com`) is the public showcase, inserted betw
 | `.github/workflows/promote-to-demo.yml` | One-button workflow to promote a staging commit to the public demo tier (`--env demo`). Light sibling of promote-to-prod — no Postgres (shared prod Supabase project). |
 | `.github/workflows/promote-to-prod.yml` | (AECI-78) two-button workflow to promote a **demo** commit to production with manual approval. |
 | `.github/workflows/pr-preview.yml` | (AECI-79) per-PR ephemeral preview lifecycle. |
-| `.github/workflows/drift-check.yml` | (AECI-80) PR-time drift detection between `supabase/migrations/` and `apps/api/prisma/schema.prisma`. |
+| `.github/workflows/drift-check.yml` | (AECI-264) PR-time D1 schema-drift gate: `pnpm --filter @aeci/api db:generate` must leave `apps/api/migrations/` clean (`apps/api/src/db/schema.ts` ↔ committed migrations). |
 | `scripts/scrub-auth-credentials.sql` | (AECI-77) nulls credentials on `auth.users`, deletes `auth.sessions`/`auth.refresh_tokens`. |
 | `scripts/seed-staging-users.sql` | (AECI-77) idempotent test-account seed for staging. |
-| `scripts/prisma-drift-check.sh` | (AECI-77) `prisma db pull` + `prisma migrate diff --exit-code` — reused by promote-to-prod and drift-check. |
+| `scripts/prisma-drift-check.sh` | (AECI-77) `prisma db pull` + `prisma migrate diff --exit-code` against the retained Auth Postgres — used only by refresh-staging (no longer by drift-check, which is D1/Drizzle since AECI-264, nor by promote-to-prod, which dropped its Postgres steps in AECI-256). |
 | `scripts/smoke-test.sh` | (AECI-77) pluggable-HOST `/api/health` smoke test with Access headers. |
 | `scripts/seed-from-staging.sh` | (AECI-80) local dev helper to pull staging into local Postgres. |
 
