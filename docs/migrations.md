@@ -20,7 +20,7 @@ How to write, test, and ship a schema change in this repo.
 > the source of truth**. Removing Prisma + the legacy sections lands with the
 > Supabase-DB decommission (AECI-256 removes Prisma; AECI-257 the rest).
 
-The legacy migration system below is **Supabase CLI**, now scoped to Supabase Auth. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client for the CI `schema.prisma` drift gate (AECI-77), but `prisma migrate` is not. Application code no longer imports `@prisma/client` (AECI-256).
+The legacy migration system below is **Supabase CLI**, now scoped to Supabase Auth. Migration files live in `supabase/migrations/` as numbered SQL files. Prisma is not involved in migration generation; `prisma generate` is still used to produce the typed client for the CI `schema.prisma` drift gate (AECI-77) — which, as of AECI-264, runs only in the `refresh-staging.yml` / `promote-to-prod.yml` Postgres-Auth checks, no longer at PR time (the PR-time gate moved to D1/Drizzle; see [§0](#0-d1--drizzle-the-target-workflow)) — but `prisma migrate` is not. Application code no longer imports `@prisma/client` (AECI-256).
 
 This document is the source of truth for the workflow. The constraints in [`CLAUDE.md`](../CLAUDE.md) ("Constraints that aren't negotiable") incorporate the rules below by reference.
 
@@ -60,6 +60,12 @@ Rules:
 - **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
   (ADR 0016 §4, `docs/AUTH_AND_RLS.md`), and `updated_at` is refreshed app-side
   (Drizzle `$onUpdate`), not by a DB trigger.
+- **Drift is CI-gated.** `.github/workflows/drift-check.yml` (AECI-264) fires on any PR
+  touching `apps/api/src/db/schema.ts`, `apps/api/drizzle.config.ts`, or
+  `apps/api/migrations/**`. It runs `pnpm --filter @aeci/api db:generate` and fails if that
+  leaves the tree dirty under `apps/api/migrations/` — i.e. you edited `schema.ts` but forgot
+  to generate + commit the migration. Fix by running `db:generate` and committing the new
+  `apps/api/migrations/*` (including `meta/`).
 
 ---
 
@@ -180,8 +186,8 @@ environment — there is no separate apply step:
 The three-layer model is in `docs/AUTH_AND_RLS.md` §1. When a migration adds a
 new public-schema table that PostgREST should expose, add its GRANT + policy to
 a new migration (or alongside the table's migration) and add a deny/allow
-assertion to `scripts/verify-rls.sql` (run by `drift-check.yml` and the
-refresh/promote workflows). Helpers must live in `public`, not `auth` — the
+assertion to `scripts/verify-rls.sql` (run by the refresh/promote workflows).
+Helpers must live in `public`, not `auth` — the
 migration role (`postgres`) cannot CREATE in the `auth` schema; see
 `docs/AUTH_AND_RLS.md` §6.1.
 

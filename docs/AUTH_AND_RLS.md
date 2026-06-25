@@ -567,8 +567,9 @@ Staging and production get it via `supabase db push --linked` in
 `refresh-staging.yml` and `promote-to-prod.yml`; both workflows then run
 `psql "$DIRECT_URL" -f scripts/verify-rls.sql` as a hard-stop gate proving the
 GRANT/RLS matrix is in effect (and that the `feedback`/`mailing_list` landing
-carve-out survived the blanket REVOKE). The PR-time `drift-check.yml` runs the
-same probe against a fresh, migrations-only local DB.
+carve-out survived the blanket REVOKE). (The PR-time `drift-check.yml` no longer
+runs this probe — since AECI-264 it gates D1/Drizzle schema drift; the Postgres
+RLS probe now runs only in the refresh/promote workflows above.)
 
 Defence-in-depth: every public-schema `CREATE TABLE` triggers the `ensure_rls`
 event trigger (added by
