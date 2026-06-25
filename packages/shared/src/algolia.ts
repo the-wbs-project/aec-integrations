@@ -133,16 +133,19 @@ export function searchKeyParams(env: AlgoliaEnv): AlgoliaKeyParams {
 }
 
 /**
- * Params for the **management** key — search + index-mutation ACLs, scoped to
- * the env's three indexes. Stored as `ALGOLIA_ADMIN_KEY` per env for the sync
- * pipeline (3.5/3.6) and CI. Deliberately excludes the destructive/global ACLs
- * the root admin key carries (`deleteIndex`, `usage`, `logs`, `analytics`,
- * `seeUnretrievableAttributes`) so a leak can't drop indexes or read the whole
- * app — and so each env's key rotates independently (CICD_PLAN §7.4/§7.5).
+ * Params for the **management** key — search/browse + index-mutation ACLs, scoped
+ * to the env's three indexes. Stored as `ALGOLIA_ADMIN_KEY` per env for the sync
+ * pipeline (3.5/3.6) and CI. `browse` is required by the orphan sweep (AECI-266),
+ * which enumerates every objectID via the `/browse` endpoint — a separate ACL from
+ * `search` (which only covers `/query`). Deliberately excludes the
+ * destructive/global ACLs the root admin key carries (`deleteIndex`, `usage`,
+ * `logs`, `analytics`, `seeUnretrievableAttributes`) so a leak can't drop indexes
+ * or read the whole app — and so each env's key rotates independently
+ * (CICD_PLAN §7.4/§7.5).
  */
 export function managementKeyParams(env: AlgoliaEnv): AlgoliaKeyParams {
   return {
-    acl: ['search', 'addObject', 'deleteObject', 'editSettings', 'listIndexes'],
+    acl: ['search', 'browse', 'addObject', 'deleteObject', 'editSettings', 'listIndexes'],
     // Includes the sort replicas (AECI-175) so the apply step can `setSettings`
     // each replica's `ranking`; without it the replica `setSettings` 403s.
     indexes: [...indexListFor(env), ...replicaNamesFor(env)],

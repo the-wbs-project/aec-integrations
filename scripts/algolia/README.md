@@ -22,7 +22,7 @@ Operator-run script that stands up one environment's Algolia search infrastructu
 1. **Ensures three indexes exist** — `<prefix>_products`, `<prefix>_vendors`, `<prefix>_integrations` — by applying _empty_ settings. The prefix is the env name; `development` folds onto `preview` (there is no `development_*` set).
 2. **Mints two standalone, independently-rotatable keys**, each scoped to that env's three indexes:
    - **search-only key** — ACL `['search']` → the web Worker's `ALGOLIA_SEARCH_KEY` (client-exposed, query-only).
-   - **management key** — ACL `search + addObject + deleteObject + editSettings + listIndexes` → the API Worker's `ALGOLIA_ADMIN_KEY` (server-only; used by sync from 3.5).
+   - **management key** — ACL `search + browse + addObject + deleteObject + editSettings + listIndexes` → the API Worker's `ALGOLIA_ADMIN_KEY` (server-only; used by sync from 3.5 and the orphan sweep from AECI-266, which needs `browse`).
 3. **Prints the exact `gh secret set` + `wrangler secret put` commands** to run next.
 
 The index names and key ACL/scope shapes come from `packages/shared/src/algolia.ts` — the single source of truth shared with the Workers.
@@ -72,7 +72,7 @@ node scripts/algolia/provision.mjs --env staging --rotate
 
 - The three `<env>_*` indexes exist with **no** settings.
 - The search key is `search`-only and scoped to exactly that env's three indexes.
-- The management key has the index-mutation ACLs (no `deleteIndex`/`usage`/`logs`) and the same index scope.
+- The management key has the search/browse + index-mutation ACLs (no `deleteIndex`/`usage`/`logs`) and the same index scope.
 - After `wrangler secret put` + deploy, `curl` the env's SSR HTML and confirm `window.__AECI_ALGOLIA__` carries the search key (admin key absent).
 
 ---

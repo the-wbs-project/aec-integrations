@@ -4,21 +4,23 @@
  * drift (record count mismatch with the database)").
  *
  * Counts the **promoted** rows per entity in D1 and the object count of the
- * matching Algolia index, and reports any per-index mismatch. Report-only: there
- * is no auto-remediation (§23.1 — humans triage; re-run the AECI-138 bulk sync to
- * repair).
+ * matching Algolia index, and reports any per-index mismatch. The negative-drift
+ * case (orphans — objects with no promoted D1 row) is auto-healed by the sibling
+ * `./algolia-orphans` sweep (AECI-266), wired into the same 09:00 cron right after
+ * this report; positive drift (records missing from the index) is repaired by the
+ * incremental sync (`./algolia-sync`).
  *
- * Dependency-injected, exactly like `./algolia-bulk-sync`: this module imports
+ * Dependency-injected, exactly like `./algolia-orphans`: this module imports
  * neither a database client nor `algoliasearch`, so it unit-tests with fakes and
  * (more importantly) is safe to bundle into the API Worker via the cron handler.
  * The Worker cron (`apps/api/src/scheduled.ts`) wires the real clients: a
  * Drizzle/D1-backed counter (`drizzleDriftCounter`) and the fetch-based Algolia
  * counter below.
  *
- * The promoted-row definition mirrors the bulk sync (`./algolia-bulk-sync`):
- * `products`/`vendors` carry `promotion_status`; integrations are promoted
- * transitively when BOTH endpoints are. Index names come from the single source
- * of truth `@aeci/shared/algolia`.
+ * The promoted-row definition mirrors the orphan sweep (`./algolia-orphans`) and
+ * the incremental sync (`./algolia-sync`): `products`/`vendors` carry
+ * `promotion_status`; integrations are promoted transitively when BOTH endpoints
+ * are. Index names come from the single source of truth `@aeci/shared/algolia`.
  *
  * Spec: `STAGE_1_SPEC.md` §23.1; `CICD_PLAN.md` §3.2.
  */
@@ -35,15 +37,15 @@ import {
 /**
  * The `promotion_status` value that marks a row live on the public site (the
  * value `POST /api/promote` writes; `docs/DATABASE_SCHEMA.md` CHECK constraint).
- * Same constant the bulk sync filters on (`./algolia-bulk-sync`).
+ * Same constant `./algolia-orphans` and `./algolia-sync` filter on.
  */
 const PROMOTED = 'promoted';
 
 /**
  * Minimal DB read surface this check uses — `.count()` per entity. Satisfied by
  * the Drizzle/D1-backed counter (`drizzleDriftCounter`, the cron path); the
- * where-shapes are the same promoted-only filters the bulk sync
- * (`./algolia-bulk-sync`) reads on.
+ * where-shapes are the same promoted-only filters the orphan sweep
+ * (`./algolia-orphans`) reads on.
  */
 export type DriftCount = {
   product: { count(args: { where: { promotionStatus: string } }): Promise<number> };
@@ -138,7 +140,7 @@ export async function findAlgoliaIndexDrift(
     products: () => db.product.count({ where: { promotionStatus: PROMOTED } }),
     vendors: () => db.vendor.count({ where: { promotionStatus: PROMOTED } }),
     // Integrations are promoted transitively: both endpoints must be promoted —
-    // the same filter the bulk sync uploads on (`./algolia-bulk-sync`).
+    // the same filter the orphan sweep / incremental sync use.
     integrations: () =>
       db.integration.count({
         where: {
@@ -213,7 +215,9 @@ export async function reportAlgoliaDrift(
     log.warn(
       `✗ ${drifted.length} index(es) drifted: ${drifted
         .map((r) => `${r.indexName} (${r.drift > 0 ? '+' : ''}${r.drift})`)
-        .join(', ')}. Report-only — re-run the bulk sync to repair.`,
+        .join(
+          ', ',
+        )}. Negative drift (orphans) is auto-healed by the orphan sweep; positive drift = re-run the incremental sync.`,
     );
     deps.onDrift?.(drifted);
   } else {
