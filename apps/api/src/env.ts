@@ -74,11 +74,12 @@ export type Env = {
   SUPABASE_SERVICE_ROLE_KEY?: string;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
-   * (`preview`/`staging`/`production`); when unset (bare `wrangler dev`, tests)
-   * both `/api/version` and Datadog tags report `development` — one convention
-   * for the unset state (AECI-119).
+   * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
+   * tests) both `/api/version` and Datadog tags report `development` — one
+   * convention for the unset state (AECI-119). `demo` + `production` are the two
+   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
   /**
    * Commit SHA the Worker was deployed at (AECI-74). Injected via
    * `wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD)` locally and

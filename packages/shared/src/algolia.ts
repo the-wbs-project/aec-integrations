@@ -29,13 +29,15 @@
  */
 
 /** Deployment-environment label, matching the Workers' `ENV` var (AECI-119). */
-export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'production';
+export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production';
 
 /**
  * Physical index-name prefix. `development` folds onto `preview` (there is no
- * `development_*` set), so the prefix space is exactly three.
+ * `development_*` set), so the prefix space is exactly four (preview, staging,
+ * demo, production). `demo` and `production` keep separate index sets — the demo
+ * showcase must never read or write the live `production_*` indexes.
  */
-export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'production';
+export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production';
 
 /** The three entity indexes, in a stable order. */
 export const INDEX_ENTITIES = ['products', 'vendors', 'integrations'] as const;

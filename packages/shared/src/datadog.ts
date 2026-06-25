@@ -42,7 +42,7 @@ export type DdLogEvent = {
 export type DatadogEnv = {
   DD_API_KEY?: string;
   DD_SITE?: string;
-  ENV?: 'development' | 'preview' | 'staging' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
 };
 
 /** Per-Worker identity — the only values that differed between the two helpers. */

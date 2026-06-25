@@ -33,7 +33,7 @@
  *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
- *     node scripts/algolia/provision.mjs --env <preview|staging|production> [--rotate]
+ *     node scripts/algolia/provision.mjs --env <preview|staging|demo|production> [--rotate]
  *
  * Requires Node ≥22.18 (native TypeScript type-stripping for the shared import);
  * the repo's `engines` floor (22.22.3) satisfies this.
@@ -54,7 +54,7 @@ import {
   searchKeyParams,
 } from '../../packages/shared/src/algolia.ts';
 
-const VALID_ENVS = ['preview', 'staging', 'production'];
+const VALID_ENVS = ['preview', 'staging', 'demo', 'production'];
 
 function fail(message) {
   console.error(`\n✗ ${message}\n`);
@@ -157,7 +157,7 @@ async function main() {
     fail(
       `--env is required and must be one of ${VALID_ENVS.join(' | ')}.\n` +
         `  (development folds onto the preview index set — provision 'preview'.)\n` +
-        `  Usage: node scripts/algolia/provision.mjs --env <preview|staging|production> [--rotate]`,
+        `  Usage: node scripts/algolia/provision.mjs --env <preview|staging|demo|production> [--rotate]`,
     );
   }
 

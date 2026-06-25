@@ -7,6 +7,7 @@
     "start": "pnpm dev",
     "deploy": "wrangler deploy --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "deploy:staging": "wrangler deploy --env staging --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
+    "deploy:demo": "wrangler deploy --env demo --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "deploy:production": "wrangler deploy --env production --var COMMIT_SHA:$(git rev-parse HEAD) --var DEPLOYED_AT:$(date -u +%Y-%m-%dT%H:%M:%S.000Z)",
     "tail": "wrangler tail --env production",
     "tail:staging": "wrangler tail --env staging",

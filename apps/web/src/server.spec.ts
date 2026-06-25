@@ -798,29 +798,35 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
   });
 });
 
-describe('createApp /preview/* production gate', () => {
-  it('returns 404 with no-store on /preview/* when ENV is production (renderer never invoked)', async () => {
-    const { binding } = recordingApiBinding();
-    const ssrRenderer = vi.fn<SsrRenderer>(async (_req, ctx) =>
-      fixedRenderer(new Response('<html>preview</html>', { status: 200 }))(
-        new Request('https://x/'),
-        ctx,
-      ),
-    );
-    const app = createApp({ ssrRenderer });
+describe('createApp /preview/* public-tier gate', () => {
+  it.each<['production' | 'demo', string]>([
+    ['production', 'https://prod.aecintegrations.com/preview/vendor-detail'],
+    ['demo', 'https://demo.aecintegrations.com/preview/vendor-detail'],
+  ])(
+    'returns 404 with no-store on /preview/* on the %s tier (renderer never invoked)',
+    async (env, url) => {
+      const { binding } = recordingApiBinding();
+      const ssrRenderer = vi.fn<SsrRenderer>(async (_req, ctx) =>
+        fixedRenderer(new Response('<html>preview</html>', { status: 200 }))(
+          new Request('https://x/'),
+          ctx,
+        ),
+      );
+      const app = createApp({ ssrRenderer });
 
-    const res = await app.fetch(
-      new Request('https://aecintegrations.com/preview/vendor-detail'),
-      { ...binding, ENV: 'production' } as unknown as Bindings,
-      fakeExecutionContext(),
-    );
+      const res = await app.fetch(
+        new Request(url),
+        { ...binding, ENV: env } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
 
-    expect(res.status).toBe(404);
-    expect(res.headers.get('cache-control')).toBe('private, no-store');
-    expect(ssrRenderer).not.toHaveBeenCalled();
-  });
+      expect(res.status).toBe(404);
+      expect(res.headers.get('cache-control')).toBe('private, no-store');
+      expect(ssrRenderer).not.toHaveBeenCalled();
+    },
+  );
 
-  it('serves /preview/* on preview Worker deploys (ENV !== production)', async () => {
+  it('serves /preview/* on preview Worker deploys (non-public tier)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({
       ssrRenderer: fixedRenderer(

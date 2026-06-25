@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { EnvironmentSchema, VersionResponseSchema } from './version';
 
 describe('EnvironmentSchema', () => {
-  it.each(['development', 'preview', 'staging', 'production'])(
+  it.each(['development', 'preview', 'staging', 'demo', 'production'])(
     'accepts the fixed literal %s',
     (env) => {
       expect(EnvironmentSchema.parse(env)).toBe(env);

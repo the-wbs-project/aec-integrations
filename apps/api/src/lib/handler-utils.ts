@@ -7,6 +7,7 @@
  * a one-file edit instead of a shotgun edit.
  */
 
+import { isPublicSite } from '@aeci/shared/deploy-env';
 import type { Context } from 'hono';
 
 import type { DbContext } from '../db/client';
@@ -23,10 +24,11 @@ export type DbFactory = (env: Env, bookmark?: string | null) => DbContext;
 /**
  * Inline response-shape validation. Phase 2.8 acceptance criterion requires
  * the response to be Zod-validated in dev/preview/staging so mapper drift
- * fails loudly, but stripped in production to avoid the per-request cost.
+ * fails loudly, but stripped on the public tiers (production + demo, which run
+ * the real build at audience traffic) to avoid the per-request cost.
  */
 export function validateResponseInDev(env: Env, validate: () => void): void {
-  if (env.ENV !== 'production') validate();
+  if (!isPublicSite(env.ENV)) validate();
 }
 
 /** Shape needed to detect + report a product with no primary vendor. */

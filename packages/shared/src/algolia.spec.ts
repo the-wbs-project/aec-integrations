@@ -34,9 +34,10 @@ describe('indexPrefixForEnv', () => {
     expect(indexPrefixForEnv('development')).toBe('preview');
   });
 
-  it('maps preview/staging/production to themselves', () => {
+  it('maps preview/staging/demo/production to themselves', () => {
     expect(indexPrefixForEnv('preview')).toBe('preview');
     expect(indexPrefixForEnv('staging')).toBe('staging');
+    expect(indexPrefixForEnv('demo')).toBe('demo');
     expect(indexPrefixForEnv('production')).toBe('production');
   });
 });
@@ -62,6 +63,15 @@ describe('indexNamesFor', () => {
       integrations: 'preview_integrations',
     });
     expect(indexNamesFor('development')).toEqual(indexNamesFor('preview'));
+  });
+
+  it('keeps demo on its own index set, separate from production (the showcase must never touch live indexes)', () => {
+    expect(indexNamesFor('demo')).toEqual({
+      products: 'demo_products',
+      vendors: 'demo_vendors',
+      integrations: 'demo_integrations',
+    });
+    expect(indexNamesFor('demo')).not.toEqual(indexNamesFor('production'));
   });
 });
 
