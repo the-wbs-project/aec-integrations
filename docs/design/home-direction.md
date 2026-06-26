@@ -9,7 +9,10 @@ Contracts: `DESIGN.md` (laws + Anchor-Site Rule), `PRODUCT.md` (voice/audience),
 > order, and the trust band as a standalone section) is superseded for the unified marketing +
 > directory home by [`unified-home-direction.md`](./unified-home-direction.md) (**AECI-270** /
 > AECI-269). The **hero, stats-card, browse, and trust treatments** here are still reused verbatim
-> by the unified home; only the section order and the new marketing bands change.
+> by the unified home — except the **audience** browse subsection, which the unified home replaces with
+> the dedicated "this is for you" recognition band (`home-audience.ts`, **AECI-274**); category and
+> project phase keep the count-chip browse treatment. Only the section order and the new marketing
+> bands change.
 
 This doc is self-contained: it is the contract a 4.7–4.11 port is reviewed against. The
 live concept prototype (`.context/aeci-181-home-concepts.html`, gitignored ephemeral
@@ -141,7 +144,9 @@ Avoid three identical card matrices stacked (DESIGN.md "no identical card grids"
   the relevant taxonomy browse page; data from the **live** `GET /api/taxonomy`
   (`TaxonomyResponse`, each facet a `TaxonomyTermWithCount[]` with `product_count`), **not**
   `stats_cache` (AECI-184): the browse counts read live taxonomy so this section is independent of
-  the stats pipeline (4.3/4.4) and the home edge cache purges on the `taxonomy` `Cache-Tag`.
+  the stats pipeline (4.3/4.4) and the home edge cache purges on the `taxonomy` `Cache-Tag`. In the
+  unified home the **audience** subsection is replaced by the dedicated recognition band
+  (`home-audience.ts`, **AECI-274**); category and project phase keep this count-chip treatment.
 - **Recently added integrations:** a 2-up grid of **integration tiles** — source monogram → target
   monogram, the "{source} → {target}" headline (Source Serif), a `mechanism_kind` chip and the
   direction label. The `→` glyph is `aria-hidden` (and should RTL-mirror, matching the shipped
