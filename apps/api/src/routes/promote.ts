@@ -91,6 +91,7 @@ import { json } from '../http';
 import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { callGoogleIndexing } from '../lib/google-indexing';
 import type { DbFactory } from '../lib/handler-utils';
 import { callIndexNow } from '../lib/indexnow';
 import { recomputeProductCounts } from '../lib/recompute-counts';
@@ -423,6 +424,77 @@ function logIndexNowFailure(
   });
 }
 
+// ─── Google Indexing API ping (AECI-263) ─────────────────────────────────────
+
+/**
+ * Post-commit Google Indexing API submission seam. Default builds the SAME
+ * affected public URLs as IndexNow (`affectedUrlsForPromote` — no second deriver,
+ * §20.2 acceptance criterion) and pings Google's Indexing API via
+ * `callGoogleIndexing`, gated on the service-account creds + `PUBLIC_SITE_URL`.
+ * Records `aeci.google_indexing.submit{source:promote,outcome:ok|failed}` and
+ * warn-logs a token failure or a partial publish (Datadog) — never throws, never
+ * blocks the committed promote (§20.2 / §20.5). Best-effort: Google officially
+ * supports only `JobPosting`/`BroadcastEvent`, so this is an additive signal on
+ * top of the sitemap `<lastmod>` (§20.5 step 5). Injected for tests.
+ */
+export type PromoteGoogleIndexingNotify = (
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+) => Promise<void>;
+
+const defaultGoogleIndexingNotify: PromoteGoogleIndexingNotify = (c, response) =>
+  notifyGoogleIndexingAfterPromote(c, response);
+
+async function notifyGoogleIndexingAfterPromote(
+  c: Context<{ Bindings: Env }>,
+  response: PromoteResponse,
+): Promise<void> {
+  const clientEmail = c.env.GOOGLE_INDEXING_SA_EMAIL;
+  const privateKey = c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY;
+  const siteUrl = c.env.PUBLIC_SITE_URL;
+  if (!clientEmail || !privateKey || !siteUrl) return;
+
+  const urlList = affectedUrlsForPromote(response, siteUrl);
+  if (urlList.length === 0) return;
+
+  const outcome = await callGoogleIndexing(fetch, {
+    serviceAccount: { clientEmail, privateKey },
+    urlList,
+  });
+  const failed = !outcome.ok || outcome.failed > 0;
+  submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.google_indexing.submit', 1, [
+    'source:promote',
+    `outcome:${failed ? 'failed' : 'ok'}`,
+  ]);
+  if (!outcome.ok) {
+    logGoogleIndexingFailure(
+      c,
+      urlList.length,
+      `google_indexing_${outcome.status}: ${outcome.message}`,
+    );
+  } else if (outcome.failed > 0) {
+    logGoogleIndexingFailure(
+      c,
+      urlList.length,
+      `google_indexing_partial: ${outcome.failed} of ${urlList.length} failed`,
+    );
+  }
+}
+
+function logGoogleIndexingFailure(
+  c: Context<{ Bindings: Env }>,
+  urlsCount: number,
+  reason: string,
+): void {
+  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    level: 'warn',
+    message: 'aeci.api.promote.google_indexing_failed',
+    source: 'review-app-promote',
+    reason,
+    urls_count: urlsCount,
+  });
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 /** A taxonomy facet model (table + the columns the find-or-create reads). The
@@ -438,6 +510,7 @@ export function createPromoteHandler(
   dbFor: DbFactory = getDb,
   syncAlgolia: PromoteAlgoliaSync = defaultAlgoliaSync,
   notifyIndexNow: PromoteIndexNowNotify = defaultIndexNowNotify,
+  notifyGoogleIndexing: PromoteGoogleIndexingNotify = defaultGoogleIndexingNotify,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     let raw: unknown;
@@ -970,6 +1043,19 @@ export function createPromoteHandler(
     // a correctness bug, so the secret's absence is the gate.
     if (c.env.INDEXNOW_KEY && c.env.PUBLIC_SITE_URL) {
       c.executionCtx.waitUntil(notifyIndexNow(c, response));
+    }
+
+    // AECI-263: best-effort Google Indexing API ping for the SAME affected URLs
+    // (§20.2). Additive to IndexNow; no-ops without the service-account creds +
+    // PUBLIC_SITE_URL, which are provisioned ONLY at launch (alongside
+    // `ALLOW_INDEXING=true`) — pinging Google for a noindex'd site is the same
+    // correctness bug the secret's absence guards against. Never blocks the write.
+    if (
+      c.env.GOOGLE_INDEXING_SA_EMAIL &&
+      c.env.GOOGLE_INDEXING_SA_PRIVATE_KEY &&
+      c.env.PUBLIC_SITE_URL
+    ) {
+      c.executionCtx.waitUntil(notifyGoogleIndexing(c, response));
     }
 
     return json(response);

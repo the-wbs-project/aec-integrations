@@ -167,6 +167,28 @@ export type Env = {
    */
   PUBLIC_SITE_URL?: string;
   /**
+   * Google Indexing API service-account email (`client_email` from the SA JSON)
+   * for the best-effort post-promote ping (AECI-263, §20.2). The `iss` of the
+   * RS256 JWT the Worker signs to obtain an OAuth access token. Set as a Wrangler
+   * secret. Optional + fail-open: absent (with or without
+   * `GOOGLE_INDEXING_SA_PRIVATE_KEY` / `PUBLIC_SITE_URL`) → the promote Google
+   * Indexing submission is a graceful no-op (local `dev:bound` / PR previews /
+   * pre-launch).
+   *
+   * **Provision ONLY at public launch**, on the env whose web Worker has
+   * `ALLOW_INDEXING="true"` — alongside `INDEXNOW_KEY`. Pinging Google for a
+   * `noindex` site is a correctness bug; the secret's absence is the enforcement.
+   */
+  GOOGLE_INDEXING_SA_EMAIL?: string;
+  /**
+   * Google Indexing API service-account private key (`private_key` from the SA
+   * JSON): a PKCS#8 PEM (`-----BEGIN PRIVATE KEY-----`), RSA-2048. Signs the
+   * assertion JWT (AECI-263). Set as a Wrangler secret; `\n`-escaped single-line
+   * values are normalized to real newlines before import. Optional + fail-open
+   * like `GOOGLE_INDEXING_SA_EMAIL` above — provision ONLY at launch.
+   */
+  GOOGLE_INDEXING_SA_PRIVATE_KEY?: string;
+  /**
    * Algolia application id (AECI-134). Single, shared across envs (one app;
    * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the
    * sync pipeline (3.5/3.6) reads it.

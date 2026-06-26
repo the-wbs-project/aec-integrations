@@ -438,7 +438,9 @@
         // `prod.aecintegrations.com` (no-index), so this points there for email
         // links; it flips to the apex (`https://aecintegrations.com`) at the apex
         // cutover, alongside the web Worker's `ALLOW_INDEXING="true"` + the
-        // `INDEXNOW_KEY` secret (IndexNow stays a no-op until then).
+        // `INDEXNOW_KEY` secret and the `GOOGLE_INDEXING_SA_EMAIL` /
+        // `GOOGLE_INDEXING_SA_PRIVATE_KEY` secrets (AECI-263; both IndexNow and the
+        // best-effort Google Indexing ping stay no-ops until those are provisioned).
         "PUBLIC_SITE_URL": "https://prod.aecintegrations.com",
       },
       "kv_namespaces": [

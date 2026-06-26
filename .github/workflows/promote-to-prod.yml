@@ -211,8 +211,11 @@ jobs:
           # transactional email is fail-open (absent → sends 'skipped'). AECI-236:
           # INDEXNOW_KEY_PRODUCTION is recommended (NOT required) — the post-promote
           # IndexNow submission + the {key}.txt file are fail-open no-ops until it's
-          # provisioned at launch, never blocking a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION'
+          # provisioned at launch, never blocking a promote. AECI-263:
+          # GOOGLE_INDEXING_SA_EMAIL_PRODUCTION + GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION
+          # are recommended on the same footing — the best-effort Google Indexing
+          # ping is a fail-open no-op without both creds, never blocking a promote.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -684,6 +687,44 @@ jobs:
           fi
           printf '%s' "$INDEXNOW_KEY_VALUE" \
             | pnpm exec wrangler secret put INDEXNOW_KEY --env production
+
+      # AECI-263/§20.2: push the Google Indexing API service-account creds to the
+      # prod API Worker so the best-effort post-promote Google ping (lib/google-
+      # indexing.ts, gated on BOTH creds + the PUBLIC_SITE_URL var) can fire.
+      # Optional + FAIL-OPEN: a missing cred is a silent no-op (the ping is skipped,
+      # the promote still succeeds), so warn-and-skip and NOT in REQUIRED_WORKER_SECRETS.
+      # Provision only at public launch (alongside the web Worker's ALLOW_INDEXING=
+      # "true") — pinging Google for a noindex'd site is a correctness bug. Unlike
+      # INDEXNOW_KEY there is NO web-side counterpart (no {key}.txt verification file).
+      - name: Push GOOGLE_INDEXING_SA_EMAIL to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GOOGLE_INDEXING_SA_EMAIL_VALUE: ${{ secrets.GOOGLE_INDEXING_SA_EMAIL_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$GOOGLE_INDEXING_SA_EMAIL_VALUE" ]; then
+            echo "::warning::GOOGLE_INDEXING_SA_EMAIL_PRODUCTION not set — skipping push. The post-promote Google Indexing ping will no-op until it is provisioned at launch."
+            exit 0
+          fi
+          printf '%s' "$GOOGLE_INDEXING_SA_EMAIL_VALUE" \
+            | pnpm exec wrangler secret put GOOGLE_INDEXING_SA_EMAIL --env production
+
+      - name: Push GOOGLE_INDEXING_SA_PRIVATE_KEY to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GOOGLE_INDEXING_SA_PRIVATE_KEY_VALUE: ${{ secrets.GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$GOOGLE_INDEXING_SA_PRIVATE_KEY_VALUE" ]; then
+            echo "::warning::GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION not set — skipping push. The post-promote Google Indexing ping will no-op until it is provisioned at launch."
+            exit 0
+          fi
+          printf '%s' "$GOOGLE_INDEXING_SA_PRIVATE_KEY_VALUE" \
+            | pnpm exec wrangler secret put GOOGLE_INDEXING_SA_PRIVATE_KEY --env production
 
       - name: Deploy SSR (production)
         id: deploy_ssr

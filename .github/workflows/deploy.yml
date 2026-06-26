@@ -575,7 +575,9 @@ jobs:
           # AECI-236: there is NO INDEXNOW_KEY_STAGING — IndexNow is production /
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
-          # pushed only in promote-to-prod.yml.
+          # pushed only in promote-to-prod.yml. AECI-263: the Google Indexing
+          # service-account creds (GOOGLE_INDEXING_SA_EMAIL/PRIVATE_KEY) are likewise
+          # production / launch-only and pushed only in promote-to-prod.yml — same gate.
           RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING'
         run: bash scripts/require-secrets.sh
 

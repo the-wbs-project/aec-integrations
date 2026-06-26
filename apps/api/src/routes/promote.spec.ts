@@ -35,6 +35,7 @@ import { fakeExecutionContext } from '../test/helpers';
 import {
   createPromoteHandler,
   type PromoteAlgoliaSync,
+  type PromoteGoogleIndexingNotify,
   type PromoteIndexNowNotify,
 } from './promote';
 import { cacheTagsForPromote } from './promote-cache-tags';
@@ -56,6 +57,11 @@ const noopAlgolia: PromoteAlgoliaSync = async () => {};
  *  the global `fetch`) is never hit; the wiring tests inject a spy instead. */
 const noopIndexNow: PromoteIndexNowNotify = async () => {};
 
+/** A no-op Google Indexing seam — default for all tests so the real default
+ *  (which signs a JWT + calls the global `fetch`) is never hit; the wiring tests
+ *  inject a spy instead. */
+const noopGoogleIndexing: PromoteGoogleIndexingNotify = async () => {};
+
 let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
@@ -70,6 +76,7 @@ function buildApp(
     withAuth?: boolean;
     syncAlgolia?: PromoteAlgoliaSync;
     notifyIndexNow?: PromoteIndexNowNotify;
+    notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
     dbFor?: DbFactory;
   } = {},
 ) {
@@ -79,6 +86,7 @@ function buildApp(
     opts.dbFor ?? t.factory,
     opts.syncAlgolia ?? noopAlgolia,
     opts.notifyIndexNow ?? noopIndexNow,
+    opts.notifyGoogleIndexing ?? noopGoogleIndexing,
   );
   if (opts.withAuth) app.post('/api/promote', requireReviewAppAuth(), handler);
   else app.post('/api/promote', handler);
@@ -724,6 +732,84 @@ describe('IndexNow submission after promote (AECI-236)', () => {
       indexNowEnv,
       { product: { ref: 'p1', name: 'Revit' } },
       notifyIndexNow,
+    );
+    expect(res.status).toBe(200); // returned before the waitUntil settles
+    await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+  });
+});
+
+describe('Google Indexing submission after promote (AECI-263)', () => {
+  const googleEnv: Env = {
+    ...baseEnv,
+    GOOGLE_INDEXING_SA_EMAIL: 'svc@aeci.iam.gserviceaccount.com',
+    GOOGLE_INDEXING_SA_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----',
+    PUBLIC_SITE_URL: 'https://aecintegrations.com',
+  };
+
+  async function promoteWithSeam(
+    env: Env,
+    body: unknown,
+    notifyGoogleIndexing: PromoteGoogleIndexingNotify,
+  ) {
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp({ notifyGoogleIndexing }).request(
+      '/api/promote',
+      post(body),
+      env,
+      execCtx,
+    );
+    return { res, execCtx };
+  }
+
+  it('schedules the Google Indexing notify (with the touched response) when creds are present', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
+    const { res, execCtx } = await promoteWithSeam(
+      googleEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+
+    expect(res.status).toBe(200);
+    expect(notifyGoogleIndexing).toHaveBeenCalledTimes(1);
+    const response = notifyGoogleIndexing.mock.calls[0]![1] as PromoteResponse;
+    expect(response.product?.slug).toBe('revit');
+  });
+
+  it('does not schedule the Google Indexing notify when creds are absent (graceful no-op)', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
+    const { res } = await promoteWithSeam(
+      baseEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
+    );
+    expect(res.status).toBe(200);
+    expect(notifyGoogleIndexing).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule the Google Indexing notify when only the email is set (both creds required)', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
+    const { res } = await promoteWithSeam(
+      {
+        ...baseEnv,
+        GOOGLE_INDEXING_SA_EMAIL: 'svc@aeci.iam.gserviceaccount.com',
+        PUBLIC_SITE_URL: 'https://aecintegrations.com',
+      },
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
+    );
+    expect(res.status).toBe(200);
+    expect(notifyGoogleIndexing).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 when the Google Indexing notify rejects (post-response, never fails the promote)', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {
+      throw new Error('google indexing unreachable');
+    });
+    const { res, execCtx } = await promoteWithSeam(
+      googleEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
     );
     expect(res.status).toBe(200); // returned before the waitUntil settles
     await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
