@@ -23,8 +23,23 @@ export const SITE_NAME = 'AEC Integrations';
  * monogram so we don't have to ship a new asset for AECI-51. Some scrapers
  * (older LinkedIn, some Slack flavors) render SVG OG images inconsistently;
  * Phase 7 polish should replace this with a rendered 1200×630 PNG.
+ *
+ * This stays the monogram on purpose: it is both the entity-page fallback AND
+ * the home `Organization` JSON-LD `logo` (a logo wants the square mark, not a
+ * 1200×630 card). The home page's share preview uses `HOME_OG_IMAGE` instead.
+ * Per-entity OG cards are a separate effort (AECI-276 out-of-scope).
  */
 export const DEFAULT_OG_IMAGE = '/branding/monogram-light.svg';
+
+/**
+ * The dedicated home share card (AECI-276): a real, rendered 1200×630 PNG, not
+ * the fallback monogram, so a shared `/` link previews as a marketing card
+ * rather than a bare logo. Source + generator: `apps/web/scripts/home-og-*`
+ * (regenerate with `pnpm --filter @aeci/web og:home`). `setHomeMeta` emits this
+ * as an ABSOLUTE URL (highest-value share surface); entity pages keep their
+ * relative `og:image`.
+ */
+export const HOME_OG_IMAGE = '/branding/home-og.png';
 
 /** Lightweight meta-tag shape; structurally compatible with Angular's `MetaDefinition`. */
 export type MetaTag = { name: string; content: string } | { property: string; content: string };

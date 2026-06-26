@@ -251,7 +251,7 @@ At go-live there is no separate marketing page: when the apex flips from the sta
 | 9 | **Closing CTA + capture** | ✓ | **NEW.** Email → `POST /api/subscribe`; suggest-a-tool / feedback → `POST /api/feedback` (both already shipped, AECI-257; see `API_CONTRACTS.md`). A **progressively-enhanced client island**: the SSR HTML is the static form, the POST targets the non-cached `/api/*`, so the route stays edge-cache-neutral. |
 | 10 | **Footer** | ✓ | Existing `site-footer.ts`. |
 
-**In scope at launch:** all ten sections. **Deferred:** the final OG share card (own SEO issue, AECI-269 child 7); the post-launch waitlist welcome-state banner (§11.2). No new design tokens — add to `DESIGN.md` (and `styles.css` + `BRAND_GUIDELINES.md` + §2a.2) in lockstep first if a band needs one.
+**In scope at launch:** all ten sections, **plus the home OG share card** (the SEO child AECI-276 — a real rendered 1200×630 PNG; see §20.4). **Deferred:** the post-launch waitlist welcome-state banner (§11.2). No new design tokens — add to `DESIGN.md` (and `styles.css` + `BRAND_GUIDELINES.md` + §2a.2) in lockstep first if a band needs one.
 
 **Non-negotiables.** Edge-cache-neutral SSR (the capture island is the only client-state surface, and it POSTs to the non-cached `/api/*`; the cacheable HTML stays visitor-state-neutral — §9); i18n `@@` ids on every string; **light theme only** (§2a, AECI-226); the **Faire** anchor (`DESIGN.md` Anchor-Site Rule); editorial voice (`PRODUCT.md` banned-words, sentence case, **no em dashes**); borders not shadows.
 
@@ -1250,10 +1250,12 @@ Embedded in `<head>` on relevant pages:
 - **Products** — `SoftwareApplication` with `aggregateRating` (once ≥5 reviews), `offers`, `description`
 - **Vendors** — `Organization` with `address`, `foundingDate`, `url`
 - **Integrations** — `WebPage` with rich description; no perfect schema.org type exists
-- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box
+- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box, plus a publisher `Organization` (whose `logo` is the square monogram)
 - **Reviews** — `Review` nested in `SoftwareApplication`
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
+
+> **Home JSON-LD at launch (AECI-276):** the home emits **only** the `WebSite` (with `SearchAction`) + publisher `Organization` — **no** site-level `aggregateRating`/`Review`. Nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope) and the launch review corpus is not an honest basis for star ratings, so org/home aggregate review markup is deliberately withheld until it is genuinely supported. Product-level `aggregateRating` still appears per its own ≥5-review threshold above.
 
 ### 20.4 OpenGraph and Twitter Card meta tags
 
@@ -1263,6 +1265,8 @@ Every product, vendor, and integration page includes:
 - `twitter:card` (`summary_large_image`), `twitter:title`, `twitter:description`, `twitter:image`
 
 Dynamic OG image generation (via Cloudflare Workers + Satori) deferred to a Stage 1.x iteration. At launch, OG image is the entity's logo on a branded background, generated server-side or pre-rendered.
+
+> **Implemented — home share card (AECI-276):** the **home** (`/`) does not use the monogram fallback. It ships a dedicated, pre-rendered **1200×630 PNG** share card (`apps/web/public/branding/home-og.png`, served at `/branding/home-og.png`), and `setHomeMeta` (`apps/web/src/app/core/meta.service.ts`) points `og:image` + `twitter:image` (with `og:image:alt` / `twitter:image:alt`) at it as an **absolute** URL — the home is the highest-value share surface ("buyers send the link to colleagues"). The card is light-editorial and **evergreen** (no live numbers, so the static asset never goes stale); regenerate from `apps/web/scripts/home-og-template.html` via `pnpm --filter @aeci/web og:home` (a manual Playwright-render dev tool, not in CI). **Per-entity** product/vendor OG cards remain the monogram fallback (`DEFAULT_OG_IMAGE`) — a separate effort. The home `Organization` JSON-LD `logo` (§20.3) intentionally stays the square monogram, not the share card.
 
 ### 20.5 Single write-event pipeline
 

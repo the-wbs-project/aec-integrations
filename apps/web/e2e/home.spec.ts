@@ -246,6 +246,27 @@ test.describe('/ — home assembly (AECI-186)', () => {
       'content',
       'website',
     );
+
+    // The dedicated 1200×630 home share card (AECI-276), not the monogram
+    // fallback. Match by path so the assertion is origin-agnostic across envs.
+    await expect(page.locator('head meta[property="og:image"]')).toHaveAttribute(
+      'content',
+      /\/branding\/home-og\.png$/,
+    );
+    await expect(page.locator('head meta[name="twitter:image"]')).toHaveAttribute(
+      'content',
+      /\/branding\/home-og\.png$/,
+    );
+    await expect(page.locator('head meta[property="og:image:alt"]')).toHaveAttribute(
+      'content',
+      /.+/,
+    );
+  });
+
+  test('serves the home OG share card asset (1200×630 PNG)', async ({ request }) => {
+    const res = await request.get('/branding/home-og.png');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/png');
   });
 
   test('emits WebSite (with SearchAction) and publisher Organization JSON-LD', async ({ page }) => {
