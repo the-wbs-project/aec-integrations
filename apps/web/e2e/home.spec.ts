@@ -124,11 +124,13 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
   });
 });
 
-// AECI-186 — Phase 4.11 home assembly. The six section components (hero / stats
-// cards / browse grids / recently-added / trending) are stacked in §4.1 order and
-// the home SEO (meta + OG/Twitter + WebSite/Organization JSON-LD + canonical) is
-// emitted. The axe coverage above runs against `/`, so it now also validates
-// these added sections — no duplicate axe pass is needed here.
+// AECI-186 — Phase 4.11 home assembly. The section components (hero / credibility
+// strip / what's-different / how-it-works / stats cards / browse grids /
+// recently-added / trending) are stacked in §4.1 order and the home SEO (meta +
+// OG/Twitter + WebSite/Organization JSON-LD + canonical) is emitted. The marketing
+// what's-different + how-it-works bands were added in AECI-273. The axe coverage
+// above runs against `/`, so it now also validates these added sections — no
+// duplicate axe pass is needed here.
 //
 // Resilient to a populated or empty stats_cache: assertions key off the labels /
 // headings that render in BOTH the data and empty states, never the data itself.
@@ -138,6 +140,9 @@ test.describe('/ — home assembly (AECI-186)', () => {
     expect(res.status(), 'GET / must return 200').toBe(200);
     const html = await res.text();
 
+    // Marketing bands (AECI-273): what's-different + how-it-works headlines.
+    expect(html, "what's-different band must render").toContain('Three ideas at the core');
+    expect(html, 'how-it-works band must render').toContain('How a listing earns its place');
     // Stats card label + recent-integrations heading render in every data state.
     expect(html, 'stats cards must render').toContain('Total integrations indexed');
     expect(html, 'recently-added section must render').toContain('Recently added integrations');
@@ -154,6 +159,8 @@ test.describe('/ — home assembly (AECI-186)', () => {
     const order = [
       'aec-home-hero',
       'aec-home-credibility-strip',
+      'aec-home-differentiation',
+      'aec-home-how-it-works',
       'aec-home-stats-cards',
       'app-browse-grid',
       'aec-recent-integrations-section',

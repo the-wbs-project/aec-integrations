@@ -11,19 +11,25 @@ import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-ran
 
 import { BrowseGrid } from './browse-grid';
 import { HomeCredibilityStrip } from './home-credibility-strip';
+import { HomeDifferentiation } from './home-differentiation';
 import { HomeHero } from './home-hero';
+import { HomeHowItWorks } from './home-how-it-works';
 import { HomeStatsCards } from './home-stats-cards';
-import { HomeTrustPillars } from './home-trust-pillars';
 import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
 
 /**
  * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly, kept in the §4.1
- * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → trust
- * pillars → three stats cards → "Browse by" grids → recently-added integrations →
+ * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → what's
+ * different (`home-differentiation`, AECI-273) → how it works (`home-how-it-works`,
+ * AECI-273) → three stats cards → "Browse by" grids → recently-added integrations →
  * trending products (the footer lives in the app shell) — and owns the home SEO
  * (meta + OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
- * constructor since the copy is static).
+ * constructor since the copy is static). §4.1 section 3 (why / the problem) is the
+ * remaining unbuilt AECI-269 child; it slots between the credibility strip and the
+ * what's-different band. (The standalone "Trust is the product" band —
+ * `home-trust-pillars` — is now only on `/about`; the home folds that promise into
+ * the differentiation band's closing line.)
  *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
  * binding, hydrated from TransferState):
@@ -47,7 +53,8 @@ import { TrendingProductsSection } from './trending-products-section';
   imports: [
     HomeHero,
     HomeCredibilityStrip,
-    HomeTrustPillars,
+    HomeDifferentiation,
+    HomeHowItWorks,
     HomeStatsCards,
     BrowseGrid,
     RecentIntegrationsSection,
@@ -66,11 +73,17 @@ import { TrendingProductsSection } from './trending-products-section';
         [totalReviews]="totalReviews()"
       />
 
-      <!-- Trust band: the three trust commitments (full-bleed, sits under the hero). -->
-      <aec-home-trust-pillars />
-
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <div class="flex flex-col gap-10 md:gap-12">
+          <!-- §4.1 section 3 (why / the problem) slots here when its child ships. -->
+
+          <!-- §4.1 section 4 (what's different): the reconciled three ideas plus
+               the absorbed trust line (AECI-273). -->
+          <aec-home-differentiation />
+
+          <!-- §4.1 section 5 (how it works): the operating model (AECI-273). -->
+          <aec-home-how-it-works />
+
           <aec-home-stats-cards
             [totalIntegrations]="totalIntegrations()"
             [integrationsAdded30d]="integrationsAdded30d()"
