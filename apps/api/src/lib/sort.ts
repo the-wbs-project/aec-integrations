@@ -31,6 +31,7 @@
  * §7.4 default-direction rule lives in exactly one place.
  */
 
+import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
 import type { IntegrationSort, ProductSort, VendorSort } from '@aeci/shared';
 import { asc, desc, sql, type SQL } from 'drizzle-orm';
 
@@ -60,7 +61,9 @@ export function resolveProductOrderBy(sort: ProductSort): SQL[] {
       // under DESC — so the order matches what the card actually shows. Tie-break
       // by review_count (more reviews = more confidence), then the stable id.
       return [
-        desc(sql`case when ${products.reviewCount} >= 5 then ${products.ratingOverallAvg} end`),
+        desc(
+          sql`case when ${products.reviewCount} >= ${RATING_VISIBILITY_MIN_REVIEWS} then ${products.ratingOverallAvg} end`,
+        ),
         desc(products.reviewCount),
         asc(products.id),
       ];

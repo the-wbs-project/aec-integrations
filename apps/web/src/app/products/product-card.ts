@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { RatingSummary } from '../reviews/rating-summary';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -24,10 +25,12 @@ import { IntegrationStat } from './integration-stat';
  * until then per CLAUDE.md "Three similar lines is better than a
  * premature abstraction."
  *
- * Renders four cells: product (monogram via `LogoOrInitial` + name link),
+ * Renders five cells: product (monogram via `LogoOrInitial` + name link),
  * vendor (linked when present, otherwise an en-dash empty state — `vendor` is
  * nullable per AECI-115), primary category (a `TaxonomyBadge` chip linking to
- * `/categories/:slug`, otherwise an en-dash), and the integration count as an
+ * `/categories/:slug`, otherwise an en-dash), the overall rating as a
+ * `RatingSummary` (`variant="cell"` — gold star + average + review count, or an
+ * en-dash below the §5.5 ≥5-review gate), and the integration count as an
  * `IntegrationStat` (graceful "Not yet connected" at zero). AECI-190 folded the
  * monogram / chip / stat treatment in here so the `/products` table view and the
  * taxonomy browse-page tables share one upgraded row.
@@ -49,7 +52,7 @@ import { IntegrationStat } from './integration-stat';
   // CDK uses for `tr[cdk-row]` / `tr[mat-row]`.
   // eslint-disable-next-line @angular-eslint/component-selector
   selector: 'tr[aec-product-card]',
-  imports: [RouterLink, LogoOrInitial, TaxonomyBadge, IntegrationStat],
+  imports: [RouterLink, LogoOrInitial, TaxonomyBadge, IntegrationStat, RatingSummary],
   host: {
     // `group` so the stacked-vendor sublabel can react to the row's hover /
     // focus-within state (it steps tertiary→secondary when the row fill goes
@@ -116,6 +119,17 @@ import { IntegrationStat } from './integration-stat';
           >–</span
         >
       }
+    </td>
+    <!-- Rating column collapses below md alongside the Vendor column (same
+         breakpoint as BrowseLayout's filter sidebar); the card-grid view carries
+         the rating on small screens. The cell variant keeps the cell populated
+         with an en-dash when the §5.5 gate withholds the average. -->
+    <td class="hidden px-4 py-3 text-end md:table-cell">
+      <aec-rating-summary
+        variant="cell"
+        [ratingOverall]="product().rating_overall_avg"
+        [reviewCount]="product().review_count"
+      />
     </td>
     <td class="px-4 py-3 text-end">
       <aec-integration-stat [count]="product().integration_count" variant="inline" />
