@@ -14,16 +14,17 @@ import { HomeCredibilityStrip } from './home-credibility-strip';
 import { HomeHero } from './home-hero';
 import { HomeStatsCards } from './home-stats-cards';
 import { HomeTrustPillars } from './home-trust-pillars';
+import { HomeWhy } from './home-why';
 import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
 
 /**
  * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly, kept in the §4.1
- * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → trust
- * pillars → three stats cards → "Browse by" grids → recently-added integrations →
- * trending products (the footer lives in the app shell) — and owns the home SEO
- * (meta + OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
- * constructor since the copy is static).
+ * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → "why
+ * AECi" problem band (AECI-272) → trust pillars → three stats cards → "Browse by"
+ * grids → recently-added integrations → trending products (the footer lives in the
+ * app shell) — and owns the home SEO (meta + OG/Twitter + `WebSite`/`Organization`
+ * JSON-LD + canonical, set in the constructor since the copy is static).
  *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
  * binding, hydrated from TransferState):
@@ -47,6 +48,7 @@ import { TrendingProductsSection } from './trending-products-section';
   imports: [
     HomeHero,
     HomeCredibilityStrip,
+    HomeWhy,
     HomeTrustPillars,
     HomeStatsCards,
     BrowseGrid,
@@ -65,6 +67,11 @@ import { TrendingProductsSection } from './trending-products-section';
         [totalIntegrations]="totalIntegrations()"
         [totalReviews]="totalReviews()"
       />
+
+      <!-- Why AECi / the problem (§4.1 section 3, AECI-272): the broken-landscape
+           narrative + three static market figures. Cold-visitor framing, mounted
+           after the credibility strip per the AECI-270 order. -->
+      <aec-home-why />
 
       <!-- Trust band: the three trust commitments (full-bleed, sits under the hero). -->
       <aec-home-trust-pillars />

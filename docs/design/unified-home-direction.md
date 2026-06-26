@@ -56,6 +56,8 @@ A thin band directly under the hero: **coverage counts** (products / integration
 ### 3 — Why AECi / the problem
 The broken-landscape narrative, translated from the landing into the editorial voice (no em dashes, no "verified" overclaim): two short paragraphs (pay-to-play rankings, AI reviews, vendor-funded visibility; and the information that actually decides a purchase is impossible to find), then **three cited figures** in a **spec-sheet row** (label-value, hairline-separated), not big-number cards: ≈34% of reviews AI-generated · $87K/yr to boost a ranking · 900+ tools in generic categories. Figures are **static cited stats**, not live data.
 
+> **Built: AECI-272** — `apps/web/src/app/home/home-why.ts` (mounted after the credibility strip). Shipped the **chosen concept-b** treatment: bordered Forest-figure stat cards on `--surface-raised` (not the spec-sheet row above; concept b governs). **Sourcing (interim):** the legacy landing recorded no sources for the three figures and the app has no citation pattern, so the figures keep their hedged framing ("≈", "estimated to be") plus one understated "Figures are industry estimates" note (`@@home.why.estimatesNote`). Properly researching / citing them is **AECI-285** (Backlog).
+
 ### 4 — What's different / trust (the reconciliation)
 This band is the **rework of `home-trust-pillars.ts`** (AECI-269 build child 4). It reconciles two "threes":
 
@@ -92,7 +94,7 @@ Chris selected **concept b** from the live `/preview/unified-home` review. It is
 **What this fixes for the build children (AECI-269 2–6), all within the DESIGN.md laws:**
 
 - **Credibility strip (child 2):** a full-bleed **Bone** (`--accent-warm`) band; coverage counts as small bordered count-chips on `--surface-base`; the independence line alongside. Real empty state when a count is 0.
-- **Why / problem (child 3):** the eyebrow carries a small decorative **Clay dot** (`--accent-secondary`, fill only, `aria-hidden`, well under the ≤5% cap); the narrative sits in a rounded **Bone callout** (border, not shadow); the three figures are bordered stat cards on `--surface-raised` with **Forest** figures (not the banned hero-metric template).
+- **Why / problem (child 3):** the eyebrow carries a small decorative **Clay dot** (`--accent-secondary`, fill only, `aria-hidden`, well under the ≤5% cap); the narrative sits in a rounded **Bone callout** (border, not shadow); the three figures are bordered stat cards on `--surface-raised` with **Forest** figures (not the banned hero-metric template). **Built: AECI-272** (`home-why.ts`); figure sourcing tracked in **AECI-285**.
 - **What's different + how it works (child 4 — the `home-trust-pillars.ts` rework):** the three ideas as bordered cards on `--surface-raised`, each with a **Clay top-tick** bar (decorative fill, the shipped trust-band vocabulary, ≤5%); the trust line folded in as the closing; how-it-works as bordered step cards with **Forest-circled** numerals. **Rework note:** the shipped `home-trust-pillars.ts` uses `shadow-sm` / `hover:shadow-lg`, which violates the Borders-Not-Shadows Rule (this predates AECI-270); the rework must drop the shadows for borders, as the concept does.
 - **Closing CTA (child 6):** a **Bone** band with the capture form in a bordered `--surface-base` card; **Forest** subscribe button (Forest-Anchor Rule); the suggest-a-tool link beside it. Progressive-enhancement island POSTing to the non-cached `/api/*` (§4.1).
 - **Existing modules** (hero / stats / browse / recent / trending) keep their `home-direction.md` treatment unchanged.
