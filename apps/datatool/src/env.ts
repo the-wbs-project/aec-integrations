@@ -1,18 +1,20 @@
 /**
  * Worker bindings + vars for the datatool admin Worker.
  *
- * This Worker is unusual: it binds ALL THREE remote D1 databases at once (the
+ * This Worker is unusual: it binds ALL FOUR remote D1 databases at once (the
  * whole point — copy/seed any env from one place). Everything optional-secret is
  * graceful-skip: a missing Algolia/CF-purge key degrades the post-write refresh,
  * never the D1 write itself.
  */
 export type Env = {
-  // ── D1: the three remote application databases (ADR 0016). A deployed Worker
-  //    reaches the REAL remote DB through each binding; `wrangler dev` (no
+  // ── D1: the four remote application databases (ADR 0016), one per deploy tier
+  //    (preview → staging → demo → production; docs/environments.md). A deployed
+  //    Worker reaches the REAL remote DB through each binding; `wrangler dev` (no
   //    `--remote`) would serve local SQLite copies, which is why LOCAL is not a
   //    copy/seed target for the deployed tool. ──────────────────────────────────
   DB_PREVIEW: D1Database;
   DB_STAGING: D1Database;
+  DB_DEMO: D1Database;
   DB_PRODUCTION: D1Database;
 
   // ── Vars (plain, public) ────────────────────────────────────────────────────
@@ -35,21 +37,25 @@ export type Env = {
    *  available. Compared constant-time. Absent → only the Access JWT authenticates. */
   TOOL_TOKEN?: string;
 
-  /** Algolia application id — shared across envs (one app; indexes/keys differ). */
-  ALGOLIA_APP_ID?: string;
-  /** Per-env Algolia MANAGEMENT keys (addObject/deleteObject ACLs), used by the
-   *  post-write reindex. Absent for an env → that env's reindex is a graceful skip. */
-  ALGOLIA_ADMIN_KEY_PREVIEW?: string;
-  ALGOLIA_ADMIN_KEY_STAGING?: string;
-  ALGOLIA_ADMIN_KEY_PRODUCTION?: string;
+  // NOTE: the Algolia + cache-purge credentials below are SINGLE shared secrets,
+  // not per-env. One Algolia app backs every tier (its admin key reaches all
+  // `{env}_*` indexes), and staging/demo/production all live on the one
+  // `aecintegrations.com` Cloudflare zone — the same values the apps/api + apps/web
+  // Workers receive from the un-suffixed `ALGOLIA_*` / `CF_*` GitHub secrets. Only
+  // the Algolia index PREFIX differs per env, and that's derived from `algoliaEnv`
+  // in targets.ts — not from a per-env key.
 
-  /** Per-env Cloudflare API token scoped to `Zone.Cache Purge`, for the post-write
-   *  edge-cache purge. Absent → that env's purge is a graceful skip. */
-  CF_PURGE_API_TOKEN_PREVIEW?: string;
-  CF_PURGE_API_TOKEN_STAGING?: string;
-  CF_PURGE_API_TOKEN_PRODUCTION?: string;
-  /** Per-env Cloudflare zone id the purge targets (public value). */
-  CF_ZONE_ID_PREVIEW?: string;
-  CF_ZONE_ID_STAGING?: string;
-  CF_ZONE_ID_PRODUCTION?: string;
+  /** Algolia application id — one app across all envs (index prefixes differ). */
+  ALGOLIA_APP_ID?: string;
+  /** Algolia MANAGEMENT key (addObject/deleteObject ACLs) for the post-write
+   *  reindex. One app's admin key reaches every `{env}_*` index, so it's shared.
+   *  Absent → reindex is a graceful skip. */
+  ALGOLIA_ADMIN_KEY?: string;
+
+  /** Cloudflare API token scoped to `Zone.Cache Purge`, for the post-write edge-
+   *  cache purge. Shared — all purgeable tiers are on the one zone. Absent →
+   *  purge is a graceful skip. */
+  CF_PURGE_API_TOKEN?: string;
+  /** The single `aecintegrations.com` Cloudflare zone id the purge targets (public). */
+  CF_ZONE_ID?: string;
 };

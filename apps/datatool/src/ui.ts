@@ -6,10 +6,12 @@
  * ONLY interpolation in this module is `${nonce}`.
  */
 
+import { ENV_IDS } from './targets';
+
 function envOptions(selected: string): string {
-  return (['preview', 'staging', 'production'] as const)
-    .map((e) => `<option value="${e}"${e === selected ? ' selected' : ''}>${e}</option>`)
-    .join('');
+  return ENV_IDS.map(
+    (e) => `<option value="${e}"${e === selected ? ' selected' : ''}>${e}</option>`,
+  ).join('');
 }
 
 export function renderUi(nonce: string): string {
