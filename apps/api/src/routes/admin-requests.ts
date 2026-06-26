@@ -41,6 +41,7 @@ import {
   ModerateRequestSchema,
   type ListVendorRequestsResponse,
   type ModerateRequestResponse,
+  type RequestKind,
 } from '@aeci/shared';
 import {
   forwardAuditLog,
@@ -76,6 +77,7 @@ import {
   type RawAdminVendorRequestRow,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import type { LinearResolutionInput } from '../lib/linear';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -89,19 +91,17 @@ const TERMINAL_OUTCOME: Record<'resolved' | 'rejected', string> = {
 /**
  * Site → Linear sync seam (§6.5 / AECI-213). Invoked post-commit after a
  * resolve/reject so Linear and the app DB stay consistent. The GraphQL internals
- * are owned by AECI-213; the default here is a safe no-op so this endpoint ships
- * standalone. Best-effort — tolerant of a null `linearIssueId` (issue never
- * created); failures are the sync's concern, never surfaced to the admin.
+ * live in `lib/linear.ts` (`pushRequestResolutionToLinear`) and are wired in at
+ * the composition root (`index.ts`); the default here is a safe no-op so this
+ * endpoint still ships standalone and tests can inject a spy. Best-effort —
+ * tolerant of a null `linearIssueId` (issue never created); failures are the
+ * sync's concern, never surfaced to the admin. The seam takes the full
+ * `LinearResolutionInput` so the sync owns its own transition + comment.
  */
 export type SyncRequestToLinear = (
   c: AdminContext,
   db: Db,
-  args: {
-    requestId: string;
-    status: 'resolved' | 'rejected';
-    reason: string | null;
-    linearIssueId: string | null;
-  },
+  input: LinearResolutionInput,
 ) => Promise<void>;
 
 const noopSyncToLinear: SyncRequestToLinear = async () => {};
@@ -392,9 +392,14 @@ export function createModerateRequestHandler(
     c.executionCtx.waitUntil(
       syncToLinear(c, db, {
         requestId: id,
-        status: newStatus,
-        reason,
+        workflowId,
         linearIssueId: existing.linearIssueId,
+        kind: existing.kind as RequestKind,
+        toStatus: newStatus,
+        fromStatus: fromState,
+        reason,
+        actorId: userId,
+        actorLabel: null,
       }).catch((error) => {
         try {
           logToDatadog(c.executionCtx, c.env, c.req.raw, {

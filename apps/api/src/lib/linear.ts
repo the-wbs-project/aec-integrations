@@ -452,10 +452,11 @@ export async function createLinearIssueForRequest(
  * linked Linear issue to the matching terminal state ("Done"/"Canceled"), posts a
  * comment, and records the site-originated `workflow_transition`.
  *
- * Designed to be called from the §8.1 resolve/reject handler's `ctx.waitUntil()`
- * (AECI-217, not yet built) — the handler owns the local `status`/`resolved_*`
- * write + `audit_log`; this owns the Linear push + the sync transition. It upholds
- * the same contract as `createLinearIssueForRequest`:
+ * Called from the §8.1 resolve/reject handler's `ctx.waitUntil()` — wired into
+ * the `SyncRequestToLinear` seam at the composition root (`index.ts`, AECI-220).
+ * The handler owns the local `status`/`resolved_*` write + `audit_log`; this owns
+ * the Linear push + the sync transition. It upholds the same contract as
+ * `createLinearIssueForRequest`:
  *
  *   - **Never throws.** Every failure (absent key, timeout, non-2xx, `errors[]`,
  *     `success:false`, a transition-write error) is caught, logged, and metered.
