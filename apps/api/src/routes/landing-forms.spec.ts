@@ -6,6 +6,7 @@
  * response), so no settling context is required.
  */
 
+import { LANDING_CF_HEADERS } from '@aeci/shared';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -22,7 +23,7 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-function postFeedback(body: unknown) {
+function postFeedback(body: unknown, extraHeaders: Record<string, string> = {}) {
   const app = buildAppWithHandler({
     method: 'post',
     path: '/api/feedback',
@@ -33,14 +34,14 @@ function postFeedback(body: unknown) {
     {
       method: 'POST',
       body: typeof body === 'string' ? body : JSON.stringify(body),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...extraHeaders },
     },
     TEST_ENV,
     fakeExecutionContext(),
   );
 }
 
-function postSubscribe(body: unknown) {
+function postSubscribe(body: unknown, extraHeaders: Record<string, string> = {}) {
   const app = buildAppWithHandler({
     method: 'post',
     path: '/api/subscribe',
@@ -51,7 +52,7 @@ function postSubscribe(body: unknown) {
     {
       method: 'POST',
       body: typeof body === 'string' ? body : JSON.stringify(body),
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...extraHeaders },
     },
     TEST_ENV,
     fakeExecutionContext(),
@@ -169,6 +170,92 @@ describe('POST /api/subscribe', () => {
     expect(res.status).toBe(201);
     expect(rec.calls[0]).toEqual({ bookmark: 'in-7', constraint: 'first-primary' });
     expect(res.headers.get('x-d1-bookmark')).toBe('bk-sub');
+    expect(await t.db.select().from(mailingList)).toHaveLength(1);
+  });
+});
+
+// AECI-275 — the unified home's closing-CTA island POSTs through the SSR `/api/*`
+// proxy, which forwards CF geo on the trusted `LANDING_CF_HEADERS` (the browser
+// can't read `request.cf`). The handlers read a header when present and fall back
+// to the body value otherwise, so BOTH callers work: the legacy landing Worker
+// (geo in body, no headers) and the app island (geo on headers, none in body).
+describe('AECI-275 trusted geo headers + app-origin', () => {
+  it('subscribe: reads all geo from LANDING_CF_HEADERS when the body omits it', async () => {
+    const res = await postSubscribe(
+      { email: 'island@example.com', utm_source: 'home' },
+      {
+        [LANDING_CF_HEADERS.country]: 'GB',
+        [LANDING_CF_HEADERS.city]: 'London',
+        [LANDING_CF_HEADERS.region]: 'England',
+        [LANDING_CF_HEADERS.timezone]: 'Europe/London',
+        [LANDING_CF_HEADERS.asOrganization]: 'BT',
+        [LANDING_CF_HEADERS.asn]: '2856',
+        [LANDING_CF_HEADERS.metroCode]: '826',
+      },
+    );
+    expect(res.status).toBe(201);
+
+    const [row] = await t.db.select().from(mailingList);
+    expect(row!.country).toBe('GB');
+    expect(row!.city).toBe('London');
+    expect(row!.region).toBe('England');
+    expect(row!.timezone).toBe('Europe/London');
+    expect(row!.asOrganization).toBe('BT');
+    expect(row!.asn).toBe(2856);
+    expect(row!.metroCode).toBe(826);
+    // UTM still rides the body, untouched by the header path.
+    expect(row!.utmSource).toBe('home');
+  });
+
+  it('subscribe: a trusted header wins over a body geo value (header precedence)', async () => {
+    const res = await postSubscribe(
+      { email: 'precedence@example.com', country: 'US', city: 'Denver' },
+      { [LANDING_CF_HEADERS.country]: 'GB', [LANDING_CF_HEADERS.city]: 'London' },
+    );
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(mailingList);
+    expect(row!.country).toBe('GB');
+    expect(row!.city).toBe('London');
+  });
+
+  it('subscribe: a malformed asn/metro header degrades to null, never NaN', async () => {
+    const res = await postSubscribe(
+      { email: 'nan@example.com' },
+      { [LANDING_CF_HEADERS.asn]: 'not-a-number', [LANDING_CF_HEADERS.metroCode]: '' },
+    );
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(mailingList);
+    expect(row!.asn).toBeNull();
+    expect(row!.metroCode).toBeNull();
+  });
+
+  it('feedback: reads its geo subset from headers (no asn/metro columns)', async () => {
+    const res = await postFeedback(
+      { tools: 'Revit' },
+      {
+        [LANDING_CF_HEADERS.country]: 'CA',
+        [LANDING_CF_HEADERS.city]: 'Toronto',
+        [LANDING_CF_HEADERS.region]: 'Ontario',
+        [LANDING_CF_HEADERS.timezone]: 'America/Toronto',
+      },
+    );
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(feedback);
+    expect(row!.country).toBe('CA');
+    expect(row!.city).toBe('Toronto');
+    expect(row!.region).toBe('Ontario');
+    expect(row!.timezone).toBe('America/Toronto');
+  });
+
+  // The handlers have no CORS / Origin guard — they were built for the landing
+  // Worker but are reached over the service binding from BOTH the landing and the
+  // SSR (app) Worker. A request carrying the app origin is accepted unchanged.
+  it('accepts a request carrying the app origin (no origin guard)', async () => {
+    const res = await postSubscribe(
+      { email: 'app-origin@example.com' },
+      { origin: 'https://aec-integrations.com' },
+    );
+    expect(res.status).toBe(201);
     expect(await t.db.select().from(mailingList)).toHaveLength(1);
   });
 });

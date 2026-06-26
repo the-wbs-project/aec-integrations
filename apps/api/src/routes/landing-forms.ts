@@ -5,10 +5,16 @@
  *   POST /api/subscribe  — insert a `mailing_list` row, idempotent on email.
  *
  * These back the `apps/landing` feedback + mailing-list forms, moved off Supabase
- * Postgres (PostgREST) onto D1. The landing Worker forwards the validated form
- * body — including the `request.cf` geo fields, which it reads server-side and
- * carries in the body because `request.cf` does not survive the `env.API` service
- * binding (see `@aeci/shared` `api/page-views.ts`).
+ * Postgres (PostgREST) onto D1. Two callers, two geo-transport paths:
+ *   - the legacy `apps/landing` Worker forwards the `request.cf` geo fields IN THE
+ *     BODY (it reads them server-side; `request.cf` does not survive the `env.API`
+ *     binding — see `@aeci/shared` `api/page-views.ts`);
+ *   - the unified home's closing-CTA island (AECI-275) POSTs through the SSR
+ *     Worker's `/api/*` passthrough, which forwards the same geo on the trusted
+ *     `LANDING_CF_HEADERS` instead. So `readLandingCfFromHeaders` reads a header
+ *     when present and the handlers fall back to the body value otherwise. UTM /
+ *     referrer always travel in the body. The headers are trusted because the API
+ *     Worker has no public ingress and the SSR proxy strips-then-sets them.
  *
  * No audit row: lead-capture is write-once analytics, not a domain state change
  * (§26.1 — same exemption as `page_views`). Reached only over the service binding
@@ -16,12 +22,13 @@
  *
  * Contracts: `FeedbackSubmitSchema` / `SubscribeSubmitSchema` from `@aeci/shared`.
  * Both return `{ created }`: `subscribe` reports `false` when the email is already
- * on the list (the `ON CONFLICT DO NOTHING` insert was a no-op), which the landing
- * Worker maps to its "already on the list" response.
+ * on the list (the `ON CONFLICT DO NOTHING` insert was a no-op), which the caller
+ * maps to its "already on the list" response.
  */
 
 import {
   FeedbackSubmitSchema,
+  LANDING_CF_HEADERS,
   SubscribeSubmitSchema,
   type LandingSubmitResult,
 } from '@aeci/shared';
@@ -46,6 +53,44 @@ async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T
   return schema.parse(raw);
 }
 
+/** Trusted Cloudflare geo forwarded by the SSR proxy on `LANDING_CF_HEADERS`
+ *  (AECI-275). Present only on the unified-home island path; the legacy landing
+ *  Worker carries the same geo in the body, so the handlers fall back to the body
+ *  value when a header is absent. `asn` / `metroCode` are integer columns, parsed
+ *  with a finite-number guard so a malformed header degrades to null rather than
+ *  writing `NaN`. */
+interface LandingCf {
+  country: string | null;
+  city: string | null;
+  region: string | null;
+  timezone: string | null;
+  asOrganization: string | null;
+  asn: number | null;
+  metroCode: number | null;
+}
+
+function readLandingCfFromHeaders(c: Context<{ Bindings: Env }>): LandingCf {
+  const str = (name: string): string | null => {
+    const v = c.req.header(name)?.trim();
+    return v ? v : null;
+  };
+  const int = (name: string): number | null => {
+    const v = str(name);
+    if (v === null) return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return {
+    country: str(LANDING_CF_HEADERS.country),
+    city: str(LANDING_CF_HEADERS.city),
+    region: str(LANDING_CF_HEADERS.region),
+    timezone: str(LANDING_CF_HEADERS.timezone),
+    asOrganization: str(LANDING_CF_HEADERS.asOrganization),
+    asn: int(LANDING_CF_HEADERS.asn),
+    metroCode: int(LANDING_CF_HEADERS.metroCode),
+  };
+}
+
 export function createFeedbackHandler(
   dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
@@ -55,16 +100,19 @@ export function createFeedbackHandler(
     // session off it — stays on the `'first-unconstrained'` read default (no
     // `first-primary` anchor / `x-d1-bookmark` emit). (AECI-250)
     const { db } = dbFor(c.env);
+    const cf = readLandingCfFromHeaders(c);
 
     await db.insert(feedback).values({
       features: payload.features ?? null,
       tools: payload.tools ?? null,
       email: payload.email ?? null,
       subscribed: payload.subscribed,
-      country: payload.country ?? null,
-      city: payload.city ?? null,
-      region: payload.region ?? null,
-      timezone: payload.timezone ?? null,
+      // Trusted header geo (island path) wins; body geo (landing path) is the
+      // fallback. `feedback` has no asn/metro/as_organization columns.
+      country: cf.country ?? payload.country ?? null,
+      city: cf.city ?? payload.city ?? null,
+      region: cf.region ?? payload.region ?? null,
+      timezone: cf.timezone ?? payload.timezone ?? null,
       referrer: payload.referrer ?? null,
     });
 
@@ -78,21 +126,24 @@ export function createSubscribeHandler(
   return async (c) => {
     const payload = await parseJsonBody(c, SubscribeSubmitSchema);
     const { db } = writeDb(c, dbFor);
+    const cf = readLandingCfFromHeaders(c);
 
     // `ON CONFLICT DO NOTHING … RETURNING` on the `mailing_list_email_key` unique
     // index: a returned row means we created it; [] means the email was already
     // on the list (idempotent no-op). Same pattern as `auth-profile.ts`.
+    // Trusted header geo (island path) wins over body geo (landing path); UTM
+    // always rides the body.
     const inserted = await db
       .insert(mailingList)
       .values({
         email: payload.email,
-        country: payload.country ?? null,
-        city: payload.city ?? null,
-        region: payload.region ?? null,
-        timezone: payload.timezone ?? null,
-        asOrganization: payload.as_organization ?? null,
-        asn: payload.asn ?? null,
-        metroCode: payload.metro_code ?? null,
+        country: cf.country ?? payload.country ?? null,
+        city: cf.city ?? payload.city ?? null,
+        region: cf.region ?? payload.region ?? null,
+        timezone: cf.timezone ?? payload.timezone ?? null,
+        asOrganization: cf.asOrganization ?? payload.as_organization ?? null,
+        asn: cf.asn ?? payload.asn ?? null,
+        metroCode: cf.metroCode ?? payload.metro_code ?? null,
         utmSource: payload.utm_source ?? null,
         utmMedium: payload.utm_medium ?? null,
         utmCampaign: payload.utm_campaign ?? null,
