@@ -97,7 +97,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @aeci/api exec prisma generate
       # Build the SSR Worker here (no cross-workflow artifact to reuse).
       # `dev:preview` serves the prebuilt dist/ via `wrangler dev` — it does NOT
       # build — so the bundle must exist before dev:bound boots.

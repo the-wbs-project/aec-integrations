@@ -2,7 +2,7 @@
 
 The customer-facing Angular 21 SSR app for AEC Integrations. Renders on Cloudflare Workers, hydrates zoneless on the client, and talks to the private API Worker via a service binding.
 
-For the full picture (data model, routes, caching, auth) read **`docs/STAGE_1_SPEC.md`** in the repo root. The repo-level `CLAUDE.md` covers cross-cutting constraints (Prisma Accelerate, cache safety, i18n, zoneless, theme tokens).
+For the full picture (data model, routes, caching, auth) read **`docs/STAGE_1_SPEC.md`** in the repo root. The repo-level `CLAUDE.md` covers cross-cutting constraints (D1/Drizzle data access, cache safety, i18n, zoneless, theme tokens).
 
 ## Run it
 

@@ -16,7 +16,7 @@
  * The full paginated moderation queue (`GET /api/admin/reviews`) is Phase 5.13 —
  * this endpoint deliberately exposes only the aggregate count the shell needs.
  *
- * Loose structural Prisma surface + `prismaFor` test seam mirror
+ * Loose structural DB surface + the `getDb` test seam mirror
  * `routes/reviews.ts`.
  */
 

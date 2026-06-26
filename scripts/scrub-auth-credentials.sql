@@ -15,15 +15,17 @@
 -- treats it as a nullable pointer, and NULL there is what disables password
 -- login.) The previous version set these to NULL and broke staging sign-in.
 --
--- Invoked by .github/workflows/refresh-staging.yml step 7, against the
--- staging Supabase Postgres via `psql $DIRECT_URL_STAGING -v ON_ERROR_STOP=1
--- -f scripts/scrub-auth-credentials.sql`.
+-- Invocation: run manually against a Postgres auth database that holds a COPY of
+-- another environment's `auth.users` (e.g. a local Supabase stack seeded from a
+-- dump), to disable login on the copied accounts:
+--   psql "$PGURL" -v ON_ERROR_STOP=1 -f scripts/scrub-auth-credentials.sql
 --
--- Run order in the workflow:
---   1-5: pg_dump prod / wipe staging / pg_restore staging  (data is prod's)
---   6:   supabase db push --linked                          (schema is current)
---   7:   THIS SCRIPT                                        (credentials nulled)
---   8:   scripts/seed-staging-users.sql                     (test accounts seeded)
+-- NOTE (ADR 0017 / AECI-278): every environment now shares ONE Supabase Auth
+-- project, so staging auth is no longer sourced from a prod dump and the original
+-- refresh-staging.yml scrub step (with its pg_dump/wipe/restore/`supabase db push`
+-- preamble) was removed. This script is retained for the manual local-copy case
+-- only — NEVER run it against the shared auth project; it would disable real
+-- logins. The companion test-account seed is `scripts/seed-staging-users.sql`.
 
 \set ON_ERROR_STOP on
 

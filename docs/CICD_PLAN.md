@@ -32,7 +32,7 @@ GitHub Actions is the CI/CD platform. Cloudflare Workers Builds is rejected for 
 > - **Staging** is auto-deployed on merge to `main` via `.github/workflows/deploy.yml` `deploy-staging` job, gated by `vars.STAGING_ENABLED`.
 > - **Demo** is promoted manually via `.github/workflows/promote-to-demo.yml` — `workflow_dispatch` with `commit_sha` + `confirm=PROMOTE`. The public showcase tier, inserted between staging and production; it shares the prod Supabase project (touches no Postgres).
 > - **Production** is promoted manually via `.github/workflows/promote-to-prod.yml` (AECI-78) — `workflow_dispatch` with explicit `commit_sha` + `confirm=PROMOTE` inputs and a GH Environment approval gate. It promotes from **demo** (the immediate upstream tier). There is intentionally **no auto-deploy to demo or production**.
-> - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `*.aec-integrations.workers.dev`); the API Worker is shared (`aeci-api-preview`) and connects to the dev project's `main` branch via Prisma Accelerate. See `docs/environments.md` §"PR previews" for the DB-strategy decision (Option 1 — shared dev DB).
+> - **Per-PR previews** are wired via `.github/workflows/pr-preview.yml` (AECI-79). Only the SSR Worker is per-PR (`aeci-web-pr-<N>` on `*.aec-integrations.workers.dev`); the API Worker is shared (`aeci-api-preview`) and reaches the app DB through its native D1 `DB` binding (no Prisma Accelerate, no `DATABASE_URL`; ADR 0016). See `docs/environments.md` §"PR previews" for the DB-strategy decision.
 
 Four environments, all on Cloudflare:
 
@@ -49,7 +49,7 @@ Spun up per PR by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) (AECI-
 
 - Each PR gets a unique SSR Worker `aeci-web-pr-<N>` at `https://aeci-web-pr-<N>.aec-integrations.workers.dev`.
 - Auto-deletes when the PR is closed or merged (cleanup job in the same workflow).
-- **DB:** shared dev project `main` branch via the shared `aeci-api-preview` Worker and Prisma Accelerate. No per-PR Supabase branches (Option 1; see `docs/environments.md` §"PR previews" for the trade-off and revisit conditions for Options 2/3).
+- **DB:** the shared `aeci-api-preview` Worker reaches Cloudflare D1 via its native `DB` binding (ADR 0016) — no Prisma Accelerate, no per-PR Supabase branches (see `docs/environments.md` §"PR previews" for the trade-off and decision history).
 - Fronted by the "AECi Non-Prod" Cloudflare Access app — service token for CI, OTP-to-email for humans (see `docs/access.md`).
 - Datadog, Resend, and Linear behaviour for previews is shared with staging (preview Workers don't have their own integrations — they ride on whatever the shared `aeci-api-preview` is wired to). **Algolia is the exception:** previews use their own dedicated `preview_*` index set (and `preview` scoped keys), per §7.5 — so preview/local search can't poison staging data. Local `pnpm dev:bound` (`ENV=preview`) rides the same `preview_*` set.
 
@@ -119,7 +119,7 @@ Runs in parallel where possible to minimize wall time. Goal: under 10 minutes to
 4. Run the `apps/api` `src/integration/**` lane — post-D1 a **single** spec,
    `user-auth.jwks.spec.ts` (live ES256 JWKS regression guard for
    `requireUserAuth()`; auth is retained on Supabase) — via `test:integration:ci`.
-   No `prisma generate`: the spec never imports `@prisma/client`.
+   No ORM client-generation step is needed (Drizzle requires none; Prisma was removed in AECI-278).
 5. Fail on a **0-collected or silently-skipped** result (the spec
    `describe.skipIf`s on env, so a misconfigured job would skip-and-pass). Not in
    `deploy-staging`'s `needs` yet — promote to a required check once stable. See
@@ -204,7 +204,7 @@ Triggered by Chris (workflow_dispatch with `commit_sha` + `confirm=PROMOTE` inpu
 
 **Job: `deploy-prod-workers`** (gated by GH Environment `production` — the single approval gate; blocks before any mutation)
 1. Provision the prod scheduled-job queues (idempotent)
-2. Apply the app DB migrations to **Cloudflare D1** (`wrangler d1 migrations apply aeci-app-production --remote`) + reconcile the D1 taxonomy seed, then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose schema is maintained by the staging deploy lane). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256)
+2. Apply the app DB migrations to **Cloudflare D1** (`wrangler d1 migrations apply aeci-app-production --remote`) + reconcile the D1 taxonomy seed (`wrangler d1 execute … --file=seed/taxonomy.sql`), then purge the taxonomy cache tags. This is the **only** data migration — the app DB is D1 (ADR 0016); the promote touches no Supabase Postgres (auth is the single shared project, ADR 0017, whose auth-only baseline is maintained out of band). No pg_dump → R2 snapshot, no `supabase db push`, no drift/RLS gate (mirrors `promote-to-demo.yml` — AECI-256/278)
 3. Deploy `apps/api` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
 4. Deploy `apps/web` with `--env production --var COMMIT_SHA --var DEPLOYED_AT`, then push the Worker runtime secrets
 5. Post Datadog deployment marker (§9.1)
@@ -235,8 +235,8 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
 **Configuration files:**
 - `wrangler.jsonc` per Worker package (e.g., `apps/web/wrangler.jsonc`, `apps/api/wrangler.jsonc`), with environment overrides under `env.preview`, `env.staging`, `env.demo`, `env.production`. JSONC is preferred over TOML because it allows comments and matches the validated pattern in `apps/web/wrangler.jsonc` and `apps/api/wrangler.jsonc`.
 - Compatibility date locked per environment to prevent surprise Worker runtime changes
-- SSR Worker requires `"compatibility_flags": ["nodejs_compat"]` — needed for `@angular/ssr` runtime Node polyfills. This is unrelated to database access; Prisma still uses Accelerate (HTTPS), see `DATABASE_SCHEMA.md` §1a.
-- API Worker does not need `nodejs_compat` (it talks to Supabase via Accelerate HTTPS).
+- SSR Worker requires `"compatibility_flags": ["nodejs_compat"]` — needed for `@angular/ssr` runtime Node polyfills. This is unrelated to database access; see `DATABASE_SCHEMA.md` §1a.
+- API Worker does not need `nodejs_compat` for the DB path — it reaches Cloudflare D1 through its native `DB` binding (Drizzle), no pg adapter, no Accelerate (ADR 0016).
 - Custom domain routing uses `routes` with `"custom_domain": true` per the `apps/web/wrangler.jsonc:78-85` pattern, not zone-level `route` strings.
 
 **Pattern (SSR Worker — `apps/web/wrangler.jsonc`):**
@@ -292,15 +292,11 @@ Implementation: deploy API Worker first, run health check, deploy SSR Worker, ru
 
 ## 5. Database migrations
 
-> **Pending AECI-71.** This section describes the *target* CI flow once the env-strategy issue wires migration application into the pipeline. As of AECI-72, the migration tool changed from Prisma to Supabase CLI but the CI invocations below are not yet automated — `supabase db push --linked` is run manually against the dev project by developers. AECI-71 owns turning these manual steps into pipeline jobs.
-
-Supabase migrations run as part of the deploy pipeline.
+The application database is **Cloudflare D1**, with migrations generated by **drizzle-kit** and applied by **`wrangler d1 migrations apply`** (ADR 0016). The full workflow is `docs/migrations.md` §0.
 
 ### 5.1 Migration source
 
-Migrations live in `supabase/migrations/` and are committed alongside code changes that depend on them. Generated via `pnpm db:new <name>` locally (see `docs/migrations.md`); applied via `pnpm db:push` (which runs `supabase db push --linked`) in CI.
-
-`supabase db push` reads `DIRECT_URL` (the Supabase pooler `postgresql://` URL), not `DATABASE_URL` (the runtime Prisma Accelerate `prisma://` URL). Workers never see `DIRECT_URL`. See `DATABASE_SCHEMA.md` §1a for the two-URL split.
+The schema source of truth is the Drizzle schema `apps/api/src/db/schema.ts`. Migration SQL is generated by `pnpm --filter @aeci/api db:generate` (drizzle-kit) into `apps/api/migrations/`, committed alongside the schema change. Applied with `wrangler d1 migrations apply <db> [--remote]` — locally via `pnpm db:migrate:local`, in CI via `deploy.yml` (staging) / `promote-to-prod.yml` (production). There is no `DATABASE_URL` / `DIRECT_URL` / `supabase db push` — Prisma was removed entirely (AECI-278) and the API Worker reaches D1 through its native `DB` binding.
 
 ### 5.2 Forward-only
 
@@ -320,41 +316,13 @@ Migrations are forward-only. No automated rollback. If a migration is bad:
   2. Phase 2: Code writes only to new column; backfill old data
   3. Phase 3: Migration drops old column
 
-### 5.4 RLS and GRANT policies
+### 5.4 No RLS / GRANT policies on D1
 
-Layer 2 (PostgREST GRANTs) and Layer 3 (RLS row filters) — plus the
-`public.is_admin()` / `public.is_active_user()` helpers — ship as a numbered
-migration (`supabase/migrations/20260602051513_rls_grants_and_policies.sql`) as
-of AECI-87. They define what PostgREST exposes to the `anon`/`authenticated`
-roles; the Worker's privileged Postgres role bypasses both. See
-`docs/AUTH_AND_RLS.md` §1 for the three-layer model.
+D1 (SQLite) has no PostgREST, no GRANTs, and no row-level security. Authorization for app tables is **app-layer only** — the Worker request guard (`docs/AUTH_AND_RLS.md` Layer 1). The former Postgres GRANT/RLS migration and its `scripts/verify-rls.sql` hard-stop gate were **deleted with the Postgres-app-DB decommission (AECI-278)**; there is no Postgres schema/RLS drift gate anymore. The live PR gate is the drizzle-kit schema-drift check (`drift-check.yml`, AECI-264). App-layer visibility (promoted-only, approved-only, own-row) is covered by the no-leakage authz-matrix specs (`apps/api/src/routes/*.authz-matrix.spec.ts`).
 
-**Apply order (per environment):** there is no separate apply step — the GRANT/RLS
-surface is part of the migration set, so `supabase db push --linked` (or
-`supabase db reset` locally) installs it alongside the schema, in timestamp
-order. Helpers must live in `public`, not `auth`: the migration role (`postgres`)
-cannot CREATE in the `auth` schema — see `docs/AUTH_AND_RLS.md` §6.1.
+### 5.5 Schema-drift gate
 
-**Re-runnability.** The migration is idempotent: every `create policy` is
-preceded by `drop policy if exists`, and the `REVOKE`/`GRANT`/`alter table ...
-enable row level security`/`create or replace function` statements are inherently
-idempotent. (Once recorded in `supabase_migrations`, `supabase db push` skips it;
-a correction is a new forward migration — never edit a merged migration.)
-
-**Verification.** `refresh-staging.yml` (after the migrate step) runs
-`psql "$URL" -v ON_ERROR_STOP=1 -f scripts/verify-rls.sql` as a hard-stop gate.
-(`drift-check.yml` no longer runs this probe — it moved to D1/Drizzle schema-vs-migrations
-drift in AECI-264; and `promote-to-prod.yml` no longer runs it either — AECI-256 removed
-the prod-promote Postgres steps, so the Postgres RLS gate now lives only in `refresh-staging.yml`.)
-The probe impersonates the PostgREST roles at the SQL layer (`SET ROLE anon`) and
-asserts:
-
-- the `public.is_admin()` / `public.is_active_user()` helpers exist and are anon-executable;
-- anon CAN `INSERT` into `feedback` / `mailing_list` (the landing carve-out survived the blanket REVOKE);
-- anon `SELECT` on `audit_log`, `profiles`, `vendor_requests`, `workflow_instances`, `workflow_transitions`, `page_views`, `feedback`, `mailing_list` returns `42501 insufficient_privilege`.
-
-Row-filter RLS that depends on a JWT (promoted-only, own-row) is covered by the
-PostgREST integration specs (`apps/api/src/integration/*.rls.spec.ts`).
+`drift-check.yml` (AECI-264) runs on any PR touching `apps/api/src/db/schema.ts`, `apps/api/drizzle.config.ts`, or `apps/api/migrations/**`: it re-runs `db:generate` and fails if that leaves `apps/api/migrations/` dirty (you edited the schema but didn't commit the generated migration).
 
 ---
 
@@ -399,9 +367,9 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `CLOUDFLARE_ACCOUNT_ID` | Account identifier | All |
 | `CLOUDFLARE_ZONE_ID` | Zone ID for `aecintegrations.com`; used by wrangler and the zone-scoped cache-purge token backing `POST /admin/purge` (see `CACHE_STRATEGY.md` §5) | staging, production |
 | `CF_ANALYTICS_API_TOKEN` | **Single shared** (un-suffixed, like `SUPABASE_ANON_KEY` — the token is zone-scoped and the zone is shared) Cloudflare token for the hourly WAF firewall-event poll (AECI-262 / §15.1): reads the zone's `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits `aeci.waf.ratelimit.blocked`. Scope: **`Zone Analytics: Read` on `aecintegrations.com`** — a *different* scope than the `Zone.Cache Purge` purge token, so it is its own secret. Pushed to the API Worker as `CF_ANALYTICS_API_TOKEN` by `deploy.yml` (staging) / `promote-to-demo.yml` (demo) / `promote-to-prod.yml` (production), all **graceful warn-and-skip**. Reuses the env's `CF_ZONE_ID`. **Optional + fail-safe:** absent → the poll logs `outcome:skipped_no_creds` and no-ops. See `docs/waf-rate-limits.md` §5. | All |
-| `SUPABASE_ACCESS_TOKEN` | Migrations via Supabase CLI | All |
-| `SUPABASE_DB_URL` | Supabase pooler URL; doubles as `DIRECT_URL` for `supabase db push --linked` | All |
-| `DATABASE_URL` | Prisma Accelerate runtime URL (`prisma://...`); one per environment. Pushed to Worker via `wrangler secret put DATABASE_URL` | All |
+| `SUPABASE_ACCESS_TOKEN` — **orphaned** | Was for the Supabase CLI app-DB migrations; the Postgres `supabase db push` machinery was decommissioned (AECI-278). Only manual auth-baseline reconciliation uses the CLI now. | — |
+| `SUPABASE_DB_URL` / `DIRECT_URL` — **retired** | The Postgres app-DB `supabase db push` path is gone (AECI-278). No DB connection URL is needed — the app DB is Cloudflare D1, reached via the Worker's `DB` binding. | — |
+| `DATABASE_URL` — **retired** | Prisma Accelerate was removed (AECI-253/278). The app DB is Cloudflare D1 (ADR 0016) via the `DB` binding; there is no DB connection secret. | — |
 | `SUPABASE_SERVICE_ROLE_KEY` | Operator-held for transient shell provisioning (e.g. dev test user). **Never** pushed to a Worker and read by **no** workflow — the `integration-db-tests` job mints its own from a local `supabase start` stack. Not a runtime secret; not involved in sign-in. See `environments.md` §Secrets. | — (optional) |
 | `SUPABASE_ANON_KEY` | Public Supabase key | All |
 | `ALGOLIA_ADMIN_KEY` | **Single shared management** key (one value, every env) — search + index-mutation ACLs; one Algolia app spans all envs and the key reaches every index (`--env` is only an index-name prefix). Sync pipeline (3.5/3.6) + CI. Pushed to the API Worker as `ALGOLIA_ADMIN_KEY` by `deploy.yml` / `promote-to-prod.yml` / `promote-to-demo.yml`. The former `_STAGING`/`_PRODUCTION` secrets are retired. | All |
@@ -435,12 +403,7 @@ Local secrets live in `.dev.vars` at the root of each Worker package. **Never co
 
 `pnpm dev` or `wrangler dev` reads `.dev.vars` automatically.
 
-**For any Worker that talks to Prisma**, `.dev.vars` must contain at minimum:
-
-- `DATABASE_URL` — Prisma Accelerate URL (`prisma://...`). Used at runtime.
-- `DIRECT_URL` — Supabase pooler URL (`postgresql://...`). Used by the Prisma CLI (`migrate dev`, `generate`).
-
-See the canonical comment block at `apps/api/wrangler.jsonc:12-13` for the deploy-side counterpart.
+The API Worker reaches the app DB through its native D1 `DB` binding — there is **no** `DATABASE_URL` / `DIRECT_URL` (Prisma was removed, AECI-278). The local D1 is a per-workspace SQLite that `pnpm dev` auto-migrates + seeds via `db:setup:local`; `.dev.vars` only needs the **Auth** values (`SUPABASE_URL` + the anon key) and the other runtime secrets (`DD_*`, Algolia, etc.). See `docs/environments.md` → "Local dev: running the API Worker (D1)".
 
 ### 7.4 Rotation
 

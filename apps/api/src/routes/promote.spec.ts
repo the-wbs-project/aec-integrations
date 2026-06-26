@@ -26,11 +26,12 @@ import {
   taxonomyPhases,
   vendors,
 } from '../db/schema';
+import { bookmarkMiddleware } from '../bookmark-middleware';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { DbFactory } from '../lib/handler-utils';
 import { requireReviewAppAuth } from '../lib/review-auth';
-import { makeTestDb, type TestDb } from '../test/d1';
+import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
   createPromoteHandler,
@@ -43,7 +44,6 @@ import { cacheTagsForPromote } from './promote-cache-tags';
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
 const baseEnv: Env = {
-  DATABASE_URL: 'prisma://test',
   ENV: 'preview',
   REVIEW_APP_TOKEN: 'secret-token',
 };
@@ -108,6 +108,40 @@ const seedProduct = (
   name: string,
   extra: Partial<typeof products.$inferInsert> = {},
 ) => t.db.insert(products).values({ id, slug, name, promotionStatus: 'promoted', ...extra });
+
+describe('createPromoteHandler — Sessions API bookmark threading (AECI-250)', () => {
+  it('threads inbound x-d1-bookmark + first-primary into getDb and emits the outbound bookmark', async () => {
+    const rec = recordingFactory(t.db);
+    rec.setBookmark('bk-after-write');
+
+    const app = new Hono<{ Bindings: Env }>();
+    app.onError(errorHandler());
+    app.use('*', bookmarkMiddleware());
+    app.post('/api/promote', createPromoteHandler(rec.factory, noopAlgolia, noopIndexNow));
+
+    const res = await app.request(
+      '/api/promote',
+      post(
+        {
+          vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+          product: { ref: 'p1', name: 'Revit' },
+          integrations: [],
+        },
+        { 'x-d1-bookmark': 'in-99' },
+      ),
+      baseEnv,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    // Inbound bookmark + the write anchor reached getDb …
+    expect(rec.calls[0]).toEqual({ bookmark: 'in-99', constraint: 'first-primary' });
+    // … and the session bookmark came back out for the next request.
+    expect(res.headers.get('x-d1-bookmark')).toBe('bk-after-write');
+    // The real write still happened over the recording factory's client.
+    expect(await t.db.select().from(products)).toHaveLength(1);
+  });
+});
 
 describe('createPromoteHandler', () => {
   it('creates a product with vendor and taxonomy', async () => {

@@ -142,12 +142,12 @@ Use Miniflare for integration tests. For pure handler logic, extract and test as
 - Use async/await; never use done callbacks
 - Time-dependent code uses `vi.useFakeTimers()` — never real `setTimeout` in tests
 
-### Prisma queries
+### Drizzle/D1 queries
 
-- Pure transformations of Prisma results: unit test with a mocked Prisma client
-- The query itself: integration test with a real DB (covered in `TESTING_STRATEGY.md` integration testing — not unit tests)
+- Pure transformations of query results: unit test with a mocked Drizzle client (`getDb` double)
+- The query itself: integration test against a local D1 (covered in `TESTING_STRATEGY.md` integration testing — not unit tests)
 
-Don't mock Prisma deeply. Mock the specific call you're hitting and assert on the call's input.
+Don't mock the Drizzle client deeply. Mock the specific call you're hitting (`db.query.*`, `db.select`, `db.batch`) and assert on the call's input.
 
 ### Workflow state machines
 
@@ -180,7 +180,7 @@ Any change that triggers `invalidateForEntity()` must include a test asserting:
 
 - Configuration files (`.config.ts`)
 - Type-only files (`.d.ts`, `types.ts`)
-- Auto-generated code (Prisma client output)
+- Generated migration SQL (drizzle-kit output under `apps/api/migrations/`)
 - Tailwind class names — visual regression tests cover styling
 - Spartan UI component internals
 - Framework behavior (Angular's change detection, Vitest itself, Zod's parser)

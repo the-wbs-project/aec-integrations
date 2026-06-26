@@ -81,6 +81,24 @@ requests.
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
 
+### Measuring the D1 read-replication latency win (AECI-250)
+
+The edge-read-latency thesis (ADR 0016) is realized by the D1 Sessions API:
+reads default to the `'first-unconstrained'` session anchor and are served by the
+nearest replica. **The signal is the existing `aeci.api.query.duration_ms`
+distribution** (no new metric) — split by `endpoint`, it already isolates the
+representative reads (`/api/products`, `/api/products/:slug`, `/api/vendors/:slug`,
+`/api/integrations/:id`).
+
+To quantify the delta: capture a baseline p50/p95 on those `endpoint` slices, then
+enable read replication on the database (Cloudflare dashboard → D1 → *db* →
+Settings → Enable Read Replication, or REST `read_replication:{"mode":"auto"}`)
+and compare. The win is **prod-only** (local/preview run a single un-replicated
+SQLite; `getDb` falls back to the plain binding there) and only appears **after**
+the per-database flip — the code ships inert-safe before it. Replica reads also
+surface in the D1 binding's own analytics (`served_by_region` / `served_by_colo`
+on query results) for a region-routing sanity check.
+
 `aeci.api.data_gap` (AECI-115) surfaces curated-data gaps that used to be hidden by
 silent fabrication. A product with no `ProductVendor` row now renders an empty state
 instead of a fake `/vendors/unknown` link; the metric (plus a paired `warn` log naming
@@ -140,7 +158,7 @@ count (`outcome:success` = every key written/skipped cleanly, `partial` = some w
 `failed` = nothing wrote and ≥1 key failed), one job-level `aeci.stats.compute.duration_ms`
 distribution, plus per-key `aeci.stats.compute.key` (`outcome:written|skipped|failed`) and
 `aeci.stats.compute.key.duration_ms` so a dashboard/monitor sees *which* `home.*` key failed or
-slowed without reading logs. The pre-compute crash path (a Prisma-init throw before `runHomeStats`)
+slowed without reading logs. The pre-compute crash path (a DB-client-init throw before `runHomeStats`)
 stays an inline single `aeci.stats.compute{outcome:failed}` count — like the Algolia crash path, it
 isn't a completed run. Because every completed invocation (and the crash path) emits exactly one
 job-level `aeci.stats.compute{trigger:cron}` point regardless of outcome, that series is the
@@ -422,7 +440,7 @@ Home stats (AECI-180) follow the **same failure + liveness split**. "Home stats 
 alerts when either the per-key `aeci.stats.compute.key{outcome:failed}` count or the job-level
 `aeci.stats.compute{outcome:failed}` count is non-zero (no `notify_no_data` — both are empty on a
 healthy run). The per-key term names the offending `home.*` key; the job-level term also catches a
-**pre-compute crash** (a Prisma-init throw before `runHomeStats`), which emits the job-level
+**pre-compute crash** (a DB-client-init throw before `runHomeStats`), which emits the job-level
 `outcome:failed` heartbeat but no per-key points. That term is load-bearing — the crash also emits
 the `{trigger:cron}` liveness heartbeat, which keeps the "not running" monitor green, so without the
 job-level failure term a total crash would slip past **both** monitors. "Home stats not running" is the

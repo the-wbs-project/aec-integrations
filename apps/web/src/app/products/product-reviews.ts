@@ -9,7 +9,7 @@ import { ReviewStars } from '../reviews/review-stars';
 
 /**
  * Page size for the reviews list. Matches the API's `EMBED_REVIEWS_PAGE_SIZE`
- * (`apps/api/src/lib/prisma-helpers.ts`) so the SSR-embedded first page
+ * (`apps/api/src/lib/drizzle-helpers.ts`) so the SSR-embedded first page
  * (`ProductDetail.reviews`) lines up exactly with page 1 of the list endpoint —
  * "Load more" then fetches page 2, 3, … with no overlap or gap.
  */

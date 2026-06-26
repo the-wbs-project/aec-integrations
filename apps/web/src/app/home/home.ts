@@ -15,19 +15,19 @@ import { HomeDifferentiation } from './home-differentiation';
 import { HomeHero } from './home-hero';
 import { HomeHowItWorks } from './home-how-it-works';
 import { HomeStatsCards } from './home-stats-cards';
+import { HomeWhy } from './home-why';
 import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
 
 /**
  * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly, kept in the §4.1
- * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → what's
- * different (`home-differentiation`, AECI-273) → how it works (`home-how-it-works`,
- * AECI-273) → three stats cards → "Browse by" grids → recently-added integrations →
- * trending products (the footer lives in the app shell) — and owns the home SEO
- * (meta + OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
- * constructor since the copy is static). §4.1 section 3 (why / the problem) is the
- * remaining unbuilt AECI-269 child; it slots between the credibility strip and the
- * what's-different band. (The standalone "Trust is the product" band —
+ * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → "why
+ * AECi" problem band (AECI-272) → what's different (`home-differentiation`,
+ * AECI-273) → how it works (`home-how-it-works`, AECI-273) → three stats cards →
+ * "Browse by" grids → recently-added integrations → trending products (the footer
+ * lives in the app shell) — and owns the home SEO (meta + OG/Twitter +
+ * `WebSite`/`Organization` JSON-LD + canonical, set in the constructor since the
+ * copy is static). (The standalone "Trust is the product" band —
  * `home-trust-pillars` — is now only on `/about`; the home folds that promise into
  * the differentiation band's closing line.)
  *
@@ -53,6 +53,7 @@ import { TrendingProductsSection } from './trending-products-section';
   imports: [
     HomeHero,
     HomeCredibilityStrip,
+    HomeWhy,
     HomeDifferentiation,
     HomeHowItWorks,
     HomeStatsCards,
@@ -73,10 +74,13 @@ import { TrendingProductsSection } from './trending-products-section';
         [totalReviews]="totalReviews()"
       />
 
+      <!-- Why AECi / the problem (§4.1 section 3, AECI-272): the broken-landscape
+           narrative + three static market figures. Cold-visitor framing, mounted
+           after the credibility strip per the AECI-270 order. -->
+      <aec-home-why />
+
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <div class="flex flex-col gap-10 md:gap-12">
-          <!-- §4.1 section 3 (why / the problem) slots here when its child ships. -->
-
           <!-- §4.1 section 4 (what's different): the reconciled three ideas plus
                the absorbed trust line (AECI-273). -->
           <aec-home-differentiation />

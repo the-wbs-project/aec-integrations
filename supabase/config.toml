@@ -58,14 +58,15 @@ enabled = true
 schema_paths = []
 
 [db.seed]
-# If enabled, seeds the database after migrations during a db reset.
+# If enabled, seeds the database after migrations during a db reset. This local
+# Supabase stack now backs **Auth only** (ADR 0016 / 0017 / AECI-278) — the app
+# database is Cloudflare D1. The taxonomy reference data moved to D1
+# (`apps/api/seed/taxonomy.sql`, applied via `wrangler d1 execute`); the former
+# Postgres `reference-data/taxonomy.sql` seed was removed.
 enabled = true
 # Specifies an ordered list of seed files to load during db reset.
 # Supports glob patterns relative to supabase directory: "./seeds/*.sql"
-# `reference-data/taxonomy.sql` is the code-owned, version-controlled taxonomy
-# vocabulary (idempotent upserts) — applied locally here and to remote envs via
-# `pnpm db:seed-reference`. See docs/adr/0008-taxonomy-reference-data.md.
-sql_paths = ["./seed.sql", "./reference-data/taxonomy.sql"]
+sql_paths = ["./seed.sql"]
 
 [db.network_restrictions]
 # Enable management of network restrictions.

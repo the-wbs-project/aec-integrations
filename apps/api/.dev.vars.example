@@ -3,21 +3,11 @@
 # ─── App database = Cloudflare D1 (ADR 0016) — NO connection secret ─────────
 # The Worker reads/writes the app database through its `DB` D1 binding, not a
 # connection URL. Local `wrangler dev` uses a per-workspace local SQLite D1 that
-# `pnpm dev` / `dev:preview` auto-migrate + seed via `db:setup:local`. So you do
-# NOT need DATABASE_URL to boot the app locally, and there is no app-DB secret to
-# set in deployed envs — schema is applied with `wrangler d1 migrations apply`.
-#
-# DATABASE_URL / DIRECT_URL below are NO LONGER read by the Worker (the Prisma
-# Accelerate runtime path is retired, AECI-253). They survive only for the
-# RETAINED Supabase-Postgres surface — the landing lead-capture tables
-# (feedback / mailing_list) — consumed by `prisma generate` and the landing /
-# integration test suites, which `describe.skipIf` themselves when unset. Leave
-# both empty unless you run those Postgres tests. (Full removal: AECI-257.)
-DATABASE_URL=
-# Supabase pooler URL — used by the Supabase CLI (`supabase db push / pull /
-# diff`, now scoped to landing + auth) and `prisma generate` introspection. The
-# deployed Worker does NOT read this. See docs/migrations.md.
-DIRECT_URL=
+# `pnpm dev` / `dev:preview` auto-migrate + seed via `db:setup:local`. So there is
+# no app-DB secret to set locally or in deployed envs — schema is applied with
+# `wrangler d1 migrations apply`. The former Prisma Accelerate `DATABASE_URL` /
+# `DIRECT_URL` connection vars are fully gone (ADR 0016 / AECI-278); Supabase is
+# retained for Auth only (the `SUPABASE_*` vars below).
 
 # ─── Supabase URL + integration tests (AECI-48 / AECI-193) ──────────────────
 # SUPABASE_URL is now ALSO read by the Worker at runtime (AECI-193): it drives
@@ -56,37 +46,11 @@ SUPABASE_TEST_USER_JWT=
 # use for the service role at runtime and shouldn't see it.
 SUPABASE_SERVICE_ROLE_KEY=
 
-# ─── TEST_DATABASE_URL (retired) ───────────────────────────────────────────
-# DEAD as of the D1 migration (PR #359, AECI-248→257). Its only consumers were
-# the deleted Postgres integration specs (backfill-slugs / product-counts and
-# the scripts they exercised); the surviving JWKS integration spec doesn't read
-# it, and the application DB is now Cloudflare D1. Left here only to record that
-# the var is no longer read — safe to leave unset. Full removal rides with the
-# Prisma/Supabase-Postgres decommission (AECI-256/257).
-TEST_DATABASE_URL=
-
-# ─── Local seeding from staging (AECI-80) ──────────────────────────────────
-# Opt-in. Only required if you run `pnpm db:seed-from-staging` to pull
-# staging's data shape into your local Postgres. Workers never read this —
-# it is consumed only by `scripts/seed-from-staging.sh` from your shell
-# (the script reads the variable from the environment, not from .dev.vars).
-#
-# Where to find it: Supabase Dashboard → `aeci-development` project →
-# Project Settings → Database → Connection string → "URI" (use the
-# "Transaction" / pooler form). Looks like:
-#   postgresql://postgres:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
-#
-# Export it in your shell (.zshrc / .bashrc / direnv) — DO NOT paste it
-# into .dev.vars, because the Worker has no use for it and shouldn't see
-# raw Postgres credentials.
-# DIRECT_URL_STAGING="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
-
-# ─── Airtable bulk migration (AECI-83) ─────────────────────────────────────
-# Consumed ONLY by `scripts/airtable-to-supabase-bulk-migrate.ts` (one-time
-# Airtable → Supabase migration). Workers never read these. The script writes
-# to production Supabase via DIRECT_URL above using the privileged role — point
-# DIRECT_URL at a SESSION-capable connection (Supabase "Session" pooler or the
-# direct 5432 endpoint), because the script uses interactive transactions.
+# ─── Airtable PAT (AECI-83) ────────────────────────────────────────────────
+# Used by the Airtable gateway lib (apps/api/scripts/lib/airtable.ts) for the
+# one-time bulk-migration tooling. Workers never read these. (The original
+# Airtable → Supabase-Postgres bulk-migrate script is retired — the live curator
+# → app-DB path is POST /api/promote into D1; see docs/API_CONTRACTS.md.)
 #
 # AIRTABLE_PAT: a Personal Access Token with scopes data.records:read,
 # data.records:write, and schema.bases:write on the base below (the script

@@ -2,6 +2,19 @@
 
 Sibling to `STAGE_1_PHASE_2_SPEC.md`. Governs Phase 5 of the build order (`STAGE_1_SPEC.md` §16). Where this doc and §16 disagree, **this doc wins for Phase 5** (and §16 has been reconciled to point here). Planned 2026-06-10; decomposed into AECI Phase 5.1–5.16.
 
+> **Stack note (ADR 0016 / AECI-278):** this spec predates the move of the
+> application database to **Cloudflare D1 + Drizzle**. The authorization *flow*
+> below is unchanged, but the mechanics are now D1/Drizzle: read every
+> "privileged Prisma/Accelerate client" / "before any Prisma write" as the
+> **Drizzle** client (`getDb(env)`) writing to D1 — the role/ban check still
+> runs in the Worker before the write, and the audit row is written in the same
+> atomic `db.batch([...])`. D1 has no RLS, so the Worker guard is the **only**
+> authorization layer for app tables (PostgREST GRANTs / RLS no longer apply).
+> GDPR erasure deletes the D1 rows in the Worker and the `auth.users` row via
+> the Supabase Admin API (`AUTH_AND_RLS.md` §8). Supabase is retained for Auth
+> only; the `Profile`/`Review` field lists below match the Drizzle schema
+> (`apps/api/src/db/schema.ts`).
+
 ---
 
 ## 1. Goal

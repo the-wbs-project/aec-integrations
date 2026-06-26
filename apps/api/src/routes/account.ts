@@ -48,7 +48,7 @@ import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { sendAccountDeletionEmail } from '../lib/email';
-import type { DbFactory } from '../lib/handler-utils';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { deleteAuthUser as deleteAuthUserDefault } from '../lib/supabase-admin';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -110,7 +110,7 @@ export function createUpdateAccountHandler(
     const session = c.get('auth');
     const { userId } = session;
     const payload = await parseJsonBody(c, UpdateAccountSchema);
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     const before = await db.query.profiles.findFirst({
       columns: { displayName: true },
@@ -157,7 +157,7 @@ export function createDeleteAccountHandler(
     // Capture the recipient BEFORE erasure — the auth.users row (the email's home)
     // is deleted below, so the §11.1 confirmation must read it up front.
     const recipientEmail = session.email;
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     const auditEntry: AuditLogEntry = {
       // actorId MUST be null — the profile is deleted in this same batch.

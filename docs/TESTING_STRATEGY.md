@@ -257,17 +257,17 @@ describe('SSR Worker', () => {
 });
 ```
 
-### 6.3 Prisma in integration tests
+### 6.3 The Drizzle/D1 client in tests
 
-API Worker handlers are factories that take the Prisma client through a `prismaFor: PrismaFactory = getPrisma` parameter and call it per request — the factory-DI shape in `DATABASE_SCHEMA.md` §1a (modeled on `apps/api/src/routes/health.ts`). Do **not** import a module-level Prisma singleton; doing so makes handlers untestable without a live database.
+API Worker handlers are factories that take the Drizzle client through a `getDb`-style factory parameter and call it per request — the factory-DI shape in `DATABASE_SCHEMA.md` §1a (`getDb(env)`, `apps/api/src/db/client.ts`). Do **not** import a module-level DB singleton; doing so makes handlers untestable without a live database. (Prisma was removed entirely in AECI-278 — there is no `getPrisma` / `prismaFor`.)
 
-**Unit/handler tests** — inject a Prisma double through the `prismaFor` factory param (e.g. `createHealthHandler(() => mock)`). Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (e.g. `findMany`, `create`, `update`, `delete`). Assert on the call shape, not the return.
+**Unit/handler tests** — inject a Drizzle double through the factory param. Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (`db.query.*`, `db.select()`, `db.insert/update/delete`, `db.batch`). Assert on the call shape, not the return.
 
-**Higher-fidelity integration tests** — point `DATABASE_URL` at a dedicated preview Supabase Accelerate URL. Each test run must clean up after itself by truncating tables in `afterEach`/`afterAll`. Run serially or per-test-suite isolated to avoid cross-test interference.
+**Higher-fidelity integration tests** — run against a local D1 (the in-memory / Miniflare D1 harness, or the seeded local SQLite). The authz no-leakage matrix specs (`apps/api/src/routes/*.authz-matrix.spec.ts`, AECI-234) compose the real guards with the real handlers over the in-memory D1.
 
-**Accelerate-specific constraint:** the common Node Postgres pattern of "open a transaction, run the test, rollback" does **not** work the same way over Accelerate's HTTPS boundary — `prisma.$transaction` is supported, but each interactive-transaction statement is a separate round-trip, and the transaction does not span the test's surrounding code. Use truncation, not rollback, for test isolation.
+**Atomicity constraint:** D1 has **no interactive transactions** — atomic multi-statement writes are `db.batch([...])`. So the "open a transaction, run the test, rollback" isolation pattern does not apply; reset/reseed the local D1 between suites instead.
 
-**Audit + cache assertions.** Tests that exercise a write path should assert both the `prisma.$transaction(...)` call shape (mutation + `audit_log`) and the `ctx.waitUntil(invalidateForEntity(...))` call. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
+**Audit + cache assertions.** Tests that exercise a write path should assert both the `db.batch([...])` call shape (mutation + the `auditInsert(...)` row in the same batch) and the `ctx.waitUntil(invalidateForEntity(...))` call. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
 
 ### 6.4 Edge-cache integration layer (complementary to Miniflare)
 
@@ -290,7 +290,7 @@ Run this suite in CI against the preview deploy for the PR. It's slow relative t
 
 The `apps/api/src/integration/**` lane talks to a real Supabase service rather than Miniflare. Post-D1 migration (PR #359, AECI-248→257) it holds a **single** spec — `user-auth.jwks.spec.ts`, a live **ES256 JWKS** regression guard for `requireUserAuth()`: it fetches the project's published signing keys over the network (`createRemoteJWKSet`) and verifies a real, freshly-minted access token, so a dashboard signing-key rotation back to HS256 (which would break the production JWKS-only contract) fails the build. Auth is the only thing retained on Supabase (ADR 0015/0016); the application DB is Cloudflare D1. The former Postgres/PostgREST suites this lane was built for — the RLS deny matrices, the auth-user-delete GDPR trigger, the Airtable→Supabase bulk migrate, and the `TEST_DATABASE_URL`-gated recompute/backfill checks — were **deleted in PR #359** (the planned `landing_forms.rls` was never created and the landing lead-capture tables moved to D1, AECI-257), so nothing remains on Supabase **Postgres**. Locally the spec runs via `pnpm --filter @aeci/api test:integration` with `SUPABASE_URL` + a fresh `SUPABASE_TEST_USER_JWT` (mint via `apps/web/scripts/mint-dev-session.mjs`).
 
-In CI the `integration-db-tests` job — its own workflow, `.github/workflows/integration-db-tests.yml` (extracted from `deploy.yml`) — boots a **full local Supabase stack** on the runner (`supabase start`), maps `supabase status -o env` into the env the spec + mint step read (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), mints a `SUPABASE_TEST_USER_JWT` (the local stack issues ES256), then runs the `test:integration:ci` script (the JSON-reporter variant of `test:integration`, without the `dotenv` wrapper). **No repo secrets are required** — the local GoTrue both mints the token and serves the JWKS endpoint, isolated from any shared project. There is **no `prisma generate`** step: the spec's import graph never touches `@prisma/client` (removing Prisma from `apps/api` wholesale is AECI-256).
+In CI the `integration-db-tests` job — its own workflow, `.github/workflows/integration-db-tests.yml` (extracted from `deploy.yml`) — boots a **full local Supabase stack** on the runner (`supabase start`), maps `supabase status -o env` into the env the spec + mint step read (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), mints a `SUPABASE_TEST_USER_JWT` (the local stack issues ES256), then runs the `test:integration:ci` script (the JSON-reporter variant of `test:integration`, without the `dotenv` wrapper). **No repo secrets are required** — the local GoTrue both mints the token and serves the JWKS endpoint, isolated from any shared project. There is no ORM client-generation step: Drizzle needs none, and Prisma was removed from `apps/api` wholesale (AECI-278).
 
 **Silent-skip guard.** Every spec is wrapped in `describe.skipIf(<env unset>)` so the default unit lane stays green without live services. That same guard means a *misconfigured* CI job would *collect* the tests but *skip* them and still exit 0. The job therefore parses the JSON summary and fails on either `numTotalTests === 0` (nothing collected) **or** `numPendingTests > 0` (a `skipIf` fired → env not wired). A green check must mean the JWKS regression guard actually executed — not that it was quietly excluded.
 
@@ -357,9 +357,9 @@ test('user can search and find a product', async ({ page }) => {
 
 ### 7.5 Test data
 
-- Preview environment uses a fixed seed data set in Supabase
+- The local/preview environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
-- Seed data lives in `apps/api/prisma/seed.ts` and is applied to preview/staging on initialization
+- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds)
 
 ### 7.6 Auth in tests
 
@@ -636,7 +636,7 @@ Files exempt from coverage requirements:
 
 - Configuration files (`*.config.ts`)
 - Type-only files (`.d.ts`, `types.ts`)
-- Auto-generated code (Prisma client)
+- Generated migration SQL (drizzle-kit output under `apps/api/migrations/`)
 - Storybook stories
 - Test utilities themselves
 

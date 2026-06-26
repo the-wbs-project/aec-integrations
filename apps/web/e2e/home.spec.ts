@@ -159,6 +159,7 @@ test.describe('/ — home assembly (AECI-186)', () => {
     const order = [
       'aec-home-hero',
       'aec-home-credibility-strip',
+      'aec-home-why',
       'aec-home-differentiation',
       'aec-home-how-it-works',
       'aec-home-stats-cards',
