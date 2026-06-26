@@ -35,6 +35,24 @@ import { TrendingProductsSection } from './trending-products-section';
  * band — `home-trust-pillars` — is now only on `/about`; the home folds that
  * promise into the differentiation band's closing line.)
  *
+ * **Section banding (readability).** The sections were built in parallel (one
+ * AECI issue each), which left the whole middle stacked on a single flat
+ * `--surface-base` container — no ground change and no breathing room from one
+ * section to the next. The assembly now groups them into full-bleed bands with an
+ * alternating ground and a hairline top border so each reads as a distinct moment:
+ * hero (Bone) → credibility strip (white) → "why" (white, Bone callout) → "the
+ * case" / what's-different + how-it-works (`--accent-primary-soft` Forest-soft) →
+ * "at a glance + browse" / stats + category + audience (white, so the audience
+ * Bone callout pops) → "explore the directory" / phase + recent + trending
+ * (Forest-soft again, so the card grids lift) → closing CTA (Bone). The two warm
+ * Bone bookends frame the page; the white ↔ Forest-soft ↔ white ↔ Forest-soft
+ * alternation between them supplies the landmarks (`--surface-sunken` was too close
+ * to white to read as a band). The ground tokens are the only knob — swap a band's
+ * `bg-(--accent-primary-soft)` for `--accent-warm` (Bone) or `--surface-sunken`
+ * (faint gray) to retint it. Each section component stays a background-agnostic
+ * bare `<section>`; the band wrapper (ground + `max-w-7xl` + vertical rhythm) lives
+ * here at the page level.
+ *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
  * binding, hydrated from TransferState):
  *   - `browse` (`homeBrowseResolver`) — the **live** aggregate taxonomy
@@ -82,38 +100,65 @@ import { TrendingProductsSection } from './trending-products-section';
 
       <!-- Why AECi / the problem (§4.1 section 3, AECI-272): the broken-landscape
            narrative + three static market figures. Cold-visitor framing, mounted
-           after the credibility strip per the AECI-270 order. -->
+           after the credibility strip per the AECI-270 order. White band so the
+           Bone narrative callout inside it pops. -->
       <aec-home-why />
 
-      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
-        <div class="flex flex-col gap-10 md:gap-12">
-          <!-- §4.1 section 4 (what's different): the reconciled three ideas plus
-               the absorbed trust line (AECI-273). -->
-          <aec-home-differentiation />
+      <!-- BAND:"the case" (§4.1 sections 4-5): what's different + how it works.
+           Forest-soft ground (\`--accent-primary-soft\`, the soft sage band tint) so
+           the pitch reads as one distinct stretch and lifts the bordered
+           \`--surface-raised\` cards off the page. -->
+      <div class="border-t border-(--border-default) bg-(--accent-primary-soft)">
+        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+          <div class="flex flex-col gap-12 md:gap-16">
+            <!-- §4.1 section 4 (what's different): the reconciled three ideas plus
+                 the absorbed trust line (AECI-273). -->
+            <aec-home-differentiation />
 
-          <!-- §4.1 section 5 (how it works): the operating model (AECI-273). -->
-          <aec-home-how-it-works />
+            <!-- §4.1 section 5 (how it works): the operating model (AECI-273). -->
+            <aec-home-how-it-works />
+          </div>
+        </div>
+      </div>
 
-          <aec-home-stats-cards
-            [totalIntegrations]="totalIntegrations()"
-            [integrationsAdded30d]="integrationsAdded30d()"
-            [mostIntegratedProduct]="mostIntegratedProduct()"
-            [mostActiveCategory]="mostActiveCategory()"
-          />
+      <!-- BAND:"at a glance + browse" (§4.1 sections 6-7): the directory numbers,
+           category browse, and the audience recognition moment. Back on white so
+           the band shifts ground from the gray pitch above and the audience Bone
+           callout pops. -->
+      <div class="border-t border-(--border-default) bg-(--surface-base)">
+        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+          <div class="flex flex-col gap-12 md:gap-16">
+            <aec-home-stats-cards
+              [totalIntegrations]="totalIntegrations()"
+              [integrationsAdded30d]="integrationsAdded30d()"
+              [mostIntegratedProduct]="mostIntegratedProduct()"
+              [mostActiveCategory]="mostActiveCategory()"
+            />
 
-          <app-browse-grid kind="category" [terms]="topCategories()" />
-          <!-- Audience (§4.1 section 7, AECI-274): the dedicated "this is for you"
-               role-recognition treatment REPLACES the generic audience browse grid
-               (one coherent audience moment, not two). Category + phase keep the
-               count-chip browse grid. -->
-          <aec-home-audience [audiences]="audienceTerms()" />
-          <app-browse-grid kind="phase" [terms]="allPhases()" />
+            <app-browse-grid kind="category" [terms]="topCategories()" />
+            <!-- Audience (§4.1 section 7, AECI-274): the dedicated "this is for you"
+                 role-recognition treatment REPLACES the generic audience browse grid
+                 (one coherent audience moment, not two). Category + phase keep the
+                 count-chip browse grid. -->
+            <aec-home-audience [audiences]="audienceTerms()" />
+          </div>
+        </div>
+      </div>
 
-          <aec-recent-integrations-section [integrations]="recentIntegrations()" />
-          <aec-trending-products-section
-            [products]="trendingProducts()"
-            [recentlyAdded]="recentlyAddedProducts()"
-          />
+      <!-- BAND:"explore the directory" (§4.1 section 8): phase browse + the live
+           integration / product feeds. Forest-soft ground again so the card grids
+           lift off the page and the band reads distinct from the white above. -->
+      <div class="border-t border-(--border-default) bg-(--accent-primary-soft)">
+        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+          <div class="flex flex-col gap-12 md:gap-16">
+            <app-browse-grid kind="phase" [terms]="allPhases()" />
+
+            <aec-recent-integrations-section [integrations]="recentIntegrations()" />
+            <aec-trending-products-section
+              [products]="trendingProducts()"
+              [recentlyAdded]="recentlyAddedProducts()"
+            />
+          </div>
         </div>
       </div>
 
