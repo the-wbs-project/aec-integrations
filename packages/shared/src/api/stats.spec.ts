@@ -65,6 +65,9 @@ const validIntegrationListItem = {
 const validHomeStats = {
   total_integrations: 128,
   integrations_added_30d: 9,
+  total_products: 43,
+  total_vendors: 33,
+  total_reviews: 12,
   most_integrated_product: { product: validProductLink, integration_count: 37 },
   most_active_category: { category: validLinkRef, integration_count: 64 },
   recent_integrations: [validIntegrationListItem],
@@ -80,6 +83,19 @@ describe('HomeStatsResponseSchema', () => {
     expect(parsed.most_active_category?.integration_count).toBe(64);
     expect(parsed.recent_integrations[0]?.source.slug).toBe('procore-platform');
     expect(parsed.trending_products).toHaveLength(1);
+  });
+
+  it('carries the AECI-271 coverage counts (products / vendors / reviews)', () => {
+    const parsed = HomeStatsResponseSchema.parse(validHomeStats);
+    expect(parsed.total_products).toBe(43);
+    expect(parsed.total_vendors).toBe(33);
+    expect(parsed.total_reviews).toBe(12);
+  });
+
+  it('rejects a negative coverage count', () => {
+    expect(
+      HomeStatsResponseSchema.safeParse({ ...validHomeStats, total_reviews: -1 }).success,
+    ).toBe(false);
   });
 
   it('accepts empty arrays (cold cache, nothing computed yet)', () => {

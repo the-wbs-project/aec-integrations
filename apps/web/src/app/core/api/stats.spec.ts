@@ -13,6 +13,9 @@ function stubClient(impl: ServerApiClient['request']): ServerApiClient {
 const SPARSE_STATS: HomeStatsResponse = {
   total_integrations: 0,
   integrations_added_30d: 0,
+  total_products: 0,
+  total_vendors: 0,
+  total_reviews: 0,
   most_integrated_product: null,
   most_active_category: null,
   recent_integrations: [],

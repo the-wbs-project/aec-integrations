@@ -241,7 +241,7 @@ At go-live there is no separate marketing page: when the apex flips from the sta
 | # | Section | At launch | Status / data source |
 |---|---|:--:|---|
 | 1 | **Hero + search** | ✓ | Existing `home-hero.ts`: positioning lede (cold visitor) + the reused `SearchAutocomplete` (ready visitor). |
-| 2 | **Credibility strip** | ✓ | **NEW.** Coverage counts (products / integrations / vendors) + "independent · no pay-for-placement". Counts read the live directory aggregates (`GET /api/stats/home`; taxonomy totals from `GET /api/taxonomy`); the independence line is static. Renders a real empty state when counts are 0. |
+| 2 | **Credibility strip** | ✓ | **NEW** (AECI-271, `home-credibility-strip.ts`). Coverage counts (products / vendors / integrations) + "independent · no pay-for-placement". Counts come from the cached `GET /api/stats/home` (`total_products` / `total_vendors` / `total_integrations`, added to the daily stats job §10 — never live-aggregated); `total_reviews` joins once meaningful. The independence line is static. Each metric is suppressed at 0 (no "0 reviews"); an all-zero cache renders a real empty state. Contributing firms deferred (no reviewer-firm field yet). |
 | 3 | **Why AECi (the problem)** | ✓ | **NEW**, static. The broken-landscape narrative + three cited figures (≈34% of reviews AI-generated · $87K/yr to boost a ranking · 900+ tools in generic categories). Figures are static cited stats, not live data. |
 | 4 | **What's different / trust** | ✓ | **REWORK** of `home-trust-pillars.ts`, static. Reconciles the shipped three trust commitments (never sell rankings · always be transparent · never review products ourselves) with the landing's "three ideas" (reviewable integrations · separate product + onboarding ratings · no pay-for-placement). The reconciliation is fixed in `unified-home-direction.md`. |
 | 5 | **How it works** | ✓ | **NEW**, static, compact. The dual-review + no-pay-for-placement method, framed as the operating model (not a claim of verified inventory). Earns the "reviews" framing the footer used to assert. |
@@ -790,6 +790,9 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 **Computes and writes to `stats_cache`:**
 - `home.total_integrations` — count from integrations table
 - `home.integrations_added_30d` — count where `created_at >= now() - 30 days`
+- `home.total_products` — count from products table (credibility strip, AECI-271)
+- `home.total_vendors` — count from vendors table (credibility strip, AECI-271)
+- `home.total_reviews` — count of **approved** reviews (credibility strip, AECI-271)
 - `home.most_integrated_product` — product with highest integration count
 - `home.most_active_category` — category with highest aggregate integration count
 - `home.recent_integrations` — last 10 integrations with linked product names
