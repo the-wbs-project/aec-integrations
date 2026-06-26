@@ -206,7 +206,7 @@ type ViewKey = 'cards' | 'table';
               @case ('table') {
                 <div class="overflow-x-auto">
                   <table
-                    class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
+                    class="w-full border-collapse text-start text-sm md:min-w-[52rem]"
                     i18n-aria-label="@@products.index.table.aria"
                     aria-label="Products"
                   >
@@ -232,6 +232,13 @@ type ViewKey = 'cards' | 'table';
                           i18n="@@products.index.col.category"
                         >
                           Primary category
+                        </th>
+                        <th
+                          scope="col"
+                          class="hidden px-4 py-3 text-end text-xs font-medium tracking-wide text-(--text-secondary) md:table-cell"
+                          i18n="@@products.index.col.rating"
+                        >
+                          Rating
                         </th>
                         <th
                           scope="col"

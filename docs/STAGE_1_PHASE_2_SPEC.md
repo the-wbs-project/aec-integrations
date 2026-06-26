@@ -308,6 +308,8 @@ Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUs
 
 **Review-driven product sorts** (`/products` only): `rating` ("Highest rated") and `reviews` ("Most reviewed"), both **DESC**. For `rating`, products whose average is withheld by the §5.5 ≥5-review gate sort **last** (the orderBy nulls the sort key below the threshold, so a lone 5★ review can't top a well-reviewed 4.8★ product). Both are mostly inert until reviews accumulate post-launch, but ship now so the option is ready. Vendors do not expose these (no vendor rating field; no live `/vendors` list).
 
+**Rating display on cards/tables.** The product table rows, the card-grid tiles, and the `/search` product cards surface the **gated overall rating** via `RatingSummary` (`<aec-rating-summary>`, `DESIGN.md` § Rating summary) — a numeral-forward gold-star + average + review-count unit, shown only at ≥5 approved reviews (the same §5.5 gate, now applied on the **list** mapper too, not just detail). Below the gate the table cell shows an en-dash and the grid/search cards omit the line. This closes the 2026-06-12 trust-audit P0 ("zero social-proof on cards") and gives the two sorts above a visible counterpart. Vendors/integrations have no rating field, so they show no rating.
+
 ---
 
 ## 8. Edge caching with tags

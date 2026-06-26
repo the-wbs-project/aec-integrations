@@ -126,7 +126,7 @@ Per-entity defaults (Phase 2 Spec §7.4):
 - `/api/products`, `/api/vendors` → `created` (i.e. created DESC, "newest first")
 - `/api/integrations` → `name` (alphabetical; groups by source product since names render as `"Source → Target"`)
 
-`rating` ("Highest rated") and `reviews` ("Most reviewed") are **products-only** sorts (the `/products` index dropdown). For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` itself is applied on the **detail** mapper only (the list endpoint returns the raw average, since the index cards render no rating today).
+`rating` ("Highest rated") and `reviews` ("Most reviewed") are **products-only** sorts (the `/products` index dropdown). For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` / `rating_onboarding_avg` is applied on **both** the list and detail mappers (`toProductListItem` / `toProductDetail`), so a sub-5 product never emits a misleading average and the card / table / detail surfaces stay consistent. The shared threshold constant is `RATING_VISIBILITY_MIN_REVIEWS` (`@aeci/shared`); the `rating` sort reuses it in its `CASE` guard.
 
 `SortOrderSchema = z.enum(['asc', 'desc'])` is retained in `common.ts` for server-side helpers, but does not appear in any Phase 2 public query.
 
@@ -670,7 +670,7 @@ Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with
 
 - `review_count`, `rating_overall_avg`, `rating_onboarding_avg` — the denormalized summary columns (already on `ProductListItem`).
 - `reviews: PublicReview[]` — the **first page** of approved reviews (newest-first, same shape/order as page 1 of the list endpoint) so the product page renders reviews server-side without a client round-trip.
-- **≥5 averages gate:** when `review_count < 5`, both `rating_overall_avg` and `rating_onboarding_avg` are **`null`** on `ProductDetail` (a single-review average is statistically misleading — §5.5). The UI infers state from `review_count`: `0` → "Be the first to review", `1–4` → reviews shown / averages hidden, `5+` → averages shown. The gate is **`ProductDetail`-only**; `ProductListItem` (cards/lists) keeps its raw averages.
+- **≥5 averages gate:** when `review_count < 5`, both `rating_overall_avg` and `rating_onboarding_avg` are **`null`** (a single-review average is statistically misleading — §5.5). The UI infers state from `review_count`: `0` → "Be the first to review", `1–4` → reviews shown / averages hidden, `5+` → averages shown. The gate is applied on **both** `ProductListItem` (`toProductListItem`) and `ProductDetail` — list/grid/search cards render the gated overall rating (`RatingSummary`, AECI trust-audit P0), so a sub-5 average never reaches a card. `review_count` itself is always truthful (a card may show "N reviews" without an average). The gate also covers the denormalized Algolia `rating_overall_avg`'s consumer defensively: the `RatingSummary` card component re-checks `review_count >= RATING_VISIBILITY_MIN_REVIEWS`, so it is source-agnostic.
 
 ### 6.7 Vendor requests
 

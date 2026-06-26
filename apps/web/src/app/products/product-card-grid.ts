@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 
 import type { ProductListItem } from '@aeci/shared';
 
+import { RatingSummary } from '../reviews/rating-summary';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 
 import { CategoryChip } from './category-chip';
@@ -27,7 +28,7 @@ import { RoleBadge } from './role-badge';
  */
 @Component({
   selector: 'aec-product-card-grid',
-  imports: [RouterLink, LogoOrInitial, CategoryChip, RoleBadge, IntegrationStat],
+  imports: [RouterLink, LogoOrInitial, CategoryChip, RoleBadge, IntegrationStat, RatingSummary],
   template: `
     <ul role="list" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
       @if (featured(); as product) {
@@ -76,6 +77,13 @@ import { RoleBadge } from './role-badge';
               }
               <aec-role-badge [role]="product.product_role" />
             </div>
+            <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate
+                 (the card reflows). -->
+            <aec-rating-summary
+              variant="inline"
+              [ratingOverall]="product.rating_overall_avg"
+              [reviewCount]="product.review_count"
+            />
             <aec-integration-stat [count]="product.integration_count" variant="headline" />
           </a>
         </li>
@@ -111,6 +119,12 @@ import { RoleBadge } from './role-badge';
               }
               <aec-role-badge [role]="product.product_role" />
             </div>
+            <!-- Editorial rating: omitted entirely below the §5.5 ≥5-review gate. -->
+            <aec-rating-summary
+              variant="inline"
+              [ratingOverall]="product.rating_overall_avg"
+              [reviewCount]="product.review_count"
+            />
           </a>
         </li>
       }

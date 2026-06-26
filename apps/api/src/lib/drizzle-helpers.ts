@@ -20,7 +20,7 @@
  * `select` discipline gave us.
  */
 
-import { ProductUsefulnessSchema } from '@aeci/shared';
+import { ProductUsefulnessSchema, RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
 import type {
   AccountReview,
   AdminReview,
@@ -573,6 +573,12 @@ export function pickPrimaryVendor(
 }
 
 export function toProductListItem(raw: RawProductListRow): ProductListItem {
+  // §5.5 gate (shared with `toProductDetail` + the `rating` sort): a product's
+  // averages are withheld until it has ≥5 approved reviews, so the list/grid/
+  // search cards never render a statistically misleading sub-5 average. The
+  // `review_count` itself is always truthful (a card may show "N reviews"
+  // without an average).
+  const ratingsVisible = raw.reviewCount >= RATING_VISIBILITY_MIN_REVIEWS;
   return {
     id: raw.id,
     slug: raw.slug,
@@ -583,8 +589,8 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
     primary_category: pickPrimaryCategory(raw.productCategories),
     integration_count: raw.integrationCount,
     review_count: raw.reviewCount,
-    rating_overall_avg: raw.ratingOverallAvg,
-    rating_onboarding_avg: raw.ratingOnboardingAvg,
+    rating_overall_avg: ratingsVisible ? raw.ratingOverallAvg : null,
+    rating_onboarding_avg: ratingsVisible ? raw.ratingOnboardingAvg : null,
     created_at: raw.createdAt,
     updated_at: raw.updatedAt,
   };
@@ -791,13 +797,11 @@ export function toProductDetail(
   relatedProducts: RawProductListRow[],
   reviews: RawPublicReviewRow[] = [],
 ): ProductDetail {
+  // `toProductListItem` already applies the §5.5 ≥5-review gate (nulling the
+  // averages below the threshold), so the detail inherits it via the spread.
   const base = toProductListItem(raw);
-  // ≥5 gate (§5.5): averages withheld until ≥5 approved reviews.
-  const ratingsVisible = base.review_count >= 5;
   return {
     ...base,
-    rating_overall_avg: ratingsVisible ? base.rating_overall_avg : null,
-    rating_onboarding_avg: ratingsVisible ? base.rating_onboarding_avg : null,
     description: raw.description,
     website: raw.website,
     tool_integrations_url: raw.toolIntegrationsUrl,
