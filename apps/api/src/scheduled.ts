@@ -88,6 +88,19 @@ import {
 } from './lib/moderation-metrics';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
 
+/**
+ * D1 client for cron/queue jobs (AECI-250). Background jobs have no user latency
+ * to optimize, so they anchor the D1 session at `'first-primary'` — preserving the
+ * pre-Sessions-API strongly-consistent reads (the plain binding always hit the
+ * primary) rather than the `'first-unconstrained'` replica default the request
+ * read-paths use for the edge-latency win. Several of these jobs are
+ * read-modify-write (home-stats, reconcile), where a stale first read would be
+ * wrong; the rest lose nothing by reading the primary.
+ */
+function cronDb(env: Env) {
+  return getDb(env, { constraint: 'first-primary' });
+}
+
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
  *  08:00 UTC = 03:00 EST (US-East, our launch customer base). Cloudflare cron
  *  is UTC-only / DST-unaware, so this is 04:00 EDT in summer — both dead-of-night
@@ -165,7 +178,7 @@ function algoliaEnvFor(env: Env): AlgoliaEnv {
  *  endpoints are promoted — the same membership filter `algolia-sync` indexes on.
  *  algolia-drift stays ORM-agnostic; only this adapter knows about D1. */
 function drizzleDriftCounter(env: Env): DriftCount {
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
   return {
     product: {
       count: async ({ where }) =>
@@ -215,7 +228,7 @@ function drizzleDriftCounter(env: Env): DriftCount {
  *  `drizzleDriftCounter` counts and `algolia-sync` indexes on, but as id SETS (no
  *  transforms). algolia-orphans stays ORM-agnostic; only this adapter knows D1. */
 function drizzlePromotedIds(env: Env): PromotedIdProvider {
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
   return {
     productIds: async () =>
       new Set(
@@ -291,7 +304,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
     return;
   }
 
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runDailySync>>;
@@ -451,7 +464,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
 
 async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/stats');
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   const started = Date.now();
   let result: HomeStatsResult;
@@ -507,7 +520,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
  *  backlog" monitor. Two cheap indexed reads, so it runs inline (no queue). */
 async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/moderation-queue');
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   try {
     const [pendingRows, oldest] = await Promise.all([
@@ -552,7 +565,7 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
  *  it (idempotent via `createLinearIssueForRequest`). */
 async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/reconcile');
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
   await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
 }
 
@@ -567,7 +580,7 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
 async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/data-quality');
   const started = Date.now();
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   // Reuse the AECI-140 drift count when Algolia creds are present (same posture as
   // runAlgoliaDrift); absent → the drift check skips rather than erroring.

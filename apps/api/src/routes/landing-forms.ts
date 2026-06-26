@@ -33,7 +33,7 @@ import { feedback, mailingList } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import type { DbFactory } from '../lib/handler-utils';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
 
 async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T>): Promise<T> {
   let raw: unknown;
@@ -51,6 +51,9 @@ export function createFeedbackHandler(
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const payload = await parseJsonBody(c, FeedbackSubmitSchema);
+    // Write-once analytics, never read back in-request and no caller resumes a
+    // session off it — stays on the `'first-unconstrained'` read default (no
+    // `first-primary` anchor / `x-d1-bookmark` emit). (AECI-250)
     const { db } = dbFor(c.env);
 
     await db.insert(feedback).values({
@@ -74,7 +77,7 @@ export function createSubscribeHandler(
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const payload = await parseJsonBody(c, SubscribeSubmitSchema);
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     // `ON CONFLICT DO NOTHING … RETURNING` on the `mailing_list_email_key` unique
     // index: a returned row means we created it; [] means the email was already
