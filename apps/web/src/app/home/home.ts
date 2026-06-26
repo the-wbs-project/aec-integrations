@@ -10,11 +10,13 @@ import { MetaService } from '../core/meta.service';
 import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-rank';
 
 import { BrowseGrid } from './browse-grid';
+import { HomeAudience } from './home-audience';
 import { HomeClosingCta } from './home-closing-cta';
 import { HomeCredibilityStrip } from './home-credibility-strip';
+import { HomeDifferentiation } from './home-differentiation';
 import { HomeHero } from './home-hero';
+import { HomeHowItWorks } from './home-how-it-works';
 import { HomeStatsCards } from './home-stats-cards';
-import { HomeTrustPillars } from './home-trust-pillars';
 import { HomeWhy } from './home-why';
 import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
@@ -22,10 +24,16 @@ import { TrendingProductsSection } from './trending-products-section';
 /**
  * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly, kept in the §4.1
  * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → "why
- * AECi" problem band (AECI-272) → trust pillars → three stats cards → "Browse by"
- * grids → recently-added integrations → trending products (the footer lives in the
- * app shell) — and owns the home SEO (meta + OG/Twitter + `WebSite`/`Organization`
- * JSON-LD + canonical, set in the constructor since the copy is static).
+ * AECi" problem band (AECI-272) → what's different (`home-differentiation`,
+ * AECI-273) → how it works (`home-how-it-works`, AECI-273) → three stats cards →
+ * "Browse by" category grid → audience "this is for you" recognition band
+ * (AECI-274, which REPLACES the audience browse grid so the page has one coherent
+ * audience moment) → "Browse by" phase grid → recently-added integrations →
+ * trending products (the footer lives in the app shell) — and owns the home SEO
+ * (meta + OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
+ * constructor since the copy is static). (The standalone "Trust is the product"
+ * band — `home-trust-pillars` — is now only on `/about`; the home folds that
+ * promise into the differentiation band's closing line.)
  *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
  * binding, hydrated from TransferState):
@@ -50,9 +58,11 @@ import { TrendingProductsSection } from './trending-products-section';
     HomeHero,
     HomeCredibilityStrip,
     HomeWhy,
-    HomeTrustPillars,
+    HomeDifferentiation,
+    HomeHowItWorks,
     HomeStatsCards,
     BrowseGrid,
+    HomeAudience,
     RecentIntegrationsSection,
     TrendingProductsSection,
     HomeClosingCta,
@@ -75,11 +85,15 @@ import { TrendingProductsSection } from './trending-products-section';
            after the credibility strip per the AECI-270 order. -->
       <aec-home-why />
 
-      <!-- Trust band: the three trust commitments (full-bleed, sits under the hero). -->
-      <aec-home-trust-pillars />
-
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
         <div class="flex flex-col gap-10 md:gap-12">
+          <!-- §4.1 section 4 (what's different): the reconciled three ideas plus
+               the absorbed trust line (AECI-273). -->
+          <aec-home-differentiation />
+
+          <!-- §4.1 section 5 (how it works): the operating model (AECI-273). -->
+          <aec-home-how-it-works />
+
           <aec-home-stats-cards
             [totalIntegrations]="totalIntegrations()"
             [integrationsAdded30d]="integrationsAdded30d()"
@@ -88,7 +102,11 @@ import { TrendingProductsSection } from './trending-products-section';
           />
 
           <app-browse-grid kind="category" [terms]="topCategories()" />
-          <app-browse-grid kind="audience" [terms]="topAudiences()" />
+          <!-- Audience (§4.1 section 7, AECI-274): the dedicated "this is for you"
+               role-recognition treatment REPLACES the generic audience browse grid
+               (one coherent audience moment, not two). Category + phase keep the
+               count-chip browse grid. -->
+          <aec-home-audience [audiences]="audienceTerms()" />
           <app-browse-grid kind="phase" [terms]="allPhases()" />
 
           <aec-recent-integrations-section [integrations]="recentIntegrations()" />
@@ -121,9 +139,14 @@ export class Home {
   );
 
   protected readonly topCategories = computed(() => topByCount(this.browse()?.categories, TOP_N));
-  protected readonly topAudiences = computed(() => topByCount(this.browse()?.audiences, TOP_N));
   /** Phases is a small facet — show every term in project-lifecycle order (`display_order`). */
   protected readonly allPhases = computed(() => byDisplayOrder(this.browse()?.phases));
+  /**
+   * The full live audience vocabulary fed to `HomeAudience` (AECI-274). Unlike the
+   * category grid (top-N by count), the audience recognition band needs the whole
+   * list so it can look up `product_count` for its curated, specific role slugs.
+   */
+  protected readonly audienceTerms = computed(() => this.browse()?.audiences ?? []);
 
   // Stats-section inputs. A null resolver result (a render mode without
   // REQUEST_CONTEXT, or a failed client fetch) collapses to each section's
