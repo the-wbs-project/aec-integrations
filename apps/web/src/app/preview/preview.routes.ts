@@ -39,4 +39,13 @@ export const previewRoutes: Routes = [
     path: 'home/sections',
     loadComponent: () => import('./home/home-sections-preview').then((m) => m.HomeSectionsPreview),
   },
+  // AECI-270 — the unified marketing + directory home (AECI-269 direction pass):
+  // the full §4.1 flow with the NEW marketing bands rendered as three live-
+  // toggleable premium concepts, so the PO chooses one before the build children
+  // (AECI-269 2–6) build them.
+  {
+    path: 'unified-home',
+    loadComponent: () =>
+      import('./unified-home/unified-home-preview').then((m) => m.UnifiedHomePreview),
+  },
 ];

@@ -111,7 +111,7 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 
 Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped in Stage 1**; they return with the dark theme at Stage 2.
 
-Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero band — anywhere warmth and identity are desired. It is no longer the default page background.
+Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero / marketing bands — anywhere warmth and identity are desired. It is no longer the default page background.
 
 ### 2a.4 Contrast validation
 
@@ -228,25 +228,34 @@ Admin auth is a simple role check on the `profiles` table. No separate admin UI 
 
 ## 4. Page Specifications
 
-### 4.1 Home page (`/`)
+### 4.1 Home page (`/`) — the unified launch front door
 
-**Above the fold:**
-- Hero section with tagline and search bar (Algolia-powered autocomplete)
-- Three stats cards:
-  - **Total integrations indexed** — large number + "+X in the last 30 days" in smaller text below
-  - **Most integrated product** — product name + integration count, links to product page
-  - **Most active category** — category name + integration count, links to category page
+> **This rewrite supersedes the directory-only §4.1** (the prior "hero + stats + browse + recent + trending" spec). It is the contract for **AECI-269** (unify the marketing landing page + app home into one launch front door) and the build children it blocks. The visual treatment, section rhythm, and `/impeccable shape` direction live in `docs/design/unified-home-direction.md` (**AECI-270**), which supersedes the *page contract* of `docs/design/home-direction.md` (AECI-181) while reusing its hero / stats / browse / trust treatments.
 
-**Below the fold:**
-- "Browse by category" — grid of top categories with counts
-- "Browse by audience" — same pattern
-- "Browse by project phase" — same pattern
-- "Recently added integrations" — last 10 integrations with source → target product names
-- "Trending products this week" — top 5 most-viewed products (from PostHog data, cached)
+At go-live there is no separate marketing page: when the apex flips from the static `apps/landing` to the app (§11.2 / Phase 7.13, AECI-247), the app home **is** the marketing page. The home therefore carries **two jobs as one editorial publication** — the directory/utility job for the ready visitor (search, browse, live data) and the marketing/persuasion job for the cold visitor (why AECi, trust, how it works). The marketing content is **translated into the app's editorial voice + Faire tokens** (`PRODUCT.md` voice; `DESIGN.md` Anchor-Site Rule → Faire), **never pasted** from `apps/landing/public/index.html`, and it **reuses** the existing trust band + stats rather than duplicating them.
 
-**Footer:** standard nav, legal links, contact, social.
+**Canonical positioning.** The home's one-liner is **"The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement."** Three live expressions ladder up to it: the hero lede (`home-hero.ts`), the footer tagline (`site-footer.ts`), and the home `<meta>` description (`setHomeMeta`, `core/meta.service.ts`). No launch copy claims integrations are "verified" — nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope; §4.2 verified-badge placeholder), which is why the prior footer "vendor-verified reviews" tagline was reconciled out.
 
-**Stats card data source:** a daily stats job on the **existing** scheduled API Worker (the AECI-139 cron→queue→consumer; runs in early UTC alongside the Algolia sync at `0 8 * * *` and drift at `0 9 * * *` — *not* a separate Worker, superseding the stale "02:00 UTC") recomputes stats and writes to the `stats_cache` table in Supabase (already created in the baseline migration). Pages read from this cache via `GET /api/stats/home`, not live aggregations.
+**Canonical section order.** One column of stacked modules in the standard shell (`SiteHeader` above, `SiteFooter` below). The cold-visitor path (why → trust → how) interleaves with the ready-visitor path (search → browse → data) so the page reads as one publication, not two pages stacked:
+
+| # | Section | At launch | Status / data source |
+|---|---|:--:|---|
+| 1 | **Hero + search** | ✓ | Existing `home-hero.ts`: positioning lede (cold visitor) + the reused `SearchAutocomplete` (ready visitor). |
+| 2 | **Credibility strip** | ✓ | **NEW.** Coverage counts (products / integrations / vendors) + "independent · no pay-for-placement". Counts read the live directory aggregates (`GET /api/stats/home`; taxonomy totals from `GET /api/taxonomy`); the independence line is static. Renders a real empty state when counts are 0. |
+| 3 | **Why AECi (the problem)** | ✓ | **NEW**, static. The broken-landscape narrative + three cited figures (≈34% of reviews AI-generated · $87K/yr to boost a ranking · 900+ tools in generic categories). Figures are static cited stats, not live data. |
+| 4 | **What's different / trust** | ✓ | **REWORK** of `home-trust-pillars.ts`, static. Reconciles the shipped three trust commitments (never sell rankings · always be transparent · never review products ourselves) with the landing's "three ideas" (reviewable integrations · separate product + onboarding ratings · no pay-for-placement). The reconciliation is fixed in `unified-home-direction.md`. |
+| 5 | **How it works** | ✓ | **NEW**, static, compact. The dual-review + no-pay-for-placement method, framed as the operating model (not a claim of verified inventory). Earns the "reviews" framing the footer used to assert. |
+| 6 | **Stats cards** | ✓ | Existing `home-stats-cards.ts`: total integrations (+30d) · most-integrated product · most-active category. `GET /api/stats/home`. |
+| 7 | **Browse by category / audience / phase** | ✓ | Existing `browse-grid.ts` (count-chips). The **audience** grid carries the "this is for you" job (the landing's ten roles). Live `GET /api/taxonomy` (`TaxonomyResponse`, `product_count`). |
+| 8 | **Recently added + trending** | ✓ | Existing `recent-integrations-section.ts` + `trending-products-section.ts`. `GET /api/stats/home`; proof the directory is alive. Trending falls back to recently-added (AECI-185 empty-state precedent). |
+| 9 | **Closing CTA + capture** | ✓ | **NEW.** Email → `POST /api/subscribe`; suggest-a-tool / feedback → `POST /api/feedback` (both already shipped, AECI-257; see `API_CONTRACTS.md`). A **progressively-enhanced client island**: the SSR HTML is the static form, the POST targets the non-cached `/api/*`, so the route stays edge-cache-neutral. |
+| 10 | **Footer** | ✓ | Existing `site-footer.ts`. |
+
+**In scope at launch:** all ten sections. **Deferred:** the final OG share card (own SEO issue, AECI-269 child 7); the post-launch waitlist welcome-state banner (§11.2). No new design tokens — add to `DESIGN.md` (and `styles.css` + `BRAND_GUIDELINES.md` + §2a.2) in lockstep first if a band needs one.
+
+**Non-negotiables.** Edge-cache-neutral SSR (the capture island is the only client-state surface, and it POSTs to the non-cached `/api/*`; the cacheable HTML stays visitor-state-neutral — §9); i18n `@@` ids on every string; **light theme only** (§2a, AECI-226); the **Faire** anchor (`DESIGN.md` Anchor-Site Rule); editorial voice (`PRODUCT.md` banned-words, sentence case, **no em dashes**); borders not shadows.
+
+**Stats / live-data source:** a daily stats job on the **existing** scheduled API Worker (the AECI-139 cron→queue→consumer; runs in early UTC alongside the Algolia sync at `0 8 * * *` and drift at `0 9 * * *`) recomputes the home aggregates and writes the `stats_cache` table in the app database (D1, ADR 0016). The stats cards, credibility counts, recently-added, and trending modules read this cache via `GET /api/stats/home`, **not** live aggregations; the browse grids read the **live** `GET /api/taxonomy` so they purge on the `taxonomy` `Cache-Tag` independently of the stats pipeline (AECI-184).
 
 ### 4.2 Product page (`/products/:slug`)
 
@@ -818,7 +827,7 @@ via `ctx.waitUntil`, fail-open):
 
 ### 11.2 Waitlist transition
 
-The existing coming-soon landing page captures emails to a `marketing.waitlist` table (already in Supabase per existing setup).
+Pre-launch, the static coming-soon landing page (`apps/landing`) captures emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). At launch the unified home's closing CTA (§4.1, section 9) carries the same capture forward, so signup survives the apex flip.
 
 **On launch:**
 - One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"
@@ -1096,6 +1105,7 @@ Decomposed into AECI Phase 4.1–4.12 (planned 2026-06-10). The `stats_cache` an
 - [ ] "Browse by" category / audience / phase grids (live taxonomy endpoints)
 - [ ] Recently-added integrations + Trending products sections (graceful empty states)
 - [ ] Home page assembly: SSR route/resolver, cache tags, home `WebSite`/`Organization` JSON-LD
+  - _Re-opened by **AECI-269** (unify marketing + directory home): §4.1 was rewritten (AECI-270) and the marketing bands — credibility, why, how-it-works, closing CTA + capture — ship as AECI-269 build children. See §4.1 + `docs/design/unified-home-direction.md`._
 - [ ] Phase 4 completion checkpoint
 
 ### Phase 5: Auth & reviews (Week 7)

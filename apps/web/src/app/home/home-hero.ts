@@ -56,8 +56,8 @@ import { SearchAutocomplete } from '../search/search-autocomplete';
             Find the integrations between your AEC tools.
           </h1>
           <p class="mt-5 text-base text-(--text-secondary)" i18n="@@home.hero.lede">
-            Product and vendor integrations across the AEC stack, with no vendor marketing and no
-            pay-for-placement.
+            The independent directory of integrations across the AEC stack, with no vendor marketing
+            and no pay-for-placement.
           </p>
 
           <div class="mt-8">

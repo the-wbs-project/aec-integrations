@@ -5,6 +5,12 @@ Source issue: **AECI-181** (Phase 4.6 design pass). Spec anchor: `docs/STAGE_1_S
 Contracts: `DESIGN.md` (laws + Anchor-Site Rule), `PRODUCT.md` (voice/audience),
 `packages/shared/src/api/stats.ts` (`HomeStatsResponse`).
 
+> **Superseded in part (2026-06-25):** the **page contract** below (the directory-only section
+> order, and the trust band as a standalone section) is superseded for the unified marketing +
+> directory home by [`unified-home-direction.md`](./unified-home-direction.md) (**AECI-270** /
+> AECI-269). The **hero, stats-card, browse, and trust treatments** here are still reused verbatim
+> by the unified home; only the section order and the new marketing bands change.
+
 This doc is self-contained: it is the contract a 4.7–4.11 port is reviewed against. The
 live concept prototype (`.context/aeci-181-home-concepts.html`, gitignored ephemeral
 selection tooling per `workflow.md` §7) and the critique baseline

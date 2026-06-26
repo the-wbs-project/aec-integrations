@@ -44,6 +44,7 @@ packages/shared/
 │   │   ├── integrations.ts    # IntegrationListItem / IntegrationDetail / IntegrationsListQuery / IntegrationsListResponse
 │   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Audience/Phase Detail, TaxonomyResponse
 │   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
+│   │   ├── landing.ts         # Subscribe / Feedback capture (POST /api/subscribe, /api/feedback)
 │   │   ├── reviews.ts         # (Phase 5)
 │   │   ├── requests.ts        # (Phase 6 — claim and correction)
 │   │   ├── stats.ts           # (Phase 4)
@@ -1143,6 +1144,50 @@ create/update writes an `audit_log` row in the same transaction (§26).
 Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the
 review app: `docs/REVIEW_APP_PROMOTE_API.md`.
+
+### 6.13 Landing capture (mailing list + feedback)
+
+Two lead-capture write hooks shipped in **AECI-257** (ADR 0016). Schemas live in `@aeci/shared` (`api/landing.ts`). Both persist to D1 (`mailing_list` / `feedback` — `apps/api/src/db/schema.ts`) and, like `page_views`, are **write-once analytics, not domain state**, so they are exempt from the §26.1 audit-in-batch invariant (no `audit_log` row). The geo / attribution fields are derived from `request.cf` by the **caller** and carried in the body, because `request.cf` does not survive a service binding (the same constraint `POST /api/page-views` works around).
+
+Today the **sole caller** is the `apps/landing` Worker (pre-launch coming-soon forms), forwarding over the `env.API` binding. The unified home's closing CTA (§4.1, section 9; AECI-269 build child 6) adds a second caller: a progressively-enhanced browser island POSTing through the SSR Worker's `/api/*` passthrough. That path either forwards the CF-derived fields on trusted headers the way the page-view proxy does, or omits them — every geo / attribution field is `nullish`, so the API Worker accepts a body without them.
+
+#### `POST /api/subscribe`
+
+Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list (`ON CONFLICT DO NOTHING` no-op).
+
+```typescript
+export const SubscribeSubmitSchema = z.object({
+  email: z.string().trim().email().max(200),
+  as_organization: z.string().max(255).nullish(),
+  asn: z.number().int().nullish(),
+  metro_code: z.number().int().nullish(),
+  utm_source: z.string().max(255).nullish(),
+  utm_medium: z.string().max(255).nullish(),
+  utm_campaign: z.string().max(255).nullish(),
+  // + shared geo (all nullish): country, city, region, timezone, referrer
+});
+```
+
+#### `POST /api/feedback`
+
+Free-text product feedback. At least one of `features` / `tools` must be present (mirrors the form's own guard). `email` is optional; when present it must be valid, and `subscribed` is the mailing-list opt-in flag. No unique constraint, so it always returns `created: true`.
+
+```typescript
+export const FeedbackSubmitSchema = z
+  .object({
+    features: z.string().max(5000).nullish(),
+    tools: z.string().max(5000).nullish(),
+    email: z.string().trim().email().max(200).nullish(),
+    subscribed: z.boolean().default(false),
+    // + shared geo (all nullish): country, city, region, timezone, referrer
+  })
+  .refine((d) => Boolean(d.features) || Boolean(d.tools), {
+    message: 'Provide at least one of features or tools.',
+    path: ['features'],
+  });
+```
+
+**Response (both):** `LandingSubmitResult` — `{ created: boolean }`. `created` is `false` only for a subscribe no-op on an already-listed email; feedback always returns `true`.
 
 ---
 
