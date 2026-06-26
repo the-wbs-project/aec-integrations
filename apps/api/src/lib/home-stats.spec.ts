@@ -17,8 +17,10 @@ import {
   pageViews,
   productCategories,
   products,
+  reviews,
   statsCache,
   taxonomyCategories,
+  vendors,
 } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import {
@@ -28,6 +30,9 @@ import {
   computeRecentIntegrations,
   computeRecentlyAddedProducts,
   computeTotalIntegrations,
+  computeTotalProducts,
+  computeTotalReviews,
+  computeTotalVendors,
   computeTrendingProducts,
   runHomeStats,
 } from './home-stats';
@@ -107,6 +112,24 @@ async function seedPageView(productId: string | null, createdAt: string): Promis
   await t.db.insert(pageViews).values({ path: '/x', productId, createdAt });
 }
 
+async function seedVendor(id: string): Promise<void> {
+  await t.db.insert(vendors).values({ id, slug: id, companyName: id });
+}
+
+/** Insert a review for a product. `reviewerId` stays null (no uniqueness clash),
+ *  so any number of reviews can be seeded per product. */
+async function seedReview(id: string, productId: string, status: string): Promise<void> {
+  await t.db.insert(reviews).values({
+    id,
+    productId,
+    ratingOverall: 4,
+    ratingOnboarding: 4,
+    title: 't',
+    body: 'b',
+    status,
+  });
+}
+
 // ── Per-key compute functions ────────────────────────────────────────────────
 
 describe('computeTotalIntegrations', () => {
@@ -146,6 +169,49 @@ describe('computeIntegrationsAdded30d', () => {
       createdAt: old,
     });
     expect(await computeIntegrationsAdded30d(t.db, NOW)).toBe(2);
+  });
+});
+
+describe('computeTotalProducts', () => {
+  it('counts every product (no filter)', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedProduct({ id: U.p2 });
+    await seedProduct({ id: U.p3 });
+    expect(await computeTotalProducts(t.db)).toBe(3);
+  });
+
+  it('returns 0 on an empty DB', async () => {
+    expect(await computeTotalProducts(t.db)).toBe(0);
+  });
+});
+
+describe('computeTotalVendors', () => {
+  it('counts every vendor (no filter)', async () => {
+    await seedVendor(U.c1);
+    await seedVendor(U.c2);
+    expect(await computeTotalVendors(t.db)).toBe(2);
+  });
+
+  it('returns 0 on an empty DB', async () => {
+    expect(await computeTotalVendors(t.db)).toBe(0);
+  });
+});
+
+describe('computeTotalReviews', () => {
+  it('counts only approved reviews, ignoring pending / rejected / archived', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview(U.i1, U.p1, 'approved');
+    await seedReview(U.i2, U.p1, 'approved');
+    await seedReview('99999999-9999-4999-8999-999999999999', U.p1, 'pending');
+    await seedReview('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', U.p1, 'rejected');
+    await seedReview('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', U.p1, 'archived');
+    expect(await computeTotalReviews(t.db)).toBe(2);
+  });
+
+  it('returns 0 when there are no approved reviews', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview(U.i1, U.p1, 'pending');
+    expect(await computeTotalReviews(t.db)).toBe(0);
   });
 });
 
@@ -322,8 +388,13 @@ async function hasCached(key: string): Promise<boolean> {
 }
 
 describe('runHomeStats', () => {
-  it('writes all seven home.* keys with values that pass their own schema', async () => {
+  it('writes all ten home.* keys with values that pass their own schema', async () => {
     await seedFullFixture();
+    // Coverage counts (AECI-271): the fixture has 4 products, 0 vendors, and 0
+    // reviews — add two approved reviews + one vendor so the scalars are non-zero.
+    await seedVendor(U.c1);
+    await seedReview(U.i1, U.p1, 'approved');
+    await seedReview(U.i2, U.p1, 'approved');
 
     const result = await runHomeStats(t.db, NOW);
 
@@ -331,6 +402,9 @@ describe('runHomeStats', () => {
     expect(written).toEqual([
       'home.total_integrations',
       'home.integrations_added_30d',
+      'home.total_products',
+      'home.total_vendors',
+      'home.total_reviews',
       'home.most_integrated_product',
       'home.most_active_category',
       'home.recent_integrations',
@@ -347,6 +421,9 @@ describe('runHomeStats', () => {
 
     expect(await cached('home.total_integrations')).toBe(2);
     expect(await cached('home.integrations_added_30d')).toBe(1);
+    expect(await cached('home.total_products')).toBe(4);
+    expect(await cached('home.total_vendors')).toBe(1);
+    expect(await cached('home.total_reviews')).toBe(2);
     expect(await cached('home.most_integrated_product')).toMatchObject({ integration_count: 9 });
     expect(await cached('home.most_active_category')).toMatchObject({ integration_count: 1 });
   });
@@ -359,6 +436,9 @@ describe('runHomeStats', () => {
     expect(byKey.get('home.most_active_category')).toBe('skipped');
     // Scalar / list keys still write — 0 and [] are valid values.
     expect(await cached('home.total_integrations')).toBe(0);
+    expect(await cached('home.total_products')).toBe(0);
+    expect(await cached('home.total_vendors')).toBe(0);
+    expect(await cached('home.total_reviews')).toBe(0);
     expect(await cached('home.trending_products')).toEqual([]);
     expect(await hasCached('home.most_integrated_product')).toBe(false);
   });
@@ -391,14 +471,14 @@ describe('runHomeStats', () => {
     expect(failed?.status).toBe('failed');
     expect(failed?.error).toContain('findFirst boom');
     expect(await hasCached('home.most_integrated_product')).toBe(false);
-    // The six other keys still wrote despite the one failure.
-    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(6);
+    // The nine other keys still wrote despite the one failure.
+    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(9);
   });
 
   it('never throws and always returns an outcome per key', async () => {
     await seedFullFixture();
     const result = await runHomeStats(t.db, NOW);
-    expect(result.keys).toHaveLength(7);
+    expect(result.keys).toHaveLength(10);
   });
 
   it('records a non-negative per-key durationMs for every key (AECI-180)', async () => {

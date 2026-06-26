@@ -71,8 +71,8 @@ API → investigate the SSR render path. Page on-call if user-facing.
    spike, consider rolling back (`promote-to-prod` / AECI-71).
 2. Read the errors: Datadog logs `service:(aeci-api OR aeci-web) status:error` — the API
    error handler logs `trace_id` + stack.
-3. Which side? Split the error-rate widget by `service`. API-dominant → DB/Prisma/
-   Supabase or a handler bug. SSR-dominant → render crash or a bad upstream response.
+3. Which side? Split the error-rate widget by `service`. API-dominant → D1/Drizzle
+   or a handler bug. SSR-dominant → render crash or a bad upstream response.
 4. Cloudflare platform: check the Workers dashboard for exceptions / CPU-limit errors.
 
 **Escalation:** > 1% sustained is page-worthy. Capture a `trace_id` from the logs before
@@ -223,9 +223,9 @@ alert means no completed run reported in ~26h — a **missed daily run**, so `co
    Stats" dashboard by `key`, and read Datadog logs `service:aeci-api source:stats-cron`
    (`aeci.stats.compute <key> status=failed`, with `reason`; `aeci.stats.compute.crashed` is a
    pre-compute throw before any key ran).
-3. DB health: the job reads/writes Supabase via Prisma Accelerate. A `DATABASE_URL` problem or a
-   Supabase outage surfaces as `aeci.stats.compute.crashed` (pre-compute) or many failed keys —
-   check the Supabase dashboard and the Worker's `DATABASE_URL` secret.
+3. DB health: the job reads/writes Cloudflare D1 via the Worker's `DB` binding. A D1 outage or a
+   missing/misconfigured `DB` binding surfaces as `aeci.stats.compute.crashed` (pre-compute) or many
+   failed keys — check the Cloudflare D1 dashboard and the Worker's `DB` binding (`apps/api/wrangler.jsonc`).
 4. Recent deploy? A regression in `lib/home-stats.ts` (a producer) or a `stats_cache` schema drift
    that fails the shared `statsCacheValueSchemas` validation shows as `outcome:failed` with a
    `validation failed: …` reason. Correlate with `GET /api/version`.
@@ -265,10 +265,10 @@ arriving.)
 **First checks**
 
 1. Read the failure: Datadog logs `service:aeci-api source:page-views` —
-   `aeci.api.page_view.capture_failed` carries the `reason` (the Prisma/Supabase error).
-2. DB health: the insert goes to Supabase via Prisma Accelerate. A `DATABASE_URL` problem, a
-   Supabase outage, or pooler saturation surfaces as a broad failure spike — check the Supabase
-   dashboard and the Worker's `DATABASE_URL` secret.
+   `aeci.api.page_view.capture_failed` carries the `reason` (the D1/Drizzle error).
+2. DB health: the insert goes to Cloudflare D1 via the Worker's `DB` binding. A D1 outage or a
+   missing/misconfigured `DB` binding surfaces as a broad failure spike — check the Cloudflare D1
+   dashboard and the Worker's `DB` binding.
 3. Recent deploy? A regression in `apps/api/src/routes/page-views.ts` (or a `page_views` schema
    drift — a column/type the insert writes that no longer matches the table) shows as a step-change
    in the error rate. Correlate with `GET /api/version`.
@@ -285,9 +285,11 @@ schema regression — page on-call, capture a `reason` from the logs, and consid
 correlated deploy. (The 10% threshold is a pre-launch starting point — see `docs/OBSERVABILITY.md`;
 retune once production traffic is known.)
 
-## page_views duplicate PK (prod data corruption)
+## page_views duplicate PK (prod data corruption) — historical (Postgres only)
 
-**Symptom:** the `refresh-staging` workflow fails at the **"Restore prod data into staging"** step
+> **No longer applicable.** This runbook is Postgres-specific (`BIGSERIAL` PK, sequences, `pg_dump`/`pg_restore`). `page_views` now lives in **Cloudflare D1** (ADR 0016), and `refresh-staging.yml` no longer does any `pg_dump`/restore (it was gutted in AECI-278). The symptom below can no longer occur. Kept for historical reference only.
+
+**Symptom (historical):** the `refresh-staging` workflow failed at the **"Restore prod data into staging"** step
 with:
 
 ```
@@ -442,7 +444,7 @@ approved, so there's no page-level symptom — just submitters waiting.
    scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that the `0 6 * * *` trigger is
    present (`apps/api/wrangler.jsonc`, staging + production only). The moderation job runs **inline** (no
    queue), so there's no `MODERATION_QUEUE` binding to check — only the trigger and the Worker's
-   `DATABASE_URL` (a Prisma/Supabase failure logs `aeci.moderation.queue.crashed`, `source:moderation-cron`).
+   `DB` binding (a D1/Drizzle failure logs `aeci.moderation.queue.crashed`, `source:moderation-cron`).
 
 **Repair:** there is no auto-remediation — moderators clear the backlog via `/admin/reviews`. The gauge
 self-resolves to 0 once the queue is empty. A persistent no-data with a healthy Worker is a cron/trigger
@@ -636,3 +638,42 @@ vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140
 a pulled product's integration, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.); the next
 daily run auto-detects the fix. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
+
+## WAF rate-limit / challenge spike
+
+**Alert:** `AECi — WAF rate-limit / challenge spike (15m)` — `sum:aeci.waf.ratelimit.blocked` (`.as_count()`)
+> 500 over 15m on `env:production`.
+
+**Metrics:**
+- `aeci.waf.ratelimit.blocked{rule,action,host,source}` — Cloudflare WAF mitigations (blocks + challenges),
+  **value is the event count → query with `sum:` / `.as_count()`**.
+- `aeci.waf.poll{outcome:ok|failed|skipped_no_creds}` — the hourly poll's heartbeat (`outcome:ok` = liveness).
+
+**What it means:** The §15.1 WAF rules (rate-limit Rule A `/api/requests/*`, Rule B `/api/reviews`, and the
+scraper-UA Managed-Challenge custom rule — `docs/waf-rate-limits.md`) mitigated an unusual volume of requests.
+The signal is collected by the API Worker's hourly WAF poll (AECI-262, `scheduled.ts` `runWafMetricsJob`),
+which reads the previous clock hour of the zone's `firewallEventsAdaptiveGroups` over Cloudflare's GraphQL
+Analytics API. **Detection lags up to ~1h** (it's an hourly poll). A spike is normally either a scripted
+flood tripping the rate-limit rules or a scraper run hitting the UA challenge — rarely a real user.
+
+**First checks**
+
+1. **What fired?** Pivot `aeci.waf.ratelimit.blocked` by `action` (block vs managed_challenge), `rule`, `host`,
+   and `source` (ratelimit vs firewallcustom) to localize. Cross-reference Cloudflare → **Security → Events**
+   (filter by the same rule/action/host) for the offending IPs / paths / user agents — CF carries the per-IP
+   detail Datadog does not.
+2. **Real attack or false positive?** If the offending UA/IPs are obviously a scraper/flood, no action is
+   needed — the rules are doing their job; consider whether the volume warrants a Cloudflare IP block. If a
+   **legitimate** user or integration is being blocked/challenged, re-tune the rule in
+   `docs/waf-rate-limits.md` (update the doc in the same change — it is the source of truth) and verify per §4.
+3. **No data / heartbeat gaps?** This monitor has **no** `notify_no_data` (silence = no attacks). Poll health
+   is the separate `aeci.waf.poll{outcome:ok}` series — if it stopped, the cron isn't running; if it shows
+   `outcome:skipped_no_creds`, `CF_ANALYTICS_API_TOKEN` is unset on that env's Worker (the metric is then
+   absent by design until the token is provisioned). `outcome:failed` → read the `source:waf-metrics-cron`
+   error log for the Cloudflare GraphQL `reason` (e.g. an expired/under-scoped token — it needs
+   `Zone Analytics: Read`).
+
+**Repair:** the WAF itself is already mitigating — this alert is **awareness**, not an outage. Escalate only
+if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
+a manual Cloudflare block. The 500/15m threshold is a launch placeholder; re-tune in
+`observability/datadog/monitor-waf-ratelimit-spike.json` once baseline volume is known.

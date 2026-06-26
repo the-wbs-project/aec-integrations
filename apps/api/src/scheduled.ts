@@ -44,6 +44,13 @@
  * `open`/`linear_issue_id=null` (their §6.4 on-submit issue creation failed), and
  * on a persistent failure raise the §6.2 admin alert. A tight backstop, not a
  * daily batch.
+ * Every hour at :00 (`WAF_CRON`) — WAF firewall-event poll (`./lib/waf-metrics` +
+ * `@aeci/shared/cloudflare-analytics`, AECI-262 / §15.1): read the previous clock
+ * hour of `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API
+ * (the free Pro-plan alternative to Enterprise Logpush) and emit the
+ * `aeci.waf.ratelimit.blocked` count. Queue-less like the moderation snapshot (a
+ * cheap read-only poll), scoped to this env's own host so the shared zone isn't
+ * counted under each `env:` tag.
  *
  * Best-effort + observable: the work is **awaited** in the consumer (so a failure
  * is logged and the run isn't torn down mid-batch), while metric/log emission
@@ -53,6 +60,7 @@
  */
 
 import type { AlgoliaEnv } from '@aeci/shared/algolia';
+import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 import { and, asc, count, eq, inArray } from 'drizzle-orm';
 
 import { getDb } from './db/client';
@@ -87,6 +95,20 @@ import {
   type ModerationMetricSink,
 } from './lib/moderation-metrics';
 import { runReconciliationSweep } from './lib/reconciliation-sweep';
+import { emitWafEventMetrics, previousHourWindow } from './lib/waf-metrics';
+
+/**
+ * D1 client for cron/queue jobs (AECI-250). Background jobs have no user latency
+ * to optimize, so they anchor the D1 session at `'first-primary'` — preserving the
+ * pre-Sessions-API strongly-consistent reads (the plain binding always hit the
+ * primary) rather than the `'first-unconstrained'` replica default the request
+ * read-paths use for the edge-latency win. Several of these jobs are
+ * read-modify-write (home-stats, reconcile), where a stale first read would be
+ * wrong; the rest lose nothing by reading the primary.
+ */
+function cronDb(env: Env) {
+  return getDb(env, { constraint: 'first-primary' });
+}
 
 /** Cron expression for the daily incremental Algolia sync (`wrangler.jsonc`).
  *  08:00 UTC = 03:00 EST (US-East, our launch customer base). Cloudflare cron
@@ -128,6 +150,15 @@ const RECONCILE_CRON = '*/15 * * * *';
  *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
 const DATA_QUALITY_CRON = '0 4 * * *';
 
+/** Cron expression for the WAF firewall-event poll (`wrangler.jsonc`, AECI-262 /
+ *  §15.1). **Every hour** at minute 0 — it reads the *previous clock hour* of
+ *  `firewallEventsAdaptiveGroups` from Cloudflare's GraphQL Analytics API and
+ *  emits the `aeci.waf.ratelimit.blocked` count, so the hourly cadence matches the
+ *  one-hour query window (no overlap / gaps). Queue-less like `moderation` (a
+ *  cheap read-only poll). MUST stay byte-equal to the `triggers.crons` entry in
+ *  `wrangler.jsonc`. */
+const WAF_CRON = '0 * * * *';
+
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
 
@@ -147,6 +178,11 @@ const DQ_DURATION_METRIC = 'aeci.data_quality.job.duration_ms';
 const DQ_CHECK_METRIC = 'aeci.data_quality.check';
 const DQ_EMAIL_METRIC = 'aeci.data_quality.email';
 
+/** Per-run heartbeat for the WAF firewall-event poll (AECI-262). One count per
+ *  run with `outcome:ok|failed|skipped_no_creds` — the always-emitted `outcome:ok`
+ *  series doubles as the cron-liveness signal (see docs/OBSERVABILITY.md). */
+const WAF_POLL_METRIC = 'aeci.waf.poll';
+
 /** Synthetic request so the Datadog helpers can derive a `host` tag (the cron
  *  has no incoming Request; `hostnameFromRequest` uses the URL host or falls
  *  back to the worker slug). */
@@ -165,7 +201,7 @@ function algoliaEnvFor(env: Env): AlgoliaEnv {
  *  endpoints are promoted — the same membership filter `algolia-sync` indexes on.
  *  algolia-drift stays ORM-agnostic; only this adapter knows about D1. */
 function drizzleDriftCounter(env: Env): DriftCount {
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
   return {
     product: {
       count: async ({ where }) =>
@@ -215,7 +251,7 @@ function drizzleDriftCounter(env: Env): DriftCount {
  *  `drizzleDriftCounter` counts and `algolia-sync` indexes on, but as id SETS (no
  *  transforms). algolia-orphans stays ORM-agnostic; only this adapter knows D1. */
 function drizzlePromotedIds(env: Env): PromotedIdProvider {
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
   return {
     productIds: async () =>
       new Set(
@@ -291,7 +327,7 @@ async function runAlgoliaSync(env: Env, ctx: ExecutionContext): Promise<void> {
     return;
   }
 
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   const started = Date.now();
   let result: Awaited<ReturnType<typeof runDailySync>>;
@@ -380,7 +416,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
       { env: ddEnv },
     );
   } catch (error) {
-    // The Algolia count (fetch) or the Prisma counts can throw; log loudly,
+    // The Algolia count (fetch) or the D1 counts can throw; log loudly,
     // never rethrow (a thrown cron just shows as a failed invocation with no
     // detail).
     logToDatadog(ctx, env, req, {
@@ -451,7 +487,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
 
 async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/stats');
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   const started = Date.now();
   let result: HomeStatsResult;
@@ -507,7 +543,7 @@ async function runHomeStatsJob(env: Env, ctx: ExecutionContext): Promise<void> {
  *  backlog" monitor. Two cheap indexed reads, so it runs inline (no queue). */
 async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/moderation-queue');
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   try {
     const [pendingRows, oldest] = await Promise.all([
@@ -552,7 +588,7 @@ async function runModerationQueueMetrics(env: Env, ctx: ExecutionContext): Promi
  *  it (idempotent via `createLinearIssueForRequest`). */
 async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/reconcile');
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
   await runReconciliationSweep({ env, executionCtx: ctx, req: { raw: req } }, db);
 }
 
@@ -567,7 +603,7 @@ async function runReconcileJob(env: Env, ctx: ExecutionContext): Promise<void> {
 async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void> {
   const req = cronRequest('/cron/data-quality');
   const started = Date.now();
-  const { db } = getDb(env);
+  const { db } = cronDb(env);
 
   // Reuse the AECI-140 drift count when Algolia creds are present (same posture as
   // runAlgoliaDrift); absent → the drift check skips rather than erroring.
@@ -641,6 +677,80 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void>
   });
 }
 
+/** The host portion of a URL, or `undefined` if it's missing/unparseable. The
+ *  WAF poll scopes its query to the env's own host so a shared zone isn't
+ *  triple-counted across `env:` tags. */
+function hostFromUrl(url: string | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).host || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Poll the zone's WAF firewall events for the previous clock hour and emit the
+ *  `aeci.waf.ratelimit.blocked` count (AECI-262 / §15.1). Report-only and
+ *  fail-safe like the moderation snapshot: a missing token/host or a Cloudflare
+ *  error logs + no-ops, never throws (an observability outage can't tear down the
+ *  cron). Queue-less (a single read-only HTTP call needs no retry — the next hour
+ *  re-polls the next window). The query is scoped to this env's own host
+ *  (`PUBLIC_SITE_URL`) because all envs share one Cloudflare zone, so an
+ *  unscoped query would count the same zone-wide events under each `env:` tag. */
+async function runWafMetricsJob(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/waf-metrics');
+  const host = hostFromUrl(env.PUBLIC_SITE_URL);
+  const creds = { apiToken: env.CF_ANALYTICS_API_TOKEN, zoneId: env.CF_ZONE_ID };
+
+  // Defensive no-op: the token is provisioned per env when ready (no CI gate),
+  // and local/preview legitimately lack it — mirror the Algolia/email fail-safe.
+  if (!creds.apiToken || !creds.zoneId || !host) {
+    submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:skipped_no_creds']);
+    logToDatadog(ctx, env, req, {
+      level: 'warn',
+      message: 'aeci.waf.poll.skipped_no_creds',
+      source: 'waf-metrics-cron',
+    });
+    return;
+  }
+
+  const window = { ...previousHourWindow(new Date()), host };
+  const outcome = await fetchWafFirewallEvents(fetch, creds, window);
+  if (!outcome.ok) {
+    submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.waf.poll.failed',
+      source: 'waf-metrics-cron',
+      reason: outcome.message,
+      host,
+      window_start: window.startIso,
+      window_end: window.endIso,
+    });
+    return;
+  }
+
+  // One count per mitigation group (the always-emitted `outcome:ok` heartbeat
+  // below carries cron-liveness even when the hour was quiet — no groups).
+  emitWafEventMetrics(metricSink(ctx, env, req), outcome.groups);
+  submitCount(ctx, env, req, WAF_POLL_METRIC, 1, ['trigger:cron', 'outcome:ok']);
+
+  const events = outcome.groups.reduce((sum, g) => sum + g.count, 0);
+  logToDatadog(ctx, env, req, {
+    level: outcome.truncated ? 'warn' : 'info',
+    message: `aeci.waf.poll host=${host} groups=${outcome.groups.length} events=${events}${
+      outcome.truncated ? ' (truncated at the group limit — raise WAF_EVENTS_GROUP_LIMIT)' : ''
+    }`,
+    source: 'waf-metrics-cron',
+    host,
+    groups: outcome.groups.length,
+    events,
+    window_start: window.startIso,
+    window_end: window.endIso,
+    truncated: outcome.truncated,
+  });
+}
+
 /** The producer queue binding for a job (absent on local/preview → inline run). */
 function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | undefined {
   switch (job) {
@@ -657,6 +767,11 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
     case 'moderation':
       // Queue-less by design: a cheap read-only gauge needs no retry/queue, so it
       // always runs inline (AECI-206). No `MODERATION_QUEUE` binding exists.
+      return undefined;
+    case 'waf':
+      // Queue-less like `moderation` (AECI-262): a single read-only Cloudflare
+      // GraphQL read needs no retry — the next hour re-polls the next window. No
+      // `WAF_QUEUE` binding exists, so it always runs inline.
       return undefined;
   }
 }
@@ -688,6 +803,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/data-quality',
       message: 'aeci.data_quality.enqueue_failed',
       source: 'data-quality-cron',
+    };
+  }
+  if (job === 'waf') {
+    // Unreachable in practice (waf is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/waf-metrics',
+      message: 'aeci.waf.poll.enqueue_failed',
+      source: 'waf-metrics-cron',
     };
   }
   return {
@@ -754,6 +878,9 @@ async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJo
     case 'data_quality':
       await runDataQualityJob(env, ctx);
       return;
+    case 'waf':
+      await runWafMetricsJob(env, ctx);
+      return;
   }
 }
 
@@ -782,6 +909,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case DATA_QUALITY_CRON:
       await enqueueOrRun(env, ctx, 'data_quality');
+      return;
+    case WAF_CRON:
+      await enqueueOrRun(env, ctx, 'waf');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently

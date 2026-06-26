@@ -11,7 +11,7 @@
  *   - `requireAdmin()` — all of the above + `profiles.role = 'admin'`.
  *
  * Order of checks (AUTH_AND_RLS.md §4.1–4.2), all BEFORE the handler runs —
- * i.e. before any Prisma write:
+ * i.e. before any D1 write:
  *
  *   1. Extract the JWT: `Authorization: Bearer <jwt>` (the canonical
  *      service-binding path — the SSR Worker turns the `@supabase/ssr` cookie
@@ -210,7 +210,7 @@ export function requireAuth(
 /**
  * Guard for admin endpoints (`/api/admin/*`): everything `requireAuth()`
  * checks, plus `profiles.role = 'admin'` — enforced before the handler (and
- * therefore before any Prisma write).
+ * therefore before any D1 write).
  */
 export function requireAdmin(
   options: AuthzOptions = {},

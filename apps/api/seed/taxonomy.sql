@@ -1,5 +1,6 @@
 -- Taxonomy reference data for Cloudflare D1 (ADR 0016 / AECI-252).
--- GENERATED from supabase/reference-data/taxonomy.sql (ADR 0008). Idempotent
+-- Canonical taxonomy seed and source of truth (ADR 0008; the former Postgres
+-- `supabase/reference-data/taxonomy.sql` was removed in AECI-278). Idempotent
 -- UPSERTs keyed on slug; ids are deterministic UUIDv5(slug) so they are stable
 -- across re-runs and environments. Applied with `pnpm db:seed:taxonomy` →
 -- `wrangler d1 execute aeci-app-<env> --file=seed/taxonomy.sql`. NEVER deletes

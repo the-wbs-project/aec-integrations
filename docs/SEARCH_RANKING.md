@@ -15,7 +15,7 @@ The ranking **configuration** is not prose — it is executable code, and that c
 
 - `packages/shared/src/algolia.ts` — the `INDEX_SETTINGS` constant defines `searchableAttributes`, `attributesForFaceting`, and `customRanking` for all three indexes; `MECHANISM_RANK` / `mechanismRank()` define integration priority; `REPLICA_SORTS` (+ `sortReplicasFor` / `replicaIndexName` / `replicaNamesFor`) defines the per-tab sort replicas (§5a); `applyIndexSettings()` pushes the primary settings + creates/configures the replicas idempotently.
 - `packages/shared/src/algolia-records.ts` — the Zod record schemas (`AlgoliaProductRecord`, `AlgoliaVendorRecord`, `AlgoliaIntegrationRecord`) define the fields available to rank on.
-- `apps/api/src/lib/algolia-transforms.ts` — denormalizes Prisma rows into those record shapes (including the derived `mechanism_rank`, see §4).
+- `apps/api/src/lib/algolia-transforms.ts` — denormalizes Drizzle/D1 rows into those record shapes (including the derived `mechanism_rank`, see §4).
 - `packages/shared/src/algolia.spec.ts` — asserts the exact settings below, so this doc and the code are co-verified.
 
 `applyIndexSettings()` is invoked by the CI step (`CICD_PLAN.md` §3.2) and the sync pipeline (Phase 3.5/3.6). **A ranking change means editing `INDEX_SETTINGS` (or `MECHANISM_RANK`) and updating this doc in the same PR** — neither prose nor code is allowed to drift from the other.
@@ -188,7 +188,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - `STAGE_1_SPEC.md` §7 — Search section; §7.1 record shapes, §7.2 faceting, §7.3 (the stub this doc fulfills), §7.4 sync strategy, §7.5 InstantSearch, §7.6 per-locale indexes.
 - `packages/shared/src/algolia.ts` — `INDEX_SETTINGS`, `MECHANISM_RANK`, `mechanismRank()`, `indexSettingsFor()`, `applyIndexSettings()` (the operative configuration).
 - `packages/shared/src/algolia-records.ts` — Zod record schemas (fields available to rank/facet on).
-- `apps/api/src/lib/algolia-transforms.ts` — Prisma → Algolia record transforms; sets the derived `mechanism_rank`.
+- `apps/api/src/lib/algolia-transforms.ts` — Drizzle/D1 → Algolia record transforms; sets the derived `mechanism_rank`.
 - `packages/shared/src/algolia.spec.ts` — settings assertions that co-verify this doc.
 - `DATABASE_SCHEMA.md` — origin of `integration_count`, `product_count`, `review_count`, `rating_overall_avg`.
 - `CACHE_STRATEGY.md` — the sibling lifted-from-spec doc this one mirrors in structure.

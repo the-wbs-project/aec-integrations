@@ -259,15 +259,48 @@ rules are live there.
 
 ## 5. Observability
 
-- **Now (free on Pro):** every Block / Managed Challenge appears in **Security →
-  Events**, filterable by rule, action, host, and IP. This is the operator surface
-  for "rate-limit events visible in CF analytics" and is sufficient for pre-launch
-  triage.
-- **Datadog (deferred — follow-up issue):** getting WAF events into Datadog needs
-  either **Enterprise Logpush** (not on our plan) or a small scheduled
-  **CF GraphQL Analytics → `submitCount`** shim reusing the existing
-  `packages/shared/src/datadog.ts` intake. Tracked as a post-launch follow-up; not
-  part of AECI-242.
+- **CF Security Events (free on Pro):** every Block / Managed Challenge appears in
+  **Security → Events**, filterable by rule, action, host, and IP. This is the
+  operator surface for live triage — the per-IP / per-request detail Datadog does
+  **not** carry.
+- **Datadog (AECI-262):** a scheduled **CF GraphQL Analytics → `submitCount`** shim
+  surfaces the same events as a metric so they sit alongside the `aeci.*` catalog
+  and can drive an alert (Enterprise Logpush — the "push" alternative — is not on
+  our Pro plan, so we poll). The API Worker's hourly cron
+  (`apps/api/src/scheduled.ts` `runWafMetricsJob`, the `'0 * * * *'` trigger) reads
+  the **previous clock hour** of the zone's `firewallEventsAdaptiveGroups` over the
+  GraphQL Analytics API (`packages/shared/src/cloudflare-analytics.ts`) and emits:
+  - **`aeci.waf.ratelimit.blocked`** (count) — one point per mitigation group,
+    tagged `rule` (the rule id), `action` (`block` / `managed_challenge` / …),
+    `host`, and `source` (`ratelimit` / `firewallcustom`). The value is the event
+    count, so query with `sum:` (`sum:aeci.waf.ratelimit.blocked{}.as_count()`).
+    Non-mitigation actions (`allow` / `log` / `skip`) are dropped.
+  - **`aeci.waf.poll`** (count) — a per-run heartbeat, `outcome:ok|failed|skipped_no_creds`;
+    the always-emitted `outcome:ok` series is the cron-liveness signal.
+
+  The monitor **AECi — WAF rate-limit / challenge spike**
+  (`observability/datadog/monitor-waf-ratelimit-spike.json`) alerts on a sustained
+  spike. See `docs/OBSERVABILITY.md` for the catalog + monitor and
+  `docs/RUNBOOKS.md` for triage.
+
+  **Token:** the poll needs `CF_ANALYTICS_API_TOKEN` — a Cloudflare token scoped to
+  **`Zone Analytics: Read`** on `aecintegrations.com` (a *different* scope than the
+  `Zone.Cache Purge` `CF_PURGE_API_TOKEN`, so it is its own secret). It reuses the
+  existing `CF_ZONE_ID`. Because the analytics token is zone-scoped and the zone is
+  shared across envs, it is a **single un-suffixed GitHub secret** (like
+  `SUPABASE_ANON_KEY` / `ALGOLIA_APP_ID`): `gh secret set CF_ANALYTICS_API_TOKEN`.
+  CI then pushes it to each env's Worker (`deploy.yml` → staging, `promote-to-demo.yml`
+  → demo, `promote-to-prod.yml` → production — graceful warn-skip, no hard gate).
+  Absent → the poll logs `outcome:skipped_no_creds` and no-ops (fail-safe).
+
+  **Per-env host scoping.** All app envs share the one `aecintegrations.com` zone,
+  so each env's poll filters `firewallEventsAdaptiveGroups` to its **own** host
+  (derived from `PUBLIC_SITE_URL`) to avoid counting the same zone-wide events under
+  each `env:` tag. Because the §1/§2 rules are currently host-scoped to
+  `staging.` + `demo.` only, the **production** poll (host `prod.aecintegrations.com`
+  pre-launch) sees ~0 until those rules are extended to the apex/prod host at the
+  launch cutover — at which point `PUBLIC_SITE_URL` flips to the apex and the poll
+  follows automatically.
 
 ---
 

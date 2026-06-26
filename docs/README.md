@@ -20,12 +20,11 @@ This directory holds the planning, architecture, and operational documentation f
 |---|---|---|
 | [`STAGE_1_SPEC.md`](./STAGE_1_SPEC.md) | Active | Master specification for the Stage 1 launch. References every other document. |
 | [`STAGE_1_PHASE_2_SPEC.md`](./STAGE_1_PHASE_2_SPEC.md) | Active | Phase 2 scope and specification. Supersedes §16 Phase 2 of the Stage 1 spec. |
-| [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | Active | Complete Supabase schema: all tables, columns, indexes, RLS hooks, and Airtable migration plan. |
-| [`migrations.md`](./migrations.md) | Active | Migration workflow — writing/applying SQL via the Supabase CLI (it owns migrations, not Prisma). |
-| [`prisma.md`](./prisma.md) | Active | Prisma-as-query-builder contract: Accelerate, `generate`/`db pull` only, no `prisma migrate`. |
+| [`DATABASE_SCHEMA.md`](./DATABASE_SCHEMA.md) | Active | Complete application-database (Cloudflare D1) schema: all tables, columns, indexes, RLS hooks, and Airtable migration plan. |
+| [`migrations.md`](./migrations.md) | Active | Migration workflow — generating SQL via drizzle-kit and applying via `wrangler d1 migrations apply` (D1 app DB). The legacy Supabase-CLI body is retained as auth-project-only history. |
 | [`API_CONTRACTS.md`](./API_CONTRACTS.md) | Active | Endpoint shapes, request/response types via Zod schemas, error codes, validation rules. |
-| [`REVIEW_APP_PROMOTE_API.md`](./REVIEW_APP_PROMOTE_API.md) | Active | Review-app → Supabase promotion push: `POST /api/promote` payload/response, idempotency, integration rule. |
-| [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Placeholder | Authorization model and Row-Level Security policies. Full definition pending. |
+| [`REVIEW_APP_PROMOTE_API.md`](./REVIEW_APP_PROMOTE_API.md) | Active | Review-app → D1 promotion push: `POST /api/promote` payload/response, idempotency, integration rule. |
+| [`AUTH_AND_RLS.md`](./AUTH_AND_RLS.md) | Active | Authorization model and Row-Level Security policies — the complete authorization source of truth (3-layer authz, GRANTs, RLS, GDPR erasure). |
 | [`CICD_PLAN.md`](./CICD_PLAN.md) | Active | GitHub Actions pipeline, environments, deployments, rollback, secrets management. |
 | [`environments.md`](./environments.md) | Active | Environment topology, promotion model, PR-preview lifecycle, secrets, and bootstrap checklist across all tiers. |
 | [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |

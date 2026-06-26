@@ -3,6 +3,20 @@ import { z } from 'zod';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
+ * The §5.5 ratings-visibility gate: a product's aggregate rating averages
+ * (`rating_overall_avg` / `rating_onboarding_avg`) are only shown once it has at
+ * least this many **approved** reviews. Below the threshold a single-review
+ * average is statistically misleading, so the averages are withheld (nulled) and
+ * the UI shows an empty state instead.
+ *
+ * One source of truth for the rule, shared across every surface that enforces it:
+ * the API detail + list mappers (`apps/api/src/lib/drizzle-helpers.ts`), the
+ * `rating` sort tiebreaker (`apps/api/src/lib/sort.ts`), and the web
+ * `RatingSummary` card/table component (`apps/web/src/app/reviews/rating-summary.ts`).
+ */
+export const RATING_VISIBILITY_MIN_REVIEWS = 5;
+
+/**
  * Review-submission contract (AECI-197 / Phase 5.6): the body and response for
  * `POST /api/reviews`, the first authenticated user write in the product.
  *

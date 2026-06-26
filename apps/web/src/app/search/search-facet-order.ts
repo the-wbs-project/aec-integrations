@@ -16,7 +16,7 @@ import type { RefinementItem } from '../shared/facets/refinement-item';
  * Project-lifecycle order for the `phases` facet, keyed by taxonomy term **name**
  * (Algolia indexes phase *names*, not slugs — see
  * `apps/api/src/lib/algolia-transforms.ts`). Mirrors `taxonomy_phases.display_order`
- * in `supabase/reference-data/taxonomy.sql`; keep in sync if a phase is renamed.
+ * in `apps/api/seed/taxonomy.sql`; keep in sync if a phase is renamed.
  * A renamed/unknown value sorts to the end rather than vanishing (DB-backed
  * surfaces read live `display_order` and are unaffected).
  */

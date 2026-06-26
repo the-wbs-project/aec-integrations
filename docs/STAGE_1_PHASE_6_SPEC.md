@@ -80,7 +80,7 @@ A scheduled job (extend the existing scheduled Worker — the AECI-139 cron→qu
 
 ### 6.5 Site → Linear sync
 
-When an admin resolves/rejects in `/admin/requests` (§8), push the change to the Linear issue (status transition + a comment) via GraphQL, and record a `workflow_transition`. Keeps Linear and Supabase consistent regardless of where the admin acted (they may also resolve directly in Linear → the webhook §6.3 covers that direction).
+When an admin resolves/rejects in `/admin/requests` (§8), push the change to the Linear issue (status transition + a comment) via GraphQL, and record a `workflow_transition`. Keeps Linear and the app DB (D1, ADR 0016) consistent regardless of where the admin acted (they may also resolve directly in Linear → the webhook §6.3 covers that direction). Wired into the resolve/reject handler's `SyncRequestToLinear` seam at the composition root (`apps/api/src/index.ts`) via `pushRequestResolutionToLinear` (AECI-220).
 
 ---
 

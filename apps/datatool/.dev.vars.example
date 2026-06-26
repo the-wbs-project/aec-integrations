@@ -11,17 +11,14 @@
 # Shared-secret bearer that authenticates the API routes outside Access.
 TOOL_TOKEN="choose-a-long-random-string"
 
-# Algolia (post-write reindex). App id is shared; admin keys are per-env
-# (the same ALGOLIA_ADMIN_KEY_<ENV> values scripts/algolia/provision.mjs mints).
+# Algolia (post-write reindex). SINGLE shared values across every env — one Algolia
+# app, and its admin key reaches all `{env}_*` indexes (only the index PREFIX is
+# per-env, and that's derived from the target, not a key). Same values the apps/api
+# / apps/web Workers get from the un-suffixed ALGOLIA_* GitHub secrets.
 ALGOLIA_APP_ID=""
-ALGOLIA_ADMIN_KEY_PREVIEW=""
-ALGOLIA_ADMIN_KEY_STAGING=""
-ALGOLIA_ADMIN_KEY_PRODUCTION=""
+ALGOLIA_ADMIN_KEY=""
 
-# Cloudflare edge-cache purge (post-write). Per-env token (Zone.Cache Purge) + zone id.
-CF_PURGE_API_TOKEN_PREVIEW=""
-CF_PURGE_API_TOKEN_STAGING=""
-CF_PURGE_API_TOKEN_PRODUCTION=""
-CF_ZONE_ID_PREVIEW=""
-CF_ZONE_ID_STAGING=""
-CF_ZONE_ID_PRODUCTION=""
+# Cloudflare edge-cache purge (post-write). SINGLE shared token + zone id —
+# staging/demo/production all live on the one aecintegrations.com zone.
+CF_PURGE_API_TOKEN=""
+CF_ZONE_ID=""

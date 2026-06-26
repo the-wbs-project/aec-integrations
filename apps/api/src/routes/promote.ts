@@ -92,7 +92,7 @@ import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { callGoogleIndexing } from '../lib/google-indexing';
-import type { DbFactory } from '../lib/handler-utils';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { callIndexNow } from '../lib/indexnow';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote } from './promote-cache-tags';
@@ -315,7 +315,17 @@ export type PromoteAlgoliaSync = (
 ) => Promise<void>;
 
 const defaultAlgoliaSync: PromoteAlgoliaSync = (c, response) =>
-  syncAlgoliaAfterPromote(c, response, getDb(c.env).db);
+  // Post-commit best-effort re-read for indexing. It re-queries the just-promoted
+  // rows by id, so it MUST see its own write: resume the write session via its
+  // bookmark (`dbCtx` stashed by `writeDb`) rather than starting a fresh
+  // `'first-unconstrained'` session — otherwise a lagging replica could index
+  // stale/missing rows once read replication is enabled. Falls back to the read
+  // default when no bookmark exists (single-DB local/test). (AECI-250)
+  syncAlgoliaAfterPromote(
+    c,
+    response,
+    getDb(c.env, { bookmark: c.get('dbCtx')?.getBookmark() ?? null }).db,
+  );
 
 async function syncAlgoliaAfterPromote(
   c: Context<{ Bindings: Env }>,
@@ -521,7 +531,7 @@ export function createPromoteHandler(
     }
 
     const payload = PromotePayloadSchema.parse(raw);
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     // ── PLAN: reads + id generation. Writes are accumulated, not executed. ──
     const stmts: BatchStmt[] = [];

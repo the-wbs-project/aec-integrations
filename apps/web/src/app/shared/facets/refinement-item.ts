@@ -8,7 +8,7 @@
  *
  * The widget that renders these (`app/search/widgets/search-refinement-list.ts`)
  * is presentation-only and source-agnostic — it doesn't care whether `count`
- * came from Algolia's facet stats or a Prisma aggregation.
+ * came from Algolia's facet stats or a D1 aggregation.
  */
 export interface RefinementItem {
   /** The facet value. For Algolia product records this is the display name; for

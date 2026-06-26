@@ -3,8 +3,8 @@
 # (AECI-56 / docs/CACHE_STRATEGY.md §5).
 #
 # Used by the deploy workflows after the taxonomy reference-data seed
-# (supabase/reference-data/taxonomy.sql) reconciles the `taxonomy_*` vocabulary
-# directly in Postgres. That write bypasses the app's normal purge path, so the
+# (apps/api/seed/taxonomy.sql, applied via `wrangler d1 execute`) reconciles the
+# `taxonomy_*` vocabulary directly in D1. That write bypasses the app's normal purge path, so the
 # edge keeps serving the old vocabulary until TTL (≤5 min browse, ≤1 hr nav)
 # unless we purge explicitly here. See docs/adr/0008-taxonomy-reference-data.md.
 #

@@ -56,8 +56,8 @@ When a section of this spec references one of these documents, the companion doc
 | Hydration | `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is on by default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130). See `apps/web/src/app/app.config.ts:13-30` |
 | i18n | `@angular/localize` |
 | Hosting | Cloudflare Workers (SSR Worker with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills) |
-| Database | Supabase (PostgreSQL) |
-| ORM | Prisma (via `@prisma/extension-accelerate`; HTTPS — independent of `nodejs_compat`; see `DATABASE_SCHEMA.md` §1a) |
+| Database | Cloudflare D1 (SQLite) — the application DB (ADR 0016); Supabase retained for **Auth only** |
+| ORM | Drizzle (`drizzle-orm/d1`) over the API Worker's native `DB` binding — no Prisma, no Accelerate, no `nodejs_compat` for the DB path; see `DATABASE_SCHEMA.md` §1a |
 | Search | Algolia + InstantSearch Angular |
 | Auth | Supabase Auth (magic link + Google OAuth) |
 | Email | Resend (transactional) + Microsoft 365 (mailboxes) |
@@ -111,7 +111,7 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 
 Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped in Stage 1**; they return with the dark theme at Stage 2.
 
-Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero band — anywhere warmth and identity are desired. It is no longer the default page background.
+Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero / marketing bands — anywhere warmth and identity are desired. It is no longer the default page background.
 
 ### 2a.4 Contrast validation
 
@@ -228,25 +228,34 @@ Admin auth is a simple role check on the `profiles` table. No separate admin UI 
 
 ## 4. Page Specifications
 
-### 4.1 Home page (`/`)
+### 4.1 Home page (`/`) — the unified launch front door
 
-**Above the fold:**
-- Hero section with tagline and search bar (Algolia-powered autocomplete)
-- Three stats cards:
-  - **Total integrations indexed** — large number + "+X in the last 30 days" in smaller text below
-  - **Most integrated product** — product name + integration count, links to product page
-  - **Most active category** — category name + integration count, links to category page
+> **This rewrite supersedes the directory-only §4.1** (the prior "hero + stats + browse + recent + trending" spec). It is the contract for **AECI-269** (unify the marketing landing page + app home into one launch front door) and the build children it blocks. The visual treatment, section rhythm, and `/impeccable shape` direction live in `docs/design/unified-home-direction.md` (**AECI-270**), which supersedes the *page contract* of `docs/design/home-direction.md` (AECI-181) while reusing its hero / stats / browse / trust treatments.
 
-**Below the fold:**
-- "Browse by category" — grid of top categories with counts
-- "Browse by audience" — same pattern
-- "Browse by project phase" — same pattern
-- "Recently added integrations" — last 10 integrations with source → target product names
-- "Trending products this week" — top 5 most-viewed products (from PostHog data, cached)
+At go-live there is no separate marketing page: when the apex flips from the static `apps/landing` to the app (§11.2 / Phase 7.13, AECI-247), the app home **is** the marketing page. The home therefore carries **two jobs as one editorial publication** — the directory/utility job for the ready visitor (search, browse, live data) and the marketing/persuasion job for the cold visitor (why AECi, trust, how it works). The marketing content is **translated into the app's editorial voice + Faire tokens** (`PRODUCT.md` voice; `DESIGN.md` Anchor-Site Rule → Faire), **never pasted** from `apps/landing/public/index.html`, and it **reuses** the existing trust band + stats rather than duplicating them.
 
-**Footer:** standard nav, legal links, contact, social.
+**Canonical positioning.** The home's one-liner is **"The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement."** Three live expressions ladder up to it: the hero lede (`home-hero.ts`), the footer tagline (`site-footer.ts`), and the home `<meta>` description (`setHomeMeta`, `core/meta.service.ts`). No launch copy claims integrations are "verified" — nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope; §4.2 verified-badge placeholder), which is why the prior footer "vendor-verified reviews" tagline was reconciled out.
 
-**Stats card data source:** a daily stats job on the **existing** scheduled API Worker (the AECI-139 cron→queue→consumer; runs in early UTC alongside the Algolia sync at `0 8 * * *` and drift at `0 9 * * *` — *not* a separate Worker, superseding the stale "02:00 UTC") recomputes stats and writes to the `stats_cache` table in Supabase (already created in the baseline migration). Pages read from this cache via `GET /api/stats/home`, not live aggregations.
+**Canonical section order.** One column of stacked modules in the standard shell (`SiteHeader` above, `SiteFooter` below). The cold-visitor path (why → trust → how) interleaves with the ready-visitor path (search → browse → data) so the page reads as one publication, not two pages stacked:
+
+| # | Section | At launch | Status / data source |
+|---|---|:--:|---|
+| 1 | **Hero + search** | ✓ | Existing `home-hero.ts`: positioning lede (cold visitor) + the reused `SearchAutocomplete` (ready visitor). |
+| 2 | **Credibility strip** | ✓ | **NEW** (AECI-271, `home-credibility-strip.ts`). Coverage counts (products / vendors / integrations) + "independent · no pay-for-placement". Counts come from the cached `GET /api/stats/home` (`total_products` / `total_vendors` / `total_integrations`, added to the daily stats job §10 — never live-aggregated); `total_reviews` joins once meaningful. The independence line is static. Each metric is suppressed at 0 (no "0 reviews"); an all-zero cache renders a real empty state. Contributing firms deferred (no reviewer-firm field yet). |
+| 3 | **Why AECi (the problem)** | ✓ | **NEW**, static. The broken-landscape narrative + three cited figures (≈34% of reviews AI-generated · $87K/yr to boost a ranking · 900+ tools in generic categories). Figures are static cited stats, not live data. |
+| 4 | **What's different / trust** | ✓ | **NEW** (AECI-273, `home-differentiation.ts`), static. Reconciles the shipped three trust commitments (never sell rankings · always be transparent · never review products ourselves) with the landing's "three ideas" (reviewable integrations · separate product + onboarding ratings · no pay-for-placement): leads with the three ideas, folds the operator promise into the closing trust line. The reconciliation is fixed in `unified-home-direction.md`. (Built as a new component rather than reworking `home-trust-pillars.ts` in place, because that band is shared with `/about` and is left as the standalone "three trust commitments" there.) |
+| 5 | **How it works** | ✓ | **NEW** (AECI-273, `home-how-it-works.ts`), static, compact. The dual-review + no-pay-for-placement method, framed as the operating model (not a claim of verified inventory): integrations are documented · practitioners review the product and onboarding separately · nothing is for sale. Earns the "reviews" framing the footer used to assert. |
+| 6 | **Stats cards** | ✓ | Existing `home-stats-cards.ts`: total integrations (+30d) · most-integrated product · most-active category. `GET /api/stats/home`. |
+| 7 | **Browse by category / audience / phase** | ✓ | Category + phase use the existing `browse-grid.ts` (count-chips). The **audience** facet is the dedicated "this is for you" recognition band `home-audience.ts` (**AECI-274**), which **replaces** the audience browse-grid instance (one coherent audience moment, not two): the landing's ten role callouts + a use-case lede, nine linking to `/audiences/:slug` and the non-mapping one (Technology directors) as plain text. Live `GET /api/taxonomy` (`TaxonomyResponse`, `product_count`). |
+| 8 | **Recently added + trending** | ✓ | Existing `recent-integrations-section.ts` + `trending-products-section.ts`. `GET /api/stats/home`; proof the directory is alive. Trending falls back to recently-added (AECI-185 empty-state precedent). |
+| 9 | **Closing CTA + capture** | ✓ | **NEW.** Email → `POST /api/subscribe`; suggest-a-tool / feedback → `POST /api/feedback` (both already shipped, AECI-257; see `API_CONTRACTS.md`). A **progressively-enhanced client island**: the SSR HTML is the static form, the POST targets the non-cached `/api/*`, so the route stays edge-cache-neutral. |
+| 10 | **Footer** | ✓ | Existing `site-footer.ts`. |
+
+**In scope at launch:** all ten sections, **plus the home OG share card** (the SEO child AECI-276 — a real rendered 1200×630 PNG; see §20.4). **Deferred:** the post-launch waitlist welcome-state banner (§11.2). No new design tokens — add to `DESIGN.md` (and `styles.css` + `BRAND_GUIDELINES.md` + §2a.2) in lockstep first if a band needs one.
+
+**Non-negotiables.** Edge-cache-neutral SSR (the capture island is the only client-state surface, and it POSTs to the non-cached `/api/*`; the cacheable HTML stays visitor-state-neutral — §9); i18n `@@` ids on every string; **light theme only** (§2a, AECI-226); the **Faire** anchor (`DESIGN.md` Anchor-Site Rule); editorial voice (`PRODUCT.md` banned-words, sentence case, **no em dashes**); borders not shadows.
+
+**Stats / live-data source:** a daily stats job on the **existing** scheduled API Worker (the AECI-139 cron→queue→consumer; runs in early UTC alongside the Algolia sync at `0 8 * * *` and drift at `0 9 * * *`) recomputes the home aggregates and writes the `stats_cache` table in the app database (D1, ADR 0016). The stats cards, credibility counts, recently-added, and trending modules read this cache via `GET /api/stats/home`, **not** live aggregations; the browse grids read the **live** `GET /api/taxonomy` so they purge on the `taxonomy` `Cache-Tag` independently of the stats pipeline (AECI-184).
 
 ### 4.2 Product page (`/products/:slug`)
 
@@ -433,7 +442,7 @@ This satisfies right-to-erasure while preserving the directory's content integri
 
 ### 5.5 Taxonomy facets (Categories, Audiences, Phases)
 
-The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `supabase/reference-data/taxonomy.sql`, applied to every environment via idempotent upserts (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
+The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `apps/api/seed/taxonomy.sql`, applied to every environment via idempotent upserts to D1 with `wrangler d1 execute` (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
 
 | Facet | Question it answers | Table | Browse route | Examples |
 |---|---|---|---|---|
@@ -588,7 +597,7 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 
 ### 7.4 Sync strategy
 
-- **Initial bulk import**: one-off script `apps/api/scripts/algolia-bulk-sync.ts` (Prisma-bound — it reuses the AECI-137 transform and the vanilla `@prisma/client` over `DIRECT_URL`, so it lives alongside the other `apps/api` Node CLIs rather than at the repo root; AECI-138) reads **promoted** rows from Supabase, transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
+- **Initial bulk import**: a one-off `apps/api` CLI (AECI-138) that reuses the AECI-137 Drizzle/D1 transform (`apps/api/src/lib/algolia-transforms.ts`) to read **promoted** rows from D1 (via `wrangler d1 execute --remote`), transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
 - **Ongoing sync**: scheduled Cloudflare Worker at 08:00 UTC (= 03:00 EST, our US-East launch base; UTC is DST-unaware so 04:00 EDT in summer) daily reads Supabase changes since last sync, pushes incremental updates to Algolia
 - **Real-time sync (deferred)**: Supabase webhook → Worker → Algolia, planned for Stage 2 when vendors edit their data
 
@@ -641,7 +650,7 @@ The site launches in `en-US` only, but every layer is built to support additiona
 - Empty at launch; schema is in place
 - Read pattern: fetch entity by ID, then `SELECT field, value FROM translations WHERE entity_type=? AND entity_id=? AND locale=?` with **per-field fallback** to the canonical `en-US` value on the entity row — a missing row in `translations` for a given field falls back to canonical, *not* to a blank
 - All entities that store user-facing strings have implicit `en-US` content in their primary columns
-- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in the frozen probe `spikes/stack-test/src/server.ts:119-136` and `spikes/stack-test/src/app/data.service.server.ts:33-50` (no live equivalent yet — translations are en-US-only at launch); the probe uses Cloudflare KV as the overlay store, **Stage 1 production reads from the `translations` table via Prisma — KV is not the production substrate for translations**
+- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in the frozen probe `spikes/stack-test/src/server.ts:119-136` and `spikes/stack-test/src/app/data.service.server.ts:33-50` (no live equivalent yet — translations are en-US-only at launch); the probe uses Cloudflare KV as the overlay store, **Stage 1 production reads from the `translations` table in D1 (via Drizzle) — KV is not the production substrate for translations**
 
 ### 7a.3 URL strategy
 
@@ -770,7 +779,7 @@ The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Ca
 
 ### 9.4 API response caching
 
-Worker API responses use `Cache-Control` and Cloudflare KV for hot paths. The SSR Worker should rarely call the API directly — it should query Supabase via Prisma in the same Worker. Reserve the API for client-side calls and Stage 2 vendor portal.
+Worker API responses use `Cache-Control` and Cloudflare KV for hot paths. Data access lives in the private API Worker, which reads Cloudflare D1 via Drizzle over its `DB` binding (ADR 0016); the SSR Worker reaches it over the `env.API` service binding (its same-origin `/api/*` passthrough is the sanctioned browser read path).
 
 ---
 
@@ -781,6 +790,9 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 **Computes and writes to `stats_cache`:**
 - `home.total_integrations` — count from integrations table
 - `home.integrations_added_30d` — count where `created_at >= now() - 30 days`
+- `home.total_products` — count from products table (credibility strip, AECI-271)
+- `home.total_vendors` — count from vendors table (credibility strip, AECI-271)
+- `home.total_reviews` — count of **approved** reviews (credibility strip, AECI-271)
 - `home.most_integrated_product` — product with highest integration count
 - `home.most_active_category` — category with highest aggregate integration count
 - `home.recent_integrations` — last 10 integrations with linked product names
@@ -818,7 +830,7 @@ via `ctx.waitUntil`, fail-open):
 
 ### 11.2 Waitlist transition
 
-The existing coming-soon landing page captures emails to a `marketing.waitlist` table (already in Supabase per existing setup).
+Pre-launch, the static coming-soon landing page (`apps/landing`) captures emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). At launch the unified home's closing CTA (§4.1, section 9) carries the same capture forward, so signup survives the apex flip.
 
 **On launch:**
 - One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"
@@ -1014,9 +1026,13 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 >
 > The acceptance criteria's "configured as code (Terraform / CF API)" clause was
 > intentionally relaxed for launch (dashboard + runbook instead). Datadog visibility
-> of WAF events is deferred to a post-launch follow-up; CF Security Events is the
-> launch surface. `/api/page-views` (high-volume beacon) and `/api/webhooks/linear`
-> (HMAC-verified, single source) are deliberately excluded — see the runbook.
+> of WAF events shipped in AECI-262 — the API Worker's hourly cron polls the zone's
+> `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits
+> `aeci.waf.ratelimit.blocked` (the free Pro-plan alternative to Enterprise Logpush);
+> CF Security Events remains the per-IP triage surface. See `waf-rate-limits.md` §5
+> and `OBSERVABILITY.md`. `/api/page-views` (high-volume beacon) and
+> `/api/webhooks/linear` (HMAC-verified, single source) are deliberately excluded —
+> see the runbook.
 
 ### 15.2 API privacy
 
@@ -1050,8 +1066,8 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
 - [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
-- [ ] Supabase connection via Prisma in `apps/api/` using the per-request Accelerate pattern validated in `apps/api/src/prisma.ts` (`PrismaClient` from `@prisma/client/edge` + `withAccelerate()`; `DATABASE_URL` is the `prisma://` URL; `DIRECT_URL` is CLI-only). See `DATABASE_SCHEMA.md` §1a.
-- [ ] PostgREST GRANTs + RLS policies + `public.is_admin()`/`is_active_user()` helpers ship as numbered migrations in `supabase/migrations/` (applied to every env by `supabase db push`; PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1, AECI-87)
+- [ ] Cloudflare D1 access via Drizzle in `apps/api/` using the per-request `getDb(env)` client over the native `DB` binding (`apps/api/src/db/client.ts`; no Prisma, no Accelerate, no `DATABASE_URL`/`DIRECT_URL` — ADR 0016). See `DATABASE_SCHEMA.md` §1a.
+- [ ] App-table authorization is **app-layer only** — D1 has no PostgREST/GRANT/RLS; the Worker request guard (`apps/api/src/lib/authz.ts`) is the only authorization layer, gated by the no-leakage authz-matrix specs (see `AUTH_AND_RLS.md` Layer 1)
 - [ ] Service binding between SSR Worker and API Worker
 - [ ] Datadog Browser RUM and Worker SDK installed and reporting
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped)
@@ -1096,6 +1112,7 @@ Decomposed into AECI Phase 4.1–4.12 (planned 2026-06-10). The `stats_cache` an
 - [ ] "Browse by" category / audience / phase grids (live taxonomy endpoints)
 - [ ] Recently-added integrations + Trending products sections (graceful empty states)
 - [ ] Home page assembly: SSR route/resolver, cache tags, home `WebSite`/`Organization` JSON-LD
+  - _Re-opened by **AECI-269** (unify marketing + directory home): §4.1 was rewritten (AECI-270) and the marketing bands — credibility, why, how-it-works, closing CTA + capture — ship as AECI-269 build children. See §4.1 + `docs/design/unified-home-direction.md`._
 - [ ] Phase 4 completion checkpoint
 
 ### Phase 5: Auth & reviews (Week 7)
@@ -1235,10 +1252,12 @@ Embedded in `<head>` on relevant pages:
 - **Products** — `SoftwareApplication` with `aggregateRating` (once ≥5 reviews), `offers`, `description`
 - **Vendors** — `Organization` with `address`, `foundingDate`, `url`
 - **Integrations** — `WebPage` with rich description; no perfect schema.org type exists
-- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box
+- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box, plus a publisher `Organization` (whose `logo` is the square monogram)
 - **Reviews** — `Review` nested in `SoftwareApplication`
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
+
+> **Home JSON-LD at launch (AECI-276):** the home emits **only** the `WebSite` (with `SearchAction`) + publisher `Organization` — **no** site-level `aggregateRating`/`Review`. Nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope) and the launch review corpus is not an honest basis for star ratings, so org/home aggregate review markup is deliberately withheld until it is genuinely supported. Product-level `aggregateRating` still appears per its own ≥5-review threshold above.
 
 ### 20.4 OpenGraph and Twitter Card meta tags
 
@@ -1248,6 +1267,8 @@ Every product, vendor, and integration page includes:
 - `twitter:card` (`summary_large_image`), `twitter:title`, `twitter:description`, `twitter:image`
 
 Dynamic OG image generation (via Cloudflare Workers + Satori) deferred to a Stage 1.x iteration. At launch, OG image is the entity's logo on a branded background, generated server-side or pre-rendered.
+
+> **Implemented — home share card (AECI-276):** the **home** (`/`) does not use the monogram fallback. It ships a dedicated, pre-rendered **1200×630 PNG** share card (`apps/web/public/branding/home-og.png`, served at `/branding/home-og.png`), and `setHomeMeta` (`apps/web/src/app/core/meta.service.ts`) points `og:image` + `twitter:image` (with `og:image:alt` / `twitter:image:alt`) at it as an **absolute** URL — the home is the highest-value share surface ("buyers send the link to colleagues"). The card is light-editorial and **evergreen** (no live numbers, so the static asset never goes stale); regenerate from `apps/web/scripts/home-og-template.html` via `pnpm --filter @aeci/web og:home` (a manual Playwright-render dev tool, not in CI). **Per-entity** product/vendor OG cards remain the monogram fallback (`DEFAULT_OG_IMAGE`) — a separate effort. The home `Organization` JSON-LD `logo` (§20.3) intentionally stays the square monogram, not the share card.
 
 ### 20.5 Single write-event pipeline
 
