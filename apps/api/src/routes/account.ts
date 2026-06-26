@@ -177,7 +177,10 @@ export function createDeleteAccountHandler(
         // Stamp `anonymized_at` in the same statement that nulls the reviewer ref
         // so the pair is atomic — a null `reviewer_id` always carries its
         // anonymization timestamp (the §23.1 / AECI-241 data-quality invariant).
-        .set({ reviewerId: null, anonymizedAt: new Date().toISOString() })
+        // Also null the free-text `reviewer_firm` (AECI-284): the firm is more
+        // identifying than the generic role enum, so erasure clears it (and it
+        // drops out of the contributing-firms count).
+        .set({ reviewerId: null, reviewerFirm: null, anonymizedAt: new Date().toISOString() })
         .where(eq(reviews.reviewerId, userId)),
       db.update(reviews).set({ moderatedBy: null }).where(eq(reviews.moderatedBy, userId)),
       db

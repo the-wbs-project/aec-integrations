@@ -446,6 +446,13 @@ export const reviews = sqliteTable(
     roleAtCompany: text('role_at_company'),
     yearsUsing: integer('years_using'),
     wouldRecommend: text('would_recommend'),
+    /** Optional free-text reviewer firm/company (AECI-284). Powers the home
+     *  credibility strip's distinct contributing-firms count (normalized
+     *  `lower(trim(...))`, approved reviews only — see `home-stats.ts`). Not
+     *  exposed on the public per-review API; admin-only for moderation context.
+     *  GDPR-nulled in the same `DELETE /api/account` batch that nulls
+     *  `reviewer_id` and stamps `anonymized_at` (`routes/account.ts`). */
+    reviewerFirm: text('reviewer_firm'),
 
     status: text('status').notNull().default('pending'),
     rejectionReason: text('rejection_reason'),

@@ -47,7 +47,7 @@ beforeEach(async () => {
 });
 afterEach(() => t.dispose());
 
-async function seedReview(id: string, status: string) {
+async function seedReview(id: string, status: string, reviewerFirm: string | null = null) {
   await t.db.insert(reviews).values({
     id,
     productId: u(1),
@@ -56,6 +56,7 @@ async function seedReview(id: string, status: string) {
     ratingOnboarding: 4,
     title: 'T',
     body: 'B',
+    reviewerFirm,
     status,
   });
 }
@@ -110,6 +111,19 @@ describe('GET /api/admin/reviews', () => {
     };
     expect(body.total).toBe(1);
     expect(body.data[0]!.reviewer_email).toBe('rev@example.com');
+  });
+
+  it('surfaces the reviewer_firm for moderation context (AECI-284)', async () => {
+    await seedReview(u(12), 'pending', 'Acme Architects');
+    const res = await listApp().request(
+      '/api/admin/reviews?status=pending',
+      {},
+      TEST_ENV,
+      fakeExecutionContext(),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: Array<{ reviewer_firm: string | null }> };
+    expect(body.data[0]!.reviewer_firm).toBe('Acme Architects');
   });
 });
 

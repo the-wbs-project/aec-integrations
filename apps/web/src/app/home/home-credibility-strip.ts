@@ -26,8 +26,9 @@ import { Component, computed, input } from '@angular/core';
  * theme only (Stage 1). i18n throughout; the Lucide shield glyph is `aria-hidden`
  * (the visible text carries the meaning). Anchor site: Faire (AECI-270).
  *
- * "Contributing firms" (issue "what we're building") is deferred: the data model
- * has no reviewer-firm field yet — tracked as a follow-up.
+ * Contributing firms (AECI-284): the distinct count of firms among approved
+ * reviews (`HomeStatsResponse.total_contributing_firms`), wired in as another
+ * suppressed-at-0 coverage metric — it surfaces once reviews carry firm names.
  */
 type CoverageMetric = { key: string; count: number; label: string };
 
@@ -93,6 +94,9 @@ export class HomeCredibilityStrip {
   readonly totalIntegrations = input.required<number>();
   /** `HomeStatsResponse.total_reviews` — suppressed at `0` (no "0 reviews"); appears as the corpus grows. */
   readonly totalReviews = input.required<number>();
+  /** `HomeStatsResponse.total_contributing_firms` — distinct firms among approved
+   *  reviews (AECI-284), suppressed at `0` (no "0 contributing firms"). */
+  readonly totalContributingFirms = input.required<number>();
 
   /** The non-zero coverage counts, in display order. A `0` count drops out, so
    *  the strip never shows a bare zero (§4.1 thin-corpus framing). */
@@ -124,6 +128,12 @@ export class HomeCredibilityStrip {
       this.totalReviews(),
       $localize`:@@home.credibility.reviews.one:review`,
       $localize`:@@home.credibility.reviews.other:reviews`,
+    );
+    add(
+      'firms',
+      this.totalContributingFirms(),
+      $localize`:@@home.credibility.firms.one:contributing firm`,
+      $localize`:@@home.credibility.firms.other:contributing firms`,
     );
     return out;
   });

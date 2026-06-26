@@ -29,6 +29,7 @@ import {
   computeMostIntegratedProduct,
   computeRecentIntegrations,
   computeRecentlyAddedProducts,
+  computeTotalContributingFirms,
   computeTotalIntegrations,
   computeTotalProducts,
   computeTotalReviews,
@@ -117,8 +118,14 @@ async function seedVendor(id: string): Promise<void> {
 }
 
 /** Insert a review for a product. `reviewerId` stays null (no uniqueness clash),
- *  so any number of reviews can be seeded per product. */
-async function seedReview(id: string, productId: string, status: string): Promise<void> {
+ *  so any number of reviews can be seeded per product. `reviewerFirm` is optional
+ *  (AECI-284 contributing-firms count). */
+async function seedReview(
+  id: string,
+  productId: string,
+  status: string,
+  reviewerFirm: string | null = null,
+): Promise<void> {
   await t.db.insert(reviews).values({
     id,
     productId,
@@ -127,6 +134,7 @@ async function seedReview(id: string, productId: string, status: string): Promis
     title: 't',
     body: 'b',
     status,
+    reviewerFirm,
   });
 }
 
@@ -212,6 +220,38 @@ describe('computeTotalReviews', () => {
     await seedProduct({ id: U.p1 });
     await seedReview(U.i1, U.p1, 'pending');
     expect(await computeTotalReviews(t.db)).toBe(0);
+  });
+});
+
+describe('computeTotalContributingFirms', () => {
+  it('counts distinct firms (case/whitespace-insensitive) among approved reviews only', async () => {
+    await seedProduct({ id: U.p1 });
+    // Three spellings of one firm → one distinct firm after lower(trim()).
+    await seedReview('firm-r1', U.p1, 'approved', 'Acme Architects');
+    await seedReview('firm-r2', U.p1, 'approved', 'acme architects');
+    await seedReview('firm-r3', U.p1, 'approved', '  Acme Architects  ');
+    // A genuinely different firm → second distinct.
+    await seedReview('firm-r4', U.p1, 'approved', 'Beacon Structural');
+    // Same firms but NOT approved → excluded.
+    await seedReview('firm-r5', U.p1, 'pending', 'Cornerstone Eng');
+    await seedReview('firm-r6', U.p1, 'rejected', 'Delta Build');
+    expect(await computeTotalContributingFirms(t.db)).toBe(2);
+  });
+
+  it('excludes null and blank/whitespace-only firms', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview('firm-r1', U.p1, 'approved', null);
+    await seedReview('firm-r2', U.p1, 'approved', '');
+    await seedReview('firm-r3', U.p1, 'approved', '   ');
+    await seedReview('firm-r4', U.p1, 'approved', 'Real Firm');
+    expect(await computeTotalContributingFirms(t.db)).toBe(1);
+  });
+
+  it('returns 0 when no approved review carries a firm', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview('firm-r1', U.p1, 'approved', null);
+    await seedReview('firm-r2', U.p1, 'pending', 'Pending Firm');
+    expect(await computeTotalContributingFirms(t.db)).toBe(0);
   });
 });
 
@@ -388,13 +428,14 @@ async function hasCached(key: string): Promise<boolean> {
 }
 
 describe('runHomeStats', () => {
-  it('writes all ten home.* keys with values that pass their own schema', async () => {
+  it('writes all eleven home.* keys with values that pass their own schema', async () => {
     await seedFullFixture();
-    // Coverage counts (AECI-271): the fixture has 4 products, 0 vendors, and 0
-    // reviews — add two approved reviews + one vendor so the scalars are non-zero.
+    // Coverage counts (AECI-271 + AECI-284): the fixture has 4 products, 0 vendors,
+    // and 0 reviews — add two approved reviews (each with a distinct firm) + one
+    // vendor so the scalars are non-zero.
     await seedVendor(U.c1);
-    await seedReview(U.i1, U.p1, 'approved');
-    await seedReview(U.i2, U.p1, 'approved');
+    await seedReview(U.i1, U.p1, 'approved', 'Acme Architects');
+    await seedReview(U.i2, U.p1, 'approved', 'Beacon Structural');
 
     const result = await runHomeStats(t.db, NOW);
 
@@ -405,6 +446,7 @@ describe('runHomeStats', () => {
       'home.total_products',
       'home.total_vendors',
       'home.total_reviews',
+      'home.total_contributing_firms',
       'home.most_integrated_product',
       'home.most_active_category',
       'home.recent_integrations',
@@ -424,6 +466,7 @@ describe('runHomeStats', () => {
     expect(await cached('home.total_products')).toBe(4);
     expect(await cached('home.total_vendors')).toBe(1);
     expect(await cached('home.total_reviews')).toBe(2);
+    expect(await cached('home.total_contributing_firms')).toBe(2);
     expect(await cached('home.most_integrated_product')).toMatchObject({ integration_count: 9 });
     expect(await cached('home.most_active_category')).toMatchObject({ integration_count: 1 });
   });
@@ -439,6 +482,7 @@ describe('runHomeStats', () => {
     expect(await cached('home.total_products')).toBe(0);
     expect(await cached('home.total_vendors')).toBe(0);
     expect(await cached('home.total_reviews')).toBe(0);
+    expect(await cached('home.total_contributing_firms')).toBe(0);
     expect(await cached('home.trending_products')).toEqual([]);
     expect(await hasCached('home.most_integrated_product')).toBe(false);
   });
@@ -471,14 +515,15 @@ describe('runHomeStats', () => {
     expect(failed?.status).toBe('failed');
     expect(failed?.error).toContain('findFirst boom');
     expect(await hasCached('home.most_integrated_product')).toBe(false);
-    // The nine other keys still wrote despite the one failure.
-    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(9);
+    // The ten other keys still wrote despite the one failure (total_contributing_firms
+    // writes a valid 0 when the fixture has no firmed reviews).
+    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(10);
   });
 
   it('never throws and always returns an outcome per key', async () => {
     await seedFullFixture();
     const result = await runHomeStats(t.db, NOW);
-    expect(result.keys).toHaveLength(10);
+    expect(result.keys).toHaveLength(11);
   });
 
   it('records a non-negative per-key durationMs for every key (AECI-180)', async () => {

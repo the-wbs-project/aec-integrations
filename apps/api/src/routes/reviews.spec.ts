@@ -124,4 +124,30 @@ describe('POST /api/reviews', () => {
     expect(res.status).toBe(404);
     expect(await t.db.select().from(reviews)).toHaveLength(0);
   });
+
+  it('stores a trimmed reviewer_firm (AECI-284)', async () => {
+    const res = await post({ ...validBody(), reviewer_firm: '  Acme Architects  ' });
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(reviews);
+    expect(row!.reviewerFirm).toBe('Acme Architects');
+  });
+
+  it('stores null reviewer_firm for a blank/whitespace-only value', async () => {
+    const res = await post({ ...validBody(), reviewer_firm: '   ' });
+    expect(res.status).toBe(201);
+    const [row] = await t.db.select().from(reviews);
+    expect(row!.reviewerFirm).toBeNull();
+  });
+
+  it('defaults reviewer_firm to null when omitted', async () => {
+    expect((await post(validBody())).status).toBe(201);
+    const [row] = await t.db.select().from(reviews);
+    expect(row!.reviewerFirm).toBeNull();
+  });
+
+  it('rejects a reviewer_firm longer than 100 chars → 400 VALIDATION_FAILED', async () => {
+    const res = await post({ ...validBody(), reviewer_firm: 'x'.repeat(101) });
+    expect(res.status).toBe(400);
+    expect(await t.db.select().from(reviews)).toHaveLength(0);
+  });
 });

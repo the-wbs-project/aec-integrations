@@ -205,6 +205,9 @@ export function createSubmitReviewHandler(
         roleAtCompany: payload.role_at_company ?? null,
         yearsUsing: payload.years_using ?? null,
         wouldRecommend: payload.would_recommend ?? null,
+        // Trim free-text firm; a blank/whitespace-only value stores null so it
+        // never inflates the distinct contributing-firms count (AECI-284).
+        reviewerFirm: payload.reviewer_firm?.trim() || null,
         toxicityScore,
         locale,
       }),

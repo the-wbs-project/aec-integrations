@@ -3,7 +3,7 @@
  *
  *   GET /api/stats/home → HomeStatsResponse
  *
- * Reads the ten `home.*` keys from the `stats_cache` table (written daily by
+ * Reads the eleven `home.*` keys from the `stats_cache` table (written daily by
  * the compute job, 4.3 / AECI-178) and assembles the `HomeStatsResponse` shape
  * (AECI-176). It **never live-aggregates** (docs/STAGE_1_SPEC.md §10) — the
  * cache is the only source.
@@ -13,7 +13,8 @@
  * key — or a cached value that has drifted from its schema across deploys —
  * falls back to a sensible empty default rather than 500ing. Defaults:
  *   - scalars (`total_integrations`, `integrations_added_30d`,
- *     `total_products`, `total_vendors`, `total_reviews`)                → 0
+ *     `total_products`, `total_vendors`, `total_reviews`,
+ *     `total_contributing_firms`)                                       → 0
  *   - single cards (`most_integrated_product`, `most_active_category`)  → null
  *   - lists (`recent_integrations`, `trending_products`,
  *            `recently_added_products`)                                 → []
@@ -98,6 +99,11 @@ export function createStatsHomeHandler(
       total_reviews: parseOr(
         statsCacheValueSchemas['home.total_reviews'],
         byKey.get('home.total_reviews'),
+        0,
+      ),
+      total_contributing_firms: parseOr(
+        statsCacheValueSchemas['home.total_contributing_firms'],
+        byKey.get('home.total_contributing_firms'),
         0,
       ),
       most_integrated_product: parseOr(

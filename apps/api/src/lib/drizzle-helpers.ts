@@ -191,6 +191,7 @@ export const adminReviewConfig = {
     roleAtCompany: true,
     yearsUsing: true,
     wouldRecommend: true,
+    reviewerFirm: true,
     verifiedWorkEmail: true,
     locale: true,
     status: true,
@@ -414,6 +415,7 @@ export interface RawAdminReviewRow {
   roleAtCompany: string | null;
   yearsUsing: number | null;
   wouldRecommend: string | null;
+  reviewerFirm: string | null;
   verifiedWorkEmail: boolean;
   locale: string;
   status: string;
@@ -620,6 +622,7 @@ export function toAdminReview(
     id: raw.id,
     product: { id: raw.product.id, name: raw.product.name, slug: raw.product.slug },
     reviewer_email: raw.reviewerId ? (emailByReviewerId.get(raw.reviewerId) ?? null) : null,
+    reviewer_firm: raw.reviewerFirm,
     rating_overall: raw.ratingOverall,
     rating_onboarding: raw.ratingOnboarding,
     title: raw.title,

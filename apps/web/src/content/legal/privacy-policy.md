@@ -19,7 +19,7 @@ This policy explains what personal data AEC Integrations (the "service") collect
 We collect only what we need to run the service:
 
 - **Contact details you give us**: for example the email address you provide to join the waitlist, send feedback, submit a review, or report a correction. Reviews and requests may include any additional information you choose to enter.
-- **Review and request content**: the text, ratings, and metadata you submit, together with limited technical context (such as a timestamp) used for moderation and anti-abuse.
+- **Review and request content**: the text, ratings, and optional metadata you submit (such as your role, years of use, and your firm), together with limited technical context (such as a timestamp) used for moderation and anti-abuse. The optional firm you give is used only in aggregate (a count of distinct firms that have reviewed) and is not shown on your published review; it is removed if you delete your account.
 - **Usage and analytics data**: pages viewed, approximate location derived from IP, device and browser type, and similar event data, collected through privacy-respecting product analytics and performance monitoring to understand how the service is used and to keep it reliable and secure.
 
 We do **not** sell your personal data, and we do not use it for third-party advertising.

@@ -57,6 +57,36 @@ export const ROLES = ['practitioner', 'manager', 'IT', 'exec', 'other'] as const
 /** ~60% of seeded reviews carry the verified-work-email badge. */
 export const VERIFIED_WORK_EMAIL_RATE = 0.6;
 
+/** Synthetic reviewer firms (DEV/DEMO only — fictional AEC practices, not real
+ * companies). The seeder assigns one to ~55% of reviews so the home credibility
+ * strip's distinct contributing-firms count (AECI-284) is non-zero and varied in
+ * seeded environments. */
+export const FIRMS = [
+  'Cornerstone Architects',
+  'Meridian Engineering',
+  'Northgate Construction',
+  'Atlas Structural Group',
+  'Vanguard Builders',
+  'Summit Design Partners',
+  'Keystone Civil',
+  'Harbor & Vale Architecture',
+  'Ironwood Contractors',
+  'Cascade MEP Engineers',
+  'Brightline Infrastructure',
+  'Foundry Design Studio',
+  'Greenfield Construction Co',
+  'Pinnacle AEC',
+  'Redbrick Builders',
+  'Trailhead Engineering',
+  'Lighthouse Architects',
+  'Granite Peak Construction',
+  'Beacon Structural',
+  'Copperline Contracting',
+] as const;
+
+/** ~55% of seeded reviews carry a free-text firm (AECI-284). */
+export const REVIEWER_FIRM_RATE = 0.55;
+
 /** Reviews are dated across roughly the past year. */
 export const MAX_AGE_DAYS = 380;
 

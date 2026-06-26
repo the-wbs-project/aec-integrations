@@ -12,8 +12,10 @@
 
 import {
   DISTRIBUTION,
+  FIRMS,
   MAX_AGE_DAYS,
   REVIEW_FRAGMENTS,
+  REVIEWER_FIRM_RATE,
   ROLES,
   SENTIMENT_MIX,
   VERIFIED_WORK_EMAIL_RATE,
@@ -95,6 +97,7 @@ export interface PlannedReview {
   roleAtCompany: string | null;
   yearsUsing: number | null;
   wouldRecommend: string | null;
+  reviewerFirm: string | null;
   status: 'approved';
   moderatedAt: Date;
   verifiedWorkEmail: boolean;
@@ -235,6 +238,7 @@ export function buildPlan(products: ProductInput[], rng: Rng, now: number): Plan
         roleAtCompany: rng.chance(0.15) ? null : rng.pick(ROLES),
         yearsUsing: rng.chance(0.15) ? null : rng.pick(YEARS_POOL),
         wouldRecommend: recommendFor(sentiment, rng),
+        reviewerFirm: rng.chance(REVIEWER_FIRM_RATE) ? rng.pick(FIRMS) : null,
         status: 'approved',
         moderatedAt,
         verifiedWorkEmail: rng.chance(VERIFIED_WORK_EMAIL_RATE),

@@ -29,6 +29,13 @@
       "when": 1782307145172,
       "tag": "0003_gray_eternity",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1782505464472,
+      "tag": "0004_material_zombie",
+      "breakpoints": true
     }
   ]
 }

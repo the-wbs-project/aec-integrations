@@ -35,6 +35,7 @@ function makeReview(over: Partial<AdminReview> & { id: string }): AdminReview {
     id: over.id,
     product: over.product ?? { id: `p-${over.id}`, name: 'Product', slug: 'product' },
     reviewer_email: over.reviewer_email ?? 'reviewer@example.test',
+    reviewer_firm: over.reviewer_firm ?? null,
     rating_overall: over.rating_overall ?? 4,
     rating_onboarding: over.rating_onboarding ?? 5,
     title: over.title ?? 'Solid add-in',

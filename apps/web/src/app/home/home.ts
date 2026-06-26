@@ -96,6 +96,7 @@ import { TrendingProductsSection } from './trending-products-section';
         [totalVendors]="totalVendors()"
         [totalIntegrations]="totalIntegrations()"
         [totalReviews]="totalReviews()"
+        [totalContributingFirms]="totalContributingFirms()"
       />
 
       <!-- Why AECi / the problem (§4.1 section 3, AECI-272): the broken-landscape
@@ -207,6 +208,9 @@ export class Home {
   protected readonly totalProducts = computed(() => this.stats()?.total_products ?? 0);
   protected readonly totalVendors = computed(() => this.stats()?.total_vendors ?? 0);
   protected readonly totalReviews = computed(() => this.stats()?.total_reviews ?? 0);
+  protected readonly totalContributingFirms = computed(
+    () => this.stats()?.total_contributing_firms ?? 0,
+  );
   protected readonly mostIntegratedProduct = computed(
     () => this.stats()?.most_integrated_product ?? null,
   );

@@ -33,6 +33,10 @@ export const SubmitReviewSchema = z.object({
   role_at_company: z.enum(['practitioner', 'manager', 'IT', 'exec', 'other']).optional(),
   years_using: z.number().int().min(0).max(50).optional(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).optional(),
+  // Optional free-text firm/company (AECI-284). The handler trims it and stores
+  // null for a blank/whitespace-only value; it feeds the home credibility
+  // strip's distinct contributing-firms count (never shown on the public review).
+  reviewer_firm: z.string().max(100).optional(),
 });
 export type SubmitReviewInput = z.infer<typeof SubmitReviewSchema>;
 
@@ -126,11 +130,14 @@ export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySche
 /** Admin-only review item (`API_CONTRACTS.md` §6.10). A superset of
  *  `PublicReview`: adds the hydrated `product` ref, the moderation columns
  *  (`status`, `rejection_reason`, `moderated_at`), and the admin-only
- *  `toxicity_score` + `reviewer_email`. */
+ *  `toxicity_score` + `reviewer_email` + `reviewer_firm`. The free-text
+ *  `reviewer_firm` (AECI-284) is admin-only moderation context — it is NOT on
+ *  the public `PublicReview` contract. */
 export const AdminReviewSchema = z.object({
   id: z.string().uuid(),
   product: LinkRefSchema,
   reviewer_email: z.string().nullable(),
+  reviewer_firm: z.string().nullable(),
   rating_overall: z.number().int().min(1).max(5),
   rating_onboarding: z.number().int().min(1).max(5),
   title: z.string(),
