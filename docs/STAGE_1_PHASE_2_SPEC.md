@@ -5,6 +5,16 @@
 **Inherits from:** Phase 1 (AECI-16 through AECI-45)
 **Companion docs:** `DATABASE_SCHEMA.md`, `AUTH_AND_RLS.md`, `API_CONTRACTS.md`, `DESIGN.md`, `PRODUCT.md`, `CICD_PLAN.md`, `TESTING_STRATEGY.md`
 
+> **Stack note (ADR 0016 / AECI-278):** this spec predates the move of the
+> application database to **Cloudflare D1 + Drizzle**. Its data still flows
+> exactly as described, but the *implementation* mechanics named below are now
+> D1/Drizzle, not Supabase Postgres / Prisma Accelerate. Read every "Prisma
+> Accelerate" / "Prisma `<Model>`" / "Prisma query" as the **Drizzle** client
+> (`getDb(env)`, schema in `apps/api/src/db/schema.ts`), and every "PostgREST
+> `GRANT`" / "RLS policy" as **not applicable to app tables** — D1 has no RLS;
+> the Worker request guard is the only authorization layer for app tables (see
+> `AUTH_AND_RLS.md`). Supabase is retained for Auth only.
+
 ---
 
 ## 1. Goal

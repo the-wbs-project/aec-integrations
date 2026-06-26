@@ -10,7 +10,6 @@ import type { Env } from './env';
 
 function makeEnv(overrides: Partial<Env> = {}): Env {
   return {
-    DATABASE_URL: 'prisma://x',
     DD_API_KEY: 'secret-key',
     DD_SITE: 'us5.datadoghq.com',
     ENV: 'preview',

@@ -56,8 +56,8 @@ When a section of this spec references one of these documents, the companion doc
 | Hydration | `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is on by default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130). See `apps/web/src/app/app.config.ts:13-30` |
 | i18n | `@angular/localize` |
 | Hosting | Cloudflare Workers (SSR Worker with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills) |
-| Database | Supabase (PostgreSQL) |
-| ORM | Prisma (via `@prisma/extension-accelerate`; HTTPS — independent of `nodejs_compat`; see `DATABASE_SCHEMA.md` §1a) |
+| Database | Cloudflare D1 (SQLite) — the application DB (ADR 0016); Supabase retained for **Auth only** |
+| ORM | Drizzle (`drizzle-orm/d1`) over the API Worker's native `DB` binding — no Prisma, no Accelerate, no `nodejs_compat` for the DB path; see `DATABASE_SCHEMA.md` §1a |
 | Search | Algolia + InstantSearch Angular |
 | Auth | Supabase Auth (magic link + Google OAuth) |
 | Email | Resend (transactional) + Microsoft 365 (mailboxes) |
@@ -442,7 +442,7 @@ This satisfies right-to-erasure while preserving the directory's content integri
 
 ### 5.5 Taxonomy facets (Categories, Audiences, Phases)
 
-The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `supabase/reference-data/taxonomy.sql`, applied to every environment via idempotent upserts (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
+The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `apps/api/seed/taxonomy.sql`, applied to every environment via idempotent upserts to D1 with `wrangler d1 execute` (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
 
 | Facet | Question it answers | Table | Browse route | Examples |
 |---|---|---|---|---|
@@ -597,7 +597,7 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 
 ### 7.4 Sync strategy
 
-- **Initial bulk import**: one-off script `apps/api/scripts/algolia-bulk-sync.ts` (Prisma-bound — it reuses the AECI-137 transform and the vanilla `@prisma/client` over `DIRECT_URL`, so it lives alongside the other `apps/api` Node CLIs rather than at the repo root; AECI-138) reads **promoted** rows from Supabase, transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
+- **Initial bulk import**: a one-off `apps/api` CLI (AECI-138) that reuses the AECI-137 Drizzle/D1 transform (`apps/api/src/lib/algolia-transforms.ts`) to read **promoted** rows from D1 (via `wrangler d1 execute --remote`), transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
 - **Ongoing sync**: scheduled Cloudflare Worker at 08:00 UTC (= 03:00 EST, our US-East launch base; UTC is DST-unaware so 04:00 EDT in summer) daily reads Supabase changes since last sync, pushes incremental updates to Algolia
 - **Real-time sync (deferred)**: Supabase webhook → Worker → Algolia, planned for Stage 2 when vendors edit their data
 
@@ -650,7 +650,7 @@ The site launches in `en-US` only, but every layer is built to support additiona
 - Empty at launch; schema is in place
 - Read pattern: fetch entity by ID, then `SELECT field, value FROM translations WHERE entity_type=? AND entity_id=? AND locale=?` with **per-field fallback** to the canonical `en-US` value on the entity row — a missing row in `translations` for a given field falls back to canonical, *not* to a blank
 - All entities that store user-facing strings have implicit `en-US` content in their primary columns
-- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in the frozen probe `spikes/stack-test/src/server.ts:119-136` and `spikes/stack-test/src/app/data.service.server.ts:33-50` (no live equivalent yet — translations are en-US-only at launch); the probe uses Cloudflare KV as the overlay store, **Stage 1 production reads from the `translations` table via Prisma — KV is not the production substrate for translations**
+- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in the frozen probe `spikes/stack-test/src/server.ts:119-136` and `spikes/stack-test/src/app/data.service.server.ts:33-50` (no live equivalent yet — translations are en-US-only at launch); the probe uses Cloudflare KV as the overlay store, **Stage 1 production reads from the `translations` table in D1 (via Drizzle) — KV is not the production substrate for translations**
 
 ### 7a.3 URL strategy
 
@@ -779,7 +779,7 @@ The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Ca
 
 ### 9.4 API response caching
 
-Worker API responses use `Cache-Control` and Cloudflare KV for hot paths. The SSR Worker should rarely call the API directly — it should query Supabase via Prisma in the same Worker. Reserve the API for client-side calls and Stage 2 vendor portal.
+Worker API responses use `Cache-Control` and Cloudflare KV for hot paths. Data access lives in the private API Worker, which reads Cloudflare D1 via Drizzle over its `DB` binding (ADR 0016); the SSR Worker reaches it over the `env.API` service binding (its same-origin `/api/*` passthrough is the sanctioned browser read path).
 
 ---
 
@@ -1059,8 +1059,8 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
 - [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
-- [ ] Supabase connection via Prisma in `apps/api/` using the per-request Accelerate pattern validated in `apps/api/src/prisma.ts` (`PrismaClient` from `@prisma/client/edge` + `withAccelerate()`; `DATABASE_URL` is the `prisma://` URL; `DIRECT_URL` is CLI-only). See `DATABASE_SCHEMA.md` §1a.
-- [ ] PostgREST GRANTs + RLS policies + `public.is_admin()`/`is_active_user()` helpers ship as numbered migrations in `supabase/migrations/` (applied to every env by `supabase db push`; PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1, AECI-87)
+- [ ] Cloudflare D1 access via Drizzle in `apps/api/` using the per-request `getDb(env)` client over the native `DB` binding (`apps/api/src/db/client.ts`; no Prisma, no Accelerate, no `DATABASE_URL`/`DIRECT_URL` — ADR 0016). See `DATABASE_SCHEMA.md` §1a.
+- [ ] App-table authorization is **app-layer only** — D1 has no PostgREST/GRANT/RLS; the Worker request guard (`apps/api/src/lib/authz.ts`) is the only authorization layer, gated by the no-leakage authz-matrix specs (see `AUTH_AND_RLS.md` Layer 1)
 - [ ] Service binding between SSR Worker and API Worker
 - [ ] Datadog Browser RUM and Worker SDK installed and reporting
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped)

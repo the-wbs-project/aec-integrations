@@ -31,14 +31,14 @@
 #   - integration-runner-preview — extras script against preview URL (PARKED — see header note re: pr-preview.yml)
 #
 # AECI-65 un-parked `lighthouse` against a local `dev:bound` server (warn-only,
-# non-blocking) and added db-migrate-dev's ungated "Seed Phase 2 CI fixtures"
-# step plus the phase2-a11y success-path axe specs in the e2e job. The
+# non-blocking) and added the phase2-a11y success-path axe specs in the e2e job
+# (which seeds its fixtures from the LOCAL D1 via dev:bound → db:setup:local). The
 # `lighthouse` job has since MOVED OUT of this workflow into
 # `.github/workflows/lighthouse.yml`, which triggers on push-to-main ONLY — so
 # Lighthouse no longer runs on PRs (it was advisory there anyway) and instead
 # ERROR-GATES the post-merge run (AECI-188: a11y/BP/SEO/TBT + /search TTFB at
-# error level), just before/alongside the staging deploy. The fixtures-seed
-# (db-migrate-dev) + axe specs (e2e-and-integration) stay here.
+# error level), just before/alongside the staging deploy. The axe specs
+# (e2e-and-integration) stay here.
 #
 # AECI-90 added the apps/api `src/integration/**` suites (PostgREST RLS deny
 # matrix, auth-user-delete GDPR trigger, idempotent Airtable→Supabase bulk
@@ -72,16 +72,6 @@
 #    `db:setup:local`, and the deployed Workers reach D1 through the `DB` binding.)
 #
 # Optional repo secrets:
-#   DIRECT_URL_STAGING       — Direct Postgres URL (pooler) for the shared
-#                              dev/staging project. Used ONLY by the db-migrate-dev
-#                              "Seed taxonomy reference data" step (psql). If
-#                              unset, that step skips with a warning — the job
-#                              still passes. Same secret refresh-staging.yml uses.
-#   SUPABASE_ACCESS_TOKEN    — Personal access token from
-#                              https://supabase.com/dashboard/account/tokens.
-#                              Authenticates `supabase link` / `supabase db push`
-#                              in the db-migrate-dev job. Same secret used by
-#                              refresh-staging.yml and promote-to-prod.yml.
 #   ANTHROPIC_API_KEY_STAGING — Anthropic key for review toxicity scoring (Claude
 #                              Haiku; AECI-258). deploy-staging pushes it to the
 #                              staging API Worker as `ANTHROPIC_API_KEY`; pr-preview
@@ -99,11 +89,6 @@
 # Required repo variables:
 #   STAGING_ENABLED          — set to "true" after the manual prerequisites
 #                              in docs/environments.md are complete.
-#   SUPABASE_PROJECT_REF     — Project ref of the legacy-Postgres `public`-schema
-#                              gate DB (the shared dev/staging DB). Consumed by
-#                              db-migrate-dev to keep its schema at HEAD on
-#                              every PR push, and by refresh-staging.yml when
-#                              a human triggers a prod→staging data refresh.
 
 name: deploy
 
@@ -151,10 +136,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      # Prisma client is required for @aeci/api typecheck (src/prisma.ts imports
-      # @prisma/client/edge). Generate without env vars — `prisma generate`
-      # doesn't connect to the DB.
-      - run: pnpm --filter @aeci/api exec prisma generate
       - run: pnpm run lint
       - run: pnpm run typecheck
 
@@ -170,9 +151,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      # @aeci/api unit tests transitively import @prisma/client/edge via
-      # src/routes/health.ts → src/prisma.ts. Generate the client first.
-      - run: pnpm --filter @aeci/api exec prisma generate
       - run: pnpm run test:unit
       # AECI-90: coverage is ADVISORY (docs/TESTING_STRATEGY.md §3.3) — generate
       # and surface the v8 lcov + text table for visibility, but never gate the
@@ -193,141 +171,6 @@ jobs:
             packages/shared/coverage
           retention-days: 7
           if-no-files-found: ignore
-
-  # Keep the dev/staging DB schema at HEAD on every PR push and main push.
-  #
-  # The dev DB is shared state used by `e2e-tests-local`, `integration-runner-local`,
-  # and every per-PR preview deployed by `pr-preview.yml`. Without this job
-  # any PR that adds a migration would leave the dev DB behind HEAD, and every
-  # downstream consumer's `/api/*` query would fail validation against the
-  # stale schema (e.g. AECI-57 e2e failures when `vendors.logo_url` exists in
-  # the Prisma schema but not in the DB).
-  #
-  # `refresh-staging.yml` (AECI-77) is intentionally manual — that workflow
-  # rebuilds dev/staging *data* from a prod dump, which is a deliberate,
-  # human-gated operation. This job only applies *schema* migrations, which
-  # are forward-only and safe to auto-apply.
-  #
-  # Concurrency: the dev DB is a single shared resource. Two `supabase db push`
-  # invocations running concurrently can race on `supabase_migrations.schema_migrations`.
-  # `cancel-in-progress: false` so an in-flight push gets to finish — losing
-  # a migration push midway leaves the DB in a worse state than waiting an
-  # extra minute.
-  db-migrate-dev:
-    name: Apply migrations to dev DB
-    # Re-enabled 2026-05-28 after empirically measuring Accelerate schema-cache
-    # lag with `scripts/measure-accelerate-lag.mjs`. Observed lag from
-    # `supabase db push` returning to a typed Prisma query succeeding: 1.1s
-    # (single cycle; SIN edge). Documented "minutes to hours" worst-case in
-    # docs/archive/deployment-issues.md #6 was not reproduced. `sleep 30` step below
-    # provides margin; bump if CI flakes after schema-changing PRs.
-    runs-on: ubuntu-latest
-    needs: [lint-and-types, unit-tests]
-    timeout-minutes: 10
-    concurrency:
-      group: dev-db-migrate
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-      # On a PR, only do the (slow) Supabase install + link + `db push` + the
-      # Accelerate-propagation sleep when the change could actually move the dev
-      # DB schema. Most PRs don't touch migrations, so they skip ~1 min of work
-      # and stop blocking the downstream e2e job on the 30s sleep. `push` to main
-      # always runs (rare; the push is a no-op once the PR already applied it).
-      - name: Detect migration-affecting changes (PR only)
-        id: changes
-        if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
-        with:
-          filters: |
-            migrations:
-              - 'supabase/migrations/**'
-              - 'supabase/config.toml'
-              - 'apps/api/prisma/schema.prisma'
-      - name: Install pnpm
-        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
-      - if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
-        run: pnpm install --frozen-lockfile
-      - name: Install Supabase CLI
-        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
-        run: npm install -g supabase@latest
-      # Fail loudly and early when the bootstrap secrets/vars are missing —
-      # otherwise `supabase link` produces a generic "unauthorized" or
-      # "project not found" error that's harder to diagnose.
-      - name: Verify required secrets and vars
-        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        run: |
-          if [ -z "$SUPABASE_ACCESS_TOKEN" ]; then
-            echo "::error::SUPABASE_ACCESS_TOKEN secret is not set. Generate one at https://supabase.com/dashboard/account/tokens and add via Settings → Secrets and variables → Actions → New repository secret."
-            exit 1
-          fi
-          if [ -z "$SUPABASE_PROJECT_REF" ]; then
-            echo "::error::SUPABASE_PROJECT_REF variable is not set. Add via Settings → Secrets and variables → Actions → Variables tab. Value is the project ref of the legacy-Postgres public-schema gate DB (the dashboard URL is supabase.com/dashboard/project/<ref>)."
-            exit 1
-          fi
-      - name: supabase link
-        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-          SUPABASE_PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
-        run: supabase link --project-ref "$SUPABASE_PROJECT_REF"
-      # `--include-all` applies every migration whose version is newer than
-      # what's in `supabase_migrations.schema_migrations` on dev. No-op when
-      # already at HEAD. Forward-only by definition (Supabase doesn't run
-      # down-migrations).
-      - name: supabase db push
-        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: supabase db push --linked --include-all
-      # Seed the code-owned taxonomy reference data (idempotent upserts) after
-      # migrations apply. `db push` is schema-only and never touches data; this
-      # reconciles the taxonomy vocabulary on the shared dev/staging DB. Mirrors
-      # the seed-staging-users.sql psql pattern in refresh-staging.yml.
-      # Unlike `db push` (which authenticates via SUPABASE_ACCESS_TOKEN), the
-      # psql seed needs a direct Postgres URL. DIRECT_URL_STAGING is OPTIONAL for
-      # this PR-gating job: when it isn't configured, skip the seed with a
-      # warning rather than failing the run — the job's required purpose (dev
-      # schema at HEAD) already succeeded above, and the taxonomy tables are not
-      # asserted by the downstream e2e/edge jobs. Add the secret to enable the
-      # dev seed. See docs/adr/0008-taxonomy-reference-data.md.
-      - name: Seed taxonomy reference data
-        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: |
-          if [ -z "$PGURL" ]; then
-            echo "::warning::DIRECT_URL_STAGING is not set; skipping the dev taxonomy seed. Add the secret (direct Postgres URL for the shared dev/staging project) to enable it."
-            exit 0
-          fi
-          psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
-      # NOTE (AECI-268): the former "Seed Phase 2 CI fixtures" step that ran
-      # `psql … -f supabase/fixtures/phase2-fixtures.sql` against this Supabase
-      # Postgres was REMOVED. Post-D1 cutover (ADR 0016) the API Worker reads
-      # Cloudflare D1, not Supabase, so the e2e/axe (e2e-and-integration) + the
-      # post-merge lighthouse.yml jobs get the `fixture-procore` fixtures from the
-      # LOCAL D1 instead — seeded by `dev:bound` → `db:setup:local` →
-      # `db:seed:fixtures:local` (apps/api/seed/phase2-fixtures.sql). The Supabase
-      # seed served nothing post-cutover and was the source of the searchable
-      # "Fixture Procore" orphans (it placed promoted rows where the pre-cutover
-      # Algolia sync indexed them). The remaining Supabase dead-weight here (this
-      # taxonomy seed) is removed at the Supabase-DB decommission (AECI-257); the
-      # DATABASE_URL push was already removed (AECI-253, Prisma runtime retired).
-      # Wait for Prisma Accelerate to pick up the schema change before any
-      # downstream job (e2e-tests-local, integration-runner-local, per-PR
-      # Workers) issues typed Prisma queries against the dev DB. See
-      # `scripts/measure-accelerate-lag.mjs` for the empirical measurement
-      # that produced this number; 30s = 1.1s observed + ~30s margin.
-      - name: Wait for Prisma Accelerate cache propagation
-        if: ${{ github.event_name != 'pull_request' || steps.changes.outputs.migrations == 'true' }}
-        run: sleep 30
 
   build-web:
     name: Build SSR Worker
@@ -358,7 +201,7 @@ jobs:
     # downloads build-web's `web-dist` artifact and boots dev:bound ONCE, then
     # runs Playwright e2e + the edge-cache extras script against the same server.
     runs-on: ubuntu-latest
-    needs: [build-web, db-migrate-dev]
+    needs: [build-web]
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
@@ -369,7 +212,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @aeci/api exec prisma generate
       # Reuse build-web's bundle instead of rebuilding. `apps/web` dev:preview is
       # `wrangler dev` over the prebuilt `dist/` (it does NOT build), so the
       # downloaded artifact is exactly what dev:bound serves on :8788.
@@ -553,7 +395,6 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          DIRECT_URL_STAGING: ${{ secrets.DIRECT_URL_STAGING }}
           # Algolia (AECI-137): recommended-but-optional. When unset the
           # "Update Algolia staging index settings" step below skips cleanly
           # (search degraded, not broken) — so staging stays green pre-provision.
@@ -576,7 +417,7 @@ jobs:
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
           # pushed only in promote-to-prod.yml.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DIRECT_URL_STAGING ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -590,10 +431,6 @@ jobs:
         with:
           name: web-dist
           path: apps/web/dist
-
-      # wrangler-action bypasses the package.json `deploy` script chain,
-      # so generate the Prisma client explicitly before bundling.
-      - run: pnpm --filter @aeci/api exec prisma generate
 
       # Single timestamp shared by both Worker deploys so /api/version
       # reports a coherent DEPLOYED_AT for the whole release.
@@ -638,10 +475,9 @@ jobs:
       # Worker deploys — the Worker reads/writes via its `DB` D1 binding (getDb(env)),
       # so the schema must exist first. Idempotent: an already-applied migration is a
       # tracked no-op and the taxonomy seed is upserts. Requires CLOUDFLARE_API_TOKEN
-      # to carry Account → D1 → Edit (see docs/CICD_PLAN.md §7.1). The legacy
-      # `supabase db push` (db-migrate-dev job) is retained for the landing + auth
-      # Postgres until the Supabase-DB decommission (AECI-257); the DATABASE_URL
-      # push has been removed (the Worker no longer reads it — AECI-253).
+      # to carry Account → D1 → Edit (see docs/CICD_PLAN.md §7.1). The app DB is
+      # D1 only — the legacy Supabase-Postgres `supabase db push` path was removed
+      # with the Prisma/Postgres-app-DB decommission (AECI-278).
       - name: Apply D1 migrations (staging)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

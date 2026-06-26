@@ -380,7 +380,7 @@ async function runAlgoliaDrift(env: Env, ctx: ExecutionContext): Promise<void> {
       { env: ddEnv },
     );
   } catch (error) {
-    // The Algolia count (fetch) or the Prisma counts can throw; log loudly,
+    // The Algolia count (fetch) or the D1 counts can throw; log loudly,
     // never rethrow (a thrown cron just shows as a failed invocation with no
     // detail).
     logToDatadog(ctx, env, req, {

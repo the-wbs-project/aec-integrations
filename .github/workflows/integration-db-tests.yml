@@ -29,8 +29,8 @@
 # Why local Supabase (not the shared project): booting the stack gives a zero-secret
 # GoTrue that both (a) mints a fresh ES256 access token for the spec and (b) serves the
 # JWKS endpoint the spec verifies against — no repo secrets, isolated from any shared DB.
-# (Removing Prisma / `@prisma/client` from apps/api entirely is AECI-256, not this lane;
-# this spec's import graph never touches Prisma, so no `prisma generate` is needed here.)
+# (Prisma / `@prisma/client` were fully removed from apps/api in AECI-278; this lane
+# never touched Prisma anyway, so there is no `prisma generate` step here.)
 #
 # WHEN THIS RUNS (path gate). The spec's outcome depends only on the auth/JWKS source it
 # exercises plus the stack that issues the token, so the `paths:` filter below is the
@@ -96,8 +96,8 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       # No `prisma generate` here: the surviving JWKS spec's import graph
-      # (lib/user-auth.ts → @aeci/shared / hono / jose) never reaches
-      # @prisma/client. Removing Prisma from apps/api wholesale is AECI-256.
+      # (lib/user-auth.ts → @aeci/shared / hono / jose) never reached
+      # @prisma/client — and Prisma is now fully removed from apps/api (AECI-278).
       - name: Install Supabase CLI
         run: npm install -g supabase@latest
       # `supabase start` boots the FULL stack (Postgres + GoTrue + …). GoTrue must be

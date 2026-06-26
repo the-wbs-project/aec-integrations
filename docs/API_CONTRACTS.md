@@ -429,7 +429,7 @@ export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 
 #### `GET /api/products/facets`
 
-Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Prisma aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
 
 ```typescript
 export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
@@ -820,7 +820,7 @@ export const PageViewPayloadSchema = z.object({
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). The table + Prisma `PageView` model already exist (baseline migration), so there is no migration. A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
+**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). The `page_views` table already exists in the D1 schema (`apps/api/src/db/schema.ts`), so there is no migration. A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
 
 **Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and `product_id` / `vendor_id` resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. `user_id` / `profile_role` stay null until Phase 5 wires the authenticated session. **No raw IP is ever persisted** (§14.2 privacy).
 
@@ -856,7 +856,7 @@ export const AdminSummaryResponseSchema = z.object({
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 ```
 
-Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (`prisma.review.count({ where: { status: 'pending' } })`). Read-only — no audit log.
+Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (a Drizzle/D1 count of `reviews` where `status = 'pending'`). Read-only — no audit log.
 
 #### `GET /api/admin/reviews`
 
@@ -1088,11 +1088,12 @@ Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md
 
 #### `POST /api/promote`
 
-Push-based Airtable → Supabase promotion. The review application sends one
+Push-based Airtable → app-DB (Cloudflare D1) promotion. The review application sends one
 product plus its dependencies (vendors, taxonomy, integrations); the Worker
-upserts the whole bundle in a single transaction and returns the created/updated
-IDs so the review app can persist the mapping and re-push edits. Supersedes the
-pull-based CLI `scripts/airtable-to-supabase-bulk-migrate.ts` (deprecated).
+upserts the whole bundle in a single atomic `db.batch([...])` and returns the created/updated
+IDs so the review app can persist the mapping and re-push edits. This is the live
+curator → app-DB path; the pull-based CLI `scripts/airtable-to-supabase-bulk-migrate.ts`
+was **retired** (AECI-278).
 
 **Auth:** `Authorization: Bearer <REVIEW_APP_TOKEN>` (a Wrangler secret, compared
 constant-time). Missing/invalid → `401 UNAUTHENTICATED`. This is machine-to-

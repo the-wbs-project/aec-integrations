@@ -246,5 +246,5 @@ guaranteed, or if provisioning can't be made reliably idempotent, the migration 
 - ADR 0015 (Supabase Auth on Workers) — **retained, unchanged**.
 - ADR 0013 (Algolia jobs via queue), ADR 0010 (promote purges Cloudflare directly),
   ADR 0008 (taxonomy reference data) — topology unchanged; reads move to Drizzle.
-- `docs/migrations.md` (rewritten), `docs/prisma.md` (retired),
+- `docs/migrations.md` (rewritten), `docs/prisma.md` (deleted, AECI-278),
   `docs/AUTH_AND_RLS.md` (rewritten), `docs/REVIEW_APP_PROMOTE_API.md` (updated).

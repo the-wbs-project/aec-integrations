@@ -44,7 +44,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  *
  * "Funding stage badge" from the AECI-59 acceptance criteria is omitted:
  * `VendorDetail` has no `funding_stage` field today. A follow-up issue would
- * need to extend the schema (column + Prisma select + Zod + mapper).
+ * need to extend the schema (column + Drizzle select + Zod + mapper).
  */
 @Component({
   selector: 'aec-vendor-detail',
