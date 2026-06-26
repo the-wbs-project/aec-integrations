@@ -164,6 +164,7 @@ jobs:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           CF_PURGE_API_TOKEN: ${{ secrets.CF_PURGE_API_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
+          CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           # Algolia (AECI-139): REQUIRED on production. Search is a launch-critical
           # surface, so prod fails closed — a missing app id / management key aborts
           # the promote here (and the push + verify steps in deploy-prod-workers),
@@ -189,8 +190,11 @@ jobs:
           # transactional email is fail-open (absent → sends 'skipped'). AECI-236:
           # INDEXNOW_KEY_PRODUCTION is recommended (NOT required) — the post-promote
           # IndexNow submission + the {key}.txt file are fail-open no-ops until it's
-          # provisioned at launch, never blocking a promote.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION'
+          # provisioned at launch, never blocking a promote. AECI-262:
+          # CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the hourly WAF
+          # firewall-event poll — recommended/fail-safe (absent → the poll no-ops
+          # outcome:skipped_no_creds), never a launch-critical surface.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -436,6 +440,28 @@ jobs:
           fi
           printf '%s' "$RESEND_API_KEY_VALUE" \
             | pnpm exec wrangler secret put RESEND_API_KEY --env production
+
+      # AECI-262: push the Cloudflare Analytics token to the prod API Worker so the
+      # hourly WAF firewall-event poll (scheduled.ts runWafMetricsJob) can read the
+      # zone's firewallEventsAdaptiveGroups and emit aeci.waf.ratelimit.blocked.
+      # SINGLE shared token (Zone Analytics: Read on the shared zone), un-suffixed
+      # like SUPABASE_ANON_KEY. Optional + FAIL-SAFE — a missing key makes the poll a
+      # silent no-op (outcome:skipped_no_creds), so graceful warn-and-skip and NOT in
+      # REQUIRED_WORKER_SECRETS. Same idempotent deploy→secret order.
+      - name: Push CF_ANALYTICS_API_TOKEN to API Worker (production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ANALYTICS_API_TOKEN_VALUE: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_ANALYTICS_API_TOKEN_VALUE" ]; then
+            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping push. The WAF→Datadog poll will no-op in production (outcome:skipped_no_creds) until it is provisioned (AECI-262)."
+            exit 0
+          fi
+          printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env production
 
       # AECI-236/§20.2: push INDEXNOW_KEY to the prod API Worker so the
       # post-promote IndexNow submission (lib/indexnow.ts, gated on INDEXNOW_KEY +

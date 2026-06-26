@@ -638,3 +638,42 @@ vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140
 a pulled product's integration, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.); the next
 daily run auto-detects the fix. A no-data/liveness failure is a Worker scheduling issue — escalate to
 whoever owns the API Worker's crons.
+
+## WAF rate-limit / challenge spike
+
+**Alert:** `AECi — WAF rate-limit / challenge spike (15m)` — `sum:aeci.waf.ratelimit.blocked` (`.as_count()`)
+> 500 over 15m on `env:production`.
+
+**Metrics:**
+- `aeci.waf.ratelimit.blocked{rule,action,host,source}` — Cloudflare WAF mitigations (blocks + challenges),
+  **value is the event count → query with `sum:` / `.as_count()`**.
+- `aeci.waf.poll{outcome:ok|failed|skipped_no_creds}` — the hourly poll's heartbeat (`outcome:ok` = liveness).
+
+**What it means:** The §15.1 WAF rules (rate-limit Rule A `/api/requests/*`, Rule B `/api/reviews`, and the
+scraper-UA Managed-Challenge custom rule — `docs/waf-rate-limits.md`) mitigated an unusual volume of requests.
+The signal is collected by the API Worker's hourly WAF poll (AECI-262, `scheduled.ts` `runWafMetricsJob`),
+which reads the previous clock hour of the zone's `firewallEventsAdaptiveGroups` over Cloudflare's GraphQL
+Analytics API. **Detection lags up to ~1h** (it's an hourly poll). A spike is normally either a scripted
+flood tripping the rate-limit rules or a scraper run hitting the UA challenge — rarely a real user.
+
+**First checks**
+
+1. **What fired?** Pivot `aeci.waf.ratelimit.blocked` by `action` (block vs managed_challenge), `rule`, `host`,
+   and `source` (ratelimit vs firewallcustom) to localize. Cross-reference Cloudflare → **Security → Events**
+   (filter by the same rule/action/host) for the offending IPs / paths / user agents — CF carries the per-IP
+   detail Datadog does not.
+2. **Real attack or false positive?** If the offending UA/IPs are obviously a scraper/flood, no action is
+   needed — the rules are doing their job; consider whether the volume warrants a Cloudflare IP block. If a
+   **legitimate** user or integration is being blocked/challenged, re-tune the rule in
+   `docs/waf-rate-limits.md` (update the doc in the same change — it is the source of truth) and verify per §4.
+3. **No data / heartbeat gaps?** This monitor has **no** `notify_no_data` (silence = no attacks). Poll health
+   is the separate `aeci.waf.poll{outcome:ok}` series — if it stopped, the cron isn't running; if it shows
+   `outcome:skipped_no_creds`, `CF_ANALYTICS_API_TOKEN` is unset on that env's Worker (the metric is then
+   absent by design until the token is provisioned). `outcome:failed` → read the `source:waf-metrics-cron`
+   error log for the Cloudflare GraphQL `reason` (e.g. an expired/under-scoped token — it needs
+   `Zone Analytics: Read`).
+
+**Repair:** the WAF itself is already mitigating — this alert is **awareness**, not an outage. Escalate only
+if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
+a manual Cloudflare block. The 500/15m threshold is a launch placeholder; re-tune in
+`observability/datadog/monitor-waf-ratelimit-spike.json` once baseline volume is known.

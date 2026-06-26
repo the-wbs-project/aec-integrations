@@ -403,6 +403,7 @@ jobs:
           ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_STAGING: ${{ secrets.ANTHROPIC_API_KEY_STAGING }}
+          CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           ENV_LABEL: staging
           REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
@@ -417,7 +418,10 @@ jobs:
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
           # pushed only in promote-to-prod.yml.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING'
+          # AECI-262: CF_ANALYTICS_API_TOKEN is the SINGLE shared (un-suffixed) token
+          # for the hourly WAF firewall-event poll — recommended/fail-safe (absent →
+          # the poll no-ops outcome:skipped_no_creds, never a launch-critical surface).
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -585,6 +589,28 @@ jobs:
           fi
           printf '%s' "$RESEND_API_KEY_VALUE" \
             | pnpm exec wrangler secret put RESEND_API_KEY --env staging
+
+      # AECI-262: push the Cloudflare Analytics token to the staging API Worker so
+      # the hourly WAF firewall-event poll (scheduled.ts runWafMetricsJob) can read
+      # the zone's firewallEventsAdaptiveGroups and emit aeci.waf.ratelimit.blocked.
+      # SINGLE shared token (Zone Analytics: Read on the shared zone), un-suffixed
+      # like SUPABASE_ANON_KEY. Optional + FAIL-SAFE — a missing key makes the poll
+      # a silent no-op (outcome:skipped_no_creds), so graceful warn-and-skip and NOT
+      # in REQUIRED_WORKER_SECRETS. Same idempotent deploy→secret order.
+      - name: Push CF_ANALYTICS_API_TOKEN to API Worker (staging)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ANALYTICS_API_TOKEN_VALUE: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_ANALYTICS_API_TOKEN_VALUE" ]; then
+            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping push. The WAF→Datadog poll will no-op on staging (outcome:skipped_no_creds) until it is provisioned (AECI-262)."
+            exit 0
+          fi
+          printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env staging
 
       - name: Deploy SSR
         env:

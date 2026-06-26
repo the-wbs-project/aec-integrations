@@ -124,9 +124,16 @@ only**.
     directly to Drizzle's SQLite builders. Zod validation in `@aeci/shared` stays
     the first line of enum enforcement.
 - **Client factory** `getPrisma(env)` (`apps/api/src/prisma.ts`) is replaced by a
-  Drizzle/D1 factory `getDb(env, bookmark?)` (`apps/api/src/db/client.ts`) that
-  wraps `env.DB.withSession(bookmark)` so reads are replica-served and
-  **read-your-writes** is preserved across the request via the session bookmark.
+  Drizzle/D1 factory `getDb(env, opts?)` (`apps/api/src/db/client.ts`) that wraps
+  `env.DB.withSession(anchor)` so reads are replica-served and **read-your-writes**
+  is preserved across the request via the session bookmark (AECI-250, now wired —
+  see Risk #1). Reads default to the `'first-unconstrained'` anchor (nearest
+  replica = the latency win); write paths pass `{ constraint: 'first-primary' }`
+  and any inbound `x-d1-bookmark` via the `writeDb(c, dbFor)` helper, and the
+  bookmark is emitted on the response by `bookmark-middleware.ts`. A
+  `typeof withSession !== 'function'` guard falls back to the plain binding on
+  local dev + the in-memory test harness (single DB → read-your-writes is
+  automatic), so the perf win is prod-only.
 - **Migrations** move from the Supabase CLI to `drizzle-kit generate` →
   `wrangler d1 migrations apply`. The D1 binding uses
   `migrations_pattern: "migrations/*/migration.sql"` to consume Drizzle's nested
@@ -230,10 +237,19 @@ guaranteed, or if provisioning can't be made reliably idempotent, the migration 
 
 ## Risks / open questions
 
-1. **Drizzle × D1 Sessions API.** Confirm `drizzle()` wraps a `withSession()`
-   handle so the bookmark threads through read-your-writes paths (AECI-250). A raw
-   `session` fallback exists for those paths; **local dev is unaffected** (single
-   DB).
+1. **Drizzle × D1 Sessions API.** ✅ **Resolved (AECI-250, 2026-06-26).** `getDb`
+   wraps `drizzle(env.DB.withSession(anchor) as unknown as D1Database, …)`:
+   Drizzle's relational query builder and `db.batch([...])` only call `.prepare()`
+   / `.batch()`, both present on `D1DatabaseSession`, so the cast is a runtime-shape
+   contract (no raw-session fallback was needed — native Drizzle session support,
+   drizzle-team/drizzle-orm #2226/#4522, is still open). The inbound/outbound
+   `x-d1-bookmark` round-trip is threaded API-Worker-only (write handlers ↔
+   `bookmark-middleware.ts`); cross-client public-render freshness stays owned by
+   cache-tag purge (ADR 0010) + sub-second replica lag, and a global server-side
+   bookmark store is a deferred follow-up. Read replication is still a Cloudflare
+   **public beta** (no GA as of 2026-06) and must be enabled per-database
+   (dashboard/REST `read_replication:{mode:"auto"}`) for the win to appear; the
+   code is inert-safe until then. **Local dev is unaffected** (single DB).
 2. **`batch()` atomicity for the audit invariant** (AECI-249) — validated before
    the query rewrite leans on it.
 3. **Scale of the one-shot rewrite** (~195 sites) — mitigated by reaching a

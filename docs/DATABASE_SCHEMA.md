@@ -712,6 +712,9 @@ create table stats_cache (
 Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.total_integrations`
 - `home.integrations_added_30d`
+- `home.total_products` — credibility strip (AECI-271)
+- `home.total_vendors` — credibility strip (AECI-271)
+- `home.total_reviews` — credibility strip (AECI-271; approved reviews only)
 - `home.most_integrated_product`
 - `home.most_active_category`
 - `home.recent_integrations`

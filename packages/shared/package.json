@@ -53,6 +53,10 @@
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
     },
+    "./cloudflare-analytics": {
+      "types": "./src/cloudflare-analytics.ts",
+      "default": "./src/cloudflare-analytics.ts"
+    },
     "./algolia-batch": {
       "types": "./src/algolia-batch.ts",
       "default": "./src/algolia-batch.ts"

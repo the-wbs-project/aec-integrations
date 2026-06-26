@@ -75,7 +75,7 @@ import {
   toAdminVendorRequest,
   type RawAdminVendorRequestRow,
 } from '../lib/drizzle-helpers';
-import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -285,7 +285,7 @@ export function createModerateRequestHandler(
     }
 
     const payload = await parseJsonBody(c, ModerateRequestSchema);
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     // Preload the full row: it both gates the transition (status) and builds the
     // response — the values we set ourselves are merged in after the commit, so

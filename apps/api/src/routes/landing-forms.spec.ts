@@ -6,10 +6,13 @@
  * response), so no settling context is required.
  */
 
+import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { bookmarkMiddleware } from '../bookmark-middleware';
 import { feedback, mailingList } from '../db/schema';
-import { makeTestDb, type TestDb } from '../test/d1';
+import type { Env } from '../env';
+import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createFeedbackHandler, createSubscribeHandler } from './landing-forms';
 
@@ -139,5 +142,33 @@ describe('POST /api/subscribe', () => {
     const res = await postSubscribe({ email: 'not-an-email' });
     expect(res.status).toBe(400);
     expect(await t.db.select().from(mailingList)).toHaveLength(0);
+  });
+
+  // AECI-250 — subscribe is the single-insert write shape: it anchors first-primary
+  // + emits the bookmark (feedback/page-views deliberately don't — see handlers).
+  it('threads first-primary into getDb and emits x-d1-bookmark', async () => {
+    const rec = recordingFactory(t.db);
+    rec.setBookmark('bk-sub');
+    const env = { ...TEST_ENV } as Env;
+
+    const app = new Hono<{ Bindings: Env }>();
+    app.use('*', bookmarkMiddleware());
+    app.post('/api/subscribe', createSubscribeHandler(rec.factory));
+
+    const res = await app.request(
+      '/api/subscribe',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email: 'ryw@example.com' }),
+        headers: { 'content-type': 'application/json', 'x-d1-bookmark': 'in-7' },
+      },
+      env,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(201);
+    expect(rec.calls[0]).toEqual({ bookmark: 'in-7', constraint: 'first-primary' });
+    expect(res.headers.get('x-d1-bookmark')).toBe('bk-sub');
+    expect(await t.db.select().from(mailingList)).toHaveLength(1);
   });
 });

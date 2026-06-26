@@ -10,6 +10,7 @@ import { MetaService } from '../core/meta.service';
 import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-rank';
 
 import { BrowseGrid } from './browse-grid';
+import { HomeCredibilityStrip } from './home-credibility-strip';
 import { HomeHero } from './home-hero';
 import { HomeStatsCards } from './home-stats-cards';
 import { HomeTrustPillars } from './home-trust-pillars';
@@ -17,11 +18,11 @@ import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
 
 /**
- * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly: it stacks the
- * six section components shipped across 4.7–4.10 in the §4.1 order — hero → three
- * stats cards → "Browse by" grids → recently-added integrations → trending
- * products (the footer lives in the app shell) — and owns the home SEO (meta +
- * OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
+ * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly, kept in the §4.1
+ * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → trust
+ * pillars → three stats cards → "Browse by" grids → recently-added integrations →
+ * trending products (the footer lives in the app shell) — and owns the home SEO
+ * (meta + OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
  * constructor since the copy is static).
  *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
@@ -45,6 +46,7 @@ import { TrendingProductsSection } from './trending-products-section';
   selector: 'app-home',
   imports: [
     HomeHero,
+    HomeCredibilityStrip,
     HomeTrustPillars,
     HomeStatsCards,
     BrowseGrid,
@@ -54,6 +56,15 @@ import { TrendingProductsSection } from './trending-products-section';
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <aec-home-hero />
+
+      <!-- Credibility strip (§4.1 section 2): slim full-bleed proof bar, coverage
+           counts + the "independent · no pay-for-placement" promise (AECI-271). -->
+      <aec-home-credibility-strip
+        [totalProducts]="totalProducts()"
+        [totalVendors]="totalVendors()"
+        [totalIntegrations]="totalIntegrations()"
+        [totalReviews]="totalReviews()"
+      />
 
       <!-- Trust band: the three trust commitments (full-bleed, sits under the hero). -->
       <aec-home-trust-pillars />
@@ -109,6 +120,11 @@ export class Home {
   protected readonly integrationsAdded30d = computed(
     () => this.stats()?.integrations_added_30d ?? 0,
   );
+  // Credibility-strip coverage counts (AECI-271). Null-safe like the rest: a
+  // sparse cache / null resolver collapses each to `0`, which the strip suppresses.
+  protected readonly totalProducts = computed(() => this.stats()?.total_products ?? 0);
+  protected readonly totalVendors = computed(() => this.stats()?.total_vendors ?? 0);
+  protected readonly totalReviews = computed(() => this.stats()?.total_reviews ?? 0);
   protected readonly mostIntegratedProduct = computed(
     () => this.stats()?.most_integrated_product ?? null,
   );

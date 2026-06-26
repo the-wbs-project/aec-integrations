@@ -579,10 +579,19 @@ applies per-field if a cached value has drifted from its schema.
 `Cache-Control: private, no-store` (per `CACHE_STRATEGY.md` §4 — API responses are
 never edge-cached; daily-freshness edge caching is owned by the SSR home route).
 
+The coverage counts (`total_products` / `total_vendors` / `total_reviews`) feed
+the home credibility strip (AECI-271, §4.1 section 2). Products and vendors count
+every row (the DB holds only promoted rows — the promote pipeline is the gate);
+`total_reviews` counts only `approved` reviews. All three are plain scalars with a
+valid empty (`0`); the strip suppresses each at `0` (no "0 reviews").
+
 ```typescript
 export type HomeStatsResponse = {
   total_integrations: number;
   integrations_added_30d: number;
+  total_products: number;                // coverage counts (AECI-271)
+  total_vendors: number;
+  total_reviews: number;                 // approved reviews only
   most_integrated_product: {
     product: ProductRef;
     integration_count: number;

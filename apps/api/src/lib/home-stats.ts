@@ -3,15 +3,16 @@
  * producer) on the Drizzle/D1 path (ADR 0016 / AECI-253).
  *
  * The daily scheduled job (`../scheduled.ts`, ADR 0013 cron→queue→consumer)
- * recomputes the seven `home.*` `stats_cache` keys and upserts each as its own
+ * recomputes the ten `home.*` `stats_cache` keys and upserts each as its own
  * row. The read endpoint (4.4) and home UI (4.8) consume these via `@aeci/shared`
  * — this module is the only writer.
  *
  * Contract (docs/STAGE_1_SPEC.md §10, §4.1; types/schemas from AECI-176):
- *   - Seven keys: total_integrations, integrations_added_30d,
- *     most_integrated_product, most_active_category, recent_integrations (≤10),
- *     trending_products (top 5 by page_views, last 7d), recently_added_products
- *     (≤10, last 30d).
+ *   - Ten keys: total_integrations, integrations_added_30d, total_products,
+ *     total_vendors, total_reviews (the AECI-271 credibility-strip coverage
+ *     counts), most_integrated_product, most_active_category, recent_integrations
+ *     (≤10), trending_products (top 5 by page_views, last 7d),
+ *     recently_added_products (≤10, last 30d).
  *   - **Every value is validated against `statsCacheValueSchemas[key]` before the
  *     write** — the job and the read endpoint share one source of truth, so the
  *     cache can never hold a shape the reader rejects.
@@ -20,10 +21,12 @@
  *     and `runHomeStats` never throws (the crash surface is the caller).
  *   - Empty `page_views` → empty `trending_products` (`[]`), never a throw.
  *
- * No promotion filter — mirrors `GET /api/products` / `GET /api/integrations`,
- * which apply none either (the DB only holds promoted rows; the promote pipeline
- * is the gate). Counting here the same way keeps the home stats consistent with
- * the list endpoints.
+ * No promotion filter on products/vendors/integrations — mirrors `GET /api/products`
+ * / `GET /api/integrations`, which apply none either (the DB only holds promoted
+ * rows; the promote pipeline is the gate). Counting here the same way keeps the
+ * home stats consistent with the list endpoints. Reviews are the one exception:
+ * `total_reviews` counts only `approved` rows (the canonical `COUNTED_REVIEW_STATUS`),
+ * matching the public review APIs and `products.review_count`.
  *
  * Deferred (NOT computed here): `category_counts` / `audience_counts` /
  * `phase_counts`. Per the §10 Phase 4 reconciliation the home "Browse by …" grids
@@ -40,10 +43,11 @@ import {
   type ProductListItem,
   type StatsCacheKey,
 } from '@aeci/shared';
-import { and, asc, count, desc, gte, inArray, isNotNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, gte, inArray, isNotNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
-import { integrations, pageViews, products, statsCache } from '../db/schema';
+import { integrations, pageViews, products, reviews, statsCache, vendors } from '../db/schema';
+import { COUNTED_REVIEW_STATUS } from './recompute-counts';
 import {
   integrationListConfig,
   productListConfig,
@@ -77,6 +81,31 @@ export async function computeIntegrationsAdded30d(db: Db, now: Date): Promise<nu
     .select({ value: count() })
     .from(integrations)
     .where(gte(integrations.createdAt, sinceIso(now, 30)));
+  return row?.value ?? 0;
+}
+
+/** Coverage counts for the home credibility strip (AECI-271). Products and
+ *  vendors apply no filter — same convention as `computeTotalIntegrations` and
+ *  the public list endpoints (the DB only holds promoted rows; the promote
+ *  pipeline is the gate). */
+export async function computeTotalProducts(db: Db): Promise<number> {
+  const [row] = await db.select({ value: count() }).from(products);
+  return row?.value ?? 0;
+}
+
+export async function computeTotalVendors(db: Db): Promise<number> {
+  const [row] = await db.select({ value: count() }).from(vendors);
+  return row?.value ?? 0;
+}
+
+/** Unlike products/vendors/integrations, reviews ARE filtered: only `approved`
+ *  reviews count (the canonical `COUNTED_REVIEW_STATUS`), matching the public
+ *  review APIs and the denormalized `products.review_count`. */
+export async function computeTotalReviews(db: Db): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(reviews)
+    .where(eq(reviews.status, COUNTED_REVIEW_STATUS));
   return row?.value ?? 0;
 }
 
@@ -205,6 +234,9 @@ export async function computeRecentlyAddedProducts(db: Db, now: Date): Promise<P
 const HOME_STAT_KEYS = [
   'home.total_integrations',
   'home.integrations_added_30d',
+  'home.total_products',
+  'home.total_vendors',
+  'home.total_reviews',
   'home.most_integrated_product',
   'home.most_active_category',
   'home.recent_integrations',
@@ -223,6 +255,9 @@ type StatCompute = (db: Db, now: Date) => Promise<unknown>;
 const PRODUCERS: Record<HomeStatsKey, StatCompute> = {
   'home.total_integrations': (db) => computeTotalIntegrations(db),
   'home.integrations_added_30d': (db, now) => computeIntegrationsAdded30d(db, now),
+  'home.total_products': (db) => computeTotalProducts(db),
+  'home.total_vendors': (db) => computeTotalVendors(db),
+  'home.total_reviews': (db) => computeTotalReviews(db),
   'home.most_integrated_product': (db) => computeMostIntegratedProduct(db),
   'home.most_active_category': (db) => computeMostActiveCategory(db),
   'home.recent_integrations': (db) => computeRecentIntegrations(db),

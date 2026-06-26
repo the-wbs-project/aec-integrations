@@ -58,7 +58,7 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
-import type { DbFactory } from '../lib/handler-utils';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { verifyLinearSignature } from '../lib/linear-webhook-auth';
 
 // ─── Status mapping ───────────────────────────────────────────────────────────
@@ -171,7 +171,7 @@ export function createLinearWebhookHandler(
     const targetStatus = STATE_TYPE_TO_STATUS[payload.data.state.type];
     if (!targetStatus) return ack(false, `unmapped state type: ${payload.data.state.type}`);
 
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     // 4. Resolve the vendor request behind this Linear issue. The instance's
     //    linear_issue_id is Linear's issue node id (= data.id). Unknown → no-op.

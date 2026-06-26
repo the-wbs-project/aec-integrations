@@ -12,8 +12,18 @@
  * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
  * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
  * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
+ * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
+ * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
+ * read) and always runs inline.
  */
-export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation' | 'reconcile' | 'data_quality';
+export type ScheduledJob =
+  | 'sync'
+  | 'drift'
+  | 'stats'
+  | 'moderation'
+  | 'reconcile'
+  | 'data_quality'
+  | 'waf';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -129,9 +139,24 @@ export type Env = {
   /**
    * Cloudflare zone ID the promote purge targets (AECI-105). Public value, set
    * per environment alongside `CF_PURGE_API_TOKEN`. Optional: absent → cache
-   * purge is a graceful no-op.
+   * purge is a graceful no-op. Also reused (as the GraphQL `zoneTag`) by the
+   * AECI-262 WAF firewall-event poll.
    */
   CF_ZONE_ID?: string;
+  /**
+   * Cloudflare API token used by the hourly WAF firewall-event poll
+   * (`scheduled.ts` `runWafMetricsJob`, AECI-262 / §15.1) to read the zone's
+   * `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emit the
+   * `aeci.waf.ratelimit.blocked` count. Scope: `Zone Analytics: Read` on
+   * `aecintegrations.com` — a DIFFERENT scope than `CF_PURGE_API_TOKEN`
+   * (`Zone.Cache Purge`), so it is its own secret. One un-suffixed GH secret
+   * covers the shared zone across all envs; CI pushes it per env (deploy.yml /
+   * promote-to-demo.yml / promote-to-prod.yml — graceful warn-skip, no hard gate).
+   * Optional + fail-safe: absent (with `CF_ZONE_ID`) → the poll logs
+   * `outcome:skipped_no_creds` and no-ops (local/preview/pre-provisioning). See
+   * `docs/waf-rate-limits.md` §5.
+   */
+  CF_ANALYTICS_API_TOKEN?: string;
   /**
    * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
    * contents of the `{key}.txt` verification file the SSR Worker serves at the

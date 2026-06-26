@@ -153,6 +153,7 @@ test.describe('/ — home assembly (AECI-186)', () => {
     const html = await (await request.get('/')).text();
     const order = [
       'aec-home-hero',
+      'aec-home-credibility-strip',
       'aec-home-stats-cards',
       'app-browse-grid',
       'aec-recent-integrations-section',
