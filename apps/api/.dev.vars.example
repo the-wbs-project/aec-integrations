@@ -175,3 +175,20 @@ INDEXNOW_KEY=
 # default below; set the real launch host as a wrangler var in production. Absent →
 # email links are omitted and IndexNow no-ops.
 PUBLIC_SITE_URL=http://localhost:8788
+
+# ─── Google Indexing API ping after promote (AECI-263 / §20.2) ─────────────
+# On promote, the WORKER also pings Google's Indexing API for the SAME affected
+# URLs (best-effort, additive to IndexNow). It signs an RS256 JWT with the service
+# account, exchanges it for an OAuth token, then publishes each URL. Two secrets,
+# both read at runtime (the third value, PUBLIC_SITE_URL, is the var above):
+#   wrangler secret put GOOGLE_INDEXING_SA_EMAIL --env production
+#   wrangler secret put GOOGLE_INDEXING_SA_PRIVATE_KEY --env production
+# Values are the `client_email` + `private_key` fields of a Google Cloud service-
+# account JSON (the SA added as an owner of the Search Console property). The
+# private key is a PKCS#8 PEM; `\n`-escaped single-line values are normalized.
+# FAIL-OPEN: either absent (local dev, PR previews, pre-launch) → the ping is a
+# graceful no-op. PROVISION ONLY AT LAUNCH, alongside INDEXNOW_KEY and the web
+# Worker's ALLOW_INDEXING="true" — pinging Google for a noindex'd site is a
+# correctness bug, so the creds' absence is the enforcement.
+GOOGLE_INDEXING_SA_EMAIL=
+GOOGLE_INDEXING_SA_PRIVATE_KEY=
