@@ -61,6 +61,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.linear.reconcile.attempt` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | `outcome` (cleared / still_failing) — submits the **row count** as the value, so query with `sum:` |
 | `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
 | `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214; transport AECI-240) | `outcome` (sent / failed / skipped) — sends via Resend; `skipped` when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent (the seam is fail-open and the Datadog alert is the backstop) |
+| `aeci.request.moderation.action` | count | `apps/api/src/routes/admin-requests.ts` (`emitRequestModeration`, AECI-216 / Phase 6.9 — the `PATCH /api/admin/requests/:id` resolve/reject handler) | `action` (`resolve` / `reject`), `outcome` (`ok` / `invalid_state`) — one count per moderation attempt; `invalid_state` is the §6.9 preload guard (422 when the target isn't `open`/`in_review`) |
 | `aeci.email.send` | count | `apps/api/src/lib/email.ts` (the Resend transactional client, AECI-240 / Phase 7.5 — review submit/approve/reject confirmations, the account-deletion email, and the reconcile-sweep admin alert) | `outcome` (sent / failed / skipped), `template` (`review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `stuck-request-alert`) — fail-open; `skipped` when `RESEND_API_KEY` / `EMAIL_FROM` / the recipient are absent (see `docs/email.md`) |
 | `aeci.data_quality.job` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily 04:00 UTC cron, AECI-241 / Phase 7.6) | `trigger` (cron), `outcome` (success / failed) — one heartbeat per completed run (incl. the pre-run crash path); `outcome:failed` is the failure signal, the always-emitted `{trigger:cron}` series is the liveness signal |
 | `aeci.data_quality.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron) | `trigger` (cron) |
@@ -68,7 +69,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the Datadog monitors are the delivery backstop) |
 | `aeci.waf.ratelimit.blocked` | count | `apps/api/src/lib/waf-metrics.ts` (`emitWafEventMetrics`, from the hourly WAF poll in `apps/api/src/scheduled.ts` `runWafMetricsJob`, AECI-262) | `rule` (CF rule id), `action` (block / managed_challenge / …), `host`, `source` (ratelimit / firewallcustom) — **value is the event count, so query with `sum:`** (gotcha 3); only mitigation actions counted |
 | `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
-| `aeci.moderation.ban` | count | _deferred — the reviewer-ban handler, **AECI-218 / Phase 6.11** (the ban write-path is unbuilt; see the deferred-metric note below)_ | `action` (`ban` / `unban`), `outcome` (`ok`) — **planned contract, not yet emitted** |
+| `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -259,15 +260,14 @@ the throughput signal (and, paired against a sudden zero, the "secret rotated bu
 deliveries bouncing" tell); `…hmac_failure` is the security/mis-config signal behind the
 `monitor-webhook-hmac-failure.json` alert. The full dashboard + alert land in 6.12 (AECI-219, below).
 
-`aeci.moderation.ban` (count, `action:ban|unban` × `outcome:ok`) is a **deferred contract**, documented
-here ahead of its feature the same way the browser `aeci.search.query` RUM metric was reserved by AECI-141
-before AECI-174 implemented it. The reviewer-**ban management** write-path (admin sets `profiles.banned_at`
-+ `ban_reason`) is **AECI-218 / Phase 6.11**, still unbuilt — Phase 5 (AECI-197) only *enforces* an
-existing ban on review submit; nothing yet *writes* one outside SQL. So there is no emit, dashboard widget,
-or monitor for it yet: the emit (one count per ban/unban, alongside the §9 `appendAuditLog()` +
-`workflow_transition`) and its dashboard widget land **with AECI-218**, not with this observability issue
-(6.12 depends only on 6.4 + 6.5). This row reserves the name + tag vocabulary so the feature issue doesn't
-re-invent it.
+`aeci.moderation.ban` (count, `action:ban|unban` × `outcome:ok|invalid_state|forbidden`) **shipped with
+AECI-218 / Phase 6.11**: the reviewer-**ban management** write-path (`PATCH /api/admin/reviewers/:id`,
+admin sets/clears `profiles.banned_at` + `ban_reason`) emits one count per ban/unban attempt via
+`emitBanAction` in `apps/api/src/routes/admin-reviewers.ts`, alongside the §9 `appendAuditLog()` + the
+reversible `reviewer_ban` `workflow_transition`. Phase 5 (AECI-197) only *enforces* an existing ban on
+review submit; the *write* path is this Phase 6 handler (the ban *action* is raised from the moderation
+queue's repeat-offender prompt — `docs/STAGE_1_PHASE_6_SPEC.md` §9). It rides the Phase 6 dashboard +
+monitors shipped by AECI-219 / Phase 6.12 (`observability/datadog/`).
 
 `aeci.waf.ratelimit.blocked` / `aeci.waf.poll` (AECI-262, §15.1) surface the Cloudflare WAF
 rate-limit + scraper-challenge mitigations (`docs/waf-rate-limits.md`) in Datadog. Enterprise

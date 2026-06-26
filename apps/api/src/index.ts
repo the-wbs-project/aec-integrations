@@ -6,9 +6,11 @@ import {
 } from '@aeci/shared';
 import { Hono } from 'hono';
 
+import { getDb } from './db/client';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
+import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
@@ -138,9 +140,10 @@ phase28.get('/api/taxonomy', createTaxonomyHandler());
 phase28.get('/api/stats/home', createStatsHomeHandler());
 
 // Vendor requests (AECI-128) — claim & correction form submissions. Public (no
-// auth until Phase 5); insert into `vendor_requests` with an audit row. The
-// Phase 6 moderation pipeline (n8n/Linear/admin, including duplicate detection)
-// is out of scope — see `routes/requests.ts`.
+// auth). Insert into `vendor_requests` with an audit + genesis workflow transition;
+// the Phase 6 pipeline (Linear issue creation, domain-match + duplicate flags,
+// reconciliation sweep, admin moderation) hangs off the submit + the seams in
+// `routes/requests.ts` / `lib/linear.ts`. No n8n (dropped — STAGE_1_PHASE_6_SPEC.md §4).
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
 
@@ -241,7 +244,14 @@ authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler())
 authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandler());
 authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
 authAdmin.get('/api/admin/requests', requireAdmin(), createAdminRequestsListHandler());
-authAdmin.patch('/api/admin/requests/:id', requireAdmin(), createModerateRequestHandler());
+// Phase 6.6 / AECI-213: wire the real site → Linear sync (issue transition +
+// comment + site-originated `workflow_transition`) into the resolve/reject seam.
+// `pushRequestResolutionToLinear` is a silent no-op without `LINEAR_API_KEY`.
+authAdmin.patch(
+  '/api/admin/requests/:id',
+  requireAdmin(),
+  createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
+);
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 app.route('/', authAdmin);
