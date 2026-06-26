@@ -70,6 +70,25 @@ string). Store it securely in the review app's server-side config; never ship it
 to a browser. AECi compares it constant-time and rejects a missing/wrong token
 with `401`.
 
+### 2.1 `x-d1-bookmark` — read-your-writes across calls (optional, AECI-250)
+
+AECi serves reads from D1 read replicas (lower latency), so a read issued
+*immediately* after a promote could momentarily hit a replica that hasn't caught
+up. To get **read-your-writes** across successive calls, thread the D1 session
+bookmark:
+
+- Every `POST /api/promote` response includes an **`x-d1-bookmark`** response
+  header — an opaque token naming the database version your write produced.
+- On a **subsequent** request, send that value back as the **`x-d1-bookmark`**
+  request header. AECi resumes the same logical session, so the next read/write is
+  guaranteed to see everything up to that bookmark.
+
+This is **optional**. If you don't thread it, promotes are still durable and
+strongly consistent (writes go to the primary); only a same-instant follow-up read
+might briefly lag. Treat the header value as opaque (don't parse it), persist the
+**latest** one you've seen, and replay it on the next call. Omitting it is
+equivalent to "start from any replica."
+
 ---
 
 ## 3. Request body
@@ -209,7 +228,9 @@ integration-only push (send only `integrations[]`) — but note that without a
 
 ## 4. Response
 
-`200 OK`. Persist every `id`. `operation` tells you what happened.
+`200 OK`. Persist every `id`. `operation` tells you what happened. The response
+also carries an **`x-d1-bookmark`** header you can replay for read-your-writes —
+see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 
 ```jsonc
 {

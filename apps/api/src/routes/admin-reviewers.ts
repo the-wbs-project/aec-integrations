@@ -49,7 +49,7 @@ import {
   type BatchStmt,
   type BatchTuple,
 } from '../lib/audit';
-import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 import type { FetchReviewerEmails } from './admin-reviews';
 
@@ -174,7 +174,7 @@ export function createBanReviewerHandler(
 
     const payload = await parseJsonBody(c, BanReviewerSchema);
     const ban = payload.action === 'ban';
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     const existing = await db.query.profiles.findFirst({
       columns: { id: true, role: true, bannedAt: true, banReason: true },

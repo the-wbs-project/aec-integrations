@@ -27,7 +27,7 @@ import { logToDatadog } from '../datadog';
 import type { Env } from '../env';
 import { json } from '../http';
 import { auditInsert } from '../lib/audit';
-import type { DbFactory } from '../lib/handler-utils';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
 import type { UserAuthVariables } from '../lib/user-auth';
 
 /** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. */
@@ -52,7 +52,7 @@ export function createEnsureProfileHandler(
 ): (c: Context<{ Bindings: Env; Variables: UserAuthVariables }>) => Promise<Response> {
   return async (c) => {
     const { userId } = c.get('user');
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     const inserted = await db
       .insert(profiles)

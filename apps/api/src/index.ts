@@ -29,6 +29,7 @@ import {
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
+import { bookmarkMiddleware } from './bookmark-middleware';
 import { metricsMiddleware } from './metrics-middleware';
 import { createHealthHandler } from './routes/health';
 import {
@@ -59,6 +60,14 @@ const app = new Hono<{ Bindings: Env }>();
 // `aeci.api.query.duration_ms` tagged by endpoint + status. Registered first so
 // it wraps the legacy routes, the Phase 2.8 sub-router, and the `*` fallthrough.
 app.use('*', metricsMiddleware());
+
+// AECI-250 — emit the D1 Sessions API `x-d1-bookmark` on write responses (for
+// read-your-writes on the next request). Hono's `route()` flattens the sub-routers
+// onto this app and runs them on the SAME context, so a write handler's
+// `writeDb(c, …)` → `c.set('dbCtx', …)` is readable here. Reads never set `dbCtx`,
+// so this is a no-op on the read path. Registered after metrics so it shares the
+// same post-`next()` `finally` shape.
+app.use('*', bookmarkMiddleware());
 
 // AECI-101 — the root app gets the same `errorHandler()` as the Phase 2.8
 // sub-router, so the legacy routes below and the `*` fall-throughs emit the

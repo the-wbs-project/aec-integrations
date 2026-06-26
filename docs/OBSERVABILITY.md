@@ -81,6 +81,24 @@ requests.
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
 
+### Measuring the D1 read-replication latency win (AECI-250)
+
+The edge-read-latency thesis (ADR 0016) is realized by the D1 Sessions API:
+reads default to the `'first-unconstrained'` session anchor and are served by the
+nearest replica. **The signal is the existing `aeci.api.query.duration_ms`
+distribution** (no new metric) — split by `endpoint`, it already isolates the
+representative reads (`/api/products`, `/api/products/:slug`, `/api/vendors/:slug`,
+`/api/integrations/:id`).
+
+To quantify the delta: capture a baseline p50/p95 on those `endpoint` slices, then
+enable read replication on the database (Cloudflare dashboard → D1 → *db* →
+Settings → Enable Read Replication, or REST `read_replication:{"mode":"auto"}`)
+and compare. The win is **prod-only** (local/preview run a single un-replicated
+SQLite; `getDb` falls back to the plain binding there) and only appears **after**
+the per-database flip — the code ships inert-safe before it. Replica reads also
+surface in the D1 binding's own analytics (`served_by_region` / `served_by_colo`
+on query results) for a region-routing sanity check.
+
 `aeci.api.data_gap` (AECI-115) surfaces curated-data gaps that used to be hidden by
 silent fabrication. A product with no `ProductVendor` row now renders an empty state
 instead of a fake `/vendors/unknown` link; the metric (plus a paired `warn` log naming

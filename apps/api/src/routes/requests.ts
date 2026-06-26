@@ -58,7 +58,7 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { computeDomainMatch } from '../lib/domain-match';
-import type { DbFactory } from '../lib/handler-utils';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { createLinearIssueForRequest, drizzleLinearStore } from '../lib/linear';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -329,7 +329,7 @@ export function createCorrectionSubmitHandler(
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const payload = await parseJsonBody(c, CorrectionRequestSchema);
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
     const target = await resolveTarget(db, payload.target_type, payload.slug);
 
     return createRequest(c, db, 'correction', {
@@ -352,7 +352,7 @@ export function createClaimSubmitHandler(
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const payload = await parseJsonBody(c, ClaimRequestSchema);
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
     const target = await resolveTarget(db, payload.target_type, payload.slug);
 
     return createRequest(c, db, 'claim', {

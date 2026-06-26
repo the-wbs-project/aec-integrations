@@ -67,6 +67,26 @@ Rules:
   to generate + commit the migration. Fix by running `db:generate` and committing the new
   `apps/api/migrations/*` (including `meta/`).
 
+### Read replication (D1 Sessions API — AECI-250)
+
+The Worker reads/writes D1 through the **Sessions API**: `getDb(env, opts?)`
+(`apps/api/src/db/client.ts`) wraps `env.DB.withSession(anchor)`. Reads use the
+`'first-unconstrained'` anchor (served by the nearest replica — the read-latency
+win); write handlers anchor `'first-primary'` and round-trip the `x-d1-bookmark`
+header (inbound via `writeDb(c, dbFor)`, outbound via `bookmark-middleware.ts`) so
+read-your-writes holds. This is **API-Worker-internal** — no schema/migration
+change and no `wrangler.jsonc` change.
+
+- **Enabling the win is an ops step, not code.** Read replication is turned on
+  **per-database** in the Cloudflare dashboard (D1 → *your db* → Settings → Enable
+  Read Replication) or the REST API (`read_replication: {"mode": "auto"}`). Enable
+  it on the **staging + production** D1s; the code is inert-safe before that
+  (`withSession` serves from primary when no replicas exist).
+- **Local dev / tests are single-DB.** `wrangler dev`'s local SQLite and the
+  in-memory test harness have no `withSession`, so `getDb` falls back to the plain
+  binding (`getBookmark()` → `null`); read-your-writes is automatic there. The
+  perf win is **prod-only** and appears only after the per-database flip above.
+
 ---
 
 > **⚠️ Legacy — Supabase-CLI / Prisma workflow (Supabase Auth Postgres only).**

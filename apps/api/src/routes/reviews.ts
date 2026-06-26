@@ -55,7 +55,7 @@ import {
   type BatchTuple,
 } from '../lib/audit';
 import { sendReviewSubmittedEmail } from '../lib/email';
-import type { DbFactory } from '../lib/handler-utils';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { scoreToxicity } from '../lib/toxicity';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
@@ -138,7 +138,7 @@ export function createSubmitReviewHandler(
 
     const payload = await parseJsonBody(c, SubmitReviewSchema);
     const locale = resolveLocale(c.req.header('x-aeci-locale'));
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     // Product must exist — a loose insert would FK-fail as a 500.
     const product = await db.query.products.findFirst({

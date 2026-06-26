@@ -114,6 +114,9 @@ async function capturePageView(
     const ua = req.headers.get('user-agent');
     const userAgentHash = ua ? await sha256Hex(ua) : null;
 
+    // Fire-and-forget analytics (runs in `waitUntil`, never read back, returns
+    // 204 regardless) — stays on the `'first-unconstrained'` read default; a
+    // primary anchor would spend a round-trip for no benefit. (AECI-250)
     const { db } = dbFor(c.env);
     const { productId, vendorId } = await resolveEntity(db, payload);
 
