@@ -37,6 +37,7 @@ The Cloudflare resources as deployed. If any of these change, update this sectio
 |---|---|
 | Cloudflare account | `AEC Integrations` — `e62ec9d8012c3e0c225f8e4dbab76b79` |
 | Access app | `AECi Non-Prod` — `5e36ee8f-33e1-4f60-b525-77d87e0a103c` (also covers prod-until-launch per ADR 0017; consider renaming to `AECi Gated`) |
+| Zero Trust team domain | `aecintegrations.cloudflareaccess.com` (issues the Access JWT `iss` + serves the JWKS at `/cdn-cgi/access/certs`; consumed by `apps/datatool` `ACCESS_TEAM_DOMAIN`) |
 | App AUD tag | `6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643` |
 | Allow policy | `AECi allowlist` — `4c6b7bbd-6371-4a21-a5db-a3ae9c3c9afd` |
 | OTP identity provider | `c31649de-3c54-40aa-829c-d424e74c0f7f` |

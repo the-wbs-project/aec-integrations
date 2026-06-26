@@ -12,19 +12,24 @@
   // origin hit can't bypass the edge gate. workers_dev:true is required for that
   // hostname to exist.
   //
-  // This Worker binds all THREE remote D1 databases at once (preview/staging/
-  // production) and can wipe-and-replace any of them — see docs/access.md and the
-  // README. Deliberately NOT wired into CI (deployed by hand like apps/landing).
+  // This Worker binds all FOUR remote D1 databases at once (preview/staging/demo/
+  // production — one per deploy tier, docs/environments.md) and can wipe-and-replace
+  // any of them — see docs/access.md and the README. Deliberately NOT wired into CI
+  // (deployed by hand like apps/landing).
   //
   // No `migrations_dir`: this Worker must NEVER run migrations — apps/api owns the
   // schema. No `nodejs_compat`: D1 is reached via the native bindings.
   //
-  // Secrets (set via `wrangler secret put`; all graceful-skip if absent):
-  //   ALGOLIA_APP_ID                  — shared Algolia app id (post-write reindex)
-  //   ALGOLIA_ADMIN_KEY_{PREVIEW,STAGING,PRODUCTION} — per-env management keys
-  //   CF_PURGE_API_TOKEN_{PREVIEW,STAGING,PRODUCTION} — per-env Zone.Cache-Purge token
-  //   CF_ZONE_ID_{PREVIEW,STAGING,PRODUCTION}         — per-env zone id (purge target)
-  //   TOOL_TOKEN                      — optional bearer fallback for curl/CI auth
+  // Secrets (set via `wrangler secret put`; all graceful-skip if absent). These are
+  // SINGLE shared values — NOT per-env: one Algolia app (its admin key reaches every
+  // `{env}_*` index) and one `aecintegrations.com` Cloudflare zone (staging/demo/
+  // prod). Same values the apps/api + apps/web Workers get from the un-suffixed
+  // ALGOLIA_* / CF_* GitHub secrets.
+  //   ALGOLIA_APP_ID      — Algolia app id (post-write reindex)
+  //   ALGOLIA_ADMIN_KEY   — Algolia management key (addObject/deleteObject)
+  //   CF_PURGE_API_TOKEN  — Zone.Cache-Purge token
+  //   CF_ZONE_ID          — zone id the purge targets
+  //   TOOL_TOKEN          — optional bearer fallback for curl/CI auth
   "workers_dev": true,
   "observability": {
     "logs": {
@@ -43,11 +48,11 @@
     // header carries this `aud`.
     "ACCESS_AUD": "6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643",
     // Cloudflare Zero-Trust team domain that issues/serves the Access JWKS at
-    // `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. FILL THIS from
-    // the Zero Trust dashboard (Settings → Custom Pages / team domain). Until it
-    // is set, the Access-JWT path can't verify — use the TOOL_TOKEN bearer
-    // fallback for curl/CI in the meantime.
-    "ACCESS_TEAM_DOMAIN": "REPLACE_WITH_TEAM.cloudflareaccess.com",
+    // `https://<team>.cloudflareaccess.com/cdn-cgi/access/certs`. This is the
+    // `AEC Integrations` Zero Trust org (docs/access.md §1); the in-Worker
+    // Access-JWT check (src/access.ts) verifies the Cf-Access-Jwt-Assertion
+    // header's `iss` against `https://<this>` and its `aud` against ACCESS_AUD.
+    "ACCESS_TEAM_DOMAIN": "aecintegrations.cloudflareaccess.com",
   },
   "d1_databases": [
     {
@@ -59,6 +64,11 @@
       "binding": "DB_STAGING",
       "database_name": "aeci-app-staging",
       "database_id": "6cd91530-20f3-4264-b6ba-3b2bf611c2aa",
+    },
+    {
+      "binding": "DB_DEMO",
+      "database_name": "aeci-app-demo",
+      "database_id": "a2c7d838-66da-484c-bbfb-80688aac888e",
     },
     {
       "binding": "DB_PRODUCTION",

@@ -1,7 +1,8 @@
 # `@aeci/datatool` — internal D1 copy / seed / reindex tool
 
 A small Cloudflare-Access-gated admin Worker + web UI that does two jobs across the
-three D1 environments (`preview` / `staging` / `production`):
+four D1 environments (`preview` / `staging` / `demo` / `production` — one per deploy
+tier, `docs/environments.md`):
 
 1. **Copy data env→env** — a **full clone** in **replace/mirror** mode: the
    destination becomes an exact copy of the source, table for table.
@@ -24,12 +25,14 @@ the destination, so search and the site reflect the new data immediately.
   orders by FK, clears the destination child-first, and reloads parent-first. The
   one self-FK (`vendor_requests.duplicate_of_request_id`) is nulled then restored.
   Ordering — not deferred FKs — is the correctness contract.
-- **Cross-env auth caveat (intended).** A full clone copies `profiles` / `reviews`
-  / `audit_log` etc. whose ids reference a Supabase project. The dev project serves
-  preview+staging; prod serves production. So a clone **across** that line leaves
-  those rows referencing auth users that don't exist in the destination's project —
-  logically orphaned (the D1 insert still succeeds; there's no D1-level auth FK).
-  Fine for dev/staging; just know prod↔dev clones aren't sign-in-coherent.
+- **Cross-env auth coherence (post-ADR 0017).** A full clone copies `profiles` /
+  `reviews` / `audit_log` etc. whose ids reference Supabase `auth.users`. Per
+  [ADR 0017](../../docs/adr/0017-single-supabase-auth-project-across-environments.md)
+  **all four tiers share one auth project** (`ktuhnlypztujpsseujzx`), so those
+  referenced users exist everywhere — a clone between **any** two tiers
+  (preview/staging/demo/production) stays sign-in-coherent. (This retires the
+  earlier two-project caveat, where a prod↔dev clone left auth-linked rows orphaned;
+  D1 has no auth FK regardless, so the insert always succeeds.)
 - **Not globally atomic.** A clone spans many tables / batches; a mid-clone failure
   leaves the destination partially replaced — **re-run** (replace is idempotent).
 - **Algolia reindex = clear + repopulate, promoted-only.** The incremental cron
@@ -68,14 +71,23 @@ Needs `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit + D1: Edit on all three DBs)
 
 ### One-time config
 
-1. **`ACCESS_TEAM_DOMAIN`** in `wrangler.jsonc` — replace
-   `REPLACE_WITH_TEAM.cloudflareaccess.com` with the real Zero-Trust team domain
-   (the in-Worker Access-JWT check needs it; `ACCESS_AUD` is already set). Until
-   then, authenticate via `TOOL_TOKEN`.
-2. **Secrets** (`wrangler secret put <NAME>` — all optional / graceful-skip):
+1. **`ACCESS_TEAM_DOMAIN`** in `wrangler.jsonc` — set to
+   `aecintegrations.cloudflareaccess.com` (the `AEC Integrations` Zero Trust org,
+   `docs/access.md` §1). This enables the in-Worker Access-JWT path, so an
+   allowlisted operator hitting the browser UI can run the `/api/*` routes with no
+   `TOOL_TOKEN`. ✅ Done.
+2. **Secrets** (`wrangler secret put <NAME>` — all optional / graceful-skip).
+   With step 1 done, the browser path already works; these add reindex/purge and a
+   curl/CI fallback:
    - `TOOL_TOKEN` — bearer fallback for curl/CI (and a belt-and-suspenders auth).
-   - `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY_{PREVIEW,STAGING,PRODUCTION}` — reindex.
-   - `CF_PURGE_API_TOKEN_{PREVIEW,STAGING,PRODUCTION}` + `CF_ZONE_ID_{…}` — cache purge.
+   - `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY` — reindex. **Single shared values** (one
+     Algolia app; the admin key reaches every `{env}_*` index — only the index prefix
+     is per-env, derived from the target).
+   - `CF_PURGE_API_TOKEN` + `CF_ZONE_ID` — cache purge. **Single shared values**
+     (staging/demo/production are all on the one `aecintegrations.com` zone).
+
+   These are the same un-suffixed values the `apps/api` / `apps/web` Workers receive
+   from the `ALGOLIA_*` / `CF_*` GitHub secrets — provision them once, not per-env.
 3. **Access** — the `*.aec-integrations.workers.dev` host is already covered by the
    single `AECi Non-Prod` app (`docs/access.md`); **no new Access app/policy**.
    Verify: `curl -I https://aeci-datatool.aec-integrations.workers.dev` → `302` to

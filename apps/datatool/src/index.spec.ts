@@ -13,17 +13,20 @@ const CTX = {
 describe('datatool routes', () => {
   let preview: ShimHandle;
   let staging: ShimHandle;
+  let demo: ShimHandle;
   let production: ShimHandle;
   let env: Record<string, unknown>;
 
   beforeEach(() => {
     preview = makeShimDb();
     staging = makeShimDb();
+    demo = makeShimDb();
     production = makeShimDb();
     // No Algolia/CF creds → the post-write refresh gracefully skips (no network).
     env = {
       DB_PREVIEW: preview.db,
       DB_STAGING: staging.db,
+      DB_DEMO: demo.db,
       DB_PRODUCTION: production.db,
       TOOL_TOKEN: TOKEN,
       ACCESS_AUD: 'aud',
@@ -33,6 +36,7 @@ describe('datatool routes', () => {
   afterEach(() => {
     preview.dispose();
     staging.dispose();
+    demo.dispose();
     production.dispose();
   });
 
@@ -107,6 +111,24 @@ describe('datatool routes', () => {
       (staging.raw.prepare('SELECT count(*) AS n FROM products').get() as { n: number }).n,
     ).toBe(2);
     expect(json.refresh.reindex.skipped).toBe(true);
+  });
+
+  it('routes a confirmed copy to the demo DB with only the typed confirm (no prod double-confirm)', async () => {
+    seedCatalog(preview.raw);
+    const res = await call(
+      '/api/copy',
+      { source: 'preview', dest: 'demo', dryRun: false, confirmName: 'aeci-app-demo' },
+      TOKEN,
+    );
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { executed: boolean }).executed).toBe(true);
+    // Wrote to demo, not staging/production.
+    expect((demo.raw.prepare('SELECT count(*) AS n FROM products').get() as { n: number }).n).toBe(
+      2,
+    );
+    expect(
+      (staging.raw.prepare('SELECT count(*) AS n FROM products').get() as { n: number }).n,
+    ).toBe(0);
   });
 
   it('requires the production double-confirm', async () => {
