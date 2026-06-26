@@ -1,14 +1,19 @@
 /**
- * `aec-home-trust-pillars` — the home page trust band (the marquee value
- * statement under the hero). AECi's positioning is trust-first, so the marketing
- * band states the three commitments that protect it, drawn from the pitch deck
- * ("Trust Is the Product", Slide 10): never sell rankings, always be transparent,
- * never review products ourselves.
+ * `aec-home-trust-pillars` — the shared "three trust commitments" band. AECi's
+ * positioning is trust-first, so the band states the three commitments that
+ * protect it, drawn from the pitch deck ("Trust Is the Product", Slide 10):
+ * never sell rankings, always be transparent, never review products ourselves.
+ *
+ * Since AECI-273 the home's differentiation story moved to `home-differentiation.ts`
+ * (the reconciled "what's different" band, which folds this promise in as its
+ * closing line). This band is now shown on the **About page** (`/about`), where
+ * the standalone trust commitments belong on the dedicated trust-first page. The
+ * component, selector, and `@@home.trust.*` ids are kept unchanged so `/about`
+ * (and its tests) are untouched.
  *
  * **Static + edge-cache / SSR-safe.** No data fetch, no per-visitor state, and no
- * client JS — all three pillars render into the cacheable, visitor-state-neutral
- * home HTML (`Cache-Tag: route:index,taxonomy`, `s-maxage=900`), identical for
- * every visitor. The hover lift is pure CSS (neutralised under
+ * client JS — all three pillars render into cacheable, visitor-state-neutral HTML,
+ * identical for every visitor. The hover lift is pure CSS (neutralised under
  * `prefers-reduced-motion` by the global rule in styles.css), so there is no
  * auto-motion and therefore no pause control to reason about. Cards are a real
  * `<ul>`/`<li>` list with a visible `<h3>` each, keeping a valid heading order
