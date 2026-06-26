@@ -57,7 +57,7 @@
  * from cookie stripping (i.e. added to the non-cacheable list instead).
  */
 
-import { PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
+import { LANDING_CF_HEADERS, PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
@@ -584,6 +584,61 @@ export function withForwardedCfContext(request: Request): Request {
 }
 
 /**
+ * Cloudflare request context (`request.cf`) the API Worker needs to enrich the
+ * landing lead-capture rows (`mailing_list` / `feedback`, AECI-275). Like the
+ * page-view fields it is populated on the inbound eyeball request but does NOT
+ * survive the `env.API` service binding, so the SSR Worker copies it onto the
+ * trusted `LANDING_CF_HEADERS` (`x-aeci-cf-*`) before forwarding the unified
+ * home's closing-CTA island `POST /api/subscribe` + `/api/feedback`. Structural —
+ * only the fields we forward are read, so a `.cf`-less request (Node tests, local
+ * dev) is a clean no-op and geo simply stays null.
+ */
+interface LandingCfLike {
+  country?: string | null;
+  city?: string | null;
+  region?: string | null;
+  timezone?: string | null;
+  asOrganization?: string | null;
+  asn?: number | null;
+  metroCode?: number | null;
+}
+
+/**
+ * Set the trusted `LANDING_CF_HEADERS` from `request.cf`. Only fields that are
+ * actually present are set, so the API Worker sees a header exactly when the
+ * value exists. No-op when `request.cf` is absent.
+ */
+export function applyLandingCfHeaders(headers: Headers, request: Request): void {
+  const cf = (request as { cf?: LandingCfLike }).cf;
+  if (!cf) return;
+  if (cf.country) headers.set(LANDING_CF_HEADERS.country, cf.country);
+  if (cf.city) headers.set(LANDING_CF_HEADERS.city, cf.city);
+  if (cf.region) headers.set(LANDING_CF_HEADERS.region, cf.region);
+  if (cf.timezone) headers.set(LANDING_CF_HEADERS.timezone, cf.timezone);
+  if (cf.asOrganization) {
+    headers.set(LANDING_CF_HEADERS.asOrganization, String(cf.asOrganization));
+  }
+  if (typeof cf.asn === 'number') headers.set(LANDING_CF_HEADERS.asn, String(cf.asn));
+  if (typeof cf.metroCode === 'number') {
+    headers.set(LANDING_CF_HEADERS.metroCode, String(cf.metroCode));
+  }
+}
+
+/**
+ * Rebuild a proxied `POST /api/subscribe` or `/api/feedback` request carrying
+ * trusted CF geo context (AECI-275). The SSR Worker is the sole writer of
+ * `LANDING_CF_HEADERS`, so any client-supplied copies are stripped first
+ * (anti-spoof) before fresh values are set from `request.cf`. Body / method /
+ * other headers (incl. the body's UTM + referrer) pass through unchanged.
+ */
+export function withForwardedLandingCf(request: Request): Request {
+  const headers = new Headers(request.headers);
+  for (const name of Object.values(LANDING_CF_HEADERS)) headers.delete(name);
+  applyLandingCfHeaders(headers, request);
+  return new Request(request, { headers });
+}
+
+/**
  * Schedule a fire-and-forget `POST /api/page-views` against the API Worker via
  * the service binding. This is the SSR Worker's supplementary write (§14.2): it
  * captures CF/bot context for full-document renders. It is NOT the canonical
@@ -832,15 +887,24 @@ export function createApp(options: {
   // the API Worker untouched. No envelope normalization on this path; SSR
   // data loaders that want normalization go through `createServerApiClient`.
   //
-  // `POST /api/page-views` is the one enriched exception (AECI-177): the
-  // browser's view-capture POST is rebuilt with trusted Cloudflare request
-  // context headers (request.cf doesn't survive the binding) after stripping any
-  // client-supplied copies. Every other `/api/*` request still forwards
-  // `c.req.raw` byte-for-byte.
+  // Two enriched POST exceptions rebuild the request with trusted Cloudflare
+  // request-context headers (request.cf doesn't survive the binding) after
+  // stripping any client-supplied copies (anti-spoof):
+  //   - `POST /api/page-views` (AECI-177) → `PAGE_VIEW_CF_HEADERS`.
+  //   - `POST /api/subscribe` + `/api/feedback` (AECI-275) → `LANDING_CF_HEADERS`,
+  //     the closing-CTA island's lead-capture geo. UTM + referrer still ride the
+  //     body; only geo is header-forwarded.
+  // Every other `/api/*` request still forwards `c.req.raw` byte-for-byte.
   app.all('/api/*', (c) => {
     const req = c.req.raw;
-    if (req.method === 'POST' && new URL(req.url).pathname === '/api/page-views') {
-      return c.env.API.fetch(withForwardedCfContext(req));
+    if (req.method === 'POST') {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/api/page-views') {
+        return c.env.API.fetch(withForwardedCfContext(req));
+      }
+      if (pathname === '/api/subscribe' || pathname === '/api/feedback') {
+        return c.env.API.fetch(withForwardedLandingCf(req));
+      }
     }
     return c.env.API.fetch(req);
   });

@@ -10,6 +10,7 @@ import { MetaService } from '../core/meta.service';
 import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-rank';
 
 import { BrowseGrid } from './browse-grid';
+import { HomeClosingCta } from './home-closing-cta';
 import { HomeCredibilityStrip } from './home-credibility-strip';
 import { HomeHero } from './home-hero';
 import { HomeStatsCards } from './home-stats-cards';
@@ -54,6 +55,7 @@ import { TrendingProductsSection } from './trending-products-section';
     BrowseGrid,
     RecentIntegrationsSection,
     TrendingProductsSection,
+    HomeClosingCta,
   ],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
@@ -96,6 +98,11 @@ import { TrendingProductsSection } from './trending-products-section';
           />
         </div>
       </div>
+
+      <!-- Closing CTA + lead capture (§4.1 section 9, AECI-275): the home's
+           conversion path beyond browse/search. Full-bleed Bone band, mounted
+           last so it sits directly above the app-shell footer. -->
+      <aec-home-closing-cta />
     </div>
   `,
 })
