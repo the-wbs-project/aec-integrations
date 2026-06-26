@@ -21,7 +21,6 @@ export function fakeExecutionContext(): ExecutionContext {
 /** Default env for spec runs. `ENV` is `'preview'` so dev-only response
  *  validation runs — drift in mappers fails loudly in tests. */
 export const TEST_ENV: Env = {
-  DATABASE_URL: 'prisma://test',
   ENV: 'preview',
 };
 

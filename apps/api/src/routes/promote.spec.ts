@@ -44,7 +44,6 @@ import { cacheTagsForPromote } from './promote-cache-tags';
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
 const baseEnv: Env = {
-  DATABASE_URL: 'prisma://test',
   ENV: 'preview',
   REVIEW_APP_TOKEN: 'secret-token',
 };

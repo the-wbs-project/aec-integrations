@@ -26,7 +26,6 @@ function stubSession(bookmark: string | null) {
 function envWithSession(session: ReturnType<typeof stubSession>) {
   const withSession = vi.fn((_anchor?: string) => session);
   const env = {
-    DATABASE_URL: 'prisma://test',
     ENV: 'preview',
     DB: { withSession },
   } as unknown as Env;
@@ -35,7 +34,7 @@ function envWithSession(session: ReturnType<typeof stubSession>) {
 
 describe('getDb (AECI-250 Sessions API)', () => {
   it('throws loudly when the DB binding is missing', () => {
-    expect(() => getDb({ DATABASE_URL: 'x', ENV: 'preview' } as unknown as Env)).toThrow(/DB/);
+    expect(() => getDb({ ENV: 'preview' } as unknown as Env)).toThrow(/DB/);
   });
 
   it('defaults reads to the first-unconstrained anchor and proxies getBookmark()', () => {
@@ -61,7 +60,6 @@ describe('getDb (AECI-250 Sessions API)', () => {
 
   it('falls back to the plain binding (getBookmark null) when withSession is absent', () => {
     const env = {
-      DATABASE_URL: 'prisma://test',
       ENV: 'preview',
       DB: { prepare: vi.fn(), batch: vi.fn() },
     } as unknown as Env;

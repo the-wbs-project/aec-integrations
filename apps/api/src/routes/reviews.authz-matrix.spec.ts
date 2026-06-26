@@ -61,7 +61,7 @@ import { createSubmitReviewHandler } from './reviews';
 const SUPABASE_URL = 'https://test-project.supabase.co';
 // `ENV: 'preview'` keeps `validateResponseInDev` on (mapper drift fails loudly);
 // `SUPABASE_URL` is required by the guard before it will verify a token.
-const ENV = { DATABASE_URL: 'prisma://test', ENV: 'preview', SUPABASE_URL } as Env;
+const ENV = { ENV: 'preview', SUPABASE_URL } as Env;
 
 const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 

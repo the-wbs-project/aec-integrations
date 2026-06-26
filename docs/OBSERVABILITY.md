@@ -158,7 +158,7 @@ count (`outcome:success` = every key written/skipped cleanly, `partial` = some w
 `failed` = nothing wrote and ≥1 key failed), one job-level `aeci.stats.compute.duration_ms`
 distribution, plus per-key `aeci.stats.compute.key` (`outcome:written|skipped|failed`) and
 `aeci.stats.compute.key.duration_ms` so a dashboard/monitor sees *which* `home.*` key failed or
-slowed without reading logs. The pre-compute crash path (a Prisma-init throw before `runHomeStats`)
+slowed without reading logs. The pre-compute crash path (a DB-client-init throw before `runHomeStats`)
 stays an inline single `aeci.stats.compute{outcome:failed}` count — like the Algolia crash path, it
 isn't a completed run. Because every completed invocation (and the crash path) emits exactly one
 job-level `aeci.stats.compute{trigger:cron}` point regardless of outcome, that series is the
@@ -440,7 +440,7 @@ Home stats (AECI-180) follow the **same failure + liveness split**. "Home stats 
 alerts when either the per-key `aeci.stats.compute.key{outcome:failed}` count or the job-level
 `aeci.stats.compute{outcome:failed}` count is non-zero (no `notify_no_data` — both are empty on a
 healthy run). The per-key term names the offending `home.*` key; the job-level term also catches a
-**pre-compute crash** (a Prisma-init throw before `runHomeStats`), which emits the job-level
+**pre-compute crash** (a DB-client-init throw before `runHomeStats`), which emits the job-level
 `outcome:failed` heartbeat but no per-key points. That term is load-bearing — the crash also emits
 the `{trigger:cron}` liveness heartbeat, which keeps the "not running" monitor green, so without the
 job-level failure term a total crash would slip past **both** monitors. "Home stats not running" is the

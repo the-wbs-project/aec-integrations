@@ -62,18 +62,12 @@ export type Env = {
    * Cloudflare D1 binding for the application database (ADR 0016, AECI-252).
    * Accessed via the Drizzle client factory `getDb(env)` (`src/db/client.ts`),
    * which asserts its presence. `wrangler dev` serves a local SQLite copy;
-   * staging/production bind per-env databases. Replaces the Prisma Accelerate
-   * `DATABASE_URL` path. Optional during the migration (test/tooling contexts
-   * lack it); tightens to required in Phase 5 (AECI-256) once Prisma is removed.
+   * staging/production bind per-env databases. The application DB is D1 only —
+   * the former Prisma Accelerate `DATABASE_URL` path is gone (ADR 0016 / AECI-278).
+   * Optional because some test/tooling contexts construct a partial Env without
+   * a binding.
    */
   DB?: D1Database;
-  /**
-   * Prisma Accelerate URL (`prisma://...`). DEPRECATED by ADR 0016 — retained
-   * only while the Prisma→Drizzle query rewrite (AECI-253) is in flight; goes
-   * optional then removed in Phase 5 (AECI-256). Still required while `prisma.ts`
-   * and its call sites exist.
-   */
-  DATABASE_URL: string;
   /**
    * Supabase service-role key (auth project only), used by the split-identity
    * seams (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2) and GDPR
@@ -125,7 +119,7 @@ export type Env = {
   LINEAR_WEBHOOK_SIGNING_SECRET?: string;
   /**
    * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
-   * Optional: handler falls back to a direct Prisma fetch when the binding is
+   * Optional: handler falls back to a direct D1 read when the binding is
    * absent (e.g. local `wrangler dev` without `--remote`). 5-minute TTL is
    * the staleness bound until admin/purge lands (Phase 2.10).
    */

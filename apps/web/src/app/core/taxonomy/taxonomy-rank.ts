@@ -37,7 +37,7 @@ export function topByCount(
  * Terms in editorial `display_order` (ascending), with `name` as a stable
  * tiebreak — the project-lifecycle order for phases (Concept → Design →
  * Pre-Construction → Construction → Closeout, set in
- * `supabase/reference-data/taxonomy.sql`). Used instead of `topByCount` where a
+ * `apps/api/seed/taxonomy.sql`). Used instead of `topByCount` where a
  * facet must read in its intended sequence rather than by popularity. Pure —
  * never mutates the input.
  */

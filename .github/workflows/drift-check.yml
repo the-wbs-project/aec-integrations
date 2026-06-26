@@ -23,12 +23,12 @@
 #   3. Commit the new files under `apps/api/migrations/` (including `meta/`).
 #   4. Push. The drift-check job re-runs and passes.
 #
-# Scope note: this guards only the D1 app schema. The retired Supabase **Auth**
-# Postgres still has its own schema/RLS drift gate (`scripts/prisma-drift-check.sh`
-# + `scripts/verify-rls.sql`), which now runs only in `refresh-staging.yml` — not
-# here, and no longer in `promote-to-prod.yml` (AECI-256 removed the prod-promote
-# Postgres steps; the prod promote touches no Supabase Postgres). The sibling
-# DATA-drift guard for the D1 product aggregates is `reconcile-counts.yml`.
+# Scope note: this guards the D1 app schema — the only app-schema drift gate.
+# The former Supabase-Postgres schema/RLS drift gate (`scripts/prisma-drift-check.sh`
+# + `scripts/verify-rls.sql`) was removed with the Prisma/Postgres-app-DB
+# decommission (AECI-278); Supabase is now Auth-only and the app schema lives
+# solely in D1. The sibling DATA-drift guard for the D1 product aggregates is
+# `reconcile-counts.yml`.
 
 name: drift-check
 

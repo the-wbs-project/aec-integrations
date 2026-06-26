@@ -1,8 +1,10 @@
 # ADR 0002: Prisma Accelerate (HTTPS) over a TCP pooler / pg adapter from Workers
 
-> _Renamed from the placeholder `0002-no-prisma-accelerate` — that title was inverted. The actual decision is to **use** Accelerate._
+> **Superseded by [ADR 0016](./0016-d1-over-supabase-postgres.md) (2026-06-22).** The application database moved from Supabase Postgres to Cloudflare D1, so Prisma Accelerate — and Prisma itself — was retired for the DB path. The API Worker now reaches D1 through its native `DB` binding via Drizzle (`getDb(env)`), with no `prisma://` URL, no `@prisma/extension-accelerate`, and no `DATABASE_URL` / `DIRECT_URL`. This ADR is retained for historical context. Supabase is kept for **Auth only** (ADR 0015).
 
-**Status:** Accepted (a CLAUDE.md non-negotiable)
+> _Renamed from the placeholder `0002-no-prisma-accelerate` — that title was inverted. The actual decision was to **use** Accelerate._
+
+**Status:** Superseded by ADR 0016 (2026-06-22)
 **Date:** Phase 1 · **Recorded:** 2026-06-01
 **Context owner:** _unset — confirm_
 
@@ -30,5 +32,5 @@ Use **Prisma Accelerate** for all Worker → DB access:
 
 ## Related
 
-- `docs/DATABASE_SCHEMA.md` §1a, `docs/prisma.md` (Prisma-as-query-builder contract).
-- ADR 0007 (why Supabase CLI owns migrations, not `prisma migrate`).
+- ADR 0016 (the supersession: D1 over Supabase Postgres, Drizzle over Prisma — `docs/DATABASE_SCHEMA.md` §1a now documents the live Drizzle/D1 client).
+- ADR 0007 (why Supabase CLI owned migrations, not `prisma migrate` — also superseded by ADR 0016).

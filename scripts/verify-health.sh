@@ -2,16 +2,16 @@
 # Assert that the API Worker's database connection is healthy at a given HOST.
 #
 #   /api/health — proxied by the SSR Worker raw to the API Worker. The handler
-#                 runs `SELECT 1` through Prisma Accelerate and returns
-#                 {"ok":true,"db":"ok"} (HTTP 200) on success, or
+#                 runs `SELECT 1` through the D1 `DB` binding (Drizzle, ADR 0016)
+#                 and returns {"ok":true,"db":"ok"} (HTTP 200) on success, or
 #                 {"ok":false,"db":"error",…} (HTTP 500) when the DB is
-#                 unreachable — including the case where the API Worker shipped
-#                 WITHOUT its `DATABASE_URL` secret ("Environment variable not
-#                 found: DATABASE_URL"). That exact gap silently turned
-#                 demo /categories into a 404 (blocking SSR resolver → API 500 →
-#                 NotFound) while /products and /vendors stayed 200 (their
-#                 httpResource data layer fails client-side, so the shell still
-#                 renders). The version gate (verify-version.sh) can't catch it —
+#                 unreachable — e.g. the API Worker shipped without its `DB`
+#                 binding or against an unmigrated D1. A DB gap like that once
+#                 silently turned demo /categories into a 404 (blocking SSR
+#                 resolver → API 500 → NotFound) while /products and /vendors
+#                 stayed 200 (their httpResource data layer fails client-side, so
+#                 the shell still renders). The version gate (verify-version.sh)
+#                 can't catch it —
 #                 /api/version reads vars, not the DB — so deploys/promotes pair
 #                 this script with verify-version.sh.
 #
@@ -65,8 +65,8 @@ if [ "$ok" = "true" ] && [ "$db" = "ok" ]; then
   exit 0
 fi
 
-# Re-fetch WITHOUT -f so the 500 body (which carries the Prisma error, e.g.
-# "Environment variable not found: DATABASE_URL") surfaces in the diagnostic.
+# Re-fetch WITHOUT -f so the 500 body (which carries the DB error, e.g. a
+# missing `DB` binding or an unmigrated D1) surfaces in the diagnostic.
 detail="$(curl -sS ${hdrs[@]+"${hdrs[@]}"} "$HOST/api/health" 2>/dev/null || true)"
 echo "verify-health FAILED @ $HOST: ok='$ok' db='$db'"
 if [ -n "$detail" ]; then

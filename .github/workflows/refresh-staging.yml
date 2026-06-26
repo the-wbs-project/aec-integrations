@@ -1,71 +1,40 @@
-# AEC Integrations — staging refresh button (AECI-77, sub-issue (b) of AECI-71).
+# AEC Integrations — staging redeploy button (AECI-77; gutted by AECI-278).
 #
-# Press-a-button workflow that refreshes staging's **public-schema data** from
-# prod. This is the retained Supabase-Postgres path (the app DB itself is on D1
-# — ADR 0016; this Postgres gate is decommissioned with AECI-256/257).
+# Press-a-button workflow that redeploys the staging Workers (API first, then
+# SSR) at the current `main` and smoke-tests them. It does NOT touch any
+# database.
 #
-# Per ADR 0017, auth now lives in ONE dedicated Supabase project shared by every
-# environment, so this workflow NO LONGER touches the auth schema: auth users are
-# not dumped/wiped/restored/scrubbed from prod here, and the test accounts
-# (chrisw, billh, reviewer, admin) are seeded directly into the shared auth
-# project (see docs/environments.md), not by this workflow. (The old projects'
-# auth schemas that DIRECT_URL_{STAGING,PRODUCTION} reach are inert post-cutover
-# — no Worker authenticates against them — so the former auth steps were a no-op.)
+# History: this workflow used to refresh staging's **Postgres public-schema
+# data** from a prod dump (pg_dump → wipe → restore → `supabase db push` →
+# GRANT/RLS re-assert → taxonomy seed → Prisma drift check). All of that was
+# removed with the Prisma/Supabase-Postgres decommission (AECI-278): the app DB
+# is Cloudflare D1 (ADR 0016), so there is no Postgres app data to refresh.
 #
-#   1. Dumps prod public schema + supabase_migrations history.
-#   2. Wipes staging public schema + supabase_migrations history.
-#   3. Restores prod public data into staging.
-#   4. Applies any migrations staging is missing (`supabase db push --linked`).
-#   5. Re-asserts PostgREST GRANTs + verifies the RLS matrix.
-#   6. Seeds taxonomy reference data.
-#   7. Runs the Prisma drift check — HARD STOP on any non-empty diff.
-#   8. Deploys staging Workers (API first, then SSR) + reindexes Algolia.
-#   9. Smoke-tests /api/health + verifies /api/version reports the new SHA.
+#   - Staging **app data** (the D1 catalog + reviews) is now seeded/cloned with
+#     the Access-gated `apps/datatool` Worker (D1 copy/seed + Algolia reindex),
+#     not from a Postgres dump.
+#   - Staging **auth** is the single shared Supabase Auth project (ADR 0017) — it
+#     is never refreshed per-environment; test accounts are seeded out of band
+#     (`scripts/seed-staging-users.sql` against the auth project; see
+#     docs/environments.md).
 #
-# Implements AECI-71 "Action 1" 1-12 verbatim, with two deliberate
-# clarifications captured in the run plan and the AECI-77 PR description:
-#
-#   (i)  `supabase_migrations.schema_migrations` is dumped+restored from prod
-#        in addition to the spec's auth-data + public dumps. Without this,
-#        staging's migration-history table keeps its old high-water mark and
-#        `supabase db push --linked` in step 6 silently skips any migration
-#        whose row never made it into the prod dump.
-#
-#   (ii) The drift check (step 9) is run verbatim per AECI-71's snippet.
-#        Historically `prisma db pull` failed with P4002 against any DB
-#        containing the cross-schema FK `public.profiles.id -> auth.users(id)`;
-#        AECI-69 removed that FK (replaced by a trigger-based sync —
-#        see docs/AUTH_AND_RLS.md §8.1), so the drift step now reports
-#        real drift rather than the P4002 landmine. Workers are still NOT
-#        deployed when the drift step fails (the AECI-71 acceptance
-#        criterion); this comment is retained because the wiring is the
-#        same — only the failure mode that's expected has changed.
-#
-# This workflow requires the manual prerequisites in `docs/environments.md`
-# §1-§7 (Supabase projects, DNS, GH Environments, Worker secrets) plus the
-# `vars.SUPABASE_PROJECT_REF` repo variable in the
-# `docs/environments.md` repo-variable table.
+# `deploy.yml` already auto-deploys staging on every push to `main`; this button
+# is the manual equivalent for redeploying staging at the current `main` without
+# a new commit (e.g. after a secret/var change).
 #
 # Required GH Actions secrets:
-#   DIRECT_URL_PRODUCTION    Supabase pooler `postgresql://...` for prod (read).
-#   DIRECT_URL_STAGING       Supabase pooler `postgresql://...` for the dev
-#                            project's `main` branch (read/write).
-#   SUPABASE_ACCESS_TOKEN    For `supabase link` / `supabase db push --linked`.
 #   CLOUDFLARE_API_TOKEN     Scoped per `docs/CICD_PLAN.md` §7.1.
 #   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`).
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
-#
-# Required GH Actions repo variables:
-#   SUPABASE_PROJECT_REF     Legacy-Postgres public-schema gate project ref (dev = staging).
 
 name: refresh-staging
 
 on:
   workflow_dispatch:
 
-# Refreshes are destructive and not idempotent across overlapping runs; queue
-# rather than cancel so a second click after the first finishes runs cleanly.
+# Serialize redeploys; queue rather than cancel so a second click runs cleanly
+# after the first finishes.
 concurrency:
   group: refresh-staging
   cancel-in-progress: false
@@ -79,29 +48,17 @@ env:
 
 jobs:
   refresh:
-    name: Refresh staging from prod
+    name: Redeploy staging Workers
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     environment:
       name: staging-refresh
       url: https://staging.aecintegrations.com
     permissions:
       contents: read
     steps:
-      # ---------------------------------------------------------------------
-      # Step 1: Checkout main
-      # ---------------------------------------------------------------------
       - uses: actions/checkout@v4
 
-      # ---------------------------------------------------------------------
-      # Step 2: Install toolchain
-      #   - Node + pnpm + workspace deps (for Prisma CLI in step 9 and the
-      #     pre-deploy `prisma generate` in step 10).
-      #   - postgresql-client-17 (matches supabase/postgres:17.x per
-      #     `docs/migrations.md` §4) so pg_dump and pg_restore speak the same
-      #     wire protocol as both prod and staging.
-      #   - Supabase CLI (for `supabase db push --linked` in step 6).
-      # ---------------------------------------------------------------------
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
       - uses: actions/setup-node@v4
@@ -109,223 +66,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      # Prisma client is needed both for the drift check (step 9) and the
-      # API Worker bundle that wrangler will deploy (step 10).
-      - run: pnpm --filter @aeci/api exec prisma generate
 
       # Build the SSR Worker bundle up front. Its `main` is a PRE-BUILT artifact
       # (apps/web/dist/server/server.mjs from `ng build`) that `wrangler deploy`
-      # (step 10) does NOT generate; without this the SSR deploy fails with
-      # "dist/server/server.mjs was not found". Built here, before the
-      # destructive prod-dump / staging-wipe below, so a build failure stops the
-      # run before staging data is touched. The API Worker needs no build (its
+      # does NOT generate; without this the SSR deploy fails with
+      # "dist/server/server.mjs was not found". The API Worker needs no build (its
       # `main` is src/index.ts, bundled on the fly).
       - run: pnpm --filter @aeci/web build
 
-      - name: Install PostgreSQL 17 client
-        run: |
-          set -euo pipefail
-          sudo install -d /etc/apt/keyrings
-          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
-            | sudo gpg --dearmor -o /etc/apt/keyrings/pgdg.gpg
-          echo "deb [signed-by=/etc/apt/keyrings/pgdg.gpg] https://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
-            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends postgresql-client-17
-          # GH runners ship a PostgreSQL 16 cluster, so Debian's pg_wrapper
-          # routes bare `pg_dump`/`pg_restore`/`psql` to v16 even with
-          # postgresql-client-17 installed — and pg_dump refuses to dump a
-          # newer (17.x) server (prod is 17.6). Put the real v17 binaries first
-          # on PATH for every subsequent step, and assert v17 here by full path
-          # (`$GITHUB_PATH` only affects later steps, not this one).
-          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
-          /usr/lib/postgresql/17/bin/pg_dump --version | grep -E ' 17\.' \
-            || { echo "::error::pg_dump is not v17"; exit 1; }
-          /usr/lib/postgresql/17/bin/pg_restore --version
-          /usr/lib/postgresql/17/bin/psql --version
-
-      - name: Install Supabase CLI
-        run: npm install -g supabase@latest
-
-      # ---------------------------------------------------------------------
-      # Step 3: Dump prod
-      #   - public schema (full)
-      #   - supabase_migrations.schema_migrations (clarification (i))
-      #   (The auth schema is NOT dumped — auth is on the shared project per
-      #    ADR 0017; staging auth is never refreshed from prod.)
-      # ---------------------------------------------------------------------
-      - name: Dump prod
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_PRODUCTION }}
-        run: |
-          set -euo pipefail
-          # Exclude page_views DATA (structure still transfers): page_views is a
-          # high-volume, append-only analytics log. Staging doesn't need prod's
-          # actual rows — it self-heals (trending_products recomputes from
-          # staging's own captured views), and copying eyeball-analytics into a
-          # lower environment is needless data movement. It is also fragile:
-          # prod's page_views currently holds duplicate `id` values (the
-          # BIGSERIAL PK is not enforced in prod), so a full restore aborts on
-          # `could not create unique index "page_views_pkey" ... Key (id) is
-          # duplicated`, which pg_restore counts as an ignored error and then
-          # exits 1, failing this step under `set -e`. Dropping the data sidesteps
-          # that entirely. The prod corruption itself is tracked separately for a
-          # one-off cleanup (see docs/RUNBOOKS.md → "page_views duplicate PK").
-          pg_dump \
-            --format=custom \
-            --no-owner --no-privileges \
-            --schema=public \
-            --exclude-table-data='public.page_views' \
-            --file=/tmp/prod-public.dump \
-            "$PGURL"
-          # DATA-ONLY, scoped to the schema_migrations table: staging's
-          # supabase_migrations schema + table already exist (the wipe step only
-          # TRUNCATEs the table, it doesn't drop the schema), so a full schema
-          # dump would replay `CREATE SCHEMA supabase_migrations;` / `CREATE
-          # TABLE schema_migrations` and abort the ON_ERROR_STOP restore on
-          # "already exists". We only need the history rows. --data-only avoids
-          # recreating the pre-existing Supabase-managed schema. Plain SQL keeps
-          # the seed auditable in workflow logs and pipes straight through psql.
-          pg_dump \
-            --no-owner --no-privileges \
-            --data-only \
-            --table=supabase_migrations.schema_migrations \
-            --file=/tmp/prod-supabase-migrations.sql \
-            "$PGURL"
-          ls -lh /tmp/prod-public.dump /tmp/prod-supabase-migrations.sql
-
-      # ---------------------------------------------------------------------
-      # Step 4: Wipe staging
-      #   Drop+recreate public schema (cascade clears every table/view/fn).
-      #   Truncate supabase_migrations.schema_migrations so the restored
-      #   history takes over cleanly (clarification (i)).
-      #   (The auth schema is left untouched — auth is on the shared project per
-      #    ADR 0017; this workflow never wipes staging auth.)
-      # ---------------------------------------------------------------------
-      - name: Wipe staging public + migration history
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: |
-          set -euo pipefail
-          psql -v ON_ERROR_STOP=1 "$PGURL" <<'SQL'
-            DROP SCHEMA public CASCADE;
-            CREATE SCHEMA public;
-            GRANT ALL ON SCHEMA public TO postgres;
-            GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
-
-            TRUNCATE supabase_migrations.schema_migrations;
-          SQL
-
-      # ---------------------------------------------------------------------
-      # Step 5: Restore prod data into staging
-      # ---------------------------------------------------------------------
-      - name: Restore prod data into staging
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: |
-          set -euo pipefail
-          # The public dump carries `CREATE SCHEMA public;` (prod's public schema
-          # isn't the bootstrap-owned default, so pg_dump emits it). The wipe
-          # step already recreated `public` with the Supabase USAGE grants, so
-          # replaying that statement raises "schema public already exists";
-          # pg_restore logs it, restores everything else, then exits non-zero,
-          # which `set -e` turns into a step failure. Strip the SCHEMA entry from
-          # the archive TOC so the restore only touches objects *inside* the
-          # already-present, already-granted schema. Robust either way: if a
-          # future dump omits CREATE SCHEMA, grep -v simply no-ops.
-          pg_restore -l /tmp/prod-public.dump \
-            | grep -v ' SCHEMA - public ' > /tmp/prod-public.toc
-          pg_restore \
-            --no-owner --no-privileges \
-            --use-list=/tmp/prod-public.toc \
-            --dbname="$PGURL" \
-            /tmp/prod-public.dump
-          psql -v ON_ERROR_STOP=1 "$PGURL" -f /tmp/prod-supabase-migrations.sql
-
-      # ---------------------------------------------------------------------
-      # Step 6: Apply pending migrations to staging
-      #   This is where staging schema can move ahead of prod schema — any
-      #   migration committed under `supabase/migrations/` but not yet in
-      #   the migration-history table just restored from prod gets applied.
-      # ---------------------------------------------------------------------
-      - name: Apply pending migrations
-        env:
-          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
-        run: |
-          set -euo pipefail
-          supabase link --project-ref "${{ vars.SUPABASE_PROJECT_REF }}"
-          supabase db push --linked --include-all
-
-      # ---------------------------------------------------------------------
-      # Step 6a: Re-assert the PostgREST authorization surface
-      #   The restore (step 5) uses `pg_dump --no-privileges`, so it brings
-      #   prod's tables/functions/policies but STRIPS every GRANT — and it also
-      #   replays prod's supabase_migrations history, so `db push` (step 6) SKIPS
-      #   20260602051513_rls_grants_and_policies.sql (its row is already present)
-      #   and never re-installs the grants. Net: after a refresh anon/authenticated
-      #   have NO table grants, and the carve-out INSERT + public-read SELECTs are
-      #   gone. The migration itself can't be replayed (it names the pre-AECI-121
-      #   taxonomy_disciplines / product_disciplines, since renamed), so we
-      #   re-assert the CURRENT-schema surface from a dedicated idempotent file.
-      #   Runs AFTER migrate (so any new pending-migration table exists to grant
-      #   on) and BEFORE the verify step below, which is the immediate guard.
-      # ---------------------------------------------------------------------
-      - name: Re-assert authorization surface
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/apply-authorization.sql
-
-      # ---------------------------------------------------------------------
-      # Step 6b: Verify RLS GRANT matrix (AECI-87)
-      #   20260602051513_rls_grants_and_policies.sql (applied in step 6) installs
-      #   the PostgREST GRANT/RLS deny matrix + the feedback/mailing_list
-      #   carve-out. Re-prove it AFTER the wipe+restore+migrate so a refresh can
-      #   never silently drop the policy/GRANT surface (the bug AECI-87 fixes).
-      #   SET ROLE probe — no PostgREST/JWT needed. Hard stop: a failure here
-      #   aborts the run before the Worker deploys (set -e, no `if: always()`).
-      # ---------------------------------------------------------------------
-      - name: Verify RLS GRANT matrix
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f scripts/verify-rls.sql
-
-      # ---------------------------------------------------------------------
-      # Steps 7–8 (auth credential scrub + test-account seed) REMOVED per
-      # ADR 0017: auth lives in one shared Supabase project, so staging auth is
-      # never sourced from prod and there is nothing to scrub. The test accounts
-      # (chrisw, billh, reviewer, admin) are seeded directly into the shared auth
-      # project out of band (scripts/seed-staging-users.sql against the auth
-      # project's DIRECT_URL — see docs/environments.md), not here.
-      # ---------------------------------------------------------------------
-
-      # ---------------------------------------------------------------------
-      # Step 8b: Seed taxonomy reference data (idempotent upserts)
-      #   Code-owned taxonomy vocabulary, reconciled after the wipe+restore+
-      #   migrate. See docs/adr/0008-taxonomy-reference-data.md.
-      # ---------------------------------------------------------------------
-      - name: Seed taxonomy reference data
-        env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: psql -v ON_ERROR_STOP=1 "$PGURL" -f supabase/reference-data/taxonomy.sql
-
-      # ---------------------------------------------------------------------
-      # Step 9: Drift check (HARD STOP)
-      #   Per AECI-71 acceptance criterion: if drift is detected, the workflow
-      #   MUST NOT proceed to Worker deploys. `set -e` + no `if: always()` on
-      #   subsequent steps guarantees that.
-      #   See script header for P4002 known issue (clarification (ii)).
-      # ---------------------------------------------------------------------
-      - name: Drift check (staging vs schema.prisma)
-        env:
-          STAGING_DB_URL: ${{ secrets.DIRECT_URL_STAGING }}
-        run: ./scripts/prisma-drift-check.sh "$STAGING_DB_URL"
-
-      # ---------------------------------------------------------------------
-      # Step 10: Deploy staging Workers (API first, SSR second)
-      #   Same pattern as .github/workflows/deploy.yml `deploy-staging` job —
-      #   wrangler-action bypasses the package.json `deploy` script, so
-      #   `pnpm exec prisma generate` was already run in step 2.
-      # ---------------------------------------------------------------------
+      # Single timestamp shared by both Worker deploys so /api/version reports a
+      # coherent DEPLOYED_AT for the whole release.
       - name: Compute deploy timestamp
         id: ts
         run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
@@ -344,45 +94,12 @@ jobs:
         working-directory: apps/web
         run: pnpm exec wrangler deploy --env staging --var COMMIT_SHA:${{ github.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # ---------------------------------------------------------------------
-      # Step 11: Reindex Algolia (AECI-229)
-      #   The wipe+restore (steps 4/5) leaves the staging_* indexes holding
-      #   pre-refresh data, while step 5 restores prod's stats_cache — INCLUDING
-      #   the `algolia_sync_watermark` row. So the daily 08:00 UTC sync cron
-      #   reads prod's (recent) fence and finds almost nothing to push: it does
-      #   NOT self-heal the index, and staging search stays stale indefinitely.
-      #   Reindex now from the just-restored DB so staging search is fresh the
-      #   moment the refresh finishes. Runs on the Actions runner as a direct
-      #   `tsx` CLI (NOT the
-      #   `db:algolia-bulk-sync` npm script, which wraps `dotenv -e .dev.vars`
-      #   — absent in CI) over DIRECT_URL_STAGING with the vanilla Prisma
-      #   driver; mirrors deploy.yml's reconcile step. The Prisma client was
-      #   generated in step 2. Upserts every promoted row by objectID.
-      #   Missing Algolia secrets → skip with a warning (staging-graceful);
-      #   a genuine sync failure hard-stops the refresh (post-deploy, so no
-      #   rollback) so stale search never goes silently green.
-      # ---------------------------------------------------------------------
-      - name: Reindex Algolia (staging)
-        env:
-          DIRECT_URL: ${{ secrets.DIRECT_URL_STAGING }}
-          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
-        run: |
-          set -euo pipefail
-          if [ -z "${DIRECT_URL:-}" ] || [ -z "${ALGOLIA_APP_ID:-}" ] || [ -z "${ALGOLIA_ADMIN_KEY:-}" ]; then
-            echo "::warning::Algolia staging secrets not fully provisioned (need ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY + DIRECT_URL_STAGING); skipping reindex. staging_* search will stay stale until the secrets are set and this step reruns — the daily sync cron won't catch up (step 5 restores prod's watermark)."
-            exit 0
-          fi
-          pnpm --filter @aeci/api exec tsx scripts/algolia-bulk-sync.ts --env staging
-
-      # ---------------------------------------------------------------------
-      # Step 12: Smoke tests
+      # Smoke tests:
       #   (a) GET /api/health -> 200 (per AECI-77 spec).
       #   (b) Poll until BOTH the API (/api/version) and the SSR Worker's own
       #       (/_version, AECI-92) report the new SHA. /api/version is proxied
       #       raw to the API Worker, so on its own it can't catch a stale SSR
       #       deploy. Mirrors the loop in deploy.yml.
-      # ---------------------------------------------------------------------
       - name: Smoke test /api/health
         env:
           HOST: https://staging.aecintegrations.com
@@ -408,26 +125,19 @@ jobs:
           echo "::error::Staging did not report $EXPECTED_SHA on BOTH the API and SSR Workers within 60s"
           exit 1
 
-      # ---------------------------------------------------------------------
-      # Step 13: Summary
-      # ---------------------------------------------------------------------
       - name: Summary
         if: always()
         env:
-          PGURL: ${{ secrets.DIRECT_URL_STAGING }}
+          COMMIT_SHA: ${{ github.sha }}
+          JOB_STATUS: ${{ job.status }}
+          TRIGGERED_BY: ${{ github.actor }}
         run: |
-          set +e
-          migration_count=$(psql -At "$PGURL" -c "SELECT COUNT(*) FROM supabase_migrations.schema_migrations;" 2>/dev/null || echo "?")
-          # auth.users is NOT touched by this workflow (ADR 0017 — auth is on the
-          # shared project), so no auth-user metrics are reported here.
           {
             echo "## refresh-staging summary"
             echo
             echo "| metric | value |"
             echo "|---|---|"
-            echo "| commit SHA | \`${{ github.sha }}\` |"
-            echo "| job status | ${{ job.status }} |"
-            echo "| migrations applied (staging) | $migration_count |"
-            echo "| started at | ${{ github.event.repository.updated_at }} |"
-            echo "| triggered by | ${{ github.actor }} |"
+            echo "| commit SHA | \`${COMMIT_SHA}\` |"
+            echo "| job status | ${JOB_STATUS} |"
+            echo "| triggered by | ${TRIGGERED_BY} |"
           } >> "$GITHUB_STEP_SUMMARY"

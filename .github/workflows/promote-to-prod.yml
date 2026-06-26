@@ -250,10 +250,6 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
 
-      # wrangler-action bypasses the package.json `deploy` script chain, so
-      # generate the Prisma client explicitly before bundling.
-      - run: pnpm --filter @aeci/api exec prisma generate
-
       # Build the SSR Worker bundle before the SSR `wrangler deploy` below.
       # The SSR Worker's `main` is a PRE-BUILT artifact (apps/web/dist/server/
       # server.mjs, produced by `ng build`); `wrangler deploy` does NOT generate

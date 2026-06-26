@@ -1,5 +1,5 @@
 /**
- * Resolves the public sort key on Phase 2.8 list endpoints to a Prisma
+ * Resolves the public sort key on Phase 2.8 list endpoints to a Drizzle
  * `orderBy` clause. Direction is fixed per `docs/STAGE_1_PHASE_2_SPEC.md` §7.4:
  *
  *   - `created → DESC` ("newest first" lists feel alive)
@@ -39,9 +39,10 @@ import { integrations, products, vendors } from '../db/schema';
 type Direction = 'asc' | 'desc';
 
 // ---------------------------------------------------------------------------
-// Drizzle orderBy resolvers (ADR 0016 / AECI-253). Same §7.4 directions + the
-// stable `id ASC` tiebreaker, returning Drizzle `SQL[]` for `db.query.*` /
-// `.orderBy(...)`. Replace the Prisma resolvers above as each route migrates.
+// Drizzle orderBy resolvers (ADR 0016 / AECI-253) — the live sort path. Same
+// §7.4 directions + the stable `id ASC` tiebreaker, returning Drizzle `SQL[]`
+// for `db.query.*` / `.orderBy(...)`. (The legacy object-form `resolveProductSort`
+// below is retained only for the AECI-99 tiebreaker test; no route uses it.)
 // ---------------------------------------------------------------------------
 
 export function resolveProductOrderBy(sort: ProductSort): SQL[] {

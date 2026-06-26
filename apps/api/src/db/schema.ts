@@ -1,7 +1,8 @@
 // Drizzle SQLite schema — the source of truth for the Cloudflare D1 application
-// database (ADR 0016, AECI-252). Translated 1:1 from the retired Prisma schema
-// (apps/api/prisma/schema.prisma) + the CHECK/partial-index detail that lived
-// only in supabase/migrations/*.sql. Companion spec: docs/DATABASE_SCHEMA.md.
+// database (ADR 0016, AECI-252). Originally translated 1:1 from the now-removed
+// Prisma schema (formerly apps/api/prisma/schema.prisma, deleted in AECI-278) +
+// the CHECK/partial-index detail that lived only in the original
+// supabase/migrations/*.sql. Companion spec: docs/DATABASE_SCHEMA.md.
 //
 // Conventions carried over from Postgres:
 // - snake_case at the DB layer (first arg to each column); camelCase in TS.

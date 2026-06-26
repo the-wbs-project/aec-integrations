@@ -269,7 +269,10 @@ Prisma and Supabase are both aware of this friction. There are open issues on bo
    Expected: clean apply; `scripts/verify-rls.sql` then passes. (Historically
    this step ran the retired `pnpm db:apply-rls` script, which applied
    `docs/rls_policies.sql` out of band as `supabase_admin` — AECI-87 folded that
-   surface into a numbered migration, so a plain `db:reset` now installs it.)
+   surface into a numbered migration, so a plain `db:reset` now installs it.
+   Both the GRANT/RLS migration and `scripts/verify-rls.sql` were removed with
+   the Postgres-app-DB decommission — AECI-278; the app tables now live in
+   Cloudflare D1, which has no GRANTs/RLS. This whole ADR is historical context.)
 
 4. **Confirm the AECI-48 integration test works (proves the deploy path produces a correct DB):**
    ```bash

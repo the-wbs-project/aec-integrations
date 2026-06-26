@@ -50,11 +50,10 @@
 
 name: pr-preview
 
-# Re-enabled 2026-05-28. The Accelerate schema-cache lag that motivated the
-# original gate was measured empirically with `scripts/measure-accelerate-lag.mjs`
-# at ~1.1s (single cycle); `deploy.yml`'s `db-migrate-dev` job now sleeps 30s
-# post-push so any schema change is visible to per-PR Workers by the time they
-# spin up. `workflow_dispatch` is retained for manual replays.
+# Re-enabled 2026-05-28. (The Prisma Accelerate schema-cache lag that motivated
+# the original gating concern is moot under Cloudflare D1 — ADR 0016 / AECI-278;
+# the app DB is reached through the Worker's native `DB` binding, not a cached
+# HTTPS proxy.) `workflow_dispatch` is retained for manual replays.
 on:
   workflow_dispatch:
   pull_request:
@@ -110,11 +109,8 @@ jobs:
 
       # ---------------------------------------------------------------------
       # Step 2: Install toolchain
-      #   Same shape as refresh-staging.yml step 2 — pnpm + node + workspace
-      #   install + prisma generate (the web build transitively bundles the
-      #   shared package, but `pnpm --filter @aeci/api exec prisma generate`
-      #   keeps the workspace consistent if any future preview job touches
-      #   the API bundle).
+      #   pnpm + node + workspace install (the web build transitively bundles
+      #   the shared package; the API Worker bundles src/index.ts on the fly).
       # ---------------------------------------------------------------------
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -123,7 +119,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @aeci/api exec prisma generate
 
       # ---------------------------------------------------------------------
       # Step 3: Build SSR Worker bundle

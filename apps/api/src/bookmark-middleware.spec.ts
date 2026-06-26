@@ -16,7 +16,7 @@ import { bookmarkMiddleware } from './bookmark-middleware';
 import type { DbContext } from './db/client';
 import type { Env } from './env';
 
-const env = { DATABASE_URL: 'prisma://x', ENV: 'preview' } as unknown as Env;
+const env = { ENV: 'preview' } as unknown as Env;
 
 function dbCtx(bookmark: string | null): DbContext {
   return { db: {} as DbContext['db'], getBookmark: () => bookmark };
