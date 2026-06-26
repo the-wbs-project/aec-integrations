@@ -95,7 +95,7 @@ it('rejects body under 50 chars', () => {
 
 Angular component specs run under the `@angular/build:unit-test` builder with the Vitest runner (Angular 21 native). The wiring lives in:
 
-- `apps/web/angular.json` — `test` architect target pointing at `tsconfig.component-spec.json` with `include: ["src/**/*.component.spec.ts"]`
+- `apps/web/angular.json` — `test` architect target pointing at `tsconfig.component-spec.json` with `include: ["src/**/*.component.spec.ts"]` and **`isolate: true`**. The builder defaults `isolate` to `false` (the Karma/Jasmine-style shared environment), which runs every spec in one jsdom — so a spec that mutates a global (`window.history`/`location`, `document.referrer`) can pollute another file and cause cross-file CI flakes. We override it to `true` so each spec file gets a fresh environment (this restores plain Vitest's default). Prefer mocking the indirection that reads a global over mutating the global directly regardless (see `waitlist-welcome.component.spec.ts`).
 - `apps/web/tsconfig.component-spec.json` — dedicated tsconfig so only Angular specs are compiled (the wider `tsconfig.spec.json` also includes server vitest specs which would fail Angular's strict compile)
 - `apps/web/package.json` — `test:component` script runs `ng test`; `test:unit` runs server vitest first, then `test:component`
 

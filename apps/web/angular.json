@@ -128,7 +128,8 @@
             "runner": "vitest",
             "buildTarget": "web:build:development",
             "tsConfig": "tsconfig.component-spec.json",
-            "include": ["src/**/*.component.spec.ts"]
+            "include": ["src/**/*.component.spec.ts"],
+            "isolate": true
           }
         }
       }
