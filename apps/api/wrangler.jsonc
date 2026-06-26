@@ -26,7 +26,19 @@
   //                 Worker's token uses. Absent (with CF_ZONE_ID) → promote skips
   //                 the cache purge (graceful no-op).
   //   CF_ZONE_ID  — Cloudflare zone the purge targets. Public value; provision per
-  //                 env alongside CF_PURGE_API_TOKEN.
+  //                 env alongside CF_PURGE_API_TOKEN. Also reused (as the GraphQL
+  //                 zoneTag) by the AECI-262 WAF firewall-event poll.
+  //   CF_ANALYTICS_API_TOKEN — Cloudflare API token the hourly WAF firewall-event
+  //                 poll presents to the GraphQL Analytics API to read the zone's
+  //                 firewallEventsAdaptiveGroups and emit aeci.waf.ratelimit.blocked
+  //                 (AECI-262 / §15.1). Scope: `Zone Analytics: Read` on
+  //                 aecintegrations.com — a DIFFERENT scope than CF_PURGE_API_TOKEN
+  //                 (Zone.Cache Purge), so it's its own secret. One un-suffixed GH
+  //                 secret covers the shared zone across all envs; CI pushes it per
+  //                 env (deploy.yml / promote-to-demo.yml / promote-to-prod.yml —
+  //                 graceful warn-skip, no hard gate). Optional + fail-safe: absent →
+  //                 the poll logs outcome:skipped_no_creds and no-ops. See
+  //                 docs/waf-rate-limits.md §5.
   //   ALGOLIA_APP_ID    — Algolia app id (AECI-134). Shared across envs. Consumed at
   //                 runtime by the AECI-139 daily-sync cron + promote→index hook
   //                 (and the SSR search bootstrap). Pushed per env via `wrangler
@@ -248,10 +260,22 @@
       // incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
       // reconciliation (AECI-140, §23.1). The five-field "*/15 * * * *" runs every
       // 15 min — the request→Linear reconciliation sweep (AECI-214 / Phase 6.7), a
-      // tight backstop that retries stuck vendor_requests. UTC is DST-unaware
-      // (accepted). Strings MUST match the constants in `src/scheduled.ts`.
+      // tight backstop that retries stuck vendor_requests. "0 * * * *" runs every hour at
+      // :00 — the WAF firewall-event poll (AECI-262 / §15.1, queue-less): reads the previous
+      // clock hour of firewallEventsAdaptiveGroups via Cloudflare's GraphQL Analytics API and
+      // emits aeci.waf.ratelimit.blocked (needs the CF_ANALYTICS_API_TOKEN secret; absent →
+      // skipped no-op). UTC is DST-unaware (accepted). Strings MUST match the constants in
+      // `src/scheduled.ts`.
       "triggers": {
-        "crons": ["0 4 * * *", "0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
+        "crons": [
+          "0 4 * * *",
+          "0 6 * * *",
+          "0 7 * * *",
+          "0 8 * * *",
+          "0 9 * * *",
+          "*/15 * * * *",
+          "0 * * * *",
+        ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
       // `queue` consumer (same Worker) runs the job. `binding` is the producer
@@ -348,10 +372,19 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same six crons as staging/production (see staging note). Dispatched by
+      // Same seven crons as staging/production (see staging note — incl. the hourly
+      // "0 * * * *" WAF firewall-event poll, AECI-262). Dispatched by
       // `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
-        "crons": ["0 4 * * *", "0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
+        "crons": [
+          "0 4 * * *",
+          "0 6 * * *",
+          "0 7 * * *",
+          "0 8 * * *",
+          "0 9 * * *",
+          "*/15 * * * *",
+          "0 * * * *",
+        ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {
@@ -463,9 +496,18 @@
       // health snapshot (AECI-206); 07:00 UTC (= 02:00 EST) home-stats compute (AECI-178);
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
       // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
-      // reconciliation sweep (AECI-214 / Phase 6.7). Dispatched by `controller.cron`.
+      // reconciliation sweep (AECI-214 / Phase 6.7); "0 * * * *" every hour — WAF firewall-event
+      // poll (AECI-262 / §15.1, queue-less). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 4 * * *", "0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *", "*/15 * * * *"],
+        "crons": [
+          "0 4 * * *",
+          "0 6 * * *",
+          "0 7 * * *",
+          "0 8 * * *",
+          "0 9 * * *",
+          "*/15 * * * *",
+          "0 * * * *",
+        ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {

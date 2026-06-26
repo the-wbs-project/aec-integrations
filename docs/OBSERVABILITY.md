@@ -66,6 +66,8 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.data_quality.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron) | `trigger` (cron) |
 | `aeci.data_quality.check` | gauge | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron, AECI-241) | `check` (the check id, e.g. `products_without_vendor` / `broken_integration_refs` / `reviews_missing_anonymized_at` / `algolia_index_drift`), `severity` (error / warn) — **value is the issue count or 0** (emitted every run so a monitor can break down by check and detect no-data); a check that threw emits the sentinel **-1** |
 | `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the Datadog monitors are the delivery backstop) |
+| `aeci.waf.ratelimit.blocked` | count | `apps/api/src/lib/waf-metrics.ts` (`emitWafEventMetrics`, from the hourly WAF poll in `apps/api/src/scheduled.ts` `runWafMetricsJob`, AECI-262) | `rule` (CF rule id), `action` (block / managed_challenge / …), `host`, `source` (ratelimit / firewallcustom) — **value is the event count, so query with `sum:`** (gotcha 3); only mitigation actions counted |
+| `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
 | `aeci.moderation.ban` | count | _deferred — the reviewer-ban handler, **AECI-218 / Phase 6.11** (the ban write-path is unbuilt; see the deferred-metric note below)_ | `action` (`ban` / `unban`), `outcome` (`ok`) — **planned contract, not yet emitted** |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
@@ -249,6 +251,26 @@ or monitor for it yet: the emit (one count per ban/unban, alongside the §9 `app
 (6.12 depends only on 6.4 + 6.5). This row reserves the name + tag vocabulary so the feature issue doesn't
 re-invent it.
 
+`aeci.waf.ratelimit.blocked` / `aeci.waf.poll` (AECI-262, §15.1) surface the Cloudflare WAF
+rate-limit + scraper-challenge mitigations (`docs/waf-rate-limits.md`) in Datadog. Enterprise
+Logpush is the "push" path Cloudflare offers; we're on **Pro**, so the API Worker's hourly cron
+(`runWafMetricsJob`) **polls** instead — it reads the previous clock hour of the zone's
+`firewallEventsAdaptiveGroups` over the GraphQL Analytics API
+(`packages/shared/src/cloudflare-analytics.ts`) and `submitCount`s one
+`aeci.waf.ratelimit.blocked` point per mitigation group (`rule`/`action`/`host`/`source`). **Its
+value is the event count, not 1, so query it with `sum:` / `sum:…{}.as_count()`** (gotcha 3);
+only mitigation actions (block / challenge) are counted — `allow`/`log`/`skip` are dropped. A
+quiet hour emits no blocked points (a count series is sparse — silence = no attacks), so
+cron-liveness rides the **separate** always-emitted `aeci.waf.poll{outcome:ok}` heartbeat
+(`outcome:failed` on a Cloudflare error, `outcome:skipped_no_creds` when `CF_ANALYTICS_API_TOKEN`
+is absent — the local/preview/pre-provisioning state, a silent no-op). Same failure + liveness
+split as Algolia/stats. The poll is **per-env host-scoped** (each env filters to its own
+`PUBLIC_SITE_URL` host) because all envs share one Cloudflare zone — an unscoped query would
+count the same zone-wide events under every `env:` tag. The "WAF rate-limit / challenge spike"
+monitor alerts on a sustained `aeci.waf.ratelimit.blocked` spike (no `notify_no_data`); there is
+no committed dashboard widget yet (this is a post-launch shim — add one if the signal proves
+worth a panel).
+
 ### Three gotchas when querying
 
 1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as
@@ -384,6 +406,7 @@ nine monitors were applied 2026-06-12 with that substitution.
 | Linear webhook HMAC failures | `aeci.webhooks.linear.hmac_failure` > 3 over 1h | `observability/datadog/monitor-webhook-hmac-failure.json` |
 | Linear reconciliation: persistent stuck requests | any `aeci.linear.reconcile.persistent_failure` in the last 1h | `observability/datadog/monitor-linear-reconcile-stuck.json` |
 | Linear reconciliation sweep not running | no `aeci.linear.reconcile.stuck` gauge for ~1h (no-data liveness) | `observability/datadog/monitor-linear-reconcile-no-data.json` |
+| WAF rate-limit / challenge spike | `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m (`env:production`) | `observability/datadog/monitor-waf-ratelimit-spike.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
@@ -452,6 +475,16 @@ its sole job is the no-data heartbeat; the backlog *value* is alerted by the per
 Same rule as Algolia/stats: keep the failure and liveness concerns on separate metrics. Thresholds
 (50% / 3-per-hour / ~1h) are launch-tunable starting points. The Phase 6 **ban-action** metric
 (`aeci.moderation.ban`) and its monitor are deferred to AECI-218 / Phase 6.11 (the feature is unbuilt).
+
+**"WAF rate-limit / challenge spike"** (AECI-262) is a single **threshold** monitor on
+`sum:aeci.waf.ratelimit.blocked{env:production}.as_count() > 500 / 15m`, **no** `notify_no_data` —
+a quiet hour emits nothing (no attacks = healthy), so a no-data alert would be constant noise, and
+the metric is value-bearing so it uses `sum:` + `.as_count()` (gotcha 3). Detection lags up to ~1h
+because the source is an hourly poll. Cron-liveness is intentionally **not** folded in here — it
+rides the separate always-emitted `aeci.waf.poll{outcome:ok}` heartbeat (same failure + liveness
+split as Algolia/stats), so a liveness no-data monitor on that series is an easy add if the poll
+ever needs one. The 500/15m threshold is a launch-tunable placeholder — set it once baseline
+mitigation volume is known.
 
 ## Browser search RUM (`aeci.search.query`, AECI-174)
 

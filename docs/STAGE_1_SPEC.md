@@ -1026,9 +1026,13 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 >
 > The acceptance criteria's "configured as code (Terraform / CF API)" clause was
 > intentionally relaxed for launch (dashboard + runbook instead). Datadog visibility
-> of WAF events is deferred to a post-launch follow-up; CF Security Events is the
-> launch surface. `/api/page-views` (high-volume beacon) and `/api/webhooks/linear`
-> (HMAC-verified, single source) are deliberately excluded — see the runbook.
+> of WAF events shipped in AECI-262 — the API Worker's hourly cron polls the zone's
+> `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits
+> `aeci.waf.ratelimit.blocked` (the free Pro-plan alternative to Enterprise Logpush);
+> CF Security Events remains the per-IP triage surface. See `waf-rate-limits.md` §5
+> and `OBSERVABILITY.md`. `/api/page-views` (high-volume beacon) and
+> `/api/webhooks/linear` (HMAC-verified, single source) are deliberately excluded —
+> see the runbook.
 
 ### 15.2 API privacy
 

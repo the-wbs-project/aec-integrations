@@ -129,6 +129,18 @@ LINEAR_WEBHOOK_SIGNING_SECRET=
 CF_PURGE_API_TOKEN=
 CF_ZONE_ID=
 
+# ─── WAF firewall-event poll → Datadog (AECI-262 / §15.1) ──────────────────
+# The hourly WAF poll reads the zone's firewallEventsAdaptiveGroups over the
+# Cloudflare GraphQL Analytics API and emits aeci.waf.ratelimit.blocked (the free
+# Pro-plan alternative to Enterprise Logpush). Reuses CF_ZONE_ID above as the
+# zoneTag; needs its OWN token scoped to `Zone Analytics: Read` (a DIFFERENT scope
+# than CF_PURGE_API_TOKEN's Zone.Cache Purge). In DEPLOYED envs CI pushes it from the
+# single shared `CF_ANALYTICS_API_TOKEN` GH secret (deploy.yml / promote-to-demo.yml /
+# promote-to-prod.yml — graceful warn-skip); set it locally only if you want to
+# exercise the poll against the real zone. Absent → the poll logs
+# outcome:skipped_no_creds and no-ops. See docs/waf-rate-limits.md §5.
+CF_ANALYTICS_API_TOKEN=
+
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
 # HTTP intake). When empty, the helper is a no-op so dev boots cleanly.

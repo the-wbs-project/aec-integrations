@@ -30,9 +30,14 @@ vi.mock('./lib/algolia-drift', () => ({
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
 vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
+// The WAF poll (AECI-262) reaches Cloudflare's GraphQL Analytics API; mock the
+// shared transport so the dispatch tests assert orchestration without a network call.
+vi.mock('@aeci/shared/cloudflare-analytics', () => ({ fetchWafFirewallEvents: vi.fn() }));
 // The inline jobs (moderation snapshot, drift counter) call `getDb`; mock it to
 // hand back the in-memory D1 harness so the real Drizzle reads run on real SQL.
 vi.mock('./db/client', () => ({ getDb: vi.fn() }));
+
+import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
 
 import { getDb } from './db/client';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
@@ -49,6 +54,7 @@ const SYNC_CRON = '0 8 * * *';
 const DRIFT_CRON = '0 9 * * *';
 const RECONCILE_CRON = '*/15 * * * *';
 const DATA_QUALITY_CRON = '0 4 * * *';
+const WAF_CRON = '0 * * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -256,6 +262,102 @@ describe('scheduled (cron producer)', () => {
       env,
       expect.anything(),
       expect.objectContaining({ level: 'error', message: 'aeci.algolia.sync.enqueue_failed' }),
+    );
+  });
+
+  it('runs the WAF poll inline (queue-less) and skips when no analytics token is set', async () => {
+    // Even with every queue bound, waf has no producer → always inline; and with
+    // no CF_ANALYTICS_API_TOKEN it no-ops with the skip heartbeat (AECI-262).
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({
+      ALGOLIA_SYNC_QUEUE: { send } as never,
+      STATS_QUEUE: { send } as never,
+    });
+
+    await scheduled(cronController(WAF_CRON), env, ctx);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(fetchWafFirewallEvents).not.toHaveBeenCalled();
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.poll',
+      1,
+      ['trigger:cron', 'outcome:skipped_no_creds'],
+    );
+  });
+
+  it('polls the previous hour and emits the blocked count per mitigation group (AECI-262)', async () => {
+    vi.mocked(fetchWafFirewallEvents).mockResolvedValue({
+      ok: true,
+      truncated: false,
+      groups: [
+        {
+          count: 9,
+          action: 'block',
+          source: 'ratelimit',
+          ruleId: 'rule-a',
+          host: 'demo.aecintegrations.com',
+        },
+      ],
+    });
+    const env = makeEnv({
+      CF_ANALYTICS_API_TOKEN: 'cf-analytics',
+      CF_ZONE_ID: 'zone-1',
+      PUBLIC_SITE_URL: 'https://demo.aecintegrations.com',
+    });
+
+    await scheduled(cronController(WAF_CRON), env, ctx);
+
+    expect(fetchWafFirewallEvents).toHaveBeenCalledTimes(1);
+    // host-scoped to this env's PUBLIC_SITE_URL host (shared-zone de-dup).
+    expect(vi.mocked(fetchWafFirewallEvents).mock.calls[0]![2]).toMatchObject({
+      host: 'demo.aecintegrations.com',
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.ratelimit.blocked',
+      9,
+      ['rule:rule-a', 'action:block', 'host:demo.aecintegrations.com', 'source:ratelimit'],
+    );
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.poll',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
+  it('emits the failure heartbeat when the Cloudflare query fails (AECI-262)', async () => {
+    vi.mocked(fetchWafFirewallEvents).mockResolvedValue({ ok: false, message: 'bad token' });
+    const env = makeEnv({
+      CF_ANALYTICS_API_TOKEN: 'cf-analytics',
+      CF_ZONE_ID: 'zone-1',
+      PUBLIC_SITE_URL: 'https://demo.aecintegrations.com',
+    });
+
+    await scheduled(cronController(WAF_CRON), env, ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.poll',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect(submitCount).not.toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.ratelimit.blocked',
+      expect.anything(),
+      expect.anything(),
     );
   });
 });
