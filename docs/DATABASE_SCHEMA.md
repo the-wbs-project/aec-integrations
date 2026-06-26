@@ -487,6 +487,7 @@ create table reviews (
   role_at_company text check (role_at_company in ('practitioner', 'manager', 'IT', 'exec', 'other')),
   years_using smallint check (years_using between 0 and 50),
   would_recommend text check (would_recommend in ('yes', 'no', 'maybe')),
+  reviewer_firm text, -- AECI-284: optional free-text firm (max 100, API-validated). Powers home.total_contributing_firms (distinct, normalized, approved-only); admin-only, not on the public review; GDPR-nulled with reviewer_id on account deletion (§23.3)
 
   -- Moderation
   status text not null default 'pending' check (status in ('pending', 'approved', 'rejected', 'archived')),
@@ -715,6 +716,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.total_products` — credibility strip (AECI-271)
 - `home.total_vendors` — credibility strip (AECI-271)
 - `home.total_reviews` — credibility strip (AECI-271; approved reviews only)
+- `home.total_contributing_firms` — credibility strip (AECI-284; distinct normalized `reviewer_firm` among approved reviews)
 - `home.most_integrated_product`
 - `home.most_active_category`
 - `home.recent_integrations`

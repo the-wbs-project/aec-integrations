@@ -579,11 +579,14 @@ applies per-field if a cached value has drifted from its schema.
 `Cache-Control: private, no-store` (per `CACHE_STRATEGY.md` §4 — API responses are
 never edge-cached; daily-freshness edge caching is owned by the SSR home route).
 
-The coverage counts (`total_products` / `total_vendors` / `total_reviews`) feed
-the home credibility strip (AECI-271, §4.1 section 2). Products and vendors count
-every row (the DB holds only promoted rows — the promote pipeline is the gate);
-`total_reviews` counts only `approved` reviews. All three are plain scalars with a
-valid empty (`0`); the strip suppresses each at `0` (no "0 reviews").
+The coverage counts (`total_products` / `total_vendors` / `total_reviews` /
+`total_contributing_firms`) feed the home credibility strip (AECI-271 + AECI-284,
+§4.1 section 2). Products and vendors count every row (the DB holds only promoted
+rows — the promote pipeline is the gate); `total_reviews` counts only `approved`
+reviews; `total_contributing_firms` is the distinct count of the free-text
+`reviewer_firm` (normalized `lower(trim(...))`, non-blank) among `approved`
+reviews (AECI-284). All are plain scalars with a valid empty (`0`); the strip
+suppresses each at `0` (no "0 reviews", no "0 contributing firms").
 
 ```typescript
 export type HomeStatsResponse = {
@@ -592,6 +595,7 @@ export type HomeStatsResponse = {
   total_products: number;                // coverage counts (AECI-271)
   total_vendors: number;
   total_reviews: number;                 // approved reviews only
+  total_contributing_firms: number;      // distinct firms among approved reviews (AECI-284)
   most_integrated_product: {
     product: ProductRef;
     integration_count: number;
@@ -622,6 +626,7 @@ export const SubmitReviewSchema = z.object({
   role_at_company: z.enum(['practitioner', 'manager', 'IT', 'exec', 'other']).optional(),
   years_using: z.number().int().min(0).max(50).optional(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).optional(),
+  reviewer_firm: z.string().max(100).optional(), // AECI-284: trimmed server-side, null if blank
 });
 
 export type SubmitReviewResponse = {
@@ -879,7 +884,8 @@ export type AdminReview = Review & {
   status: 'pending' | 'approved' | 'rejected';
   toxicity_score: number | null;   // from the toxicity scorer (Claude), 0–100
   product: ProductRef;
-  reviewer_email: string;          // visible to admins only
+  reviewer_email: string | null;   // visible to admins only; null on anonymized reviews
+  reviewer_firm: string | null;    // AECI-284: free-text firm, admin-only moderation context
 };
 
 export type ListPendingReviewsResponse = PaginatedResponse<AdminReview>;

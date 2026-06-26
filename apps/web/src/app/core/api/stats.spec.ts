@@ -16,6 +16,7 @@ const SPARSE_STATS: HomeStatsResponse = {
   total_products: 0,
   total_vendors: 0,
   total_reviews: 0,
+  total_contributing_firms: 0,
   most_integrated_product: null,
   most_active_category: null,
   recent_integrations: [],

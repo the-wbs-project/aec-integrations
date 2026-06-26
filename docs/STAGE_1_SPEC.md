@@ -241,7 +241,7 @@ At go-live there is no separate marketing page: when the apex flips from the sta
 | # | Section | At launch | Status / data source |
 |---|---|:--:|---|
 | 1 | **Hero + search** | ✓ | Existing `home-hero.ts`: positioning lede (cold visitor) + the reused `SearchAutocomplete` (ready visitor). |
-| 2 | **Credibility strip** | ✓ | **NEW** (AECI-271, `home-credibility-strip.ts`). Coverage counts (products / vendors / integrations) + "independent · no pay-for-placement". Counts come from the cached `GET /api/stats/home` (`total_products` / `total_vendors` / `total_integrations`, added to the daily stats job §10 — never live-aggregated); `total_reviews` joins once meaningful. The independence line is static. Each metric is suppressed at 0 (no "0 reviews"); an all-zero cache renders a real empty state. Contributing firms deferred (no reviewer-firm field yet). |
+| 2 | **Credibility strip** | ✓ | **NEW** (AECI-271, `home-credibility-strip.ts`). Coverage counts (products / vendors / integrations) + "independent · no pay-for-placement". Counts come from the cached `GET /api/stats/home` (`total_products` / `total_vendors` / `total_integrations`, added to the daily stats job §10 — never live-aggregated); `total_reviews` and `total_contributing_firms` join once meaningful. The independence line is static. Each metric is suppressed at 0 (no "0 reviews", no "0 contributing firms"); an all-zero cache renders a real empty state. Contributing firms (AECI-284) = distinct count of the free-text `reviews.reviewer_firm` (normalized, approved reviews only); the firm is captured optionally at review submission (§4.7) and GDPR-cleared with `reviewer_id` on account deletion. |
 | 3 | **Why AECi (the problem)** | ✓ | **NEW**, static. The broken-landscape narrative + three cited figures (≈34% of reviews AI-generated · $87K/yr to boost a ranking · 900+ tools in generic categories). Figures are static cited stats, not live data. |
 | 4 | **What's different / trust** | ✓ | **NEW** (AECI-273, `home-differentiation.ts`), static. Reconciles the shipped three trust commitments (never sell rankings · always be transparent · never review products ourselves) with the landing's "three ideas" (reviewable integrations · separate product + onboarding ratings · no pay-for-placement): leads with the three ideas, folds the operator promise into the closing trust line. The reconciliation is fixed in `unified-home-direction.md`. (Built as a new component rather than reworking `home-trust-pillars.ts` in place, because that band is shared with `/about` and is left as the standalone "three trust commitments" there.) |
 | 5 | **How it works** | ✓ | **NEW** (AECI-273, `home-how-it-works.ts`), static, compact. The dual-review + no-pay-for-placement method, framed as the operating model (not a claim of verified inventory): integrations are documented · practitioners review the product and onboarding separately · nothing is for sale. Earns the "reviews" framing the footer used to assert. |
@@ -362,6 +362,7 @@ Same layout pattern for all three:
    - Title (required, max 100 chars)
    - Body (required, min 50 / max 2000 chars)
    - Role at company (optional dropdown: practitioner, manager, IT, exec, other)
+   - Your firm (optional free text, max 100 chars — AECI-284; powers the home credibility strip's distinct contributing-firms count, never shown on the public review, GDPR-cleared on account deletion)
    - Years using product (optional)
    - Would recommend (yes/no/maybe)
 6. Submit → review saved with `status='pending'`
@@ -793,6 +794,7 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 - `home.total_products` — count from products table (credibility strip, AECI-271)
 - `home.total_vendors` — count from vendors table (credibility strip, AECI-271)
 - `home.total_reviews` — count of **approved** reviews (credibility strip, AECI-271)
+- `home.total_contributing_firms` — distinct count of `reviewer_firm` (normalized `lower(trim(...))`, non-blank) among **approved** reviews (credibility strip, AECI-284)
 - `home.most_integrated_product` — product with highest integration count
 - `home.most_active_category` — category with highest aggregate integration count
 - `home.recent_integrations` — last 10 integrations with linked product names

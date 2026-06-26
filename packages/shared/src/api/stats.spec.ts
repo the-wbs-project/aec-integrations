@@ -68,6 +68,7 @@ const validHomeStats = {
   total_products: 43,
   total_vendors: 33,
   total_reviews: 12,
+  total_contributing_firms: 8,
   most_integrated_product: { product: validProductLink, integration_count: 37 },
   most_active_category: { category: validLinkRef, integration_count: 64 },
   recent_integrations: [validIntegrationListItem],
@@ -85,16 +86,21 @@ describe('HomeStatsResponseSchema', () => {
     expect(parsed.trending_products).toHaveLength(1);
   });
 
-  it('carries the AECI-271 coverage counts (products / vendors / reviews)', () => {
+  it('carries the AECI-271 + AECI-284 coverage counts (products / vendors / reviews / firms)', () => {
     const parsed = HomeStatsResponseSchema.parse(validHomeStats);
     expect(parsed.total_products).toBe(43);
     expect(parsed.total_vendors).toBe(33);
     expect(parsed.total_reviews).toBe(12);
+    expect(parsed.total_contributing_firms).toBe(8);
   });
 
   it('rejects a negative coverage count', () => {
     expect(
       HomeStatsResponseSchema.safeParse({ ...validHomeStats, total_reviews: -1 }).success,
+    ).toBe(false);
+    expect(
+      HomeStatsResponseSchema.safeParse({ ...validHomeStats, total_contributing_firms: -1 })
+        .success,
     ).toBe(false);
   });
 

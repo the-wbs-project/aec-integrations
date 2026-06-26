@@ -28,6 +28,7 @@ function buildStats(): HomeStatsResponse {
     total_products: 43,
     total_vendors: 33,
     total_reviews: 12,
+    total_contributing_firms: 8,
     most_integrated_product: {
       product: { id: 'p1', slug: 'procore', name: 'Procore', logo_url: null },
       integration_count: 12,

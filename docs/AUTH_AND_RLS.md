@@ -359,7 +359,7 @@ usually `page_views.user_id`. The full list:
 
 | FK | ON DELETE | Erasure action |
 | --- | --- | --- |
-| `reviews.reviewer_id` | SET NULL | nulled (anonymize; explicit too, for the test) |
+| `reviews.reviewer_id` | SET NULL | nulled (anonymize; explicit too, for the test) — the same statement also nulls the free-text `reviewer_firm` (AECI-284) |
 | `reviews.moderated_by` | NO ACTION | nulled |
 | `vendor_requests.resolved_by` | NO ACTION | nulled |
 | `workflow_instances.initiated_by` | NO ACTION | nulled |

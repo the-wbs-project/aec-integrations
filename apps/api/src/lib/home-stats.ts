@@ -3,16 +3,16 @@
  * producer) on the Drizzle/D1 path (ADR 0016 / AECI-253).
  *
  * The daily scheduled job (`../scheduled.ts`, ADR 0013 cron→queue→consumer)
- * recomputes the ten `home.*` `stats_cache` keys and upserts each as its own
+ * recomputes the eleven `home.*` `stats_cache` keys and upserts each as its own
  * row. The read endpoint (4.4) and home UI (4.8) consume these via `@aeci/shared`
  * — this module is the only writer.
  *
  * Contract (docs/STAGE_1_SPEC.md §10, §4.1; types/schemas from AECI-176):
- *   - Ten keys: total_integrations, integrations_added_30d, total_products,
- *     total_vendors, total_reviews (the AECI-271 credibility-strip coverage
- *     counts), most_integrated_product, most_active_category, recent_integrations
- *     (≤10), trending_products (top 5 by page_views, last 7d),
- *     recently_added_products (≤10, last 30d).
+ *   - Eleven keys: total_integrations, integrations_added_30d, total_products,
+ *     total_vendors, total_reviews + total_contributing_firms (the AECI-271 +
+ *     AECI-284 credibility-strip coverage counts), most_integrated_product,
+ *     most_active_category, recent_integrations (≤10), trending_products (top 5
+ *     by page_views, last 7d), recently_added_products (≤10, last 30d).
  *   - **Every value is validated against `statsCacheValueSchemas[key]` before the
  *     write** — the job and the read endpoint share one source of truth, so the
  *     cache can never hold a shape the reader rejects.
@@ -43,7 +43,19 @@ import {
   type ProductListItem,
   type StatsCacheKey,
 } from '@aeci/shared';
-import { and, asc, count, desc, eq, gte, inArray, isNotNull } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  countDistinct,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNotNull,
+  ne,
+  sql,
+} from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { integrations, pageViews, products, reviews, statsCache, vendors } from '../db/schema';
@@ -106,6 +118,26 @@ export async function computeTotalReviews(db: Db): Promise<number> {
     .select({ value: count() })
     .from(reviews)
     .where(eq(reviews.status, COUNTED_REVIEW_STATUS));
+  return row?.value ?? 0;
+}
+
+/** Distinct contributing firms among **approved** reviews (AECI-284). The
+ *  free-text `reviewer_firm` is normalized `lower(trim(...))` so case/whitespace
+ *  variants collapse to one firm; blank/whitespace-only firms are excluded by the
+ *  `trim(...) <> ''` filter, and null firms by `isNotNull` (and `COUNT(DISTINCT)`
+ *  ignores nulls anyway). Like `total_reviews`, only `approved` rows count. Feeds
+ *  the home credibility strip's suppressed-until-meaningful firms metric. */
+export async function computeTotalContributingFirms(db: Db): Promise<number> {
+  const [row] = await db
+    .select({ value: countDistinct(sql`lower(trim(${reviews.reviewerFirm}))`) })
+    .from(reviews)
+    .where(
+      and(
+        eq(reviews.status, COUNTED_REVIEW_STATUS),
+        isNotNull(reviews.reviewerFirm),
+        ne(sql`trim(${reviews.reviewerFirm})`, ''),
+      ),
+    );
   return row?.value ?? 0;
 }
 
@@ -237,6 +269,7 @@ const HOME_STAT_KEYS = [
   'home.total_products',
   'home.total_vendors',
   'home.total_reviews',
+  'home.total_contributing_firms',
   'home.most_integrated_product',
   'home.most_active_category',
   'home.recent_integrations',
@@ -258,6 +291,7 @@ const PRODUCERS: Record<HomeStatsKey, StatCompute> = {
   'home.total_products': (db) => computeTotalProducts(db),
   'home.total_vendors': (db) => computeTotalVendors(db),
   'home.total_reviews': (db) => computeTotalReviews(db),
+  'home.total_contributing_firms': (db) => computeTotalContributingFirms(db),
   'home.most_integrated_product': (db) => computeMostIntegratedProduct(db),
   'home.most_active_category': (db) => computeMostActiveCategory(db),
   'home.recent_integrations': (db) => computeRecentIntegrations(db),
