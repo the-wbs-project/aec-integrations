@@ -24,19 +24,34 @@
  * the banned hero-metric template (no sparkline, no gradient). Light theme only
  * (Stage 1). Anchor site: Faire (AECI-270).
  *
- * Sourcing: the figures keep their hedged framing ("≈", "estimated to be") plus a
- * single understated "industry estimates" note. Properly researching / citing them
- * is tracked as a follow-up issue (AECI-285). Copy is authored with `$localize`
- * so it stays i18n-extractable in one place. The hero owns the page `<h1>`; this
- * band's headline is the section `<h2>`, keeping a valid heading order.
+ * Sourcing (AECI-285, done): each figure now carries a small "Source" link to its
+ * citation. The citation is revealed on hover and on keyboard focus, and announced
+ * to screen readers via `aria-describedby` — a CSS-only reveal, so the band stays
+ * static, zero-JS, and edge-cache-neutral. Figure 1 was revised ≈34% to ≈19%
+ * (AI-generated Google reviews, Originality.AI) and figure 2 $87K to $27K (median
+ * annual G2 vendor spend, Vendr); figure 3 (900+) was verified against Capterra
+ * (~986 products in a single category) and kept. The blanket "industry estimates"
+ * note is retired in favour of the per-figure sources. Full research + citations:
+ * `docs/design/home-why-market-figures.md`. Copy is authored with `$localize` so it
+ * stays i18n-extractable in one place. The hero owns the page `<h1>`; this band's
+ * headline is the section `<h2>`, keeping a valid heading order.
  */
 import { ChangeDetectionStrategy, Component } from '@angular/core';
 
-/** One market figure: the headline number and the claim it supports. */
+/** A primary source behind a figure: the verifiable link and its citation. */
+interface ProblemSource {
+  /** Citation shown on hover/focus and announced to screen readers. */
+  readonly citation: string;
+  /** The source URL the "Source" link points to. */
+  readonly url: string;
+}
+
+/** One market figure: the headline number, the claim it supports, and its source. */
 interface ProblemStat {
   readonly id: string;
   readonly figure: string;
   readonly desc: string;
+  readonly source: ProblemSource;
 }
 
 @Component({
@@ -80,44 +95,79 @@ interface ProblemStat {
         <ul class="mt-6 grid gap-4 sm:grid-cols-3">
           @for (s of stats; track s.id) {
             <li
-              class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6"
+              class="relative rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6"
             >
               <p class="font-display text-4xl tabular-nums text-(--accent-primary)">
                 {{ s.figure }}
               </p>
               <p class="mt-3 text-sm leading-relaxed text-(--text-secondary)">{{ s.desc }}</p>
+
+              <!--
+                Per-figure sourcing (AECI-285): a real "Source" link (verifiable,
+                works without JS) whose citation is revealed on hover and on keyboard
+                focus, and announced to screen readers via aria-describedby. The
+                reveal is pure CSS, so the band stays static and edge-cache-neutral.
+              -->
+              <span class="group relative mt-4 inline-flex">
+                <a
+                  [href]="s.source.url"
+                  target="_blank"
+                  rel="noopener nofollow"
+                  [attr.aria-describedby]="s.id + '-source'"
+                  class="rounded-(--radius-sm) text-xs text-(--text-secondary) underline decoration-(--border-strong) underline-offset-2 transition-colors hover:text-(--text-primary) hover:decoration-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                >
+                  <span i18n="@@home.why.sourceLabel">Source</span>
+                  <span class="sr-only" i18n="@@home.why.sourceNewTab">(opens in a new tab)</span>
+                </a>
+                <span
+                  [id]="s.id + '-source'"
+                  role="tooltip"
+                  class="pointer-events-none absolute bottom-full left-0 z-10 mb-2 w-64 rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) p-3 text-xs leading-relaxed text-(--text-secondary) opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100"
+                >
+                  {{ s.source.citation }}
+                </span>
+              </span>
             </li>
           }
         </ul>
-
-        <p class="mt-4 text-xs text-(--text-secondary)" i18n="@@home.why.estimatesNote">
-          Figures are industry estimates.
-        </p>
       </div>
     </section>
   `,
 })
 export class HomeWhy {
   /**
-   * The three market figures. Static cited stats (not live data), kept in their
-   * hedged framing; real sourcing is a tracked follow-up. Source copy translated
-   * from the legacy landing's "the problem" section.
+   * The three market figures. Static cited stats (not live data); each carries a
+   * primary source surfaced through the "Source" link (AECI-285). Figures 1 and 2
+   * were revised to their citable values; figure 3 was verified and kept. Full
+   * research: `docs/design/home-why-market-figures.md`.
    */
   protected readonly stats: readonly ProblemStat[] = [
     {
       id: 'ai-reviews',
-      figure: $localize`:@@home.why.stat.aiReviews.figure:≈34%`,
-      desc: $localize`:@@home.why.stat.aiReviews.desc:of reviews on major platforms are estimated to be AI-generated`,
+      figure: $localize`:@@home.why.stat.aiReviews.figure:≈19%`,
+      desc: $localize`:@@home.why.stat.aiReviews.desc:of Google reviews were AI-generated by late 2024, up from about 5% in 2019`,
+      source: {
+        citation: $localize`:@@home.why.stat.aiReviews.source:Originality.AI, 2025. AI-generated reviews on Google rose from about 5% in 2019 to 19% by the end of 2024. Measured on Google reviews; no equivalent study exists for B2B software review sites.`,
+        url: 'https://originality.ai/blog/ai-google-reviews-study',
+      },
     },
     {
       id: 'pay-to-rank',
-      figure: $localize`:@@home.why.stat.payToRank.figure:$87K`,
-      desc: $localize`:@@home.why.stat.payToRank.desc:a year is what vendors pay to boost their ranking on leading review sites`,
+      figure: $localize`:@@home.why.stat.payToRank.figure:$27K`,
+      desc: $localize`:@@home.why.stat.payToRank.desc:a year is what a typical vendor pays for paid visibility on a leading review site`,
+      source: {
+        citation: $localize`:@@home.why.stat.payToRank.source:Vendr, 2026. The median annual amount vendors pay for G2, across 512 purchases. Paid plans and add-ons scale to $95K or more.`,
+        url: 'https://www.vendr.com/marketplace/g2',
+      },
     },
     {
       id: 'generic-tools',
       figure: $localize`:@@home.why.stat.genericTools.figure:900+`,
       desc: $localize`:@@home.why.stat.genericTools.desc:tools lumped into generic categories with no way to filter by AEC discipline`,
+      source: {
+        citation: $localize`:@@home.why.stat.genericTools.source:Capterra, 2026. Its single construction management category alone lists about 986 products, with no facet for AEC discipline.`,
+        url: 'https://www.capterra.com/construction-management-software/',
+      },
     },
   ];
 }
