@@ -38,15 +38,33 @@ describe('HomeWhy', () => {
     const cards = Array.from(setup().querySelectorAll('ul li'));
     expect(cards).toHaveLength(3);
     expect(cards.map((c) => c.querySelector('p')?.textContent?.trim())).toEqual([
-      '≈34%',
-      '$87K',
+      '≈19%',
+      '$27K',
       '900+',
     ]);
   });
 
-  it('flags the figures as industry estimates (interim sourcing note)', () => {
+  it('gives every figure a source link wired to an accessible citation tooltip', () => {
+    const cards = Array.from(setup().querySelectorAll('ul li'));
+    expect(cards).toHaveLength(3);
+    for (const card of cards) {
+      const link = card.querySelector('a[aria-describedby]');
+      expect(link).not.toBeNull();
+      // A real, verifiable external citation link.
+      expect(link?.getAttribute('href')).toMatch(/^https:\/\//);
+      expect(link?.getAttribute('target')).toBe('_blank');
+      expect(link?.getAttribute('rel')).toContain('noopener');
+      // aria-describedby resolves to the in-card tooltip carrying the citation text.
+      const describedById = link?.getAttribute('aria-describedby') ?? '';
+      const tooltip = card.querySelector(`#${describedById}`);
+      expect(tooltip?.getAttribute('role')).toBe('tooltip');
+      expect((tooltip?.textContent?.trim().length ?? 0) > 0).toBe(true);
+    }
+  });
+
+  it('retires the blanket "industry estimates" note in favour of per-figure sources', () => {
     const texts = Array.from(setup().querySelectorAll('p')).map((p) => p.textContent?.trim());
-    expect(texts).toContain('Figures are industry estimates.');
+    expect(texts).not.toContain('Figures are industry estimates.');
   });
 
   it('is a static, cache-neutral band — no controls, no client state', () => {
