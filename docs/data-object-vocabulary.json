@@ -1,0 +1,236 @@
+{
+  "_comment": "Generated mirror of docs/DATA_OBJECT_VOCABULARY.md — edit the doc table, not this file. ids are derived as UUIDv5(slug) by consumers (see taxonomy.sql), so they are not stored here.",
+  "vocabulary": "data_object",
+  "stage": "1.5",
+  "closed": true,
+  "terms": [
+    {
+      "slug": "models",
+      "name": "Models",
+      "description": "BIM / 3D models exchanged between authoring and coordination tools.",
+      "display_order": 10,
+      "aliases": [
+        "Model",
+        "BIM",
+        "BIM Models",
+        "3D Models",
+        "IFC",
+        "Revit Models",
+        "Federated Model",
+        "Coordination Model"
+      ]
+    },
+    {
+      "slug": "drawings",
+      "name": "Drawings",
+      "description": "2D sheets and plans (DWG/PDF) shared across design and field tools.",
+      "display_order": 20,
+      "aliases": [
+        "Drawing",
+        "Sheets",
+        "2D Drawings",
+        "Plans",
+        "Construction Drawings",
+        "DWG",
+        "CAD"
+      ]
+    },
+    {
+      "slug": "specifications",
+      "name": "Specifications",
+      "description": "Specification sections defining materials, products, and execution standards.",
+      "display_order": 30,
+      "aliases": ["Specification", "Specs", "Spec", "Spec Sections", "CSI Specs", "Project Manual"]
+    },
+    {
+      "slug": "bids-tenders",
+      "name": "Bids & Tenders",
+      "description": "Bid / tender packages and procurement solicitations exchanged during buyout.",
+      "display_order": 40,
+      "aliases": [
+        "Bids",
+        "Bid",
+        "Tenders",
+        "Tender",
+        "Bid Packages",
+        "Tendering",
+        "ITB",
+        "Invitation to Bid",
+        "Procurement"
+      ]
+    },
+    {
+      "slug": "commitments",
+      "name": "Commitments & Contracts",
+      "description": "Executed commitments — subcontracts and purchase orders — that draw down the budget.",
+      "display_order": 50,
+      "aliases": [
+        "Commitment",
+        "Contracts",
+        "Contract",
+        "Subcontracts",
+        "Subcontract",
+        "Purchase Orders",
+        "PO",
+        "POs"
+      ]
+    },
+    {
+      "slug": "budgets",
+      "name": "Budgets",
+      "description": "The project budget and its budget line items.",
+      "display_order": 60,
+      "aliases": ["Budget", "Project Budget", "Budget Line Items", "Original Budget"]
+    },
+    {
+      "slug": "cost-codes",
+      "name": "Cost Codes",
+      "description": "The cost-code / cost-breakdown structure that line items are coded to.",
+      "display_order": 70,
+      "aliases": ["Cost Code", "Cost Breakdown Structure", "CBS", "WBS Codes", "Budget Codes"]
+    },
+    {
+      "slug": "change-orders",
+      "name": "Change Orders",
+      "description": "Change orders and potential change events that adjust scope or cost.",
+      "display_order": 80,
+      "aliases": [
+        "Change Order",
+        "CO",
+        "PCO",
+        "Potential Change Order",
+        "Change Events",
+        "Change Event"
+      ]
+    },
+    {
+      "slug": "invoices-payments",
+      "name": "Invoices & Payments",
+      "description": "Invoices, pay applications, and payment records.",
+      "display_order": 90,
+      "aliases": [
+        "Invoices",
+        "Invoice",
+        "Payments",
+        "Pay Applications",
+        "Pay App",
+        "Applications for Payment",
+        "Billings",
+        "AP"
+      ]
+    },
+    {
+      "slug": "schedules",
+      "name": "Schedules",
+      "description": "Project schedules (CPM / Gantt) and their activities.",
+      "display_order": 100,
+      "aliases": [
+        "Schedule",
+        "Project Schedule",
+        "Gantt",
+        "CPM Schedule",
+        "Activities",
+        "P6",
+        "Programme"
+      ]
+    },
+    {
+      "slug": "rfis",
+      "name": "RFIs",
+      "description": "Requests for Information and their responses.",
+      "display_order": 110,
+      "aliases": [
+        "RFI",
+        "Requests for Information",
+        "Request for Information",
+        "Information Requests"
+      ]
+    },
+    {
+      "slug": "submittals",
+      "name": "Submittals",
+      "description": "Submittal packages (shop drawings, product data, samples) and their review.",
+      "display_order": 120,
+      "aliases": ["Submittal", "Submittal Package", "Shop Drawings", "Product Data", "Samples"]
+    },
+    {
+      "slug": "meetings",
+      "name": "Meetings & Minutes",
+      "description": "Project meetings and their minutes, agendas, and action items.",
+      "display_order": 130,
+      "aliases": [
+        "Meeting",
+        "Meeting Minutes",
+        "Minutes",
+        "Meeting Notes",
+        "Meeting Agenda",
+        "Agendas"
+      ]
+    },
+    {
+      "slug": "daily-logs",
+      "name": "Daily Logs",
+      "description": "Daily field logs / site diaries (manpower, weather, progress).",
+      "display_order": 140,
+      "aliases": ["Daily Log", "Field Logs", "Daily Reports", "Site Diary", "Field Reports"]
+    },
+    {
+      "slug": "photos",
+      "name": "Photos",
+      "description": "Site and progress photos.",
+      "display_order": 150,
+      "aliases": ["Photo", "Site Photos", "Progress Photos", "Images", "Field Photos"]
+    },
+    {
+      "slug": "inspections",
+      "name": "Inspections",
+      "description": "Quality and field inspections and their results.",
+      "display_order": 160,
+      "aliases": ["Inspection", "Quality Inspections", "Field Inspections", "QA/QC Inspections"]
+    },
+    {
+      "slug": "punch-lists",
+      "name": "Punch Lists",
+      "description": "Punch / snag lists tracking deficiencies to close out.",
+      "display_order": 170,
+      "aliases": ["Punch List", "Punchlist", "Snag List", "Snags", "Deficiency List", "Punch Items"]
+    },
+    {
+      "slug": "time-labor",
+      "name": "Time & Labor",
+      "description": "Timesheets and labor hours.",
+      "display_order": 180,
+      "aliases": [
+        "Timesheets",
+        "Timesheet",
+        "Labor",
+        "Time Tracking",
+        "Timecards",
+        "Crew Hours",
+        "Manpower"
+      ]
+    },
+    {
+      "slug": "documents",
+      "name": "Documents",
+      "description": "General project documents and files under document management.",
+      "display_order": 190,
+      "aliases": ["Document", "Files", "Project Documents", "Document Management", "Attachments"]
+    },
+    {
+      "slug": "directory-contacts",
+      "name": "Directory & Contacts",
+      "description": "The project / company directory of people and companies.",
+      "display_order": 200,
+      "aliases": [
+        "Directory",
+        "Contacts",
+        "Contact",
+        "Company Directory",
+        "Project Directory",
+        "People",
+        "Companies"
+      ]
+    }
+  ]
+}
