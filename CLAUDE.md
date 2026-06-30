@@ -24,6 +24,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Phase 2 scope and spec (supersedes §16 Phase 2 of the Stage 1 spec) | `docs/STAGE_1_PHASE_2_SPEC.md` |
 | Phase 5 scope and spec (auth & reviews; supersedes §16 Phase 5 of the Stage 1 spec) | `docs/STAGE_1_PHASE_5_SPEC.md` |
 | Phase 6 scope and spec (requests & moderation; supersedes §16 Phase 6 + §12 of the Stage 1 spec) | `docs/STAGE_1_PHASE_6_SPEC.md` |
+| Stage 1.5 scope and spec (Integration Redesign: product-PAIR page + claim/attestation model; supersedes the integration portions of §3.1/§4.4/§7.5 of the Stage 1 spec) | `docs/STAGE_1_5_SPEC.md` |
 | `data_object` controlled vocabulary (Stage 1.5; the frozen, closed list both apps seed from — slug/name/description/display_order/aliases) | `docs/DATA_OBJECT_VOCABULARY.md` (+ generated `docs/data-object-vocabulary.json` mirror) |
 | API endpoint shapes, validation, errors | `docs/API_CONTRACTS.md` |
 | Review-app → Supabase promotion push (`POST /api/promote` payload/response, idempotency, integration rule) | `docs/REVIEW_APP_PROMOTE_API.md` |
