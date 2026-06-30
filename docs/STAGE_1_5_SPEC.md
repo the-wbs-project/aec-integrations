@@ -1,0 +1,324 @@
+# AEC Integrations — Stage 1.5 Specification (Integration Redesign)
+
+**Status:** Approved — ready for build
+**Supersedes:** the integration portions of `STAGE_1_SPEC.md` — §4.4 (the single-row source→target integration page), the `/integrations/:id` row of the §3.1 route table, and the integration note in §7.5
+**Inherits from:** Stage 1 (Phases 1–7 — foundation, data display, search, home, auth/reviews, requests, polish)
+**Companion docs:** `DATA_OBJECT_VOCABULARY.md` (frozen vocab — source of truth for §2), `REVIEW_APP_PROMOTE_API.md` (promote contract — §5), `API_CONTRACTS.md` (endpoint shapes — §6), `DATABASE_SCHEMA.md` (table conventions — §6.1), `CACHE_STRATEGY.md` (cache tags — §7), `SEARCH_RANKING.md` (Algolia — §9)
+**ADR:** `docs/adr/0018-claims-attach-to-mechanism-row-agreement-computed.md`
+
+> **Data-layer note (ADR 0016).** The application database is **Cloudflare D1 + Drizzle**; Supabase is auth-only. Every D1 write in this spec goes through `getDb(env)` and, for multi-statement writes, a single `db.batch([...])` that includes the `audit_log` row (the §26.1 invariant of `STAGE_1_SPEC.md`). There is no Prisma, no Postgres, no RLS on app tables.
+
+---
+
+## 1. Overview & phasing
+
+Stage 1.5 — **Integration Redesign** — is a focused, pre-launch redesign of the one surface in Stage 1 that misleads: the integration page. It lands two coordinated changes.
+
+- **(A) The product-PAIR page.** Today an integration is rendered as a standalone `source → target` row at `/integrations/:id`. Two products can be connected by several mechanisms (a native connector *and* a Zapier app *and* a partner API), and the directionality of each is buried. Stage 1.5 replaces the per-row page with a single **context-oriented pair page** nested under a product — `/products/:contextSlug/integrations/:otherSlug` — that consolidates **every** mechanism between the two products into one view.
+- **(B) The claim/attestation model.** Stage 1.5 adds a structured answer to *"what actually flows between these two products, and in which direction?"* A **claim** is the unit: a closed-vocabulary `data_object` (RFIs, Budgets, Models…) moving in a `direction`, attached to a specific integration (mechanism) row. Claims carry **attestations** (who says so). In Stage 1.5 the only attestor is **AECi itself** (staff curation); vendor attestations — and everything that depends on them — are Stage 2.
+
+The redesign is deliberately split into **two layers** so visible value ships before any data exists:
+
+| Layer | What | Needs claim data? | Ships |
+|---|---|---|---|
+| **A** | The pair page — routing, 301 consolidation, SEO (§7) | **No** | First (AECI-294) |
+| **B** | Claim rendering on the pair page — the data-flow section (§8) | Yes (seeded via §4–§6) | After the spine is seeded |
+
+### 1.1 The 1.5 ⇄ Stage 2 split
+
+Everything in Stage 1.5 is **AECi-seeded and read-only to the public**. The dividing line is the **vendor portal**: anything that requires a vendor to log in and assert something is Stage 2.
+
+| In Stage 1.5 | Deferred to Stage 2 |
+|---|---|
+| Pair page + 301 consolidation (§7) | Vendor attestation authoring (AECI-301) |
+| Claim model + AECi attestations (§3) | Conflict UI + notification pipeline (AECI-302) |
+| `data_object` closed vocabulary (§2) | Version-diff timeline using `introduced_at`/`deprecated_at` (AECI-303) |
+| `computeAgreement` (vendor-vs-vendor; AECi-never-red) (§3.4) | Paywalled integration depth (AECI-304) |
+| Read-only claim rendering — everything shows **"Unverified"** (§8) | Per-pair Algolia records + integrations search tab (§9) |
+
+Because no vendor can attest in 1.5, **every claim renders "Unverified"** and the agreement engine can never produce a red "conflict" state (§3.4). The version stamps (`introduced_at`/`deprecated_at`) and the `vendor_a`/`vendor_b` attestation sources ship **additive and dormant** — present in the schema, exercised by Stage 2.
+
+### 1.2 Issue map (the anchors this doc is the contract for)
+
+Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.md)`. The subsection numbering below is load-bearing — it must not be renumbered without updating the issues.
+
+| Anchor | Issue | Surface |
+|---|---|---|
+| §2 | AECI-287 *(done)* | `data_object` controlled vocabulary |
+| §3 | — | Claim/attestation model (foundational; no single issue) |
+| §4.1 | AECI-290 | Review app: Airtable `data_objects` + `integration_claims` |
+| §4.2 | AECI-292 | Review app: claim MCP tools + seeding playbook |
+| §4.3 | AECI-299 | OPS: re-curate the catalog into claims |
+| §4.4 | AECI-295 | Review app: read-only Claims tab (QA) |
+| §5 | AECI-291 | Promote contract: add `claims[]` (shared schema) |
+| §5.2 | AECI-296 | Review app: emit `claims[]` from `buildPromotePayload` |
+| §6.1 | AECI-293 | Main app: D1 schema (`taxonomy_data_objects` / `claims` / `attestations`) |
+| §6.2 | AECI-297 | Main app: `POST /api/promote` ingests `claims[]` |
+| §7 | AECI-294 | Pair page (Layer A) — routing / 301 / SEO |
+| §8 | AECI-300 | Claim rendering (Layer B) |
+| §9 | AECI-298 | Search / SEO / Algolia follow-through |
+
+Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**.
+
+### 1.3 Critical path
+
+```
+287 (vocab) → 288 (this spec) → 291 (promote claims[] shared schema)
+            → 293 (D1 schema) → 297 (promote ingest) → 300 (claim rendering)
+```
+
+The Review-app lane (290 → 292 → 295/296) and the OPS re-curation (299) run in parallel; the pair page (294, Layer A) needs none of them and ships first. The two locked architectural decisions — *claims attach to the mechanism row* and *agreement is computed-not-stored* — are recorded in **ADR 0018**.
+
+---
+
+## 2. `data_object` vocabulary
+
+The `data_object` controlled vocabulary is **frozen** and lives in **`docs/DATA_OBJECT_VOCABULARY.md`** (with a generated machine-readable mirror, `docs/data-object-vocabulary.json`). **That document is the source of truth — this spec references it and does not duplicate the 20-term table** (one source of truth; the table drifts the moment it is copied).
+
+A `data_object` is the **noun that flows between two integrated products** — the *what* of an integration (RFIs, Budgets, Models…). It is the load-bearing middle term of claim identity (§3.1). The vocabulary mirrors the existing taxonomy vocabularies (`taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases`) in shape — `slug` / `name` / `description` / `display_order` — and adds one field, **`aliases`**.
+
+The rules every consumer must honour (full detail in `DATA_OBJECT_VOCABULARY.md` §2–§5):
+
+- **Closed and frozen.** Adding/removing/renaming a term is a deliberate vocabulary change — a PR that edits the doc and re-seeds **both** apps. Curators cannot mint a term by typing one.
+- **Find-only resolution.** During promote (§5, §6.2) a free-text `data_object` value is matched against the canonical `slug` set, directly or via an alias. **An unmatched term is rejected, not auto-created** — it lands in the promote response's `skipped[]` with `kind: "claim"`, never a 500.
+- **`slug` is the immutable identity key.** Renaming a slug would orphan existing claims. `name` / `description` / `aliases` / `display_order` may be edited freely (presentation/matching metadata, not identity).
+- **`aliases` is resolver metadata.** A case-insensitive synonym list the seeding AI and the promote resolver map onto a canonical slug ("Requests for Information" → `rfis`). Whether D1 materialises an `aliases` column or keeps the map beside the seeder is a §6.1 decision; either way the doc is the source of the mapping.
+- **Deterministic ids + idempotent seed.** Ids are **UUIDv5 derived from the `slug`** (the convention `apps/api/seed/taxonomy.sql` already uses), so they are stable across re-runs and across both apps and are **not stored** in the doc/JSON. Seeding is an UPSERT keyed on `slug` (`ON CONFLICT(slug) DO UPDATE`); it never deletes.
+
+### 2.1 Naming across the two apps
+
+The vocabulary is one logical list seeded into two stores with each store's own naming convention. **This spec sets the canonical names** (reconciling a `data_objects` shorthand that appears in some issue drafts):
+
+| Store | Table / file | Convention it mirrors |
+|---|---|---|
+| Review app (Airtable) | **`data_objects`** lookup table | sibling lookup tables `categories` / `disciplines` (no prefix) |
+| Main app (D1) | **`taxonomy_data_objects`** | the existing `taxonomy_categories` / `taxonomy_audiences` / `taxonomy_phases` |
+| Main app seed | **`apps/api/seed/data-objects.sql`** | `apps/api/seed/taxonomy.sql` |
+
+The relational claim tables are **not** taxonomy and carry no prefix: D1 `claims` + `attestations` (§6.1); the Airtable authoring table is `integration_claims` (§4.1).
+
+---
+
+## 3. Claim/attestation model
+
+This section is the conceptual heart. It is implemented in Airtable (§4), travels over promote (§5), is stored in D1 (§6), and is rendered on the pair page (§8). It is the same model in every layer.
+
+### 3.1 Claim identity — claims attach to the mechanism row
+
+A **claim** asserts that a particular `data_object` flows in a particular `direction` through a **specific integration (mechanism) row**. Its identity is the triple:
+
+```
+(integration_id, data_object_id, direction)
+```
+
+The **integration row is the anchor** (ADR 0018). Consequences:
+
+- A pair of products connected by **two mechanisms** (e.g. a native connector and a Zapier app) that both move RFIs yields **two claims** — one per integration row. The pair page (§8) groups them under the pair but they remain distinct rows.
+- Consolidation onto the pair page needs **no `integrations`-table migration**: there is no unique pair index today (`apps/api/src/db/schema.ts` integrations table — only non-unique `source`/`target` indexes and a distinct-endpoints check), and Stage 1.5 adds none. The pair page is a *query-time* grouping (§7), not a stored entity.
+- The unique index `(integration_id, data_object_id, direction)` (§6.1) makes promote ingest an idempotent upsert (§6.2).
+
+### 3.2 Direction encoding — stored vs context-relative
+
+Direction is stored **relative to the integration row's own two endpoints**, and exposed at the API **relative to the page's context product**. Keep the two representations distinct.
+
+**Stored (D1 `claims.direction`, Airtable `integration_claims`):** one of
+
+| Stored value | Meaning |
+|---|---|
+| `a_to_b` | flows from endpoint **A** to endpoint **B** |
+| `b_to_a` | flows from endpoint **B** to endpoint **A** |
+| `both` | bidirectional |
+
+where **A = the integration's `source_product_id`** and **B = its `target_product_id`** (the stored endpoint order on the row). This is canonical and never depends on which product the visitor is viewing.
+
+**Context-relative (API / `packages/shared`):** the pair page is viewed *from* a context product. The API translates the stored direction into the visitor's frame:
+
+| Stored | Context product = A | Context product = B |
+|---|---|---|
+| `a_to_b` | `outbound` | `inbound` |
+| `b_to_a` | `inbound` | `outbound` |
+| `both` | `both` | `both` |
+
+So a claim stored `a_to_b` reads as **"outbound"** on product A's pair page and **"inbound"** on product B's. The translation is a pure function in `packages/shared` (the same place `defaultIntegrationContext` lives — §7); the stored value is never rewritten.
+
+### 3.3 Attestation shape
+
+An **attestation** records *who asserts a claim*. Attestations hang off a claim (D1: relationally in `attestations`; Airtable: as a JSON array on the claim row — §4.1).
+
+| Field | Type | Notes |
+|---|---|---|
+| `source` | `'aeci' \| 'vendor_a' \| 'vendor_b'` | who attests. `vendor_a` / `vendor_b` map to the integration's endpoint-A / endpoint-B vendors. **In Stage 1.5 only `aeci` is ever written.** |
+| `asserted` | boolean | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
+| `introduced_at` | date \| null | **dormant in 1.5** — version stamp for the Stage 2 timeline (AECI-303). |
+| `deprecated_at` | date \| null | **dormant in 1.5** — version stamp. |
+| `note` | string \| null | optional provenance/source note. |
+
+`vendor_a` / `vendor_b` and the version stamps are **additive and dormant**: present in schema and contract, written by no 1.5 code path.
+
+### 3.4 Computed agreement — `computeAgreement` and the AECi-never-red rule
+
+Agreement is **computed from the attestation set, never stored** (ADR 0018). A single pure function owns it:
+
+```
+computeAgreement(attestations) → AgreementState
+```
+
+It lives at **`packages/shared/src/agreement.ts`** (AECI-300) so the API, SSR, and tests share one implementation.
+
+Rules:
+
+- **Only vendor attestations vote.** Agreement is a *vendor-vs-vendor* signal: it asks whether the two vendors of a pair agree about a data flow. **The AECi attestation is excluded from the vote** — it is the baseline/seed, not a party to the disagreement.
+- **AECi-never-red.** Because AECi never votes, an AECi-only claim can **never** produce a `conflict` state. The conflict (red) state requires `vendor_a` and `vendor_b` to disagree — impossible until the Stage 2 portal exists.
+- **Stage 1.5 reality.** With only an `aeci` attestation present, every claim resolves to an **"Unverified"** state and renders as such (§8). The agreement engine ships fully but, by construction, only ever returns the unverified branch in 1.5.
+
+`AgreementState` is enumerated in `agreement.ts`; the 1.5-reachable value is the unverified one. The conflict/confirmed branches are implemented and unit-tested against synthetic vendor attestations so Stage 2 inherits a proven function.
+
+### 3.5 The `confirmed / total` sync headline
+
+The pair page leads its data-flow section with a headline of the form **"N data objects sync"** plus a verification ratio **`confirmed / total`**:
+
+- **`total`** — the number of distinct claims on the pair (all directions, all mechanisms).
+- **`confirmed`** — claims whose computed agreement is vendor-confirmed.
+
+In Stage 1.5 **`confirmed = 0`** for every pair (no vendor attestations), so the headline communicates breadth ("12 data objects sync") with an honest **"Unverified"** posture, never a fake trust signal. The ratio becomes meaningful in Stage 2.
+
+---
+
+## 4. Review app (bamako) — authoring & re-curation
+
+The Review app (`aec-integrations-review`, codename *bamako*) is the **system of record** for claims, exactly as it is for products/vendors/integrations. AECi staff (and Claude via MCP) author claims there; they reach the main app only through promote (§5). Authoring is **MCP-first** in 1.5 — the Review app has no integration editor UI today, and building one is out of scope. A cross-repo handoff for the bamako team lives at **`docs/stage-1-5-review-app-handoff.md`**.
+
+### 4.1 Airtable `data_objects` + `integration_claims` tables (AECI-290)
+
+- **`data_objects`** — a new lookup table mirroring the existing `categories` / `disciplines` lookups: `Name`, `slug`, `description`, `display_order`, `aliases`, `deprecated_at`. **Seed it from the frozen vocabulary** (`DATA_OBJECT_VOCABULARY.md` §4 / the JSON mirror).
+- **`integration_claims`** — the authoring table for claims. Each row **links to one integration record** (the mechanism anchor — §3.1) and carries:
+  - a link to one `data_objects` row,
+  - `direction` (`a_to_b` / `b_to_a` / `both`, stored relative to the integration's source/target — §3.2),
+  - **`attestations` as a JSON array** (the §3.3 shape), mirroring the existing JSON-on-a-row pattern used by `integrations_discovery_candidates` — not a separate Airtable table.
+
+Keeping attestations as JSON in Airtable (relational in D1 — §6.1) matches each store's grain: Airtable authors a compact editable blob; D1 normalises it for query.
+
+### 4.2 Claim MCP tools + seeding playbook (AECI-292)
+
+MCP is the authoring seam. Add `server/mcp/tools/claim-tools.ts` exposing:
+
+- `list_claims`, `get_claim` — read.
+- `create_claim` — resolves its `data_object` **find-only** against the seeded `data_objects` (slug or alias; a miss is an error to the caller, never an auto-create), attaches to an integration row, sets `direction`.
+- `update_claim` — edit direction / data_object.
+- `add_attestation` — append an attestation (in 1.5, `source: 'aeci'`).
+
+Ship a **`seed-claims-from-integrations.md` playbook** that drives staff/Claude through converting an existing integration's free-text description into structured claims via these tools. This is the instrument AECI-299 runs at scale.
+
+### 4.3 OPS — re-curate the catalog into claims (AECI-299)
+
+A **tracked work item, not a code change.** Staff run the §4.2 playbook over the existing catalog so the pair page (§8) has data to render. Long-running; **overlaps the main-app build** (the pair page ships first without it). The output is AECi attestations only — everything stays "Unverified" until Stage 2.
+
+### 4.4 Read-only Claims tab in product-detail (AECI-295)
+
+Give curators a read-only view to QA the §4.3 seeding. In the Review app's Angular product-detail page, add a **"Claims" tab** that reads the product's claims (via `GET /api/claims` or an extension of `routes/integrations.ts`) and lists them grouped by integration, showing `data_object`, direction, and attestation sources. **No editor** — authoring stays in MCP for 1.5.
+
+---
+
+## 5. Promote contract extension — `claims[]` (AECI-291)
+
+Claims travel from the Review app to the main app over the **existing** `POST /api/promote` pipeline (`docs/REVIEW_APP_PROMOTE_API.md`; main-app contract `docs/API_CONTRACTS.md` §6.12). This is the **cross-repo pivot** — land the shared schema early; it unblocks both the Review emit (§5.2) and the main ingest (§6.2). The contract types live in `packages/shared` and are consumed by both repos.
+
+### 5.1 The `claims[]` shape (shared schema)
+
+Add to `packages/shared/src/api/promote.ts`:
+
+- **`PromoteClaimSchema`** — one claim:
+  - `dataObject`: string (slug **or** name/alias; resolved find-only — §2),
+  - `direction`: `'a_to_b' \| 'b_to_a' \| 'both'`,
+  - `attestations`: `PromoteAttestationSchema[]`.
+- **`PromoteAttestationSchema`** — `source` (`'aeci' \| 'vendor_a' \| 'vendor_b'`), `asserted` (boolean), optional `introducedAt` / `deprecatedAt` / `note` (dormant fields accepted but unused in 1.5).
+- Claims are nested **under each integration** in the payload (claims attach to the mechanism row — §3.1): each `integrations[]` entry gains an optional `claims: PromoteClaim[]`.
+
+**Withhold rule (reuses the existing integration rule).** A claim is only emitted/ingested when its integration is — i.e. when **both** of the integration's endpoints are promoted. A claim whose integration is withheld (other endpoint not promoted yet) is itself withheld, and a claim whose `dataObject` fails find-only resolution lands in the promote response's **`skipped[]` with `kind: "claim"`** (never a 500), consistent with how unresolved integrations/usefulness are reported today.
+
+### 5.2 Review-app emit from `buildPromotePayload` (AECI-296)
+
+In the Review app (`server/services/promote.ts`):
+
+- Define `ClaimPayload` / `AttestationPayload` (matching the §5.1 shared shape).
+- In `buildPromotePayload`, assemble `claims[]` under each integration from the `integration_claims` rows (§4.1).
+- **Withhold a claim** when its integration's endpoints aren't both promoted — reuse the existing integration-withholding logic rather than duplicating it.
+
+---
+
+## 6. Main-app D1 schema + promote ingest
+
+### 6.1 D1 schema — `taxonomy_data_objects` / `claims` / `attestations` (AECI-293)
+
+Additive migration only (drizzle-kit `pnpm db:generate` → `wrangler d1 migrations apply`; `docs/migrations.md`). **No change to the `integrations` table.** Edit `apps/api/src/db/schema.ts`:
+
+- **`taxonomy_data_objects`** — mirror `taxonomyCategories` exactly (`id` UUID PK, `slug` unique, `name`, `description`, `display_order`, `created_at`, `updated_at`); optionally an `aliases` column (resolver metadata — §2; a §6.1 implementation choice). Seeded from `apps/api/seed/data-objects.sql` (UUIDv5-by-slug, idempotent upsert — §2).
+- **`claims`** — `id` PK; `integration_id` → `integrations(id)` `on delete cascade`; `data_object_id` → `taxonomy_data_objects(id)`; `direction` (`a_to_b` / `b_to_a` / `both`, check-constrained); timestamps. **Unique index `(integration_id, data_object_id, direction)`** — the §3.1 identity, and the upsert key for ingest.
+- **`attestations`** — `id` PK; `claim_id` → `claims(id)` `on delete cascade`; `source` (`aeci` / `vendor_a` / `vendor_b`, check-constrained); `asserted` (boolean); **dormant** `introduced_at` / `deprecated_at` (the §3.3 version stamps); optional `note`; timestamps.
+
+Index `claims.integration_id` and `claims.data_object_id` for the pair-page read (§8). The `vendor_a`/`vendor_b` sources and the version-stamp columns ship dormant (§1.1).
+
+### 6.2 `POST /api/promote` ingests `claims[]` (AECI-297)
+
+Extend the existing plan-then-batch promote flow (`apps/api/src/routes/promote.ts`):
+
+- **Resolve** each claim's `dataObject` **find-only** by slug (then alias) against the seeded `taxonomy_data_objects`. A miss → `skipped[]` `{ kind: 'claim', … }`; **never a 500** (§2, §5.1).
+- **Upsert** each claim by the identity unique index `(integration_id, data_object_id, direction)` (§6.1) — re-promote is idempotent.
+- **Replace** the claim's attestations to exactly match the payload (same merge-by-replacement semantics promote already uses for join sets — `REVIEW_APP_PROMOTE_API.md` §5).
+- **Audit + atomicity.** Claim/attestation writes go in the **same `db.batch([...])`** as the rest of the promote transaction and emit their `audit_log` row in that batch (the §26.1 invariant of `STAGE_1_SPEC.md`). Edge-cache purge for affected pair pages reuses the existing promote→purge path (`affectedUrlsForPromote`; ADR 0010) extended with the pair URLs (§7).
+
+---
+
+## 7. Pair page (Layer A) — routing, 301, SEO (AECI-294)
+
+The pair page is **Layer A**: it ships first, needs **no** claim data, and delivers the visible consolidation on day one. Build it against the AECI-289 prototype.
+
+### 7.1 Context + routing
+
+- **`defaultIntegrationContext(a, b)`** in `packages/shared` (e.g. `packages/shared/src/integration-context.ts`) — given two product slugs, returns the canonical **context product** for the default pair URL: the **alphabetically-first slug** is the context. Deterministic, pure, shared by SSR and the 301.
+- **Nested route:** `/products/:contextSlug/integrations/:otherSlug`. The page resolves the two products, finds **all** integration rows between them (either source/target orientation), and renders one consolidated view. Multiple mechanisms → multiple rows on one page (§3.1), not multiple pages.
+
+### 7.2 301 consolidation from the legacy route
+
+- `/integrations/:id` (the Stage 1 §4.4 page) **301-redirects** to the pair URL for that integration's two products, using `defaultIntegrationContext` to pick the context slug. The redirect is permanent and preserves link equity (the SEO follow-through in §9 ensures internal links and Algolia records resolve through it rather than 404).
+
+### 7.3 SEO
+
+- **Canonical** uses the serving origin (ADR 0011) — the default-context pair URL is the canonical; the non-default orientation (viewing from the other product) is a secondary entry that canonicalises to the default. Avoid two indexable URLs for one pair.
+- JSON-LD and per-pair meta describe the product pair.
+- **Cache tags** per `CACHE_STRATEGY.md` — tag the pair page by both product slugs so a promote touching either product (or its claims) purges it (§6.2).
+
+---
+
+## 8. Claim rendering (Layer B) — the data-flow section (AECI-300)
+
+**Layer B** renders claims on the pair page. Build against the AECI-289 prototype; it is *the* integration point of the project.
+
+- **`computeAgreement`** — `packages/shared/src/agreement.ts` (pure; vendor-vs-vendor; AECi excluded → never `conflict` — §3.4), unit-tested against synthetic vendor attestations so the Stage 2 branches are proven now.
+- **Data-flow section.** For the pair, list each claim as a **`data_object` + direction** row, with the direction shown **context-relative** to the page's context product (`outbound` / `inbound` / `both` — §3.2). Group by integration (mechanism) so a pair connected by two connectors reads clearly.
+- **"Unverified" pills.** Every claim shows an **"Unverified"** state in 1.5 (§3.4). The pill styling and copy must read as *"not yet vendor-confirmed"*, not as a warning/defect.
+- **Sync headline.** Lead with the `confirmed / total` headline (§3.5) — in 1.5, `confirmed = 0`, so it communicates breadth honestly.
+- API: a pair-page read (extend the integrations read path / a `GET /api/claims` for a pair) returns claims with context-relative direction already translated (§3.2) and the computed agreement state — the browser does not re-derive identity.
+
+---
+
+## 9. Search / SEO / Algolia follow-through (AECI-298)
+
+Follow-through after the pair page lands.
+
+- **Defer per-pair Algolia records.** The `/search` integrations tab is already hidden (`STAGE_1_SPEC.md` §7.5). Stage 1.5 does **not** add a per-pair search record; document the deferral in `SEARCH_RANKING.md` and record the **future `{prefix}_pairs` record shape** there for Stage 2. (The existing per-integration index continues to be built/maintained by the sync; it is simply not surfaced.)
+- **No dead `/integrations/:id` links.** Ensure the still-built per-integration Algolia records and any internal links resolve **through the §7.2 301** to the pair page, never to a dead route. Audit internal link generation and the sitemap so they emit pair URLs (or 301-safe legacy URLs), not orphaned integration URLs.
+- **Sitemap.** Pair pages are the canonical integration surface; reflect them in the sitemap per the existing generator, dropping standalone `/integrations/:id` entries in favour of (canonical) pair URLs.
+
+---
+
+## 10. Out of scope / Stage 2 carve-outs
+
+Recorded so the boundary is explicit (see §1.1). These are **placeholders in the Linear "Stage 2 Planning" state**, not 1.5 work:
+
+- **AECI-301** — vendor attestation authoring (the portal seam that makes `vendor_a`/`vendor_b` attestations real).
+- **AECI-302** — conflict UI + notification pipeline (activates the red/`conflict` branch of `computeAgreement`).
+- **AECI-303** — version-diff timeline using the dormant `introduced_at`/`deprecated_at` stamps.
+- **AECI-304** — paywalled integration depth.
+
+The Stage 1.5 schema and contract are forward-compatible with all four (dormant fields, computed-not-stored agreement) — no migration is required to light them up beyond the portal itself.

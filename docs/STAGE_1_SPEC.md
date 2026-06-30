@@ -36,6 +36,8 @@ This spec is the master document. Detailed content for the following areas lives
 | `CICD_PLAN.md` | GitHub Actions pipeline, environments, deployments, rollback, secrets | Complete |
 | `TESTING_STRATEGY.md` | Test tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy | Complete |
 | `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
+| `STAGE_1_5_SPEC.md` | **Stage 1.5 — Integration Redesign**: product-PAIR page + claim/attestation model (supersedes the integration portions of §3.1 / §4.4 / §7.5) | Complete |
+| `DATA_OBJECT_VOCABULARY.md` | The frozen, closed `data_object` controlled vocabulary (+ generated `data-object-vocabulary.json` mirror) both apps seed from | Complete |
 | `CODE_REVIEW_CHECKLIST.md` | Pre-merge review categories and severity rubric for humans and LLMs | Complete |
 | `BRAND_GUIDELINES.md` | Canonical brand colors (light; dark variants documented but not shipped in Stage 1 — AECI-226), Bone reclassification, Clay restriction, visual principles | Complete |
 | `SEARCH_RANKING.md` | Algolia ranking customization, tuning, feedback loops | Pending |
@@ -188,7 +190,8 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/products/:slug/reviews` | Product detail — Reviews tab | 1 hr edge / 5 min browser |
 | `/products/:slug/details` | Product detail — Details tab | 1 hr edge / 5 min browser |
 | `/vendors/:slug` | Vendor detail page | 1 hr edge / 5 min browser |
-| `/integrations/:id` | Integration detail page | 1 hr edge |
+| `/products/:contextSlug/integrations/:otherSlug` | **Product-PAIR page** (Stage 1.5 — `STAGE_1_5_SPEC.md` §7) | 1 hr edge |
+| `/integrations/:id` | Integration detail page — **superseded: 301 → pair page (Stage 1.5, `STAGE_1_5_SPEC.md` §7.2)** | 1 hr edge |
 | `/categories` | All categories (flat taxonomy index) | 5 min edge |
 | `/categories/:slug` | Browse by category | 30 min edge |
 | `/audiences` | All audiences (flat taxonomy index) | 5 min edge |
@@ -322,6 +325,8 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 - "Is this your company?" CTA → claim form modal
 
 ### 4.4 Integration page (`/integrations/:id`)
+
+> **Superseded by Stage 1.5 (Integration Redesign).** The single-row `source → target` page below is replaced by the context-oriented **product-PAIR page** (`/products/:contextSlug/integrations/:otherSlug`), which consolidates every mechanism between two products and renders the claim data-flow section. `/integrations/:id` 301-redirects to the pair page. See `STAGE_1_5_SPEC.md` §7 (pair page) and §8 (claim rendering). The fields below remain the per-mechanism content the pair page surfaces.
 
 - Source product → Target product header (both linked)
 - Mechanism kind badge (native, iPaaS, marketplace-app, api, webhook, partner)
@@ -483,7 +488,7 @@ Cloudflare Worker at `apps/api/`, exposed via service binding to the SSR worker.
 - `GET /api/products/:slug` — product detail
 - `GET /api/products/:slug/reviews` — approved reviews for product
 - `GET /api/vendors`, `GET /api/vendors/:slug`
-- `GET /api/integrations`, `GET /api/integrations/:id`
+- `GET /api/integrations`, `GET /api/integrations/:id` _(Stage 1.5 adds the pair-page + claims read paths — `STAGE_1_5_SPEC.md` §6, §8; shapes in `API_CONTRACTS.md`)_
 - `GET /api/taxonomy/categories`, `/audiences`, `/phases`
 - `GET /api/stats/home`
 
@@ -609,6 +614,12 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 > maintained by the API sync; the search page simply does not query or display it for now. Re-enable by
 > restoring the Integrations tab in `apps/web/src/app/search/search-page.ts` and re-wiring the
 > integrations index in `search-controller.ts`. (Header autocomplete already excludes integrations.)
+>
+> **Stage 1.5 follow-through:** per-pair Algolia records are **deferred to Stage 2** (the integrations
+> tab stays hidden); the future `{prefix}_pairs` record shape is to be recorded in `SEARCH_RANKING.md`
+> as part of the §9 follow-through (AECI-298). The
+> still-built per-integration records and internal links must resolve through the `/integrations/:id`
+> → pair-page 301, never a dead route. See `STAGE_1_5_SPEC.md` §9.
 
 > **Deviation (AECI-142 / Phase 3.9 — see `docs/adr/0014-instantsearch-js-over-angular-instantsearch.md`):**
 > `angular-instantsearch` (below) is **not used**. It caps its peer dep at `@angular/core <16`,
@@ -1172,6 +1183,20 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 - [ ] Refine moderation workflow based on first reviews
 - [ ] Start Stage 2 planning
 
+### Stage 1.5 — Integration Redesign (pre-launch; parallel track)
+
+Governed by `docs/STAGE_1_5_SPEC.md` (decomposed into AECI-287…300). A focused redesign of the integration surface that runs alongside the Phase 7 launch-readiness work, not a numbered phase of it. Two coordinated changes: **(A)** replace the single-row `source → target` integration page (§4.4) with a context-oriented **product-PAIR page** (`STAGE_1_5_SPEC.md` §7), and **(B)** add a structured **claim/attestation model** — a closed `data_object` vocabulary + computed agreement + a `confirmed/total` sync headline, **AECi-seeded only** (`STAGE_1_5_SPEC.md` §2–§6, §8). Layer A (the pair page) needs no claim data and ships first. Decisions recorded in **ADR 0018** (claims attach to the mechanism row; agreement is computed-not-stored).
+
+- [ ] §2 `data_object` controlled vocabulary — frozen, closed (AECI-287; `DATA_OBJECT_VOCABULARY.md`)
+- [ ] §3 + ADR 0018 the claim/attestation model + this spec (AECI-288)
+- [ ] §4 Review app (bamako): Airtable `data_objects`/`integration_claims` + claim MCP tools + read-only QA tab (AECI-290/292/295) + OPS re-curation (AECI-299)
+- [ ] §5 Promote contract: `claims[]` shared schema + Review emit (AECI-291/296)
+- [ ] §6 Main app: D1 schema (`taxonomy_data_objects`/`claims`/`attestations`) + promote ingest (AECI-293/297)
+- [ ] §7/§8 Pair page (Layer A) + claim rendering (Layer B) against the AECI-289 prototype (AECI-294/300)
+- [ ] §9 Search/SEO follow-through — per-pair Algolia deferred; no dead `/integrations/:id` links (AECI-298)
+
+**Moved to Stage 2 (vendor-portal-dependent):** vendor attestation authoring (AECI-301), conflict UI + notification pipeline (AECI-302), version-diff timeline (AECI-303), paywalled integration depth (AECI-304). Everything in Stage 1.5 renders **"Unverified"** until the vendor portal exists. See §18.
+
 ---
 
 ## 17. Resolved Design Decisions
@@ -1199,6 +1224,11 @@ Design decisions in Stage 1 that enable Stage 2 without rework:
 - API endpoint pattern (`/api/admin/*`) extends naturally to `/api/vendor/*`
 - `translations` table supports localized vendor-managed content
 - `profiles.banned_at` supports moderation escalation
+
+**Stage 1.5 integration spine (claims/attestations) is Stage-2-ready** (`STAGE_1_5_SPEC.md`, ADR 0018):
+- Agreement is **computed-not-stored** (`computeAgreement`), so vendor attestations light up the confirmed/`conflict` states with no migration — the function and its branches already exist and are unit-tested.
+- Attestation `source` already enumerates `vendor_a` / `vendor_b` (dormant in 1.5); the `introduced_at` / `deprecated_at` version stamps ship dormant for the Stage 2 version-diff timeline.
+- The Stage 2 integration carve-outs are tracked as **AECI-301** (vendor attestation authoring), **AECI-302** (conflict UI + notification pipeline), **AECI-303** (version-diff timeline), **AECI-304** (paywalled integration depth).
 
 No schema migrations required for Stage 2 vendor portal — only new endpoints and new UI.
 
