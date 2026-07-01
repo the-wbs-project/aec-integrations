@@ -88,6 +88,11 @@ Tables grouped by domain:
 - `taxonomy_categories` — closed vocabulary: product categories (e.g. "BIM Authoring")
 - `taxonomy_audiences` — closed vocabulary: AEC audiences (e.g. "Architecture")
 - `taxonomy_phases` — closed vocabulary: project phases (e.g. "Design Development")
+- `taxonomy_data_objects` — closed vocabulary: data objects that flow through integrations (e.g. "RFIs", "Models") — Stage 1.5
+
+**Claims & attestations** (Stage 1.5 — the integration claim spine):
+- `claims` — a data object flowing in a direction through one integration (mechanism) row
+- `attestations` — who affirms a claim (AECi-seeded in 1.5; vendor sources dormant)
 
 **Join tables**:
 - `product_categories` — product ↔ category many-to-many
@@ -337,6 +342,80 @@ create table taxonomy_phases (
 
 create index taxonomy_phases_slug_idx on taxonomy_phases(slug);
 ```
+
+### 5.4 `taxonomy_data_objects`
+
+Stage 1.5 (AECI-293). The closed `data_object` vocabulary — the kinds of information that flow through an integration (e.g. RFIs, Models, Budgets). Mirrors `taxonomy_categories` and adds one column, `aliases`.
+
+```sql
+create table taxonomy_data_objects (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  name text not null,
+  description text,
+  display_order integer,
+  aliases jsonb,              -- resolver metadata: alternate names/abbreviations
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index taxonomy_data_objects_slug_idx on taxonomy_data_objects(slug);
+```
+
+- **D1 specifics.** `id` is `TEXT` (deterministic UUIDv5 of the `slug`); `aliases` is `TEXT` in JSON mode (a JSON array of strings). Seeded from `apps/api/seed/data-objects.sql` (idempotent `ON CONFLICT(slug) DO UPDATE`, applied to every env).
+- **Source of truth** for the vocabulary is `docs/DATA_OBJECT_VOCABULARY.md` (§4) / its generated mirror `docs/data-object-vocabulary.json` — a frozen, closed 20-term list.
+- **`aliases`** is resolver metadata: the promote ingest (AECI-297) resolves a claim's `dataObject` find-only by slug **then** alias (`STAGE_1_5_SPEC.md` §6.2). It never drives ranking or display.
+
+---
+
+## 5a. Claims & attestations (Stage 1.5)
+
+The integration **claim spine** (AECI-293; `STAGE_1_5_SPEC.md` §3/§6.1). A *claim* asserts that a `data_object` flows in a `direction` through one integration (mechanism) row — the integration row is the anchor (ADR 0018), so the same product pair connected by two mechanisms yields two claims. An *attestation* records who affirms a claim. **No `integrations`-table change** — consolidation onto the pair page is a query-time grouping (§7), not a stored entity.
+
+### 5a.1 `claims`
+
+```sql
+create table claims (
+  id uuid primary key default gen_random_uuid(),
+  integration_id uuid not null references integrations(id) on delete cascade,
+  data_object_id uuid not null references taxonomy_data_objects(id) on delete restrict,
+  direction text not null check (direction in ('a_to_b', 'b_to_a', 'both')),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Claim identity (§3.1) AND the promote-ingest upsert target (§6.2). Integration-id
+-- lookups ride the leftmost prefix of this unique index, so no separate index is needed.
+create unique index claims_identity_key on claims(integration_id, data_object_id, direction);
+create index claims_data_object_idx on claims(data_object_id);
+```
+
+- **`direction`** is stored relative to the integration row's own endpoints (**A = `source_product_id`**, **B = `target_product_id`**; §3.2). This canonical value is never rewritten; the API translates it to a context-relative `inbound`/`outbound` view per pair page.
+- **Cascade/restrict.** Deleting an integration removes its claims; a `data_object` referenced by any claim cannot be deleted.
+
+### 5a.2 `attestations`
+
+```sql
+create table attestations (
+  id uuid primary key default gen_random_uuid(),
+  claim_id uuid not null references claims(id) on delete cascade,
+  source text not null check (source in ('aeci', 'vendor_a', 'vendor_b')),
+  asserted boolean not null default true,
+  introduced_at timestamptz,   -- dormant version stamp (Stage 2 timeline, AECI-303)
+  deprecated_at timestamptz,   -- dormant version stamp
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+-- Active attestations for a claim; partial on the dormant version stamp so Stage 2 can
+-- retire an attestation without deleting its history.
+create index attestations_active_idx on attestations(claim_id) where deprecated_at is null;
+```
+
+- **Stage 1.5 reality.** Only `source: 'aeci'` (`asserted: true`) is ever written. `vendor_a` / `vendor_b` and the `introduced_at` / `deprecated_at` version stamps are **additive-and-dormant** — present in the schema/contract, written by no 1.5 code path (reserved for the Stage 2 vendor portal + timeline).
+- **Agreement is computed, never stored** (§3.4, ADR 0018; `packages/shared/src/agreement.ts`). With only an AECi attestation present, every claim resolves to **"Unverified"** in 1.5.
+- **Ingest** replaces a claim's attestations to exactly match the promote payload, inside the same `db.batch([...])` as the rest of the transaction (§6.2, the §26.1 audit-in-tx invariant).
 
 ---
 
@@ -636,8 +715,8 @@ create table audit_log (
   actor_id uuid references profiles(id),
   actor_type text not null check (actor_type in ('user', 'admin', 'system', 'workflow')),
 
-  action text not null, -- e.g. 'review.approved', 'product.updated', 'claim.submitted'
-  entity_type text, -- 'review' | 'product' | 'vendor' | 'integration' | 'claim' | 'correction'
+  action text not null, -- e.g. 'review.approved', 'product.updated'; Stage 1.5 promote ingest (AECI-297) adds 'data_object.created', 'claim.*', 'attestation.*'
+  entity_type text, -- unconstrained (no CHECK): 'review' | 'product' | 'vendor' | 'integration' | 'data_object' | 'claim' | 'attestation' | 'correction'
   entity_id uuid,
 
   before_state jsonb,

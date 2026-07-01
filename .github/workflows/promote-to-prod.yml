@@ -320,6 +320,7 @@ jobs:
           set -euo pipefail
           pnpm exec wrangler d1 migrations apply aeci-app-production --env production --remote
           pnpm exec wrangler d1 execute aeci-app-production --env production --remote --file=seed/taxonomy.sql
+          pnpm exec wrangler d1 execute aeci-app-production --env production --remote --file=seed/data-objects.sql
 
       # -----------------------------------------------------------------------
       # Purge the taxonomy cache tags (idempotent, non-fatal).
