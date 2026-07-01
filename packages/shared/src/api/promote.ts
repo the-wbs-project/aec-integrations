@@ -38,6 +38,22 @@ export const MECHANISM_KINDS = [
 export const INTEGRATION_DIRECTIONS = ['one-way', 'bidirectional'] as const;
 
 /**
+ * Claim / attestation vocabularies (Stage 1.5 — `STAGE_1_5_SPEC.md` §3.2/§3.3).
+ * A claim's `direction` is NOT the mechanism-row `INTEGRATION_DIRECTIONS` above:
+ * it is anchored to the integration's endpoints, where **A = the integration's
+ * `sourceProduct`** and **B = its `targetProduct`** (§3.1). The stored value is
+ * canonical and never rewritten; the context-relative view (`inbound`/`outbound`)
+ * is a pure translation that lives with the pair-page helpers (§7).
+ */
+export const CLAIM_DIRECTIONS = ['a_to_b', 'b_to_a', 'both'] as const;
+/**
+ * Who attests a claim. In Stage 1.5 only `aeci` is ever written; `vendor_a` /
+ * `vendor_b` are additive-and-dormant — present in the contract, produced by no
+ * 1.5 code path (§1.1/§3.3), reserved for the Stage 2 vendor portal.
+ */
+export const ATTESTATION_SOURCES = ['aeci', 'vendor_a', 'vendor_b'] as const;
+
+/**
  * A reference to one entity, resolved at write time. Exactly one of `ref`
  * (points at another entity declared in this same payload) or `supabaseId`
  * (an entity already promoted in a prior request) must be set.
@@ -161,6 +177,42 @@ export const PromoteProductSchema = z.object({
 export type PromoteProduct = z.infer<typeof PromoteProductSchema>;
 
 /**
+ * One attestation on a claim: who asserts it and whether they affirm it
+ * (`STAGE_1_5_SPEC.md` §3.3). In Stage 1.5 AECi writes exactly one attestation
+ * per claim (`source: 'aeci', asserted: true`). `introducedAt` / `deprecatedAt`
+ * are **dormant** version stamps for the Stage 2 timeline (AECI-303) — accepted
+ * by the contract but written by no 1.5 code path; kept as loose ISO date strings
+ * (the review app emits JSON, and over-strict validation would reject legitimate
+ * values, consistent with the rest of this contract).
+ */
+export const PromoteAttestationSchema = z.object({
+  source: z.enum(ATTESTATION_SOURCES),
+  asserted: z.boolean(),
+  introducedAt: z.string().nullish(),
+  deprecatedAt: z.string().nullish(),
+  note: z.string().nullish(),
+});
+
+export type PromoteAttestation = z.infer<typeof PromoteAttestationSchema>;
+
+/**
+ * One claim: a `dataObject` flowing in a `direction` through the enclosing
+ * integration (mechanism) row — the claim's identity is anchored to that row
+ * (`STAGE_1_5_SPEC.md` §3.1). `dataObject` is a slug OR a name/alias; the server
+ * resolves it **find-only** against the seeded `taxonomy_data_objects` (§2). A
+ * miss is reported in the promote response's `skipped[]` with `kind: 'claim'` —
+ * never a 500 (§5.1, §6.2). Claims are nested under each integration; a claim is
+ * only ingested when its integration is (the §5.1 withhold rule).
+ */
+export const PromoteClaimSchema = z.object({
+  dataObject: z.string().min(1),
+  direction: z.enum(CLAIM_DIRECTIONS),
+  attestations: z.array(PromoteAttestationSchema).default([]),
+});
+
+export type PromoteClaim = z.infer<typeof PromoteClaimSchema>;
+
+/**
  * An integration incident to the product being promoted. One endpoint is the
  * product in this bundle (`{ ref: <product.ref> }`); the other must already be
  * promoted (`{ supabaseId }`). Integrations whose other endpoint isn't promoted
@@ -185,6 +237,11 @@ export const PromoteIntegrationSchema = z.object({
   pricingModel: z.string().nullish(),
   maturity: z.string().nullish(),
   notes: z.string().nullish(),
+  // Claims attach to THIS mechanism row (§3.1) and ride with it: a claim is
+  // emitted/ingested only when the integration is (both endpoints promoted —
+  // the §5.1 withhold rule). Optional; defaults to []. An unresolved `dataObject`
+  // lands in the response's `skipped[]` with `kind: 'claim'` (§5.1, §6.2).
+  claims: z.array(PromoteClaimSchema).default([]),
 });
 
 export type PromoteIntegration = z.infer<typeof PromoteIntegrationSchema>;
@@ -296,6 +353,16 @@ export interface PromoteIntegrationResult {
   ref: string;
   id: string;
   operation: PromoteOperation;
+  /**
+   * Source / target product slugs of the promoted integration. Present so the
+   * cache-tag + IndexNow derivers can purge BOTH pair-page orientations
+   * (`/products/:a/integrations/:b` and its 301 twin — §7.1) without a DB read.
+   * Optional here — this contract-only change (AECI-291) lands the shape; the
+   * ingest handler populates and consumes them (§6.2, AECI-297). Consumers must
+   * tolerate their absence.
+   */
+  sourceSlug?: string;
+  targetSlug?: string;
 }
 
 export interface PromoteTaxonomyResult {
@@ -306,7 +373,7 @@ export interface PromoteTaxonomyResult {
 
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension' | 'usefulness';
+  kind: 'integration' | 'extension' | 'usefulness' | 'claim';
   reason: string;
 }
 
@@ -315,8 +382,10 @@ export interface PromoteSkipped {
  * integration-only push (no `product` was sent); otherwise it's the single
  * promoted product. `skipped` lists integrations/extensions that couldn't be
  * linked because an endpoint wasn't resolvable (e.g. the other product isn't
- * promoted yet), plus usefulness groups that didn't resolve to an existing
- * audience/phase term — surfaced rather than silently dropped.
+ * promoted yet), usefulness groups that didn't resolve to an existing
+ * audience/phase term, and claims whose `dataObject` failed find-only resolution
+ * against the seeded vocabulary (`kind: 'claim'`) — surfaced rather than silently
+ * dropped.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];
