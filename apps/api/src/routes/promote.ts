@@ -72,6 +72,8 @@ import type { Context } from 'hono';
 
 import { getDb, type Db } from '../db/client';
 import {
+  attestations,
+  claims,
   integrations,
   productAudiences,
   productCategories,
@@ -81,6 +83,7 @@ import {
   productVendors,
   taxonomyAudiences,
   taxonomyCategories,
+  taxonomyDataObjects,
   taxonomyPhases,
   vendors,
 } from '../db/schema';
@@ -909,8 +912,46 @@ export function createPromoteHandler(
       }
     }
 
+    // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
+    // Claims resolve their `dataObject` against the seeded, frozen
+    // `taxonomy_data_objects` vocabulary by slug OR alias (never find-or-create —
+    // an unmatched term lands in `skipped[]` with `kind: 'claim'`). Load once and
+    // only when a claim is actually present, mirroring the usefulness find-only
+    // path (`resolveUsefulnessFacet`). `safeSlugify` normalizes both the seeded
+    // keys and the incoming value so case/spacing don't matter.
+    const anyClaims = payload.integrations.some((i) => i.claims.length > 0);
+    const dataObjectIdByKey = new Map<string, string>();
+    if (anyClaims) {
+      const doRows = await db
+        .select({
+          id: taxonomyDataObjects.id,
+          slug: taxonomyDataObjects.slug,
+          aliases: taxonomyDataObjects.aliases,
+        })
+        .from(taxonomyDataObjects);
+      const addKey = (value: string | null | undefined, id: string) => {
+        const key = value ? safeSlugify(value) : null;
+        if (key && !dataObjectIdByKey.has(key)) dataObjectIdByKey.set(key, id);
+      };
+      for (const row of doRows) {
+        addKey(row.slug, row.id);
+        for (const alias of row.aliases ?? []) addKey(alias, row.id);
+      }
+    }
+    const resolveDataObject = (value: string): string | undefined => {
+      const key = safeSlugify(value);
+      return key ? dataObjectIdByKey.get(key) : undefined;
+    };
+
     // ── Integrations ──────────────────────────────────────────────────────────
     const integrationResults: PromoteIntegrationResult[] = [];
+    // Endpoint product ids per integration result (parallel to `integrationResults`),
+    // used to backfill `sourceSlug`/`targetSlug` after the loop (§6.2 → pair derivers).
+    const integrationEndpoints: Array<{
+      result: PromoteIntegrationResult;
+      sourceId: string;
+      targetId: string;
+    }> = [];
     const affectedProducts = new Set<string>();
     if (productId) affectedProducts.add(productId);
     for (const intg of payload.integrations) {
@@ -944,6 +985,8 @@ export function createPromoteHandler(
         poweredByProductId,
       };
 
+      let integrationId: string;
+      let result: PromoteIntegrationResult;
       if (intg.supabaseId) {
         // An update may MOVE an endpoint. Capture the pre-update source/target so
         // the OLD products are recomputed too (the AECI-86 drift fix); the new
@@ -962,7 +1005,8 @@ export function createPromoteHandler(
             .set({ ...integrationEditableData(intg), ...linkData })
             .where(eq(integrations.id, intg.supabaseId)),
         );
-        integrationResults.push({ ref: intg.ref, id: intg.supabaseId, operation: 'updated' });
+        integrationId = intg.supabaseId;
+        result = { ref: intg.ref, id: intg.supabaseId, operation: 'updated' };
         audit({
           actorType: 'system',
           action: 'integration.updated',
@@ -974,7 +1018,8 @@ export function createPromoteHandler(
         stmts.push(
           db.insert(integrations).values({ id, ...integrationEditableData(intg), ...linkData }),
         );
-        integrationResults.push({ ref: intg.ref, id, operation: 'created' });
+        integrationId = id;
+        result = { ref: intg.ref, id, operation: 'created' };
         audit({
           actorType: 'system',
           action: 'integration.created',
@@ -982,8 +1027,99 @@ export function createPromoteHandler(
           entityId: id,
         });
       }
+      integrationResults.push(result);
+      integrationEndpoints.push({ result, sourceId, targetId });
+
+      // ── Claims (replace-by-integration — §6.2) ──────────────────────────────
+      // Claims attach to THIS mechanism row and are replaced to exactly match the
+      // payload (same merge-by-replacement semantics as the product-join sets
+      // above): clear the integration's existing claims — their attestations
+      // cascade via the `attestations.claim_id ON DELETE CASCADE` FK — then
+      // re-insert. Runs for every resolved integration that is an update (so an
+      // empty `claims[]` clears prior claims) or that carries claims (a fresh
+      // integration's delete is a harmless no-op). Statement order stays FK-safe:
+      // integration → delete claims → claims → attestations → audits (last).
+      if (intg.supabaseId || intg.claims.length) {
+        stmts.push(db.delete(claims).where(eq(claims.integrationId, integrationId)));
+        const seenClaims = new Set<string>();
+        for (const claim of intg.claims) {
+          const dataObjectId = resolveDataObject(claim.dataObject);
+          if (!dataObjectId) {
+            skipped.push({
+              ref: intg.ref,
+              kind: 'claim',
+              reason: `dataObject "${claim.dataObject}" did not resolve to the seeded vocabulary`,
+            });
+            continue;
+          }
+          // Collapse identity duplicates within the payload so the re-insert never
+          // orphans an attestation on a claim the unique index would reject.
+          const identity = `${dataObjectId}|${claim.direction}`;
+          if (seenClaims.has(identity)) continue;
+          seenClaims.add(identity);
+
+          const claimId = crypto.randomUUID();
+          stmts.push(
+            db
+              .insert(claims)
+              .values({ id: claimId, integrationId, dataObjectId, direction: claim.direction }),
+          );
+          audit({
+            actorType: 'system',
+            action: 'claim.created',
+            entityType: 'claim',
+            entityId: claimId,
+          });
+          for (const att of claim.attestations) {
+            const attestationId = crypto.randomUUID();
+            stmts.push(
+              db.insert(attestations).values({
+                id: attestationId,
+                claimId,
+                source: att.source,
+                asserted: att.asserted,
+                introducedAt: att.introducedAt ?? null,
+                deprecatedAt: att.deprecatedAt ?? null,
+                note: att.note ?? null,
+              }),
+            );
+            audit({
+              actorType: 'system',
+              action: 'attestation.created',
+              entityType: 'attestation',
+              entityId: attestationId,
+            });
+          }
+        }
+      }
+
       affectedProducts.add(sourceId);
       affectedProducts.add(targetId);
+    }
+
+    // ── Backfill integration result slugs (§6.2 → pair cache tag + pair URLs) ──
+    // The pair derivers need both endpoint slugs. Seed the map with the in-payload
+    // product (a freshly-created product is not yet readable from D1), then read
+    // the slugs of any endpoints referenced by `supabaseId` in one batched query.
+    if (integrationEndpoints.length) {
+      const slugByProductId = new Map<string, string>();
+      if (productId && productResult) slugByProductId.set(productId, productResult.slug);
+      const needSlugs = new Set<string>();
+      for (const { sourceId, targetId } of integrationEndpoints) {
+        if (!slugByProductId.has(sourceId)) needSlugs.add(sourceId);
+        if (!slugByProductId.has(targetId)) needSlugs.add(targetId);
+      }
+      if (needSlugs.size) {
+        const rows = await db.query.products.findMany({
+          columns: { id: true, slug: true },
+          where: inArray(products.id, [...needSlugs]),
+        });
+        for (const row of rows) slugByProductId.set(row.id, row.slug);
+      }
+      for (const { result, sourceId, targetId } of integrationEndpoints) {
+        result.sourceSlug = slugByProductId.get(sourceId);
+        result.targetSlug = slugByProductId.get(targetId);
+      }
     }
 
     // ── Audit rows (appended last; same atomic batch as the writes above) ─────

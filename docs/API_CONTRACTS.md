@@ -1169,12 +1169,17 @@ other must already be promoted (`supabaseId`). Integrations whose other endpoint
 isn't promoted yet land in `skipped[]` rather than failing the request. Every
 create/update writes an `audit_log` row in the same transaction (§26).
 
-**Claims (Stage 1.5, AECI-291):** each integration may carry a nested `claims[]`
-of data-object assertions (`STAGE_1_5_SPEC.md` §5). A claim rides with its
-integration (same withhold rule), and its `dataObject` resolves **find-only**
-against the seeded `data_object` vocabulary — an unmatched value lands in
-`skipped[]` with `kind: 'claim'`, never a 500. The shared schema ships here; the
-ingest (upsert `claims`/`attestations`, populate the result slugs) is AECI-297.
+**Claims (Stage 1.5, AECI-291 contract / AECI-297 ingest):** each integration may
+carry a nested `claims[]` of data-object assertions (`STAGE_1_5_SPEC.md` §5/§6.2). A
+claim rides with its integration (same withhold rule), and its `dataObject` resolves
+**find-only** (slug or alias) against the seeded `data_object` vocabulary — an
+unmatched value lands in `skipped[]` with `kind: 'claim'`, never a 500. The ingest
+upserts by the identity `(integration_id, data_object_id, direction)` via
+replace-by-integration (an integration's claims are cleared and re-inserted to match
+the payload exactly, attestations cascading), emits `claim.*` / `attestation.*`
+audit rows in the same `db.batch`, and populates each integration result's
+`sourceSlug`/`targetSlug` so the promote derivers can purge the `pair:{min}__{max}`
+tag and ping the canonical pair URL without a DB read.
 
 Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the

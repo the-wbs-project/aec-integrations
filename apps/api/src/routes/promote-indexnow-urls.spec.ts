@@ -89,6 +89,41 @@ describe('affectedUrlsForPromote', () => {
     ]);
   });
 
+  it('emits the canonical pair URL for an integration carrying both slugs (AECI-297)', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [
+        {
+          ref: 'i1',
+          id: 'id-1',
+          operation: 'created',
+          sourceSlug: 'revit',
+          targetSlug: 'navisworks',
+        },
+      ],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    const urls = affectedUrlsForPromote(response, BASE);
+    // Additive to the legacy detail URL; pair context = alphabetically-first slug.
+    expect(urls).toContain(`${BASE}/integrations/id-1`);
+    expect(urls).toContain(`${BASE}/products/navisworks/integrations/revit`);
+  });
+
+  it('omits the pair URL when an integration lacks endpoint slugs', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [integration('id-1', 'created')],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(affectedUrlsForPromote(response, BASE).some((u) => u.includes('/products/'))).toBe(
+      false,
+    );
+  });
+
   it('a newly created phase → phase browse page + home + nav', () => {
     const response: PromoteResponse = {
       vendors: [],

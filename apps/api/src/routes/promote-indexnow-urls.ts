@@ -20,6 +20,10 @@
  *   - product → `/products/{slug}` detail + `/products` index.
  *   - each vendor → `/vendors/{slug}` detail.
  *   - each integration → `/integrations/{id}` detail (UUID route).
+ *   - each integration with both endpoint slugs → the canonical pair page
+ *     `/products/{context}/integrations/{other}` (Stage 1.5, §6.2 / §7.3; context =
+ *     alphabetically-first slug). Additive to the legacy `/integrations/{id}` URL —
+ *     dropping that in favour of pair URLs is AECI-298's scope.
  *   - each touched taxonomy term (created *and* reused — the product's facet
  *     membership changed either way) → `/{categories|audiences|phases}/{slug}`
  *     browse page.
@@ -38,6 +42,8 @@
  */
 
 import type { PromoteResponse } from '@aeci/shared';
+
+import { sortedPairSlugs } from './promote-pair';
 
 /**
  * Returns the deduplicated set of absolute public URLs to submit to IndexNow for
@@ -64,6 +70,18 @@ export function affectedUrlsForPromote(response: PromoteResponse, baseUrl: strin
   // in the module doc-comment (AECI-86).
   for (const integration of response.integrations) {
     urls.add(`${base}/integrations/${integration.id}`);
+  }
+
+  // Pair pages (Stage 1.5, §6.2 / §7.3): the consolidated product-pair page for an
+  // integration, at the canonical default-context URL
+  // `/products/{context}/integrations/{other}` (context = alphabetically-first
+  // slug; the other orientation canonicalises to it). Slugs come from the response
+  // integration results (populated by the claims ingest, AECI-297); guard on both.
+  for (const integration of response.integrations) {
+    if (integration.sourceSlug && integration.targetSlug) {
+      const [context, other] = sortedPairSlugs(integration.sourceSlug, integration.targetSlug);
+      urls.add(`${base}/products/${context}/integrations/${other}`);
+    }
   }
 
   // Taxonomy browse pages: one per touched term (created and reused). The URL
