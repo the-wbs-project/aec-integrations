@@ -3,9 +3,9 @@ import { Routes } from '@angular/router';
 import { adminSummaryResolver } from './admin/admin-summary.resolver';
 import { homeBrowseResolver } from './home/home-browse.resolver';
 import { homeStatsResolver } from './home/home-stats.resolver';
-import { integrationDetailResolver } from './integrations/integration-detail.resolver';
 import { notFoundResolver } from './not-found/not-found.resolver';
 import { productDetailResolver } from './products/product-detail.resolver';
+import { productsPairResolver } from './products/products-pair.resolver';
 import { reviewProductResolver } from './reviews/review-product.resolver';
 import {
   categoryBrowseResolver,
@@ -82,6 +82,16 @@ export const routes: Routes = [
     loadComponent: () => import('./reviews/review-form').then((m) => m.ReviewForm),
     resolve: { product: reviewProductResolver },
   },
+  // AECI-294 — Stage 1.5 product-PAIR page. Two params (context + other product
+  // slugs); the pair is a query-time grouping of every integration between them
+  // (§7). More specific than `products/:slug` (three segments), so it must
+  // precede it in the table. The legacy `/integrations/:id` route is retired —
+  // the SSR Worker 301-redirects it here (see `server-runtime.ts`).
+  {
+    path: 'products/:contextSlug/integrations/:otherSlug',
+    loadComponent: () => import('./products/products-pair').then((m) => m.ProductsPairPage),
+    resolve: { pair: productsPairResolver },
+  },
   {
     path: 'products/:slug',
     loadComponent: () => import('./products/product-detail').then((m) => m.ProductDetailPage),
@@ -154,22 +164,12 @@ export const routes: Routes = [
     data: { kind: 'phase' },
     resolve: { term: phaseBrowseResolver },
   },
-  // AECI-60 — Phase 2.14 integration detail. Integrations are keyed by record
-  // ID, not slug (Phase 2 Spec §6.5). The detail resolver runs SSR-side via the
-  // service binding; hydration reads from TransferState. A null result renders
-  // the global 404 shell. No claim/correction routes — explicitly out of scope
-  // for Stage 1 (Phase 6 covers product + vendor only).
-  //
-  // AECI-165 removed the `/integrations` index/listing page (orphaned from the
-  // nav after AECI-160). `/integrations` now 301-redirects to `/products` at the
-  // SSR Worker (see `server-runtime.ts`), so there is no Angular index route
-  // here — only the detail route below.
-  {
-    path: 'integrations/:id',
-    loadComponent: () =>
-      import('./integrations/integration-detail').then((m) => m.IntegrationDetailPage),
-    resolve: { integration: integrationDetailResolver },
-  },
+  // AECI-294 (Stage 1.5) retired the standalone `/integrations/:id` detail route.
+  // Integrations are now consolidated onto the product-PAIR page
+  // (`/products/:contextSlug/integrations/:otherSlug`, above); the SSR Worker
+  // 301-redirects any legacy `/integrations/:id` link to the canonical pair URL
+  // (see `server-runtime.ts`). `/integrations` (the index) already 301s to
+  // `/products` (AECI-165).
   // AECI-142 — Phase 3.9 search page. Results are queried browser-side from
   // Algolia with the search-only key (the API Worker is not in the read path,
   // §7.5), so there is NO resolver — the SSR shell paints meta + search box +

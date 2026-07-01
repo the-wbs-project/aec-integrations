@@ -87,7 +87,21 @@ function mockClient(): { client: ServerApiClient; paths: string[] } {
       };
     }
     if (p === '/api/integrations') {
-      return { data: [{ id: 'int-uuid-1', updated_at: ISO }], page: 1, perPage: 100, total: 1 };
+      // AECI-294 — the sitemap folds integrations into product PAIRS, so a row
+      // needs its two product slugs. revit/procore → canonical context procore.
+      return {
+        data: [
+          {
+            id: 'int-uuid-1',
+            updated_at: ISO,
+            source: { slug: 'revit' },
+            target: { slug: 'procore' },
+          },
+        ],
+        page: 1,
+        perPage: 100,
+        total: 1,
+      };
     }
     if (p === '/api/taxonomy') {
       return {
@@ -116,7 +130,7 @@ describe('resolveSitemapEntries', () => {
     expect(productLocs).toHaveLength(150);
   });
 
-  it('includes index pages, vendor/integration details, and all taxonomy types', () => {
+  it('includes index pages, vendor detail + integration PAIR, and all taxonomy types', () => {
     return resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com').then(
       (entries) => {
         const locs = entries.map((e) => e.loc);
@@ -130,9 +144,12 @@ describe('resolveSitemapEntries', () => {
         // gone from the sitemap. Their DETAIL URLs still appear (below).
         expect(locs).not.toContain('https://aecintegrations.com/vendors');
         expect(locs).not.toContain('https://aecintegrations.com/integrations');
+        // AECI-294 — no standalone `/integrations/:id`; integrations surface as
+        // the canonical product-PAIR URL instead.
+        expect(locs).not.toContain('https://aecintegrations.com/integrations/int-uuid-1');
         // Entities (detail pages stay)
         expect(locs).toContain('https://aecintegrations.com/vendors/autodesk');
-        expect(locs).toContain('https://aecintegrations.com/integrations/int-uuid-1');
+        expect(locs).toContain('https://aecintegrations.com/products/procore/integrations/revit');
         expect(locs).toContain('https://aecintegrations.com/categories/cost');
         expect(locs).toContain('https://aecintegrations.com/audiences/structural');
         expect(locs).toContain('https://aecintegrations.com/phases/design');
@@ -151,13 +168,15 @@ describe('resolveSitemapEntries', () => {
     }
   });
 
-  it('sets lastmod from updated_at for products/vendors/integrations but not taxonomy', async () => {
+  it('sets lastmod from updated_at for products/vendors/integration pairs but not taxonomy', async () => {
     const entries = await resolveSitemapEntries(mockClient().client, 'https://aecintegrations.com');
     const byLoc = (loc: string) => entries.find((e) => e.loc === loc);
 
     expect(byLoc('https://aecintegrations.com/products/product-0')?.lastmod).toBe(ISO);
     expect(byLoc('https://aecintegrations.com/vendors/autodesk')?.lastmod).toBe(ISO);
-    expect(byLoc('https://aecintegrations.com/integrations/int-uuid-1')?.lastmod).toBe(ISO);
+    expect(byLoc('https://aecintegrations.com/products/procore/integrations/revit')?.lastmod).toBe(
+      ISO,
+    );
     // Taxonomy entries carry no lastmod.
     expect(byLoc('https://aecintegrations.com/categories/cost')?.lastmod).toBeUndefined();
     expect(byLoc('https://aecintegrations.com/audiences/structural')?.lastmod).toBeUndefined();

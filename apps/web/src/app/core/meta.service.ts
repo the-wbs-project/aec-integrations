@@ -43,6 +43,14 @@ export interface SetEntityMetaInput {
   description: string | null | undefined;
   canonical: string;
   ogImage?: string;
+  /**
+   * Emit `robots: noindex` for an otherwise-canonical entity page whose current
+   * state isn't worth indexing — e.g. a product-PAIR page with no integrations
+   * between the two products (thin content; AECI-294). Defaults to indexable.
+   * The tag is actively removed when `false` so an in-app navigation OFF a
+   * noindexed page back onto an indexable one doesn't leave a stale robots tag.
+   */
+  noindex?: boolean;
 }
 
 /**
@@ -77,6 +85,12 @@ export class MetaService {
 
     const canonical = stripQueryParams(input.canonical);
     this.upsertCanonical(canonical);
+
+    // Indexable by default; noindex only when the caller opts in (e.g. an empty
+    // pair page). Clear the tag otherwise so a client nav off a noindexed page
+    // doesn't carry the tag onto an indexable one.
+    if (input.noindex) this.meta.updateTag({ name: 'robots', content: 'noindex' });
+    else this.meta.removeTag('name="robots"');
 
     const ogType = ogTypeForKind(input.entity);
     const tags = buildOgTags({

@@ -20,7 +20,11 @@
  * `select` discipline gave us.
  */
 
-import { ProductUsefulnessSchema, RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
+import {
+  integrationDirectionForContext,
+  ProductUsefulnessSchema,
+  RATING_VISIBILITY_MIN_REVIEWS,
+} from '@aeci/shared';
 import type {
   AccountReview,
   AdminReview,
@@ -32,6 +36,8 @@ import type {
   ProductDetail,
   ProductLink,
   ProductListItem,
+  ProductPairMechanism,
+  ProductPairResponse,
   ProductRole,
   ProductUsefulness,
   PublicReview,
@@ -93,6 +99,31 @@ export const integrationDetailConfig = {
     mechanismUrl: true,
     pricingModel: true,
     maturity: true,
+  },
+  with: {
+    sourceProduct: { columns: productLinkColumns },
+    targetProduct: { columns: productLinkColumns },
+    builtByVendor: { columns: vendorLinkColumns },
+    poweredByProduct: { columns: productLinkColumns },
+  },
+} as const;
+
+/**
+ * Pair-page mechanism hydration (Stage 1.5 §7 — AECI-294). Like the detail
+ * config but drops the redundant `mechanism_url`/`pricing_model`/`maturity`
+ * fields (unused by the pair card) while keeping source/target — needed to
+ * translate the stored direction into the context product's frame.
+ */
+export const integrationPairConfig = {
+  columns: {
+    id: true,
+    name: true,
+    mechanismKind: true,
+    mechanismName: true,
+    direction: true,
+    description: true,
+    listingUrl: true,
+    docsUrl: true,
   },
   with: {
     sourceProduct: { columns: productLinkColumns },
@@ -353,6 +384,21 @@ export interface RawIntegrationDetailRow extends RawIntegrationListRow {
   poweredByProduct: RawProductLink | null;
 }
 
+export interface RawIntegrationPairRow {
+  id: string;
+  name: string | null;
+  mechanismKind: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  description: string | null;
+  listingUrl: string | null;
+  docsUrl: string | null;
+  sourceProduct: RawProductLink;
+  targetProduct: RawProductLink;
+  builtByVendor: RawVendorLink | null;
+  poweredByProduct: RawProductLink | null;
+}
+
 export interface RawProductListRow {
   id: string;
   slug: string;
@@ -544,6 +590,48 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
     powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
     pricing_model: raw.pricingModel,
     maturity: raw.maturity,
+  };
+}
+
+/** One mechanism row on the pair page, with its direction translated to the
+ *  context product's frame (§3.2 / §7). `mechanism_name` is the integration's
+ *  own title, falling back to the mechanism label; source/target are redundant
+ *  on the pair page (both are the page's endpoints) so they are not surfaced. */
+function toProductPairMechanism(
+  raw: RawIntegrationPairRow,
+  contextProductId: string,
+): ProductPairMechanism {
+  const contextIsSource = raw.sourceProduct.id === contextProductId;
+  return {
+    id: raw.id,
+    mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
+    mechanism_name: raw.name ?? raw.mechanismName,
+    direction: integrationDirectionForContext(coerceDirection(raw.direction), contextIsSource),
+    description: raw.description,
+    listing_url: raw.listingUrl,
+    docs_url: raw.docsUrl,
+    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
+  };
+}
+
+/**
+ * Assemble the product-PAIR response (§7). Both products hydrate as
+ * `ProductListItem` (vendor + review recap) for the rail; each integration row
+ * becomes a mechanism with a context-relative direction. `sync_headline` is
+ * `{ total: 0, confirmed: 0 }` in Layer A — claims (and the real ratio) land in
+ * Layer B (AECI-300).
+ */
+export function toProductPairResponse(
+  contextProduct: RawProductListRow,
+  otherProduct: RawProductListRow,
+  integrations: RawIntegrationPairRow[],
+): ProductPairResponse {
+  return {
+    context_product: toProductListItem(contextProduct),
+    other_product: toProductListItem(otherProduct),
+    mechanisms: integrations.map((row) => toProductPairMechanism(row, contextProduct.id)),
+    sync_headline: { total: 0, confirmed: 0 },
   };
 }
 

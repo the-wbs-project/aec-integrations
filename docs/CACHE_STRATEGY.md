@@ -21,8 +21,8 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 |---|---|
 | `product:{slug}` | The product detail page for that slug |
 | `vendor:{slug}` | The vendor detail page for that slug |
-| `integration:{id}` | The integration detail page |
-| `pair:{min}__{max}` | The Stage 1.5 consolidated product-**pair** page (`/products/:context/integrations/:other`), keyed by its two product slugs sorted alphabetically (`min` = context). A promote touching an integration between the two products — or a claim on it — purges this tag. Emitted by both the pair page SSR (AECI-294) and the promote deriver (`promote-cache-tags.ts` → `pairCacheTag`, AECI-297), which must stay in lockstep. |
+| `pair:{min}__{max}` | The Stage 1.5 consolidated product-**pair** page (`/products/:context/integrations/:other`). `{min}`/`{max}` are the two product slugs in **alphabetical** order (`min` = context), so the tag is **orientation-independent** — both `/products/A/integrations/B` and its mirror carry the same `pair:` tag. The page also embeds `product:{slug}` for **both** products, so a promote touching either product — or a claim on the integration — purges it. Emitted by both the pair page SSR (AECI-294) and the promote deriver (`promote-cache-tags.ts` → `pairCacheTag`, AECI-297), which must stay in lockstep. |
+| `integration:{id}` | Stage 1.5 (AECI-294) retired the `/integrations/:id` detail page; this tag now rides the **301 redirect** to the pair page (so a promote on that integration can purge the cached redirect). |
 | `category:{slug}` | Category browse page |
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
@@ -45,7 +45,7 @@ Every cacheable response carries **at minimum**:
 Codified so callers don't re-derive the rules per surface:
 
 1. **Entity tag + route-class tag are mandatory.** Every cacheable response sets at least one entity-specific tag (e.g. `product:procore`) and exactly one route-class tag (`route:detail` | `route:index` | `route:browse`). A response that doesn't fit either category isn't cacheable — see §4.
-2. **Embedded entities also tag.** Any entity rendered in the response — even transitively — contributes a tag. A product detail page embeds its vendor → also `vendor:{vendor-slug}`. An integration page embeds both linked products → also `product:{source-slug}` and `product:{target-slug}`. A browse page lists every product matching the facet → tag each: `product:{slug-1}, product:{slug-2}, …`. A page that renders the taxonomy nav also carries `taxonomy`. This is what makes purge-by-tag exhaustive — editing a vendor invalidates every product page that displays it, with no URL bookkeeping. The Stage 1.5 **pair page** carries its own `pair:{min}__{max}` tag plus `product:{a}` / `product:{b}` for both endpoints, so both a product edit and a claims-only promote repaint it.
+2. **Embedded entities also tag.** Any entity rendered in the response — even transitively — contributes a tag. A product detail page embeds its vendor → also `vendor:{vendor-slug}`. The product-PAIR page embeds both products → also `product:{context-slug}` and `product:{other-slug}` (plus each mechanism's `built_by` vendor / `powered_by` product, pushed by the resolver), and carries its own `pair:{min}__{max}` tag — so both a product edit and a claims-only promote (AECI-297) repaint it. A browse page lists every product matching the facet → tag each: `product:{slug-1}, product:{slug-2}, …`. A page that renders the taxonomy nav also carries `taxonomy`. This is what makes purge-by-tag exhaustive — editing a vendor invalidates every product page that displays it, with no URL bookkeeping.
 3. **Coarse tags for incident response.** `route:detail` / `route:index` / `route:browse` exist for bulk invalidation when something goes wrong at the route-class layer (e.g. a layout change that needs to repaint every detail page). Don't use them for routine writes.
 
 ### Cache-Tag header construction helper
@@ -61,7 +61,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 

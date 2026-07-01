@@ -411,10 +411,10 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 >.
               </p>
             } @else {
-              <ng-template #integrationRow let-item>
+              <ng-template #integrationRow let-item let-contextSlug="contextSlug">
                 <li>
                   <a
-                    [routerLink]="['/integrations', item.integration.id]"
+                    [routerLink]="['/products', contextSlug, 'integrations', item.other.slug]"
                     class="flex items-center gap-3 rounded-(--radius-lg)
                       border border-(--border-default) bg-(--surface-raised) p-4
                       text-(--text-primary) no-underline transition-colors
@@ -450,7 +450,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 @for (item of integrationsAbove(); track item.integration.id) {
                   <ng-container
                     [ngTemplateOutlet]="integrationRow"
-                    [ngTemplateOutletContext]="{ $implicit: item }"
+                    [ngTemplateOutletContext]="{ $implicit: item, contextSlug: p.slug }"
                   ></ng-container>
                 }
               </ul>
@@ -461,7 +461,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
                     @for (item of integrationsDeferred(); track item.integration.id) {
                       <ng-container
                         [ngTemplateOutlet]="integrationRow"
-                        [ngTemplateOutletContext]="{ $implicit: item }"
+                        [ngTemplateOutletContext]="{ $implicit: item, contextSlug: p.slug }"
                       ></ng-container>
                     }
                   </ul>

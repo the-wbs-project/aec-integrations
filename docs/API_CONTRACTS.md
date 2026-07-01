@@ -525,6 +525,47 @@ export type IntegrationsListResponse = z.infer<typeof IntegrationsListResponseSc
 export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 ```
 
+> The standalone `/integrations/:id` **page** is retired in Stage 1.5 (AECI-294) — the SSR Worker 301-redirects it to the product-PAIR page. The `GET /api/integrations/:id` **endpoint** stays (the sitemap generator + the 301 handler read it to resolve a pair's two product slugs).
+
+#### `GET /api/products/:slug/integrations/:otherSlug` (Stage 1.5 · AECI-294)
+
+The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation).
+
+```typescript
+// packages/shared/src/api/product-pairs.ts
+export const ContextDirectionSchema = z.enum(['outbound', 'inbound', 'both']);
+
+export const ProductPairMechanismSchema = z.object({
+  id: z.string().uuid(),
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(),
+  mechanism_name: z.string().nullable(),
+  direction: ContextDirectionSchema.nullable(),   // the stored one-way/bidirectional, translated context-relative (§3.2)
+  description: z.string().nullable(),
+  listing_url: z.string().url().nullable(),
+  docs_url: z.string().url().nullable(),
+  built_by_vendor: VendorLinkSchema.nullable(),
+  powered_by_product: ProductLinkSchema.nullable(),
+});
+
+export const SyncHeadlineSchema = z.object({
+  total: z.number().int().min(0),      // distinct claims on the pair — 0 in Layer A
+  confirmed: z.number().int().min(0),  // vendor-confirmed — 0 in Layer A
+});
+
+export const ProductPairResponseSchema = z.object({
+  context_product: ProductListItemSchema,   // both products hydrate as ProductListItem (vendor + review recap)
+  other_product: ProductListItemSchema,
+  mechanisms: z.array(ProductPairMechanismSchema),
+  sync_headline: SyncHeadlineSchema,
+});
+export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
+```
+
+- **`direction`** is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level for Layer A). Claim-level (`data_object`) directions arrive in Layer B (AECI-300).
+- **`sync_headline`** is `{ total: 0, confirmed: 0 }` in Layer A (no claims yet); Layer B fills it.
+- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`.
+- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`).
+
 ### 6.4 Taxonomy
 
 #### `GET /api/categories`, `/api/audiences`, `/api/phases`
