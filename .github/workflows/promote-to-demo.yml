@@ -238,6 +238,7 @@ jobs:
           set -euo pipefail
           pnpm exec wrangler d1 migrations apply aeci-app-demo --env demo --remote
           pnpm exec wrangler d1 execute aeci-app-demo --env demo --remote --file=seed/taxonomy.sql
+          pnpm exec wrangler d1 execute aeci-app-demo --env demo --remote --file=seed/data-objects.sql
 
       # API deploys FIRST (the SSR Worker's services.API binding targets aeci-api-demo).
       - name: Deploy API (demo)

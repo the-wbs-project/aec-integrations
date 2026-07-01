@@ -289,6 +289,88 @@ export const taxonomyPhases = sqliteTable(
   (t) => [uniqueIndex('taxonomy_phases_slug_key').on(t.slug)],
 );
 
+// `data_object` controlled vocabulary (Stage 1.5 — STAGE_1_5_SPEC.md §6.1). Mirrors
+// `taxonomyCategories` and adds `aliases`: resolver metadata (JSON array of alternate
+// names) the promote ingest matches a claim's `dataObject` against, find-only by slug
+// then alias (§6.2, AECI-297). Closed 20-term list; seeded from
+// `apps/api/seed/data-objects.sql` (UUIDv5-by-slug, idempotent upsert).
+export const taxonomyDataObjects = sqliteTable(
+  'taxonomy_data_objects',
+  {
+    id: uuidPk(),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    displayOrder: integer('display_order'),
+    aliases: text('aliases', { mode: 'json' }).$type<string[]>(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex('taxonomy_data_objects_slug_key').on(t.slug)],
+);
+
+// ===========================================================================
+// Claims & attestations (Stage 1.5 — STAGE_1_5_SPEC.md §3 / §6.1)
+// ===========================================================================
+
+// A claim asserts a `data_object` flows in a `direction` through one integration
+// (mechanism) row — the integration row is the anchor (§3.1, ADR 0018). `direction`
+// is stored relative to the row's own endpoints (A = source_product, B = target_product,
+// §3.2). The unique `(integration_id, data_object_id, direction)` index is the claim's
+// immutable identity AND the promote-ingest upsert target (§6.2).
+export const claims = sqliteTable(
+  'claims',
+  {
+    id: uuidPk(),
+    integrationId: text('integration_id')
+      .notNull()
+      .references(() => integrations.id, { onDelete: 'cascade' }),
+    dataObjectId: text('data_object_id')
+      .notNull()
+      .references(() => taxonomyDataObjects.id, { onDelete: 'restrict' }),
+    direction: text('direction').notNull(),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    uniqueIndex('claims_identity_key').on(t.integrationId, t.dataObjectId, t.direction),
+    // Pair-page read by data object (§8). Integration-id lookups are already served by
+    // the leftmost prefix of `claims_identity_key`, so no separate integration index.
+    index('claims_data_object_idx').on(t.dataObjectId),
+    check('claims_direction_check', sql`"direction" IN ('a_to_b', 'b_to_a', 'both')`),
+  ],
+);
+
+// An attestation records who affirms a claim (§3.3). In Stage 1.5 only `source: 'aeci'`
+// is ever written; `vendor_a`/`vendor_b` and the `introduced_at`/`deprecated_at` version
+// stamps are additive-and-dormant — present in the schema/contract, written by no 1.5
+// code path (reserved for the Stage 2 portal + timeline). Agreement is computed from the
+// attestation set, never stored (§3.4, `packages/shared/src/agreement.ts`).
+export const attestations = sqliteTable(
+  'attestations',
+  {
+    id: uuidPk(),
+    claimId: text('claim_id')
+      .notNull()
+      .references(() => claims.id, { onDelete: 'cascade' }),
+    source: text('source').notNull(),
+    asserted: integer('asserted', { mode: 'boolean' }).notNull().default(true),
+    introducedAt: text('introduced_at'),
+    deprecatedAt: text('deprecated_at'),
+    note: text('note'),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    // Active attestations for a claim (the §8 read). Partial on the dormant version
+    // stamp so Stage 2 can retire an attestation without deleting its history.
+    index('attestations_active_idx')
+      .on(t.claimId)
+      .where(sql`"deprecated_at" IS NULL`),
+    check('attestations_source_check', sql`"source" IN ('aeci', 'vendor_a', 'vendor_b')`),
+  ],
+);
+
 // ===========================================================================
 // Join tables (§6) — composite PKs
 // ===========================================================================
@@ -785,7 +867,7 @@ export const productsRelations = relations(products, ({ many }) => ({
   targetIntegrations: many(integrations, { relationName: 'IntegrationTarget' }),
 }));
 
-export const integrationsRelations = relations(integrations, ({ one }) => ({
+export const integrationsRelations = relations(integrations, ({ one, many }) => ({
   sourceProduct: one(products, {
     fields: [integrations.sourceProductId],
     references: [products.id],
@@ -806,6 +888,9 @@ export const integrationsRelations = relations(integrations, ({ one }) => ({
     references: [products.id],
     relationName: 'IntegrationPoweredByProduct',
   }),
+  // Stage 1.5 (§6.1): claims anchor to the mechanism row. Relations-only — no
+  // `integrations`-table change — so the pair page can hydrate claims per integration.
+  claims: many(claims),
 }));
 
 export const taxonomyCategoriesRelations = relations(taxonomyCategories, ({ many }) => ({
@@ -816,6 +901,24 @@ export const taxonomyAudiencesRelations = relations(taxonomyAudiences, ({ many }
 }));
 export const taxonomyPhasesRelations = relations(taxonomyPhases, ({ many }) => ({
   productPhases: many(productPhases),
+}));
+
+export const taxonomyDataObjectsRelations = relations(taxonomyDataObjects, ({ many }) => ({
+  claims: many(claims),
+}));
+export const claimsRelations = relations(claims, ({ one, many }) => ({
+  integration: one(integrations, {
+    fields: [claims.integrationId],
+    references: [integrations.id],
+  }),
+  dataObject: one(taxonomyDataObjects, {
+    fields: [claims.dataObjectId],
+    references: [taxonomyDataObjects.id],
+  }),
+  attestations: many(attestations),
+}));
+export const attestationsRelations = relations(attestations, ({ one }) => ({
+  claim: one(claims, { fields: [attestations.claimId], references: [claims.id] }),
 }));
 
 export const productCategoriesRelations = relations(productCategories, ({ one }) => ({
@@ -882,6 +985,9 @@ export const schema = {
   taxonomyCategories,
   taxonomyAudiences,
   taxonomyPhases,
+  taxonomyDataObjects,
+  claims,
+  attestations,
   productCategories,
   productAudiences,
   productPhases,
@@ -905,6 +1011,9 @@ export const schema = {
   taxonomyCategoriesRelations,
   taxonomyAudiencesRelations,
   taxonomyPhasesRelations,
+  taxonomyDataObjectsRelations,
+  claimsRelations,
+  attestationsRelations,
   productCategoriesRelations,
   productAudiencesRelations,
   productPhasesRelations,

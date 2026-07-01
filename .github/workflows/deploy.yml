@@ -493,6 +493,7 @@ jobs:
           set -euo pipefail
           pnpm exec wrangler d1 migrations apply aeci-app-staging --env staging --remote
           pnpm exec wrangler d1 execute aeci-app-staging --env staging --remote --file=seed/taxonomy.sql
+          pnpm exec wrangler d1 execute aeci-app-staging --env staging --remote --file=seed/data-objects.sql
 
       # `aeci-api-staging`; deploying API ahead of web means any brief
       # mismatch lands in the safer direction (API ahead of web).

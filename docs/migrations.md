@@ -57,8 +57,11 @@ Rules:
   default `migrations_dir`, so no `migrations_pattern` is needed).
 - **Reference data** (taxonomy, ADR 0008) lives in `apps/api/seed/taxonomy.sql`
   as idempotent `INSERT … ON CONFLICT(slug) DO UPDATE` with deterministic
-  UUIDv5 ids. The local catalog fixture is `apps/api/seed/catalog.sql`
-  (local-dev only; staging/prod re-promote from Airtable via `POST /api/promote`).
+  UUIDv5 ids. The Stage 1.5 `data_object` vocabulary follows the same pattern in
+  `apps/api/seed/data-objects.sql` (AECI-293; source of truth
+  `docs/DATA_OBJECT_VOCABULARY.md`). The local catalog fixture is
+  `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
+  Airtable via `POST /api/promote`).
 - **Per-env apply** (preview/staging/production) is wired into CI in Phase 5
   (AECI-256): `wrangler d1 migrations apply aeci-app-<env> --env <env>`.
 - **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
@@ -233,7 +236,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 ## 7. What does not belong in a migration
 
 - **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
-- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql` (idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local`, in deploy/promote via `wrangler d1 execute … --file=seed/taxonomy.sql`. See ADR 0008.
+- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql` and the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql` (both idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local`, in deploy/promote via `wrangler d1 execute … --file=seed/taxonomy.sql` and `… --file=seed/data-objects.sql`. See ADR 0008.
 - **Curator-managed data**: vendors, products, integrations, reviews come in via `POST /api/promote` (`docs/DATABASE_SCHEMA.md` §13).
 - **One-off backfills**: write a script (`apps/api/scripts/<name>.ts`), run it explicitly per environment. Keep migrations declarative.
 - **RLS policies**: see §5.
