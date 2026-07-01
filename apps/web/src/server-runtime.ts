@@ -1055,23 +1055,22 @@ export function createApp(options: {
   // canonical pair URL: we resolve the integration's two product slugs via the
   // API binding, pick the alphabetically-first as the context (`defaultIntegrationContext`
   // — the SAME rule the pair route, canonical, and sitemap use), and redirect.
-  // Registered BEFORE the SSR catch-all so it wins, and emitted as a standalone
-  // Response (NOT via `handleSsr`, which forces 3xx to `no-store`) so the
-  // permanent mapping stays edge-cacheable. Tagged `integration:{id}` so a
-  // promote touching that integration can purge the redirect. Slugs are immutable
-  // (§6.2), so the target is stable. An unknown id resolves to a real 404
-  // (`route:404`) rather than a 301 to `/products` — junk ids must not redirect.
+  // The 301 is emitted as a standalone Response (NOT via `handleSsr`, which forces
+  // 3xx to `no-store`) so the permanent mapping stays edge-cacheable, and tagged
+  // `integration:{id}` so a promote touching that integration can purge the
+  // redirect. Slugs are immutable (§6.2), so the target is stable. Registered
+  // BEFORE the SSR catch-all so it wins. An unknown id is NOT redirected — it
+  // renders the standard SSR 404 (the Angular `**` wildcard: branded, accessible,
+  // `noindex`, with `NOT_FOUND_TTL` + `route:404`), exactly like a junk
+  // product/vendor slug, so junk ids never 301 to `/products`.
   const pairRedirect = async (c: Context<{ Bindings: Bindings }>): Promise<Response> => {
     const url = new URL(c.req.url);
     const id = c.req.param('id');
-    const notFound = () =>
-      new Response('Page not found.', {
-        status: 404,
-        headers: {
-          'Cache-Control': buildCacheControl(NOT_FOUND_TTL),
-          'Cache-Tag': CACHE_TAG_NOT_FOUND,
-        },
-      });
+    // Delegate to the SSR pipeline so a missing/unknown id gets the real 404 page
+    // (accessible + noindex), not a bare text body. `/integrations/:id` is
+    // non-cacheable, so `handleSsr` renders the `**` wildcard and applies
+    // `NOT_FOUND_TTL` + `route:404` to the 404 response.
+    const notFound = () => handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse);
     if (!id) return notFound();
 
     let integration: IntegrationDetail | null = null;
@@ -1080,8 +1079,8 @@ export function createApp(options: {
         `/api/integrations/${encodeURIComponent(id)}`,
       );
     } catch (err) {
-      // A NOT_FOUND (unknown/malformed id) → fall through to the 404 below; any
-      // other API error is a real failure and must surface.
+      // A NOT_FOUND (unknown/malformed id) → render the SSR 404 below; any other
+      // API error is a real failure and must surface.
       if (!(isServerApiError(err) && err.status === 404)) throw err;
     }
 

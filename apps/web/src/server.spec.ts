@@ -841,14 +841,17 @@ describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
     expect(calls.some((r) => new URL(r.url).pathname === '/api/integrations/int-1')).toBe(true);
   });
 
-  it('404s an unknown integration id rather than 301-ing to /products', async () => {
+  it('renders the SSR 404 for an unknown integration id rather than 301-ing to /products', async () => {
     const notFound = new Response(JSON.stringify({ error: { code: 'NOT_FOUND' } }), {
       status: 404,
       headers: { 'content-type': 'application/json' },
     });
-    const { binding } = recordingApiBinding(notFound);
+    const { binding, calls } = recordingApiBinding(notFound);
+    // An unknown id falls through to the SSR pipeline (the `**` wildcard renders
+    // the branded, accessible, noindex 404), so the renderer IS invoked and its
+    // 404 status carries NOT_FOUND_TTL + the route:404 sentinel tag.
     const ssrRenderer = vi.fn<SsrRenderer>(
-      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+      fixedRenderer(new Response('<html>not found</html>', { status: 404 })),
     );
     const app = createApp({ ssrRenderer });
 
@@ -859,8 +862,13 @@ describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
     );
 
     expect(res.status).toBe(404);
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
     expect(res.headers.get('cache-tag')).toBe('route:404');
-    expect(ssrRenderer).not.toHaveBeenCalled();
+    expect(ssrRenderer).toHaveBeenCalledTimes(1);
+    // It consulted the API binding to distinguish a real id (301) from junk (404).
+    expect(calls.some((r) => new URL(r.url).pathname === '/api/integrations/does-not-exist')).toBe(
+      true,
+    );
   });
 });
 
