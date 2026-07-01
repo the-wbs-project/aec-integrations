@@ -1135,19 +1135,31 @@ export const PromotePayloadSchema = z.object({
   integrations: z.array(PromoteIntegrationSchema).default([]),
   //  integrations[i].sourceProduct / targetProduct: { ref: <product.ref> } | { supabaseId }
   //  (a { ref } endpoint requires `product`; without it, reference products by supabaseId)
+  //  integrations[i].claims[]: Stage 1.5 data-object claims (AECI-291) —
+  //    { dataObject: slug|name, direction: 'a_to_b'|'b_to_a'|'both',
+  //      attestations: { source: 'aeci'|'vendor_a'|'vendor_b', asserted, introducedAt?, deprecatedAt?, note? }[] }
+  //    `dataObject` resolves find-only against the seeded vocabulary; a miss → skipped[] kind 'claim'.
 });
 
 // Response — `product` is null for a vendor-only / integration-only push
 export interface PromoteResponse {
   vendors: { ref: string; id: string; slug: string; operation: 'created' | 'updated' }[];
   product: { ref: string; id: string; slug: string; operation: 'created' | 'updated' } | null;
-  integrations: { ref: string; id: string; operation: 'created' | 'updated' }[];
+  // sourceSlug/targetSlug (the two products' slugs) are optional — populated by the
+  // claims ingest (AECI-297) so pair-page purge needs no DB read.
+  integrations: {
+    ref: string;
+    id: string;
+    operation: 'created' | 'updated';
+    sourceSlug?: string;
+    targetSlug?: string;
+  }[];
   taxonomy: {
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
     audiences: { slug: string; id: string; operation: 'created' | 'reused' }[];
     phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
   };
-  skipped: { ref: string; kind: 'integration' | 'extension'; reason: string }[];
+  skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim'; reason: string }[];
 }
 ```
 
@@ -1156,6 +1168,13 @@ only when both endpoints resolve — one is the product in this bundle (`ref`), 
 other must already be promoted (`supabaseId`). Integrations whose other endpoint
 isn't promoted yet land in `skipped[]` rather than failing the request. Every
 create/update writes an `audit_log` row in the same transaction (§26).
+
+**Claims (Stage 1.5, AECI-291):** each integration may carry a nested `claims[]`
+of data-object assertions (`STAGE_1_5_SPEC.md` §5). A claim rides with its
+integration (same withhold rule), and its `dataObject` resolves **find-only**
+against the seeded `data_object` vocabulary — an unmatched value lands in
+`skipped[]` with `kind: 'claim'`, never a 500. The shared schema ships here; the
+ingest (upsert `claims`/`attestations`, populate the result slugs) is AECI-297.
 
 Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the
