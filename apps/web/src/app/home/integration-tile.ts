@@ -1,7 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { IntegrationListItem } from '@aeci/shared';
+import { defaultIntegrationContext, type IntegrationListItem } from '@aeci/shared';
 
 import { directionLabel, mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
@@ -12,9 +12,13 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * `IntegrationCard` is a `<tr>` table row (scoped to `IndexLayout`'s body slot),
  * so the home needs a card-shaped tile, not a row.
  *
- * The whole tile is one `<a>` to `/integrations/:id` (integrations are keyed by
- * ID, not slug — Phase 2 §6.5), so the `mechanism_kind` chip + direction label
- * render as non-link spans to avoid nested anchors (same rule `ProductCardGrid`
+ * The whole tile is one `<a>` to the product-PAIR page
+ * `/products/:contextSlug/integrations/:otherSlug` (AECI-294; the standalone
+ * `/integrations/:id` page was retired). The context slug is the
+ * alphabetically-first of the two products (`defaultIntegrationContext` — the
+ * canonical orientation, matching the 301 + sitemap), since a home tile has no
+ * inherent context product. The `mechanism_kind` chip + direction label render
+ * as non-link spans to avoid nested anchors (same rule `ProductCardGrid`
  * follows). Labels come from the shared `mechanism-labels` `$localize` set
  * (AECI-142) so the ids can't drift from `/search` and `/integrations`; they
  * return `''` when absent, and the tile simply hides the chip/label then (a tile
@@ -30,7 +34,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
   imports: [RouterLink, LogoOrInitial],
   template: `
     <a
-      [routerLink]="['/integrations', integration().id]"
+      [routerLink]="pairLink()"
       class="flex h-full flex-col gap-3 rounded-(--radius-lg) border border-(--border-default)
         bg-(--surface-raised) p-5 no-underline transition-colors hover:border-(--border-strong)
         focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
@@ -77,6 +81,15 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 })
 export class IntegrationTile {
   readonly integration = input.required<IntegrationListItem>();
+
+  /** RouterLink to the canonical product-PAIR page for this integration's two
+   *  products (context = alphabetically-first slug). */
+  protected readonly pairLink = computed(() => {
+    const i = this.integration();
+    const context = defaultIntegrationContext(i.source.slug, i.target.slug);
+    const other = context === i.source.slug ? i.target.slug : i.source.slug;
+    return ['/products', context, 'integrations', other];
+  });
 
   // Shared with the /search + /integrations surfaces via `mechanism-labels.ts`
   // so the `$localize` id set can't drift; wrapped in `computed` (keyed off the

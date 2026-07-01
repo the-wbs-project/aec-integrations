@@ -128,7 +128,31 @@ describe('cacheTagInputsForPath', () => {
     ['/products', { route: 'index', entity: { type: 'index', slug: 'products' } }],
     ['/products/procore', { route: 'detail', entity: { type: 'product', slug: 'procore' } }],
     ['/vendors/autodesk', { route: 'detail', entity: { type: 'vendor', slug: 'autodesk' } }],
-    ['/integrations/abc-123', { route: 'detail', entity: { type: 'integration', id: 'abc-123' } }],
+    // AECI-294 — the product-PAIR page. The `pair:{min}__{max}` tag is
+    // orientation-independent (both orientations below yield `pair:procore__revit`),
+    // and both products are embedded so a promote on either purges the page.
+    [
+      '/products/procore/integrations/revit',
+      {
+        route: 'detail',
+        entity: { type: 'pair', slug: 'procore__revit' },
+        embedded: [
+          { type: 'product', slug: 'procore' },
+          { type: 'product', slug: 'revit' },
+        ],
+      },
+    ],
+    [
+      '/products/revit/integrations/procore',
+      {
+        route: 'detail',
+        entity: { type: 'pair', slug: 'procore__revit' },
+        embedded: [
+          { type: 'product', slug: 'revit' },
+          { type: 'product', slug: 'procore' },
+        ],
+      },
+    ],
     [
       '/categories',
       { route: 'index', entity: { type: 'index', slug: 'categories' }, taxonomy: true },
@@ -164,9 +188,12 @@ describe('cacheTagInputsForPath', () => {
     '/products/procore/extra',
     // AECI-165 — the `/vendors` and `/integrations` index pages were removed and
     // now 301-redirect to `/products`, so the bare index paths are no longer
-    // cacheable here (their `:slug` / `:id` DETAIL paths still map — see above).
+    // cacheable here (their `:slug` DETAIL paths still map — see above).
     '/vendors',
     '/integrations',
+    // AECI-294 — `/integrations/:id` now 301-redirects to the pair page and never
+    // reaches the SSR cache pipeline, so it maps to null here.
+    '/integrations/abc-123',
   ])('returns null for non-cacheable path %s', (path) => {
     expect(cacheTagInputsForPath(path)).toBeNull();
   });
@@ -178,8 +205,8 @@ describe('cacheTagInputsForPath', () => {
       '/legal/terms',
       '/products',
       '/products/procore',
+      '/products/procore/integrations/revit',
       '/vendors/autodesk',
-      '/integrations/abc',
       '/categories',
       '/categories/structural',
       '/audiences',

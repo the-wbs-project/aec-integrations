@@ -161,7 +161,8 @@ describe('cacheControlForRoute', () => {
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 900, browser: 0 }],
-    ['/integrations/abc-123', { edge: 900, browser: 0 }],
+    // AECI-294 — the product-PAIR page is a detail-class route (900/0).
+    ['/products/procore/integrations/revit', { edge: 900, browser: 0 }],
     // CACHE_STRATEGY.md §4 — index pages AND taxonomy browse pages (category /
     // audience / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
     // taxonomy rows from a stale 30 min edge.)
@@ -190,10 +191,13 @@ describe('cacheControlForRoute', () => {
     '/disciplines/structural',
     // AECI-165 — the `/vendors` and `/integrations` INDEX pages were removed; they
     // 301-redirect to `/products` (the redirect handler sets its own headers), so
-    // the bare index paths are no longer in the SSR cache matrix. Their `:slug` /
-    // `:id` DETAIL paths remain cacheable (asserted above).
+    // the bare index paths are no longer in the SSR cache matrix. The `:slug`
+    // DETAIL paths remain cacheable (asserted above).
     '/vendors',
     '/integrations',
+    // AECI-294 — `/integrations/:id` now 301-redirects to the pair page (the
+    // redirect handler sets its own headers), so it's out of the SSR cache matrix.
+    '/integrations/abc-123',
   ])('returns null (non-cacheable) for %s', (path) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toBeNull();
   });
@@ -603,7 +607,11 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     ['/products', 'route:index,index:products'],
     ['/products/procore', 'route:detail,product:procore'],
     ['/vendors/autodesk', 'route:detail,vendor:autodesk'],
-    ['/integrations/abc-123', 'route:detail,integration:abc-123'],
+    // AECI-294 — the pair page: orientation-independent `pair:` tag + both products.
+    [
+      '/products/procore/integrations/revit',
+      'route:detail,pair:procore__revit,product:procore,product:revit',
+    ],
     ['/categories', 'route:index,index:categories,taxonomy'],
     ['/categories/structural', 'route:browse,category:structural'],
     ['/audiences/architecture', 'route:browse,audience:architecture'],
@@ -784,7 +792,7 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
     expect(res.headers.get('location')).toBe('https://aecintegrations.com/products');
   });
 
-  it('leaves the vendor/integration DETAIL routes to the SSR pipeline (only the bare index redirects)', async () => {
+  it('leaves the vendor DETAIL route to the SSR pipeline (only the bare index redirects)', async () => {
     const { binding } = recordingApiBinding();
     const { app, ssrRenderer } = appWithSpyRenderer();
     const res = await app.fetch(
@@ -792,9 +800,67 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
-    // Detail page renders via SSR (200), not a redirect.
+    // Detail page renders via SSR (200), not a redirect. (The integration DETAIL
+    // route now 301s to the pair page — see the AECI-294 block below.)
     expect(res.status).toBe(200);
     expect(ssrRenderer).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
+  const integrationResponse = () =>
+    new Response(
+      // The redirect only reads the two product slugs. Procore < Revit, so the
+      // canonical context is procore.
+      JSON.stringify({ id: 'int-1', source: { slug: 'revit' }, target: { slug: 'procore' } }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+
+  it('301-redirects a legacy integration URL to the canonical pair page without invoking SSR', async () => {
+    const { binding, calls } = recordingApiBinding(integrationResponse());
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    const app = createApp({ ssrRenderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/integrations/int-1'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(
+      'https://aecintegrations.com/products/procore/integrations/revit',
+    );
+    // Permanent, edge-cacheable mapping; tagged so a promote on the integration purges it.
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(res.headers.get('cache-tag')).toBe('integration:int-1');
+    expect(ssrRenderer).not.toHaveBeenCalled();
+    // It resolved the slugs via the API binding.
+    expect(calls.some((r) => new URL(r.url).pathname === '/api/integrations/int-1')).toBe(true);
+  });
+
+  it('404s an unknown integration id rather than 301-ing to /products', async () => {
+    const notFound = new Response(JSON.stringify({ error: { code: 'NOT_FOUND' } }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    });
+    const { binding } = recordingApiBinding(notFound);
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
+    );
+    const app = createApp({ ssrRenderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/integrations/does-not-exist'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(404);
+    expect(res.headers.get('cache-tag')).toBe('route:404');
+    expect(ssrRenderer).not.toHaveBeenCalled();
   });
 });
 

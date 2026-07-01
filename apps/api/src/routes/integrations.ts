@@ -17,8 +17,10 @@ import {
   IntegrationDetailSchema,
   IntegrationsListQuerySchema,
   IntegrationsListResponseSchema,
+  ProductPairResponseSchema,
   type IntegrationDetail,
   type IntegrationsListResponse,
+  type ProductPairResponse,
 } from '@aeci/shared';
 import { and, count, eq, inArray, like, or, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
@@ -31,8 +33,11 @@ import { json } from '../http';
 import {
   integrationDetailConfig,
   integrationListConfig,
+  integrationPairConfig,
+  productListConfig,
   toIntegrationDetail,
   toIntegrationListItem,
+  toProductPairResponse,
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 import { resolveIntegrationOrderBy } from '../lib/sort';
@@ -117,6 +122,66 @@ export function createIntegrationDetailHandler(
 
     validateResponseInDev(c.env, () => {
       IntegrationDetailSchema.parse(body);
+    });
+
+    return json(body);
+  };
+}
+
+/**
+ * `GET /api/products/:contextSlug/integrations/:otherSlug` — the product-PAIR
+ * read (Stage 1.5 §7 — AECI-294). Resolves the two products by slug and returns
+ * every integration between them (either source/target orientation) as
+ * mechanisms, with each mechanism's direction translated into the context
+ * product's frame. 404 when either slug is missing/unknown or the two are equal;
+ * a valid-but-unconnected pair is a 200 with `mechanisms: []`.
+ */
+export function createProductPairHandler(
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
+  return async (c) => {
+    // The first path segment reuses the `:slug` param name shared by the other
+    // `/api/products/:slug…` routes (Hono rejects differing param names at the
+    // same position); it carries the *context* product slug for the pair.
+    const contextSlug = c.req.param('slug');
+    const otherSlug = c.req.param('otherSlug');
+    if (!contextSlug || !otherSlug) {
+      throw new ApiError(400, 'VALIDATION_FAILED', 'Missing product slug', { field: 'slug' });
+    }
+    // The two endpoints of a pair are always distinct (the integrations table's
+    // distinct-endpoints check guarantees no self-integration), so equal slugs
+    // can never yield a pair — 404 without touching the DB.
+    if (contextSlug === otherSlug) {
+      throw notFoundError('product', { slug: otherSlug });
+    }
+
+    const { db } = dbFor(c.env);
+    const [contextProduct, otherProduct] = await Promise.all([
+      db.query.products.findFirst({ ...productListConfig, where: eq(products.slug, contextSlug) }),
+      db.query.products.findFirst({ ...productListConfig, where: eq(products.slug, otherSlug) }),
+    ]);
+    if (!contextProduct) throw notFoundError('product', { slug: contextSlug });
+    if (!otherProduct) throw notFoundError('product', { slug: otherSlug });
+
+    const rows = await db.query.integrations.findMany({
+      ...integrationPairConfig,
+      where: or(
+        and(
+          eq(integrations.sourceProductId, contextProduct.id),
+          eq(integrations.targetProductId, otherProduct.id),
+        ),
+        and(
+          eq(integrations.sourceProductId, otherProduct.id),
+          eq(integrations.targetProductId, contextProduct.id),
+        ),
+      ),
+      orderBy: resolveIntegrationOrderBy('name'),
+    });
+
+    const body: ProductPairResponse = toProductPairResponse(contextProduct, otherProduct, rows);
+
+    validateResponseInDev(c.env, () => {
+      ProductPairResponseSchema.parse(body);
     });
 
     return json(body);

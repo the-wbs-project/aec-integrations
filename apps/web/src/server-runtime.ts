@@ -57,14 +57,15 @@
  * from cookie stripping (i.e. added to the non-cacheable list instead).
  */
 
-import { LANDING_CF_HEADERS, PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
+import { defaultIntegrationContext, LANDING_CF_HEADERS, PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
+import type { IntegrationDetail } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { WebEnv } from './env';
 import { submitCount, submitDistribution } from './server-datadog';
-import { createServerApiClient } from './server-api-client';
+import { createServerApiClient, isServerApiError } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
@@ -327,12 +328,18 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-60 brought
-  // /integrations/:id onto this matrix (it was on a legacy 1hr/5min TTL before
-  // the detail page existed).
+  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-294 retired
+  // the standalone /integrations/:id detail (now a 301 to the pair page) and
+  // added the product-PAIR page /products/:contextSlug/integrations/:otherSlug —
+  // a detail-class route on the same TTL. It is listed BEFORE the plain
+  // /products/:slug matcher for clarity (a three-segment path can't match the
+  // single-segment product pattern, so ordering here isn't load-bearing).
+  {
+    match: (p) => /^\/products\/[^/]+\/integrations\/[^/]+$/.test(p),
+    ttl: { edge: 900, browser: 0 },
+  },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
-  { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   // Phase 2 Spec §8.3 — the `/products` index: edge 5 min, browser 0. The
   // shorter edge TTL is fine because the route also carries the `index:products`
   // tag that the /admin/purge endpoint can invalidate on writes; the browser is
@@ -1042,6 +1049,58 @@ export function createApp(options: {
   };
   app.get('/vendors', removedIndexRedirect);
   app.get('/integrations', removedIndexRedirect);
+
+  // AECI-294 (Stage 1.5) — the standalone `/integrations/:id` detail page was
+  // consolidated into the product-PAIR page. Any legacy link 301-redirects to the
+  // canonical pair URL: we resolve the integration's two product slugs via the
+  // API binding, pick the alphabetically-first as the context (`defaultIntegrationContext`
+  // — the SAME rule the pair route, canonical, and sitemap use), and redirect.
+  // Registered BEFORE the SSR catch-all so it wins, and emitted as a standalone
+  // Response (NOT via `handleSsr`, which forces 3xx to `no-store`) so the
+  // permanent mapping stays edge-cacheable. Tagged `integration:{id}` so a
+  // promote touching that integration can purge the redirect. Slugs are immutable
+  // (§6.2), so the target is stable. An unknown id resolves to a real 404
+  // (`route:404`) rather than a 301 to `/products` — junk ids must not redirect.
+  const pairRedirect = async (c: Context<{ Bindings: Bindings }>): Promise<Response> => {
+    const url = new URL(c.req.url);
+    const id = c.req.param('id');
+    const notFound = () =>
+      new Response('Page not found.', {
+        status: 404,
+        headers: {
+          'Cache-Control': buildCacheControl(NOT_FOUND_TTL),
+          'Cache-Tag': CACHE_TAG_NOT_FOUND,
+        },
+      });
+    if (!id) return notFound();
+
+    let integration: IntegrationDetail | null = null;
+    try {
+      integration = await createServerApiClient(c.env).request<IntegrationDetail>(
+        `/api/integrations/${encodeURIComponent(id)}`,
+      );
+    } catch (err) {
+      // A NOT_FOUND (unknown/malformed id) → fall through to the 404 below; any
+      // other API error is a real failure and must surface.
+      if (!(isServerApiError(err) && err.status === 404)) throw err;
+    }
+
+    if (!integration) return notFound();
+
+    const context = defaultIntegrationContext(integration.source.slug, integration.target.slug);
+    const other =
+      context === integration.source.slug ? integration.target.slug : integration.source.slug;
+
+    return new Response(null, {
+      status: 301,
+      headers: {
+        Location: `${url.origin}/products/${context}/integrations/${other}`,
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+        'Cache-Tag': `integration:${id}`,
+      },
+    });
+  };
+  app.get('/integrations/:id', pairRedirect);
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {
