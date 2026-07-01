@@ -48,10 +48,11 @@
  * AECI-160 re-pointed the primary nav at the taxonomy and pulled Vendors /
  * Integrations out of the nav AND footer (PO decision); AECI-165 then removed
  * the `/vendors` and `/integrations` INDEX pages entirely (they now 301-redirect
- * to `/products`). Only the vendor / integration DETAIL pages remain — reachable
- * ≤ 3 via a product detail's vendor / integration links — so this crawler tracks
- * `vendor-detail` / `integration-detail` reachability and no longer carries any
- * index page type for them.
+ * to `/products`). AECI-294 retired the standalone `/integrations/:id` detail in
+ * favour of the product-PAIR page `/products/:contextSlug/integrations/:otherSlug`
+ * (the legacy URL 301s to it). Both are reachable ≤ 3 via a product detail's
+ * vendor / integration links — so this crawler tracks `vendor-detail` /
+ * `product-pair` reachability and no longer carries any index page type for them.
  *
  * Every run writes `e2e/internal-link-graph-report.md` (a seed-stable,
  * type-level snapshot) in `beforeAll`, before the assertions, so it is produced
@@ -116,14 +117,15 @@ const BROWSER_SAMPLE_PER_TYPE = 5;
 // ---------------------------------------------------------------------------
 // Page-type taxonomy (the Phase 2 page types in the AC + non-required pages).
 // AECI-165 removed the `vendor-index` / `integration-index` types — those index
-// pages no longer exist; only the vendor / integration DETAIL types remain.
+// pages no longer exist; only the vendor DETAIL type remains. AECI-294 replaced
+// the `integration-detail` type with `product-pair` (the consolidated pair page).
 // ---------------------------------------------------------------------------
 
 type PageType =
   | 'product-index'
   | 'product-detail'
   | 'vendor-detail'
-  | 'integration-detail'
+  | 'product-pair'
   | 'categories'
   | 'category-browse'
   | 'audience-index'
@@ -137,7 +139,7 @@ const PATTERN_OF: Record<PageType, string> = {
   'product-index': '/products',
   'product-detail': '/products/:slug',
   'vendor-detail': '/vendors/:slug',
-  'integration-detail': '/integrations/:id',
+  'product-pair': '/products/:contextSlug/integrations/:otherSlug',
   categories: '/categories',
   'category-browse': '/categories/:slug',
   'audience-index': '/audiences',
@@ -152,7 +154,7 @@ const TYPE_LABEL: Record<PageType, string> = {
   'product-index': 'product index',
   'product-detail': 'product detail',
   'vendor-detail': 'vendor detail',
-  'integration-detail': 'integration detail',
+  'product-pair': 'product pair (integration)',
   categories: '/categories (flat list)',
   'category-browse': 'category browse',
   'audience-index': '/audiences (flat list)',
@@ -178,7 +180,7 @@ const STRUCTURAL_TYPES: PageType[] = [
 const ENTITY_BROWSE_TYPES: PageType[] = [
   'product-detail',
   'vendor-detail',
-  'integration-detail',
+  'product-pair',
   'category-browse',
   'discipline-browse',
   'phase-browse',
@@ -193,7 +195,8 @@ const CANDIDATE_SOURCE: Partial<Record<PageType, string>> = {
   'phase-index': 'site-header primary nav / footer → /phases',
   'product-detail': 'a /products index row → /products/:slug',
   'vendor-detail': 'a product-detail vendor link → /vendors/:slug',
-  'integration-detail': 'a product-detail integration link → /integrations/:id',
+  'product-pair':
+    'a product-detail integration link → /products/:contextSlug/integrations/:otherSlug',
   'category-browse':
     'a /categories list entry or a product-detail category TaxonomyBadge → /categories/:slug',
   'discipline-browse':
@@ -244,13 +247,16 @@ function classifyPath(pathname: string): PageType {
   // Phase 2 page type — classify as `other` BEFORE the detail patterns so a
   // `/products/:slug/claim` URL never masquerades as a product detail.
   if (/^\/(?:products|vendors)\/[^/]+\/(?:claim|correction)\/?$/.test(p)) return 'other';
+  // AECI-294 — the product-PAIR page (3 segments under /products); checked BEFORE
+  // the single-segment product-detail so it isn't mis-classified.
+  if (/^\/products\/[^/]+\/integrations\/[^/]+\/?$/.test(p)) return 'product-pair';
   if (/^\/products\/[^/]+\/?$/.test(p)) return 'product-detail';
   if (/^\/products\/?$/.test(p)) return 'product-index';
-  // AECI-165 — `/vendors` and `/integrations` (bare index) no longer exist as
-  // pages (they 301-redirect to `/products`); only their `:slug` / `:id` detail
-  // routes are real page types, so there is no bare-index branch here.
+  // AECI-165 removed the `/vendors` and `/integrations` bare indexes (they
+  // 301-redirect to `/products`); AECI-294 retired the standalone
+  // `/integrations/:id` detail (it 301s to the pair page above). Only the vendor
+  // `:slug` detail remains as an `/vendors` page type.
   if (/^\/vendors\/[^/]+\/?$/.test(p)) return 'vendor-detail';
-  if (/^\/integrations\/[^/]+\/?$/.test(p)) return 'integration-detail';
   if (/^\/categories\/[^/]+\/?$/.test(p)) return 'category-browse';
   if (/^\/categories\/?$/.test(p)) return 'categories';
   if (/^\/audiences\/[^/]+\/?$/.test(p)) return 'discipline-browse';
@@ -364,7 +370,7 @@ function hasData(seed: SeedInfo, type: PageType): boolean {
       return seed.products > 0;
     case 'vendor-detail':
       return seed.vendors > 0;
-    case 'integration-detail':
+    case 'product-pair':
       return seed.integrations > 0;
     case 'category-browse':
       return seed.categoriesTotal > 0;

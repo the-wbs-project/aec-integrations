@@ -150,7 +150,9 @@ Avoid three identical card matrices stacked (DESIGN.md "no identical card grids"
 - **Recently added integrations:** a 2-up grid of **integration tiles** — source monogram → target
   monogram, the "{source} → {target}" headline (Source Serif), a `mechanism_kind` chip and the
   direction label. The `→` glyph is `aria-hidden` (and should RTL-mirror, matching the shipped
-  `IntegrationCard`). Links to `/integrations/:id`.
+  `IntegrationCard`). Links to the product-PAIR page `/products/:contextSlug/integrations/:otherSlug`
+  (Stage 1.5 · AECI-294; context = alphabetically-first slug) — the standalone `/integrations/:id`
+  page was retired.
 - **Trending products this week:** the shipped **`ProductCardGrid` broken grid** — a wide featured
   lead on a Bone (`--accent-warm`) band (eyebrow "Most viewed this week") + uniform tiles for the
   rest. This is the home's single reuse of the catalog's signature broken grid, which is what ties

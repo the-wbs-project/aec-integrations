@@ -8,10 +8,11 @@
  * TransferState miss, null-ctx bail, NOT_FOUND→404, success → applyMeta +
  * pushEmbedded + pageView, origin fallback, param wiring, non-404 rethrow) with
  * a synthetic entity + stub config. The entity-specific behavior of each real
- * resolver is covered by `product-detail.resolver.component.spec.ts`,
- * `vendor-detail.resolver.component.spec.ts`, and
- * `integration-detail.resolver.component.spec.ts`, which drive the composed
- * resolvers end-to-end via `detail-resolver.harness.ts`.
+ * resolver is covered by `product-detail.resolver.component.spec.ts` and
+ * `vendor-detail.resolver.component.spec.ts`, which drive the composed resolvers
+ * end-to-end via `detail-resolver.harness.ts`. (The integration-detail resolver
+ * was retired in AECI-294 when `/integrations/:id` became a 301 to the pair
+ * page; the pair page uses its own bespoke `productsPairResolver`.)
  */
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';

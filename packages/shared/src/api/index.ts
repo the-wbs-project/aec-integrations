@@ -7,6 +7,7 @@ export * from './integrations';
 export * from './landing';
 export * from './page-views';
 export * from './product-facets';
+export * from './product-pairs';
 export * from './products';
 export * from './promote';
 export * from './requests';

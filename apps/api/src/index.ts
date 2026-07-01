@@ -37,6 +37,7 @@ import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
+  createProductPairHandler,
 } from './routes/integrations';
 import { createFeedbackHandler, createSubscribeHandler } from './routes/landing-forms';
 import { createPageViewsHandler } from './routes/page-views';
@@ -100,6 +101,9 @@ phase28.get('/api/products/:slug', createProductDetailHandler());
 // AECI-199 — public approved-reviews list. Longer literal path than `:slug`, so
 // Hono matching order vs the detail route is unambiguous.
 phase28.get('/api/products/:slug/reviews', createProductReviewsListHandler());
+// AECI-294 — product-PAIR read (Stage 1.5 §7). `:slug` is the context product;
+// reuses the `:slug` param name (Hono forbids differing names at one position).
+phase28.get('/api/products/:slug/integrations/:otherSlug', createProductPairHandler());
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());

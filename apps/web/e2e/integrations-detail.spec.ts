@@ -1,15 +1,15 @@
 /**
- * AECI-60 / Phase 2.14 — integration detail page end-to-end coverage.
+ * AECI-60 / AECI-294 — legacy `/integrations/:id` 404-path coverage.
  *
- * Seed-free, mirroring the vendor/product detail e2e: covers the 404 path
- * (`/integrations/:id` with a well-formed UUID that isn't in the dev DB).
- * Integrations are keyed by ID, not slug (Phase 2 Spec §6.5), so the bogus
- * id is a syntactically valid UUID to guarantee a clean NOT_FOUND from the
- * API rather than a validation error.
- *
- * Success-path coverage (hero / breadcrumbs / Cache-Tag with embedded
- * product + vendor tags) runs against seeded data in the Phase 2.18 crawler
- * (AECI-64) and the Lighthouse/axe harness (AECI-65).
+ * AECI-294 retired the standalone integration detail page: `/integrations/:id`
+ * now 301-redirects to the product-PAIR page (see `server-runtime.ts`). A
+ * well-formed id that the API can't resolve is NOT redirected — it falls through
+ * to the SSR pipeline, which renders the branded, accessible, `noindex` 404 (the
+ * Angular `**` wildcard) with a real HTTP 404 + `NOT_FOUND_TTL` + `route:404`.
+ * This spec is seed-free and covers exactly that path (a syntactically valid UUID
+ * that isn't in the dev DB, guaranteeing a clean NOT_FOUND rather than a
+ * validation error). The redirect-success path is covered by the server unit
+ * tests; the pair page's own success path by the AECI-64 crawler + axe harness.
  */
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
