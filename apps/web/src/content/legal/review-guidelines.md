@@ -41,7 +41,7 @@ We may remove or edit a published review at any time if it later appears to brea
 
 ## Reporting a review
 
-If you believe a published review breaches these guidelines, for example it is fake, defamatory, names an individual, or discloses confidential information, please report it to [founders@thewbsproject.com](mailto:founders@thewbsproject.com) with a link and a brief explanation. We will review reports promptly. Concerns about the **accuracy of a listing** (rather than a review) follow our [Listing Accuracy Policy](/legal/listing-accuracy).
+If you believe a published review breaches these guidelines, for example it is fake, defamatory, names an individual, or discloses confidential information, please report it to [reviews@thewbsproject.com](mailto:reviews@thewbsproject.com) with a link and a brief explanation. We will review reports promptly. Concerns about the **accuracy of a listing** (rather than a review) follow our [Listing Accuracy Policy](/legal/listing-accuracy).
 
 ## Changes to these guidelines
 
