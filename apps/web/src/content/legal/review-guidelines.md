@@ -2,10 +2,10 @@
 title: Review Guidelines
 version: 1.0
 effective_date:
-last_updated: 23 June 2026
-counsel_approved_by:
-counsel_approved_on:
-linear_issue: AECI-237
+last_updated: 2 July 2026
+counsel_approved_by: pending sign-off
+counsel_approved_on: pending sign-off
+linear_issue: AECI-308
 ---
 
 > **Draft, pending legal review.** This document is a pre-launch template draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect at launch.
