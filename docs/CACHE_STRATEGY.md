@@ -111,7 +111,7 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 |---|---|
 | `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
 | Browse (`/categories\|audiences\|phases/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
-| Detail (`/products/:slug`, `/vendors/:slug`, `/integrations/:id`) | none — strip all |
+| Detail (`/products/:slug`, `/vendors/:slug`, and the product-PAIR page `/products/:context/integrations/:other`) | none — strip all |
 | Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
 | Home (`/`), `/about`, `/legal/*` | none — strip all |
 

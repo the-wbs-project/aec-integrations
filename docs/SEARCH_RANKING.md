@@ -80,6 +80,39 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
 - **Faceting:** `mechanism_kind`, `direction`, `searchable(source_product_name)`, `searchable(target_product_name)`
 - **Custom ranking:** `desc(mechanism_rank)` — see §4 for what `mechanism_rank` encodes.
 
+### 3.4 `pairs` (deferred to Stage 2, AECI-298)
+
+> **No per-pair search record ships in Stage 1.5.** The `/search` Integrations tab is hidden
+> (`STAGE_1_SPEC.md` §7.5), so there is no user-facing surface a consolidated product-**pair** record would feed.
+> The existing per-integration index (§3.3) keeps being built and maintained by the sync; it is simply not
+> surfaced, and Stage 1.5 does **not** add a second `pairs` index on top of it.
+
+Stage 1.5's Integration Redesign consolidates all mechanisms between two products onto one product-PAIR page
+(`STAGE_1_5_SPEC.md` §7, `/products/:contextSlug/integrations/:otherSlug`). A future search surface for that page
+would want **one record per unordered product pair**, not one per integration row — so the future index name and
+shape are recorded here now (per AECI-298) to keep the decision in one place.
+
+- **Index name.** Follows the existing `indexNamesFor(env)` convention (`packages/shared/src/algolia.ts`):
+  **`{prefix}_pairs`** (e.g. `staging_pairs`, `production_pairs`).
+- **Future record shape (Stage 2 — illustrative, not yet built).** Derived from the pair-page read model
+  `{ context_product, other_product, mechanisms[], sync_headline }` (`STAGE_1_5_SPEC.md` §7.1/§8):
+
+  | Field | Type | Purpose |
+  |---|---|---|
+  | `objectID` | `string` | The orientation-independent pair key `` `${minSlug}__${maxSlug}` `` (alphabetical), matching the `pair:{min}__{max}` cache tag (`CACHE_STRATEGY.md` §2) — one record ⇄ one page ⇄ one tag. |
+  | `context_product_name` / `context_product_slug` | `string` | The alphabetically-first (context) product (§7.1). |
+  | `other_product_name` / `other_product_slug` | `string` | The other product. |
+  | `mechanism_kinds` | `string[]` | All `mechanism_kind`s present in the pair (faceting). |
+  | `mechanism_count` | `number` | How many mechanisms connect the pair (customRanking / display). |
+  | `data_objects` | `string[]` | Claimed `data_object` slugs — "what flows" (searchable; from the §3 claim model). |
+  | `confirmed_count` / `total_count` | `number` | The §3.5 sync headline (`confirmed = 0` in 1.5). |
+  | `top_mechanism_rank` | `number` | `max(mechanismRank(kind))` across the pair's mechanisms — reuses §4's `mechanismRank()` as the primary custom-ranking signal. |
+
+  **Searchable attributes** would lead with the two product names, then `mechanism_kinds` / `data_objects`;
+  **custom ranking** would be `desc(top_mechanism_rank)`, then `desc(mechanism_count)`. The final settings are a
+  Stage 2 decision (they depend on whether pairs *replace* or *supplement* the per-integration index) and must be
+  codified in `INDEX_SETTINGS` + asserted in `algolia.spec.ts` per §1 when the index is actually built.
+
 ---
 
 ## 4. Integration mechanism-kind priority
@@ -197,3 +230,4 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - [AECI-175](https://linear.app/aec-integrations/issue/AECI-175) — per-tab sort dropdown via replica indexes (§5a); deferred from [AECI-142](https://linear.app/aec-integrations/issue/AECI-142) (Phase 3.9).
 - [AECI-86](https://linear.app/aec-integrations/issue/AECI-86) — re-enable integration seeding in `POST /api/promote` (populates the integrations index).
 - [AECI-49](https://linear.app/aec-integrations/issue/AECI-49) — the `CACHE_STRATEGY.md` precedent for lifting a spec section into a canonical doc.
+- [AECI-298](https://linear.app/aec-integrations/issue/AECI-298) — Stage 1.5 search/SEO follow-through: deferral of per-pair Algolia records (§3.4) + the future `{prefix}_pairs` shape.

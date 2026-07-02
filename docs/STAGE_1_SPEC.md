@@ -616,10 +616,11 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 > integrations index in `search-controller.ts`. (Header autocomplete already excludes integrations.)
 >
 > **Stage 1.5 follow-through:** per-pair Algolia records are **deferred to Stage 2** (the integrations
-> tab stays hidden); the future `{prefix}_pairs` record shape is to be recorded in `SEARCH_RANKING.md`
-> as part of the §9 follow-through (AECI-298). The
-> still-built per-integration records and internal links must resolve through the `/integrations/:id`
-> → pair-page 301, never a dead route. See `STAGE_1_5_SPEC.md` §9.
+> tab stays hidden); the future `{prefix}_pairs` record shape is recorded in `SEARCH_RANKING.md` §3.4
+> as part of the §9 follow-through (AECI-298). The still-built per-integration records and internal links
+> must resolve to the pair page — either directly (the `/integrations` + `/search` cards emit the canonical
+> pair URL, AECI-298) or through the `/integrations/:id` → pair-page 301 — never a dead route.
+> See `STAGE_1_5_SPEC.md` §9.
 
 > **Deviation (AECI-142 / Phase 3.9 — see `docs/adr/0014-instantsearch-js-over-angular-instantsearch.md`):**
 > `angular-instantsearch` (below) is **not used**. It caps its peer dep at `@angular/core <16`,

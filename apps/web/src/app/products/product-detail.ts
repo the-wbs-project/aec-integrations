@@ -40,10 +40,10 @@ import { ProductUsefulnessSection } from './product-usefulness';
  * viewport)` block. Under v22 incremental hydration the deferred rows are
  * SSR-rendered (crawlable, no hydration layout shift); the `on viewport`
  * trigger still defers the block on client-side navigations (see AECI-130).
- * Each integration links to
- * `/integrations/:id` with the *other* product also linked alongside, per
- * AC line "each integration links to `/integrations/:id` with the *other*
- * product also linked".
+ * Each integration links to the product-PAIR page
+ * `/products/:contextSlug/integrations/:otherSlug` (this product as the context
+ * slug) with the *other* product also linked alongside — AECI-294 retired the
+ * standalone `/integrations/:id` detail route the original AC named.
  *
  * Cache discipline: tags are written by the SSR runtime (vendor + each
  * integration shown), and the page-view payload was queued by the resolver.
