@@ -29,5 +29,19 @@ sleep 1
 
 export AECI_WEB_PORT=8788
 export AECI_API_PORT=8787
+
+# Rebuild the web bundle + clear the local SSR cache before booting. `dev:preview`
+# (what `dev:bound` runs) serves a *prebuilt* `dist/`, and the legal/content `.md`
+# files are inlined into that bundle at build time — so a stale `dist/` silently
+# serves old content on every launch. Rebuilding here makes the launch reflect
+# current source; clearing `.wrangler/state/v3/cache` drops any persisted SSR
+# edge-cache entries (that dir is Cache-API only — no D1/KV lives there).
+# Set DEV_SKIP_BUILD=1 for a fast restart when the bundle is already current.
+if [ -z "${DEV_SKIP_BUILD:-}" ]; then
+  echo "▶ dev:conductor — rebuilding web bundle… (DEV_SKIP_BUILD=1 to skip)"
+  pnpm --filter @aeci/web build
+fi
+rm -rf apps/web/.wrangler/state/v3/cache
+
 echo "▶ dev:conductor → http://localhost:8788  (API :8787)"
 exec pnpm dev:bound
