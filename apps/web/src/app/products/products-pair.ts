@@ -3,12 +3,20 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import type { ContextDirection, ProductPairMechanism, ProductPairResponse } from '@aeci/shared';
+import type {
+  ContextDirection,
+  ProductPairClaim,
+  ProductPairMechanism,
+  ProductPairResponse,
+} from '@aeci/shared';
 
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { NotFound } from '../not-found/not-found';
 import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+
+import { AgreementBadge } from './agreement-badge';
+import { ClaimProvenance } from './claim-provenance';
 
 /** Decorative glyph for a context-relative direction (always paired with text + aria). */
 function directionGlyph(direction: ContextDirection): string {
@@ -39,6 +47,45 @@ function directionAria(direction: ContextDirection, otherName: string): string {
   }
 }
 
+/** The order the three direction lanes render in within a mechanism (§8). */
+const DIRECTION_ORDER = ['outbound', 'inbound', 'both'] as const;
+
+/** One direction lane of a mechanism's claims — heading/glyph/aria resolved,
+ *  empty lanes dropped. Mirrors the AECI-289 prototype's `renderedGroups`. */
+interface ClaimGroup {
+  readonly direction: ContextDirection;
+  readonly heading: string;
+  readonly glyph: string;
+  readonly aria: string;
+  readonly claims: readonly ProductPairClaim[];
+}
+
+/** Group a mechanism's claims by context-relative direction, in canonical order,
+ *  dropping empty lanes. Reuses the file's direction copy helpers so the Layer-A
+ *  mechanism arrow and the Layer-B lanes can't drift. */
+function buildClaimGroups(claims: readonly ProductPairClaim[], otherName: string): ClaimGroup[] {
+  return DIRECTION_ORDER.map((direction) => ({
+    direction,
+    heading: directionHeading(direction, otherName),
+    glyph: directionGlyph(direction),
+    aria: directionAria(direction, otherName),
+    claims: claims.filter((c) => c.direction === direction),
+  })).filter((g) => g.claims.length > 0);
+}
+
+/** Sync-headline breadth line (§3.5), pluralised. */
+function syncHeadlineText(total: number): string {
+  return total === 1
+    ? $localize`:@@pair.dataflow.headline.one:1 data object syncs`
+    : $localize`:@@pair.dataflow.headline.other:${total}:count: data objects sync`;
+}
+
+/** The muted verification ratio (§3.5) — never a hero trust stat; `confirmed`
+ *  is always 0 in Stage 1.5. */
+function confirmedRatioText(confirmed: number, total: number): string {
+  return $localize`:@@pair.dataflow.ratio:${confirmed}:confirmed: of ${total}:total: vendor-confirmed`;
+}
+
 /** One mechanism with its direction copy resolved against the `other` product. */
 interface MechanismView {
   readonly id: string;
@@ -51,24 +98,32 @@ interface MechanismView {
   readonly glyph: string;
   readonly directionLabel: string;
   readonly directionAria: string;
+  /** Data-object claim lanes (§8). Empty when the mechanism has no claims yet. */
+  readonly claimGroups: readonly ClaimGroup[];
+  readonly hasClaims: boolean;
 }
 
 interface PairView {
   readonly pair: ProductPairResponse;
   readonly mechanisms: readonly MechanismView[];
+  /** Distinct claims across the pair (§3.5) — drives the data-flow band. */
+  readonly syncTotal: number;
+  readonly syncHeadline: string;
+  readonly confirmedRatio: string;
 }
 
 /**
- * AECI-294 — the product-PAIR page at
- * `/products/:contextSlug/integrations/:otherSlug` (Stage 1.5 §7, **Layer A**).
+ * The product-PAIR page at `/products/:contextSlug/integrations/:otherSlug`
+ * (Stage 1.5 §7–§8), built against the AECI-289 "flow canvas" prototype.
  *
  * Consolidates every integration between two products into one context-oriented
- * view, built against the AECI-289 "flow canvas" prototype: the context product
- * is anchored left, the other right, and each integration (mechanism) is a card
- * carrying a context-relative direction arrow. This is Layer A — the shell +
- * mechanisms; the `data_object`-level claim rows and the real `confirmed/total`
- * sync ratio land with Layer B (AECI-300). Until claims are seeded the data-flow
- * band reads its empty state.
+ * view: the context product is anchored left, the other right, and each
+ * integration (mechanism) is a card. **Layer A** (AECI-294) is the shell +
+ * mechanisms with a context-relative direction arrow; **Layer B** (AECI-300)
+ * adds the data-flow section — the `data_object` claim rows grouped into
+ * direction lanes with neutral "Unverified · AECi" badges + AECi provenance, and
+ * the `confirmed/total` sync headline (§3.5). A mechanism with no claims yet (or
+ * a pair with none) falls back to the Layer-A arrow + empty data-flow band.
  *
  * Data comes from `productsPairResolver` via `route.data['pair']`:
  *   - `null` → the global `aec-not-found` shell (the resolver set
@@ -82,7 +137,14 @@ interface PairView {
  */
 @Component({
   selector: 'aec-products-pair',
-  imports: [ExternalLinkTracker, LogoOrInitial, NotFound, RouterLink],
+  imports: [
+    AgreementBadge,
+    ClaimProvenance,
+    ExternalLinkTracker,
+    LogoOrInitial,
+    NotFound,
+    RouterLink,
+  ],
   template: `
     @let v = view();
     @if (v === null) {
@@ -186,21 +248,35 @@ interface PairView {
             </a>
           </div>
 
-          <!-- Data-flow band (§3.5). Layer A has no claims, so it reads its empty
-               state; Layer B (AECI-300) fills the confirmed/total headline. -->
+          <!-- Data-flow band (§3.5). Leads with the sync headline once claims are
+               seeded (Layer B, AECI-300); otherwise reads the empty state
+               (Layer A / pre-seeding). -->
           <div
             class="mt-6 rounded-(--radius-xl) border border-(--border-default) bg-(--accent-warm) p-6 text-center"
           >
-            <p
-              class="font-display text-2xl leading-tight text-(--text-primary)"
-              i18n="@@pair.dataflow.empty"
-            >
-              Data flows aren’t documented yet
-            </p>
-            <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.empty.subline">
-              We’re cataloguing what each integration syncs. Vendor confirmation arrives with the
-              vendor portal.
-            </p>
+            @if (v.syncTotal > 0) {
+              <p class="font-display text-2xl leading-tight text-(--text-primary)">
+                {{ v.syncHeadline }}
+              </p>
+              <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.subline">
+                Unverified. Vendor confirmation arrives with the vendor portal.
+              </p>
+              <!-- text-secondary (not tertiary): tertiary fails AA contrast on the Bone band. -->
+              <p class="mt-2 text-xs tabular-nums text-(--text-secondary)">
+                {{ v.confirmedRatio }}
+              </p>
+            } @else {
+              <p
+                class="font-display text-2xl leading-tight text-(--text-primary)"
+                i18n="@@pair.dataflow.empty"
+              >
+                Data flows aren’t documented yet
+              </p>
+              <p class="mt-2 text-sm text-(--text-secondary)" i18n="@@pair.dataflow.empty.subline">
+                We’re cataloguing what each integration syncs. Vendor confirmation arrives with the
+                vendor portal.
+              </p>
+            }
           </div>
 
           <!-- Per-mechanism cards with the context-relative direction arrow. -->
@@ -221,7 +297,10 @@ interface PairView {
                   }
                 </header>
 
-                @if (m.direction) {
+                <!-- Layer-A mechanism arrow: shown only when this mechanism has no
+                     claims. When claims exist the per-lane arrows below carry the
+                     direction, so the standalone arrow would be redundant (§8). -->
+                @if (!m.hasClaims && m.direction) {
                   <p class="flex items-center gap-2 text-sm text-(--text-secondary)">
                     <span
                       class="font-display text-xl text-(--accent-primary)"
@@ -236,6 +315,38 @@ interface PairView {
                   <p class="max-w-3xl text-sm leading-relaxed text-(--text-secondary)">
                     {{ m.description }}
                   </p>
+                }
+
+                <!-- Layer B (§8): data_object claim rows, grouped into direction
+                     lanes, each with a neutral agreement badge + AECi provenance. -->
+                @for (g of m.claimGroups; track g.direction) {
+                  <div
+                    class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4"
+                  >
+                    <div class="flex items-center gap-3">
+                      <span
+                        class="font-display text-2xl text-(--accent-primary)"
+                        [attr.aria-label]="g.aria"
+                        >{{ g.glyph }}</span
+                      >
+                      <h3 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h3>
+                    </div>
+                    <ul class="mt-3 grid gap-2 sm:grid-cols-2">
+                      @for (c of g.claims; track c.data_object_slug + '|' + c.direction) {
+                        <li
+                          class="flex items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
+                        >
+                          <span class="text-sm text-(--text-primary)">{{
+                            c.data_object_name
+                          }}</span>
+                          <span class="flex items-center gap-2">
+                            <aec-agreement-badge [agreement]="c.agreement" />
+                            <aec-claim-provenance [claim]="c" />
+                          </span>
+                        </li>
+                      }
+                    </ul>
+                  </div>
                 }
 
                 @if (m.listingUrl || m.docsUrl) {
@@ -293,14 +404,18 @@ export class ProductsPairPage {
     { initialValue: (this.route.snapshot.data['pair'] ?? null) as ProductPairResponse | null },
   );
 
-  /** View-model: mechanisms with their direction copy resolved once. */
+  /** View-model: mechanisms with their direction copy + claim lanes resolved once. */
   protected readonly view = computed<PairView | null>(() => {
     const pair = this.pair();
     if (!pair) return null;
     const otherName = pair.other_product.name;
+    const { total, confirmed } = pair.sync_headline;
     return {
       pair,
       mechanisms: pair.mechanisms.map((m) => this.toMechanismView(m, otherName)),
+      syncTotal: total,
+      syncHeadline: syncHeadlineText(total),
+      confirmedRatio: confirmedRatioText(confirmed, total),
     };
   });
 
@@ -316,6 +431,8 @@ export class ProductsPairPage {
       glyph: m.direction ? directionGlyph(m.direction) : '',
       directionLabel: m.direction ? directionHeading(m.direction, otherName) : '',
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
+      claimGroups: buildClaimGroups(m.claims, otherName),
+      hasClaims: m.claims.length > 0,
     };
   }
 

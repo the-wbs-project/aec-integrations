@@ -12,7 +12,7 @@ import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import type { ProductPairResponse } from '@aeci/shared';
+import type { ContextDirection, ProductPairClaim, ProductPairResponse } from '@aeci/shared';
 
 import { ProductsPairPage } from './products-pair';
 
@@ -33,6 +33,21 @@ const productListItem = (slug: string, name: string, overrides = {}) => ({
   ...overrides,
 });
 
+const claim = (
+  slug: string,
+  name: string,
+  direction: ContextDirection,
+  note = 'Curated by AECi.',
+): ProductPairClaim => ({
+  data_object_slug: slug,
+  data_object_name: name,
+  direction,
+  agreement: 'unverified',
+  attestations: [
+    { source: 'aeci', asserted: true, note, introduced_at: null, deprecated_at: null },
+  ],
+});
+
 function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairResponse {
   return {
     context_product: productListItem('procore', 'Procore'),
@@ -48,10 +63,21 @@ function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairRes
         docs_url: null,
         built_by_vendor: null,
         powered_by_product: null,
+        claims: [],
       },
     ],
     sync_headline: { total: 0, confirmed: 0 },
     ...overrides,
+  };
+}
+
+/** A pair whose single mechanism carries claims (Layer B). */
+function buildPairWithClaims(claims: ProductPairClaim[]): ProductPairResponse {
+  const base = buildPair();
+  return {
+    ...base,
+    mechanisms: [{ ...base.mechanisms[0]!, claims }],
+    sync_headline: { total: claims.length, confirmed: 0 },
   };
 }
 
@@ -95,9 +121,45 @@ describe('ProductsPairPage', () => {
     expect(el.textContent).toContain('Sends to Revit');
   });
 
-  it('renders the empty data-flow band (Layer A has no claims)', () => {
+  it('renders the empty data-flow band when the pair has no claims', () => {
     const { el } = setup(buildPair());
-    expect(el.textContent).toContain('Data flows');
+    expect(el.textContent).toContain('Data flows aren’t documented yet');
+  });
+
+  it('renders the sync headline + claim rows grouped by direction (Layer B)', () => {
+    const { el } = setup(
+      buildPairWithClaims([
+        claim('models', 'Models', 'outbound'),
+        claim('rfis', 'RFIs', 'inbound'),
+      ]),
+    );
+
+    // Sync headline leads with breadth; the empty band is gone.
+    expect(el.textContent).toContain('2 data objects sync');
+    expect(el.textContent).not.toContain('Data flows aren’t documented yet');
+    // Data-object rows, one per claim, each with a neutral badge + provenance.
+    expect(el.textContent).toContain('Models');
+    expect(el.textContent).toContain('RFIs');
+    expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(2);
+    expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(2);
+    expect(el.textContent).toContain('Unverified · AECi');
+    // Grouped into context-relative lanes (headings), not a standalone arrow.
+    expect(el.textContent).toContain('Sends to Revit');
+    expect(el.textContent).toContain('Receives from Revit');
+  });
+
+  it('suppresses the standalone mechanism arrow when the mechanism has claims', () => {
+    const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+    // "Sends to Revit" appears exactly once — as the lane heading, not also as a
+    // duplicate standalone mechanism arrow.
+    const occurrences = (el.textContent ?? '').split('Sends to Revit').length - 1;
+    expect(occurrences).toBe(1);
+    expect(el.querySelector('h3.aec-overline')?.textContent).toContain('Sends to Revit');
+  });
+
+  it('renders the singular sync headline for one claim', () => {
+    const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+    expect(el.textContent).toContain('1 data object syncs');
   });
 
   it('shows the empty-mechanisms message when the pair has no integrations', () => {

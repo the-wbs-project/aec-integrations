@@ -1,3 +1,4 @@
+export * from './agreement';
 export * from './api';
 export * from './audit-log';
 export * from './cache-purge';

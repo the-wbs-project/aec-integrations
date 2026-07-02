@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  claimDirectionForContext,
   defaultIntegrationContext,
   integrationDirectionForContext,
   orderedPairSlugs,
@@ -44,5 +45,22 @@ describe('integrationDirectionForContext', () => {
   it('passes null through (nullable stored direction)', () => {
     expect(integrationDirectionForContext(null, true)).toBeNull();
     expect(integrationDirectionForContext(null, false)).toBeNull();
+  });
+});
+
+describe('claimDirectionForContext', () => {
+  it('maps both to both regardless of which endpoint is the context', () => {
+    expect(claimDirectionForContext('both', true)).toBe('both');
+    expect(claimDirectionForContext('both', false)).toBe('both');
+  });
+
+  it('reads a_to_b as outbound from endpoint A (source) and inbound from B', () => {
+    expect(claimDirectionForContext('a_to_b', true)).toBe('outbound');
+    expect(claimDirectionForContext('a_to_b', false)).toBe('inbound');
+  });
+
+  it('reads b_to_a as the mirror of a_to_b', () => {
+    expect(claimDirectionForContext('b_to_a', true)).toBe('inbound');
+    expect(claimDirectionForContext('b_to_a', false)).toBe('outbound');
   });
 });

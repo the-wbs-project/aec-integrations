@@ -527,13 +527,36 @@ export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 
 > The standalone `/integrations/:id` **page** is retired in Stage 1.5 (AECI-294) — the SSR Worker 301-redirects it to the product-PAIR page. The `GET /api/integrations/:id` **endpoint** stays (the sitemap generator + the 301 handler read it to resolve a pair's two product slugs).
 
-#### `GET /api/products/:slug/integrations/:otherSlug` (Stage 1.5 · AECI-294)
+#### `GET /api/products/:slug/integrations/:otherSlug` (Stage 1.5 · AECI-294 / AECI-300)
 
-The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation).
+The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`.
 
 ```typescript
 // packages/shared/src/api/product-pairs.ts
 export const ContextDirectionSchema = z.enum(['outbound', 'inbound', 'both']);
+
+// The claim's computed agreement (§3.4 — computeAgreement, never stored). Only
+// `unverified` is reachable in Stage 1.5 (AECi-only attestations, AECi-never-red).
+export const AgreementStateSchema = z.enum(['unverified', 'confirmed', 'conflict']);
+
+// One attestation behind a claim (§3.3), for the AECi-annotated provenance (§8).
+export const PairClaimAttestationSchema = z.object({
+  source: z.enum(['aeci', 'vendor_a', 'vendor_b']),   // only `aeci` written in 1.5
+  asserted: z.boolean(),
+  note: z.string().nullable(),
+  introduced_at: z.string().nullable(),               // dormant version stamps (Stage 2)
+  deprecated_at: z.string().nullable(),
+});
+
+// One data_object claim on a mechanism (Layer B — §8). `direction` is already
+// translated to the context product's frame (§3.2); `agreement` is computed.
+export const ProductPairClaimSchema = z.object({
+  data_object_slug: z.string(),
+  data_object_name: z.string(),
+  direction: ContextDirectionSchema,
+  agreement: AgreementStateSchema,
+  attestations: z.array(PairClaimAttestationSchema),
+});
 
 export const ProductPairMechanismSchema = z.object({
   id: z.string().uuid(),
@@ -545,11 +568,12 @@ export const ProductPairMechanismSchema = z.object({
   docs_url: z.string().url().nullable(),
   built_by_vendor: VendorLinkSchema.nullable(),
   powered_by_product: ProductLinkSchema.nullable(),
+  claims: z.array(ProductPairClaimSchema).default([]),   // Layer B: [] for an unseeded mechanism
 });
 
 export const SyncHeadlineSchema = z.object({
-  total: z.number().int().min(0),      // distinct claims on the pair — 0 in Layer A
-  confirmed: z.number().int().min(0),  // vendor-confirmed — 0 in Layer A
+  total: z.number().int().min(0),      // distinct claims on the pair (all mechanisms/directions)
+  confirmed: z.number().int().min(0),  // vendor-confirmed — always 0 in Stage 1.5
 });
 
 export const ProductPairResponseSchema = z.object({
@@ -561,8 +585,9 @@ export const ProductPairResponseSchema = z.object({
 export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 ```
 
-- **`direction`** is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level for Layer A). Claim-level (`data_object`) directions arrive in Layer B (AECI-300).
-- **`sync_headline`** is `{ total: 0, confirmed: 0 }` in Layer A (no claims yet); Layer B fills it.
+- **`direction`** (mechanism) is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level).
+- **`claims[]`** (Layer B — §8) are the `data_object` flows on each mechanism. `direction` is the **claim-level** stored `a_to_b`/`b_to_a`/`both` translated to the context frame (§3.2 — distinct from the mechanism translation), and `agreement` is `computeAgreement(attestations)` (§3.4, `packages/shared/src/agreement.ts`) — always `unverified` in 1.5. Ordered by the `data_object`'s `display_order`. A `data_object` moving through two mechanisms is **two claims** (§3.1), never de-duplicated.
+- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count, `confirmed` is always `0` in Stage 1.5. `{ total: 0, confirmed: 0 }` for an unseeded/empty pair.
 - **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`.
 - SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`).
 
