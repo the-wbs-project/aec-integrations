@@ -42,13 +42,18 @@ function setupFixture(initial: IntegrationListItem = baseIntegration) {
 }
 
 describe('IntegrationCard', () => {
-  it('renders the source → target headline as a link to /integrations/:id', () => {
+  it('renders the source → target headline as a link to the canonical pair page (AECI-298; context = alphabetically-first slug)', () => {
     const fixture = setupFixture();
+    // source=revit, target=navisworks → context=navisworks (n < r).
     const link = (fixture.nativeElement as HTMLElement).querySelector(
-      'a[href="/integrations/00000000-0000-4000-8000-000000030001"]',
+      'a[href="/products/navisworks/integrations/revit"]',
     );
     expect(link?.textContent).toContain('Revit');
     expect(link?.textContent).toContain('Navisworks');
+    // No link to the retired /integrations/:id detail route.
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('a[href^="/integrations/"]'),
+    ).toBeNull();
   });
 
   it('renders the mechanism_kind label in the second cell', () => {

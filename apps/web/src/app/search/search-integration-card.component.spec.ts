@@ -37,11 +37,14 @@ function setup(initial: AlgoliaIntegrationRecord = baseRecord) {
 }
 
 describe('SearchIntegrationCard', () => {
-  it('links the source → target headline to /integrations/:objectID', () => {
+  it('links the source → target headline to the canonical pair page (AECI-298; context = alphabetically-first slug)', () => {
     const el = setup();
-    const link = el.querySelector('a[href="/integrations/00000000-0000-4000-8000-000000030001"]');
+    // source=revit, target=navisworks → context=navisworks (n < r).
+    const link = el.querySelector('a[href="/products/navisworks/integrations/revit"]');
     expect(link?.textContent).toContain('Revit');
     expect(link?.textContent).toContain('Navisworks');
+    // No link to the retired /integrations/:id detail route.
+    expect(el.querySelector('a[href^="/integrations/"]')).toBeNull();
   });
 
   it('renders the mechanism and direction labels', () => {
