@@ -376,12 +376,17 @@ no correctness regression. No retry or action is required from the review app.
   yet (Phase 4). Until then, editing *only* a vendor refreshes the vendor's own
   page promptly but not the product pages that display it — those repaint on the
   next TTL expiry.
-- **Integrations** are not yet purged because integration seeding is temporarily
-  disabled (AECI-86). When it is re-enabled, the integration detail pages and the
-  two linked product pages will be added to the purge set. The same follow-through
-  will refresh the Stage 1.5 **pair page** for both orientations — the promote
-  response's `sourceSlug` / `targetSlug` (§4) exist precisely so this purge needs
-  no extra DB read — and applies to a claims-only re-push (AECI-297).
+- **Integration *detail* pages** (`integration:{id}`) are not yet purged because
+  integration seeding is temporarily disabled (AECI-86). When it is re-enabled, the
+  integration detail pages and the two linked product pages will be added to the
+  purge set.
+- **Pair pages are purged now (AECI-297).** A promote that touches an integration —
+  including a claims-only re-push — emits the Stage 1.5 `pair:{min}__{max}` cache tag
+  and submits the canonical pair URL to IndexNow / Google, so the consolidated
+  product-pair page refreshes for both orientations. The promote response's
+  `sourceSlug` / `targetSlug` (§4) are populated by the ingest precisely so this
+  needs no extra DB read. (The pair page itself renders once AECI-294 lands; until
+  then the tag purge is a harmless no-op and the pings are best-effort.)
 
 ---
 
