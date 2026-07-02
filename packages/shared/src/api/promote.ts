@@ -46,12 +46,19 @@ export const INTEGRATION_DIRECTIONS = ['one-way', 'bidirectional'] as const;
  * is a pure translation that lives with the pair-page helpers (§7).
  */
 export const CLAIM_DIRECTIONS = ['a_to_b', 'b_to_a', 'both'] as const;
+
+/** A claim's stored direction, relative to the integration row's own endpoints (§3.2). */
+export type ClaimDirection = (typeof CLAIM_DIRECTIONS)[number];
+
 /**
  * Who attests a claim. In Stage 1.5 only `aeci` is ever written; `vendor_a` /
  * `vendor_b` are additive-and-dormant — present in the contract, produced by no
  * 1.5 code path (§1.1/§3.3), reserved for the Stage 2 vendor portal.
  */
 export const ATTESTATION_SOURCES = ['aeci', 'vendor_a', 'vendor_b'] as const;
+
+/** Who attests a claim (§3.3). */
+export type AttestationSource = (typeof ATTESTATION_SOURCES)[number];
 
 /**
  * A reference to one entity, resolved at write time. Exactly one of `ref`

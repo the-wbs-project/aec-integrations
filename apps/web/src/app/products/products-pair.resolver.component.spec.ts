@@ -65,6 +65,7 @@ function pairFixture(overrides: Partial<ProductPairResponse> = {}): ProductPairR
         docs_url: null,
         built_by_vendor: { id: 'v1', name: 'Autodesk', slug: 'autodesk', logo_url: null },
         powered_by_product: { id: 'p9', name: 'Connector', slug: 'connector', logo_url: null },
+        claims: [],
       },
     ],
     sync_headline: { total: 0, confirmed: 0 },

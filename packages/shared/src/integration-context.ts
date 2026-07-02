@@ -16,6 +16,7 @@
  */
 import type { ContextDirection } from './api/product-pairs';
 import type { IntegrationDirection } from './api/integrations';
+import type { ClaimDirection } from './api/promote';
 
 /**
  * The canonical **context product** for a pair's default URL: the
@@ -60,4 +61,29 @@ export function integrationDirectionForContext(
   if (direction === null) return null;
   if (direction === 'bidirectional') return 'both';
   return contextIsSource ? 'outbound' : 'inbound';
+}
+
+/**
+ * Translate a **claim's** stored direction into the page's context frame (§3.2,
+ * applied at the `data_object` level for Layer B — §8). Claim direction is
+ * stored relative to the integration row's own endpoints as `a_to_b` (flows
+ * from endpoint A = the row's `source` to endpoint B = its `target`), `b_to_a`,
+ * or `both`; the pair page is viewed *from* a context product, so:
+ *
+ * - `both` → `both` (regardless of which endpoint is the context).
+ * - `a_to_b` → `outbound` when the context product is endpoint **A** (the row's
+ *   `source`) — data leaves the context — else `inbound`; `b_to_a` is the mirror.
+ *
+ * The sibling of `integrationDirectionForContext`, differing only in the stored
+ * vocabulary (claim `a_to_b`/`b_to_a`/`both` vs mechanism `one-way`/
+ * `bidirectional`). `contextIsSource` is whether the page's context product is
+ * the integration's `source_product_id` (endpoint A). Pure — the stored value is
+ * never rewritten.
+ */
+export function claimDirectionForContext(
+  direction: ClaimDirection,
+  contextIsSource: boolean,
+): ContextDirection {
+  if (direction === 'both') return 'both';
+  return (direction === 'a_to_b') === contextIsSource ? 'outbound' : 'inbound';
 }

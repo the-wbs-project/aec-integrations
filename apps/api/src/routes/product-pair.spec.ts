@@ -3,10 +3,11 @@
  * (Stage 1.5 §7 / AECI-294), against the in-memory D1 harness.
  */
 
+import type { ClaimDirection } from '@aeci/shared';
 import { ProductPairResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import { integrations, products } from '../db/schema';
+import { attestations, claims, integrations, products, taxonomyDataObjects } from '../db/schema';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createProductPairHandler } from './integrations';
@@ -49,6 +50,33 @@ async function integration(
     direction: 'one-way',
     ...extra,
   });
+}
+
+async function dataObject(id: string, slug: string, name: string, displayOrder?: number) {
+  await t.db.insert(taxonomyDataObjects).values({ id, slug, name, displayOrder });
+}
+
+/** Seed a claim on an integration with an AECi-seeded attestation (the Stage 1.5
+ *  reality — the only source ever written). */
+async function claim(
+  id: string,
+  integrationId: string,
+  dataObjectId: string,
+  direction: ClaimDirection,
+  atts: Array<{ source: string; asserted: boolean; note?: string }> = [
+    { source: 'aeci', asserted: true, note: 'Curated by AECi.' },
+  ],
+) {
+  await t.db.insert(claims).values({ id, integrationId, dataObjectId, direction });
+  for (const a of atts) {
+    await t.db.insert(attestations).values({
+      id: crypto.randomUUID(),
+      claimId: id,
+      source: a.source,
+      asserted: a.asserted,
+      note: a.note ?? null,
+    });
+  }
 }
 
 describe('GET /api/products/:slug/integrations/:otherSlug', () => {
@@ -130,5 +158,105 @@ describe('GET /api/products/:slug/integrations/:otherSlug', () => {
   it('404s when the two slugs are equal', async () => {
     await seedProducts();
     expect((await get('/api/products/procore/integrations/procore')).status).toBe(404);
+  });
+});
+
+describe('GET /api/products/:slug/integrations/:otherSlug — Layer B claims (§8)', () => {
+  // A pair connected by one mechanism (source = Procore/A, target = Revit/B)
+  // carrying three claims: Models a_to_b, RFIs b_to_a, Schedules both.
+  async function seedPairWithClaims() {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), {
+      name: 'ACC connector',
+      mechanismKind: 'marketplace-app',
+    });
+    await dataObject(u(101), 'models', 'Models', 1);
+    await dataObject(u(102), 'rfis', 'RFIs', 2);
+    await dataObject(u(103), 'schedules', 'Schedules', 3);
+    await claim(u(201), u(10), u(101), 'a_to_b');
+    await claim(u(202), u(10), u(102), 'b_to_a');
+    await claim(u(203), u(10), u(103), 'both');
+  }
+
+  it('hydrates claims with context-relative direction, unverified agreement, and provenance', async () => {
+    await seedPairWithClaims();
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const claimsOut = body.mechanisms[0]!.claims;
+    expect(claimsOut.map((c) => [c.data_object_slug, c.direction])).toEqual([
+      ['models', 'outbound'], // a_to_b, context = source A (Procore) → leaves Procore
+      ['rfis', 'inbound'], // b_to_a → arrives at Procore
+      ['schedules', 'both'],
+    ]);
+    // Stage 1.5: every claim is AECi-only, so agreement is always unverified.
+    expect(claimsOut.every((c) => c.agreement === 'unverified')).toBe(true);
+    // Provenance rides along: the single AECi attestation with its note.
+    expect(claimsOut[0]!.attestations).toEqual([
+      {
+        source: 'aeci',
+        asserted: true,
+        note: 'Curated by AECi.',
+        introduced_at: null,
+        deprecated_at: null,
+      },
+    ]);
+    // Sync headline: breadth honest, confirmed always 0 in 1.5.
+    expect(body.sync_headline).toEqual({ total: 3, confirmed: 0 });
+  });
+
+  it('mirrors claim directions when the pair is viewed from the other product', async () => {
+    await seedPairWithClaims();
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/revit/integrations/procore')).json(),
+    );
+    const bySlug = new Map(
+      body.mechanisms[0]!.claims.map((c) => [c.data_object_slug, c.direction]),
+    );
+    expect(bySlug.get('models')).toBe('inbound'); // a_to_b, context = target B (Revit) → arrives
+    expect(bySlug.get('rfis')).toBe('outbound');
+    expect(bySlug.get('schedules')).toBe('both');
+    expect(body.sync_headline).toEqual({ total: 3, confirmed: 0 });
+  });
+
+  it('counts a data_object moving through two mechanisms as two distinct claims (§3.1)', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), { name: 'Marketplace', mechanismKind: 'marketplace-app' });
+    await integration(u(11), u(1), u(2), { name: 'Partner', mechanismKind: 'partner' });
+    await dataObject(u(102), 'rfis', 'RFIs', 2);
+    await claim(u(201), u(10), u(102), 'b_to_a'); // RFIs inbound via marketplace
+    await claim(u(202), u(11), u(102), 'a_to_b'); // RFIs outbound via partner
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    const byMech = new Map(body.mechanisms.map((m) => [m.id, m.claims]));
+    expect(byMech.get(u(10))!.map((c) => c.direction)).toEqual(['inbound']);
+    expect(byMech.get(u(11))!.map((c) => c.direction)).toEqual(['outbound']);
+    // Two rows, never de-duplicated → total counts both.
+    expect(body.sync_headline).toEqual({ total: 2, confirmed: 0 });
+  });
+
+  it('orders claims by the data_object display_order', async () => {
+    await seedProducts();
+    await integration(u(10), u(1), u(2), { mechanismKind: 'native' });
+    await dataObject(u(101), 'schedules', 'Schedules', 3);
+    await dataObject(u(102), 'models', 'Models', 1);
+    await dataObject(u(103), 'rfis', 'RFIs', 2);
+    // Insert claims out of display order; the mapper must sort them.
+    await claim(u(201), u(10), u(101), 'a_to_b');
+    await claim(u(202), u(10), u(102), 'a_to_b');
+    await claim(u(203), u(10), u(103), 'a_to_b');
+
+    const body = ProductPairResponseSchema.parse(
+      await (await get('/api/products/procore/integrations/revit')).json(),
+    );
+    expect(body.mechanisms[0]!.claims.map((c) => c.data_object_slug)).toEqual([
+      'models',
+      'rfis',
+      'schedules',
+    ]);
   });
 });
