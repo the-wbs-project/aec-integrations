@@ -10,44 +10,40 @@
  *
  * This endpoint doubles as the SSR admin gate: the `/admin` resolver reads a 200
  * as "the caller is an admin" and a 401/403 as "render a 404" (don't reveal the
- * surface). Because it is a read, there is NO `appendAuditLog` write and no cache
+ * surface). Because it is a read, there is NO audit-log write and no cache
  * work.
  *
  * The full paginated moderation queue (`GET /api/admin/reviews`) is Phase 5.13 —
  * this endpoint deliberately exposes only the aggregate count the shell needs.
  *
- * Loose structural Prisma surface + `prismaFor` test seam mirror
+ * Loose structural DB surface + the `getDb` test seam mirror
  * `routes/reviews.ts`.
  */
 
 import type { AdminSummaryResponse } from '@aeci/shared';
+import { count, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { reviews } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
-import type { AuthzVariables } from '../lib/authz';
-import type { PrismaFactory } from '../lib/handler-utils';
-import { getPrisma } from '../prisma';
-
-type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
-
-// ─── Loose structural Prisma surface ─────────────────────────────────────────
-// We touch a single aggregate (`review.count`), so type it structurally and
-// `as unknown as` it rather than dragging in the full edge-client types. A real
-// accelerated client and the test fake both satisfy this.
-type AdminSummaryClient = {
-  review: { count(args: { where: { status: string } }): Promise<number> };
-};
+import type { DbFactory } from '../lib/handler-utils';
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
+// The `requireAdmin()` gate (index.ts) enforces access + sets `c.get('auth')`;
+// this handler reads no auth context, so it is typed on Bindings alone.
 
 export function createAdminSummaryHandler(
-  prismaFor: PrismaFactory = getPrisma,
-): (c: AuthContext) => Promise<Response> {
+  dbFor: DbFactory = getDb,
+): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
-    const prisma = prismaFor(c.env) as unknown as AdminSummaryClient;
-    const pendingReviews = await prisma.review.count({ where: { status: 'pending' } });
-    const body: AdminSummaryResponse = { pending_reviews: pendingReviews };
+    const { db } = dbFor(c.env);
+    const rows = await db
+      .select({ value: count() })
+      .from(reviews)
+      .where(eq(reviews.status, 'pending'));
+    const body: AdminSummaryResponse = { pending_reviews: rows[0]?.value ?? 0 };
     return json(body);
   };
 }

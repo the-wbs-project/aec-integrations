@@ -1,0 +1,543 @@
+# AEC Integrations — demo promote button.
+#
+# Promotes a known-good STAGING commit to the public DEMO showcase tier
+# (demo.aecintegrations.com). Promotion chain: staging → demo → production.
+# Demo is deliberate (workflow_dispatch), like production — there is no
+# auto-deploy to demo. Run this first, then promote-to-prod.yml (demo → prod).
+#
+# This is the LIGHT sibling of promote-to-prod.yml. Demo SHARES the production
+# Supabase project (auth-only; ADR 0016 makes the app DB Cloudflare D1) and the
+# production Cloudflare zone, so this workflow does NOT touch Postgres at all —
+# no R2 snapshot, no `supabase db push`, no RLS/drift gate. Those belong to
+# promote-to-prod (the production tier owns the shared Supabase project). Demo
+# has its OWN D1 (`aeci-app-demo`), KV, queues (`aeci-*-demo`), and Algolia
+# (`demo_*`) index set; this workflow migrates/deploys those.
+#
+# Two jobs, in order:
+#
+#   1. pre-promotion-checks (unattended)
+#      - Validates `confirm == PROMOTE`.
+#      - Checks out the repo at `inputs.commit_sha`.
+#      - `scripts/require-secrets.sh` over the demo secrets (REQUIRED fail-fast,
+#        RECOMMENDED warn) BEFORE anything is deployed.
+#      - Hits `staging.aecintegrations.com/api/version` + `/_version` and asserts
+#        BOTH report `inputs.commit_sha` (staging is the immediate upstream tier).
+#        Staging sits behind Cloudflare Access; verify-version.sh attaches the
+#        service-token headers when CF_ACCESS_* are set.
+#
+#   2. deploy-demo-workers (GH Environment `demo`)
+#      - Same shape as promote-to-prod's deploy job: provision `aeci-*-demo`
+#        queues, apply D1 migrations to `aeci-app-demo`, API deploys FIRST, push
+#        Worker secrets, SSR deploys, smoke-test demo.aecintegrations.com (BOTH
+#        Workers at the SHA AND /api/health db:ok), auto-rollback both Workers on
+#        a smoke failure. Demo is a showcase (NOT launch-critical), so Algolia /
+#        email / analytics secrets are warn-and-skip rather than fail-closed.
+#
+# Required GH Actions secrets:
+#   CLOUDFLARE_API_TOKEN       Scoped per docs/CICD_PLAN.md §7.1 (Workers + D1 +
+#                              Queues edit).
+#   CLOUDFLARE_ACCOUNT_ID      e62ec9d8012c3e0c225f8e4dbab76b79.
+#   (No DATABASE_URL_PRODUCTION — the demo app DB is Cloudflare D1 `aeci-app-demo`
+#    (ADR 0016); /api/health's db:ok check runs over the `DB` binding. The Prisma
+#    Accelerate runtime path is retired, AECI-253.)
+#
+# Recommended GH Actions secrets (warn-and-skip; demo is not launch-critical):
+#   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET  Service token for the staging
+#                              `/api/version` probe (staging is Access-gated).
+#   REVIEW_APP_TOKEN           Shared bearer for POST /api/promote (lets the demo
+#                              catalog be (re)promoted from the review app).
+#   ALGOLIA_APP_ID             Shared Algolia app id.
+#   ALGOLIA_ADMIN_KEY          Shared Algolia admin key — a SINGLE key across all
+#                              envs (it reaches every index; `--env` is only an
+#                              index-name prefix, not a per-env key scope).
+#   ALGOLIA_SEARCH_KEY         Single shared query-only key (client-exposed).
+#                              NOTE: previously a demo-scoped key restricted the
+#                              showcase browser to `demo_*` indexes; the shared
+#                              key must cover demo_* (and no longer enforces that
+#                              isolation on its own — index scoping is per-env).
+#   SUPABASE_ANON_KEY          Shared publishable/anon key — the SINGLE shared
+#                              auth project, un-suffixed, identical for every env
+#                              (ADR 0017).
+#   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY_PRODUCTION / POSTHOG_KEY_PRODUCTION
+#                              Shared fail-open keys (reused on demo).
+#   DATADOG_API_KEY            Deploy marker.
+#
+# Required GH Actions repo variables: none (demo touches no Supabase Postgres).
+
+name: promote-to-demo
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit_sha:
+        description: 'Full 40-char commit SHA already verified in staging'
+        required: true
+        type: string
+      confirm:
+        description: 'Type PROMOTE to confirm'
+        required: true
+        type: string
+
+# Promotes are not idempotent across overlapping runs; queue rather than cancel.
+concurrency:
+  group: promote-to-demo
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  # Opt JS-based actions onto Node 24 ahead of the 2026-06-02 default flip;
+  # mirrors .github/workflows/promote-to-prod.yml.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  # ===========================================================================
+  # Job 1: Pre-promotion checks (unattended)
+  # ===========================================================================
+  pre-promotion-checks:
+    name: Pre-promotion checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Validate confirm input
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          if [ "$CONFIRM" != "PROMOTE" ]; then
+            echo "::error::confirm must equal PROMOTE"
+            exit 1
+          fi
+          echo "confirm=PROMOTE accepted"
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      # THE RULE — refuse to promote if demo is missing a required secret. Demo
+      # is a showcase, so only the secrets it cannot function without are REQUIRED
+      # (Cloudflare auth + a DB connection for /api/health); search / email /
+      # analytics are RECOMMENDED (warn-and-skip). Keep in sync with
+      # apps/api/src/env.ts + docs/environments.md §Secrets.
+      - name: Preflight — required secrets present (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+          ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
+          RESEND_API_KEY_PRODUCTION: ${{ secrets.RESEND_API_KEY_PRODUCTION }}
+          POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+          ENV_LABEL: demo
+          REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
+          # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the
+          # hourly WAF firewall-event poll — recommended/fail-safe (absent → the poll
+          # no-ops outcome:skipped_no_creds).
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION POSTHOG_KEY_PRODUCTION DATADOG_API_KEY CF_ANALYTICS_API_TOKEN'
+        run: bash scripts/require-secrets.sh
+
+      # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
+      # Worker (/api/version) and the SSR Worker (/_version, AECI-92). Staging sits
+      # behind Cloudflare Access (docs/access.md §1); verify-version.sh attaches the
+      # service-token headers when CF_ACCESS_* are set.
+      - name: Verify staging is at inputs.commit_sha (API + SSR)
+        env:
+          HOST: https://staging.aecintegrations.com
+          EXPECTED_SHA: ${{ inputs.commit_sha }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: |
+          set -euo pipefail
+          if ! bash scripts/verify-version.sh; then
+            echo "::error::staging is not at $EXPECTED_SHA on both Workers (API + SSR), refusing to promote to demo"
+            exit 1
+          fi
+          echo "Staging API + SSR both match input SHA: $EXPECTED_SHA"
+
+  # ===========================================================================
+  # Job 2: Deploy demo Workers (GH Environment `demo`)
+  # ===========================================================================
+  deploy-demo-workers:
+    name: Deploy demo Workers
+    needs: pre-promotion-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # The `demo` GH Environment carries the deploy URL and any optional reviewer
+    # gate (add a required reviewer in repo settings if a manual pause is wanted).
+    environment:
+      name: demo
+      url: https://demo.aecintegrations.com
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit_sha }}
+
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+
+      # The SSR Worker's `main` is a pre-built artifact (dist/server/server.mjs);
+      # `wrangler deploy` does not generate it, so build inline here.
+      - run: pnpm --filter @aeci/web build
+
+      - name: Compute deploy timestamp
+        id: ts
+        run: echo "deployed_at=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)" >> "$GITHUB_OUTPUT"
+
+      # ADR 0013: provision the demo scheduled-job queues BEFORE the API deploy —
+      # the Worker's `queues.consumers` binding errors if a queue does not exist.
+      # Idempotent: an already-created queue (API error 11009) is treated as success.
+      - name: Provision scheduled job queues (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          create_queue() {
+            local name="$1"
+            if pnpm exec wrangler queues create "$name" > queue-out.log 2>&1; then
+              echo "created $name"
+            elif grep -qiE "already exists|already created|already taken|a queue with this name|code: ?11009" queue-out.log; then
+              echo "$name already exists — ok"
+            else
+              cat queue-out.log
+              echo "::error::failed to create queue $name (does CLOUDFLARE_API_TOKEN have the Queues edit permission, and is the account on Workers Paid?)"
+              exit 1
+            fi
+          }
+          create_queue aeci-algolia-sync-demo
+          create_queue aeci-algolia-drift-demo
+          create_queue aeci-stats-demo
+          create_queue aeci-reconcile-demo
+          create_queue aeci-data-quality-demo
+
+      # ADR 0016 / AECI-256: apply the app DB's D1 schema to the demo D1
+      # (aeci-app-demo) and reconcile the taxonomy reference data BEFORE the API
+      # Worker deploys (it reads/writes via getDb(env)). Idempotent.
+      - name: Apply D1 migrations (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          pnpm exec wrangler d1 migrations apply aeci-app-demo --env demo --remote
+          pnpm exec wrangler d1 execute aeci-app-demo --env demo --remote --file=seed/taxonomy.sql
+          pnpm exec wrangler d1 execute aeci-app-demo --env demo --remote --file=seed/data-objects.sql
+
+      # API deploys FIRST (the SSR Worker's services.API binding targets aeci-api-demo).
+      - name: Deploy API (demo)
+        id: deploy_api
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/api
+        run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+
+      # (No DATABASE_URL push — the demo app DB is Cloudflare D1 `aeci-app-demo`
+      # (ADR 0016), reached via the `DB` binding and applied with `wrangler d1
+      # migrations apply`; the Prisma Accelerate runtime path is retired, AECI-253.
+      # /api/health's db:ok check runs over the D1 binding.)
+      # Push REVIEW_APP_TOKEN (shared) so the demo catalog can be (re)promoted from
+      # the review app. Warn-and-skip: absent → POST /api/promote is 401 on demo,
+      # which only blocks re-seeding via the promote API (a clone/datatool seed
+      # still works), never the promote itself.
+      - name: Push REVIEW_APP_TOKEN to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          REVIEW_APP_TOKEN_VALUE: ${{ secrets.REVIEW_APP_TOKEN }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$REVIEW_APP_TOKEN_VALUE" ]; then
+            echo "::warning::REVIEW_APP_TOKEN not set — skipping. POST /api/promote will be 401 on demo until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$REVIEW_APP_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put REVIEW_APP_TOKEN --env demo
+
+      # Push the Algolia credentials to the demo API Worker. ALGOLIA_ADMIN_KEY is
+      # the single shared admin key (reaches every index); `--env demo` only
+      # selects the `demo_*` index names the cron/promote hook write to. Warn-and-
+      # skip: demo search is a showcase, not launch-critical — absent → the sync
+      # cron + promote→index hook no-op and demo search degrades.
+      - name: Push Algolia credentials to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY_VALUE: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_ADMIN_KEY_VALUE" ]; then
+            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY not set — skipping. Demo search will degrade until they are provisioned."
+            exit 0
+          fi
+          printf '%s' "$ALGOLIA_APP_ID_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_APP_ID --env demo
+          printf '%s' "$ALGOLIA_ADMIN_KEY_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_ADMIN_KEY --env demo
+
+      # Push ANTHROPIC_API_KEY (shared, fail-open) for review toxicity scoring.
+      - name: Push ANTHROPIC_API_KEY to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ANTHROPIC_API_KEY_VALUE: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$ANTHROPIC_API_KEY_VALUE" ]; then
+            echo "::warning::ANTHROPIC_API_KEY_PRODUCTION not set — skipping. Toxicity scoring no-ops on demo (toxicity_score=null)."
+            exit 0
+          fi
+          printf '%s' "$ANTHROPIC_API_KEY_VALUE" \
+            | pnpm exec wrangler secret put ANTHROPIC_API_KEY --env demo
+
+      # Push RESEND_API_KEY (shared, fail-open) for transactional email.
+      - name: Push RESEND_API_KEY to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          RESEND_API_KEY_VALUE: ${{ secrets.RESEND_API_KEY_PRODUCTION }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$RESEND_API_KEY_VALUE" ]; then
+            echo "::warning::RESEND_API_KEY_PRODUCTION not set — skipping. Email sends 'skipped' on demo."
+            exit 0
+          fi
+          printf '%s' "$RESEND_API_KEY_VALUE" \
+            | pnpm exec wrangler secret put RESEND_API_KEY --env demo
+
+      # AECI-262: push the Cloudflare Analytics token to the demo API Worker so the
+      # hourly WAF firewall-event poll (scheduled.ts runWafMetricsJob) can read the
+      # zone's firewallEventsAdaptiveGroups and emit aeci.waf.ratelimit.blocked.
+      # SINGLE shared token (Zone Analytics: Read on the shared zone), un-suffixed
+      # like SUPABASE_ANON_KEY. Optional + FAIL-SAFE — a missing key makes the poll a
+      # silent no-op (outcome:skipped_no_creds).
+      - name: Push CF_ANALYTICS_API_TOKEN to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ANALYTICS_API_TOKEN_VALUE: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_ANALYTICS_API_TOKEN_VALUE" ]; then
+            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping. WAF→Datadog poll no-ops on demo (outcome:skipped_no_creds)."
+            exit 0
+          fi
+          printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env demo
+
+      - name: Deploy SSR (demo)
+        id: deploy_ssr
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/web
+        run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
+
+      # Push the Supabase anon (publishable) key to the demo WEB Worker — the
+      # SINGLE shared auth project (ADR 0017). Warn-and-skip: absent → demo auth
+      # surfaces 503 until set.
+      - name: Push SUPABASE_ANON_KEY to web Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$SUPABASE_ANON_KEY_VALUE" ]; then
+            echo "::warning::SUPABASE_ANON_KEY not set — skipping. Demo auth surfaces 503 auth_not_configured until it is provisioned."
+            exit 0
+          fi
+          printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
+            | pnpm exec wrangler secret put SUPABASE_ANON_KEY --env demo
+
+      # Push the PUBLIC demo Algolia config (shared app id + demo query-only key)
+      # to the demo WEB Worker. Warn-and-skip (showcase search).
+      - name: Push Algolia public config to web Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
+            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY not set — skipping. Demo /search renders the degraded shell until they are provisioned."
+            exit 0
+          fi
+          printf '%s' "$ALGOLIA_APP_ID_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_APP_ID --env demo
+          printf '%s' "$ALGOLIA_SEARCH_KEY_VALUE" \
+            | pnpm exec wrangler secret put ALGOLIA_SEARCH_KEY --env demo
+
+      # Push the PUBLIC PostHog key (shared, fail-open) to the demo WEB Worker.
+      - name: Push PostHog key to web Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          POSTHOG_KEY_VALUE: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          if [ -z "$POSTHOG_KEY_VALUE" ]; then
+            echo "::warning::POSTHOG_KEY_PRODUCTION not set — skipping. PostHog analytics no-ops on demo."
+            exit 0
+          fi
+          printf '%s' "$POSTHOG_KEY_VALUE" \
+            | pnpm exec wrangler secret put POSTHOG_KEY --env demo
+
+      # (No Worker-secrets postflight on demo: the app DB is D1 `aeci-app-demo`
+      # reached via the `DB` binding — not a secret — and DATABASE_URL is retired
+      # (ADR 0016 / AECI-253). The /api/health smoke gate below still proves the
+      # DB is reachable. Algolia/REVIEW_APP_TOKEN are recommended, not required.)
+
+      # Warn-and-skip when DATADOG_API_KEY is absent (demo is a showcase, the
+      # marker is non-critical). The presence check lives in the step body, not a
+      # step-level `if:` — the `secrets` context is NOT available in `if:`
+      # (GitHub rejects the whole workflow at parse time → a startup failure that
+      # surfaces as a failed run on every push). Mirrors the other optional-secret
+      # steps in this workflow (REVIEW_APP_TOKEN, ALGOLIA, …).
+      - name: Datadog deployment marker
+        env:
+          DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          INPUT_SHA: ${{ inputs.commit_sha }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          if [ -z "${DATADOG_API_KEY:-}" ]; then
+            echo "::warning::DATADOG_API_KEY not set — skipping the demo deployment marker."
+            exit 0
+          fi
+          curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \
+            -H "DD-API-KEY: ${DATADOG_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -nc \
+                  --arg sha "$INPUT_SHA" \
+                  --arg actor "$ACTOR" \
+                  '{
+                    title: "Demo deployment",
+                    text: ("Deployed commit " + $sha + " by " + $actor),
+                    tags: [
+                      "env:demo",
+                      "service:aeci-ssr",
+                      ("commit:" + $sha)
+                    ]
+                  }')"
+
+      # Smoke test: poll demo until BOTH Workers report the SHA AND /api/health is
+      # db:ok, or fail after the 60s budget. Demo is public — no Access headers.
+      - name: Smoke test demo (API + SSR at SHA, DB healthy)
+        id: smoke
+        env:
+          HOST: https://demo.aecintegrations.com
+          EXPECTED_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5 6 7 8 9 10; do
+            if bash scripts/verify-version.sh && bash scripts/verify-health.sh; then
+              exit 0
+            fi
+            echo "Attempt $attempt: demo not yet at $EXPECTED_SHA on both Workers, or /api/health not green. Retrying in 6s..."
+            sleep 6
+          done
+          echo "::error::Demo did not reach $EXPECTED_SHA on BOTH Workers AND a healthy /api/health (db:ok) within 60s"
+          exit 1
+
+      # Apply the demo Algolia index settings as code (idempotent). SKIPS (exit 0)
+      # when ALGOLIA_* are unset, so a demo promote isn't blocked before its index
+      # is provisioned. Runs after the smoke gate (Workers live).
+      - name: Update Algolia demo index settings
+        env:
+          ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
+          ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
+        run: pnpm algolia:apply-settings --env demo
+
+      # Auto-rollback BOTH demo Workers when the smoke step fails after both went
+      # live. Reverse of the deploy order (SSR first, then API). Demo has no DB
+      # snapshot (it shares the prod Supabase project, untouched here), so this is
+      # a Worker-only rollback.
+      - name: Auto-rollback demo Workers (smoke failure)
+        id: rollback
+        if: failure() && steps.smoke.outcome == 'failure' && steps.deploy_api.outcome == 'success' && steps.deploy_ssr.outcome == 'success'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          INPUT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          set -uo pipefail
+          rc=0
+          echo "Rolling back SSR (aeci-web-demo) first..."
+          ( cd apps/web && pnpm exec wrangler rollback --env demo --yes \
+              --message "auto-rollback: demo smoke failed for ${INPUT_SHA}" ) || rc=1
+          echo "Rolling back API (aeci-api-demo)..."
+          ( cd apps/api && pnpm exec wrangler rollback --env demo --yes \
+              --message "auto-rollback: demo smoke failed for ${INPUT_SHA}" ) || rc=1
+          if [ "$rc" -ne 0 ]; then
+            echo "::error::One or more demo Worker rollbacks failed — see the failure runbook in the job summary for manual commands"
+          fi
+          echo "rollback_rc=${rc}" >> "$GITHUB_OUTPUT"
+
+      - name: Failure runbook
+        if: failure()
+        env:
+          INPUT_SHA: ${{ inputs.commit_sha }}
+          ROLLBACK_OUTCOME: ${{ steps.rollback.outcome }}
+          ROLLBACK_RC: ${{ steps.rollback.outputs.rollback_rc }}
+        run: |
+          {
+            echo "## :rotating_light: promote-to-demo FAILURE runbook"
+            echo
+            echo "Demo promote of \`${INPUT_SHA}\` failed in **deploy-demo-workers**."
+            echo
+            echo "**Auto-rollback (Workers):** outcome=\`${ROLLBACK_OUTCOME:-skipped}\` rc=\`${ROLLBACK_RC:-n/a}\`"
+            echo "(\`skipped\` means a deploy step itself failed, so the failed Worker still has its last-good version live and was deliberately NOT rolled back.)"
+            echo
+            echo "### Manual Worker rollback (only if auto-rollback was skipped or failed)"
+            echo '```bash'
+            echo "# SSR first, then API (preserves API-ahead-of-SSR):"
+            echo "( cd apps/web && pnpm exec wrangler rollback --env demo --message \"manual rollback ${INPUT_SHA}\" )"
+            echo "( cd apps/api && pnpm exec wrangler rollback --env demo --message \"manual rollback ${INPUT_SHA}\" )"
+            echo '```'
+            echo
+            echo "Demo shares the production Supabase project (untouched by this workflow), so there is NO DB restore step — see docs/environments.md."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Summary
+        if: always()
+        env:
+          INPUT_SHA: ${{ inputs.commit_sha }}
+        run: |
+          {
+            echo "## promote-to-demo summary"
+            echo
+            echo "| field | value |"
+            echo "|---|---|"
+            echo "| commit SHA | \`$INPUT_SHA\` |"
+            echo "| job status | ${{ job.status }} |"
+            echo "| DEPLOYED_AT | ${{ steps.ts.outputs.deployed_at }} |"
+            echo "| triggered by | ${{ github.actor }} |"
+          } >> "$GITHUB_STEP_SUMMARY"

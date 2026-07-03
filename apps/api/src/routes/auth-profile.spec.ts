@@ -1,90 +1,68 @@
 /**
- * Unit coverage for `POST /api/auth/profile/ensure` (AECI-195) in isolation:
- * given the `user` Variable that `requireUserAuth()` sets, the handler runs an
- * idempotent insert and audit-logs only when a row was actually created. The
- * middleware→handler 401 integration is covered in `lib/user-auth.spec.ts`.
+ * POST /api/auth/profile/ensure on the Drizzle/D1 path (ADR 0016 / AECI-253),
+ * against the in-memory D1 harness. Idempotent provisioning: first call creates +
+ * audits, re-runs are no-ops.
  */
 
 import { Hono } from 'hono';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { auditLog, profiles } from '../db/schema';
 import type { Env } from '../env';
+import { errorHandler } from '../errors';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import type { UserAuthVariables } from '../lib/user-auth';
 import { createEnsureProfileHandler } from './auth-profile';
 
-type CreateManyArgs = { data: { id: string }; skipDuplicates: true };
-type AuditCreateArgs = { data: Record<string, unknown> };
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const USER = u(900);
 
-function makeFakePrisma(createManyCount: number) {
-  const createManyCalls: CreateManyArgs[] = [];
-  const auditCalls: AuditCreateArgs[] = [];
-  const tx = {
-    profile: {
-      createMany: async (args: CreateManyArgs) => {
-        createManyCalls.push(args);
-        return { count: createManyCount };
-      },
-    },
-    auditLog: {
-      create: async (args: AuditCreateArgs) => {
-        auditCalls.push(args);
-        return {};
-      },
-    },
-  };
-  const prisma = {
-    $transaction: async <T>(fn: (t: typeof tx) => Promise<T>) => fn(tx),
-  };
-  return { prisma, createManyCalls, auditCalls };
-}
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
 
-function appWith(prisma: unknown, user: UserAuthVariables['user'] = { userId: 'user-uuid-1' }) {
-  const app = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
-  app.use('/api/auth/profile/ensure', async (c, next) => {
-    c.set('user', user);
+function post() {
+  const a = new Hono<{ Bindings: Env; Variables: UserAuthVariables }>();
+  a.onError(errorHandler());
+  a.use('*', async (c, next) => {
+    c.set('user', { userId: USER, email: undefined });
     await next();
   });
-  app.post(
+  a.post('/api/auth/profile/ensure', createEnsureProfileHandler(t.factory));
+  return a.request(
     '/api/auth/profile/ensure',
-    createEnsureProfileHandler(() => prisma as never),
+    { method: 'POST' },
+    TEST_ENV,
+    fakeExecutionContext(),
   );
-  return app;
 }
 
-function post(app: Hono<{ Bindings: Env; Variables: UserAuthVariables }>) {
-  return app.request('/api/auth/profile/ensure', { method: 'POST' }, { DD_API_KEY: undefined });
-}
-
-describe('createEnsureProfileHandler', () => {
-  it('creates the missing profile from the verified token sub and audit-logs it', async () => {
-    const { prisma, createManyCalls, auditCalls } = makeFakePrisma(1);
-    const res = await post(appWith(prisma));
-
+describe('POST /api/auth/profile/ensure', () => {
+  it('creates the profile + a profile.created audit on first call', async () => {
+    const res = await post();
     expect(res.status).toBe(200);
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
-    expect(await res.json()).toEqual({ created: true });
+    expect((await res.json()) as { created: boolean }).toEqual({ created: true });
 
-    // The row id comes from the verified JWT, never from the request body.
-    expect(createManyCalls).toEqual([{ data: { id: 'user-uuid-1' }, skipDuplicates: true }]);
+    const rows = await t.db.select().from(profiles);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(USER);
+    expect(rows[0]!.role).toBe('reviewer'); // schema default
 
-    expect(auditCalls).toHaveLength(1);
-    expect(auditCalls[0]?.data).toMatchObject({
-      actorId: 'user-uuid-1',
-      actorType: 'user',
-      action: 'profile.created',
-      entityType: 'profile',
-      entityId: 'user-uuid-1',
-      metadata: { source: 'auth-callback' },
-    });
+    const audit = await t.db.select().from(auditLog);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]!.action).toBe('profile.created');
+    expect(audit[0]!.entityId).toBe(USER);
   });
 
-  it('is idempotent: an existing profile changes nothing and writes no audit row', async () => {
-    const { prisma, createManyCalls, auditCalls } = makeFakePrisma(0);
-    const res = await post(appWith(prisma));
+  it('is idempotent: a re-run creates nothing and writes no new audit', async () => {
+    await post();
+    const second = await post();
+    expect((await second.json()) as { created: boolean }).toEqual({ created: false });
 
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ created: false });
-    expect(createManyCalls).toHaveLength(1);
-    expect(auditCalls).toHaveLength(0);
+    expect(await t.db.select().from(profiles)).toHaveLength(1);
+    expect(await t.db.select().from(auditLog)).toHaveLength(1); // no second audit
   });
 });

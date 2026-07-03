@@ -1,6 +1,8 @@
-# Cloudflare Access — non-prod environments
+# Cloudflare Access — environment gating
 
-How `staging.aecintegrations.com` and `*.aec-integrations.workers.dev` PR previews are gated, and how to manage the allowlist and rotate the service token over time.
+How `staging.aecintegrations.com`, `*.aec-integrations.workers.dev` PR previews, and — until launch — web production `demo.aecintegrations.com` are gated, and how to manage the allowlist and rotate the service token over time.
+
+> **Per [ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md):** all environments share a single Supabase **auth** project, so per-environment isolation is enforced **here, by Cloudflare Access** — not by Supabase project separation. Production is gated to the allowlist throughout pre-launch and **opened at launch** by removing its Access destination.
 
 **Referenced by:** [`CICD_PLAN.md`](./CICD_PLAN.md) § 2.2; Linear AECI-75 (this setup), AECI-71 (consumer — staging deploy + smoke tests).
 
@@ -8,10 +10,10 @@ How `staging.aecintegrations.com` and `*.aec-integrations.workers.dev` PR previe
 
 ## Scope
 
-- **Gated:** `staging.aecintegrations.com` and any preview Worker on `*.aec-integrations.workers.dev`.
-- **Not gated:** web production (`demo.aecintegrations.com`) and the landing site (`aecintegrations.com` + `www.`). All public by design.
+- **Gated:** `staging.aecintegrations.com`, any preview Worker on `*.aec-integrations.workers.dev`, and — **until launch (ADR 0017)** — web production `demo.aecintegrations.com`.
+- **Not gated:** the landing site (`aecintegrations.com` + `www.`), public by design. Web production becomes public **at launch**, when its Access destination is removed.
 
-Access is a *network-level* gate in front of the non-prod hostnames. Once a user is past the Access challenge they still have to log into AECi itself with a staging-test Supabase account — Access is additional auth, not a replacement (per the AECI-71 spec note).
+Access is a *network-level* gate in front of these hostnames. Once a user is past the Access challenge they still have to log into AECi itself with a Supabase account — Access is additional auth, not a replacement (per the AECI-71 spec note).
 
 ---
 
@@ -22,8 +24,8 @@ These were settled by AECI-75. Don't deviate without raising the issue first.
 - **One Access application** covers both staging and previews. Splitting the app per-surface has been observed to break Worker requests even when the wildcard is intact (see Cloudflare's workers.dev guidance) — keep them combined.
 - **Identity provider:** One-Time PIN (OTP) to email. No SSO required, no IdP dependency, no failure mode that takes both admins offline at once. Swap to Google OAuth later by adding a second IdP and flipping `allowed_idps` on the app — current setup keeps that door open.
 - **Allowlist policy** by explicit email, not domain. Adding someone is a one-line change; nobody gets through by accident from a `@thewbsproject.com` typo.
-- **Single service token** (`aeci-gh-actions`) for all GitHub Actions workflows that need to bypass Access. No per-workflow tokens.
-- **No Access on production.** Don't gate `demo.aecintegrations.com` (web app) or the landing site (`aecintegrations.com` + `www.`); those are public.
+- **Single service token** (`aeci-gh-actions`) for all GitHub Actions workflows that need to bypass Access. No per-workflow tokens. The token must be allowed on the production app/policy too (the `promote-to-prod` smoke now reaches a gated prod — ADR 0017).
+- **Production gated until launch (ADR 0017).** `demo.aecintegrations.com` is behind Access during pre-launch (full lockdown to the allowlist), then **opened at launch** by removing its Access destination. The landing site (`aecintegrations.com` + `www.`) is always public. _(Supersedes the earlier "No Access on production" stance — that predated the single-auth-project model, in which Supabase-project separation no longer isolates environments.)_
 
 ---
 
@@ -34,14 +36,17 @@ The Cloudflare resources as deployed. If any of these change, update this sectio
 | Item | Value |
 |---|---|
 | Cloudflare account | `AEC Integrations` — `e62ec9d8012c3e0c225f8e4dbab76b79` |
-| Access app | `AECi Non-Prod` — `5e36ee8f-33e1-4f60-b525-77d87e0a103c` |
+| Access app | `AECi Non-Prod` — `5e36ee8f-33e1-4f60-b525-77d87e0a103c` (also covers prod-until-launch per ADR 0017; consider renaming to `AECi Gated`) |
+| Zero Trust team domain | `aecintegrations.cloudflareaccess.com` (issues the Access JWT `iss` + serves the JWKS at `/cdn-cgi/access/certs`; consumed by `apps/datatool` `ACCESS_TEAM_DOMAIN`) |
 | App AUD tag | `6d89b8089d435389e9d1bdcc5bdb5a85e7b6938aa155d411fe1729d53dd98643` |
 | Allow policy | `AECi allowlist` — `4c6b7bbd-6371-4a21-a5db-a3ae9c3c9afd` |
 | OTP identity provider | `c31649de-3c54-40aa-829c-d424e74c0f7f` |
 | Service token | `aeci-gh-actions` (Client ID + Secret in GitHub repo secrets as `CF_ACCESS_CLIENT_ID` / `CF_ACCESS_CLIENT_SECRET`) |
-| Destinations | `staging.aecintegrations.com`, `*.aec-integrations.workers.dev` |
+| Destinations | `staging.aecintegrations.com`, `*.aec-integrations.workers.dev`, `demo.aecintegrations.com` _(prod — **added at the ADR-0017 cutover; remove at launch**)_ |
 | Session duration | `24h` |
 | Allowlist emails | `chrisw@thewbsproject.com`, `billh@thewbsproject.com` |
+
+> **Cutover note (ADR 0017):** adding `demo.aecintegrations.com` to the **Destinations** above (same app, same allowlist + service-token policies) is what gates production. The `aeci-gh-actions` service token must be allowed on the policy covering it so the `promote-to-prod` smoke (`verify-version.sh` / `verify-health.sh`) can reach prod. At launch, delete the `demo.aecintegrations.com` destination to make production public — no code change needed (the prod `CF_ACCESS_*` workflow vars then become a harmless no-op).
 
 ---
 
@@ -178,7 +183,7 @@ Then attach it to `AECi Non-Prod` via PUT on the app's `policies` array. Remove 
 
 ## 7. Architectural notes
 
-**Why Access is non-prod only.** Production is the public site — gating it would block the entire purpose of AECi. Non-prod is for in-progress work and CI smoke tests; the cost of accidental public exposure there is high.
+**Why production is gated until launch.** Pre-launch, AECi isn't ready for the public, and (ADR 0017) all environments share one Supabase auth project — so environment isolation is enforced here, at the network edge, not by separate auth backends. Production is therefore gated to the allowlist during pre-launch and opened at launch by removing its Access destination. Non-prod (staging + previews) stays gated permanently. The landing site is always public. Either way, the cost of accidental public exposure of in-progress work is high, so the default is to gate.
 
 **Why OTP over Google OAuth.** OTP requires no IdP config, no SAML, no app registrations, and no admin sharing a Google Workspace. It also has no single-point-of-failure that locks out both admins. Migrating to Google OAuth later is a one-line addition: create a second identity provider, append its ID to the app's `allowed_idps` array, optionally remove OTP. No data migration needed — Cloudflare looks up users by email regardless of which IdP issued the session.
 

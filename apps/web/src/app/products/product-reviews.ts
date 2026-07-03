@@ -9,7 +9,7 @@ import { ReviewStars } from '../reviews/review-stars';
 
 /**
  * Page size for the reviews list. Matches the API's `EMBED_REVIEWS_PAGE_SIZE`
- * (`apps/api/src/lib/prisma-helpers.ts`) so the SSR-embedded first page
+ * (`apps/api/src/lib/drizzle-helpers.ts`) so the SSR-embedded first page
  * (`ProductDetail.reviews`) lines up exactly with page 1 of the list endpoint —
  * "Load more" then fetches page 2, 3, … with no overlap or gap.
  */
@@ -47,6 +47,9 @@ export class ProductReviews {
   private readonly http = inject(HttpClient);
 
   readonly slug = input.required<string>();
+  /** The product's UUID — forwarded to `<aec-review-cta>` for its browser-side
+   *  "already reviewed" lookup (AECI-260). Never read during SSR render. */
+  readonly productId = input.required<string>();
   readonly reviewCount = input.required<number>();
   readonly ratingOverallAvg = input.required<number | null>();
   readonly ratingOnboardingAvg = input.required<number | null>();

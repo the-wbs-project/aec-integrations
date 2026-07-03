@@ -15,7 +15,7 @@ This guide governs every `.ts` and `.html` file under `apps/web/`. It defers to:
 - **`DESIGN.md`** (repo root) for color tokens, typography scales, component visual specs.
 - **`PRODUCT.md`** (repo root) for voice, tone, anti-references.
 - **`docs/design/v0-porting-rules.md`** for v0.dev → Angular porting mechanics.
-- **`CLAUDE.md`** (repo root) for stack-wide constraints (Prisma Accelerate, cache invalidation, i18n, both themes, no pay-for-placement).
+- **`CLAUDE.md`** (repo root) for stack-wide constraints (Drizzle/D1 data layer, cache invalidation, i18n, both themes, no pay-for-placement).
 - **`docs/STAGE_1_SPEC.md`** §2a.2 + §16 Phase 1 for the spec contract these rules implement.
 
 If a rule here contradicts one of those, the more-specific document wins.
@@ -34,8 +34,9 @@ If a rule here contradicts one of those, the more-specific document wins.
 
 ## 3. Angular 21 + zoneless
 
-- `provideZonelessChangeDetection()` is the first provider in every `ApplicationConfig`. No `zone.js` in `polyfills` or anywhere else. Reference: `apps/web/src/app/app.config.ts:19`.
-- Pair zoneless with `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))`. Angular v22 incremental hydration is the default and auto-enables event replay, so a separate `withEventReplay()` is redundant (AECI-130). Reference: `apps/web/src/app/app.config.ts:19-27`.
+- `provideZonelessChangeDetection()` is the first provider in every `ApplicationConfig`. No `zone.js` in `polyfills` or anywhere else. Reference: `apps/web/src/app/app.config.ts:16`.
+- Pair zoneless with `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))`. Angular v22 incremental hydration is the default and auto-enables event replay, so a separate `withEventReplay()` is redundant (AECI-130). Reference: `apps/web/src/app/app.config.ts:37-45`.
+- `provideRouter` gets `withInMemoryScrolling({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' })` so new routes open at the top and Back/Forward restores scroll (`apps/web/src/app/app.config.ts:19-36`). The router resets scroll with `window.scrollTo`, which honors the global `html { scroll-behavior: smooth }`, so a browser-only `ScrollBehaviorManager` (`core/scroll-behavior-manager.ts`, started from `App`) forces the reset instant while native fragment anchors (section-nav, skip-link) stay smooth. Don't route in-page section jumps through the router — they're native `<a href="{path}#id">` anchors by design.
 - Don't reintroduce `zone.js` to make a flaky test pass — fix the test instead.
 
 Lint: 🟡 review-only.
@@ -268,14 +269,19 @@ Lint: 🟡 review-only.
 
 ---
 
-## 19. Spartan brain primitives
+## 19. Headless behavior: Spartan brain primitives + Angular Aria
 
 - Use Spartan brain (`@spartan-ng/brain/<primitive>`) for behavior; layer Tailwind utility classes for style.
 - Import primitives directly: `import { BrnButton } from '@spartan-ng/brain/button';`. No barrel imports from `@spartan-ng/brain` root.
 - **No project-level wrapper components** around brain primitives. Compose with Tailwind in the consuming template. Reference: `apps/web/src/app/preview/vendor-detail/vendor-detail.ts:2-4`, `apps/web/src/app/demo/spartan-demo.ts`.
 - No `@spartan-ng/helm` codegen (per `docs/STAGE_1_SPEC.md` §16 Phase 1).
 - Angular CDK is fine where Spartan doesn't cover (overlays, drag-drop, virtual scroll).
-- **New interactive/form-control patterns → Angular Aria (proposed).** For _new_ selects, comboboxes, listboxes, radio groups, accordions, trees, grids, menus, toolbars, and tabs, Angular Aria (`@angular/aria`, stable in v22) is the proposed default — it's first-party and binds to Signal Forms (§13) via `[formField]` out of the box. Spartan stays for the overlay primitives Aria lacks (Popover, Dialog); CDK remains the shared overlay/positioning foundation under both. Style Aria like brain primitives (Tailwind utilities targeting `aria-*` attributes, bound to tokens, both themes). Pending sign-off — see `docs/adr/0010-angular-aria-alongside-spartan.md`.
+- **New interactive/form-control patterns → Angular Aria.** This is the **rule** (ADR 0010, **Accepted**), not a proposal. For _new_ selects, comboboxes, listboxes, radio groups, accordions, trees, grids, menus, toolbars, and tabs, build on Angular Aria (`@angular/aria`, stable in v22) — it's first-party and Signal-Forms-friendly (§13). Spartan stays for the overlay primitives Aria lacks (Popover, Dialog); CDK remains the shared overlay/positioning foundation under both. Reference implementations: the review-submission form (`apps/web/src/app/reviews/review-form.ts`), the header search combobox (`apps/web/src/app/search/search-autocomplete.ts`), and the `/search` sort dropdown (`apps/web/src/app/search/widgets/search-sort-by.ts`).
+  - **`select`/`radio` are realised via combobox/listbox** — Aria@22 GA ships neither directive, so a non-editable `ngCombobox` + `ngListbox` popup stands in for a select, and a horizontal `ngListbox`/`ngOption` stands in for a radio group (e.g. the review-form star ratings).
+  - **Signal Forms wiring depends on the control kind.** Native `<input>`/`<textarea>` bind `[formField]` directly (like `requests/request-form.ts`). **Discrete-choice Aria controls (listbox/combobox) do _not_ — bridge them** with a local `signal` two-way bound via `[(value)]` (Aria's `value` is a `ModelSignal<V[]>`; drives `aria-selected` + roving state) plus a `(valueChange)` handler that writes `values[0]` into the field with `.value.set()` + `.markAsTouched()`. `[formField]` fails here because undefined-seeded fields aren't materialised and a seeded `0`-sentinel can't be told apart from a real first pick. See `reviews/review-form.ts` (`onOverallChange`/`onOnboardingChange`).
+  - **Style Aria like brain primitives:** Tailwind `aria-*:` variant utilities (`aria-selected:`, `aria-expanded:`, `aria-checked:`) and the `data-[active=true]:` variant Aria sets on the active option, bound to the OKLCH tokens — no TS state mirror. Stage 1 is **light-only** (AECI-226); do not add `dark:` variants.
+  - **Overlay glue:** `ComboboxPopup` content renders **in-flow**, not in a CDK overlay. For a floating popup, nest `ngComboboxPopup` inside `cdkConnectedOverlay` (`usePopover: 'inline'`) driven by the `[(expanded)]` signal (AECI-232).
+  - Full rationale + the two deviations: `docs/adr/0010-angular-aria-alongside-spartan.md`.
 
 Lint: 🟡 review-only.
 
@@ -309,7 +315,7 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 
 - **i18n from day one.** Every visible string wrapped in `i18n="@@unique.id"` (templates) or `$localize` (TS). See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §7a.
 - **Both themes always.** Light and dark must both render correctly. See `CLAUDE.md` constraints and `docs/CODE_REVIEW_CHECKLIST.md` "Theming".
-- **Prisma uses Accelerate.** Worker-runtime Prisma imports from `@prisma/client/edge` + `withAccelerate()`. See `CLAUDE.md` constraints and `docs/DATABASE_SCHEMA.md` §1a.
+- **Data layer is Drizzle over D1.** The Worker reaches the app DB through its `DB` binding via `getDb(env)` — no Prisma, no Accelerate. See `CLAUDE.md` constraints and ADR 0016.
 - **Cached SSR is visitor-state-neutral.** See `CLAUDE.md` constraints and `docs/STAGE_1_SPEC.md` §9.1a.
 - **No pay-for-placement.** Ranking is algorithmic. See `PRODUCT.md`.
 
@@ -320,7 +326,7 @@ Lint: 🟡 review-only (custom regex rule deferred — see §24 "Future enforcem
 - Visual tokens, colors, typography, spacing scales — see `DESIGN.md`.
 - Voice, tone, anti-references, strategic positioning — see `PRODUCT.md`.
 - v0 → Angular porting mechanics — see `docs/design/v0-porting-rules.md`.
-- Prisma, Worker, cache invalidation rules — see `CLAUDE.md` constraints and `docs/DATABASE_SCHEMA.md`.
+- Drizzle/D1, Worker, cache invalidation rules — see `CLAUDE.md` constraints and `docs/DATABASE_SCHEMA.md`.
 - Testing patterns — see `docs/TESTING_STRATEGY.md` and `docs/UNIT_TESTING_GUIDE.md`.
 
 ---
@@ -380,7 +386,7 @@ Rules enforced by `pnpm lint` (via `apps/web/eslint.config.mjs`, consuming the s
 | Lazy-loaded feature routes | §18 |
 | Spartan brain composition without wrappers | §19 |
 | Token usage; no hex / oklch literals | §20 |
-| i18n; both themes; cache; Prisma; no pay-for-placement | §22 |
+| i18n; both themes; cache; Drizzle/D1; no pay-for-placement | §22 |
 
 ### Future enforcement (deferred)
 

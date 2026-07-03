@@ -9,14 +9,11 @@
   // `workers_dev: false` for every published env so there is no public
   // ingress. Per docs/STAGE_1_SPEC.md §15.2 and docs/CICD_PLAN.md §4.2.
   //
-  // Prisma Accelerate connects over HTTPS (no TCP), so Node-compat polyfills
-  // are not required and intentionally not enabled on the API Worker.
+  // The application database is Cloudflare D1, reached through the native `DB`
+  // binding via Drizzle (ADR 0016) — no external proxy, no Accelerate, and no
+  // Node-compat polyfills for the DB path (intentionally not enabled here).
   //
   // Secrets (set via `wrangler secret put`):
-  //   DATABASE_URL — Prisma Accelerate URL (prisma://...) used by the Worker at runtime.
-  //   DIRECT_URL  — Supabase pooler URL used ONLY by the Prisma CLI for
-  //                 migrations (locally and in CI). Do not read it from
-  //                 Worker code.
   //   DD_API_KEY  — Datadog Logs HTTP intake key (AECI-31). `logToDatadog()`
   //                 no-ops when this is unset, so non-DD envs are unaffected.
   //   CF_PURGE_API_TOKEN — Cloudflare API token `POST /api/promote` presents to
@@ -26,7 +23,19 @@
   //                 Worker's token uses. Absent (with CF_ZONE_ID) → promote skips
   //                 the cache purge (graceful no-op).
   //   CF_ZONE_ID  — Cloudflare zone the purge targets. Public value; provision per
-  //                 env alongside CF_PURGE_API_TOKEN.
+  //                 env alongside CF_PURGE_API_TOKEN. Also reused (as the GraphQL
+  //                 zoneTag) by the AECI-262 WAF firewall-event poll.
+  //   CF_ANALYTICS_API_TOKEN — Cloudflare API token the hourly WAF firewall-event
+  //                 poll presents to the GraphQL Analytics API to read the zone's
+  //                 firewallEventsAdaptiveGroups and emit aeci.waf.ratelimit.blocked
+  //                 (AECI-262 / §15.1). Scope: `Zone Analytics: Read` on
+  //                 aecintegrations.com — a DIFFERENT scope than CF_PURGE_API_TOKEN
+  //                 (Zone.Cache Purge), so it's its own secret. One un-suffixed GH
+  //                 secret covers the shared zone across all envs; CI pushes it per
+  //                 env (deploy.yml / promote-to-demo.yml / promote-to-prod.yml —
+  //                 graceful warn-skip, no hard gate). Optional + fail-safe: absent →
+  //                 the poll logs outcome:skipped_no_creds and no-ops. See
+  //                 docs/waf-rate-limits.md §5.
   //   ALGOLIA_APP_ID    — Algolia app id (AECI-134). Shared across envs. Consumed at
   //                 runtime by the AECI-139 daily-sync cron + promote→index hook
   //                 (and the SSR search bootstrap). Pushed per env via `wrangler
@@ -38,12 +47,33 @@
   //                 Required on production (verify-worker-secrets.sh fails the deploy
   //                 if absent — AECI-139); absent on preview/local → the cron +
   //                 promote hook are a graceful no-op.
+  //   ANTHROPIC_API_KEY — Anthropic API key for review toxicity scoring via Claude
+  //                 Haiku (AECI-258, supersedes the sunsetting Perspective API of
+  //                 AECI-198). Read at runtime by `scoreToxicity()` on POST
+  //                 /api/reviews. Optional + fail-open: absent (local/preview) →
+  //                 scoring is a silent no-op storing toxicity_score=null (emits no
+  //                 metric); an outage stores null too. Never blocks a submission.
+  //                 Set per env via `wrangler secret put ANTHROPIC_API_KEY --env
+  //                 <env>` when ready (no CI gate). GDPR prerequisite: the
+  //                 Messages API has no per-request no-store control, so the
+  //                 Anthropic org behind a real key MUST have zero data retention
+  //                 (ZDR) enabled or scored review bodies are retained ~30 days
+  //                 outside the AUTH_AND_RLS.md §8 erasure boundary.
   //   LINEAR_API_KEY — Linear personal API key for the form→Linear pipeline
   //                 (AECI-211 / Phase 6.4). Presented raw in `Authorization` (no
-  //                 `Bearer`). Optional + fail-open like PERSPECTIVE_API_KEY: absent
+  //                 `Bearer`). Optional + fail-open like ANTHROPIC_API_KEY: absent
   //                 → issue creation is a silent no-op and the request row sits open
   //                 for the §6.7 reconciliation sweep. Set per env via `wrangler
   //                 secret put LINEAR_API_KEY --env <env>` when ready (no CI gate).
+  //   RESEND_API_KEY — Resend API key for transactional email (AECI-240 / Phase 7.5,
+  //                 §11.1). Read at runtime by `lib/email.ts` for review submit/
+  //                 approve/reject confirmations, the account-deletion email, and the
+  //                 reconcile-sweep admin alert. Optional + fail-open like
+  //                 ANTHROPIC_API_KEY: absent (local/preview) → every send is a silent
+  //                 `'skipped'`, never blocking the action. CI pushes it per env from
+  //                 the RESEND_API_KEY_{STAGING,PRODUCTION} GH secrets (graceful — no
+  //                 hard gate). Pairs with the `EMAIL_FROM` var (sender). The repo uses
+  //                 Resend, not the spec's original "Loops"; see docs/email.md.
   //
   // AECI-139: the API Worker also runs `scheduled` + `queue` handlers (daily
   // scheduled jobs). The cron `scheduled` handler does not work inline — it
@@ -51,13 +81,14 @@
   // consumer runs it (ADR 0013: cron→queue→consumer). Cron triggers AND the queue
   // producer/consumer bindings are registered ONLY on staging + production (see
   // each env's `triggers` + `queues` blocks) — NOT on the base config or preview,
-  // so ephemeral PR-preview Workers carry no queues and run no daily jobs. The six
-  // queues (`aeci-algolia-{sync,drift}-{staging,production}` for AECI-139/140 +
-  // `aeci-stats-{staging,production}` for the AECI-178 home-stats job) are
-  // provisioned by an idempotent `wrangler queues create` step in deploy.yml /
-  // promote-to-prod.yml before the Worker deploy. PREREQS: Workers Paid plan, and
-  // the CI CLOUDFLARE_API_TOKEN must carry the Queues edit permission. See ADR 0013
-  // and docs/environments.md.
+  // so ephemeral PR-preview Workers carry no queues and run no daily jobs. The eight
+  // queues (`aeci-algolia-{sync,drift}-{staging,production}` for AECI-139/140,
+  // `aeci-stats-{staging,production}` for the AECI-178 home-stats job, and
+  // `aeci-reconcile-{staging,production}` for the AECI-214 request→Linear
+  // reconciliation sweep) are provisioned by an idempotent `wrangler queues create`
+  // step in deploy.yml / promote-to-prod.yml before the Worker deploy. PREREQS:
+  // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
+  // permission. See ADR 0013 and docs/environments.md.
   //
   // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
   // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the
@@ -68,12 +99,11 @@
   // When CF_PURGE_API_TOKEN / CF_ZONE_ID are unset (local `pnpm dev:bound`, PR
   // previews) promote no-ops the purge — expected, not a bug.
   "workers_dev": false,
-  // Smart Placement is intentionally NOT enabled. Prisma Accelerate is a
-  // globally distributed HTTPS pool: this Worker always reaches the nearest
-  // Accelerate edge, and Accelerate (not us) handles the edge-to-origin DB
-  // routing. Smart Placement can't influence the slow leg, and shifting the
-  // Worker away from users would only hurt cache-hit and short-query
-  // latencies. If we ever add a single-region direct backend, reconsider.
+  // Smart Placement is intentionally NOT enabled. The app DB is Cloudflare D1,
+  // reached through the native `DB` binding — D1 already routes to the Worker's
+  // region, so Smart Placement can't influence the DB leg, and shifting the
+  // Worker away from users would only hurt cache-hit and short-query latencies.
+  // If we ever add a single-region direct backend, reconsider.
   "observability": {
     "logs": {
       "enabled": true,
@@ -86,9 +116,10 @@
     // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
     "COMMIT_SHA": "unknown",
     "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-    // AECI-193: Supabase project base URL (public) — see env comment in the
-    // preview block. Base config mirrors preview (bare `wrangler dev`).
-    "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+    // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared auth
+    // project (see the preview block). Base config mirrors preview (bare
+    // `wrangler dev`).
+    "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
   },
   "dev": {
     "port": 8787,
@@ -98,12 +129,29 @@
   // never poisons production. `preview_id` here wires `aeci-api-taxonomy-preview`
   // for unscoped `wrangler dev`; per-env blocks below override with each env's
   // own namespace ID. Handler at `src/routes/taxonomy.ts` falls back to a
-  // direct Prisma query when the binding is absent, so this stays optional.
+  // direct D1 read when the binding is absent, so this stays optional.
   "kv_namespaces": [
     {
       "binding": "TAXONOMY_KV",
       "id": "331fc1cfc6e0421b985442ac934748fa",
       "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+    },
+  ],
+  // ADR 0016 / AECI-252: the application database is Cloudflare D1, bound as `DB`
+  // and reached via the Drizzle client factory `getDb(env)` (`src/db/client.ts`).
+  // `wrangler dev` serves a LOCAL SQLite copy (in `.wrangler/state`) regardless of
+  // `database_id`, so local dev works no matter what id is set here. The preview
+  // database is now provisioned (AECI-256); the staging/production ids below are
+  // still placeholders, created with `wrangler d1 create` and pasted in. Drizzle writes flat
+  // migration SQL to `apps/api/migrations/` (drizzle.config.ts `out`), which is
+  // wrangler's default `migrations_dir`, so `wrangler d1 migrations apply` finds
+  // them with no `migrations_pattern` override.
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aeci-app-preview",
+      "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+      "migrations_dir": "migrations",
     },
   ],
   "env": {
@@ -119,18 +167,29 @@
         // AECI-74: overridden at dev/deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193: Supabase base URL (public; dev project for preview/staging,
-        // prod project for production). Drives JWKS user-JWT verification in
-        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
-        // on the API Worker — it verifies with public JWKS material only
-        // (AUTH_AND_RLS.md §4).
-        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
+        // auth project across all environments. Drives JWKS user-JWT
+        // verification in lib/user-auth.ts. The anon key is never on the API
+        // Worker; the service-role key is a Worker SECRET (not a var here), used
+        // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
       },
       "kv_namespaces": [
         {
           "binding": "TAXONOMY_KV",
           "id": "331fc1cfc6e0421b985442ac934748fa",
           "preview_id": "331fc1cfc6e0421b985442ac934748fa",
+        },
+      ],
+      // ADR 0016 / AECI-252. `pnpm dev:bound` runs the API Worker with
+      // `--env preview`, so this is the binding the bound local stack uses — a
+      // LOCAL SQLite copy regardless of id; the real preview database is provisioned (AECI-256).
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-preview",
+          "database_id": "05618c5a-929d-404d-8204-1e565c52b9c2",
+          "migrations_dir": "migrations",
         },
       ],
       "observability": {
@@ -151,12 +210,25 @@
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193: Supabase base URL (public; dev project for preview/staging,
-        // prod project for production). Drives JWKS user-JWT verification in
-        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
-        // on the API Worker — it verifies with public JWKS material only
-        // (AUTH_AND_RLS.md §4).
-        "SUPABASE_URL": "https://dmbygwupskttzsvfzluq.supabase.co",
+        // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
+        // auth project across all environments. Drives JWKS user-JWT
+        // verification in lib/user-auth.ts. The anon key is never on the API
+        // Worker; the service-role key is a Worker SECRET (not a var here), used
+        // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        // AECI-240 / Phase 7.5: transactional email (Resend). EMAIL_FROM is the
+        // verified sender; PUBLIC_SITE_URL builds absolute links in emails;
+        // ADMIN_ALERT_EMAIL receives the §6.2 reconcile-sweep stuck-request alert.
+        // The RESEND_API_KEY secret is pushed by CI (graceful) — absent → sends skip.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "PUBLIC_SITE_URL": "https://staging.aecintegrations.com",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
+        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // parseRecipients). Staging sends to Chris only.
+        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
       },
       "kv_namespaces": [
         {
@@ -164,16 +236,42 @@
           "id": "dcc927dc53be4fdb9b7c5279e4803539",
         },
       ],
-      // Daily scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
+      // deploy CI applies migrations via
+      // `wrangler d1 migrations apply aeci-app-staging --env staging --remote`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-staging",
+          "database_id": "6cd91530-20f3-4264-b6ba-3b2bf611c2aa",
+          "migrations_dir": "migrations",
+        },
+      ],
+      // Scheduled crons, dispatched by `controller.cron` in `src/scheduled.ts`.
       // Staging + production only (base config / preview have no `triggers`, so PR
-      // previews don't run them). 06:00 UTC (= 01:00 EST) — moderation-queue health
-      // snapshot (AECI-206, inline gauge); 07:00 UTC (= 02:00 EST) — home-stats compute
-      // (AECI-178, §10); 08:00 UTC (= 03:00 EST, US-East launch base) — incremental
-      // Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
-      // reconciliation (AECI-140, §23.1). UTC is DST-unaware → 02:00/03:00/04:00/05:00 EDT
-      // in summer (accepted). Strings MUST match the constants in `src/scheduled.ts`.
+      // previews don't run them). 04:00 UTC — §23.1 data-quality suite + email
+      // digest (AECI-241 / Phase 7.6); 06:00 UTC (= 01:00 EST) — moderation-queue
+      // health snapshot (AECI-206, inline gauge); 07:00 UTC (= 02:00 EST) — home-stats
+      // compute (AECI-178, §10); 08:00 UTC (= 03:00 EST, US-East launch base) —
+      // incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST) — index-drift
+      // reconciliation (AECI-140, §23.1). The five-field "*/15 * * * *" runs every
+      // 15 min — the request→Linear reconciliation sweep (AECI-214 / Phase 6.7), a
+      // tight backstop that retries stuck vendor_requests. "0 * * * *" runs every hour at
+      // :00 — the WAF firewall-event poll (AECI-262 / §15.1, queue-less): reads the previous
+      // clock hour of firewallEventsAdaptiveGroups via Cloudflare's GraphQL Analytics API and
+      // emits aeci.waf.ratelimit.blocked (needs the CF_ANALYTICS_API_TOKEN secret; absent →
+      // skipped no-op). UTC is DST-unaware (accepted). Strings MUST match the constants in
+      // `src/scheduled.ts`.
       "triggers": {
-        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *"],
+        "crons": [
+          "0 4 * * *",
+          "0 6 * * *",
+          "0 7 * * *",
+          "0 8 * * *",
+          "0 9 * * *",
+          "*/15 * * * *",
+          "0 * * * *",
+        ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
       // `queue` consumer (same Worker) runs the job. `binding` is the producer
@@ -187,6 +285,8 @@
           { "queue": "aeci-algolia-sync-staging", "binding": "ALGOLIA_SYNC_QUEUE" },
           { "queue": "aeci-algolia-drift-staging", "binding": "ALGOLIA_DRIFT_QUEUE" },
           { "queue": "aeci-stats-staging", "binding": "STATS_QUEUE" },
+          { "queue": "aeci-reconcile-staging", "binding": "RECONCILE_QUEUE" },
+          { "queue": "aeci-data-quality-staging", "binding": "DATA_QUALITY_QUEUE" },
         ],
         "consumers": [
           {
@@ -203,6 +303,121 @@
           },
           {
             "queue": "aeci-stats-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-reconcile-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-data-quality-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
+      "observability": {
+        "logs": {
+          "enabled": true,
+          "invocation_logs": true,
+        },
+      },
+    },
+    "demo": {
+      "name": "aeci-api-demo",
+      "workers_dev": false,
+      // The public showcase tier. Shares the single shared Supabase auth project
+      // (ADR 0017) + the prod zone, but has its OWN D1, KV, queues, and Algolia
+      // (`demo_*`) index set. AECI-105 / Option B: promote purges the edge cache by
+      // calling Cloudflare directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
+      "vars": {
+        "ENV": "demo",
+        "DD_SITE": "us5.datadoghq.com",
+        // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
+        "COMMIT_SHA": "unknown",
+        "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
+        // ADR 0017: the single shared auth project (same value in every env).
+        // Drives JWKS user-JWT verification only (lib/user-auth.ts) — public
+        // material, no DB round-trip.
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "PUBLIC_SITE_URL": "https://demo.aecintegrations.com",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+      },
+      "kv_namespaces": [
+        {
+          "binding": "TAXONOMY_KV",
+          "id": "b05173e9891e4b93948f55b62c4dac84",
+        },
+      ],
+      // promote-to-demo CI applies migrations via
+      // `wrangler d1 migrations apply aeci-app-demo --env demo --remote`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-demo",
+          "database_id": "a2c7d838-66da-484c-bbfb-80688aac888e",
+          "migrations_dir": "migrations",
+        },
+      ],
+      // Same seven crons as staging/production (see staging note — incl. the hourly
+      // "0 * * * *" WAF firewall-event poll, AECI-262). Dispatched by
+      // `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
+      "triggers": {
+        "crons": [
+          "0 4 * * *",
+          "0 6 * * *",
+          "0 7 * * *",
+          "0 8 * * *",
+          "0 9 * * *",
+          "*/15 * * * *",
+          "0 * * * *",
+        ],
+      },
+      // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
+      "queues": {
+        "producers": [
+          { "queue": "aeci-algolia-sync-demo", "binding": "ALGOLIA_SYNC_QUEUE" },
+          { "queue": "aeci-algolia-drift-demo", "binding": "ALGOLIA_DRIFT_QUEUE" },
+          { "queue": "aeci-stats-demo", "binding": "STATS_QUEUE" },
+          { "queue": "aeci-reconcile-demo", "binding": "RECONCILE_QUEUE" },
+          { "queue": "aeci-data-quality-demo", "binding": "DATA_QUALITY_QUEUE" },
+        ],
+        "consumers": [
+          {
+            "queue": "aeci-algolia-sync-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-algolia-drift-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-stats-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-reconcile-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-data-quality-demo",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,
@@ -227,12 +442,35 @@
         // AECI-74: overridden at deploy time via `wrangler --var COMMIT_SHA:<sha> --var DEPLOYED_AT:<iso>`.
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
-        // AECI-193: Supabase base URL (public; dev project for preview/staging,
-        // prod project for production). Drives JWKS user-JWT verification in
-        // lib/user-auth.ts. The anon + service-role keys are deliberately ABSENT
-        // on the API Worker — it verifies with public JWKS material only
-        // (AUTH_AND_RLS.md §4).
-        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
+        // AECI-193 / ADR 0017: Supabase base URL (public) — the SINGLE shared
+        // auth project across all environments. Drives JWKS user-JWT
+        // verification in lib/user-auth.ts. The anon key is never on the API
+        // Worker; the service-role key is a Worker SECRET (not a var here), used
+        // only by the ADR-0016 split-identity seams (AUTH_AND_RLS.md §4).
+        "SUPABASE_URL": "https://ktuhnlypztujpsseujzx.supabase.co",
+        // AECI-240 / Phase 7.5: transactional email (Resend). See the staging note.
+        // The RESEND_API_KEY secret is pushed by CI from RESEND_API_KEY_PRODUCTION
+        // — absent → sends skip.
+        "EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
+        "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
+        // AECI-241: sender + recipient(s) for the daily data-quality digest. Plain
+        // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
+        // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
+        // parseRecipients). TODO: append Bill's address alongside Chris?
+        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // PUBLIC_SITE_URL is the canonical launch domain — SHARED by transactional
+        // email (absolute links in the approved/rejected emails, AECI-240) AND the
+        // post-promote IndexNow submission (the origin its URLs are built against,
+        // AECI-236 / §20.2; canonicals are self-referential to the serving origin,
+        // ADR 0011). Public value. Pre-launch the production tier serves
+        // `prod.aecintegrations.com` (no-index), so this points there for email
+        // links; it flips to the apex (`https://aecintegrations.com`) at the apex
+        // cutover, alongside the web Worker's `ALLOW_INDEXING="true"` + the
+        // `INDEXNOW_KEY` secret and the `GOOGLE_INDEXING_SA_EMAIL` /
+        // `GOOGLE_INDEXING_SA_PRIVATE_KEY` secrets (AECI-263; both IndexNow and the
+        // best-effort Google Indexing ping stay no-ops until those are provisioned).
+        "PUBLIC_SITE_URL": "https://prod.aecintegrations.com",
       },
       "kv_namespaces": [
         {
@@ -240,12 +478,34 @@
           "id": "35d63b5b3c4b492c9d4e6f2041d60136",
         },
       ],
-      // Daily scheduled crons (see staging note): 06:00 UTC (= 01:00 EST) moderation-queue
+      // ADR 0016 / AECI-252 + AECI-256. `database_id` is provisioned (AECI-256);
+      // promote-to-prod CI applies migrations via `wrangler d1 migrations apply
+      // aeci-app-production --env production --remote`.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "aeci-app-production",
+          "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
+          "migrations_dir": "migrations",
+        },
+      ],
+      // Scheduled crons (see staging note): 04:00 UTC §23.1 data-quality suite +
+      // email digest (AECI-241 / Phase 7.6); 06:00 UTC (= 01:00 EST) moderation-queue
       // health snapshot (AECI-206); 07:00 UTC (= 02:00 EST) home-stats compute (AECI-178);
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
-      // index-drift reconciliation (AECI-140). Dispatched by `controller.cron`.
+      // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
+      // reconciliation sweep (AECI-214 / Phase 6.7); "0 * * * *" every hour — WAF firewall-event
+      // poll (AECI-262 / §15.1, queue-less). Dispatched by `controller.cron`.
       "triggers": {
-        "crons": ["0 6 * * *", "0 7 * * *", "0 8 * * *", "0 9 * * *"],
+        "crons": [
+          "0 4 * * *",
+          "0 6 * * *",
+          "0 7 * * *",
+          "0 8 * * *",
+          "0 9 * * *",
+          "*/15 * * * *",
+          "0 * * * *",
+        ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
       "queues": {
@@ -253,6 +513,8 @@
           { "queue": "aeci-algolia-sync-production", "binding": "ALGOLIA_SYNC_QUEUE" },
           { "queue": "aeci-algolia-drift-production", "binding": "ALGOLIA_DRIFT_QUEUE" },
           { "queue": "aeci-stats-production", "binding": "STATS_QUEUE" },
+          { "queue": "aeci-reconcile-production", "binding": "RECONCILE_QUEUE" },
+          { "queue": "aeci-data-quality-production", "binding": "DATA_QUALITY_QUEUE" },
         ],
         "consumers": [
           {
@@ -269,6 +531,18 @@
           },
           {
             "queue": "aeci-stats-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-reconcile-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+          {
+            "queue": "aeci-data-quality-production",
             "max_batch_size": 1,
             "max_retries": 3,
             "max_concurrency": 1,

@@ -22,7 +22,7 @@ Operator-run script that stands up one environment's Algolia search infrastructu
 1. **Ensures three indexes exist** — `<prefix>_products`, `<prefix>_vendors`, `<prefix>_integrations` — by applying _empty_ settings. The prefix is the env name; `development` folds onto `preview` (there is no `development_*` set).
 2. **Mints two standalone, independently-rotatable keys**, each scoped to that env's three indexes:
    - **search-only key** — ACL `['search']` → the web Worker's `ALGOLIA_SEARCH_KEY` (client-exposed, query-only).
-   - **management key** — ACL `search + addObject + deleteObject + editSettings + listIndexes` → the API Worker's `ALGOLIA_ADMIN_KEY` (server-only; used by sync from 3.5).
+   - **management key** — ACL `search + browse + addObject + deleteObject + editSettings + listIndexes` → the API Worker's `ALGOLIA_ADMIN_KEY` (server-only; used by sync from 3.5 and the orphan sweep from AECI-266, which needs `browse`).
 3. **Prints the exact `gh secret set` + `wrangler secret put` commands** to run next.
 
 The index names and key ACL/scope shapes come from `packages/shared/src/algolia.ts` — the single source of truth shared with the Workers.
@@ -54,7 +54,7 @@ Or via the package script: `pnpm algolia:provision --env staging`.
 
 For each env the script prints the live `ALGOLIA_SEARCH_KEY` and `ALGOLIA_ADMIN_KEY` (management) values, then a copy-pasteable block of:
 
-- `gh secret set ALGOLIA_APP_ID` (shared — set once), and `ALGOLIA_SEARCH_KEY_<ENV>` / `ALGOLIA_ADMIN_KEY_<ENV>` for staging/production.
+- `gh secret set ALGOLIA_APP_ID`, `ALGOLIA_SEARCH_KEY`, `ALGOLIA_ADMIN_KEY` — all **single shared** secrets now (one value across every env; no `_STAGING`/`_PRODUCTION`/`_PREVIEW`/`_DEMO` suffix). The shared search key must cover every env's indexes it serves.
 - `wrangler secret put` for the web Worker (`ALGOLIA_APP_ID` + `ALGOLIA_SEARCH_KEY`) and the API Worker (`ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY`).
 
 `preview` has no GitHub secret (per-PR previews are untouched until 3.9); push its Worker secrets directly.
@@ -72,7 +72,7 @@ node scripts/algolia/provision.mjs --env staging --rotate
 
 - The three `<env>_*` indexes exist with **no** settings.
 - The search key is `search`-only and scoped to exactly that env's three indexes.
-- The management key has the index-mutation ACLs (no `deleteIndex`/`usage`/`logs`) and the same index scope.
+- The management key has the search/browse + index-mutation ACLs (no `deleteIndex`/`usage`/`logs`) and the same index scope.
 - After `wrangler secret put` + deploy, `curl` the env's SSR HTML and confirm `window.__AECI_ALGOLIA__` carries the search key (admin key absent).
 
 ---
@@ -87,7 +87,7 @@ This is the script the CI "update Algolia indexes" step (CICD §3.2) runs on eve
 
 ```bash
 export ALGOLIA_APP_ID=…
-export ALGOLIA_ADMIN_KEY=<per-env MANAGEMENT key>   # the ALGOLIA_ADMIN_KEY_<ENV> value (ACL includes editSettings)
+export ALGOLIA_ADMIN_KEY=<shared MANAGEMENT key>   # the single shared ALGOLIA_ADMIN_KEY (ACL includes editSettings)
 
 node scripts/algolia/apply-settings.mjs --env staging
 ```

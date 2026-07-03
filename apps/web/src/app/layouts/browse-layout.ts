@@ -28,14 +28,14 @@ import { Component } from '@angular/core';
   selector: 'aec-browse-layout',
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
-      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
+      <div class="mx-auto w-full max-w-7xl px-6 pt-3 pb-8 md:px-8 md:pt-4 md:pb-12">
         <header class="mb-8 border-b border-(--border-default) pb-6 md:mb-12 md:pb-8">
           <ng-content select="[slot=header]" />
         </header>
 
         <div class="grid gap-8 md:grid-cols-[minmax(0,1fr)_minmax(0,3fr)] md:gap-12">
           <aside
-            class="md:sticky md:top-8 md:self-start"
+            class="md:self-start"
             i18n-aria-label="@@app.layouts.browse.filters.aria"
             aria-label="Filters"
           >

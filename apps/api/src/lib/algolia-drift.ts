@@ -1,25 +1,26 @@
 /**
- * Algolia ↔ Supabase index-drift reconciliation — the testable core of the
- * Phase 3.7 daily data-quality check (AECI-140, `STAGE_1_SPEC.md` §23.1 line
- * "Algolia index drift (record count mismatch with Supabase)").
+ * Algolia ↔ D1 index-drift reconciliation — the testable core of the Phase 3.7
+ * daily data-quality check (AECI-140, `STAGE_1_SPEC.md` §23.1 line "Algolia index
+ * drift (record count mismatch with the database)").
  *
- * Counts the **promoted** rows per entity in Supabase and the object count of
- * the matching Algolia index, and reports any per-index mismatch. Report-only:
- * there is no auto-remediation (§23.1 — humans triage; re-run the AECI-138 bulk
- * sync to repair).
+ * Counts the **promoted** rows per entity in D1 and the object count of the
+ * matching Algolia index, and reports any per-index mismatch. The negative-drift
+ * case (orphans — objects with no promoted D1 row) is auto-healed by the sibling
+ * `./algolia-orphans` sweep (AECI-266), wired into the same 09:00 cron right after
+ * this report; positive drift (records missing from the index) is repaired by the
+ * incremental sync (`./algolia-sync`).
  *
- * Dependency-injected, exactly like `./algolia-bulk-sync`: this module imports
- * neither `@prisma/client` nor `algoliasearch`, so it unit-tests with fakes and
+ * Dependency-injected, exactly like `./algolia-orphans`: this module imports
+ * neither a database client nor `algoliasearch`, so it unit-tests with fakes and
  * (more importantly) is safe to bundle into the API Worker via the cron handler.
- * Two thin callers wire the real clients:
- *   - `apps/api/src/scheduled.ts` — the Worker cron (Accelerate Prisma, daily).
- *   - `apps/api/scripts/reconcile-algolia-drift.ts` — the Node CLI (vanilla
- *     Prisma over `DIRECT_URL`) for the deploy-staging hook + manual triage.
+ * The Worker cron (`apps/api/src/scheduled.ts`) wires the real clients: a
+ * Drizzle/D1-backed counter (`drizzleDriftCounter`) and the fetch-based Algolia
+ * counter below.
  *
- * The promoted-row definition mirrors the bulk sync (`./algolia-bulk-sync`):
- * `products`/`vendors` carry `promotion_status`; integrations are promoted
- * transitively when BOTH endpoints are. Index names come from the single source
- * of truth `@aeci/shared/algolia`.
+ * The promoted-row definition mirrors the orphan sweep (`./algolia-orphans`) and
+ * the incremental sync (`./algolia-sync`): `products`/`vendors` carry
+ * `promotion_status`; integrations are promoted transitively when BOTH endpoints
+ * are. Index names come from the single source of truth `@aeci/shared/algolia`.
  *
  * Spec: `STAGE_1_SPEC.md` §23.1; `CICD_PLAN.md` §3.2.
  */
@@ -36,17 +37,17 @@ import {
 /**
  * The `promotion_status` value that marks a row live on the public site (the
  * value `POST /api/promote` writes; `docs/DATABASE_SCHEMA.md` CHECK constraint).
- * Same constant the bulk sync filters on (`./algolia-bulk-sync`).
+ * Same constant `./algolia-orphans` and `./algolia-sync` filter on.
  */
 const PROMOTED = 'promoted';
 
 /**
- * Minimal Prisma surface this check uses — `.count()` per entity. Satisfied by
- * the Accelerate edge client (`getPrisma`, the cron path) and the vanilla node
- * client (the CLI path) alike; the where-shapes are the same promoted-only
- * filters the bulk sync (`./algolia-bulk-sync`) reads on.
+ * Minimal DB read surface this check uses — `.count()` per entity. Satisfied by
+ * the Drizzle/D1-backed counter (`drizzleDriftCounter`, the cron path); the
+ * where-shapes are the same promoted-only filters the orphan sweep
+ * (`./algolia-orphans`) reads on.
  */
-export type DriftCountPrisma = {
+export type DriftCount = {
   product: { count(args: { where: { promotionStatus: string } }): Promise<number> };
   vendor: { count(args: { where: { promotionStatus: string } }): Promise<number> };
   integration: {
@@ -68,15 +69,15 @@ export type AlgoliaCountClient = {
   countObjects(indexName: string): Promise<number>;
 };
 
-/** Drift for one entity's index. `drift = supabase - algolia` (signed). */
+/** Drift for one entity's index. `drift = database - algolia` (signed). */
 export type AlgoliaIndexDrift = {
   entity: IndexEntity;
   indexName: string;
-  /** Promoted rows in Supabase. */
-  supabase: number;
+  /** Promoted rows in D1. */
+  database: number;
   /** Objects in the Algolia index (`nbHits` of an empty query). */
   algolia: number;
-  /** `supabase - algolia`: positive = index is missing rows; negative = orphans. */
+  /** `database - algolia`: positive = index is missing rows; negative = orphans. */
   drift: number;
 };
 
@@ -123,25 +124,25 @@ export function createAlgoliaCounter(appId: string, apiKey: string): AlgoliaCoun
 }
 
 /**
- * Count promoted rows per entity in Supabase and objects per index in Algolia,
- * and return one row per entity (in `INDEX_ENTITIES` order). Read-only; callers
+ * Count promoted rows per entity in D1 and objects per index in Algolia, and
+ * return one row per entity (in `INDEX_ENTITIES` order). Read-only; callers
  * filter `drift !== 0`. Index names resolve through `@aeci/shared/algolia`
  * (locale-aware: default `en-US` → bare `<prefix>_<entity>`).
  */
 export async function findAlgoliaIndexDrift(
-  deps: { prisma: DriftCountPrisma; algolia: AlgoliaCountClient },
+  deps: { db: DriftCount; algolia: AlgoliaCountClient },
   opts: { env: AlgoliaEnv; locale?: string },
 ): Promise<AlgoliaIndexDrift[]> {
-  const { prisma, algolia } = deps;
+  const { db, algolia } = deps;
   const names: AlgoliaIndexNames = localizedIndexNamesFor(opts.env, opts.locale ?? DEFAULT_LOCALE);
 
-  const supabaseCount: Record<IndexEntity, () => Promise<number>> = {
-    products: () => prisma.product.count({ where: { promotionStatus: PROMOTED } }),
-    vendors: () => prisma.vendor.count({ where: { promotionStatus: PROMOTED } }),
+  const databaseCount: Record<IndexEntity, () => Promise<number>> = {
+    products: () => db.product.count({ where: { promotionStatus: PROMOTED } }),
+    vendors: () => db.vendor.count({ where: { promotionStatus: PROMOTED } }),
     // Integrations are promoted transitively: both endpoints must be promoted —
-    // the same filter the bulk sync uploads on (`./algolia-bulk-sync`).
+    // the same filter the orphan sweep / incremental sync use.
     integrations: () =>
-      prisma.integration.count({
+      db.integration.count({
         where: {
           sourceProduct: { promotionStatus: PROMOTED },
           targetProduct: { promotionStatus: PROMOTED },
@@ -152,14 +153,14 @@ export async function findAlgoliaIndexDrift(
   const rows: AlgoliaIndexDrift[] = [];
   for (const entity of INDEX_ENTITIES) {
     const indexName = names[entity];
-    const supabase = await supabaseCount[entity]();
+    const database = await databaseCount[entity]();
     const algoliaCount = await algolia.countObjects(indexName);
     rows.push({
       entity,
       indexName,
-      supabase,
+      database,
       algolia: algoliaCount,
-      drift: supabase - algoliaCount,
+      drift: database - algoliaCount,
     });
   }
   return rows;
@@ -167,10 +168,10 @@ export async function findAlgoliaIndexDrift(
 
 /** Render the per-index counts as a fixed-width table for CLI / cron logs. */
 export function formatDriftTable(rows: AlgoliaIndexDrift[]): string {
-  const header = 'entity        index                      supabase   algolia      drift';
+  const header = 'entity        index                      database   algolia      drift';
   const lines = rows.map(
     (r) =>
-      `${r.entity.padEnd(12)}  ${r.indexName.padEnd(24)}  ${String(r.supabase).padStart(8)}  ${String(
+      `${r.entity.padEnd(12)}  ${r.indexName.padEnd(24)}  ${String(r.database).padStart(8)}  ${String(
         r.algolia,
       ).padStart(8)}  ${String(r.drift).padStart(9)}`,
   );
@@ -178,7 +179,7 @@ export function formatDriftTable(rows: AlgoliaIndexDrift[]): string {
 }
 
 export type AlgoliaDriftDeps = {
-  prisma: DriftCountPrisma;
+  db: DriftCount;
   algolia: AlgoliaCountClient;
   /** Called once per entity (always, 0 when clean) so a no-data monitor can tell
    *  "ran clean" from "didn't run". Value is the signed `drift`. */
@@ -203,7 +204,7 @@ export async function reportAlgoliaDrift(
   const log = deps.log ?? console;
   const locale = opts.locale ?? DEFAULT_LOCALE;
 
-  const rows = await findAlgoliaIndexDrift({ prisma: deps.prisma, algolia: deps.algolia }, opts);
+  const rows = await findAlgoliaIndexDrift({ db: deps.db, algolia: deps.algolia }, opts);
 
   for (const row of rows) deps.emitGauge(row);
 
@@ -214,11 +215,13 @@ export async function reportAlgoliaDrift(
     log.warn(
       `✗ ${drifted.length} index(es) drifted: ${drifted
         .map((r) => `${r.indexName} (${r.drift > 0 ? '+' : ''}${r.drift})`)
-        .join(', ')}. Report-only — re-run the bulk sync to repair.`,
+        .join(
+          ', ',
+        )}. Negative drift (orphans) is auto-healed by the orphan sweep; positive drift = re-run the incremental sync.`,
     );
     deps.onDrift?.(drifted);
   } else {
-    log.log('✓ No Algolia index drift — every index matches its promoted Supabase rows.');
+    log.log('✓ No Algolia index drift — every index matches its promoted D1 rows.');
   }
   return rows;
 }

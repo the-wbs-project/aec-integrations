@@ -13,6 +13,7 @@
  */
 
 import { createDatadogClient } from '@aeci/shared/datadog';
+import { isPublicSite } from '@aeci/shared/deploy-env';
 
 import type { WebEnv } from './env';
 
@@ -38,14 +39,15 @@ export const { hostnameFromRequest, logToDatadog, submitDistribution, submitCoun
  *
  *   - errors (`status >= 400`) are logged in every env — full fidelity; the
  *     non-cacheable branch's 404/5xx visibility leans on this,
- *   - all renders are logged in non-prod (dev volume is tiny and the full
- *     stream is useful for verifying the pipe),
- *   - prod 2xx renders are NOT logged — the count metric carries that signal.
+ *   - all renders are logged off the public tiers (dev/preview/staging volume is
+ *     tiny and the full stream is useful for verifying the pipe),
+ *   - public-site (production + demo) 2xx renders are NOT logged — the count
+ *     metric carries that signal at audience-traffic volume.
  *
  * Deterministic by design (no sampling): the count metric, not a log sample,
- * is the bounded prod heartbeat. See docs/OBSERVABILITY.md.
+ * is the bounded public-tier heartbeat. See docs/OBSERVABILITY.md.
  */
 export function shouldEmitRenderLog(env: WebEnv, status: number): boolean {
   if (status >= 400) return true;
-  return (env.ENV ?? 'development') !== 'production';
+  return !isPublicSite(env.ENV);
 }

@@ -24,6 +24,7 @@
 import { Component, inject } from '@angular/core';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 
+import { SessionStatus } from '../auth/session-status';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -32,10 +33,19 @@ import { navigateToSearchQuery, navigateToSuggestion } from './search-submit';
 import { BrandLogo } from './brand-logo';
 import { NavFlyoutTrigger } from './nav-flyout-trigger';
 import { NavMenu } from './nav-menu';
+import { UserMenu } from './user-menu';
 
 @Component({
   selector: 'aec-site-header',
-  imports: [RouterLink, RouterLinkActive, BrandLogo, NavMenu, NavFlyoutTrigger, SearchAutocomplete],
+  imports: [
+    RouterLink,
+    RouterLinkActive,
+    BrandLogo,
+    NavMenu,
+    NavFlyoutTrigger,
+    SearchAutocomplete,
+    UserMenu,
+  ],
   template: `
     <header class="bg-(--surface-base)">
       <div class="mx-auto flex max-w-7xl items-center gap-3 px-8 py-5 md:gap-8">
@@ -74,13 +84,22 @@ import { NavMenu } from './nav-menu';
             (querySubmitted)="onSearchQuery($event)"
             (suggestionChosen)="onSuggestion($event)"
           />
-          <a
-            routerLink="/auth/login"
-            class="inline-flex items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-            i18n="@@app.header.signIn"
-          >
-            Sign in
-          </a>
+          <!-- Auth affordance. Neutral "Sign in" is the SSR/pre-hydration
+               default (cache-safe); SessionStatus flips to the account menu
+               after hydration when a session is present (Phase 5 §4.4). The
+               menu (Account / Admin / Sign out + the pending-review badge) is
+               its own component (AECI-259). -->
+          @if (session.signedIn()) {
+            <aec-user-menu />
+          } @else {
+            <a
+              routerLink="/auth/login"
+              class="inline-flex items-center rounded-(--radius-md) bg-(--accent-primary) px-4 py-1.5 text-sm font-medium text-(--surface-base) hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+              i18n="@@app.header.signIn"
+            >
+              Sign in
+            </a>
+          }
         </div>
       </div>
       <div class="h-1 w-full bg-(--accent-warm)" aria-hidden="true"></div>
@@ -89,6 +108,7 @@ import { NavMenu } from './nav-menu';
 })
 export class SiteHeader {
   protected readonly taxonomy = inject(TaxonomyNavStore);
+  protected readonly session = inject(SessionStatus);
   private readonly router = inject(Router);
 
   protected onSearchQuery(query: string): void {

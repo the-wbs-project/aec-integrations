@@ -74,6 +74,36 @@ describe('CONTENT_SECURITY_POLICY', () => {
     expect(CONTENT_SECURITY_POLICY).toContain('https://*.algolianet.com');
   });
 
+  it('allows the PostHog US ingestion + assets hosts on connect-src (AECI-239)', () => {
+    // The browser PostHog client POSTs events to us.i.posthog.com and fetches
+    // remote config from us-assets.i.posthog.com. With
+    // disable_external_dependency_loading the SDK never injects a remote script,
+    // so these live on connect-src only and script-src is untouched. Region is
+    // pinned to US — EU would need the eu.* hosts swapped in here.
+    expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*https:\/\/us\.i\.posthog\.com/);
+    expect(CONTENT_SECURITY_POLICY).toMatch(/connect-src[^;]*https:\/\/us-assets\.i\.posthog\.com/);
+    // Must NOT leak into script-src — that's the whole point of bundling + no
+    // external dependency loading.
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*posthog/);
+  });
+
+  it('allows the shared Supabase auth project origin on connect-src (browser auth, AECI-194 / ADR 0017)', () => {
+    // The @supabase/ssr browser client XHRs to https://<ref>.supabase.co/auth/v1/*
+    // (getSession/token-refresh, magic-link OTP, sign-out). Per ADR 0017 there is
+    // ONE shared auth project across all environments, so the SINGLE ref
+    // (ktuhnlypztujpsseujzx) is allowlisted explicitly. Missing the origin makes
+    // every signed-in page CSP-refuse its SessionStatus probe in a refresh-retry
+    // loop (the staging regression).
+    expect(CONTENT_SECURITY_POLICY).toMatch(
+      /connect-src[^;]*https:\/\/ktuhnlypztujpsseujzx\.supabase\.co/,
+    );
+    // The retired per-env project refs must NOT linger in the CSP.
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/dmbygwupskttzsvfzluq|jgxebjufabtwkcgxjqvk/);
+    // Auth is REST-only (no realtime subscriptions) and OAuth is a top-level
+    // navigation — neither needs script-src, so Supabase stays out of it.
+    expect(CONTENT_SECURITY_POLICY).not.toMatch(/script-src[^;]*supabase/);
+  });
+
   it('allows the Cloudflare Web Analytics beacon (script + report hosts)', () => {
     // Cloudflare auto-injects beacon.min.js from static.cloudflareinsights.com
     // at the edge; it then POSTs RUM data to cloudflareinsights.com/cdn-cgi/rum.

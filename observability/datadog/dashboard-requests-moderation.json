@@ -1,0 +1,345 @@
+{
+  "title": "AECi Phase 6 — Requests / Moderation",
+  "description": "Phase 6.12 requests/moderation observability (AECI-219). Parity with the Phase 2/3/4/5 dashboards. Surfaces the request→Linear pipeline already instrumented by the Phase 6 feature issues: aeci.linear.issue (count, outcome + kind) and aeci.linear.issue.duration_ms (distribution — AECI-211 / 6.4), aeci.linear.sync (count, outcome + to_status) and aeci.linear.sync.duration_ms (distribution — AECI-213 / 6.6), the inbound webhook signals aeci.webhooks.linear.receipt (count, type + action) and aeci.webhooks.linear.hmac_failure (count — AECI-212 / 6.5), and the reconciliation sweep aeci.linear.reconcile.stuck (backlog gauge), .attempt, .persistent_failure, .email (AECI-214 / 6.7). NOTE: Datadog lowercases tag values (outcome queried as ok/failed/skipped_exists/skipped_no_issue; kind as claim/correction; to_status as resolved/rejected; action as create/update/remove). The count metrics aeci.linear.issue/.sync/.webhooks.*/.reconcile.email submit value 1 (count: and sum: coincide); aeci.linear.reconcile.attempt/.persistent_failure submit the ROW COUNT, so they are queried with sum:...as_count(). Distribution percentiles (aeci.linear.issue.duration_ms, aeci.linear.sync.duration_ms) require percentile aggregations enabled under Metrics > Summary. The failure-rate widgets exclude the skipped_* outcomes from the denominator (an idempotent re-fire or a no-issue sync is not a terminal attempt). Ban-action observability (aeci.moderation.ban) is DEFERRED to AECI-218 / Phase 6.11 — the ban write-path is unbuilt — so no ban widget here yet. Committed for record (AECI-219); the live dashboard is the source of truth — re-export after edits. Live apply is the operator step in docs/OBSERVABILITY.md.",
+  "layout_type": "ordered",
+  "reflow_type": "auto",
+  "template_variables": [
+    {
+      "name": "env",
+      "prefix": "env",
+      "available_values": ["staging", "production"],
+      "default": "production"
+    }
+  ],
+  "widgets": [
+    {
+      "definition": {
+        "title": "Linear issue creation by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "issues",
+                "data_source": "metrics",
+                "query": "count:aeci.linear.issue{$env} by {outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "issues" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Linear issue creation by kind",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "issues",
+                "data_source": "metrics",
+                "query": "count:aeci.linear.issue{$env} by {kind}"
+              }
+            ],
+            "formulas": [{ "formula": "issues" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Linear issue creation failure rate (%)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "failed",
+                "data_source": "metrics",
+                "query": "sum:aeci.linear.issue{$env,outcome:failed}.as_count()"
+              },
+              {
+                "name": "terminal",
+                "data_source": "metrics",
+                "query": "sum:aeci.linear.issue{$env,!outcome:skipped_exists}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "100 * failed / terminal", "alias": "failure_rate" }]
+          }
+        ],
+        "yaxis": { "label": "%" },
+        "markers": [
+          { "value": "y = 50", "display_type": "warning dashed", "label": "alert threshold" }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Linear issue creation latency — p50 / p95 / p99",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p50",
+                "data_source": "metrics",
+                "query": "p50:aeci.linear.issue.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p50", "alias": "p50" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p95",
+                "data_source": "metrics",
+                "query": "p95:aeci.linear.issue.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p95", "alias": "p95" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p99",
+                "data_source": "metrics",
+                "query": "p99:aeci.linear.issue.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p99", "alias": "p99" }]
+          }
+        ],
+        "yaxis": { "label": "ms" }
+      }
+    },
+    {
+      "definition": {
+        "title": "Site→Linear sync by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "sync",
+                "data_source": "metrics",
+                "query": "count:aeci.linear.sync{$env} by {outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "sync" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Site→Linear sync by target status",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "sync",
+                "data_source": "metrics",
+                "query": "count:aeci.linear.sync{$env} by {to_status}"
+              }
+            ],
+            "formulas": [{ "formula": "sync" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Site→Linear sync latency — p50 / p95 / p99",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p50",
+                "data_source": "metrics",
+                "query": "p50:aeci.linear.sync.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p50", "alias": "p50" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p95",
+                "data_source": "metrics",
+                "query": "p95:aeci.linear.sync.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p95", "alias": "p95" }]
+          },
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "p99",
+                "data_source": "metrics",
+                "query": "p99:aeci.linear.sync.duration_ms{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "p99", "alias": "p99" }]
+          }
+        ],
+        "yaxis": { "label": "ms" }
+      }
+    },
+    {
+      "definition": {
+        "title": "Linear webhook receipts by action",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "receipts",
+                "data_source": "metrics",
+                "query": "count:aeci.webhooks.linear.receipt{$env} by {action}"
+              }
+            ],
+            "formulas": [{ "formula": "receipts" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Linear webhook HMAC failures",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "hmac_failures",
+                "data_source": "metrics",
+                "query": "sum:aeci.webhooks.linear.hmac_failure{$env}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "hmac_failures" }]
+          }
+        ],
+        "markers": [
+          {
+            "value": "y = 3",
+            "display_type": "warning dashed",
+            "label": "alert threshold (1h sum)"
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Reconciliation backlog — stuck rows (gauge)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "line",
+            "queries": [
+              {
+                "name": "stuck",
+                "data_source": "metrics",
+                "query": "max:aeci.linear.reconcile.stuck{$env}"
+              }
+            ],
+            "formulas": [{ "formula": "stuck", "alias": "stuck_backlog" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Reconciliation attempts by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "attempts",
+                "data_source": "metrics",
+                "query": "sum:aeci.linear.reconcile.attempt{$env} by {outcome}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "attempts" }]
+          }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Reconciliation persistent failures (alert signal)",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "persistent",
+                "data_source": "metrics",
+                "query": "sum:aeci.linear.reconcile.persistent_failure{$env}.as_count()"
+              }
+            ],
+            "formulas": [{ "formula": "persistent" }]
+          }
+        ],
+        "markers": [
+          { "value": "y = 0", "display_type": "error dashed", "label": "any > 0 pages on-call" }
+        ]
+      }
+    },
+    {
+      "definition": {
+        "title": "Admin-alert email seam by outcome",
+        "type": "timeseries",
+        "requests": [
+          {
+            "response_format": "timeseries",
+            "display_type": "bars",
+            "queries": [
+              {
+                "name": "email",
+                "data_source": "metrics",
+                "query": "count:aeci.linear.reconcile.email{$env} by {outcome}"
+              }
+            ],
+            "formulas": [{ "formula": "email" }]
+          }
+        ]
+      }
+    }
+  ]
+}

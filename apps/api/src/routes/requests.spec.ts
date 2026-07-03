@@ -1,112 +1,95 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+/**
+ * Vendor-request submit endpoints (AECI-128 / Phase 6.2 / 6.4 / 6.8) on the
+ * Drizzle/D1 path (ADR 0016 / AECI-253), against the in-memory D1 harness. Seeds
+ * real products/vendors/product_vendors so domain-match + duplicate detection run
+ * over real SQL, and asserts the real vendor_requests / workflow_instances /
+ * workflow_transitions / audit_log rows the atomic `db.batch` writes.
+ */
 
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import {
+  auditLog,
+  productVendors,
+  products,
+  vendorRequests,
+  vendors,
+  workflowInstances,
+  workflowTransitions,
+} from '../db/schema';
+import { LABEL_IDS } from '../lib/linear';
+import { makeTestDb, type TestDb } from '../test/d1';
 import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './requests';
-
-// ─── In-memory fake ───────────────────────────────────────────────────────────
-// Covers the slice these handlers touch: product/vendor `findUnique` (slug→id),
-// `vendorRequest.create`, `auditLog.create`, and `$transaction` (which just runs
-// the callback against the same models, like the real client).
-type Rec = Record<string, unknown>;
-
-interface FakeOptions {
-  productSlugToId?: Record<string, string>;
-  vendorSlugToId?: Record<string, string>;
-}
-
-function makeFake(opts: FakeOptions = {}) {
-  const audit: Rec[] = [];
-  const created: Rec[] = [];
-  const workflows: Rec[] = [];
-  const transitions: Rec[] = [];
-  let counter = 0;
-  let workflowCounter = 0;
-
-  const bySlug = (map: Record<string, string> = {}) => ({
-    async findUnique({ where }: { where: Rec }) {
-      const id = map[where.slug as string];
-      // Resolve also reads `name` (product) / `companyName` (vendor) for the
-      // Linear issue title; return both so either branch is populated.
-      return id ? { id, name: `name-${where.slug}`, companyName: `co-${where.slug}` } : null;
-    },
-  });
-
-  const findById = (rows: Rec[], where: Rec) =>
-    rows.find(
-      (r) =>
-        r.id === where.id &&
-        (where.linearIssueId === undefined || (r.linearIssueId ?? null) === where.linearIssueId),
-    );
-
-  const models = {
-    product: bySlug(opts.productSlugToId),
-    vendor: bySlug(opts.vendorSlugToId),
-    vendorRequest: {
-      async create({ data }: { data: Rec }) {
-        const id = `req_${(counter += 1)}`;
-        created.push({ ...data, id });
-        return { id };
-      },
-      // Phase 6.4 (AECI-211) Linear-persist surface (top-level, outside the tx).
-      async findUnique({ where }: { where: Rec }) {
-        const row = created.find((r) => r.id === where.id);
-        return row ? { linearIssueId: (row.linearIssueId as string | undefined) ?? null } : null;
-      },
-      async updateMany({ where, data }: { where: Rec; data: Rec }) {
-        const row = findById(created, where);
-        if (!row) return { count: 0 };
-        Object.assign(row, data);
-        return { count: 1 };
-      },
-    },
-    workflowInstance: {
-      async create({ data }: { data: Rec }) {
-        const id = `wf_${(workflowCounter += 1)}`;
-        workflows.push({ ...data, id });
-        return { id };
-      },
-      async updateMany({ where, data }: { where: Rec; data: Rec }) {
-        const wf = findById(workflows, where);
-        if (!wf) return { count: 0 };
-        Object.assign(wf, data);
-        return { count: 1 };
-      },
-    },
-    workflowTransition: {
-      async create({ data }: { data: Rec }) {
-        transitions.push(data);
-        return data;
-      },
-    },
-    auditLog: {
-      async create({ data }: { data: Rec }) {
-        audit.push(data);
-        return data;
-      },
-    },
-    $transaction<T>(fn: (tx: unknown) => Promise<T>): Promise<T> {
-      return fn(models);
-    },
-  };
-
-  return { models, audit, created, workflows, transitions };
-}
 
 const VENDOR_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 
-const correctionApp = (prisma: unknown) =>
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+/** Seed a product target; optionally its PRIMARY vendor (with a website) so the
+ *  §7.1 domain-match has something to compare against. Omit `vendorWebsite` to
+ *  model "no primary vendor" (→ `manual_review`). */
+async function seedProduct(opts: { slug: string; id?: string; vendorWebsite?: string | null }) {
+  const productId = opts.id ?? PRODUCT_ID;
+  await t.db.insert(products).values({ id: productId, slug: opts.slug, name: `name-${opts.slug}` });
+  if (opts.vendorWebsite !== undefined) {
+    const vendorId = crypto.randomUUID();
+    await t.db.insert(vendors).values({
+      id: vendorId,
+      slug: `v-${opts.slug}`,
+      companyName: `co-${opts.slug}`,
+      website: opts.vendorWebsite,
+    });
+    await t.db.insert(productVendors).values({ productId, vendorId, isPrimary: true });
+  }
+  return productId;
+}
+
+/** Seed a vendor target (its own website is the §7.1 domain-match input). */
+async function seedVendor(opts: { slug: string; id?: string; website?: string | null }) {
+  const vendorId = opts.id ?? VENDOR_ID;
+  await t.db.insert(vendors).values({
+    id: vendorId,
+    slug: opts.slug,
+    companyName: `co-${opts.slug}`,
+    website: opts.website ?? null,
+  });
+  return vendorId;
+}
+
+/** Seed a pre-existing request for the §7.2 duplicate probe. */
+async function seedRequest(over: Partial<typeof vendorRequests.$inferInsert> & { id: string }) {
+  await t.db.insert(vendorRequests).values({
+    kind: 'correction',
+    status: 'open',
+    targetType: 'product',
+    targetId: PRODUCT_ID,
+    submitterEmail: 'first@unrelated.com',
+    domainMatch: 'pending',
+    body: 'An existing open request body that is comfortably long enough.',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    linearIssueId: 'iss_old',
+    ...over,
+  });
+}
+
+const correctionApp = () =>
   buildAppWithHandler({
     method: 'post',
     path: '/api/requests/correction',
-    handler: createCorrectionSubmitHandler(() => prisma as never),
+    handler: createCorrectionSubmitHandler(t.factory),
   });
-
-const claimApp = (prisma: unknown) =>
+const claimApp = () =>
   buildAppWithHandler({
     method: 'post',
     path: '/api/requests/claim',
-    handler: createClaimSubmitHandler(() => prisma as never),
+    handler: createClaimSubmitHandler(t.factory),
   });
 
 function postInit(body: unknown): RequestInit {
@@ -115,6 +98,30 @@ function postInit(body: unknown): RequestInit {
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(body),
   };
+}
+
+/** Submit + return `{ res, request_id, created }` (the new row, looked up by the
+ *  returned id). */
+async function submitCorrection(
+  body: Record<string, unknown>,
+  env = TEST_ENV,
+  execCtx = fakeExecutionContext(),
+) {
+  const res = await correctionApp().request(
+    '/api/requests/correction',
+    postInit(body),
+    env,
+    execCtx,
+  );
+  return res;
+}
+
+async function createdRow(res: Response) {
+  const { request_id } = (await res.clone().json()) as { request_id: string };
+  const row = await t.db.query.vendorRequests.findFirst({
+    where: eq(vendorRequests.id, request_id),
+  });
+  return { request_id, row };
 }
 
 describe('POST /api/requests/correction', () => {
@@ -126,22 +133,14 @@ describe('POST /api/requests/correction', () => {
     submitter_email: 'reporter@example.com',
   };
 
-  it('inserts a correction row + audit entry and returns 201 with the request id', async () => {
-    const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
-    const res = await correctionApp(fake.models).request(
-      '/api/requests/correction',
-      postInit(validBody),
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
+  it('inserts a correction row + audit + workflow + transition, 201 with the request id', async () => {
+    await seedProduct({ slug: 'acme-build' });
+    const res = await submitCorrection(validBody);
     expect(res.status).toBe(201);
-    const json = (await res.json()) as { request_id: string; message: string };
-    expect(json.request_id).toBe('req_1');
-    expect(json.message).toBeTruthy();
+    const { request_id, row } = await createdRow(res);
+    expect(request_id).toMatch(/^[0-9a-f-]{36}$/i);
 
-    expect(fake.created).toHaveLength(1);
-    expect(fake.created[0]).toMatchObject({
+    expect(row).toMatchObject({
       kind: 'correction',
       targetType: 'product',
       targetId: PRODUCT_ID,
@@ -149,75 +148,61 @@ describe('POST /api/requests/correction', () => {
       submitterName: null,
       submitterRole: null,
       sourceUrl: null, // empty string maps to NULL
+      status: 'open',
     });
 
-    expect(fake.audit).toHaveLength(1);
-    expect(fake.audit[0]).toMatchObject({
+    const audits = await t.db.select().from(auditLog);
+    expect(audits).toHaveLength(1);
+    expect(audits[0]).toMatchObject({
       actorType: 'user',
       action: 'vendor_request.created',
       entityType: 'vendor_request',
-      entityId: 'req_1',
+      entityId: request_id,
     });
-    expect((fake.audit[0].metadata as Rec).kind).toBe('correction');
+    expect((audits[0]!.metadata as Record<string, unknown>).kind).toBe('correction');
 
-    // Phase 6.2: a workflow instance + genesis transition open on submit.
-    expect(fake.workflows).toHaveLength(1);
-    expect(fake.workflows[0]).toMatchObject({
+    const wfs = await t.db.select().from(workflowInstances);
+    expect(wfs).toHaveLength(1);
+    expect(wfs[0]).toMatchObject({
       workflowType: 'correction_request',
       currentState: 'open',
-      entityId: 'req_1',
+      entityId: request_id,
     });
-    expect(fake.workflows[0].linearIssueId).toBeUndefined(); // slot left for Phase 6.4
+    expect(wfs[0]!.linearIssueId).toBeNull(); // slot left for Phase 6.4
 
-    expect(fake.transitions).toHaveLength(1);
-    expect(fake.transitions[0]).toMatchObject({
-      workflowId: 'wf_1',
+    const transitions = await t.db.select().from(workflowTransitions);
+    expect(transitions).toHaveLength(1);
+    expect(transitions[0]).toMatchObject({
+      workflowId: wfs[0]!.id,
       fromState: null,
       toState: 'open',
     });
-    expect((fake.transitions[0].metadata as Rec).kind).toBe('correction');
+    expect((transitions[0]!.metadata as Record<string, unknown>).kind).toBe('correction');
   });
 
   it('stores a provided source URL', async () => {
-    const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
-    await correctionApp(fake.models).request(
-      '/api/requests/correction',
-      postInit({ ...validBody, source_url: 'https://example.com/proof' }),
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(fake.created[0]).toMatchObject({ sourceUrl: 'https://example.com/proof' });
+    await seedProduct({ slug: 'acme-build' });
+    const res = await submitCorrection({ ...validBody, source_url: 'https://example.com/proof' });
+    const { row } = await createdRow(res);
+    expect(row?.sourceUrl).toBe('https://example.com/proof');
   });
 
   it('rejects a too-short body with VALIDATION_FAILED (and writes nothing)', async () => {
-    const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
-    const res = await correctionApp(fake.models).request(
-      '/api/requests/correction',
-      postInit({ ...validBody, body: 'too short' }),
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
+    await seedProduct({ slug: 'acme-build' });
+    const res = await submitCorrection({ ...validBody, body: 'too short' });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string; field?: string } };
     expect(body.error.code).toBe('VALIDATION_FAILED');
     expect(body.error.field).toBe('body');
-    expect(fake.created).toHaveLength(0);
-    expect(fake.audit).toHaveLength(0);
-    expect(fake.workflows).toHaveLength(0);
-    expect(fake.transitions).toHaveLength(0);
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+    expect(await t.db.select().from(auditLog)).toHaveLength(0);
+    expect(await t.db.select().from(workflowInstances)).toHaveLength(0);
   });
 
   it('404s when the target slug does not resolve', async () => {
-    const fake = makeFake({ productSlugToId: {} });
-    const res = await correctionApp(fake.models).request(
-      '/api/requests/correction',
-      postInit(validBody),
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
+    const res = await submitCorrection(validBody);
     expect(res.status).toBe(404);
-    expect(fake.created).toHaveLength(0);
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
   });
 });
 
@@ -232,16 +217,16 @@ describe('POST /api/requests/claim', () => {
   };
 
   it('inserts a claim row with the submitter fields and returns 201', async () => {
-    const fake = makeFake({ vendorSlugToId: { 'acme-co': VENDOR_ID } });
-    const res = await claimApp(fake.models).request(
+    await seedVendor({ slug: 'acme-co' });
+    const res = await claimApp().request(
       '/api/requests/claim',
       postInit(validBody),
       TEST_ENV,
       fakeExecutionContext(),
     );
-
     expect(res.status).toBe(201);
-    expect(fake.created[0]).toMatchObject({
+    const { request_id, row } = await createdRow(res);
+    expect(row).toMatchObject({
       kind: 'claim',
       targetType: 'vendor',
       targetId: VENDOR_ID,
@@ -249,43 +234,150 @@ describe('POST /api/requests/claim', () => {
       submitterEmail: 'dana@acme.com',
       submitterRole: 'Head of Partnerships',
     });
-    expect(fake.audit[0]).toMatchObject({ action: 'vendor_request.created' });
 
-    // Phase 6.2: claim submits open a `vendor_claim` workflow.
-    expect(fake.workflows[0]).toMatchObject({
+    const audits = await t.db.select().from(auditLog);
+    expect(audits[0]).toMatchObject({ action: 'vendor_request.created' });
+    const wfs = await t.db.select().from(workflowInstances);
+    expect(wfs[0]).toMatchObject({
       workflowType: 'vendor_claim',
       currentState: 'open',
-      entityId: 'req_1',
+      entityId: request_id,
     });
-    expect(fake.transitions[0]).toMatchObject({
-      workflowId: 'wf_1',
+    const transitions = await t.db.select().from(workflowTransitions);
+    expect(transitions[0]).toMatchObject({
+      workflowId: wfs[0]!.id,
       fromState: null,
       toState: 'open',
     });
   });
 
   it('rejects a missing name with VALIDATION_FAILED', async () => {
-    const fake = makeFake({ vendorSlugToId: { 'acme-co': VENDOR_ID } });
+    await seedVendor({ slug: 'acme-co' });
     const { submitter_name: _omit, ...noName } = validBody;
-    const res = await claimApp(fake.models).request(
+    const res = await claimApp().request(
       '/api/requests/claim',
       postInit(noName),
       TEST_ENV,
       fakeExecutionContext(),
     );
-
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('VALIDATION_FAILED');
-    expect(fake.created).toHaveLength(0);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+      'VALIDATION_FAILED',
+    );
+    expect(await t.db.select().from(vendorRequests)).toHaveLength(0);
+  });
+});
+
+// ─── Phase 6.8 (AECI-215): domain-match + duplicate signals ─────────────────────
+describe('POST /api/requests/* → Phase 6.8 signals', () => {
+  const correctionBody = (over: Record<string, unknown> = {}) => ({
+    target_type: 'product',
+    slug: 'acme-build',
+    body: 'The founding year on this listing is wrong; it should read 2009 not 2019.',
+    source_url: '',
+    submitter_email: 'reporter@example.com',
+    ...over,
+  });
+
+  describe('domain-match (§7.1)', () => {
+    it("matches the product's primary vendor website", async () => {
+      await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://www.acme.com' });
+      const res = await submitCorrection(correctionBody({ submitter_email: 'eng@acme.com' }));
+      const { row } = await createdRow(res);
+      expect(row?.domainMatch).toBe('match');
+      const audits = await t.db.select().from(auditLog);
+      expect((audits[0]!.metadata as Record<string, unknown>).domain_match).toBe('match');
+    });
+
+    it('flags a mismatch (gmail vs the vendor domain)', async () => {
+      await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://www.acme.com' });
+      const res = await submitCorrection(correctionBody({ submitter_email: 'someone@gmail.com' }));
+      expect((await createdRow(res)).row?.domainMatch).toBe('no_match');
+    });
+
+    it('falls back to manual_review when the product has no primary vendor website', async () => {
+      await seedProduct({ slug: 'acme-build' });
+      const res = await submitCorrection(correctionBody({ submitter_email: 'eng@acme.com' }));
+      expect((await createdRow(res)).row?.domainMatch).toBe('manual_review');
+    });
+
+    it("a vendor target uses the vendor's own website", async () => {
+      await seedVendor({ slug: 'acme-co', website: 'https://acme.com' });
+      const res = await claimApp().request(
+        '/api/requests/claim',
+        postInit({
+          target_type: 'vendor',
+          slug: 'acme-co',
+          submitter_name: 'Dana Reyes',
+          submitter_email: 'dana@acme.com',
+          submitter_role: 'Head of Partnerships',
+          body: 'I lead partnerships at Acme and would like to manage this listing going forward.',
+        }),
+        TEST_ENV,
+        fakeExecutionContext(),
+      );
+      expect(res.status).toBe(201);
+      expect((await createdRow(res)).row?.domainMatch).toBe('match');
+    });
+  });
+
+  describe('duplicate detection (§7.2)', () => {
+    it('flags an existing open request of the same kind + target', async () => {
+      await seedProduct({ slug: 'acme-build' });
+      await seedRequest({ id: 'req_existing' });
+      const res = await submitCorrection(correctionBody());
+      const { row } = await createdRow(res);
+      expect(row?.duplicateOfRequestId).toBe('req_existing');
+      const audits = await t.db.select().from(auditLog);
+      expect((audits[0]!.metadata as Record<string, unknown>).duplicate_of_request_id).toBe(
+        'req_existing',
+      );
+    });
+
+    it('flags on the same submitter even when the kind differs', async () => {
+      await seedVendor({ slug: 'acme-co' });
+      await seedRequest({
+        id: 'req_dup',
+        targetType: 'vendor',
+        targetId: VENDOR_ID,
+        kind: 'correction',
+        submitterEmail: 'dana@acme.com',
+      });
+      const res = await claimApp().request(
+        '/api/requests/claim',
+        postInit({
+          target_type: 'vendor',
+          slug: 'acme-co',
+          submitter_name: 'Dana Reyes',
+          submitter_email: 'dana@acme.com',
+          submitter_role: 'Head of Partnerships',
+          body: 'I lead partnerships at Acme and would like to manage this listing.',
+        }),
+        TEST_ENV,
+        fakeExecutionContext(),
+      );
+      expect((await createdRow(res)).row?.duplicateOfRequestId).toBe('req_dup');
+    });
+
+    it('does not flag a resolved request or a different target', async () => {
+      await seedProduct({ slug: 'acme-build' });
+      await seedRequest({ id: 'req_resolved', status: 'resolved' });
+      await seedRequest({ id: 'req_other_target', targetId: VENDOR_ID });
+      const res = await submitCorrection(correctionBody());
+      expect((await createdRow(res)).row?.duplicateOfRequestId).toBeNull();
+    });
+
+    it('points at the EARLIEST matching open request', async () => {
+      await seedProduct({ slug: 'acme-build' });
+      await seedRequest({ id: 'req_newer', createdAt: '2026-03-01T00:00:00.000Z' });
+      await seedRequest({ id: 'req_older', createdAt: '2026-01-01T00:00:00.000Z' });
+      const res = await submitCorrection(correctionBody());
+      expect((await createdRow(res)).row?.duplicateOfRequestId).toBe('req_older');
+    });
   });
 });
 
 // ─── Phase 6.4 (AECI-211): Linear issue creation via ctx.waitUntil ──────────────
-// The handler fires `createLinearIssueForRequest` in the background. With no
-// LINEAR_API_KEY it is a silent no-op (the existing tests above prove the 201 path
-// is unperturbed); these stub the global fetch + LINEAR_API_KEY to exercise the
-// background link-back and its failure mode.
 describe('POST /api/requests/* → Linear issue (background)', () => {
   const ENV_WITH_LINEAR = { ...TEST_ENV, LINEAR_API_KEY: 'lin_test' };
   const validBody = {
@@ -298,9 +390,13 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
+  /** Drain every backgrounded `waitUntil` promise (forwards + the Linear task). */
+  const drain = (execCtx: ExecutionContext) =>
+    Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+
   function issueOkFetch() {
     const fetchMock = vi.fn(
-      async () =>
+      async (_url: string | URL | Request, _init?: RequestInit) =>
         new Response(
           JSON.stringify({
             data: {
@@ -319,23 +415,21 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
 
   it('creates a Linear issue and stores linear_issue_id on the request + workflow', async () => {
     const fetchMock = issueOkFetch();
-    const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
+    await seedProduct({ slug: 'acme-build' });
     const execCtx = fakeExecutionContext();
 
-    const res = await correctionApp(fake.models).request(
-      '/api/requests/correction',
-      postInit(validBody),
-      ENV_WITH_LINEAR,
-      execCtx,
-    );
+    const res = await submitCorrection(validBody, ENV_WITH_LINEAR, execCtx);
     expect(res.status).toBe(201);
-
-    // Drain the backgrounded work before asserting on its effects.
-    await vi.mocked(execCtx.waitUntil).mock.calls[0]![0];
+    const { request_id } = await createdRow(res);
+    await drain(execCtx);
 
     expect(fetchMock).toHaveBeenCalledTimes(1); // issueCreate (no source_url → no attachment)
-    expect(fake.created[0].linearIssueId).toBe('iss_xyz');
-    expect(fake.workflows[0].linearIssueId).toBe('iss_xyz');
+    const row = await t.db.query.vendorRequests.findFirst({
+      where: eq(vendorRequests.id, request_id),
+    });
+    expect(row?.linearIssueId).toBe('iss_xyz');
+    const wfs = await t.db.select().from(workflowInstances);
+    expect(wfs[0]!.linearIssueId).toBe('iss_xyz');
   });
 
   it('leaves the row unlinked but still returns 201 when Linear fails', async () => {
@@ -347,20 +441,38 @@ describe('POST /api/requests/* → Linear issue (background)', () => {
         }),
     );
     vi.stubGlobal('fetch', fetchMock);
-    const fake = makeFake({ productSlugToId: { 'acme-build': PRODUCT_ID } });
+    await seedProduct({ slug: 'acme-build' });
     const execCtx = fakeExecutionContext();
 
-    const res = await correctionApp(fake.models).request(
-      '/api/requests/correction',
-      postInit(validBody),
+    const res = await submitCorrection(validBody, ENV_WITH_LINEAR, execCtx);
+    expect(res.status).toBe(201); // failure never blocks the response
+    const { request_id } = await createdRow(res);
+    await drain(execCtx);
+
+    const row = await t.db.query.vendorRequests.findFirst({
+      where: eq(vendorRequests.id, request_id),
+    });
+    expect(row?.linearIssueId).toBeNull();
+    const wfs = await t.db.select().from(workflowInstances);
+    expect(wfs[0]!.linearIssueId).toBeNull();
+  });
+
+  it('adds the domain-check-pending label to the issue on a domain mismatch', async () => {
+    const fetchMock = issueOkFetch();
+    await seedProduct({ slug: 'acme-build', vendorWebsite: 'https://www.acme.com' });
+    const execCtx = fakeExecutionContext();
+
+    const res = await submitCorrection(
+      { ...validBody, submitter_email: 'someone@gmail.com' },
       ENV_WITH_LINEAR,
       execCtx,
     );
-    expect(res.status).toBe(201); // failure never blocks the response
+    expect(res.status).toBe(201);
+    await drain(execCtx);
 
-    await vi.mocked(execCtx.waitUntil).mock.calls[0]![0];
-
-    expect(fake.created[0].linearIssueId).toBeUndefined();
-    expect(fake.workflows[0].linearIssueId).toBeUndefined();
+    const sent = JSON.parse(String(vi.mocked(fetchMock).mock.calls[0]![1]!.body)) as {
+      variables: { input: { labelIds: string[] } };
+    };
+    expect(sent.variables.input.labelIds).toContain(LABEL_IDS.domainCheckPending);
   });
 });

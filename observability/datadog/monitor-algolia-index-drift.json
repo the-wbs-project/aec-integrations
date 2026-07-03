@@ -1,8 +1,8 @@
 {
-  "name": "AECi — Algolia index drift (Supabase ≠ Algolia)",
+  "name": "AECi — Algolia index drift (D1 ≠ Algolia)",
   "type": "query alert",
   "query": "max(last_1d):abs(max:aeci.algolia.index_drift{env:production} by {index}) > 0",
-  "message": "An Algolia index's object count no longer matches its promoted Supabase rows (AECI-140 daily check, §23.1). Positive drift = the index is missing rows; negative = it holds orphans. Report-only — no auto-remediation; re-run the AECI-138 bulk sync to repair.\n\nNote: notify_no_data fires if the daily 09:00 UTC (= 04:00 EST) cron (apps/api/src/scheduled.ts) did not report for 48h — the job itself may be down.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#algolia-index-drift\n\n@NOTIFICATION_CHANNEL_TBD",
+  "message": "An Algolia index's object count no longer matches its promoted D1 rows (AECI-140 daily check, §23.1). Positive drift = the index is missing rows; negative = it holds orphans. The gauge is the pre-heal snapshot: negative drift (orphans) self-heals in the same 09:00 UTC cron via the orphan sweep (AECI-266) and should read 0 the next day; positive drift is repaired by the 08:00 incremental sync. Investigate if drift persists across runs.\n\nNote: notify_no_data fires if the daily 09:00 UTC (= 04:00 EST) cron (apps/api/src/scheduled.ts) did not report for 48h — the job itself may be down.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#algolia-index-drift\n\n@NOTIFICATION_CHANNEL_TBD",
   "tags": ["app:aeci", "service:aeci-api", "phase:3", "managed-by:aeci-140"],
   "options": {
     "thresholds": { "critical": 0 },

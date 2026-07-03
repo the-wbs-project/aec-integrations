@@ -71,8 +71,8 @@ API → investigate the SSR render path. Page on-call if user-facing.
    spike, consider rolling back (`promote-to-prod` / AECI-71).
 2. Read the errors: Datadog logs `service:(aeci-api OR aeci-web) status:error` — the API
    error handler logs `trace_id` + stack.
-3. Which side? Split the error-rate widget by `service`. API-dominant → DB/Prisma/
-   Supabase or a handler bug. SSR-dominant → render crash or a bad upstream response.
+3. Which side? Split the error-rate widget by `service`. API-dominant → D1/Drizzle
+   or a handler bug. SSR-dominant → render crash or a bad upstream response.
 4. Cloudflare platform: check the Workers dashboard for exceptions / CPU-limit errors.
 
 **Escalation:** > 1% sustained is page-worthy. Capture a `trace_id` from the logs before
@@ -82,41 +82,64 @@ mitigating so the post-mortem can reconstruct the failure.
 
 ## Algolia index drift
 
-**Alert:** `AECi — Algolia index drift (Supabase ≠ Algolia)`
-**Metric:** `aeci.algolia.index_drift` — signed `supabase − algolia` count per `entity`/`index`
-(AECI-140, §23.1 daily data-quality check).
+**Alert:** `AECi — Algolia index drift (D1 ≠ Algolia)`
+**Metric:** `aeci.algolia.index_drift` — signed `D1 − algolia` count per `entity`/`index`
+(AECI-140, §23.1 daily data-quality check). Companion sweep signals:
+`aeci.algolia.orphans_removed` / `aeci.algolia.orphans_skipped_cap` (AECI-266; see below).
 
-**What it means:** An Algolia index's object count no longer matches the promoted Supabase
-rows it should mirror. **Positive** drift = the index is *missing* rows (a sync didn't run
-or half-failed). **Negative** = the index holds *orphans* (rows fell out of `promoted` but
-weren't pruned — the AECI-138 bulk sync upserts and does not delete). This is **report-only**;
-nothing auto-repairs.
+**What it means:** An Algolia index's object count no longer matches the promoted D1 rows it
+should mirror. **Positive** drift = the index is *missing* rows (a sync didn't run or
+half-failed). **Negative** = the index holds *orphans* (objects with no promoted D1 row —
+hard-deleted/stranded rows the incremental sync structurally can't see to delete). The gauge
+captures the **pre-heal** state: right after this report the same 09:00 UTC cron runs the orphan
+sweep (`apps/api/src/lib/algolia-orphans.ts`), which deletes the orphans — so **negative drift
+self-heals** (AECI-266) and the next day's run reads 0. **Positive** drift is *not* auto-repaired;
+it is fixed by the 08:00 incremental sync.
 
 **First checks**
 
-1. Which index? The alert is split `by {index}` — note `<env>_products` / `_vendors` /
-   `_integrations` and the sign/magnitude (logged with the gauge).
+1. Which index, and which sign? The alert is split `by {index}` — note `<env>_products` /
+   `_vendors` / `_integrations` and the sign/magnitude (logged with the gauge). Negative =
+   orphans (self-healing); positive = missing rows.
 2. Recent promotes? Drift right after a `POST /api/promote` is expected until a sync runs.
-3. No-data variant: if the alert is "no data for 48h", the daily cron
+3. Did the sweep heal it? For negative drift, check `aeci.algolia.orphans_removed` and the
+   `source:algolia-drift-cron` log `aeci.algolia.orphans_removed on <env>` for the same run; the
+   next day's `index_drift` should read 0.
+4. No-data variant: if the alert is "no data for 48h", the daily cron
    (`apps/api/src/scheduled.ts`) didn't report — check the staging/production API Worker's
    scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that
    `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` are set on the Worker.
 
-**Repair:** re-run the AECI-138 bulk reindex for the affected env (idempotent upsert):
+**Repair**
+
+- **Negative drift (orphans):** normally self-heals via the post-report sweep. If the safety cap
+  refused the purge (the `AECi — Algolia orphan sweep capped` alert / a non-zero
+  `aeci.algolia.orphans_skipped_cap`), confirm the orphan count is legitimate, then force it. The
+  script reads the deployed D1 over `wrangler d1 execute --remote`, so it needs the Cloudflare D1
+  token (`CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`), **not** `DIRECT_URL`:
+
+  ```bash
+  CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
+    pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env <staging|production> --apply --force
+  ```
+
+  (production also requires `--allow-production`.)
+- **Positive drift (missing rows):** repaired by the 08:00 incremental sync — a row updated
+  within the watermark window is re-upserted on the next run; a record stuck outside the window
+  re-syncs when it is next touched (e.g. re-promoted). The Node bulk-reindex CLI was retired under
+  D1 (ADR 0016); a Worker-triggered full re-sync is a tracked follow-up.
+
+To re-check (dry-run, deletes nothing) on demand without waiting for the 09:00 UTC (= 04:00 EST)
+cron:
 
 ```bash
-pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <staging|production>
-```
-
-To re-check on demand without waiting for the 09:00 UTC (= 04:00 EST) cron:
-
-```bash
-DIRECT_URL=<DIRECT_URL_{STAGING,PRODUCTION}> ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
+CLOUDFLARE_API_TOKEN=… CLOUDFLARE_ACCOUNT_ID=… ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=… \
   pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env <staging|production>
 ```
 
-**Escalation:** persistent negative drift after a re-sync means orphan objects the upsert
-can't remove — a deliberate prune is out of scope for AECI-140; open a follow-up.
+**Escalation:** if the cap keeps refusing, or orphans reappear every day, that points at a
+misconfigured promoted-id read (wrong env/DB) or a churning source; capture the
+`source:algolia-drift-cron` sweep logs and page on-call before forcing a large purge.
 
 ---
 
@@ -200,9 +223,9 @@ alert means no completed run reported in ~26h — a **missed daily run**, so `co
    Stats" dashboard by `key`, and read Datadog logs `service:aeci-api source:stats-cron`
    (`aeci.stats.compute <key> status=failed`, with `reason`; `aeci.stats.compute.crashed` is a
    pre-compute throw before any key ran).
-3. DB health: the job reads/writes Supabase via Prisma Accelerate. A `DATABASE_URL` problem or a
-   Supabase outage surfaces as `aeci.stats.compute.crashed` (pre-compute) or many failed keys —
-   check the Supabase dashboard and the Worker's `DATABASE_URL` secret.
+3. DB health: the job reads/writes Cloudflare D1 via the Worker's `DB` binding. A D1 outage or a
+   missing/misconfigured `DB` binding surfaces as `aeci.stats.compute.crashed` (pre-compute) or many
+   failed keys — check the Cloudflare D1 dashboard and the Worker's `DB` binding (`apps/api/wrangler.jsonc`).
 4. Recent deploy? A regression in `lib/home-stats.ts` (a producer) or a `stats_cache` schema drift
    that fails the shared `statsCacheValueSchemas` validation shows as `outcome:failed` with a
    `validation failed: …` reason. Correlate with `GET /api/version`.
@@ -242,10 +265,10 @@ arriving.)
 **First checks**
 
 1. Read the failure: Datadog logs `service:aeci-api source:page-views` —
-   `aeci.api.page_view.capture_failed` carries the `reason` (the Prisma/Supabase error).
-2. DB health: the insert goes to Supabase via Prisma Accelerate. A `DATABASE_URL` problem, a
-   Supabase outage, or pooler saturation surfaces as a broad failure spike — check the Supabase
-   dashboard and the Worker's `DATABASE_URL` secret.
+   `aeci.api.page_view.capture_failed` carries the `reason` (the D1/Drizzle error).
+2. DB health: the insert goes to Cloudflare D1 via the Worker's `DB` binding. A D1 outage or a
+   missing/misconfigured `DB` binding surfaces as a broad failure spike — check the Cloudflare D1
+   dashboard and the Worker's `DB` binding.
 3. Recent deploy? A regression in `apps/api/src/routes/page-views.ts` (or a `page_views` schema
    drift — a column/type the insert writes that no longer matches the table) shows as a step-change
    in the error rate. Correlate with `GET /api/version`.
@@ -262,9 +285,11 @@ schema regression — page on-call, capture a `reason` from the logs, and consid
 correlated deploy. (The 10% threshold is a pre-launch starting point — see `docs/OBSERVABILITY.md`;
 retune once production traffic is known.)
 
-## page_views duplicate PK (prod data corruption)
+## page_views duplicate PK (prod data corruption) — historical (Postgres only)
 
-**Symptom:** the `refresh-staging` workflow fails at the **"Restore prod data into staging"** step
+> **No longer applicable.** This runbook is Postgres-specific (`BIGSERIAL` PK, sequences, `pg_dump`/`pg_restore`). `page_views` now lives in **Cloudflare D1** (ADR 0016), and `refresh-staging.yml` no longer does any `pg_dump`/restore (it was gutted in AECI-278). The symptom below can no longer occur. Kept for historical reference only.
+
+**Symptom (historical):** the `refresh-staging` workflow failed at the **"Restore prod data into staging"** step
 with:
 
 ```
@@ -355,40 +380,41 @@ single failure can dominate the ratio. Retune once production traffic is known.)
 
 ---
 
-## Perspective API outage
+## Toxicity scoring outage
 
-**Alert:** `AECi — Perspective API outage (>50% errors, 15m)`.
-**Metric:** `aeci.perspective.api{outcome:failed}` / `aeci.perspective.api` (all) over 15m; failure
-`reason` ∈ `http_error` / `malformed` / `timeout` / `network`. Companion: `aeci.perspective.api.duration_ms`
-(latency) and the `service:aeci-api source:perspective` warn logs.
+**Alert:** `AECi — Toxicity scoring outage (>50% errors, 15m)`.
+**Metric:** `aeci.toxicity.api{outcome:failed}` / `aeci.toxicity.api` (all) over 15m; failure
+`reason` ∈ `http_error` / `malformed` / `timeout` / `network`. Companion: `aeci.toxicity.api.duration_ms`
+(latency) and the `service:aeci-api source:toxicity` warn logs.
 
-**What it means:** Google's Perspective API (review toxicity scoring, `lib/perspective.ts`, AECI-198) is
-failing for most calls. Scoring is **fail-open and flag-never-block**: a failed score stores
-`toxicity_score = null` and the review **still enters the moderation queue** — so this is **not
-user-facing** and does **not** block submissions. The cost is that the moderation queue temporarily loses
-its triage signal (the worst content no longer floats to the top of `/admin/reviews`).
+**What it means:** Anthropic Claude (review toxicity scoring, `lib/toxicity.ts`, AECI-258 — supersedes the
+sunsetting Perspective API of AECI-198) is failing for most calls. Scoring is **fail-open and
+flag-never-block**: a failed score stores `toxicity_score = null` and the review **still enters the
+moderation queue** — so this is **not user-facing** and does **not** block submissions. The cost is that
+the moderation queue temporarily loses its triage signal (the worst content no longer floats to the top
+of `/admin/reviews`).
 
 **First checks**
 
-1. Which reason? Pivot the "AECi Phase 5 — Auth/Reviews" dashboard Perspective widgets / the metric by
-   `reason`. `timeout`-dominated → Perspective is slow (the client caps at 2s); `http_error` → non-2xx
-   (quota/`429`, auth/`403`); `network` → connectivity or a body that won't parse; `malformed` → a 200
-   with no TOXICITY summaryScore (an API contract change).
-2. Read the failures: Datadog logs `service:aeci-api source:perspective` carry the message + status.
-3. Credentials/quota? A **missing** `PERSPECTIVE_API_KEY` is a silent no-op that emits **no** metric (so
-   it can't trip this alert) — but a *revoked/over-quota* key shows as `http_error` `403`/`429`. Check the
-   key and the Perspective quota in Google Cloud.
-4. Provider status: an upstream Perspective outage self-heals; confirm via Google Cloud status.
+1. Which reason? Pivot the "AECi Phase 5 — Auth/Reviews" dashboard toxicity widgets / the metric by
+   `reason`. `timeout`-dominated → the model is slow (the client caps at 4s); `http_error` → non-2xx
+   (rate-limit/`429`, auth/`401`/`403`); `network` → connectivity or a body that won't parse; `malformed` →
+   a 200 whose reply had no parseable integer (a prompt/response-shape change).
+2. Read the failures: Datadog logs `service:aeci-api source:toxicity` carry the message + status.
+3. Credentials/quota? A **missing** `ANTHROPIC_API_KEY` is a silent no-op that emits **no** metric (so it
+   can't trip this alert) — but a *revoked/over-quota* key shows as `http_error` `401`/`403`/`429`. Check
+   the key and the Anthropic Console usage limits.
+4. Provider status: an upstream Anthropic outage self-heals; confirm via https://status.anthropic.com.
 
 **Repair:** none required for correctness — submissions keep working with `toxicity_score = null`. Once
-Perspective recovers, **new** submissions score normally; reviews submitted during the outage keep their
-null score (there is no backfill — they're triaged manually in the queue). If the cause is a bad/revoked
-key or exhausted quota, rotate the key / raise the quota and redeploy the secret.
+scoring recovers, **new** submissions score normally; reviews submitted during the outage keep their null
+score (there is no backfill — they're triaged manually in the queue). If the cause is a bad/revoked key or
+exhausted quota, rotate the key / raise the limit and redeploy the secret.
 
 **Escalation:** a prolonged outage isn't urgent (fail-open), but flag it so moderators know the queue's
-toxicity ordering is degraded until it clears. A persistent `malformed` reason with Perspective healthy
-points at an API contract change — open a follow-up against `lib/perspective.ts`. (The 50% threshold is a
-launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
+toxicity ordering is degraded until it clears. A persistent `malformed` reason with Anthropic healthy
+points at a prompt/response-shape change — open a follow-up against `lib/toxicity.ts`. (The 50% threshold
+is a launch-tunable starting point — see `docs/OBSERVABILITY.md`.)
 
 ---
 
@@ -418,7 +444,7 @@ approved, so there's no page-level symptom — just submitters waiting.
    scheduled invocation in the Cloudflare dashboard / `wrangler tail`, and that the `0 6 * * *` trigger is
    present (`apps/api/wrangler.jsonc`, staging + production only). The moderation job runs **inline** (no
    queue), so there's no `MODERATION_QUEUE` binding to check — only the trigger and the Worker's
-   `DATABASE_URL` (a Prisma/Supabase failure logs `aeci.moderation.queue.crashed`, `source:moderation-cron`).
+   `DB` binding (a D1/Drizzle failure logs `aeci.moderation.queue.crashed`, `source:moderation-cron`).
 
 **Repair:** there is no auto-remediation — moderators clear the backlog via `/admin/reviews`. The gauge
 self-resolves to 0 once the queue is empty. A persistent no-data with a healthy Worker is a cron/trigger
@@ -428,3 +454,226 @@ wiring problem (check 3).
 whoever owns moderation rather than on-call. (The 48h threshold and the daily snapshot cadence — which
 adds up to ~24h detection lag — are pre-launch starting points; see `docs/OBSERVABILITY.md`. Move the
 cron to hourly if a tighter SLA is needed.)
+
+---
+
+## Linear pipeline failure (issue creation / sync)
+
+**Alert:** `AECi — Linear pipeline failure rate > 50% (1h)` (AECI-219 / Phase 6.12). Traffic-driven, so
+deliberately **no** `notify_no_data` — no submits/resolves (and the absent-key no-op) emit nothing, so
+zero is the healthy pre-launch state.
+**Metric:** the combined failure **rate** of the two outbound Linear write paths over **terminal**
+attempts — `aeci.linear.issue{outcome:failed}` (request→Linear creation, §6.4) + `aeci.linear.sync{outcome:failed}`
+(admin resolve/reject site→Linear push, §6.6), divided by the same metrics excluding `skipped_exists` /
+`skipped_no_issue` (idempotent re-fires and no-op pushes aren't attempts and must not dilute the ratio).
+Companion latency: `aeci.linear.issue.duration_ms`, `aeci.linear.sync.duration_ms`.
+
+**What it means:** a **systemic** break in the Linear pipeline — most creations/syncs are failing, not a
+one-off. Usual causes: a missing/revoked/over-scoped `LINEAR_API_KEY`; drifted board/label/assignee/project
+ids in `lib/linear.ts`; or Linear itself being down. This is the **early-detection** complement to the
+reconciliation `persistent stuck requests` alert (the per-row backstop that only fires after the ~60m
+persistent threshold), and it is the **only** alert covering the **sync** path — a failed resolve/reject
+has no reconciliation retry, so Linear silently diverges from Supabase until someone notices.
+
+**First checks**
+
+1. **Which path?** Pivot the 'AECi Phase 6 — Requests/Moderation' dashboard (or Metrics Explorer) to
+   split `aeci.linear.issue{outcome:failed}` vs `aeci.linear.sync{outcome:failed}`. Both failing → a
+   shared cause (key/Linear outage). Only `sync` failing → likely a state/transition-id problem specific
+   to the resolve/reject push.
+2. **Why?** Pivot the failing metric by `reason`: `http_error 401/403` → `LINEAR_API_KEY` missing/revoked/
+   over-scope (`wrangler secret list` on the Worker); `graphql_error` → a bad label/assignee/project/state
+   id — the board constants in `lib/linear.ts` drifted from Linear; `timeout`/`network` → Linear is
+   slow/down (check the Linear status page); `db_error` → the Linear call succeeded but the link-back /
+   `workflow_transition` write failed. Read `service:aeci-api` logs for detail.
+3. **Blast radius:** for the creation path, failures land in the reconciliation sweep — check
+   `aeci.linear.reconcile.stuck` for the growing backlog. For the **sync** path there is no backstop, so
+   list recently resolved/rejected requests and confirm their Linear issues actually transitioned.
+
+**Repair:** fix the root cause and the creation path self-heals via the next 15-min sweep (idempotent —
+never double-creates). For a bad/revoked key, rotate it and re-push the secret + redeploy. For drifted
+board ids (`graphql_error`), correct the constants in `lib/linear.ts` and redeploy. For a Linear outage,
+no action — it clears when Linear recovers. **Sync-path failures don't auto-heal:** after the root cause
+is fixed, manually re-resolve/reject the affected requests in `/admin/requests` (idempotent) to re-push
+their Linear transitions, or fix them directly in Linear (the §6.3 inbound webhook then syncs the status
+back).
+
+**Escalation:** route a sustained pipeline failure to whoever owns the Linear integration. A revoked key
+or drifted board ids are config issues (fix + redeploy); a Linear outage is vendor-side (monitor + wait).
+The 50% threshold + 1h window are launch-tunable starting points (`docs/OBSERVABILITY.md`).
+
+---
+
+## Linear webhook HMAC failures
+
+**Alert:** `AECi — Linear webhook HMAC failures > 3 (1h)` (AECI-219 / Phase 6.12). Deliberately **no**
+`notify_no_data` — a bad signature is the only thing that emits this, so zero is healthy.
+**Metric:** `aeci.webhooks.linear.hmac_failure` (count) — emitted by `POST /api/webhooks/linear`
+(`routes/webhooks.ts`, AECI-212 / Phase 6.5) when the `Linear-Signature` header is missing or doesn't
+match `LINEAR_WEBHOOK_SIGNING_SECRET`. The request is rejected **401 before any write** (fail-closed).
+Companion: `aeci.webhooks.linear.receipt` (the verified-receipt throughput).
+
+**What it means:** inbound Linear webhooks are bouncing signature verification. Two shapes: **(a)
+mis-config** — the signing secret was rotated in Linear's webhook settings but the Worker's
+`LINEAR_WEBHOOK_SIGNING_SECRET` wasn't re-pushed (or vice-versa); legitimate Linear deliveries are now all
+401ing, so the **Linear → Site status sync silently stops** (admins resolving in Linear won't reflect on
+the site). **(b) probing/replay** — someone is POSTing to the public endpoint with a bad/again signature.
+The fail-closed 401 means **no data was written** either way; the risk in (a) is the lost sync, not a breach.
+
+**First checks**
+
+1. **(a) or (b)?** Check `aeci.webhooks.linear.receipt` over the same window: if verified receipts
+   **dropped to zero** at the moment HMAC failures spiked, it's a **secret mismatch** (legit traffic is
+   bouncing) — NOT an attack. If receipts are still flowing normally alongside the failures, it's external
+   probing hitting the endpoint.
+2. **Diff the secret:** compare the signing secret in Linear's webhook config (Linear → Settings → API →
+   Webhooks) against the Worker's `LINEAR_WEBHOOK_SIGNING_SECRET` (`wrangler secret list` on
+   `aeci-api-<env>`). A recent rotation on one side is the usual culprit.
+3. **Read the source:** `service:aeci-api` logs around the endpoint show the request origin — confirm
+   whether deliveries are coming from Linear or an unknown source.
+
+**Repair:** for a mismatch, re-push the correct `LINEAR_WEBHOOK_SIGNING_SECRET` and redeploy — Linear
+retries failed webhook deliveries, and the inbound webhook + the §6.4 reconciliation sweep are the two
+directions of the same sync, so state re-converges. For external probing, no app change is needed (the
+endpoint already fails closed); escalate to WAF rate-limiting on the public request endpoints if it's
+abusive — that's a Phase 7 handoff item (§14).
+
+**Escalation:** a secret mismatch is a config fix (owner of the Linear integration); persistent probing is
+a security concern (route to whoever owns WAF/edge). The >3-per-hour threshold is a launch-tunable starting
+point (`docs/OBSERVABILITY.md`).
+
+---
+
+## Linear reconciliation — stuck requests
+
+**Alert:** two monitors share this runbook — `AECi — Linear reconciliation: persistent stuck requests`
+(the persistent-failure signal; deliberately **no** `notify_no_data` — the count is emitted only when the
+failure condition holds, so zero points is healthy) and its liveness companion `AECi — Linear
+reconciliation sweep not running` (AECI-219 / Phase 6.12; a `notify_no_data` check on the always-emitted
+`aeci.linear.reconcile.stuck` gauge — no point for ~1h ≈ 4 missed sweeps means the cron itself stalled).
+**Metric:** `aeci.linear.reconcile.persistent_failure` (count) — requests stuck past the persistent
+threshold (~60m) AND still failing after a retry; companion `aeci.linear.reconcile.stuck` (backlog
+gauge) and `aeci.linear.reconcile.attempt` (`outcome:cleared|still_failing`). Emitted by the
+reconciliation sweep, `lib/reconciliation-sweep.ts` (AECI-214 / Phase 6.7), every 15 min. The
+`level:error` `source:reconcile` log carries the stuck `request_ids`.
+
+**What it means:** A claim/correction was submitted but its Linear issue was never created — the §6.4
+on-submit `createLinearIssueForRequest()` failed, and the §6.7 sweep has retried it for >~1h without
+success. The `vendor_requests` row is sitting `open` / `linear_issue_id = null`. It is **not lost** —
+it is visible in `/admin/requests` and being retried every 15 min — but the assignee (Chris/Bill) was
+never notified by Linear, so it needs a human. **Not user-facing:** the submitter got their `201` and
+"we'll follow up" message; the gap is internal routing.
+
+**First checks**
+
+1. **Which alert?** `sweep not running` (no-data) → the every-15-min sweep stalled outright; the backlog
+   gauge `aeci.linear.reconcile.stuck` stopped reporting. `persistent stuck requests` → the sweep is
+   running but a request is genuinely stuck. Either way, confirm the sweep is running: if the backlog
+   gauge has flat-lined / stopped reporting, check the API Worker's scheduled invocations / `wrangler
+   tail`, confirm the `*/15 * * * *` trigger is present in `apps/api/wrangler.jsonc` (staging +
+   production only) and the `aeci-reconcile-<env>` queue + consumer exist. A stalled sweep means stuck
+   rows aren't being retried (the §6.2 backstop is down).
+2. Why is creation failing? Read the `service:aeci-api source:reconcile` error log for the
+   `request_ids`, then pivot `aeci.linear.issue{outcome:failed}` by `reason`: `http_error 401/403` →
+   the `LINEAR_API_KEY` is missing/revoked/over-scope (a **missing** key is a silent no-op that emits
+   no `aeci.linear.issue` metric, but the sweep still counts the row as stuck — confirm the secret is
+   set on the Worker); `graphql_error` → a bad label/assignee/project id (the board constants in
+   `lib/linear.ts` drifted from Linear); `timeout`/`network` → Linear is slow/down; `db_error` → the
+   issue was created but the link-back write failed (re-running links it).
+3. How many / how old? `aeci.linear.reconcile.stuck` is the backlog size; the log's `request_ids` and
+   `/admin/requests` (age column) show which.
+
+**Repair:** fix the root cause and the next 15-min sweep self-heals (the retry is idempotent — it never
+double-creates). For a bad/revoked `LINEAR_API_KEY`, rotate it and re-push the secret. For drifted
+board ids (`graphql_error`), correct the constants in `lib/linear.ts` and redeploy. For a Linear
+outage, no action — it clears when Linear recovers. If a single row is un-rebuildable (its target
+product/vendor was deleted, or it has no workflow instance — logged `cannot rebuild request <id>`),
+resolve it manually in `/admin/requests`.
+
+**Escalation:** the admin email seam (`lib/admin-alert.ts`) now sends via Resend (AECI-240 / Phase 7.5)
+to `ADMIN_ALERT_EMAIL` (`aeci.linear.reconcile.email{outcome:sent|failed|skipped}`), but it is fail-open:
+when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent the outcome is `skipped`, so **this Datadog alert +
+the `/admin/requests` queue remain the guaranteed notification** (§6.2). Make sure on-call routes a
+persistent failure to whoever owns the Linear pipeline. (The 15-min cadence + ~60m persistent threshold are launch-tunable —
+see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
+
+---
+
+## Data quality job failed or not running
+
+**Alerts:**
+- `AECi — Data quality check found issues (by check)` — a §23.1 check found one or more defects.
+- `AECi — Data quality job failed (daily cron)` — a check threw or a pre-run crash.
+- `AECi — Data quality job not running (no daily run)` — the cron stopped firing.
+
+**Metrics:**
+- `aeci.data_quality.check{check:<id>}` — per-check issue count (0 = clean; **-1** = the check threw).
+- `aeci.data_quality.job{outcome:failed}` — run-level failure heartbeat.
+- `aeci.data_quality.job{trigger:cron}` — liveness heartbeat (one per completed run).
+- `aeci.data_quality.email{outcome:…}` — digest delivery (sent / failed / skipped).
+
+**What it means:** The daily 04:00 UTC §23.1 data-quality job (AECI-241 / Phase 7.6) ran the ten
+read-only integrity checks (orphan products/vendors, products stuck `ready` >30d, integrations pointing
+at a pulled product, anonymized reviews missing `anonymized_at`, stale `stats_cache`, duplicate
+vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140 Algolia drift). The job
+**does not auto-repair** — humans triage. The email digest to Chris + Bill carries the offending rows.
+
+**First checks**
+
+1. **Which check?** The "found issues" alert is split `by {check}`. Pivot on the `check:` tag (or read
+   the digest) to see the specific check and its count. The full offending rows are in the email and in
+   the `source:data-quality-cron` logs (`aeci.data_quality.check <id> count=…`).
+2. **A check errored (-1 / job failed)?** Read the `source:data-quality-cron` error logs
+   (`aeci.data_quality.check <id>` with `reason`, or `aeci.data_quality.crashed` for a pre-run crash).
+   A pre-run crash is usually a missing `DB` binding or a deploy regression — check `GET /api/version`.
+3. **No-data (job not running)?** The cron isn't firing. Check the staging/production API Worker's
+   scheduled invocation in the Cloudflare dashboard / `wrangler tail` (`source:data-quality-cron`), and
+   that the `aeci-data-quality-<env>` queue exists.
+4. **Digest not received?** If the run fired (metrics present) but Chris + Bill got no email, check
+   `aeci.data_quality.email{outcome}`: `skipped` = `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_FROM` /
+   `DATA_QUALITY_EMAIL_TO` not set on the Worker (fail-open by design); `failed` = a Resend error — check
+   the `source:data-quality-cron` log for the HTTP status and Resend's delivery log.
+
+**Repair:** report-only — triage the digest and fix the underlying data (promote a stuck product, remove
+a pulled product's integration, dedupe a vendor, re-run the Algolia bulk sync for drift, etc.); the next
+daily run auto-detects the fix. A no-data/liveness failure is a Worker scheduling issue — escalate to
+whoever owns the API Worker's crons.
+
+## WAF rate-limit / challenge spike
+
+**Alert:** `AECi — WAF rate-limit / challenge spike (15m)` — `sum:aeci.waf.ratelimit.blocked` (`.as_count()`)
+> 500 over 15m on `env:production`.
+
+**Metrics:**
+- `aeci.waf.ratelimit.blocked{rule,action,host,source}` — Cloudflare WAF mitigations (blocks + challenges),
+  **value is the event count → query with `sum:` / `.as_count()`**.
+- `aeci.waf.poll{outcome:ok|failed|skipped_no_creds}` — the hourly poll's heartbeat (`outcome:ok` = liveness).
+
+**What it means:** The §15.1 WAF rules (rate-limit Rule A `/api/requests/*`, Rule B `/api/reviews`, and the
+scraper-UA Managed-Challenge custom rule — `docs/waf-rate-limits.md`) mitigated an unusual volume of requests.
+The signal is collected by the API Worker's hourly WAF poll (AECI-262, `scheduled.ts` `runWafMetricsJob`),
+which reads the previous clock hour of the zone's `firewallEventsAdaptiveGroups` over Cloudflare's GraphQL
+Analytics API. **Detection lags up to ~1h** (it's an hourly poll). A spike is normally either a scripted
+flood tripping the rate-limit rules or a scraper run hitting the UA challenge — rarely a real user.
+
+**First checks**
+
+1. **What fired?** Pivot `aeci.waf.ratelimit.blocked` by `action` (block vs managed_challenge), `rule`, `host`,
+   and `source` (ratelimit vs firewallcustom) to localize. Cross-reference Cloudflare → **Security → Events**
+   (filter by the same rule/action/host) for the offending IPs / paths / user agents — CF carries the per-IP
+   detail Datadog does not.
+2. **Real attack or false positive?** If the offending UA/IPs are obviously a scraper/flood, no action is
+   needed — the rules are doing their job; consider whether the volume warrants a Cloudflare IP block. If a
+   **legitimate** user or integration is being blocked/challenged, re-tune the rule in
+   `docs/waf-rate-limits.md` (update the doc in the same change — it is the source of truth) and verify per §4.
+3. **No data / heartbeat gaps?** This monitor has **no** `notify_no_data` (silence = no attacks). Poll health
+   is the separate `aeci.waf.poll{outcome:ok}` series — if it stopped, the cron isn't running; if it shows
+   `outcome:skipped_no_creds`, `CF_ANALYTICS_API_TOKEN` is unset on that env's Worker (the metric is then
+   absent by design until the token is provisioned). `outcome:failed` → read the `source:waf-metrics-cron`
+   error log for the Cloudflare GraphQL `reason` (e.g. an expired/under-scoped token — it needs
+   `Zone Analytics: Read`).
+
+**Repair:** the WAF itself is already mitigating — this alert is **awareness**, not an outage. Escalate only
+if a legitimate surface is being blocked (re-tune the rule) or if the volume suggests a targeted attack worth
+a manual Cloudflare block. The 500/15m threshold is a launch placeholder; re-tune in
+`observability/datadog/monitor-waf-ratelimit-spike.json` once baseline volume is known.

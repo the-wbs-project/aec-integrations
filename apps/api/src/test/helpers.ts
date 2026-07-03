@@ -9,8 +9,6 @@ import { vi } from 'vitest';
 
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
-import type { MockAcceleratedPrisma } from './factories/prisma';
-import { makeMockAcceleratedPrisma } from './factories/prisma';
 
 export function fakeExecutionContext(): ExecutionContext {
   return {
@@ -23,7 +21,6 @@ export function fakeExecutionContext(): ExecutionContext {
 /** Default env for spec runs. `ENV` is `'preview'` so dev-only response
  *  validation runs — drift in mappers fails loudly in tests. */
 export const TEST_ENV: Env = {
-  DATABASE_URL: 'prisma://test',
   ENV: 'preview',
 };
 
@@ -44,6 +41,3 @@ export function buildAppWithHandler(args: {
   }
   return app;
 }
-
-export { makeMockAcceleratedPrisma };
-export type { MockAcceleratedPrisma };

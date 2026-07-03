@@ -1,118 +1,73 @@
 /**
- * `POST /api/reviews` (AECI-197 / Phase 5.6) — the review submission write path
- * and the first authenticated user write in the product.
+ * `POST /api/reviews` (AECI-197 / Phase 5.6) — Drizzle/D1 (ADR 0016 / AECI-253).
  *
- * Auth-gated (`requireAuth({ bannedCode: REVIEW_BANNED })`, registered in
- * `index.ts`) insert of a `status='pending'` review into the existing `reviews`
- * table for the Phase 5 moderation pipeline to pick up. `reviewer_id` is the
- * verified token `sub` from `c.get('auth')` — server-set, never client-supplied
- * — and `locale` is resolved server-side (see `resolveLocale`); neither is a
- * body field. Public display and the form are out of scope (5.8 / 5.9 / 5.10).
+ * Auth-gated insert of a `status='pending'` review. `reviewer_id` is the verified
+ * token `sub` (server-set); `locale` resolves server-side. Toxicity is scored
+ * BEFORE the write (an external call must not sit inside the atomic unit) and is
+ * a flag-only triage signal (fail-open to null).
  *
- * The body is scored for toxicity via the Perspective API before the insert and
- * the result stored in `toxicity_score` (AECI-198 / Phase 5.7, `lib/perspective.ts`).
- * It is a moderation-queue triage signal only — **flag, never auto-reject** — and
- * fail-open: an outage (or no key) stores `null` and the review still enters the
- * queue. The score is admin-only and never appears in the submit response.
+ * D1 has no interactive transactions, so the review insert + its `review_moderation`
+ * workflow instance + genesis transition + the `review.submitted` audit row are a
+ * single atomic `db.batch([...])` (the §26.1 invariant, AECI-249). Ids are
+ * generated up front so nothing depends on batch return values. The best-effort
+ * Datadog forwards run AFTER commit via `waitUntil`.
  *
- * Dedup is enforced two ways (`API_CONTRACTS.md` §6.6):
- *   1. an app-level pre-check (`review.findFirst` on a non-archived row), and
- *   2. a backstop: the DB partial unique index
- *      `reviews_unique_per_user_product` — a row racing past the pre-check trips
- *      a Prisma `P2002`, which we map to `409 REVIEW_DUPLICATE` (never a 500),
- *      reusing the structural P2002 detection from `routes/promote.ts`.
+ * The body is scored for toxicity via Anthropic Claude before the insert and the
+ * result stored in `toxicity_score` (AECI-258, supersedes the AECI-198 / Phase
+ * 5.7 Perspective path, `lib/toxicity.ts`). It is a moderation-queue triage
+ * signal only — **flag, never auto-reject** — and fail-open: an outage (or no
+ * key) stores `null` and the review still enters the queue. The score is
+ * admin-only and never appears in the submit response.
  *
- * Every insert writes an `audit_log` row (`review.submitted`, AUTH_AND_RLS.md
- * §4.4) in the same transaction (`appendAuditLog` — failure rolls back). The
- * write pattern + loose structural client type mirror `routes/requests.ts` /
- * `routes/auth-profile.ts`.
- *
- * AECI-210 (Phase 6.3) folds reviews into the shared workflow history: each
- * submit also opens a `workflow_instance` (`review_moderation`,
- * `current_state:'pending'` mirroring `review.status`, `linear_issue_id` null —
- * reviews are queue-only) and records its genesis `workflow_transitions` row
- * (`null → pending`) via `appendWorkflowTransition`, both in the same
- * transaction. The approve/reject transitions land in `routes/admin-reviews.ts`.
- *
- * Crucially, this does NOT recompute the product's denormalized `review_count`
- * / rating averages — that happens on approval only (5.13).
+ * Dedup: an app-level pre-check + the DB partial-unique index
+ * `reviews_unique_per_user_product` (a row racing past the pre-check trips a
+ * UNIQUE violation → mapped to `409 REVIEW_DUPLICATE`, never a 500).
  */
 
 import { ApiErrorCode, SubmitReviewSchema } from '@aeci/shared';
 import type { SubmitReviewResponse } from '@aeci/shared';
-// `DEFAULT_LOCALE` lives behind the dependency-free `algolia` subpath (it is not
-// re-exported from the main barrel). The module has no I/O or runtime deps.
 import { DEFAULT_LOCALE } from '@aeci/shared/algolia';
-import { appendAuditLog, type AuditLogForwarder } from '@aeci/shared/audit-log';
 import {
-  appendWorkflowTransition,
+  forwardAuditLog,
+  type AuditLogEntry,
+  type AuditLogForwarder,
+} from '@aeci/shared/audit-log';
+import {
+  forwardWorkflowTransition,
+  type WorkflowTransitionEntry,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
+import { and, eq, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
+import { getDb } from '../db/client';
+import { products, reviews, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import type { PrismaFactory } from '../lib/handler-utils';
-import { scoreToxicity } from '../lib/perspective';
-import { getPrisma } from '../prisma';
+import {
+  auditInsert,
+  workflowTransitionInsert,
+  type BatchStmt,
+  type BatchTuple,
+} from '../lib/audit';
+import { sendReviewSubmittedEmail } from '../lib/email';
+import { writeDb, type DbFactory } from '../lib/handler-utils';
+import { scoreToxicity } from '../lib/toxicity';
 
 type AuthContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
-// ─── Loose structural Prisma surface ─────────────────────────────────────────
-// Same approach as `routes/requests.ts`: we touch a small, known slice of the
-// generated client, so we type it structurally and `as unknown as` it rather
-// than dragging in the full edge-client generated types. A real accelerated
-// client and the test fake both satisfy this.
-type Row = { id: string };
-
-type ReviewsTx = {
-  review: {
-    create(args: { data: Record<string, unknown>; select: { id: true } }): Promise<Row>;
-  };
-  workflowInstance: {
-    create(args: { data: Record<string, unknown>; select?: Record<string, boolean> }): Promise<Row>;
-  };
-  workflowTransition: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
-  auditLog: { create(args: { data: Record<string, unknown> }): Promise<unknown> };
-};
-
-type ReviewsClient = {
-  product: {
-    findUnique(args: { where: { id: string }; select: { id: true } }): Promise<Row | null>;
-  };
-  review: {
-    findFirst(args: { where: Record<string, unknown>; select: { id: true } }): Promise<Row | null>;
-  };
-  $transaction<T>(fn: (tx: ReviewsTx) => Promise<T>): Promise<T>;
-};
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/**
- * Known locales the API will honor on the trusted `x-aeci-locale` header. Only
- * `DEFAULT_LOCALE` ships at launch; when `@aeci/shared` grows a locale list,
- * widen this set there and import it. Until then this is the single seam.
- */
 const KNOWN_LOCALES: ReadonlySet<string> = new Set([DEFAULT_LOCALE]);
 
-/**
- * Resolve the review's `locale` from the trusted `x-aeci-locale` header,
- * falling back to `DEFAULT_LOCALE` for an absent or unrecognized value. The
- * header is set by the SSR Worker (it already does URL-prefix locale dispatch);
- * `locale` is never a client body field. This leaves a clean seam for when more
- * locales ship — no SSR change in this PR.
- */
 function resolveLocale(headerValue: string | undefined): string {
   const value = headerValue?.trim();
   return value && KNOWN_LOCALES.has(value) ? value : DEFAULT_LOCALE;
 }
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Mirrors
- *  the `routes/requests.ts` forwarder, tagged `source: review-form`. */
+/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. */
 function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
@@ -127,9 +82,7 @@ function makeForwarder(c: AuthContext): AuditLogForwarder | undefined {
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without
- *  `DD_API_KEY`. Mirrors `makeForwarder` / `routes/requests.ts`, tagged
- *  `source: review-form`. */
+/** Datadog forwarder for the workflow-transition write; no-op without `DD_API_KEY`. */
 function makeWorkflowForwarder(c: AuthContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
@@ -151,181 +104,150 @@ async function parseJsonBody<T>(c: AuthContext, schema: ZodType<T>): Promise<T> 
   } catch {
     throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
   }
-  // ZodError bubbles to `errorHandler()` → canonical VALIDATION_FAILED envelope.
   return schema.parse(raw);
 }
 
 /**
- * True when `err` is a Prisma `P2002` on the per-user-per-product unique index
- * (`reviews_unique_per_user_product`). Duck-typed (rather than
- * `instanceof PrismaClientKnownRequestError`) so it stays trivially testable and
- * doesn't pull the edge client's error class into the runtime path — the same
- * approach as `isSlugUniqueViolation` in `routes/promote.ts`. `meta.target` is
- * matched in both shapes Prisma emits: an array of columns and a
- * constraint-name string.
+ * True when `err` is a UNIQUE violation on the per-user-per-product index. Duck-
+ * typed across both the D1 and better-sqlite3 error shapes (message + code) so it
+ * stays trivially testable. SQLite reports the columns (`reviews.product_id,
+ * reviews.reviewer_id`), not the index name.
  */
 function isReviewDuplicateViolation(err: unknown): boolean {
   if (!err || typeof err !== 'object') return false;
-  const e = err as { code?: unknown; meta?: { target?: unknown } };
-  if (e.code !== 'P2002') return false;
-  const target = e.meta?.target;
-  const asStr = Array.isArray(target) ? target.join(',') : String(target ?? '');
-  // The index covers (product_id, reviewer_id); either column name (or the
-  // constraint name) identifies it. A P2002 on any unrelated constraint returns
-  // false and rethrows as a generic 500.
-  return /reviewer_id|reviews_unique_per_user_product/.test(asStr.toLowerCase());
+  const e = err as { message?: unknown; code?: unknown };
+  const msg =
+    `${typeof e.message === 'string' ? e.message : ''} ${String(e.code ?? '')}`.toLowerCase();
+  return msg.includes('unique') && /reviewer_id|reviews_unique_per_user_product/.test(msg);
 }
 
 const reviewDuplicateError = (): ApiError =>
   new ApiError(409, ApiErrorCode.REVIEW_DUPLICATE, 'You have already reviewed this product.');
 
-/** Emit the `aeci.review.submit` count (AECI-206 / Phase 5.15) — one per submit
- *  outcome (`ok` after insert, `duplicate` for either dedup path, `product_not_found`).
- *  `outcome:ok` is the AC's "review submit count". Fire-and-forget via the shared
- *  transport; no-op without `DD_API_KEY`. 5xx failures are already covered by the
- *  `aeci.api.query.duration_ms{status_class:5xx}` middleware metric. */
 function emitSubmit(c: AuthContext, outcome: 'ok' | 'duplicate' | 'product_not_found'): void {
   submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.review.submit', 1, [`outcome:${outcome}`]);
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
 export function createSubmitReviewHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
   score: (c: AuthContext, body: string) => Promise<number | null> = scoreToxicity,
 ): (c: AuthContext) => Promise<Response> {
   return async (c) => {
-    // `userId` is the verified token `sub` (AUTH_AND_RLS.md §4) — the server
-    // source for `reviewer_id` and the audit actor; the client never supplies it.
     const session = c.get('auth');
     const { userId } = session;
 
     const payload = await parseJsonBody(c, SubmitReviewSchema);
     const locale = resolveLocale(c.req.header('x-aeci-locale'));
-    const prisma = prismaFor(c.env) as unknown as ReviewsClient;
+    const { db } = writeDb(c, dbFor);
 
-    // Product must exist — loose-`product_id` insert would otherwise FK-fail as a
-    // 500; a clean 404 lets the form surface it.
-    const product = await prisma.product.findUnique({
-      where: { id: payload.product_id },
-      select: { id: true },
+    // Product must exist — a loose insert would FK-fail as a 500.
+    const product = await db.query.products.findFirst({
+      columns: { id: true },
+      where: eq(products.id, payload.product_id),
     });
     if (!product) {
       emitSubmit(c, 'product_not_found');
       throw notFoundError('product', { id: payload.product_id });
     }
 
-    // App-level dup pre-check: one non-archived review per (product, reviewer).
-    // The DB partial unique index is the backstop for the race (handled below).
-    const existing = await prisma.review.findFirst({
-      where: { productId: payload.product_id, reviewerId: userId, status: { not: 'archived' } },
-      select: { id: true },
+    // App-level dup pre-check (one non-archived review per product+reviewer); the
+    // partial-unique index is the backstop for the race (handled below).
+    const existing = await db.query.reviews.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(reviews.productId, payload.product_id),
+        eq(reviews.reviewerId, userId),
+        ne(reviews.status, 'archived'),
+      ),
     });
     if (existing) {
       emitSubmit(c, 'duplicate');
       throw reviewDuplicateError();
     }
 
-    // Toxicity scoring (5.7): a moderation triage signal, never a gate. Run it
-    // BEFORE the transaction — an external HTTP call must not hold the DB
-    // transaction open. `score` never throws and fails open to `null` (outage or
-    // no key), so the review is always insertable; we never auto-reject on it.
+    // Toxicity scoring BEFORE the batch — fail-open to null (never auto-reject).
     const toxicityScore = await score(c, payload.body);
 
-    const forward = makeForwarder(c);
-    const workflowForward = makeWorkflowForwarder(c);
+    // Ids generated up front so the batch needs no return values.
+    const reviewId = crypto.randomUUID();
+    const workflowId = crypto.randomUUID();
 
-    const created = await prisma
-      .$transaction(async (tx) => {
-        // `status` ('pending'), `verifiedWorkEmail`, timestamps take their column
-        // defaults. We deliberately do NOT touch the product's denormalized
-        // `review_count` / rating averages — that happens on approval (5.13).
-        const row = await tx.review.create({
-          data: {
-            productId: payload.product_id,
-            reviewerId: userId,
-            ratingOverall: payload.rating_overall,
-            ratingOnboarding: payload.rating_onboarding,
-            title: payload.title,
-            body: payload.body,
-            // Optional fields: omit (→ NULL default) when the client left them out.
-            ...(payload.role_at_company !== undefined && {
-              roleAtCompany: payload.role_at_company,
-            }),
-            ...(payload.years_using !== undefined && { yearsUsing: payload.years_using }),
-            ...(payload.would_recommend !== undefined && {
-              wouldRecommend: payload.would_recommend,
-            }),
-            // Nullable scalar `smallint` — a plain `null` clears it (no
-            // `Prisma.DbNull`; that's only for `Json?` columns).
-            toxicityScore,
-            locale,
-          },
-          select: { id: true },
-        });
+    const workflowEntry: WorkflowTransitionEntry = {
+      workflowId,
+      fromState: null,
+      toState: 'pending',
+      actorId: userId,
+      reason: 'review submitted',
+      metadata: { source: 'review-form', product_id: payload.product_id },
+    };
+    const auditEntry: AuditLogEntry = {
+      actorId: userId,
+      actorType: auditActorType(session),
+      action: 'review.submitted',
+      entityType: 'review',
+      entityId: reviewId,
+      metadata: {
+        source: 'review-form',
+        product_id: payload.product_id,
+        toxicity_score: toxicityScore,
+      },
+    };
 
-        // Phase 6.3 (AECI-210): open the `review_moderation` workflow instance
-        // whose `current_state` mirrors the review `status` ('pending'), then
-        // record the genesis transition (null → pending). Lean — no guarded FSM
-        // (Stage-1 §26.3 relaxation). `linearIssueId` stays null (reviews are
-        // queue-only, not on the Vendor Requests board); `initiatedBy` is the
-        // authenticated reviewer. Same transaction → a workflow-write failure
-        // rolls back the review insert (§26.1).
-        const workflow = await tx.workflowInstance.create({
-          data: {
-            workflowType: 'review_moderation',
-            entityId: row.id,
-            currentState: 'pending',
-            initiatedBy: userId,
-          },
-          select: { id: true },
-        });
-        await appendWorkflowTransition(
-          tx,
-          {
-            workflowId: workflow.id,
-            fromState: null,
-            toState: 'pending',
-            actorId: userId,
-            reason: 'review submitted',
-            metadata: { source: 'review-form', product_id: payload.product_id },
-          },
-          workflowForward,
-        );
+    const stmts: BatchStmt[] = [
+      db.insert(reviews).values({
+        id: reviewId,
+        productId: payload.product_id,
+        reviewerId: userId,
+        ratingOverall: payload.rating_overall,
+        ratingOnboarding: payload.rating_onboarding,
+        title: payload.title,
+        body: payload.body,
+        roleAtCompany: payload.role_at_company ?? null,
+        yearsUsing: payload.years_using ?? null,
+        wouldRecommend: payload.would_recommend ?? null,
+        // Trim free-text firm; a blank/whitespace-only value stores null so it
+        // never inflates the distinct contributing-firms count (AECI-284).
+        reviewerFirm: payload.reviewer_firm?.trim() || null,
+        toxicityScore,
+        locale,
+      }),
+      db.insert(workflowInstances).values({
+        id: workflowId,
+        workflowType: 'review_moderation',
+        entityId: reviewId,
+        currentState: 'pending',
+        initiatedBy: userId,
+      }),
+      workflowTransitionInsert(db, workflowEntry),
+      auditInsert(db, auditEntry),
+    ];
 
-        await appendAuditLog(
-          tx,
-          {
-            actorId: userId,
-            actorType: auditActorType(session),
-            action: 'review.submitted',
-            entityType: 'review',
-            entityId: row.id,
-            metadata: {
-              source: 'review-form',
-              product_id: payload.product_id,
-              toxicity_score: toxicityScore,
-            },
-          },
-          forward,
-        );
-        return row;
-      })
-      // A row racing past the pre-check trips `reviews_unique_per_user_product`
-      // (Prisma P2002). Map it to the documented 409, not a generic 500; any
-      // other failure rethrows and surfaces as 500.
-      .catch((err: unknown): never => {
-        if (isReviewDuplicateViolation(err)) {
-          emitSubmit(c, 'duplicate');
-          throw reviewDuplicateError();
-        }
-        throw err;
-      });
+    try {
+      await db.batch(stmts as BatchTuple);
+    } catch (err) {
+      // A row racing past the pre-check trips the partial-unique index.
+      if (isReviewDuplicateViolation(err)) {
+        emitSubmit(c, 'duplicate');
+        throw reviewDuplicateError();
+      }
+      throw err;
+    }
+
+    // Best-effort §26.5 forwards + the §11.1 "in moderation" confirmation email,
+    // all fire-and-forget AFTER the atomic commit. The email fails open: an absent
+    // RESEND_API_KEY or session email is a silent skip and never affects the 201.
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+        forwardAuditLog(auditEntry, makeForwarder(c)),
+        sendReviewSubmittedEmail(c, { to: session.email }),
+      ]),
+    );
 
     emitSubmit(c, 'ok');
 
     const body: SubmitReviewResponse = {
-      id: created.id,
+      id: reviewId,
       status: 'pending',
       message: 'Thanks — your review has been submitted and will appear once approved.',
     };

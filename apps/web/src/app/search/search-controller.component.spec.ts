@@ -32,16 +32,26 @@ function makeFakeLib() {
     refinementList: [] as Captured[],
     numericMenu: [] as Captured[],
     range: [] as Captured[],
+    sortBy: [] as Captured[],
   };
   const instance = {
     started: 0,
     disposed: 0,
+    /** Captured `on('error', …)` handlers (AECI-174). */
+    errorHandlers: [] as ((payload: { error: Error }) => void)[],
     addWidgets: (_w: IsWidget[]) => instance,
     start: () => {
       instance.started++;
     },
     dispose: () => {
       instance.disposed++;
+    },
+    on: (_event: 'error', handler: (payload: { error: Error }) => void) => {
+      instance.errorHandlers.push(handler);
+    },
+    /** Test helper: fire the captured error handlers. */
+    triggerError: () => {
+      for (const h of instance.errorHandlers) h({ error: new Error('search failed') });
     },
   };
   const connector =
@@ -78,6 +88,7 @@ function makeFakeLib() {
       calls.numericMenu,
     ) as unknown as InstantSearchLib['connectNumericMenu'],
     connectRange: connector(calls.range) as unknown as InstantSearchLib['connectRange'],
+    connectSortBy: connector(calls.sortBy) as unknown as InstantSearchLib['connectSortBy'],
   };
 
   return { lib, calls, instance };
@@ -89,10 +100,23 @@ const CONFIG: AlgoliaPublicConfig = {
   indexes: { products: 'p_idx', vendors: 'v_idx', integrations: 'i_idx' },
 };
 
-function build(initialQuery = '') {
+function build(
+  initialQuery = '',
+  initialSort: Partial<Record<'products' | 'vendors', string>> = {},
+) {
   const fake = makeFakeLib();
-  const controller = new SearchController(fake.lib, {}, CONFIG, initialQuery);
-  return { ...fake, controller };
+  const emit = vi.fn();
+  const onSearch = vi.fn();
+  const controller = new SearchController(
+    fake.lib,
+    {},
+    CONFIG,
+    initialQuery,
+    initialSort,
+    emit,
+    onSearch,
+  );
+  return { ...fake, controller, emit, onSearch };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -166,6 +190,56 @@ describe('SearchController wiring', () => {
       'Design',
       'Construction',
     ]);
+  });
+});
+
+describe('SearchController — AECI-175 sort (replicas)', () => {
+  it('registers one connectSortBy per index (products + vendors)', () => {
+    const { calls } = build();
+    expect(calls.sortBy).toHaveLength(2);
+  });
+
+  it('builds the per-tab sort options: relevance (primary) + the two replicas', () => {
+    const { controller } = build();
+    expect(controller.products.sortOptions).toEqual([
+      { value: 'p_idx', key: 'relevance' },
+      { value: 'p_idx_integration_count_desc', key: 'integrations' },
+      { value: 'p_idx_name_asc', key: 'name' },
+    ]);
+    expect(controller.vendors.sortOptions).toEqual([
+      { value: 'v_idx', key: 'relevance' },
+      { value: 'v_idx_integration_count_desc', key: 'integrations' },
+      { value: 'v_idx_name_asc', key: 'name' },
+    ]);
+  });
+
+  it('passes the replica index names as connectSortBy items', () => {
+    const { calls } = build();
+    expect(calls.sortBy[0].params['items']).toEqual([
+      { label: 'relevance', value: 'p_idx' },
+      { label: 'integrations', value: 'p_idx_integration_count_desc' },
+      { label: 'name', value: 'p_idx_name_asc' },
+    ]);
+  });
+
+  it('defaults sortBy to the primary index and maps currentRefinement on render', () => {
+    const { calls, controller } = build();
+    expect(controller.products.sortBy()).toBe('p_idx');
+    const refine = vi.fn();
+    calls.sortBy[0].renderFn({ currentRefinement: 'p_idx_name_asc', options: [], refine }, true);
+    expect(controller.products.sortBy()).toBe('p_idx_name_asc');
+    controller.products.refineSort('p_idx_integration_count_desc');
+    expect(refine).toHaveBeenCalledWith('p_idx_integration_count_desc');
+  });
+
+  it('seeds the index widgets + sortBy signal from initialSort (inbound ?sort=)', () => {
+    const { calls, controller } = build('', { vendors: 'v_idx_name_asc' });
+    // The root products index starts on its primary…
+    expect(calls.instantsearch[0].indexName).toBe('p_idx');
+    expect(controller.products.sortBy()).toBe('p_idx');
+    // …while the nested vendors index starts on the seeded replica.
+    expect(calls.index[0].indexName).toBe('v_idx_name_asc');
+    expect(controller.vendors.sortBy()).toBe('v_idx_name_asc');
   });
 });
 
@@ -282,5 +356,145 @@ describe('SearchController query + lifecycle', () => {
     controller.dispose();
     controller.dispose();
     expect(instance.disposed).toBe(1);
+  });
+});
+
+describe('SearchController — AECI-174 RUM emit', () => {
+  it('emits a per-index ok action on a non-initial stats render (products)', () => {
+    const { calls, emit } = build();
+    calls.stats[0].renderFn({ nbHits: 3, processingTimeMS: 12.7 }, false);
+    expect(emit).toHaveBeenCalledExactlyOnceWith({
+      index: 'products',
+      status: 'ok',
+      duration_ms: 13, // rounded
+      results_bucket: '1-5',
+    });
+  });
+
+  it('tags the emit with the vendors index for the nested stats connector', () => {
+    const { calls, emit } = build();
+    calls.stats[1].renderFn({ nbHits: 0, processingTimeMS: 5 }, false);
+    expect(emit).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ index: 'vendors', status: 'ok', results_bucket: 'none' }),
+    );
+  });
+
+  it('does NOT emit on the synchronous init (isFirstRender) stats render', () => {
+    const { calls, emit } = build();
+    calls.stats[0].renderFn({ nbHits: 0, processingTimeMS: 0 }, true);
+    expect(emit).not.toHaveBeenCalled();
+  });
+
+  it('emits one federated error action from the instance error event', () => {
+    const { instance, emit } = build();
+    instance.triggerError();
+    expect(emit).toHaveBeenCalledExactlyOnceWith({
+      index: 'federated',
+      status: 'error',
+      duration_ms: 0,
+      results_bucket: 'none',
+    });
+  });
+});
+
+describe('SearchController — AECI-239 search_performed emit', () => {
+  /** Drive a non-initial root (products) stats render at a given query. */
+  function settle(
+    fake: ReturnType<typeof build>,
+    query: string,
+    nbHits = { products: 0, vendors: 0 },
+  ): void {
+    fake.controller.setQuery(query);
+    // vendors stats first so its nbHits is current when products settles.
+    fake.calls.stats[1].renderFn({ nbHits: nbHits.vendors, processingTimeMS: 4 }, false);
+    fake.calls.stats[0].renderFn({ nbHits: nbHits.products, processingTimeMS: 7 }, false);
+  }
+
+  it('emits once per query from the ROOT stats render with the federated count', () => {
+    const fake = build();
+    settle(fake, 'revit', { products: 5, vendors: 3 });
+    expect(fake.onSearch).toHaveBeenCalledExactlyOnceWith({
+      query: 'revit',
+      results_count: 8,
+      filters_applied: [],
+    });
+  });
+
+  it('does NOT emit from the nested (vendors) stats render', () => {
+    const fake = build();
+    fake.controller.setQuery('revit');
+    fake.calls.stats[1].renderFn({ nbHits: 3, processingTimeMS: 4 }, false);
+    expect(fake.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('does NOT emit on the synchronous init (isFirstRender) stats render', () => {
+    const fake = build();
+    fake.controller.setQuery('revit');
+    fake.calls.stats[0].renderFn({ nbHits: 1, processingTimeMS: 0 }, true);
+    expect(fake.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('dedupes: re-rendering the same query (e.g. pagination) does not re-emit', () => {
+    const fake = build();
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    expect(fake.onSearch).toHaveBeenCalledTimes(1);
+  });
+
+  it('emits again once the query text changes', () => {
+    const fake = build();
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    settle(fake, 'autocad', { products: 2, vendors: 0 });
+    expect(fake.onSearch).toHaveBeenCalledTimes(2);
+    expect(fake.onSearch).toHaveBeenLastCalledWith({
+      query: 'autocad',
+      results_count: 2,
+      filters_applied: [],
+    });
+  });
+
+  it('does NOT emit for the empty query (initial /search load, or clearing the box)', () => {
+    const fake = build();
+    settle(fake, '', { products: 40, vendors: 12 });
+    expect(fake.onSearch).not.toHaveBeenCalled();
+  });
+
+  it('emits the first real query after an empty initial search', () => {
+    const fake = build();
+    settle(fake, '', { products: 40, vendors: 12 });
+    settle(fake, 'revit', { products: 5, vendors: 3 });
+    expect(fake.onSearch).toHaveBeenCalledExactlyOnceWith({
+      query: 'revit',
+      results_count: 8,
+      filters_applied: [],
+    });
+  });
+
+  it('reports the distinct refined facet attributes in filters_applied', () => {
+    const fake = build();
+    // Refine the products `categories` list + the vendors `founded_year` range.
+    const categories = fake.calls.refinementList.find(
+      (c) => c.params['attribute'] === 'categories',
+    );
+    categories?.renderFn(
+      {
+        items: [{ value: 'BIM', label: 'BIM', count: 3, isRefined: true }],
+        canRefine: true,
+        refine: vi.fn(),
+      },
+      true,
+    );
+    const range = fake.calls.range.find((c) => c.params['attribute'] === 'founded_year');
+    range?.renderFn(
+      { start: [2000, undefined], range: {}, canRefine: true, refine: vi.fn() },
+      true,
+    );
+
+    settle(fake, 'revit', { products: 5, vendors: 0 });
+    expect(fake.onSearch).toHaveBeenCalledExactlyOnceWith({
+      query: 'revit',
+      results_count: 5,
+      filters_applied: ['categories', 'founded_year'],
+    });
   });
 });

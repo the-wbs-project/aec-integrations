@@ -4,6 +4,7 @@ import type { ProductDetail, VendorDetail } from '@aeci/shared';
 
 import {
   DEFAULT_OG_IMAGE,
+  HOME_OG_IMAGE,
   META_DESCRIPTION_MAX,
   SITE_NAME,
   buildEntityTitle,
@@ -181,6 +182,13 @@ describe('buildOgTags', () => {
 describe('DEFAULT_OG_IMAGE', () => {
   it('points at the brand monogram fallback', () => {
     expect(DEFAULT_OG_IMAGE).toBe('/branding/monogram-light.svg');
+  });
+});
+
+describe('HOME_OG_IMAGE', () => {
+  it('points at the dedicated rendered home share card (not the monogram)', () => {
+    expect(HOME_OG_IMAGE).toBe('/branding/home-og.png');
+    expect(HOME_OG_IMAGE).not.toBe(DEFAULT_OG_IMAGE);
   });
 });
 

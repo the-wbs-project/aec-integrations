@@ -78,25 +78,42 @@ export type SupabasePublicConfig = {
   anonKey: string;
 };
 
+/**
+ * Public PostHog config rendered into the SSR HTML for the browser
+ * (`window.__AECI_POSTHOG__`, AECI-239 / §14.1). Carries the project API key
+ * and the ingestion host — both client-exposed by design (the project API key
+ * is a publishable key, same security class as `ALGOLIA_SEARCH_KEY` /
+ * `DD_CLIENT_TOKEN`). Consumed at hydration by `app/analytics/posthog-config.ts`
+ * → the `Analytics` service. Absent → the bootstrap injects nothing and the
+ * browser analytics layer no-ops (fail-open).
+ */
+export type PostHogPublicConfig = {
+  key: string;
+  host: string;
+};
+
 export type WebEnv = {
   ASSETS: Fetcher;
   API: Fetcher;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
-   * (`preview`/`staging`/`production`); when unset (bare `wrangler dev`, tests)
-   * Datadog logs/metrics and the RUM bootstrap report `development` — matching
-   * the API Worker's `/api/version` convention (AECI-119).
+   * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
+   * tests) Datadog logs/metrics and the RUM bootstrap report `development` —
+   * matching the API Worker's `/api/version` convention (AECI-119). `demo` +
+   * `production` are the two public, non-Access-gated tiers (see
+   * `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
   /**
    * Crawler-indexing gate (`server/robots-policy.ts`). FAIL-CLOSED: indexing is
    * blocked on every environment unless this is exactly the string `"true"`.
-   * Pre-launch, no env sets it — so `demo.aecintegrations.com` (public, the
-   * `production` env, NOT behind Cloudflare Access), staging, and PR previews
-   * all emit `X-Robots-Tag: noindex` (the authoritative block) plus a
-   * sitemap-less `robots.txt` that still allows crawling so the noindex is seen.
-   * Deliberately NOT derived from `ENV` — `production` is the pre-launch demo.
-   * Set to `"true"` on the env that should be indexed at public launch.
+   * Pre-launch, no env sets it — so `prod.aecintegrations.com` (the `production`
+   * env) and `demo.aecintegrations.com` (the `demo` env), both public and NOT
+   * behind Cloudflare Access, plus staging and PR previews, all emit
+   * `X-Robots-Tag: noindex` (the authoritative block) plus a sitemap-less
+   * `robots.txt` that still allows crawling so the noindex is seen. Deliberately
+   * NOT derived from `ENV` — both public tiers stay no-index until the apex
+   * cutover. Set to `"true"` on the env that should be indexed at public launch.
    */
   ALLOW_INDEXING?: string;
   /**
@@ -115,6 +132,17 @@ export type WebEnv = {
   ADMIN_PURGE_TOKEN?: string;
   CF_PURGE_API_TOKEN?: string;
   CF_ZONE_ID?: string;
+  /**
+   * IndexNow verification key (AECI-236 / §20.2). The plaintext key served as the
+   * body of the `{INDEXNOW_KEY}.txt` file at the site root
+   * (`server/routes/indexnow-key.ts`) so search engines can verify host ownership
+   * before honoring the IndexNow submissions the API Worker sends on promote. Set
+   * as a CI-pushed Wrangler secret (kept out of git); must match the API Worker's
+   * `INDEXNOW_KEY`. Absent → the key file 404s (graceful no-op) — the expected
+   * state until public launch, when it is provisioned alongside
+   * `ALLOW_INDEXING="true"`.
+   */
+  INDEXNOW_KEY?: string;
   /**
    * Public Algolia credentials (AECI-134). `ALGOLIA_SEARCH_KEY` is query-only
    * and index-scoped — safe to render into HTML. Both are absent until the
@@ -139,4 +167,18 @@ export type WebEnv = {
    */
   SUPABASE_URL?: string;
   SUPABASE_ANON_KEY?: string;
+  /**
+   * Public PostHog analytics surface (AECI-239 / Phase 7.4, §14.1).
+   *
+   * - POSTHOG_KEY — the project API key (publishable; safe to render into HTML,
+   *   same security class as `ALGOLIA_SEARCH_KEY`). Stored as a CI-pushed secret
+   *   to keep values out of git. Absent → `injectPostHogBootstrap` is a no-op
+   *   (no `window.__AECI_POSTHOG__`) and the browser analytics layer never loads
+   *   PostHog (fail-open).
+   * - POSTHOG_HOST — the ingestion host. Defaults to `https://us.i.posthog.com`
+   *   (US Cloud) when unset; the static CSP `connect-src` is pinned to the US
+   *   hosts, so changing region requires a CSP update (`server/seo-headers.ts`).
+   */
+  POSTHOG_KEY?: string;
+  POSTHOG_HOST?: string;
 };

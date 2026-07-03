@@ -10,18 +10,48 @@ import { MetaService } from '../core/meta.service';
 import { TOP_N, byDisplayOrder, topByCount } from '../core/taxonomy/taxonomy-rank';
 
 import { BrowseGrid } from './browse-grid';
+import { HomeAudience } from './home-audience';
+import { HomeClosingCta } from './home-closing-cta';
+import { HomeCredibilityStrip } from './home-credibility-strip';
+import { HomeDifferentiation } from './home-differentiation';
 import { HomeHero } from './home-hero';
+import { HomeHowItWorks } from './home-how-it-works';
 import { HomeStatsCards } from './home-stats-cards';
+import { HomeWhy } from './home-why';
 import { RecentIntegrationsSection } from './recent-integrations-section';
 import { TrendingProductsSection } from './trending-products-section';
 
 /**
- * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly: it stacks the
- * six section components shipped across 4.7–4.10 in the §4.1 order — hero → three
- * stats cards → "Browse by" grids → recently-added integrations → trending
- * products (the footer lives in the app shell) — and owns the home SEO (meta +
- * OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
- * constructor since the copy is static).
+ * Home page (`/`). Phase 4.11 (AECI-186) is the final assembly, kept in the §4.1
+ * order (as revised by AECI-270) — hero → credibility strip (AECI-271) → "why
+ * AECi" problem band (AECI-272) → what's different (`home-differentiation`,
+ * AECI-273) → how it works (`home-how-it-works`, AECI-273) → three stats cards →
+ * "Browse by" category grid → audience "this is for you" recognition band
+ * (AECI-274, which REPLACES the audience browse grid so the page has one coherent
+ * audience moment) → "Browse by" phase grid → recently-added integrations →
+ * trending products (the footer lives in the app shell) — and owns the home SEO
+ * (meta + OG/Twitter + `WebSite`/`Organization` JSON-LD + canonical, set in the
+ * constructor since the copy is static). (The standalone "Trust is the product"
+ * band — `home-trust-pillars` — is now only on `/about`; the home folds that
+ * promise into the differentiation band's closing line.)
+ *
+ * **Section banding (readability).** The sections were built in parallel (one
+ * AECI issue each), which left the whole middle stacked on a single flat
+ * `--surface-base` container — no ground change and no breathing room from one
+ * section to the next. The assembly now groups them into full-bleed bands with an
+ * alternating ground and a hairline top border so each reads as a distinct moment:
+ * hero (Bone) → credibility strip (white) → "why" (white, Bone callout) → "the
+ * case" / what's-different + how-it-works (`--accent-primary-soft` Forest-soft) →
+ * "at a glance + browse" / stats + category + audience (white, so the audience
+ * Bone callout pops) → "explore the directory" / phase + recent + trending
+ * (Forest-soft again, so the card grids lift) → closing CTA (Bone). The two warm
+ * Bone bookends frame the page; the white ↔ Forest-soft ↔ white ↔ Forest-soft
+ * alternation between them supplies the landmarks (`--surface-sunken` was too close
+ * to white to read as a band). The ground tokens are the only knob — swap a band's
+ * `bg-(--accent-primary-soft)` for `--accent-warm` (Bone) or `--surface-sunken`
+ * (faint gray) to retint it. Each section component stays a background-agnostic
+ * bare `<section>`; the band wrapper (ground + `max-w-7xl` + vertical rhythm) lives
+ * here at the page level.
  *
  * Two parallel resolvers feed the page (both SSR-resolved via the service
  * binding, hydrated from TransferState):
@@ -44,35 +74,99 @@ import { TrendingProductsSection } from './trending-products-section';
   selector: 'app-home',
   imports: [
     HomeHero,
+    HomeCredibilityStrip,
+    HomeWhy,
+    HomeDifferentiation,
+    HomeHowItWorks,
     HomeStatsCards,
     BrowseGrid,
+    HomeAudience,
     RecentIntegrationsSection,
     TrendingProductsSection,
+    HomeClosingCta,
   ],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <aec-home-hero />
 
-      <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
-        <div class="flex flex-col gap-10 md:gap-12">
-          <aec-home-stats-cards
-            [totalIntegrations]="totalIntegrations()"
-            [integrationsAdded30d]="integrationsAdded30d()"
-            [mostIntegratedProduct]="mostIntegratedProduct()"
-            [mostActiveCategory]="mostActiveCategory()"
-          />
+      <!-- Credibility strip (§4.1 section 2): slim full-bleed proof bar, coverage
+           counts + the "independent · no pay-for-placement" promise (AECI-271). -->
+      <aec-home-credibility-strip
+        [totalProducts]="totalProducts()"
+        [totalVendors]="totalVendors()"
+        [totalIntegrations]="totalIntegrations()"
+        [totalReviews]="totalReviews()"
+        [totalContributingFirms]="totalContributingFirms()"
+      />
 
-          <app-browse-grid kind="category" [terms]="topCategories()" />
-          <app-browse-grid kind="audience" [terms]="topAudiences()" />
-          <app-browse-grid kind="phase" [terms]="allPhases()" />
+      <!-- Why AECi / the problem (§4.1 section 3, AECI-272): the broken-landscape
+           narrative + three static market figures. Cold-visitor framing, mounted
+           after the credibility strip per the AECI-270 order. White band so the
+           Bone narrative callout inside it pops. -->
+      <aec-home-why />
 
-          <aec-recent-integrations-section [integrations]="recentIntegrations()" />
-          <aec-trending-products-section
-            [products]="trendingProducts()"
-            [recentlyAdded]="recentlyAddedProducts()"
-          />
+      <!-- BAND:"the case" (§4.1 sections 4-5): what's different + how it works.
+           Forest-soft ground (\`--accent-primary-soft\`, the soft sage band tint) so
+           the pitch reads as one distinct stretch and lifts the bordered
+           \`--surface-raised\` cards off the page. -->
+      <div class="border-t border-(--border-default) bg-(--accent-primary-soft)">
+        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+          <div class="flex flex-col gap-12 md:gap-16">
+            <!-- §4.1 section 4 (what's different): the reconciled three ideas plus
+                 the absorbed trust line (AECI-273). -->
+            <aec-home-differentiation />
+
+            <!-- §4.1 section 5 (how it works): the operating model (AECI-273). -->
+            <aec-home-how-it-works />
+          </div>
         </div>
       </div>
+
+      <!-- BAND:"at a glance + browse" (§4.1 sections 6-7): the directory numbers,
+           category browse, and the audience recognition moment. Back on white so
+           the band shifts ground from the gray pitch above and the audience Bone
+           callout pops. -->
+      <div class="border-t border-(--border-default) bg-(--surface-base)">
+        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+          <div class="flex flex-col gap-12 md:gap-16">
+            <aec-home-stats-cards
+              [totalIntegrations]="totalIntegrations()"
+              [integrationsAdded30d]="integrationsAdded30d()"
+              [mostIntegratedProduct]="mostIntegratedProduct()"
+              [mostActiveCategory]="mostActiveCategory()"
+            />
+
+            <app-browse-grid kind="category" [terms]="topCategories()" />
+            <!-- Audience (§4.1 section 7, AECI-274): the dedicated "this is for you"
+                 role-recognition treatment REPLACES the generic audience browse grid
+                 (one coherent audience moment, not two). Category + phase keep the
+                 count-chip browse grid. -->
+            <aec-home-audience [audiences]="audienceTerms()" />
+          </div>
+        </div>
+      </div>
+
+      <!-- BAND:"explore the directory" (§4.1 section 8): phase browse + the live
+           integration / product feeds. Forest-soft ground again so the card grids
+           lift off the page and the band reads distinct from the white above. -->
+      <div class="border-t border-(--border-default) bg-(--accent-primary-soft)">
+        <div class="mx-auto w-full max-w-7xl px-6 py-16 md:px-8 md:py-20">
+          <div class="flex flex-col gap-12 md:gap-16">
+            <app-browse-grid kind="phase" [terms]="allPhases()" />
+
+            <aec-recent-integrations-section [integrations]="recentIntegrations()" />
+            <aec-trending-products-section
+              [products]="trendingProducts()"
+              [recentlyAdded]="recentlyAddedProducts()"
+            />
+          </div>
+        </div>
+      </div>
+
+      <!-- Closing CTA + lead capture (§4.1 section 9, AECI-275): the home's
+           conversion path beyond browse/search. Full-bleed Bone band, mounted
+           last so it sits directly above the app-shell footer. -->
+      <aec-home-closing-cta />
     </div>
   `,
 })
@@ -91,9 +185,14 @@ export class Home {
   );
 
   protected readonly topCategories = computed(() => topByCount(this.browse()?.categories, TOP_N));
-  protected readonly topAudiences = computed(() => topByCount(this.browse()?.audiences, TOP_N));
   /** Phases is a small facet — show every term in project-lifecycle order (`display_order`). */
   protected readonly allPhases = computed(() => byDisplayOrder(this.browse()?.phases));
+  /**
+   * The full live audience vocabulary fed to `HomeAudience` (AECI-274). Unlike the
+   * category grid (top-N by count), the audience recognition band needs the whole
+   * list so it can look up `product_count` for its curated, specific role slugs.
+   */
+  protected readonly audienceTerms = computed(() => this.browse()?.audiences ?? []);
 
   // Stats-section inputs. A null resolver result (a render mode without
   // REQUEST_CONTEXT, or a failed client fetch) collapses to each section's
@@ -103,6 +202,14 @@ export class Home {
   protected readonly totalIntegrations = computed(() => this.stats()?.total_integrations ?? 0);
   protected readonly integrationsAdded30d = computed(
     () => this.stats()?.integrations_added_30d ?? 0,
+  );
+  // Credibility-strip coverage counts (AECI-271). Null-safe like the rest: a
+  // sparse cache / null resolver collapses each to `0`, which the strip suppresses.
+  protected readonly totalProducts = computed(() => this.stats()?.total_products ?? 0);
+  protected readonly totalVendors = computed(() => this.stats()?.total_vendors ?? 0);
+  protected readonly totalReviews = computed(() => this.stats()?.total_reviews ?? 0);
+  protected readonly totalContributingFirms = computed(
+    () => this.stats()?.total_contributing_firms ?? 0,
   );
   protected readonly mostIntegratedProduct = computed(
     () => this.stats()?.most_integrated_product ?? null,

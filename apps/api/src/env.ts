@@ -1,14 +1,29 @@
 /**
- * Which daily scheduled job a queue message asks the consumer to run. `sync` /
- * `drift` are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats
- * compute job (AECI-178 / Phase 4.3) that upserts the `home.*` `stats_cache`
- * keys; `moderation` snapshots the pending-review queue for its health gauges
- * (AECI-206 / Phase 5.15). Named generically because the union now spans more
- * than Algolia. `moderation` is queue-less (a cheap read-only gauge) — it always
- * runs inline (`queueForJob` returns `undefined`), so it never appears on the
- * wire as a `ScheduledJobMessage`.
+ * Which scheduled job a queue message asks the consumer to run. `sync` / `drift`
+ * are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats compute
+ * job (AECI-178 / Phase 4.3) that upserts the `home.*` `stats_cache` keys;
+ * `moderation` snapshots the pending-review queue for its health gauges (AECI-206
+ * / Phase 5.15); `reconcile` is the request→Linear reconciliation sweep
+ * (AECI-214 / Phase 6.7) that retries stuck `vendor_requests` whose §6.4 issue
+ * creation failed. Named generically because the union now spans more than
+ * Algolia. `moderation` is queue-less (a cheap read-only gauge) — it always runs
+ * inline (`queueForJob` returns `undefined`), so it never appears on the wire as
+ * a `ScheduledJobMessage`. Unlike the daily jobs, `reconcile` runs every 15
+ * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
+ * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
+ * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
+ * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
+ * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
+ * read) and always runs inline.
  */
-export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation';
+export type ScheduledJob =
+  | 'sync'
+  | 'drift'
+  | 'stats'
+  | 'moderation'
+  | 'reconcile'
+  | 'data_quality'
+  | 'waf';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -43,15 +58,32 @@ export type ScheduledJobMessageInput = { job: ScheduledJob } & Partial<
 >;
 
 export type Env = {
-  /** Prisma Accelerate URL (`prisma://...`) used by the Worker at runtime. */
-  DATABASE_URL: string;
+  /**
+   * Cloudflare D1 binding for the application database (ADR 0016, AECI-252).
+   * Accessed via the Drizzle client factory `getDb(env)` (`src/db/client.ts`),
+   * which asserts its presence. `wrangler dev` serves a local SQLite copy;
+   * staging/production bind per-env databases. The application DB is D1 only —
+   * the former Prisma Accelerate `DATABASE_URL` path is gone (ADR 0016 / AECI-278).
+   * Optional because some test/tooling contexts construct a partial Env without
+   * a binding.
+   */
+  DB?: D1Database;
+  /**
+   * Supabase service-role key (auth project only), used by the split-identity
+   * seams (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2) and GDPR
+   * erasure of the `auth.users` row (seam #3) via the Supabase Admin API. Set as
+   * a Wrangler secret per env. Optional + fail-safe: absent → email reads degrade
+   * to `null` and erasure logs a warning for manual cleanup.
+   */
+  SUPABASE_SERVICE_ROLE_KEY?: string;
   /**
    * Deployment environment label. Each wrangler env block sets this explicitly
-   * (`preview`/`staging`/`production`); when unset (bare `wrangler dev`, tests)
-   * both `/api/version` and Datadog tags report `development` — one convention
-   * for the unset state (AECI-119).
+   * (`preview`/`staging`/`demo`/`production`); when unset (bare `wrangler dev`,
+   * tests) both `/api/version` and Datadog tags report `development` — one
+   * convention for the unset state (AECI-119). `demo` + `production` are the two
+   * public, non-Access-gated tiers (see `@aeci/shared/deploy-env`).
    */
-  ENV?: 'development' | 'preview' | 'staging' | 'production';
+  ENV?: 'development' | 'preview' | 'staging' | 'demo' | 'production';
   /**
    * Commit SHA the Worker was deployed at (AECI-74). Injected via
    * `wrangler dev --var COMMIT_SHA:$(git rev-parse HEAD)` locally and
@@ -79,8 +111,15 @@ export type Env = {
    */
   REVIEW_APP_TOKEN?: string;
   /**
+   * HMAC signing secret for the inbound Linear webhook (`POST /api/webhooks/
+   * linear`, AECI-212). Set as a Wrangler secret per environment; absent → every
+   * webhook is rejected 401 (fail-closed). Verified constant-time in
+   * `lib/linear-webhook-auth.ts` against the `Linear-Signature` header.
+   */
+  LINEAR_WEBHOOK_SIGNING_SECRET?: string;
+  /**
    * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
-   * Optional: handler falls back to a direct Prisma fetch when the binding is
+   * Optional: handler falls back to a direct D1 read when the binding is
    * absent (e.g. local `wrangler dev` without `--remote`). 5-minute TTL is
    * the staleness bound until admin/purge lands (Phase 2.10).
    */
@@ -100,9 +139,74 @@ export type Env = {
   /**
    * Cloudflare zone ID the promote purge targets (AECI-105). Public value, set
    * per environment alongside `CF_PURGE_API_TOKEN`. Optional: absent → cache
-   * purge is a graceful no-op.
+   * purge is a graceful no-op. Also reused (as the GraphQL `zoneTag`) by the
+   * AECI-262 WAF firewall-event poll.
    */
   CF_ZONE_ID?: string;
+  /**
+   * Cloudflare API token used by the hourly WAF firewall-event poll
+   * (`scheduled.ts` `runWafMetricsJob`, AECI-262 / §15.1) to read the zone's
+   * `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emit the
+   * `aeci.waf.ratelimit.blocked` count. Scope: `Zone Analytics: Read` on
+   * `aecintegrations.com` — a DIFFERENT scope than `CF_PURGE_API_TOKEN`
+   * (`Zone.Cache Purge`), so it is its own secret. One un-suffixed GH secret
+   * covers the shared zone across all envs; CI pushes it per env (deploy.yml /
+   * promote-to-demo.yml / promote-to-prod.yml — graceful warn-skip, no hard gate).
+   * Optional + fail-safe: absent (with `CF_ZONE_ID`) → the poll logs
+   * `outcome:skipped_no_creds` and no-ops (local/preview/pre-provisioning). See
+   * `docs/waf-rate-limits.md` §5.
+   */
+  CF_ANALYTICS_API_TOKEN?: string;
+  /**
+   * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
+   * contents of the `{key}.txt` verification file the SSR Worker serves at the
+   * site root (`apps/web/src/server/routes/indexnow-key.ts`). Set as a Wrangler
+   * secret. 8–128 chars of `[A-Za-z0-9-]`. Optional + fail-open: absent (with or
+   * without `PUBLIC_SITE_URL`) → the promote IndexNow submission is a graceful
+   * no-op (local `dev:bound` / PR previews / pre-launch).
+   *
+   * **Provision ONLY at public launch**, on the env whose web Worker has
+   * `ALLOW_INDEXING="true"`. Pinging IndexNow for a `noindex` site (every env
+   * pre-launch — `apps/web/wrangler.jsonc`) is a correctness bug; the secret's
+   * absence is the enforcement.
+   */
+  INDEXNOW_KEY?: string;
+  /**
+   * Canonical public site origin (no trailing slash, e.g. `https://aecintegrations.com`),
+   * SHARED by two features: the absolute URLs submitted to IndexNow on promote
+   * (AECI-236) AND the absolute links built in transactional emails (the product
+   * page in the review-approved email, the guidelines in the rejected email —
+   * AECI-240). Public value, set as a plain wrangler `var` per env (like
+   * `SUPABASE_URL`/`CF_ZONE_ID`). The API Worker is private — its own request URL
+   * is NOT the public origin — so the canonical host must be configured here, not
+   * derived from the request. Set it to the same host the SSR Worker serves at
+   * launch (canonicals are self-referential to the serving origin, ADR 0011).
+   * Absent → the IndexNow submission no-ops and email links are omitted (never a
+   * dead host).
+   */
+  PUBLIC_SITE_URL?: string;
+  /**
+   * Google Indexing API service-account email (`client_email` from the SA JSON)
+   * for the best-effort post-promote ping (AECI-263, §20.2). The `iss` of the
+   * RS256 JWT the Worker signs to obtain an OAuth access token. Set as a Wrangler
+   * secret. Optional + fail-open: absent (with or without
+   * `GOOGLE_INDEXING_SA_PRIVATE_KEY` / `PUBLIC_SITE_URL`) → the promote Google
+   * Indexing submission is a graceful no-op (local `dev:bound` / PR previews /
+   * pre-launch).
+   *
+   * **Provision ONLY at public launch**, on the env whose web Worker has
+   * `ALLOW_INDEXING="true"` — alongside `INDEXNOW_KEY`. Pinging Google for a
+   * `noindex` site is a correctness bug; the secret's absence is the enforcement.
+   */
+  GOOGLE_INDEXING_SA_EMAIL?: string;
+  /**
+   * Google Indexing API service-account private key (`private_key` from the SA
+   * JSON): a PKCS#8 PEM (`-----BEGIN PRIVATE KEY-----`), RSA-2048. Signs the
+   * assertion JWT (AECI-263). Set as a Wrangler secret; `\n`-escaped single-line
+   * values are normalized to real newlines before import. Optional + fail-open
+   * like `GOOGLE_INDEXING_SA_EMAIL` above — provision ONLY at launch.
+   */
+  GOOGLE_INDEXING_SA_PRIVATE_KEY?: string;
   /**
    * Algolia application id (AECI-134). Single, shared across envs (one app;
    * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the
@@ -130,12 +234,21 @@ export type Env = {
    *
    * `ALGOLIA_SYNC_QUEUE` / `ALGOLIA_DRIFT_QUEUE` carry the Algolia sync (AECI-139)
    * and index-drift (AECI-140) jobs; `STATS_QUEUE` carries the home-stats compute
-   * job (AECI-178 / Phase 4.3). The Algolia bindings keep their names — they *are*
-   * Algolia queues — but now carry the generic `ScheduledJobMessage`.
+   * job (AECI-178 / Phase 4.3); `RECONCILE_QUEUE` carries the request→Linear
+   * reconciliation sweep (AECI-214 / Phase 6.7). The Algolia bindings keep their
+   * names — they *are* Algolia queues — but now carry the generic
+   * `ScheduledJobMessage`.
    */
   ALGOLIA_SYNC_QUEUE?: Queue<ScheduledJobMessage>;
   ALGOLIA_DRIFT_QUEUE?: Queue<ScheduledJobMessage>;
   STATS_QUEUE?: Queue<ScheduledJobMessage>;
+  RECONCILE_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Queue carrying the daily §23.1 data-quality job (AECI-241 / Phase 7.6).
+   * Same producer/consumer split as the others; absent on local/preview → the
+   * cron runs the job inline (`enqueueOrRun`).
+   */
+  DATA_QUALITY_QUEUE?: Queue<ScheduledJobMessage>;
   /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
@@ -159,18 +272,26 @@ export type Env = {
    */
   PAGE_VIEWS_MIN_BOT_SCORE?: string;
   /**
-   * Google Perspective API key for review toxicity scoring (AECI-198 / Phase
-   * 5.7). Set as a Wrangler secret per env. Optional and **fail-open**: absent →
-   * `scoreToxicity()` is a silent no-op that stores `null` (the expected state in
-   * local `dev:bound` / PR previews), and any outage also stores `null` (logged
-   * `warn`) — the score only ever *flags* the moderation queue, it never blocks a
-   * submission. See `lib/perspective.ts` and `STAGE_1_PHASE_5_SPEC.md` §5.3.
+   * Anthropic API key for review toxicity scoring (AECI-258, supersedes the
+   * AECI-198 / Phase 5.7 `PERSPECTIVE_API_KEY` — Google is sunsetting
+   * Perspective). The Worker reads it at runtime to score review bodies via
+   * Claude Haiku on `POST /api/reviews`. Set as a Wrangler secret per env.
+   * Optional and **fail-open**: absent → `scoreToxicity()` is a silent no-op
+   * that stores `null` (the expected state in local `dev:bound` / PR previews),
+   * and any outage also stores `null` (logged `warn`) — the score only ever
+   * *flags* the moderation queue, it never blocks a submission. See
+   * `lib/toxicity.ts` and `STAGE_1_PHASE_5_SPEC.md` §5.3.
+   *
+   * **GDPR prerequisite:** the Messages API has no per-request no-store control,
+   * so the Anthropic org behind this key **must** have zero data retention (ZDR)
+   * enabled before a real key is set — otherwise scored review bodies are retained
+   * ~30 days outside the `AUTH_AND_RLS.md` §8 erasure boundary.
    */
-  PERSPECTIVE_API_KEY?: string;
+  ANTHROPIC_API_KEY?: string;
   /**
    * Linear personal API key for the form→Linear pipeline (AECI-211 / Phase 6.4).
    * Set as a Wrangler secret per env. Optional and **fail-open** (mirrors
-   * `PERSPECTIVE_API_KEY`): absent → `createLinearIssueForRequest()` is a silent
+   * `ANTHROPIC_API_KEY`): absent → `createLinearIssueForRequest()` is a silent
    * no-op (the expected state in local `dev:bound` / PR previews — the secret is
    * staging/prod only), so the request still returns `201` and its row simply sits
    * `open` with `linear_issue_id=null` for the reconciliation sweep (§6.7) to pick
@@ -178,4 +299,41 @@ export type Env = {
    * convention). See `lib/linear.ts` and `STAGE_1_PHASE_6_SPEC.md` §6.1/§6.2.
    */
   LINEAR_API_KEY?: string;
+  /**
+   * Recipient for the persistent-failure admin alert raised by the reconciliation
+   * sweep (AECI-214 / Phase 6.7) — the `To:` address of the §6.2 admin email now
+   * wired through Resend (`lib/email.ts`, AECI-240). Absent → the sweep's
+   * `sendAdminAlert()` seam returns `'skipped'` and the **Datadog alert**
+   * (`aeci.linear.reconcile.persistent_failure` + the `source:reconcile` error log)
+   * is the guaranteed backstop (§6.2). Set as a plain wrangler var per env.
+   */
+  ADMIN_ALERT_EMAIL?: string;
+  /**
+   * Resend API key — the single transactional-email secret for the API Worker.
+   * Powers BOTH the §11.1 transactional templates (AECI-240 / Phase 7.5 — review
+   * submit/moderate, account delete, the reconcile-sweep admin alert) AND the daily
+   * data-quality digest (AECI-241 / Phase 7.6, `sendEmail`). Set as a Wrangler
+   * **secret** per env, staging/prod only. Optional and **fail-open** (mirrors
+   * `ANTHROPIC_API_KEY`): absent → every `lib/email.ts` send is a silent `'skipped'`
+   * (the expected state in local `dev:bound` / PR previews), so the triggering
+   * action / cron still succeeds. The repo standardized on Resend over the spec's
+   * original "Loops"; see `docs/email.md`. Presented as a Bearer token to Resend.
+   */
+  RESEND_API_KEY?: string;
+  /**
+   * Sender for the §11.1 transactional emails — the Resend `from` (AECI-240).
+   * Accepts a bare address or a `Name <addr>` form (e.g.
+   * `AEC Integrations <notifications@aecintegrations.com>`). Must be a verified
+   * Resend domain. Absent → sends `'skipped'` (alongside an absent `RESEND_API_KEY`).
+   * Set as a plain wrangler var per env. See `docs/email.md`.
+   */
+  EMAIL_FROM?: string;
+  /**
+   * Sender + recipient(s) for the data-quality digest (AECI-241). `_FROM` is a
+   * single verified Resend sender; `_TO` is a comma/whitespace-separated list
+   * (Chris + Bill), parsed by `parseRecipients` (`lib/email.ts`). Plain wrangler
+   * vars per env. Either absent → the send is a `skipped` no-op.
+   */
+  DATA_QUALITY_EMAIL_FROM?: string;
+  DATA_QUALITY_EMAIL_TO?: string;
 };

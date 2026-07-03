@@ -1,39 +1,49 @@
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test } from '@playwright/test';
 
-// AECI-184 — Phase 4.9 home "Browse by" grids. Three count-chip subsections
-// (category / audience / project phase) reading the LIVE aggregate taxonomy
-// (`GET /api/taxonomy`, resolved SSR-side), each chip linking to its
-// `/{segment}/:slug` browse page, plus a "View all" link to the facet index.
-// Verifies SSR render, the §4 home cache headers/tags (s-maxage=900,
+// AECI-184 — Phase 4.9 home "Browse by" grids. Count-chip subsections reading the
+// LIVE aggregate taxonomy (`GET /api/taxonomy`, resolved SSR-side), each chip
+// linking to its `/{segment}/:slug` browse page, plus a "View all" link to the
+// facet index. Verifies SSR render, the §4 home cache headers/tags (s-maxage=900,
 // route:index + taxonomy), live counts, navigation, and accessibility.
+//
+// AECI-274: the **audience** facet is no longer a browse grid — it is the
+// dedicated "this is for you" recognition band (`home-audience.ts`), covered by
+// its own describe block below. Only category + phase remain count-chip grids.
 //
 // Resilient to a populated or empty local DB: count/navigation assertions only
 // run when at least one term is seeded for that facet.
 
 interface Facet {
-  segment: 'categories' | 'audiences' | 'phases';
+  segment: 'categories' | 'phases';
   /** Key into `GET /api/taxonomy`. */
-  apiKey: 'categories' | 'audiences' | 'phases';
+  apiKey: 'categories' | 'phases';
   heading: string;
-  /** Top-N cap the home applies (categories/audiences), or null for "show all". */
+  /** Top-N cap the home applies (categories), or null for "show all". */
   cap: number | null;
 }
 
 const FACETS: Facet[] = [
   { segment: 'categories', apiKey: 'categories', heading: 'Browse by category', cap: 10 },
-  { segment: 'audiences', apiKey: 'audiences', heading: 'Browse by audience', cap: 10 },
   { segment: 'phases', apiKey: 'phases', heading: 'Browse by project phase', cap: null },
 ];
 
 test.describe('/ — home "Browse by" grids (AECI-184)', () => {
-  test('SSR-renders the three browse headings', async ({ request }) => {
+  test('SSR-renders the browse headings + the audience recognition heading', async ({
+    request,
+  }) => {
     const res = await request.get('/');
     expect(res.status(), 'GET / must return 200').toBe(200);
     const html = await res.text();
     for (const facet of FACETS) {
       expect(html, `SSR HTML must include "${facet.heading}"`).toContain(facet.heading);
     }
+    // AECI-274: the audience facet is the recognition band, not a browse grid —
+    // its heading replaces "Browse by audience" (which must NOT also appear).
+    expect(html, 'audience recognition heading').toContain(
+      'Built for the people who choose and use AEC software',
+    );
+    expect(html, 'no second audience block').not.toContain('Browse by audience');
   });
 
   test('emits §4 home cache headers — public, max-age=300, s-maxage=900, Cache-Tag route:index,taxonomy', async ({
@@ -124,11 +134,54 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
   });
 });
 
-// AECI-186 — Phase 4.11 home assembly. The six section components (hero / stats
-// cards / browse grids / recently-added / trending) are stacked in §4.1 order and
-// the home SEO (meta + OG/Twitter + WebSite/Organization JSON-LD + canonical) is
-// emitted. The axe coverage above runs against `/`, so it now also validates
-// these added sections — no duplicate axe pass is needed here.
+// AECI-274 — the audience facet's "this is for you" recognition band
+// (`home-audience.ts`), which REPLACES the generic audience browse grid so the
+// home has one coherent audience moment. Nine roles map to `/audiences/:slug`;
+// the one with no good taxonomy term (Technology directors) is plain recognition
+// text, never a dead link. Static + cache-neutral (no client state).
+test.describe('/ — home audience recognition band (AECI-274)', () => {
+  test('SSR-renders the recognition eyebrow + use-case heading + lede', async ({ request }) => {
+    const html = await (await request.get('/')).text();
+    expect(html).toContain("Who it's for");
+    expect(html).toContain('Built for the people who choose and use AEC software');
+    expect(html).toContain('justifying a decision to a steering committee');
+  });
+
+  test('links the nine mapped roles to their /audiences/:slug browse pages', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('app-root')).toBeAttached();
+    // Scoped to `#main ul` — the same exclusions as the browse-grid chips (header
+    // flyout + hero "Popular:" row are outside this scope).
+    const chips = page.locator('#main ul a[href^="/audiences/"]');
+    await expect(chips).toHaveCount(9);
+  });
+
+  test('renders the non-mapping role (Technology directors) as plain text, not a link', async ({
+    page,
+  }) => {
+    await page.goto('/');
+    await expect(page.locator('app-root')).toBeAttached();
+    await expect(page.getByText('Technology directors')).toBeVisible();
+    await expect(page.locator('#main a', { hasText: 'Technology directors' })).toHaveCount(0);
+  });
+
+  test('"View all audiences" links to the audience index', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('app-root')).toBeAttached();
+    const viewAll = page.locator('#main a[href="/audiences"]');
+    await expect(viewAll).toHaveCount(1);
+    await viewAll.click();
+    await expect(page).toHaveURL(/\/audiences$/);
+  });
+});
+
+// AECI-186 — Phase 4.11 home assembly. The section components (hero / credibility
+// strip / what's-different / how-it-works / stats cards / browse grids /
+// recently-added / trending) are stacked in §4.1 order and the home SEO (meta +
+// OG/Twitter + WebSite/Organization JSON-LD + canonical) is emitted. The marketing
+// what's-different + how-it-works bands were added in AECI-273. The axe coverage
+// above runs against `/`, so it now also validates these added sections — no
+// duplicate axe pass is needed here.
 //
 // Resilient to a populated or empty stats_cache: assertions key off the labels /
 // headings that render in BOTH the data and empty states, never the data itself.
@@ -138,6 +191,9 @@ test.describe('/ — home assembly (AECI-186)', () => {
     expect(res.status(), 'GET / must return 200').toBe(200);
     const html = await res.text();
 
+    // Marketing bands (AECI-273): what's-different + how-it-works headlines.
+    expect(html, "what's-different band must render").toContain('Three ideas at the core');
+    expect(html, 'how-it-works band must render').toContain('How a listing earns its place');
     // Stats card label + recent-integrations heading render in every data state.
     expect(html, 'stats cards must render').toContain('Total integrations indexed');
     expect(html, 'recently-added section must render').toContain('Recently added integrations');
@@ -153,6 +209,10 @@ test.describe('/ — home assembly (AECI-186)', () => {
     const html = await (await request.get('/')).text();
     const order = [
       'aec-home-hero',
+      'aec-home-credibility-strip',
+      'aec-home-why',
+      'aec-home-differentiation',
+      'aec-home-how-it-works',
       'aec-home-stats-cards',
       'app-browse-grid',
       'aec-recent-integrations-section',
@@ -175,7 +235,7 @@ test.describe('/ — home assembly (AECI-186)', () => {
 
     await expect(page.locator('head meta[name="description"]')).toHaveAttribute(
       'content',
-      /verified/,
+      /independent directory/,
     );
 
     const canonical = page.locator('head link[rel="canonical"]');
@@ -186,6 +246,27 @@ test.describe('/ — home assembly (AECI-186)', () => {
       'content',
       'website',
     );
+
+    // The dedicated 1200×630 home share card (AECI-276), not the monogram
+    // fallback. Match by path so the assertion is origin-agnostic across envs.
+    await expect(page.locator('head meta[property="og:image"]')).toHaveAttribute(
+      'content',
+      /\/branding\/home-og\.png$/,
+    );
+    await expect(page.locator('head meta[name="twitter:image"]')).toHaveAttribute(
+      'content',
+      /\/branding\/home-og\.png$/,
+    );
+    await expect(page.locator('head meta[property="og:image:alt"]')).toHaveAttribute(
+      'content',
+      /.+/,
+    );
+  });
+
+  test('serves the home OG share card asset (1200×630 PNG)', async ({ request }) => {
+    const res = await request.get('/branding/home-og.png');
+    expect(res.status()).toBe(200);
+    expect(res.headers()['content-type']).toContain('image/png');
   });
 
   test('emits WebSite (with SearchAction) and publisher Organization JSON-LD', async ({ page }) => {

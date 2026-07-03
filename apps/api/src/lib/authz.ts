@@ -1,8 +1,8 @@
 /**
  * User-session authorization middleware for the API Worker (AECI-196 /
  * Phase 5.5). Implements `AUTH_AND_RLS.md` §4 (Layer 1 — the layer where
- * authorization is actually enforced: the privileged Prisma/Accelerate
- * connection bypasses RLS, so this Worker is the real enforcement point).
+ * authorization is actually enforced: the privileged D1 binding has no RLS
+ * (ADR 0016 / AECI-254), so this Worker is the real enforcement point).
  *
  * Two guards, both built on the AECI-193 JWT verification
  * (`lib/user-auth.ts`, jose + Supabase JWKS — no DB round-trip to verify):
@@ -11,7 +11,7 @@
  *   - `requireAdmin()` — all of the above + `profiles.role = 'admin'`.
  *
  * Order of checks (AUTH_AND_RLS.md §4.1–4.2), all BEFORE the handler runs —
- * i.e. before any Prisma write:
+ * i.e. before any D1 write:
  *
  *   1. Extract the JWT: `Authorization: Bearer <jwt>` (the canonical
  *      service-binding path — the SSR Worker turns the `@supabase/ssr` cookie
@@ -33,21 +33,24 @@
  * MUST server-set `reviewer_id` / actor columns from it; the client can never
  * supply it. For the §4.3 audit-log pattern, `auditActorType()` maps the
  * verified role onto the `audit_log.actor_type` value, and every
- * state-changing write calls `appendAuditLog()` (`@aeci/shared/audit-log`)
- * inside its Prisma transaction.
+ * state-changing write emits an `auditInsert()` (`lib/audit.ts`) inside its
+ * atomic `db.batch()` (ADR 0016 / AECI-249).
  *
  * The guarded endpoints themselves land in Phase 5.6 / 5.11 / 5.13.
  */
 
 import { ApiErrorCode } from '@aeci/shared';
 import type { AuditLogActorType } from '@aeci/shared/audit-log';
+import { eq } from 'drizzle-orm';
 import type { MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import type { JWTVerifyGetKey } from 'jose';
 
+import { getDb } from '../db/client';
+import { profiles } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
-import { getPrisma } from '../prisma';
+import type { DbFactory } from './handler-utils';
 import { extractBearer, unauthenticated, verifySupabaseJwt } from './user-auth';
 
 /** The verified session a guarded handler receives via `c.get('auth')`. */
@@ -65,35 +68,13 @@ export type AuthzVariables = {
   auth: AuthenticatedSession;
 };
 
-/** The slice of `profiles` the guards read. */
-type ProfileRow = {
-  role: string;
-  bannedAt: Date | null;
-  banReason: string | null;
-};
-
-/**
- * Loose structural Prisma surface (same decoupling rationale as
- * `routes/promote.ts` / `routes/requests.ts`): the guards touch one
- * `findUnique`, so the real accelerated client and a test fake both satisfy
- * this without dragging in the generated edge-client types.
- */
-export type AuthzProfileClient = {
-  profile: {
-    findUnique(args: {
-      where: { id: string };
-      select: { role: true; bannedAt: true; banReason: true };
-    }): Promise<ProfileRow | null>;
-  };
-};
-
 export type AuthzOptions = {
   /** Test seam: local key resolver (jose `createLocalJWKSet`) so unit tests
    *  verify offline. Production callers omit it → remote JWKS. */
   getKey?: JWTVerifyGetKey;
-  /** Test seam: profile lookup client. Production callers omit it → the
-   *  per-request accelerated Prisma client. */
-  getClient?: (env: Env) => AuthzProfileClient;
+  /** Test seam: Drizzle/D1 client factory. Production callers omit it → the
+   *  per-request `getDb` client over `env.DB` (ADR 0016 / AECI-254). */
+  dbFor?: DbFactory;
   /**
    * Error code for the banned rejection. Review-write endpoints pass
    * `REVIEW_BANNED` (Phase 5 spec §4.5 / API_CONTRACTS.md §4); everything
@@ -173,10 +154,6 @@ export function auditActorType(session: Pick<AuthenticatedSession, 'role'>): Aud
   return session.role === 'admin' ? 'admin' : 'user';
 }
 
-function defaultClient(env: Env): AuthzProfileClient {
-  return getPrisma(env) as unknown as AuthzProfileClient;
-}
-
 function createAuthzMiddleware(
   requiredRole: 'admin' | null,
   options: AuthzOptions,
@@ -191,10 +168,13 @@ function createAuthzMiddleware(
 
     const user = await verifySupabaseJwt(token, supabaseUrl, options.getKey);
 
-    const client = (options.getClient ?? defaultClient)(c.env);
-    const profile = await client.profile.findUnique({
-      where: { id: user.userId },
-      select: { role: true, bannedAt: true, banReason: true },
+    // Re-fetch role + ban state on every request (§4.5 — never trust client
+    // claims). The D1 binding is privileged (no RLS), so this read is the
+    // authorization source of truth. Only reached AFTER the JWT verifies.
+    const { db } = (options.dbFor ?? getDb)(c.env);
+    const profile = await db.query.profiles.findFirst({
+      columns: { role: true, bannedAt: true, banReason: true },
+      where: eq(profiles.id, user.userId),
     });
     // A verified token with no profiles row is an identity we can't authorize
     // (sync trigger lag or a deleted account) — 401, not anonymous treatment.
@@ -230,7 +210,7 @@ export function requireAuth(
 /**
  * Guard for admin endpoints (`/api/admin/*`): everything `requireAuth()`
  * checks, plus `profiles.role = 'admin'` — enforced before the handler (and
- * therefore before any Prisma write).
+ * therefore before any D1 write).
  */
 export function requireAdmin(
   options: AuthzOptions = {},

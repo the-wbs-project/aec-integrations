@@ -1,5 +1,5 @@
 /**
- * Phase 2.8 (AECI-54) vendors endpoints.
+ * Phase 2.8 (AECI-54) vendors endpoints — Drizzle/D1 (ADR 0016 / AECI-253).
  *
  *   GET /api/vendors        — paginated, filterable, sortable list.
  *   GET /api/vendors/:slug  — single vendor detail with embedded products.
@@ -7,8 +7,7 @@
  * Contracts:
  *   - Query: `VendorsListQuerySchema` from `@aeci/shared`.
  *   - Response: `VendorsListResponseSchema` / `VendorDetailSchema`.
- *   - Sort: public `name` key maps to `company_name` server-side (Phase 2 Spec §7.4
- *     handled in `lib/sort.ts`).
+ *   - Sort: public `name` key maps to `company_name` server-side (§7.4, `lib/sort.ts`).
  *   - 404 envelope: `errors.ts` `notFoundError('vendor', { slug })`.
  */
 
@@ -19,49 +18,51 @@ import {
   type VendorDetail,
   type VendorsListResponse,
 } from '@aeci/shared';
+import { and, count, eq, like, type SQL } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { vendors } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
 import {
   toVendorDetail,
   toVendorListItem,
-  vendorDetailSelect,
-  vendorListSelect,
-} from '../lib/prisma-helpers';
-import { resolveVendorSort } from '../lib/sort';
-import { getPrisma } from '../prisma';
+  vendorDetailConfig,
+  vendorListConfig,
+} from '../lib/drizzle-helpers';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { resolveVendorOrderBy } from '../lib/sort';
 
 export function createVendorsListHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const query = VendorsListQuerySchema.parse(Object.fromEntries(new URL(c.req.url).searchParams));
 
-    const where: { companyName?: { contains: string; mode: 'insensitive' }; verified?: boolean } =
-      {};
-    if (query.search) where.companyName = { contains: query.search, mode: 'insensitive' };
-    if (query.verified !== undefined) where.verified = query.verified;
+    const { db } = dbFor(c.env);
+    const conds: SQL[] = [];
+    if (query.search) conds.push(like(vendors.companyName, `%${query.search}%`));
+    if (query.verified !== undefined) conds.push(eq(vendors.verified, query.verified));
+    const where = conds.length ? and(...conds) : undefined;
 
-    const prisma = prismaFor(c.env);
-    const [rows, total] = await Promise.all([
-      prisma.vendor.findMany({
+    const [rows, countRows] = await Promise.all([
+      db.query.vendors.findMany({
+        ...vendorListConfig,
         where,
-        orderBy: resolveVendorSort(query.sort),
-        skip: (query.page - 1) * query.perPage,
-        take: query.perPage,
-        select: vendorListSelect,
+        orderBy: resolveVendorOrderBy(query.sort),
+        limit: query.perPage,
+        offset: (query.page - 1) * query.perPage,
       }),
-      prisma.vendor.count({ where }),
+      db.select({ value: count() }).from(vendors).where(where),
     ]);
 
     const body: VendorsListResponse = {
       data: rows.map(toVendorListItem),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {
@@ -73,7 +74,7 @@ export function createVendorsListHandler(
 }
 
 export function createVendorDetailHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const slug = c.req.param('slug');
@@ -81,10 +82,10 @@ export function createVendorDetailHandler(
       throw new ApiError(400, 'VALIDATION_FAILED', 'Missing vendor slug', { field: 'slug' });
     }
 
-    const prisma = prismaFor(c.env);
-    const row = await prisma.vendor.findUnique({
-      where: { slug },
-      select: vendorDetailSelect,
+    const { db } = dbFor(c.env);
+    const row = await db.query.vendors.findFirst({
+      ...vendorDetailConfig,
+      where: eq(vendors.slug, slug),
     });
 
     if (!row) throw notFoundError('vendor', { slug });

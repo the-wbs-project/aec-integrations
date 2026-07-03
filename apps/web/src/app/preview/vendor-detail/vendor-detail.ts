@@ -41,7 +41,6 @@ const VENDOR_DETAIL_FIXTURE: VendorDetailContract = {
   facebook_url: null,
   instagram_url: null,
   youtube_url: null,
-  github_url: null,
   products: [],
 };
 
@@ -102,7 +101,7 @@ export class VendorDetail implements OnInit {
 
   protected starClass(position: number, score: number): string {
     return position <= this.roundedScore(score)
-      ? 'text-sm text-(--accent-primary)'
+      ? 'text-sm text-(--accent-rating)'
       : 'text-sm text-(--border-strong)';
   }
 

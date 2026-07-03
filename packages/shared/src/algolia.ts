@@ -29,13 +29,15 @@
  */
 
 /** Deployment-environment label, matching the Workers' `ENV` var (AECI-119). */
-export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'production';
+export type AlgoliaEnv = 'development' | 'preview' | 'staging' | 'demo' | 'production';
 
 /**
  * Physical index-name prefix. `development` folds onto `preview` (there is no
- * `development_*` set), so the prefix space is exactly three.
+ * `development_*` set), so the prefix space is exactly four (preview, staging,
+ * demo, production). `demo` and `production` keep separate index sets — the demo
+ * showcase must never read or write the live `production_*` indexes.
  */
-export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'production';
+export type AlgoliaIndexPrefix = 'preview' | 'staging' | 'demo' | 'production';
 
 /** The three entity indexes, in a stable order. */
 export const INDEX_ENTITIES = ['products', 'vendors', 'integrations'] as const;
@@ -119,29 +121,36 @@ export function keyDescription(role: AlgoliaKeyRole, env: AlgoliaEnv): string {
 
 /**
  * Params for the **search-only** key — query-only (`['search']`), scoped to the
- * env's three indexes. This is the key surfaced to the browser for InstantSearch
- * (3.9). It can do nothing but search; it can never write or read settings.
+ * env's three primary indexes **and their sort replicas** (AECI-175; the browser
+ * `connectSortBy` queries a replica directly, so the key must reach it or the
+ * query 401s). This is the key surfaced to the browser for InstantSearch (3.9).
+ * It can do nothing but search; it can never write or read settings.
  */
 export function searchKeyParams(env: AlgoliaEnv): AlgoliaKeyParams {
   return {
     acl: ['search'],
-    indexes: indexListFor(env),
+    indexes: [...indexListFor(env), ...replicaNamesFor(env)],
     description: keyDescription('search', env),
   };
 }
 
 /**
- * Params for the **management** key — search + index-mutation ACLs, scoped to
- * the env's three indexes. Stored as `ALGOLIA_ADMIN_KEY` per env for the sync
- * pipeline (3.5/3.6) and CI. Deliberately excludes the destructive/global ACLs
- * the root admin key carries (`deleteIndex`, `usage`, `logs`, `analytics`,
- * `seeUnretrievableAttributes`) so a leak can't drop indexes or read the whole
- * app — and so each env's key rotates independently (CICD_PLAN §7.4/§7.5).
+ * Params for the **management** key — search/browse + index-mutation ACLs, scoped
+ * to the env's three indexes. Stored as `ALGOLIA_ADMIN_KEY` per env for the sync
+ * pipeline (3.5/3.6) and CI. `browse` is required by the orphan sweep (AECI-266),
+ * which enumerates every objectID via the `/browse` endpoint — a separate ACL from
+ * `search` (which only covers `/query`). Deliberately excludes the
+ * destructive/global ACLs the root admin key carries (`deleteIndex`, `usage`,
+ * `logs`, `analytics`, `seeUnretrievableAttributes`) so a leak can't drop indexes
+ * or read the whole app — and so each env's key rotates independently
+ * (CICD_PLAN §7.4/§7.5).
  */
 export function managementKeyParams(env: AlgoliaEnv): AlgoliaKeyParams {
   return {
-    acl: ['search', 'addObject', 'deleteObject', 'editSettings', 'listIndexes'],
-    indexes: indexListFor(env),
+    acl: ['search', 'browse', 'addObject', 'deleteObject', 'editSettings', 'listIndexes'],
+    // Includes the sort replicas (AECI-175) so the apply step can `setSettings`
+    // each replica's `ranking`; without it the replica `setSettings` 403s.
+    indexes: [...indexListFor(env), ...replicaNamesFor(env)],
     description: keyDescription('management', env),
   };
 }
@@ -166,7 +175,100 @@ export type IndexSettings = {
   /** Tie-breaker ranking applied after Algolia's default criteria, each
    *  `asc(attr)` / `desc(attr)` over a numeric or boolean attribute. */
   customRanking: string[];
+  /** Replica index names linked to this **primary** index (AECI-175). Set at
+   *  apply time from the env's physical names — `INDEX_SETTINGS` keeps the
+   *  env-agnostic §7.3 shape, so this is absent on `indexSettingsFor()`. */
+  replicas?: string[];
+  /** Full `ranking` override — only set on a **replica** index to force its sort
+   *  attribute (`asc(name)` / `desc(integration_count)`) ahead of Algolia's
+   *  default criteria. The primary never overrides `ranking` (SEARCH_RANKING §2). */
+  ranking?: string[];
 };
+
+// ---------------------------------------------------------------------------
+// Replica sort indexes (AECI-175 / §4.6 per-tab sort)
+// ---------------------------------------------------------------------------
+
+/**
+ * Algolia's default ranking criteria, kept after a replica's leading sort
+ * attribute so a non-relevance sort still tie-breaks the §7.3 way.
+ */
+const DEFAULT_RANKING_TAIL = [
+  'typo',
+  'geo',
+  'words',
+  'filters',
+  'proximity',
+  'attribute',
+  'exact',
+  'custom',
+] as const;
+
+/**
+ * One non-relevance sort exposed on a `/search` tab, realized as a **standard
+ * Algolia replica** of the entity's primary index. The replica returns the same
+ * records as its primary, re-ordered by `ranking` (sort attribute first). The
+ * default `relevance` sort is **not** listed here — it is the primary index
+ * itself.
+ */
+export type ReplicaSort = {
+  /** Stable token used in the `?sort=` URL param and the i18n label key. */
+  sort: string;
+  /** Physical index-name suffix appended to the primary, e.g. `name_asc`. */
+  suffix: string;
+  /** The replica's full `ranking` — the sort criterion first, then defaults. */
+  ranking: string[];
+};
+
+/**
+ * Per-entity replica sorts (AECI-175). Products and Vendors each expose
+ * "Most integrations" and "Name A–Z"; the Integrations tab is hidden on
+ * `/search` (§7.5) so it has no sort UI and no replicas. Each extra option is a
+ * full standard replica index — i.e. 4 replicas total — which Algolia keeps in
+ * sync with its primary automatically (no extra sync work) at the cost of
+ * duplicating the primary's records for quota/billing. See `SEARCH_RANKING.md`.
+ */
+const REPLICA_SORTS: Readonly<Record<IndexEntity, readonly ReplicaSort[]>> = {
+  products: [
+    {
+      sort: 'integrations',
+      suffix: 'integration_count_desc',
+      ranking: ['desc(integration_count)', ...DEFAULT_RANKING_TAIL],
+    },
+    { sort: 'name', suffix: 'name_asc', ranking: ['asc(name)', ...DEFAULT_RANKING_TAIL] },
+  ],
+  vendors: [
+    {
+      sort: 'integrations',
+      suffix: 'integration_count_desc',
+      ranking: ['desc(integration_count)', ...DEFAULT_RANKING_TAIL],
+    },
+    { sort: 'name', suffix: 'name_asc', ranking: ['asc(company_name)', ...DEFAULT_RANKING_TAIL] },
+  ],
+  integrations: [],
+};
+
+/** The replica sorts an entity exposes on `/search` (empty for integrations). */
+export function sortReplicasFor(entity: IndexEntity): readonly ReplicaSort[] {
+  return REPLICA_SORTS[entity];
+}
+
+/** Physical replica index name: `<primary>_<suffix>` (e.g. `staging_products_name_asc`). */
+export function replicaIndexName(baseName: string, suffix: string): string {
+  return `${baseName}_${suffix}`;
+}
+
+/**
+ * Every replica physical name for an env's canonical index set, in
+ * entity → sort order. Used to widen the provisioned API keys' index scope and
+ * by the provision/apply scripts. Mirrors `indexListFor` for the base indexes.
+ */
+export function replicaNamesFor(env: AlgoliaEnv): string[] {
+  const names = indexNamesFor(env);
+  return INDEX_ENTITIES.flatMap((entity) =>
+    REPLICA_SORTS[entity].map((replica) => replicaIndexName(names[entity], replica.suffix)),
+  );
+}
 
 /**
  * Numeric ranking weight per integration `mechanism_kind`, realizing the §7.3
@@ -278,6 +380,8 @@ export type AppliedIndexSettings = {
   entity: IndexEntity;
   indexName: string;
   taskID: number;
+  /** Whether this index is the entity's primary or one of its sort replicas. */
+  role: 'primary' | 'replica';
 };
 
 /**
@@ -298,15 +402,45 @@ export async function applyIndexSettingsTo(
 ): Promise<AppliedIndexSettings[]> {
   const applied: AppliedIndexSettings[] = [];
   for (const entity of INDEX_ENTITIES) {
-    const indexName = names[entity];
+    const primaryName = names[entity];
+    const base = indexSettingsFor(entity);
+    const replicas = sortReplicasFor(entity);
+    const replicaNames = replicas.map((replica) => replicaIndexName(primaryName, replica.suffix));
+
+    // 1. Primary — managed §7.2/§7.3 settings + the `replicas` link. Setting the
+    //    `replicas` array is what creates/maintains the replica indexes; it is
+    //    always written (an empty list detaches any stray replicas, keeping the
+    //    config purely code-defined). Replica names derive from `primaryName`, so
+    //    a per-locale `names` set (§7.6) gets per-locale replicas for free.
     const { taskID } = await client.setSettings({
-      indexName,
-      indexSettings: indexSettingsFor(entity),
+      indexName: primaryName,
+      indexSettings: { ...base, replicas: replicaNames },
     });
     if (client.waitForTask) {
-      await client.waitForTask({ indexName, taskID });
+      await client.waitForTask({ indexName: primaryName, taskID });
     }
-    applied.push({ entity, indexName, taskID });
+    applied.push({ entity, indexName: primaryName, taskID, role: 'primary' });
+
+    // 2. Each replica — same searchable/faceting/customRanking as the primary
+    //    (so the facet sidebar keeps working under any sort), with its own
+    //    `ranking` forcing the sort attribute first. Not forwarded: each
+    //    replica's `ranking` is distinct.
+    for (const replica of replicas) {
+      const replicaName = replicaIndexName(primaryName, replica.suffix);
+      const { taskID: replicaTaskID } = await client.setSettings({
+        indexName: replicaName,
+        indexSettings: {
+          searchableAttributes: base.searchableAttributes,
+          attributesForFaceting: base.attributesForFaceting,
+          customRanking: base.customRanking,
+          ranking: replica.ranking,
+        },
+      });
+      if (client.waitForTask) {
+        await client.waitForTask({ indexName: replicaName, taskID: replicaTaskID });
+      }
+      applied.push({ entity, indexName: replicaName, taskID: replicaTaskID, role: 'replica' });
+    }
   }
   return applied;
 }

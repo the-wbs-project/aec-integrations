@@ -20,8 +20,11 @@
     "binding": "ASSETS",
   },
   "analytics_engine_datasets": [{ "binding": "ANALYTICS", "dataset": "landing-page" }],
+  // Lead-capture forms persist to D1 via the API Worker (ADR 0016 / AECI-257).
+  // Local dev / preview bind the `aeci-api-preview` Worker (the name it registers
+  // under in the dev registry); production binds `aeci-api-production` below.
+  "services": [{ "binding": "API", "service": "aeci-api-preview" }],
   "vars": {
-    "SUPABASE_URL": "http://127.0.0.1:54321",
     "NOTIFICATION_FROM": "notifications@aecintegrations.com",
     "NOTIFICATION_TO": "chrisw@thewbsproject.com",
   },
@@ -29,8 +32,8 @@
     "production": {
       "name": "landing-page",
       "analytics_engine_datasets": [{ "binding": "ANALYTICS", "dataset": "landing-page" }],
+      "services": [{ "binding": "API", "service": "aeci-api-production" }],
       "vars": {
-        "SUPABASE_URL": "https://jgxebjufabtwkcgxjqvk.supabase.co",
         "NOTIFICATION_FROM": "notifications@aecintegrations.com",
         "NOTIFICATION_TO": "chrisw@thewbsproject.com",
       },

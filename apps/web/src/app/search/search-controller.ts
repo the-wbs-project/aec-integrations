@@ -44,12 +44,14 @@
  */
 import { type Signal, type WritableSignal, signal } from '@angular/core';
 
+import { replicaIndexName, sortReplicasFor } from '@aeci/shared/algolia';
 import type { AlgoliaProductRecord, AlgoliaVendorRecord } from '@aeci/shared/algolia-records';
 
 import type { RefinementItem } from '../shared/facets/refinement-item';
 
 import type { AlgoliaPublicConfig } from './algolia-config';
 import { orderFacetItems } from './search-facet-order';
+import { emitSearchQuery, resultsBucket, type SearchQueryEmitter } from './search-rum';
 
 // ─── Public signal-backed view models ───────────────────────────────────────
 
@@ -94,6 +96,17 @@ export interface RangeView {
   refine(values: [number | undefined, number | undefined]): void;
 }
 
+/**
+ * One sort choice on a tab (AECI-175). `value` is the physical Algolia index name
+ * `connectSortBy` switches to (the primary for `relevance`, a replica otherwise);
+ * `key` is the stable i18n token the page maps to a localized label
+ * (`relevance` | `integrations` | `name`).
+ */
+export interface SortOption {
+  readonly value: string;
+  readonly key: string;
+}
+
 /** Everything one entity tab binds to. `T` is the entity's denormalized record. */
 export interface IndexView<T> {
   readonly entity: 'products' | 'vendors';
@@ -106,6 +119,12 @@ export interface IndexView<T> {
   readonly refinementLists: readonly RefinementListView[];
   readonly numericMenus: readonly NumericMenuView[];
   readonly ranges: readonly RangeView[];
+  /** The active sort's physical index name (AECI-175); `relevance` = the primary. */
+  readonly sortBy: Signal<string>;
+  /** Switch the tab's sort (pass a `SortOption.value`, i.e. an index name). */
+  refineSort(indexName: string): void;
+  /** The tab's available sorts, relevance first. */
+  readonly sortOptions: readonly SortOption[];
 }
 
 // ─── Structural SDK surface (injected; real impl in the factory) ─────────────
@@ -121,6 +140,13 @@ export interface WidgetHost {
 export interface InstantSearchInstance extends WidgetHost {
   start(): void;
   dispose(): void;
+  /**
+   * Subscribe to the instance error event (AECI-174). A failed search surfaces
+   * here, not through any connector render, so this is the only hook for the
+   * `status: 'error'` RUM emit. `instantsearch.js` emits `'error'` with the
+   * thrown error on the payload.
+   */
+  on(event: 'error', handler: (payload: { error: Error }) => void): void;
 }
 
 /** Render-state shapes (the subset of each connector's output we consume). */
@@ -134,6 +160,8 @@ export interface HitsRenderState {
 }
 export interface StatsRenderState {
   nbHits: number;
+  /** Algolia server-side processing time, ms — the `aeci.search.query` duration. */
+  processingTimeMS: number;
 }
 export interface PaginationRenderState {
   currentRefinement: number;
@@ -155,9 +183,27 @@ export interface RangeRenderState {
   canRefine: boolean;
   refine(values: readonly [number | undefined, number | undefined]): void;
 }
+export interface SortByRenderState {
+  /** The currently-active index name (the primary, or a replica). */
+  currentRefinement: string;
+  options: readonly { label: string; value: string }[];
+  refine(value: string): void;
+}
 
 type Renderer<S> = (state: S, isFirstRender: boolean) => void;
 type Connector<S, P> = (renderFn: Renderer<S>, unmountFn?: () => void) => (params: P) => IsWidget;
+
+/** Payload for the PostHog `search_performed` event (§14.1, AECI-239). */
+export interface SearchPerformedEvent {
+  readonly query: string;
+  /** Best-effort federated total (products + vendors `nbHits`). */
+  readonly results_count: number;
+  /** Distinct facet attributes with an active refinement at search time. */
+  readonly filters_applied: readonly string[];
+}
+
+/** Emit seam for `search_performed` — injectable so tests assert without the SDK. */
+export type SearchPerformedEmitter = (event: SearchPerformedEvent) => void;
 
 /** The minimal `instantsearch.js` surface this controller drives. */
 export interface InstantSearchLib {
@@ -184,6 +230,7 @@ export interface InstantSearchLib {
     { attribute: string; items: { label: string; start?: number; end?: number }[] }
   >;
   connectRange: Connector<RangeRenderState, { attribute: string }>;
+  connectSortBy: Connector<SortByRenderState, { items: { label: string; value: string }[] }>;
 }
 
 // ─── Facet configuration (§7.2) ──────────────────────────────────────────────
@@ -270,20 +317,38 @@ export class SearchController {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private started = false;
   private disposed = false;
+  /** Last query a `search_performed` was emitted for — dedupes to one per query. */
+  private lastSearchEmittedFor: string | null = null;
 
   constructor(
     private readonly lib: InstantSearchLib,
     searchClient: unknown,
     config: AlgoliaPublicConfig,
     initialQuery = '',
+    /**
+     * Initial sort per tab (AECI-175): a physical index name to start that tab's
+     * index widget on, so an inbound `?sort=` renders the right order on first
+     * paint. Omitted entries default to the entity's primary (relevance). The
+     * page resolves the `?sort=` token → index name before passing it here.
+     */
+    initialSort: Partial<Record<'products' | 'vendors', string>> = {},
+    /** RUM emit seam (AECI-174); injectable so tests assert without the SDK. */
+    private readonly emit: SearchQueryEmitter = emitSearchQuery,
+    /** PostHog `search_performed` emit seam (AECI-239); defaults to a no-op so
+     *  the controller stays decoupled from Angular DI (the page wires it). */
+    private readonly onSearch: SearchPerformedEmitter = () => undefined,
   ) {
     this.query = signal(initialQuery);
 
     // Root index = products. The shared searchBox + the products widgets attach
     // to the root; vendors attaches as a nested `index()` widget. That is two
     // index queries (integrations intentionally not queried — see file header).
+    // Each index widget STARTS on its initial-sort index (a replica when `?sort=`
+    // asked for one), which `connectSortBy` then switches; `relevance` = primary.
+    const productsStart = initialSort.products ?? config.indexes.products;
+    const vendorsStart = initialSort.vendors ?? config.indexes.vendors;
     this.search = lib.instantsearch({
-      indexName: config.indexes.products,
+      indexName: productsStart,
       searchClient,
       future: { preserveSharedStateOnUnmount: true },
     });
@@ -302,13 +367,37 @@ export class SearchController {
       },
     });
 
-    this.products = this.wireIndex<AlgoliaProductRecord>(this.search, 'products');
-    const vendorsHost = lib.index({ indexName: config.indexes.vendors });
-    this.vendors = this.wireIndex<AlgoliaVendorRecord>(vendorsHost, 'vendors');
+    this.products = this.wireIndex<AlgoliaProductRecord>(
+      this.search,
+      'products',
+      config.indexes.products,
+      productsStart,
+    );
+    const vendorsHost = lib.index({ indexName: vendorsStart });
+    this.vendors = this.wireIndex<AlgoliaVendorRecord>(
+      vendorsHost,
+      'vendors',
+      config.indexes.vendors,
+      vendorsStart,
+    );
 
     // Root gets: the shared searchBox + products widgets (already attached to
     // `this.search` by `wireIndex`) + the one nested index widget.
     this.search.addWidgets([searchBox, vendorsHost as IsWidget]);
+
+    // AECI-174 — a failed search never reaches a connector render, so the
+    // `status:'error'` RUM signal is emitted from the instance error event. The
+    // batched products+vendors multi-query fails as a unit ⇒ one `federated`
+    // emit. `duration_ms` isn't meaningful for a failure (the latency widget
+    // filters `status:ok`), so it is 0.
+    this.search.on('error', () => {
+      this.emit({
+        index: 'federated',
+        status: 'error',
+        duration_ms: 0,
+        results_bucket: 'none',
+      });
+    });
   }
 
   /** Construct + run the initial search. Idempotent. */
@@ -339,11 +428,56 @@ export class SearchController {
   }
 
   /**
+   * Emit `search_performed` once per distinct query (deduped on the query text),
+   * with the best-effort federated result count and the active facet attributes.
+   * Pagination / filter-only re-queries that keep the same query text don't
+   * re-emit — the event tracks the user's search, not every Algolia round-trip.
+   */
+  private maybeEmitSearchPerformed(): void {
+    const query = this.query();
+    // Skip the empty query: `start()` runs an initial empty-query search on every
+    // /search load, and clearing the box returns to empty — neither is a search
+    // the user performed, so they'd pollute the funnel.
+    if (!query || query === this.lastSearchEmittedFor) return;
+    this.lastSearchEmittedFor = query;
+    this.onSearch({
+      query,
+      results_count: this.products.nbHits() + this.vendors.nbHits(),
+      filters_applied: this.appliedFilters(),
+    });
+  }
+
+  /** Distinct facet attributes with an active refinement across both indexes. */
+  private appliedFilters(): string[] {
+    const attributes = new Set<string>();
+    for (const view of [this.products, this.vendors]) {
+      for (const list of view.refinementLists) {
+        if (list.items().some((item) => item.isRefined)) attributes.add(list.attribute);
+      }
+      for (const menu of view.numericMenus) {
+        if (menu.items().some((item) => item.isRefined)) attributes.add(menu.attribute);
+      }
+      for (const range of view.ranges) {
+        const [min, max] = range.start();
+        if (min !== undefined || max !== undefined) attributes.add(range.attribute);
+      }
+    }
+    return [...attributes];
+  }
+
+  /**
    * Build one index's widget set (hits, stats, pagination, configure, facets),
    * attach them to `host` (the root instance for products; a nested `index()`
    * for vendors/integrations), and return the signal-backed view.
    */
-  private wireIndex<T>(host: WidgetHost, entity: 'products' | 'vendors'): IndexView<T> {
+  private wireIndex<T>(
+    host: WidgetHost,
+    entity: 'products' | 'vendors',
+    /** The entity's primary (relevance) index name — the `relevance` option's value. */
+    baseIndexName: string,
+    /** The index this widget starts on (a replica when `?sort=` seeded one). */
+    initialSortIndex: string,
+  ): IndexView<T> {
     const { lib } = this;
     const facets = FACET_CONFIG[entity];
 
@@ -352,6 +486,20 @@ export class SearchController {
     const page = signal(0);
     const nbPages = signal(0);
     let pageRefine: ((p: number) => void) | null = null;
+
+    // Sort (AECI-175): relevance = the primary index, then one replica per
+    // non-relevance sort. `connectSortBy` switches this index widget between them;
+    // its `currentRefinement` (an index name) drives `sortBy`. The page maps each
+    // option's `key` token to a localized label.
+    const sortOptions: SortOption[] = [
+      { value: baseIndexName, key: 'relevance' },
+      ...sortReplicasFor(entity).map((replica) => ({
+        value: replicaIndexName(baseIndexName, replica.suffix),
+        key: replica.sort,
+      })),
+    ];
+    const sortBy = signal<string>(initialSortIndex);
+    let sortRefine: ((value: string) => void) | null = null;
 
     const widgets: IsWidget[] = [
       lib.configure({ hitsPerPage: HITS_PER_PAGE }),
@@ -362,12 +510,34 @@ export class SearchController {
         // non-initial render — that's when results have actually settled.
         if (!isFirstRender) this.ready.set(true);
       })({}),
-      lib.connectStats((state) => nbHits.set(state.nbHits))({}),
+      lib.connectStats((state, isFirstRender) => {
+        nbHits.set(state.nbHits);
+        // AECI-174 — emit the per-index `aeci.search.query` RUM action once a
+        // search RESPONSE has settled. Like `connectHits` above, the init render
+        // (isFirstRender) fires synchronously on start() before any network, so
+        // it is skipped; every later render corresponds to a real Algolia query.
+        if (!isFirstRender) {
+          this.emit({
+            index: entity,
+            status: 'ok',
+            duration_ms: Math.round(state.processingTimeMS),
+            results_bucket: resultsBucket(state.nbHits),
+          });
+          // §14.1 `search_performed`: one event per distinct settled query. Gated
+          // to the root (products) index so a batched products+vendors response
+          // emits once, not per index.
+          if (entity === 'products') this.maybeEmitSearchPerformed();
+        }
+      })({}),
       lib.connectPagination((state) => {
         page.set(state.currentRefinement);
         nbPages.set(state.nbPages);
         pageRefine = state.refine;
       })({}),
+      lib.connectSortBy((state) => {
+        sortBy.set(state.currentRefinement);
+        sortRefine = state.refine;
+      })({ items: sortOptions.map((option) => ({ label: option.key, value: option.value })) }),
     ];
 
     const refinementLists: RefinementListView[] = facets.refinementLists.map((attribute) => {
@@ -439,14 +609,9 @@ export class SearchController {
       refinementLists,
       numericMenus,
       ranges,
+      sortBy,
+      refineSort: (indexName: string) => sortRefine?.(indexName),
+      sortOptions,
     };
   }
 }
-
-// AECI-142 follow-up — DEFERRED per-tab sort dropdown (tracked as AECI-175). No
-// Algolia *replicas* exist yet, so a sort control has nothing to switch to; ship
-// the relevance default (§7.3 `customRanking`). When replicas land (AECI-175:
-// `replicas` in `IndexSettings`/`INDEX_SETTINGS` + provision/apply scripts +
-// `forwardToReplicas`), add a `connectSortBy` per index here — register it in
-// each `wireIndex` widget set keyed by the index's replica names — and surface a
-// `sortBy` signal + `refineSort()` on `IndexView`.

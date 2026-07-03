@@ -34,9 +34,11 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
 | `aeci.algolia.sync` | count | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/src/routes/promote.ts` (`syncAlgoliaAfterPromote`) | `trigger` (cron / promote), `entity` (products / vendors / integrations / all), `outcome` (ok / failed / skipped_no_creds) |
 | `aeci.algolia.index_drift` | gauge | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/scripts/reconcile-algolia-drift.ts` (CLI / deploy-staging hook) | `entity` (products/vendors/integrations), `index` (physical index name) |
+| `aeci.algolia.orphans_removed` | gauge | `apps/api/src/scheduled.ts` (daily drift cron, post-report sweep) + `apps/api/scripts/reconcile-algolia-drift.ts` (CLI) — AECI-266 | `entity` (products/vendors/integrations), `index` (physical index name) |
+| `aeci.algolia.orphans_skipped_cap` | gauge | `apps/api/src/scheduled.ts` (daily drift cron) — AECI-266; emitted only when the safety cap refuses a large purge | `entity` (products/vendors/integrations), `index` (physical index name) |
 | `aeci.algolia.sync.records` | count | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `entity` (products / vendors / integrations), `op` (saved / deleted) |
 | `aeci.algolia.sync.duration_ms` | distribution | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
-| `aeci.search.query` _(planned, AECI-174)_ | RUM action | `apps/web` search UI — **not yet emitted** (deferred; see "Browser search RUM" below) | `index`, `status`, `results_bucket` + `duration_ms` context |
+| `aeci.search.query` | RUM action | `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`), called by `search-controller.ts` (per-index `connectStats` render + instance `error` event) and `autocomplete-controller.ts` (`runSearch`) — AECI-174; see "Browser search RUM" below | `index` (products/vendors/integrations/federated), `status` (ok/error), `results_bucket` (none/1-5/6-20/21+), `duration_ms` |
 | `aeci.stats.compute` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (success / partial / failed) |
 | `aeci.stats.compute.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron) |
 | `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
@@ -45,12 +47,29 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found) |
 | `aeci.moderation.action` | count | `apps/api/src/routes/admin-reviews.ts` (`createModerateReviewHandler`, AECI-206) | `action` (approve / reject), `outcome` (ok / invalid_state) |
-| `aeci.perspective.api` | count | `apps/api/src/lib/perspective.ts` (`scoreToxicity`, AECI-206) | `outcome` (ok / failed), `reason` on failure (http_error / malformed / timeout / network) |
-| `aeci.perspective.api.duration_ms` | distribution | `apps/api/src/lib/perspective.ts` (`scoreToxicity`, AECI-206) | `outcome` (ok / failed) |
+| `aeci.toxicity.api` | count | `apps/api/src/lib/toxicity.ts` (`scoreToxicity`, AECI-206 / AECI-258) | `outcome` (ok / failed), `reason` on failure (http_error / malformed / timeout / network) |
+| `aeci.toxicity.api.duration_ms` | distribution | `apps/api/src/lib/toxicity.ts` (`scoreToxicity`, AECI-206 / AECI-258) | `outcome` (ok / failed) |
 | `aeci.moderation.queue_depth` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
 | `aeci.moderation.queue_oldest_age_hours` | gauge | `apps/api/src/lib/moderation-metrics.ts` (`emitModerationQueueMetrics`, from the daily 06:00 UTC moderation cron) | — |
 | `aeci.linear.issue` | count | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211 — the request→Linear `ctx.waitUntil` task) | `outcome` (ok / failed / skipped_exists), `kind` (claim / correction), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
 | `aeci.linear.issue.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`createLinearIssueForRequest`, AECI-211) | `outcome` (ok / failed) |
+| `aeci.webhooks.linear.receipt` | count | `apps/api/src/routes/webhooks.ts` (`createLinearWebhookHandler`, AECI-212 — the inbound `POST /api/webhooks/linear`, emitted after a valid HMAC verify) | `type` (Linear webhook resource, e.g. `Issue`), `action` (`create` / `update` / `remove`) |
+| `aeci.webhooks.linear.hmac_failure` | count | `apps/api/src/routes/webhooks.ts` (`createLinearWebhookHandler`, AECI-212 — emitted before the 401 when `Linear-Signature` is missing/invalid) | — |
+| `aeci.linear.sync` | count | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213 — the site→Linear resolve/reject `ctx.waitUntil` push) | `outcome` (ok / failed / skipped_no_issue), `kind` (claim / correction), `to_status` (resolved / rejected), `reason` on failure (http_error / graphql_error / timeout / network / empty_response / db_error) |
+| `aeci.linear.sync.duration_ms` | distribution | `apps/api/src/lib/linear.ts` (`pushRequestResolutionToLinear`, AECI-213) | `outcome` (ok / failed) |
+| `aeci.linear.reconcile.stuck` | gauge | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214 — the every-15-min sweep) | — (backlog: count of `open`/unlinked `vendor_requests` older than the stuck threshold; **0 on a clean run**) |
+| `aeci.linear.reconcile.attempt` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | `outcome` (cleared / still_failing) — submits the **row count** as the value, so query with `sum:` |
+| `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
+| `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214; transport AECI-240) | `outcome` (sent / failed / skipped) — sends via Resend; `skipped` when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent (the seam is fail-open and the Datadog alert is the backstop) |
+| `aeci.request.moderation.action` | count | `apps/api/src/routes/admin-requests.ts` (`emitRequestModeration`, AECI-216 / Phase 6.9 — the `PATCH /api/admin/requests/:id` resolve/reject handler) | `action` (`resolve` / `reject`), `outcome` (`ok` / `invalid_state`) — one count per moderation attempt; `invalid_state` is the §6.9 preload guard (422 when the target isn't `open`/`in_review`) |
+| `aeci.email.send` | count | `apps/api/src/lib/email.ts` (the Resend transactional client, AECI-240 / Phase 7.5 — review submit/approve/reject confirmations, the account-deletion email, and the reconcile-sweep admin alert) | `outcome` (sent / failed / skipped), `template` (`review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `stuck-request-alert`) — fail-open; `skipped` when `RESEND_API_KEY` / `EMAIL_FROM` / the recipient are absent (see `docs/email.md`) |
+| `aeci.data_quality.job` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily 04:00 UTC cron, AECI-241 / Phase 7.6) | `trigger` (cron), `outcome` (success / failed) — one heartbeat per completed run (incl. the pre-run crash path); `outcome:failed` is the failure signal, the always-emitted `{trigger:cron}` series is the liveness signal |
+| `aeci.data_quality.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron) | `trigger` (cron) |
+| `aeci.data_quality.check` | gauge | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron, AECI-241) | `check` (the check id, e.g. `products_without_vendor` / `broken_integration_refs` / `reviews_missing_anonymized_at` / `algolia_index_drift`), `severity` (error / warn) — **value is the issue count or 0** (emitted every run so a monitor can break down by check and detect no-data); a check that threw emits the sentinel **-1** |
+| `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the Datadog monitors are the delivery backstop) |
+| `aeci.waf.ratelimit.blocked` | count | `apps/api/src/lib/waf-metrics.ts` (`emitWafEventMetrics`, from the hourly WAF poll in `apps/api/src/scheduled.ts` `runWafMetricsJob`, AECI-262) | `rule` (CF rule id), `action` (block / managed_challenge / …), `host`, `source` (ratelimit / firewallcustom) — **value is the event count, so query with `sum:`** (gotcha 3); only mitigation actions counted |
+| `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
+| `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -62,6 +81,24 @@ requests.
 
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
+
+### Measuring the D1 read-replication latency win (AECI-250)
+
+The edge-read-latency thesis (ADR 0016) is realized by the D1 Sessions API:
+reads default to the `'first-unconstrained'` session anchor and are served by the
+nearest replica. **The signal is the existing `aeci.api.query.duration_ms`
+distribution** (no new metric) — split by `endpoint`, it already isolates the
+representative reads (`/api/products`, `/api/products/:slug`, `/api/vendors/:slug`,
+`/api/integrations/:id`).
+
+To quantify the delta: capture a baseline p50/p95 on those `endpoint` slices, then
+enable read replication on the database (Cloudflare dashboard → D1 → *db* →
+Settings → Enable Read Replication, or REST `read_replication:{"mode":"auto"}`)
+and compare. The win is **prod-only** (local/preview run a single un-replicated
+SQLite; `getDb` falls back to the plain binding there) and only appears **after**
+the per-database flip — the code ships inert-safe before it. Replica reads also
+surface in the D1 binding's own analytics (`served_by_region` / `served_by_colo`
+on query results) for a region-routing sanity check.
 
 `aeci.api.data_gap` (AECI-115) surfaces curated-data gaps that used to be hidden by
 silent fabrication. A product with no `ProductVendor` row now renders an empty state
@@ -90,6 +127,20 @@ level, not a delta) via the shared transport's `submitGauge` (AECI-140 added it 
 and the deploy-staging hook + manual triage reuse the same comparison via
 `apps/api/scripts/reconcile-algolia-drift.ts`.
 
+`aeci.algolia.orphans_removed` / `aeci.algolia.orphans_skipped_cap` (AECI-266) promote the
+drift check from report-only to **self-healing** for the negative-drift case. Right after the
+`index_drift` report, the same 09:00 cron sweeps each index (`apps/api/src/lib/algolia-orphans.ts`):
+browse every objectID, diff against the authoritative promoted-id set from D1, and
+`deleteObject` the orphans (objects with no promoted D1 row — what the incremental sync
+can't see to delete). `orphans_removed` is a per-`entity`/`index` gauge (0 on a clean run);
+`orphans_skipped_cap` is emitted **only** when the safety cap (≤50 objects and ≤20% of an
+index per pass) refuses an unexpectedly large purge — the `AECi — Algolia orphan sweep capped`
+monitor (`observability/datadog/monitor-algolia-orphan-sweep-capped.json`) pages on a non-zero
+value, and the operator runs `db:reconcile-algolia-drift --apply --force` after confirming it's
+intended. The sweep is delete-only; **positive** drift (records missing from the index) stays
+repaired by the 08:00 incremental sync, not here. The next day's `index_drift` reads 0 once
+the orphans are gone.
+
 `aeci.algolia.sync.records` and `aeci.algolia.sync.duration_ms` (AECI-141) round out the
 sync-health picture the `aeci.algolia.sync` outcome count only hinted at. Both are emitted for
 a **completed** run by the shared `emitAlgoliaSyncMetrics` (`apps/api/src/lib/algolia-sync-metrics.ts`),
@@ -108,7 +159,7 @@ count (`outcome:success` = every key written/skipped cleanly, `partial` = some w
 `failed` = nothing wrote and ≥1 key failed), one job-level `aeci.stats.compute.duration_ms`
 distribution, plus per-key `aeci.stats.compute.key` (`outcome:written|skipped|failed`) and
 `aeci.stats.compute.key.duration_ms` so a dashboard/monitor sees *which* `home.*` key failed or
-slowed without reading logs. The pre-compute crash path (a Prisma-init throw before `runHomeStats`)
+slowed without reading logs. The pre-compute crash path (a DB-client-init throw before `runHomeStats`)
 stays an inline single `aeci.stats.compute{outcome:failed}` count — like the Algolia crash path, it
 isn't a completed run. Because every completed invocation (and the crash path) emits exactly one
 job-level `aeci.stats.compute{trigger:cron}` point regardless of outcome, that series is the
@@ -125,7 +176,7 @@ next daily compute. Note it is monitored on error-rate **only**, never liveness/
 is traffic-driven, so zero writes (no visitors) is normal at pre-launch and a no-data alert would
 fire constantly — unlike the fixed-cadence stats cron.
 
-`aeci.auth.signin` / `aeci.review.submit` / `aeci.moderation.action` / `aeci.perspective.api*` /
+`aeci.auth.signin` / `aeci.review.submit` / `aeci.moderation.action` / `aeci.toxicity.api*` /
 `aeci.moderation.queue_*` (AECI-206, the Phase 5.15 auth + reviews analogue) cover the four new
 write surfaces:
 
@@ -146,10 +197,10 @@ write surfaces:
 - **`aeci.moderation.action`** is one count per `PATCH /api/admin/reviews/:id` attempt, `action`
   (`approve`/`reject`) × `outcome` (`ok` on a committed transition, `invalid_state` at the preload guard
   or the concurrent-race guard — both 422).
-- **`aeci.perspective.api`** + **`aeci.perspective.api.duration_ms`** are the toxicity-scoring health
-  pair (`lib/perspective.ts`, called once per review submit). Scoring is **fail-open** — an outage (or
-  no key) stores `toxicity_score = null` and the review still enters the queue — so the count is an
-  *outage/triage-loss* signal, never user-facing. The **absent-key** path is a silent no-op that emits
+- **`aeci.toxicity.api`** + **`aeci.toxicity.api.duration_ms`** are the toxicity-scoring health
+  pair (`lib/toxicity.ts`, Claude Haiku, called once per review submit). Scoring is **fail-open** — an
+  outage (or no key) stores `toxicity_score = null` and the review still enters the queue — so the count
+  is an *outage/triage-loss* signal, never user-facing. The **absent-key** path is a silent no-op that emits
   **nothing** (an intentional skip, like Algolia's `skipped_no_creds`), so it can't pollute the
   error-rate denominator. `…duration_ms` is the latency distribution (enable percentile aggregations).
 - **`aeci.moderation.queue_depth`** + **`aeci.moderation.queue_oldest_age_hours`** are **gauges** from
@@ -164,9 +215,79 @@ Phase 6 request→Linear pipeline metrics. One count per request→Linear `ctx.w
 `outcome:ok` on a created+linked issue, `outcome:skipped_exists` when the request is already linked
 (idempotent re-fire), `outcome:failed` (with a `reason` tag) when Linear or the link-back write fails —
 the row then sits `open`/`linear_issue_id=null` for the §6.7 reconciliation sweep. The absent-key path
-(no `LINEAR_API_KEY`, the expected non-prod state) emits **nothing**, mirroring `aeci.perspective.api`,
-so it never pollutes the error-rate denominator. The Phase 6 dashboard + the pipeline-failure / stuck-row
-alerts that build on these land in **AECI-211's sibling 6.12** (not this issue).
+(no `LINEAR_API_KEY`, the expected non-prod state) emits **nothing**, mirroring `aeci.toxicity.api`,
+so it never pollutes the error-rate denominator.
+
+`aeci.linear.reconcile.*` (AECI-214, Phase 6.7) are the §6.7 reconciliation-sweep metrics — the
+every-15-min backstop that retries those stuck rows. `aeci.linear.reconcile.stuck` is the **backlog
+gauge** (count of `open`/unlinked `vendor_requests` past the stuck threshold; 0 on a clean run, so a
+no-data monitor distinguishes "ran clean" from "didn't run"). `aeci.linear.reconcile.attempt`
+(`outcome:cleared|still_failing`) and `aeci.linear.reconcile.persistent_failure` (still failing past
+the persistent threshold) ride the same `source:reconcile` logs; the persistent-failure count + its
+`level:error` log are **the Datadog alert** behind `monitor-linear-reconcile-stuck.json`.
+`aeci.linear.reconcile.email` tracks the admin-alert seam (Resend transport, AECI-240; `outcome:sent|failed|skipped`,
+`skipped` when the key/recipient are absent). The full Phase-6 **dashboard** + the pipeline-failure / HMAC / sweep-liveness monitors
+land in **6.12** (AECI-219, below); AECI-214 shipped only the single stuck-row (persistent-failure)
+monitor the §6.2 backstop required.
+
+`aeci.email.send` (AECI-240, Phase 7.5) is the Resend transactional-email transport health metric —
+one count per send attempt from `lib/email.ts`, `outcome` (`sent`/`failed`/`skipped`) × `template`
+(`review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `stuck-request-alert`).
+Like toxicity scoring, every send is **fail-open and fire-and-forget** (dispatched via `ctx.waitUntil`,
+never blocks the triggering action), so the count is an *outage/triage-loss* signal, never user-facing.
+`skipped` is the absent-config no-op (no `RESEND_API_KEY` / `EMAIL_FROM`, or an unresolved recipient — the
+expected local/preview state), so it doesn't pollute the `failed` error-rate denominator. The
+`stuck-request-alert` template is the same send the `aeci.linear.reconcile.email` seam metric also
+records, so a reconcile alert increments both (one transport-level, one seam-level). See `docs/email.md`.
+
+`aeci.linear.sync` / `aeci.linear.sync.duration_ms` (AECI-213, Phase 6.6) are the **outbound-resolution**
+counterpart: one count per site→Linear `ctx.waitUntil` push when an admin resolves/rejects a request.
+`outcome:ok` on a pushed state transition + comment + recorded `workflow_transition`; `outcome:skipped_no_issue`
+when the request was never linked to a Linear issue (`linear_issue_id` null — nothing to push, a tolerated
+no-op, not a failure); `outcome:failed` (with a `reason` tag) when the Linear `issueUpdate` or the transition
+write fails. The `to_status` tag (`resolved` / `rejected`) splits the two terminal pushes. Same absent-key
+silence as `aeci.linear.issue`. The dashboard widget + alert for this metric land with the Phase 6.12
+observability issue (AECI-219).
+
+`aeci.webhooks.linear.receipt` / `aeci.webhooks.linear.hmac_failure` (AECI-212, Phase 6.5) are the
+**inbound** (Linear → Site) half of the sync. `POST /api/webhooks/linear` (`routes/webhooks.ts`)
+HMAC-verifies the `Linear-Signature` header against `LINEAR_WEBHOOK_SIGNING_SECRET` and **fails closed**:
+a missing/invalid signature emits `aeci.webhooks.linear.hmac_failure` and returns 401 **before** anything
+is written. A verified request emits `aeci.webhooks.linear.receipt` tagged `type` (the Linear resource —
+`Issue`) × `action` (`create` / `update` / `remove`); only `Issue`/`update` state changes drive a
+`workflow_transition` + `vendor_requests.status` update, the rest are acknowledged no-ops. `…receipt` is
+the throughput signal (and, paired against a sudden zero, the "secret rotated but not re-pushed → all
+deliveries bouncing" tell); `…hmac_failure` is the security/mis-config signal behind the
+`monitor-webhook-hmac-failure.json` alert. The full dashboard + alert land in 6.12 (AECI-219, below).
+
+`aeci.moderation.ban` (count, `action:ban|unban` × `outcome:ok|invalid_state|forbidden`) **shipped with
+AECI-218 / Phase 6.11**: the reviewer-**ban management** write-path (`PATCH /api/admin/reviewers/:id`,
+admin sets/clears `profiles.banned_at` + `ban_reason`) emits one count per ban/unban attempt via
+`emitBanAction` in `apps/api/src/routes/admin-reviewers.ts`, alongside the §9 `appendAuditLog()` + the
+reversible `reviewer_ban` `workflow_transition`. Phase 5 (AECI-197) only *enforces* an existing ban on
+review submit; the *write* path is this Phase 6 handler (the ban *action* is raised from the moderation
+queue's repeat-offender prompt — `docs/STAGE_1_PHASE_6_SPEC.md` §9). It rides the Phase 6 dashboard +
+monitors shipped by AECI-219 / Phase 6.12 (`observability/datadog/`).
+
+`aeci.waf.ratelimit.blocked` / `aeci.waf.poll` (AECI-262, §15.1) surface the Cloudflare WAF
+rate-limit + scraper-challenge mitigations (`docs/waf-rate-limits.md`) in Datadog. Enterprise
+Logpush is the "push" path Cloudflare offers; we're on **Pro**, so the API Worker's hourly cron
+(`runWafMetricsJob`) **polls** instead — it reads the previous clock hour of the zone's
+`firewallEventsAdaptiveGroups` over the GraphQL Analytics API
+(`packages/shared/src/cloudflare-analytics.ts`) and `submitCount`s one
+`aeci.waf.ratelimit.blocked` point per mitigation group (`rule`/`action`/`host`/`source`). **Its
+value is the event count, not 1, so query it with `sum:` / `sum:…{}.as_count()`** (gotcha 3);
+only mitigation actions (block / challenge) are counted — `allow`/`log`/`skip` are dropped. A
+quiet hour emits no blocked points (a count series is sparse — silence = no attacks), so
+cron-liveness rides the **separate** always-emitted `aeci.waf.poll{outcome:ok}` heartbeat
+(`outcome:failed` on a Cloudflare error, `outcome:skipped_no_creds` when `CF_ANALYTICS_API_TOKEN`
+is absent — the local/preview/pre-provisioning state, a silent no-op). Same failure + liveness
+split as Algolia/stats. The poll is **per-env host-scoped** (each env filters to its own
+`PUBLIC_SITE_URL` host) because all envs share one Cloudflare zone — an unscoped query would
+count the same zone-wide events under every `env:` tag. The "WAF rate-limit / challenge spike"
+monitor alerts on a sustained `aeci.waf.ratelimit.blocked` spike (no `notify_no_data`); there is
+no committed dashboard widget yet (this is a post-launch shim — add one if the signal proves
+worth a panel).
 
 ### Three gotchas when querying
 
@@ -176,7 +297,8 @@ alerts that build on these land in **AECI-211's sibling 6.12** (not this issue).
 2. **Distribution percentiles must be enabled.** `aeci.page.render.duration_ms`,
    `aeci.api.query.duration_ms`, `aeci.algolia.sync.duration_ms`,
    `aeci.stats.compute.duration_ms`, `aeci.stats.compute.key.duration_ms`,
-   `aeci.perspective.api.duration_ms`, and `aeci.linear.issue.duration_ms` are
+   `aeci.toxicity.api.duration_ms`, `aeci.linear.issue.duration_ms`, and
+   `aeci.linear.sync.duration_ms` are
    distribution metrics — to query `p50/p95/p99` you must enable percentile aggregations
    under **Metrics → Summary → (metric) → Manage distribution metrics → Add percentile
    aggregations**. Done once per metric.
@@ -254,11 +376,26 @@ Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute ru
 
 Widgets (Phase 5.15 auth + reviews health, AECI-206): sign-ins by `outcome` · sign-ins by
 `method` · auth failure rate (`100 × failed / total`, with a 30% marker) · review submits by
-`outcome` · moderation actions by `action`/`outcome` · Perspective API latency p50/p95/p99 ·
-Perspective API error rate (`100 × failed / total`, with a 50% marker) · moderation queue
+`outcome` · moderation actions by `action`/`outcome` · toxicity scoring latency p50/p95/p99 ·
+toxicity scoring error rate (`100 × failed / total`, with a 50% marker) · moderation queue
 oldest-pending age (h) + depth (with a 48h backlog marker). Note the sign-in widgets read
 `aeci.auth.signin`, which carries `service:aeci-web` (the SSR Worker), unlike the rest of the
 Phase 5 metrics on `aeci-api`.
+
+### `AECi Phase 6 — Requests / Moderation`
+
+- **Definition (for record):** `observability/datadog/dashboard-requests-moderation.json`
+- **Live URL:** https://us5.datadoghq.com/dashboard/k86-25g-8rx/aeci-phase-6--requests--moderation _(applied 2026-06-20 — AECI-219; the 3 Phase 6 monitors were applied in the same pass with `@chrisw@thewbsproject.com` substituted for the placeholder)._
+
+Widgets (Phase 6.12 requests/moderation health, AECI-219 — all `aeci-api`, already emitted by the
+6.4–6.7 feature issues): Linear issue creation by `outcome` · by `kind` · issue-creation failure rate
+(`100 × failed / terminal`, `skipped_exists` excluded, 50% marker) · issue-creation latency p50/p95/p99 ·
+site→Linear sync by `outcome` · by `to_status` · sync latency p50/p95/p99 · webhook receipts by `action` ·
+webhook HMAC failures (`sum:`, 3/1h marker) · reconciliation backlog gauge (`aeci.linear.reconcile.stuck`) ·
+reconciliation attempts by `outcome` (`sum:`) · persistent failures (`sum:`, any > 0 pages) · admin-alert
+email seam by `outcome`. **No ban-action widget** — `aeci.moderation.ban` is deferred to AECI-218 / Phase
+6.11 (see the catalog note above). The two duration distributions need percentile aggregations enabled
+(gotcha 2); `…reconcile.attempt`/`…persistent_failure` submit row counts, so they use `sum:` (gotcha 3).
 
 ## Monitors
 
@@ -276,12 +413,18 @@ nine monitors were applied 2026-06-12 with that substitution.
 | Algolia index drift | any index's \|drift\| > 0 (daily); or no data for 48h | `observability/datadog/monitor-algolia-index-drift.json` |
 | Algolia sync failed | any `outcome:failed` push in the last 1d | `observability/datadog/monitor-algolia-sync-failed.json` |
 | Algolia sync not running | no successful (`outcome:ok`) cron push for 48h | `observability/datadog/monitor-algolia-sync-no-data.json` |
+| Algolia orphan sweep capped | any `aeci.algolia.orphans_skipped_cap` > 0 (the safety cap refused a large orphan purge) | `observability/datadog/monitor-algolia-orphan-sweep-capped.json` |
 | Home stats compute failed | any `aeci.stats.compute.key{outcome:failed}` or job-level `aeci.stats.compute{outcome:failed}` (the latter covers a pre-compute crash) in the last 1d | `observability/datadog/monitor-stats-compute-failed.json` |
 | Home stats not running | no `aeci.stats.compute{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-stats-compute-no-data.json` |
 | page_views write errors | write error rate > 10% over 10m | `observability/datadog/monitor-pageviews-write-errors.json` |
 | Auth sign-in error rate | sign-in failure rate > 30% over 15m (`service:aeci-web`) | `observability/datadog/monitor-auth-error-rate.json` |
-| Perspective API outage | Perspective failure rate > 50% over 15m | `observability/datadog/monitor-perspective-outage.json` |
+| Toxicity scoring outage | Toxicity-scoring failure rate > 50% over 15m | `observability/datadog/monitor-toxicity-outage.json` |
 | Moderation queue backlog | oldest pending review > 48h (daily); or no snapshot for ~26h | `observability/datadog/monitor-moderation-queue-age.json` |
+| Linear pipeline failure | Linear write failure rate (`issue` + `sync`, terminal attempts) > 50% over 1h | `observability/datadog/monitor-linear-pipeline-failure.json` |
+| Linear webhook HMAC failures | `aeci.webhooks.linear.hmac_failure` > 3 over 1h | `observability/datadog/monitor-webhook-hmac-failure.json` |
+| Linear reconciliation: persistent stuck requests | any `aeci.linear.reconcile.persistent_failure` in the last 1h | `observability/datadog/monitor-linear-reconcile-stuck.json` |
+| Linear reconciliation sweep not running | no `aeci.linear.reconcile.stuck` gauge for ~1h (no-data liveness) | `observability/datadog/monitor-linear-reconcile-no-data.json` |
+| WAF rate-limit / challenge spike | `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m (`env:production`) | `observability/datadog/monitor-waf-ratelimit-spike.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
@@ -297,7 +440,7 @@ Home stats (AECI-180) follow the **same failure + liveness split**. "Home stats 
 alerts when either the per-key `aeci.stats.compute.key{outcome:failed}` count or the job-level
 `aeci.stats.compute{outcome:failed}` count is non-zero (no `notify_no_data` — both are empty on a
 healthy run). The per-key term names the offending `home.*` key; the job-level term also catches a
-**pre-compute crash** (a Prisma-init throw before `runHomeStats`), which emits the job-level
+**pre-compute crash** (a DB-client-init throw before `runHomeStats`), which emits the job-level
 `outcome:failed` heartbeat but no per-key points. That term is load-bearing — the crash also emits
 the `{trigger:cron}` liveness heartbeat, which keeps the "not running" monitor green, so without the
 job-level failure term a total crash would slip past **both** monitors. "Home stats not running" is the
@@ -317,8 +460,8 @@ failure ratio is meaningful. The 10% threshold is a launch-tunable starting poin
 for request error rate; page_views runs at far lower volume, so the floor is higher to avoid
 single-failure noise) — retune once production traffic is known.
 
-The Phase 5 monitors (AECI-206) split the same way. **"Auth sign-in error rate"** and **"Perspective
-API outage"** are **traffic-driven error-rate** monitors — like page_views, no `notify_no_data` (zero
+The Phase 5 monitors (AECI-206) split the same way. **"Auth sign-in error rate"** and **"Toxicity
+scoring outage"** are **traffic-driven error-rate** monitors — like page_views, no `notify_no_data` (zero
 sign-ins / zero review-submits is normal at pre-launch and a no-data alert would be constant noise);
 only the failure ratio matters, and both thresholds (30% / 50%) are launch-tunable starting points
 (at low volume a single failure can dominate the ratio). The auth monitor is the only one scoped to
@@ -330,25 +473,120 @@ so the same series carries both the threshold alert (oldest pending > 48h → ba
 stopped). Because the snapshot is **daily**, detection lags up to ~24h on top of the 48h threshold; the
 cron can move to hourly post-launch if a tighter moderation SLA is needed.
 
-## Browser search RUM (deferred — contract for the search UI)
+The Phase 6 monitors (AECI-219) follow the **same failure + liveness split**, across two surfaces.
+**"Linear pipeline failure"** is a **traffic-driven error-rate** monitor (like the Phase 5 pair): the
+combined `aeci.linear.issue` + `aeci.linear.sync` `outcome:failed` rate over **terminal** attempts
+(`skipped_exists` / `skipped_no_issue` excluded from the denominator so an idempotent re-fire or a
+no-issue sync can't dilute the ratio), no `notify_no_data` (the pipeline is traffic-driven and the
+absent-key path emits nothing, so zero is healthy). It catches **systemic** breakage (revoked key,
+drifted board ids, Linear down) earlier than the per-row reconcile backstop, and is the **only** alert
+covering the outbound **sync** path, which has no reconciliation retry. **"Linear webhook HMAC failures"**
+is also error-driven (count `> 3`/1h, no `notify_no_data` — a bad signature is the only thing that emits
+it): a security/mis-config signal where a sudden burst paired with a drop in `aeci.webhooks.linear.receipt`
+means the signing secret rotated out of sync. The reconciliation sweep keeps the AECI-214 failure monitor
+(**"persistent stuck requests"**, `aeci.linear.reconcile.persistent_failure > 0`, no `notify_no_data` — the
+§6.2 backstop alert) and now gains its **fixed-cadence liveness** companion (**"sweep not running"**): the
+every-15-min sweep emits the `aeci.linear.reconcile.stuck` gauge on **every** run (0 on a clean run), so a
+`notify_no_data` check (`no_data_timeframe` ~60m ≈ 4 missed sweeps) means the cron stalled and stuck rows
+are no longer retried. That monitor's value threshold is intentionally unsatisfiable (the gauge is ≥ 0) —
+its sole job is the no-data heartbeat; the backlog *value* is alerted by the persistent-failure monitor.
+Same rule as Algolia/stats: keep the failure and liveness concerns on separate metrics. Thresholds
+(50% / 3-per-hour / ~1h) are launch-tunable starting points. The Phase 6 **ban-action** metric
+(`aeci.moderation.ban`) and its monitor are deferred to AECI-218 / Phase 6.11 (the feature is unbuilt).
+
+**"WAF rate-limit / challenge spike"** (AECI-262) is a single **threshold** monitor on
+`sum:aeci.waf.ratelimit.blocked{env:production}.as_count() > 500 / 15m`, **no** `notify_no_data` —
+a quiet hour emits nothing (no attacks = healthy), so a no-data alert would be constant noise, and
+the metric is value-bearing so it uses `sum:` + `.as_count()` (gotcha 3). Detection lags up to ~1h
+because the source is an hourly poll. Cron-liveness is intentionally **not** folded in here — it
+rides the separate always-emitted `aeci.waf.poll{outcome:ok}` heartbeat (same failure + liveness
+split as Algolia/stats), so a liveness no-data monitor on that series is an easy add if the poll
+ever needs one. The 500/15m threshold is a launch-tunable placeholder — set it once baseline
+mitigation volume is known.
+
+## Browser search RUM (`aeci.search.query`, AECI-174)
 
 §14.3 lists "Algolia query latency and error rate" as a dashboard signal. Search is
 queried **client-side**, direct to Algolia with the search-only key injected as
 `window.__AECI_ALGOLIA__` (`apps/web/src/algolia-bootstrap-inject.ts`), so this latency is
-a **browser RUM** signal, not a Worker metric. As of AECI-141 there is no search-results UI
-to instrument (no `instantsearch`/`algoliasearch` dependency, no `/search` route — the header
-search box is a placeholder), so the emission and its two dashboard widgets are **deferred to
-AECI-174** (which lands with the search-results UI). This is the contract that issue must satisfy:
+a **browser RUM** signal, not a Worker metric. AECI-141 documented this contract and deferred
+the emit until a search-results UI existed; AECI-142 (`/search`) and AECI-144 (the header
+autocomplete) shipped that UI, and **AECI-174 implements the emit + the two dashboard widgets**.
 
-- **Action:** `datadogRum.addAction('aeci.search.query', {...})` from the search component when
-  a query resolves or errors (pattern: `apps/web/src/app/datadog.provider.ts`).
+- **Action:** `datadogRum.addAction('aeci.search.query', {...})` on every query that resolves
+  or errors. The dynamic-import, fire-and-forget emit lives in
+  `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`, pattern:
+  `apps/web/src/app/datadog.provider.ts`); it's injected into each controller as a
+  `SearchQueryEmitter` seam so the unit tests assert the context without loading the SDK.
 - **Context (low-cardinality only — no raw query text):**
   - `index` — `products` | `vendors` | `integrations` | `federated`
   - `status` — `ok` | `error`
   - `duration_ms` — number (Algolia `processingTimeMS`, or the client round-trip)
   - `results_bucket` — `none` | `1-5` | `6-20` | `21+`
-- **Widgets it then adds to `AECi Phase 3 — Search`:** query latency p50/p95/p99 over
-  `@context.duration_ms`; error rate = `status:error` count / all-queries count.
+- **Emit sites & `index` mapping:**
+  - `/search` (`search-controller.ts`) runs one batched products+vendors multi-query per
+    keystroke; each index's `connectStats` render emits `status:ok` **per index**
+    (`index:'products'` / `index:'vendors'`, `duration_ms` = that index's `processingTimeMS`,
+    `results_bucket` from its `nbHits`). A failed batched request emits ONE `index:'federated'`
+    `status:'error'` from the InstantSearch instance `error` event.
+  - The header autocomplete (`autocomplete-controller.ts`, a single federated `searchForHits`)
+    emits ONE `index:'federated'` per query — `status:'ok'` with the client round-trip
+    `duration_ms` and `results_bucket` from the true total `nbHits`, or `status:'error'` on reject.
+  - `integrations` is a reserved enum value — not queried by either surface today (the
+    `/search` integrations index is intentionally disabled; see `search-controller.ts`).
+- **Widgets in `AECi Phase 3 — Search`** (`observability/datadog/dashboard-search.json`, both
+  `data_source: "rum"`): query latency p50/p95/p99 over `@context.duration_ms` (filtered
+  `@context.status:ok`); error rate = `@context.status:error` count / **one-action-per-query**
+  count. The denominator filters `@context.index:(products OR federated)` (not all actions):
+  a successful `/search` query emits two `ok` actions (one per index) while a failed query emits
+  one `federated` error, so counting every action would halve the apparent `/search` error rate.
+
+## PostHog (client product analytics, AECI-239 / §14.1)
+
+PostHog is the **client-side** product-analytics layer — funnels, cohorts, feature
+adoption, retention — complementing the server-side `page_views` table (§14.2, which
+sees the Cloudflare context PostHog can't). It is **not** part of the Datadog pipes
+above. Implemented in `apps/web/src/app/analytics/`.
+
+**How it loads (cache-neutral, opt-in).** The SSR Worker inlines the public config as
+`window.__AECI_POSTHOG__ = {key, host}` before `</head>` (`posthog-bootstrap-inject.ts`)
+— deployment-env-only, so it's safe to cache (§9.1a). In the browser, the `Analytics`
+service loads `posthog-js` (dynamic import) and calls `posthog.init()` **only after the
+visitor accepts the consent banner** (`consent-banner.ts`); Do-Not-Track is honored as a
+hard decline (no load, no banner). Init uses `capture_pageview: 'history_change'` (auto
+pageviews incl. SPA navigations), `autocapture: false`, and
+`disable_external_dependency_loading: true` (so the CSP `script-src` stays untouched —
+only the two `connect-src` PostHog US hosts are needed).
+
+**Dimensions on every event.** `locale` + `theme` ride every event. For the 7 custom
+events they're merged into the event properties (`analyticsDimensions()` reads
+`<html lang>` / `data-theme`); for autocaptured pageviews they're registered as PostHog
+super-properties in the `loaded` callback (before the first pageview). `theme` is always
+`light` today (dark removed in AECI-226) but the dimension is still emitted so the schema
+is stable when dark returns.
+
+**Event catalog (§14.1).**
+
+| Event | Fired from | Properties |
+|---|---|---|
+| `search_performed` | `search-controller.ts` (root stats settle, one per distinct non-empty query — the empty initial `/search` load is skipped) | `query`, `results_count` (federated), `filters_applied[]` |
+| `product_viewed` | `products/product-detail.ts` (`afterNextRender`) | `product_id`, `source` (`search`/`browse`/`direct`, from the previous in-app route) |
+| `integration_viewed` | `integrations/integration-detail.ts` (`afterNextRender`) | `integration_id` |
+| `review_submitted` | `reviews/review-form.ts` (submit success) | `product_id` |
+| `claim_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
+| `correction_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
+| `external_link_clicked` | `[aecTrackExternalLink]` directive on detail-page outbound anchors | `destination`, `source` |
+
+**Documented deviation — claim/correction identifier.** §14.1 names `vendor_id` /
+`product_id`, but the request form holds only `(target_type, slug)` by design
+(`request-form-body.ts`) and the submit response returns only `request_id` — the client
+never sees the UUID. So those two events record `{ target_type, slug, request_id }`: the
+slug is the stable public identifier (1:1 with the entity) and is sufficient to join
+back to it. Resolving the UUID would require an extra round-trip for no analytical gain.
+
+**Region is pinned to US.** `POSTHOG_HOST` defaults to `https://us.i.posthog.com`; the
+static CSP `connect-src` allowlists `us.i.posthog.com` + `us-assets.i.posthog.com`.
+Switching to EU is a code change (host default + the two CSP hosts).
 
 ## Credentials
 
@@ -357,6 +595,8 @@ AECI-174** (which lands with the search-results UI). This is the contract that i
 | `DD_API_KEY` | Worker runtime — logs **and** metric submission | Wrangler secret (both Workers, all envs) | Already provisioned (AECI-31). Metric submission needs only this key. |
 | `DD_APP_KEY` | **Operator only** — creating/reading dashboards + monitors | Local shell / CI secret at apply time | **Never** a Worker secret; never in `wrangler.jsonc` / `.dev.vars`. |
 | `DD_SITE` | both | Wrangler `vars` | `us5.datadoghq.com`. The metrics host is `api.{DD_SITE}`. |
+| `POSTHOG_KEY` | `apps/web` browser (client-exposed project key) | Wrangler secret on the **web Worker only**, CI-pushed from `POSTHOG_KEY_{STAGING,PRODUCTION}` | AECI-239. Publishable; stored as a secret only to keep it out of git. Absent → analytics no-ops (fail-open). |
+| `POSTHOG_HOST` | `apps/web` browser | Wrangler `vars` (web Worker, per env) | `https://us.i.posthog.com`. Defaulted in code when unset. |
 
 ## Applying the dashboard + monitors
 

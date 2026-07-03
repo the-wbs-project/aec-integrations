@@ -59,6 +59,7 @@ function makeFakeEngine(): SearchEngine & { refine: ReturnType<typeof vi.fn> } {
     addWidgets: () => instance,
     start: () => searchBoxRender?.({ query: '', refine, isSearchStalled: false }, true),
     dispose: () => {},
+    on: () => {},
   };
   const passthrough =
     (_render: (state: unknown, first: boolean) => void) =>
@@ -78,9 +79,34 @@ function makeFakeEngine(): SearchEngine & { refine: ReturnType<typeof vi.fn> } {
     connectRefinementList: passthrough as unknown as InstantSearchLib['connectRefinementList'],
     connectNumericMenu: passthrough as unknown as InstantSearchLib['connectNumericMenu'],
     connectRange: passthrough as unknown as InstantSearchLib['connectRange'],
+    connectSortBy: passthrough as unknown as InstantSearchLib['connectSortBy'],
   };
   return { lib, searchClient: {}, refine };
 }
+
+/** Mount the page against a fake engine that resolves immediately, so a real
+ *  `SearchController` is live (lets the sort control + per-tab state render). */
+async function setupMounted(url = '/search') {
+  setConfigPresent();
+  const engine = makeFakeEngine();
+  TestBed.configureTestingModule({
+    providers: [
+      provideRouter([{ path: 'search', component: SearchPage }]),
+      { provide: SEARCH_ENGINE_FACTORY, useValue: () => Promise.resolve(engine) },
+    ],
+  });
+  const router = TestBed.inject(Router);
+  await router.navigateByUrl(url);
+  const fixture = TestBed.createComponent(SearchPage);
+  fixture.detectChanges();
+  await tick(); // afterNextRender → factory resolves → controller mounts
+  fixture.detectChanges();
+  return { fixture, router, el: fixture.nativeElement as HTMLElement };
+}
+
+/** The page's protected sort handlers, surfaced for direct assertion (the overlay
+ *  open→select path is exercised by the live e2e, not unit tests). */
+type SortablePage = { onSortChange(indexName: string): void };
 
 describe('SearchPage shell', () => {
   beforeEach(() => TestBed.resetTestingModule());
@@ -212,5 +238,60 @@ describe('SearchPage shell', () => {
 
     expect(vendorsTab.getAttribute('aria-selected')).toBe('true');
     expect(router.url).toContain('tab=vendors');
+  });
+
+  // ── AECI-175 sort control ──────────────────────────────────────────────────
+
+  it('renders the per-tab sort control once the controller mounts (default = Relevance)', async () => {
+    const { el } = await setupMounted('/search');
+    const trigger = el.querySelector('[id^="search-sort-trigger-"]') as HTMLButtonElement | null;
+    expect(trigger).not.toBeNull();
+    expect(trigger!.getAttribute('role')).toBe('combobox');
+    expect(trigger!.textContent).toContain('Relevance');
+  });
+
+  it('does not render the sort control while the controller is null (degraded shell)', () => {
+    const router = setup(); // never-resolving factory → controller stays null
+    void router; // (navigation not needed; the control is gated on the controller)
+    const fixture = TestBed.createComponent(SearchPage);
+    fixture.detectChanges();
+    expect(
+      (fixture.nativeElement as HTMLElement).querySelector('[id^="search-sort-trigger-"]'),
+    ).toBeNull();
+  });
+
+  it('seeds the initial sort from ?sort= and reflects it in the control', async () => {
+    const { el } = await setupMounted('/search?sort=name');
+    const trigger = el.querySelector('[id^="search-sort-trigger-"]') as HTMLButtonElement;
+    expect(trigger.textContent).toContain('Name (A–Z)');
+  });
+
+  it('writes ?sort= when a non-relevance sort is chosen, and clears it for relevance', async () => {
+    const { fixture, router } = await setupMounted('/search');
+    const page = fixture.componentInstance as unknown as SortablePage;
+
+    // products replicas are <base>_<suffix> with base 'p' (VALID_CONFIG.indexes).
+    page.onSortChange('p_name_asc');
+    await tick();
+    expect(router.url).toContain('sort=name');
+
+    page.onSortChange('p'); // back to the primary (relevance) → param cleared
+    await tick();
+    expect(router.url).not.toContain('sort=');
+  });
+
+  it('re-points ?sort= to the new tab’s sort when switching tabs (per-tab)', async () => {
+    const { fixture, router, el } = await setupMounted('/search');
+    const page = fixture.componentInstance as unknown as SortablePage;
+
+    page.onSortChange('p_name_asc'); // products → Name A–Z
+    await tick();
+    expect(router.url).toContain('sort=name');
+
+    // Switch to vendors (still at relevance) → ?sort= clears, ?tab=vendors set.
+    (el.querySelectorAll('[role="tab"]')[1] as HTMLButtonElement).click();
+    await tick();
+    expect(router.url).toContain('tab=vendors');
+    expect(router.url).not.toContain('sort=');
   });
 });

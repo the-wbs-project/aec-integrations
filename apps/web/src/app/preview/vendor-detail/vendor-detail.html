@@ -307,7 +307,7 @@
                   {{ product.reviewScore.toFixed(1) }}
                 </span>
                 <span
-                  class="mt-1 flex justify-end gap-0.5 text-(--accent-primary)"
+                  class="mt-1 flex justify-end gap-0.5 text-(--accent-rating)"
                   aria-hidden="true"
                 >
                   @for (i of stars; track i) {
@@ -348,7 +348,7 @@
                         <span class="w-3 shrink-0 text-end tabular-nums text-(--text-secondary)"
                           >{{ bucket.stars }}</span
                         >
-                        <span aria-hidden="true" class="text-(--accent-primary)">★</span>
+                        <span aria-hidden="true" class="text-(--accent-rating)">★</span>
                         <span
                           class="relative h-2 flex-1 overflow-hidden rounded-full bg-(--surface-sunken)"
                           role="presentation"

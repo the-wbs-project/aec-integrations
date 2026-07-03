@@ -1,17 +1,31 @@
-import { Component, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Component, afterNextRender, computed, inject, signal, viewChild } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
+import { OverlayModule } from '@angular/cdk/overlay';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 import { Meta, Title } from '@angular/platform-browser';
 import { ActivatedRoute, RouterLink } from '@angular/router';
+import {
+  BrnDialog,
+  BrnDialogClose,
+  BrnDialogContent,
+  BrnDialogDescription,
+  BrnDialogTitle,
+} from '@spartan-ng/brain/dialog';
 
 import {
+  ApiErrorCode,
   SubmitReviewSchema,
+  type AccountReview,
   type ProductDetail,
   type SubmitReviewInput,
   type SubmitReviewResponse,
 } from '@aeci/shared';
 
+import { AccountApi } from '../account/account-api';
+import { Analytics } from '../analytics/analytics';
+import { AuthService } from '../auth/auth.service';
 import { NotFound } from '../not-found/not-found';
 
 import { ReviewsApi } from './reviews-api';
@@ -84,16 +98,25 @@ interface ReviewModel {
     Combobox,
     ComboboxPopup,
     ComboboxWidget,
+    OverlayModule,
     RouterLink,
     NotFound,
+    BrnDialog,
+    BrnDialogClose,
+    BrnDialogContent,
+    BrnDialogDescription,
+    BrnDialogTitle,
   ],
   templateUrl: './review-form.html',
 })
 export class ReviewForm {
   private readonly route = inject(ActivatedRoute);
   private readonly api = inject(ReviewsApi);
+  private readonly account = inject(AccountApi);
+  private readonly auth = inject(AuthService);
   private readonly titleSvc = inject(Title);
   private readonly metaSvc = inject(Meta);
+  private readonly analytics = inject(Analytics);
 
   /** The resolved product (or `null` → render the shared 404 shell). The
    *  resolver ran before this component, so the snapshot is populated. */
@@ -101,12 +124,42 @@ export class ReviewForm {
 
   protected readonly backRouterLink = computed(() => ['/products', this.product?.slug ?? '']);
 
+  /** Absolute path to this (auth-gated) review form — the `?return=` target the
+   *  sign-in pop-up threads into `/auth/login` so the visitor lands back here
+   *  after authenticating (same shape as `ReviewCta.reviewPath`). */
+  protected readonly reviewPath = computed(() => `/products/${this.product?.slug ?? ''}/review`);
+
   /** Set to the API response on a successful submit; flips to the confirmation. */
   protected readonly submitted = signal<SubmitReviewResponse | null>(null);
 
   /** True when the last submit attempt failed (network / 401 expired-session /
    *  server error). Surfaced as a non-blocking notice so the user can retry. */
   protected readonly submitFailed = signal(false);
+
+  /** True when the last submit was rejected as a duplicate (`REVIEW_DUPLICATE`,
+   *  409). A specific, non-blocking notice — NOT a `ValidationError` (which would
+   *  disable submit) — so it mirrors `submitFailed` (AECI-260). */
+  protected readonly submitDuplicate = signal(false);
+
+  // ── Already-reviewed guard (AECI-260, defense in depth) ───────────────────
+  /** True while the browser-side post-hydration access probe runs (auth, then
+   *  the "have I already reviewed this?" check). Starts `true` so SSR/pre-
+   *  hydration paints a placeholder, never the full form (which would flash then
+   *  swap out for an already-reviewed — or not-signed-in — visitor). */
+  protected readonly checkingExisting = signal(true);
+  /** The caller's existing review for this product, if any — gates the form. */
+  protected readonly existingReview = signal<AccountReview | null>(null);
+
+  // ── Sign-in gate ──────────────────────────────────────────────────────────
+  /** True when the post-hydration probe finds no session: render the sign-in
+   *  notice + pop-up instead of a fillable form. The route is redirect-gated
+   *  SSR-side, but that only covers full-page loads — an in-app navigation or an
+   *  expired cookie can still land an unauthenticated visitor here. */
+  protected readonly needsSignIn = signal(false);
+  /** The sign-in pop-up overlay. Opened imperatively from `reconcile()` (a plain
+   *  method, never an `effect`) so `BrnDialog.open()`'s internal effect is legal
+   *  (NG0602). Always present in the not-submitted template so this resolves. */
+  private readonly signInDialog = viewChild(BrnDialog);
 
   // ── Aria control bridge / state signals (value is always an array) ────────
   /** Selected overall-rating star (bridged into the form). */
@@ -124,6 +177,10 @@ export class ReviewForm {
   protected readonly yearsUsing = signal('');
   /** Whether the years field has been blurred (gates its error display). */
   protected readonly yearsTouched = signal(false);
+
+  /** Free-text firm/company (optional, AECI-284). Trimmed + nulled-if-blank at
+   *  submit; feeds the home credibility strip's contributing-firms count. */
+  protected readonly firm = signal('');
 
   protected readonly stars: readonly number[] = [1, 2, 3, 4, 5];
 
@@ -175,6 +232,46 @@ export class ReviewForm {
     this.titleSvc.setTitle(this.metaTitle());
     // Utility write surface — keep it out of the index (mirrors request-form).
     this.metaSvc.updateTag({ name: 'robots', content: 'noindex' });
+
+    // Browser-only: gate the form on auth, then on the already-reviewed check
+    // (AECI-260). Both run only after hydration so the cached SSR HTML is never
+    // personalized. A null product is the 404 shell — nothing to check.
+    afterNextRender(() => {
+      if (this.product) void this.reconcile();
+      else this.checkingExisting.set(false);
+    });
+  }
+
+  /**
+   * Post-hydration access gate. The route is redirect-gated SSR-side, but that
+   * server redirect only fires on full-page loads — an in-app SPA navigation can
+   * still land a never-signed-in visitor on this form. So before revealing it we
+   * mirror the SSR gate's cheap session-cookie *presence* check: no cookie →
+   * clearly not signed in → raise the sign-in pop-up instead of a fillable form.
+   * A present-but-stale cookie falls through to the form, where the API's
+   * `requireAuth` 401 stays the real backstop. When auth is unconfigured we also
+   * degrade to showing the form, mirroring `ReviewCta`'s neutral degradation.
+   */
+  private async reconcile(): Promise<void> {
+    if (this.auth.isConfigured() && !this.auth.hasSessionCookie()) {
+      this.needsSignIn.set(true);
+      this.checkingExisting.set(false);
+      this.signInDialog()?.open();
+      return;
+    }
+    await this.checkExisting();
+  }
+
+  /** Look up the caller's existing review for this product. On any failure the
+   *  form is shown anyway — the API's `REVIEW_DUPLICATE` 409 is the backstop. */
+  private async checkExisting(): Promise<void> {
+    try {
+      this.existingReview.set(await this.account.findMyReviewForProduct(this.product!.id));
+    } catch {
+      // Degrade to showing the form; submit still enforces the duplicate rule.
+    } finally {
+      this.checkingExisting.set(false);
+    }
   }
 
   // ── Bridge handlers: write the chosen rating into the Signal Forms field ───
@@ -202,6 +299,10 @@ export class ReviewForm {
     this.yearsUsing.set((event.target as HTMLInputElement).value);
   }
 
+  protected onFirmInput(event: Event): void {
+    this.firm.set((event.target as HTMLInputElement).value);
+  }
+
   /** Parse the years field: `undefined` (empty), a number, or `'invalid'`. */
   private parseYears(): number | undefined | 'invalid' {
     const raw = this.yearsUsing().trim();
@@ -213,14 +314,20 @@ export class ReviewForm {
 
   protected async onSubmit(): Promise<void> {
     this.submitFailed.set(false);
+    this.submitDuplicate.set(false);
     await submit(this.form, async (f) => {
       try {
         this.submitted.set(await this.api.submitReview(this.buildInput(f().value())));
-      } catch {
+        // Analytics is consent-gated + fire-and-forget; never blocks the flow.
+        if (this.product) this.analytics.reviewSubmitted(this.product.id);
+      } catch (err) {
         // Surface as a retryable notice, not a form error — a `ValidationError`
         // here would mark the form invalid and disable submit (mirrors
-        // request-form). Covers a 401 from an expired session cookie too.
-        this.submitFailed.set(true);
+        // request-form). A `REVIEW_DUPLICATE` (409) gets its own specific copy
+        // (AECI-260); everything else (network, 401 expired session, 5xx) is the
+        // generic retry notice. Both keep the form enabled.
+        if (isReviewDuplicate(err)) this.submitDuplicate.set(true);
+        else this.submitFailed.set(true);
       }
       return undefined;
     });
@@ -231,6 +338,7 @@ export class ReviewForm {
     const role = this.roleSel()[0]?.value;
     const recommend = this.recommendSel()[0]?.value;
     const years = this.parseYears();
+    const firm = this.firm().trim();
     return {
       product_id: v.product_id,
       rating_overall: v.rating_overall,
@@ -240,6 +348,7 @@ export class ReviewForm {
       ...(role ? { role_at_company: role } : {}),
       ...(typeof years === 'number' ? { years_using: years } : {}),
       ...(recommend ? { would_recommend: recommend } : {}),
+      ...(firm ? { reviewer_firm: firm } : {}),
     };
   }
 
@@ -257,4 +366,14 @@ export class ReviewForm {
       ? $localize`:@@reviews.metaTitle:Review ${name}:productName: · AEC Integrations`
       : $localize`:@@reviews.metaTitle.fallback:Write a review · AEC Integrations`;
   }
+}
+
+/** True when `err` is the API's `REVIEW_DUPLICATE` 409 — the only 409 the review
+ *  endpoint emits. Leads with the structured error code (the browser
+ *  `HttpErrorResponse.error` is the parsed `{ error: { code } }` envelope) and
+ *  falls back to the bare 409 status. */
+function isReviewDuplicate(err: unknown): boolean {
+  if (!(err instanceof HttpErrorResponse)) return false;
+  const code = (err.error as { error?: { code?: unknown } } | null)?.error?.code;
+  return code === ApiErrorCode.REVIEW_DUPLICATE || err.status === 409;
 }

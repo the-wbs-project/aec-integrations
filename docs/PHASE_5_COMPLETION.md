@@ -53,8 +53,9 @@ The only items **not** green are (a) **deployed-environment confirmations** — 
 login→submit→moderate→display→delete flow, axe/Lighthouse on the auth-gated pages, and the live
 Datadog apply — bundled into **[AECI-233](https://linear.app/aec-integrations/issue/AECI-233)**
 (the Phase 5 analogue of AECI-222), and (b) two **test-harness coverage gaps** the acceptance asks
-to close: a reviews/profiles RLS deny-matrix spec
-(**[AECI-234](https://linear.app/aec-integrations/issue/AECI-234)**, extends AECI-90) and
+to close: a reviews/profiles no-leakage deny-matrix
+(**[AECI-234](https://linear.app/aec-integrations/issue/AECI-234)**, extends AECI-90; delivered
+app-layer post-ADR-0016 — see §F2) and
 authed-page console coverage (**[AECI-235](https://linear.app/aec-integrations/issue/AECI-235)**,
 extends AECI-162). None is a Phase 5 *build* defect.
 
@@ -72,12 +73,12 @@ Two **green-closing edits** were made in this issue (see §4): DESIGN.md gained 
 |----|-----------|--------|----------|
 | 1 | Every §16 Phase 5 item + Phase-5-spec acceptance verified → produce `docs/PHASE_5_COMPLETION.md` | ✅ | This document. Per-bullet mapping in §2b; all 15 build issues (AECI-192…206) merged to `main`. |
 | 2 | **E2E on staging**: login (magic link + Google) → submit → moderate (approve/reject) → public ≥5 display → account delete anonymizes reviews | ⚠️ | **Code + local e2e ✅, live staging ⚠️.** Callback `apps/web/src/server/routes/auth-callback.ts` (PKCE exchange, session cookie, profile-ensure, safe redirect); submit `apps/api/src/routes/reviews.ts` (pending + dedup + toxicity + audit); moderate `apps/api/src/routes/admin-reviews.ts` (approve→recompute+purge / reject→required reason); ≥5 gate `apps/web/src/app/products/product-reviews.ts:69-71`; erasure `apps/api/src/routes/account.ts:208-` (reviews `reviewer_id→NULL`, `auth.users` delete). e2e: `reviews-submission.spec.ts`, `admin-reviews.spec.ts`, `account-delete.spec.ts`, `product-reviews.spec.ts`. **Live run needs a deployed env + real auth → [AECI-233](https://linear.app/aec-integrations/issue/AECI-233).** |
-| 3 | **Authz**: unauthenticated / banned / non-admin rejected; RLS integration tests green in CI (extend AECI-90) | ⚠️ | **Worker authz ✅ + tested; RLS deny-matrix ⚠️.** `apps/api/src/lib/user-auth.ts` (JWKS verify, fail-closed `401 UNAUTHENTICATED`); `apps/api/src/lib/authz.ts` `requireAuth` (`:224`) / `requireAdmin` (`:235`), banned → `403` (`REVIEW_BANNED`/`FORBIDDEN`, `:202-205`). Specs: `user-auth.jwks.spec.ts`, `auth_user_delete_trigger.spec.ts`, `account_delete.spec.ts`, `auth_users_email_read.spec.ts`. RLS policies exist (`supabase/migrations/20260602051513_rls_grants_and_policies.sql:297-333`) but have **no PostgREST deny-matrix spec** (AECI-90 covers only `landing_forms`/`vendor_requests`) → **[AECI-234](https://linear.app/aec-integrations/issue/AECI-234).** |
+| 3 | **Authz**: unauthenticated / banned / non-admin rejected; RLS integration tests green in CI (extend AECI-90) | ⚠️ | **Worker authz ✅ + tested; RLS deny-matrix ⚠️.** `apps/api/src/lib/user-auth.ts` (JWKS verify, fail-closed `401 UNAUTHENTICATED`); `apps/api/src/lib/authz.ts` `requireAuth` (`:224`) / `requireAdmin` (`:235`), banned → `403` (`REVIEW_BANNED`/`FORBIDDEN`, `:202-205`). Specs: `user-auth.jwks.spec.ts`, `auth_user_delete_trigger.spec.ts`, `account_delete.spec.ts`, `auth_users_email_read.spec.ts`. The Postgres RLS layer this row referenced was **superseded by ADR 0016** (app data on D1, no RLS); the reviews/profiles deny-matrix was instead delivered as an **app-layer no-leakage matrix** (`routes/reviews.authz-matrix.spec.ts` / `routes/profiles.authz-matrix.spec.ts`, unit lane) → **[AECI-234](https://linear.app/aec-integrations/issue/AECI-234)** (resolved — see §F2). |
 | 4 | **Cache-neutrality**: product page's cached HTML carries no session/CTA; auth routes non-cacheable | ✅ | `apps/web/src/app/reviews/review-cta.ts` renders a neutral "Write a review" at SSR and reconciles to `anon`/`authed` in `afterNextRender` only. The route classifier marks `/products/:slug/review` (`server-runtime.ts:167`), `/account` (`:176`), `/admin/*` (`:187`), and `/auth/*` non-cacheable → `private, no-store` (`:460`); unknown routes fail closed. Edge MISS→HIT is deployed-only (§5, Note C). |
 | 5 | `ng extract-i18n` **verification** (no hard-coded strings; do **not** commit a regenerated `messages.xlf`) | ✅ | Ran to a temp path: **exit 0, 536 messages, zero duplicate-id warnings** after the §4.2 fix (two `products.detail.reviews.*` ids previously collided on whitespace-different sources). Committed `src/locale/messages.xlf` **untouched** (`git status` clean — en-US source-string convention upheld). Every Phase 5 string is `i18n`/`$localize`-wrapped. |
 | 6 | Monorepo lint clean; zero color literals; axe + Lighthouse budgets on the new pages; no console errors (AECI-162 crawler extended) | ⚠️ | **lint + color ✅; authed-page axe/LH + console ⚠️.** `pnpm lint` exit 0; zero color literals (tokens only). Public Phase 5 page covered: `auth-login.spec.ts` console-checks `/auth/login`, and the crawler already lists `/auth` as an `EXPECTED_PENDING_PREFIXES` entry (`internal-link-graph.spec.ts:221`). **axe + Lighthouse on the auth-gated pages** (review/account/admin) need a session → [AECI-233](https://linear.app/aec-integrations/issue/AECI-233); **authed-page console** coverage → **[AECI-235](https://linear.app/aec-integrations/issue/AECI-235).** |
 | 7 | `DESIGN.md` updated with every new component | ⚠️ | **DESIGN.md updated in this issue (§4.1)** — new "Auth & Reviews (Phase 5)" subsection documenting all eight components (login, review form, star control, star display, reviews list, cache-neutral CTA, account, admin shell, moderation queue), token-only + i18n. The **per-component `/impeccable` craft/polish history or Chris's explicit sign-off is a human gate** this report can't self-certify — flagged in §6. |
-| 8 | Outstanding items get a follow-up Phase 5.x issue or an explicit written punt | ✅ | Three follow-ups filed + assigned to Chris: **[AECI-233](https://linear.app/aec-integrations/issue/AECI-233)** (operational verification), **[AECI-234](https://linear.app/aec-integrations/issue/AECI-234)** (RLS deny-matrix), **[AECI-235](https://linear.app/aec-integrations/issue/AECI-235)** (authed-page console). Written punts in §3. |
+| 8 | Outstanding items get a follow-up Phase 5.x issue or an explicit written punt | ✅ | Three follow-ups filed + assigned to Chris: **[AECI-233](https://linear.app/aec-integrations/issue/AECI-233)** (operational verification), **[AECI-234](https://linear.app/aec-integrations/issue/AECI-234)** (no-leakage deny-matrix), **[AECI-235](https://linear.app/aec-integrations/issue/AECI-235)** (authed-page console). Written punts in §3. |
 
 ### 2b. §16 Phase 5 build-order bullets
 
@@ -116,13 +117,23 @@ the live Datadog org with the dashboard URL pasted into `docs/OBSERVABILITY.md`.
 
 Phase 5 authz is enforced and tested at the **Worker layer** (`requireAuth`/`requireAdmin` + JWKS
 verify; the `user-auth.jwks` / `auth_user_delete_trigger` / `account_delete` / `auth_users_email_read`
-integration specs). The **RLS layer** for `reviews`/`profiles` (defense-in-depth — all app traffic
-goes through Prisma Accelerate's privileged role, which bypasses RLS) has policies
-(`…rls_grants_and_policies.sql:297-333`) but **no PostgREST deny-matrix spec**; the AECI-90 harness
-covers only `landing_forms` and `vendor_requests`. AECI-234 adds `reviews.rls.spec.ts` +
-`profiles.rls.spec.ts` mirroring `vendor_requests.rls.spec.ts`; they auto-enroll via the
-`integration-db-tests.yml` `apps/api/src/integration/**` path-gate. **No new test code lands in this
-checkpoint PR** (matching the Phase 4 gate's zero-app/test-code posture).
+integration specs). At checkpoint time the **RLS layer** for `reviews`/`profiles` (defense-in-depth — app traffic ran
+through Prisma Accelerate's privileged role, which bypasses RLS) had policies
+(`…rls_grants_and_policies.sql:297-333`) but **no PostgREST deny-matrix spec** — and the
+`landing_forms`/`vendor_requests` RLS specs the AECI-90 harness was wired to run were themselves
+never created (see the Update below). **No new test code landed in this checkpoint PR**
+(matching the Phase 4 gate's zero-app/test-code posture).
+
+> **Update (ADR 0016 / 2026-06-25).** Resolved. ADR 0016 (accepted 2026-06-22) moved `reviews`/`profiles`
+> to Cloudflare D1 — which has **no RLS and no PostgREST** — and made an **app-layer no-leakage matrix**
+> the acceptance gate (ADR 0016 §4). AECI-234 was therefore delivered as
+> `apps/api/src/routes/reviews.authz-matrix.spec.ts` + `profiles.authz-matrix.spec.ts` in the **unit
+> lane** (not `src/integration/**`), composing the real `requireAuth`/`requireAdmin` guard with the
+> real read and write handlers over the in-memory D1 harness and asserting the full deny-matrix
+> (anon / non-owner / banned-owner / admin, plus the write paths rejecting anon/banned/non-admin
+> before the handler) end-to-end. The original "mirror `vendor_requests.rls.spec.ts`"
+> plan was moot — that spec was never created, and the Supabase PostgREST surface is ADR-0016 Phase-6
+> decommission scope.
 
 ### F3 — Authed-page console coverage → **new [AECI-235](https://linear.app/aec-integrations/issue/AECI-235)** (extends AECI-162)
 

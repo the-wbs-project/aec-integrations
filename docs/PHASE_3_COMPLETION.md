@@ -94,7 +94,8 @@ warn→error carryover that **AECI-65** (Phase 2.19) owns for the Phase 2 pages,
 *[Update (AECI-188, 2026-06-10): landed as a **partial** flip — a11y/best-practices/SEO/TBT +
 the `/search` TTFB now assert at error level on the post-merge `lighthouse.yml` run (N=3,
 `continue-on-error` removed); `/search` gets its own JS-transfer budget, measured with the
-real InstantSearch SDK via the new `ALGOLIA_SEARCH_KEY_PREVIEW` CI provisioning. The
+real InstantSearch SDK via the shared `ALGOLIA_SEARCH_KEY` CI provisioning (formerly the
+per-env `ALGOLIA_SEARCH_KEY_PREVIEW`; consolidated to one shared key). The
 "`deploy.yml` `lighthouse` job is parked (`if: false`)" wording above was already stale when
 filed — the job had moved to `lighthouse.yml` (push-to-main, PR #276). perf/LCP/CLS + JS
 budgets stay warn pending the perf follow-up issue referenced in `.lighthouserc.cjs`.]*
@@ -159,7 +160,7 @@ debt (`main` has no required checks). Formatted both so "lint clean" (AC 7) hold
 - **Note A — environment data + Algolia provisioning.** "Indexes populated" / "counts match"
   describe the bulk-sync + drift *capabilities* and their tests; the actual index populate and
   per-env Algolia key provisioning are operational. Per memory, **prod Algolia secrets are
-  fail-closed** — prod `promote` fails until `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY_PRODUCTION`
+  fail-closed** — prod `promote` fails until `ALGOLIA_APP_ID` + the shared `ALGOLIA_ADMIN_KEY`
   GH secrets exist (staging degrades gracefully). The bulk/daily crons run on staging + prod
   only; the drift watermark lives in `stats_cache`.
 - **Note B — `/search` graceful degradation.** When the public Algolia config is absent (local

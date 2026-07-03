@@ -1,5 +1,5 @@
 /**
- * Phase 2.8 (AECI-54) products endpoints.
+ * Phase 2.8 (AECI-54) products endpoints — Drizzle/D1 (ADR 0016 / AECI-253).
  *
  *   GET /api/products         — paginated, filterable, sortable list.
  *   GET /api/products/:slug   — single product detail with full hydration.
@@ -8,10 +8,8 @@
  *   - Query shape: `ProductsListQuerySchema` from `@aeci/shared`.
  *   - Response shape: `ProductsListResponseSchema` (list) / `ProductDetailSchema`
  *     (detail). Hydration depth per `docs/API_CONTRACTS.md` §3.4.
- *   - Sort defaults & direction: §7.4 of the Phase 2 spec (resolved by
- *     `lib/sort.ts`).
+ *   - Sort defaults & direction: §7.4 (resolved by `lib/sort.ts`).
  *   - `Cache-Control: private, no-store` applied by `json()`.
- *   - 4xx envelope produced by `errorMiddleware()` in `errors.ts`.
  */
 
 import {
@@ -21,57 +19,56 @@ import {
   type ProductDetail,
   type ProductsListResponse,
 } from '@aeci/shared';
+import { and, asc, count, desc, eq, ne } from 'drizzle-orm';
 import type { Context } from 'hono';
 
+import { getDb } from '../db/client';
+import { products, reviews } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import {
-  reportMissingVendors,
-  validateResponseInDev,
-  type PrismaFactory,
-} from '../lib/handler-utils';
-import {
   buildProductsWhere,
   EMBED_REVIEWS_PAGE_SIZE,
-  productDetailSelect,
-  productListSelect,
-  publicReviewSelect,
+  productDetailConfig,
+  productListConfig,
+  publicReviewColumns,
   toProductDetail,
   toProductListItem,
-} from '../lib/prisma-helpers';
-import { resolveProductSort } from '../lib/sort';
-import { getPrisma } from '../prisma';
+  type RawProductListRow,
+} from '../lib/drizzle-helpers';
+import { reportMissingVendors, validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { resolveProductOrderBy } from '../lib/sort';
 
 export function createProductsListHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const query = ProductsListQuerySchema.parse(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const where = buildProductsWhere(query);
-    const orderBy = resolveProductSort(query.sort);
-    const skip = (query.page - 1) * query.perPage;
+    const { db } = dbFor(c.env);
+    const where = buildProductsWhere(db, query);
+    const orderBy = resolveProductOrderBy(query.sort);
+    const offset = (query.page - 1) * query.perPage;
 
-    const prisma = prismaFor(c.env);
-    const [rows, total] = await Promise.all([
-      prisma.product.findMany({
+    const [rows, countRows] = await Promise.all([
+      db.query.products.findMany({
+        ...productListConfig,
         where,
         orderBy,
-        skip,
-        take: query.perPage,
-        select: productListSelect,
+        limit: query.perPage,
+        offset,
       }),
-      prisma.product.count({ where }),
+      db.select({ value: count() }).from(products).where(where),
     ]);
 
     const body: ProductsListResponse = {
       data: rows.map(toProductListItem),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     reportMissingVendors(c, body.data);
@@ -85,7 +82,7 @@ export function createProductsListHandler(
 }
 
 export function createProductDetailHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     const slug = c.req.param('slug');
@@ -93,43 +90,42 @@ export function createProductDetailHandler(
       throw new ApiError(400, 'VALIDATION_FAILED', 'Missing product slug', { field: 'slug' });
     }
 
-    const prisma = prismaFor(c.env);
-    const row = await prisma.product.findUnique({
-      where: { slug },
-      select: productDetailSelect,
+    const { db } = dbFor(c.env);
+    const row = await db.query.products.findFirst({
+      ...productDetailConfig,
+      where: eq(products.slug, slug),
     });
 
     if (!row) throw notFoundError('product', { slug });
 
-    // Baseline `related_products`: latest 6 products that share at least one
-    // category with this product, excluding the product itself. Refining the
-    // algorithm (cosine on categories+audiences, popularity weighting) is
-    // out of scope for AECI-54 — kept simple so the hydration contract is
-    // satisfied without an external ML hop.
+    // Baseline `related_products`: latest 6 products sharing ≥1 category,
+    // excluding self. Reuse `buildProductsWhere` for the category clause.
     const categoryIds = row.productCategories.map((r) => r.category.id);
-    const [relatedProducts, reviews] = await Promise.all([
+    const relatedPromise: Promise<RawProductListRow[]> =
       categoryIds.length === 0
         ? Promise.resolve([])
-        : prisma.product.findMany({
-            where: {
-              id: { not: row.id },
-              productCategories: { some: { categoryId: { in: categoryIds } } },
-            },
-            orderBy: { createdAt: 'desc' as const },
-            take: 6,
-            select: productListSelect,
-          }),
-      // First page of approved reviews, newest-first, for SSR. `id` tiebreaks a
-      // `created_at` collision deterministically (matches the list endpoint).
-      prisma.review.findMany({
-        where: { productId: row.id, status: 'approved' },
-        orderBy: [{ createdAt: 'desc' as const }, { id: 'asc' as const }],
-        take: EMBED_REVIEWS_PAGE_SIZE,
-        select: publicReviewSelect,
+        : db.query.products.findMany({
+            ...productListConfig,
+            where: and(
+              ne(products.id, row.id),
+              buildProductsWhere(db, { category_id: categoryIds }),
+            ),
+            orderBy: [desc(products.createdAt)],
+            limit: 6,
+          });
+
+    const [relatedProducts, reviewRows] = await Promise.all([
+      relatedPromise,
+      // First page of approved reviews, newest-first; `id` tiebreaks ties.
+      db.query.reviews.findMany({
+        columns: publicReviewColumns,
+        where: and(eq(reviews.productId, row.id), eq(reviews.status, 'approved')),
+        orderBy: [desc(reviews.createdAt), asc(reviews.id)],
+        limit: EMBED_REVIEWS_PAGE_SIZE,
       }),
     ]);
 
-    const body: ProductDetail = toProductDetail(row, relatedProducts, reviews);
+    const body: ProductDetail = toProductDetail(row, relatedProducts, reviewRows);
 
     reportMissingVendors(c, [body, ...body.related_products]);
 

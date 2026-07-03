@@ -15,10 +15,18 @@
  *
  * A11y: this is the project's FIRST `@angular/aria` combobox adoption (ADR 0010).
  * `ngCombobox` + `ngListbox`/`ngOption` supply role=combobox/listbox/option,
- * `aria-expanded`/`aria-controls`/`aria-activedescendant`, the Arrow/Home/End/
- * Escape keyboard model, and the CDK-Overlay-positioned popup; we supply only the
- * HTML + token CSS (`data-[active=true]:` highlight, `aria-selected`). A real
- * `<label for>` names the input (never placeholder-as-label).
+ * `aria-expanded`/`aria-controls`/`aria-activedescendant`, and the Arrow/Home/End/
+ * Escape keyboard model; we supply only the HTML + token CSS (`data-[active=true]:`
+ * highlight, `aria-selected`). Aria's `ComboboxPopup` renders the listbox via
+ * `DeferredContent`'s `createEmbeddedView` and is NOT itself a floating layer, so
+ * an outer `cdkConnectedOverlay` (`usePopover:'inline'` → browser top layer)
+ * supplies the positioning: it flips/repositions near the viewport edge and
+ * escapes the header row's clipping/stacking context, per ADR 0010 ("Aria supplies
+ * behavior, not the floating layer"). The `<ul>` only styles — it no longer
+ * self-positions. (Under jsdom there is no Popover API, so CDK auto-downgrades to
+ * the body-level overlay container; the component spec therefore queries `document`,
+ * not the host — see `search-autocomplete.component.spec.ts`.) A real `<label for>`
+ * names the input (never placeholder-as-label).
  *
  * Navigation lives in the PARENT (mirrors `navigateToSearch`): the component is
  * Router-free and emits `suggestionChosen` (an option committed → detail page)
@@ -44,6 +52,7 @@ import {
 } from '@angular/core';
 import { Combobox, ComboboxPopup, ComboboxWidget } from '@angular/aria/combobox';
 import { Listbox, Option } from '@angular/aria/listbox';
+import { OverlayModule } from '@angular/cdk/overlay';
 
 import { readAlgoliaConfig } from './algolia-config';
 import { AutocompleteController } from './autocomplete-controller';
@@ -52,7 +61,7 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 
 @Component({
   selector: 'aec-search-autocomplete',
-  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option],
+  imports: [Combobox, ComboboxPopup, ComboboxWidget, Listbox, Option, OverlayModule],
   template: `
     <form
       class="relative block"
@@ -67,6 +76,7 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
       <input
         ngCombobox
         #combobox="ngCombobox"
+        #acOrigin
         [id]="inputId()"
         name="q"
         type="search"
@@ -84,52 +94,64 @@ import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
         "
       />
 
-      <ng-template ngComboboxPopup [combobox]="combobox" popupType="listbox">
-        <!--
-          Render the listbox ONLY when there is at least one hit. Aria's combobox
-          expands on every input event (its input handler sets expanded), and the
-          deferred popup renders whenever expanded, so gating expansion can't keep
-          an empty role=listbox out of the DOM. Gating the listbox itself does: a
-          zero-hit query mounts no widget, so there's no empty floating panel, no
-          dangling aria-controls, and no aria-required-children axe violation.
-        -->
-        @if (suggestions().length > 0) {
-          <ul
-            ngComboboxWidget
-            ngListbox
-            #listbox="ngListbox"
-            [(value)]="selected"
-            (valueChange)="onSelect($event)"
-            [activeDescendant]="listbox.activeDescendant()"
-            focusMode="activedescendant"
-            selectionMode="explicit"
-            i18n-aria-label="@@app.search.autocomplete.listbox.aria"
-            aria-label="Search suggestions"
-            class="m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
-          >
-            @for (s of suggestions(); track s.objectID) {
-              <li
-                ngOption
-                [value]="s"
-                [label]="s.title"
-                class="flex cursor-pointer flex-col gap-0.5 rounded-(--radius-sm) px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
-              >
-                <span class="flex items-center justify-between gap-2">
-                  <span class="truncate text-sm font-medium text-(--text-primary)">{{
-                    s.title
-                  }}</span>
-                  <span
-                    class="shrink-0 rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium tracking-wide text-(--text-secondary) uppercase"
-                    >{{ s.kind === 'product' ? productTag : vendorTag }}</span
-                  >
-                </span>
-                @if (s.subtitle) {
-                  <span class="truncate text-xs text-(--text-secondary)">{{ s.subtitle }}</span>
-                }
-              </li>
-            }
-          </ul>
-        }
+      <!--
+        Aria's ComboboxPopup renders the listbox in-flow (DeferredContent.createEmbeddedView)
+        and is NOT a floating layer; an outer cdkConnectedOverlay (usePopover:'inline' →
+        browser top layer) supplies positioning, viewport-edge flip, and overflow-escape
+        from the header row (ADR 0010). matchWidth is OFF: the dropdown keeps its explicit
+        w-[min(22rem,…)] (the header input is only w-52, so matchWidth would truncate titles).
+      -->
+      <ng-template
+        [cdkConnectedOverlay]="{ origin: acOrigin, usePopover: 'inline', matchWidth: false }"
+        [cdkConnectedOverlayOpen]="expanded()"
+      >
+        <ng-template ngComboboxPopup [combobox]="combobox" popupType="listbox">
+          <!--
+            Render the listbox ONLY when there is at least one hit. Aria's combobox
+            expands on every input event (its input handler sets expanded), and the
+            deferred popup renders whenever expanded, so gating expansion can't keep
+            an empty role=listbox out of the DOM. Gating the listbox itself does: a
+            zero-hit query mounts no widget, so there's no empty floating panel, no
+            dangling aria-controls, and no aria-required-children axe violation.
+          -->
+          @if (suggestions().length > 0) {
+            <ul
+              ngComboboxWidget
+              ngListbox
+              #listbox="ngListbox"
+              [(value)]="selected"
+              (valueChange)="onSelect($event)"
+              [activeDescendant]="listbox.activeDescendant()"
+              focusMode="activedescendant"
+              selectionMode="explicit"
+              i18n-aria-label="@@app.search.autocomplete.listbox.aria"
+              aria-label="Search suggestions"
+              class="m-0 flex max-h-[min(24rem,60vh)] w-[min(22rem,calc(100vw-2rem))] list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
+            >
+              @for (s of suggestions(); track s.objectID) {
+                <li
+                  ngOption
+                  [value]="s"
+                  [label]="s.title"
+                  class="flex cursor-pointer flex-col gap-0.5 rounded-(--radius-sm) px-3 py-2 data-[active=true]:bg-(--surface-sunken)"
+                >
+                  <span class="flex items-center justify-between gap-2">
+                    <span class="truncate text-sm font-medium text-(--text-primary)">{{
+                      s.title
+                    }}</span>
+                    <span
+                      class="shrink-0 rounded-full border border-(--border-default) px-2 py-0.5 text-[0.65rem] font-medium tracking-wide text-(--text-secondary) uppercase"
+                      >{{ s.kind === 'product' ? productTag : vendorTag }}</span
+                    >
+                  </span>
+                  @if (s.subtitle) {
+                    <span class="truncate text-xs text-(--text-secondary)">{{ s.subtitle }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        </ng-template>
       </ng-template>
     </form>
   `,

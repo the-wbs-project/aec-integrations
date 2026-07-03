@@ -9,8 +9,7 @@ function makeEnv(assetsResponse: () => Response): Env {
   return {
     ASSETS: { fetch: vi.fn(async () => assetsResponse()) } as unknown as Fetcher,
     ANALYTICS: { writeDataPoint: vi.fn() } as unknown as AnalyticsEngineDataset,
-    SUPABASE_URL: 'https://supabase.test',
-    SUPABASE_PUBLISHABLE_KEY: 'anon-key',
+    API: {} as Fetcher,
     RESEND_API_KEY: '',
     NOTIFICATION_FROM: '',
     NOTIFICATION_TO: '',

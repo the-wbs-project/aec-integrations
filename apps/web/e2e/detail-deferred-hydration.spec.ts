@@ -18,13 +18,11 @@
  * child from the detail API, then asserts that child's rendered text is in the
  * raw SSR HTML from `request.get` — no browser, no scroll, no JS.
  *
- * Topology note: the app only ever reads the shared dev DB over Prisma
- * Accelerate (see docs/environments.md §"Local dev: running the API Worker"
- * and pr-preview.yml — "No per-PR Supabase branches, no [seed]"). It never
- * reads supabase/seed.sql / local Postgres, so a seeded fixture would be
- * invisible here. Instead this self-activates: it asserts when the DB under
- * test has a > 20-child entity and skips (loudly) otherwise, so it stays green
- * on an empty DB and becomes a live guard the moment rich data lands.
+ * Topology note: the app reads the local Cloudflare D1 the API Worker boots via
+ * `db:setup:local` (ADR 0016) — not a remote Postgres. Rather than depend on a
+ * specific fixture, this self-activates: it asserts when the DB under test has a
+ * > 20-child entity and skips (loudly) otherwise, so it stays green on a sparse
+ * DB and becomes a live guard the moment rich data lands.
  */
 import { expect, test, type APIRequestContext } from '@playwright/test';
 

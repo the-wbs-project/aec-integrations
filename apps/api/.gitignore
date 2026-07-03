@@ -3,4 +3,6 @@
 .wrangler-dry-run
 coverage
 node_modules
-prisma/generated
+
+# Dev/demo review fixtures generated on demand by scripts/seed-reviews.ts
+seed/reviews.sql

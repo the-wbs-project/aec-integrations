@@ -161,7 +161,8 @@ describe('cacheControlForRoute', () => {
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
     ['/products/procore', { edge: 900, browser: 0 }],
     ['/vendors/autodesk', { edge: 900, browser: 0 }],
-    ['/integrations/abc-123', { edge: 900, browser: 0 }],
+    // AECI-294 — the product-PAIR page is a detail-class route (900/0).
+    ['/products/procore/integrations/revit', { edge: 900, browser: 0 }],
     // CACHE_STRATEGY.md §4 — index pages AND taxonomy browse pages (category /
     // audience / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
     // taxonomy rows from a stale 30 min edge.)
@@ -190,10 +191,13 @@ describe('cacheControlForRoute', () => {
     '/disciplines/structural',
     // AECI-165 — the `/vendors` and `/integrations` INDEX pages were removed; they
     // 301-redirect to `/products` (the redirect handler sets its own headers), so
-    // the bare index paths are no longer in the SSR cache matrix. Their `:slug` /
-    // `:id` DETAIL paths remain cacheable (asserted above).
+    // the bare index paths are no longer in the SSR cache matrix. The `:slug`
+    // DETAIL paths remain cacheable (asserted above).
     '/vendors',
     '/integrations',
+    // AECI-294 — `/integrations/:id` now 301-redirects to the pair page (the
+    // redirect handler sets its own headers), so it's out of the SSR cache matrix.
+    '/integrations/abc-123',
   ])('returns null (non-cacheable) for %s', (path) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toBeNull();
   });
@@ -603,7 +607,11 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     ['/products', 'route:index,index:products'],
     ['/products/procore', 'route:detail,product:procore'],
     ['/vendors/autodesk', 'route:detail,vendor:autodesk'],
-    ['/integrations/abc-123', 'route:detail,integration:abc-123'],
+    // AECI-294 — the pair page: orientation-independent `pair:` tag + both products.
+    [
+      '/products/procore/integrations/revit',
+      'route:detail,pair:procore__revit,product:procore,product:revit',
+    ],
     ['/categories', 'route:index,index:categories,taxonomy'],
     ['/categories/structural', 'route:browse,category:structural'],
     ['/audiences/architecture', 'route:browse,audience:architecture'],
@@ -784,7 +792,7 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
     expect(res.headers.get('location')).toBe('https://aecintegrations.com/products');
   });
 
-  it('leaves the vendor/integration DETAIL routes to the SSR pipeline (only the bare index redirects)', async () => {
+  it('leaves the vendor DETAIL route to the SSR pipeline (only the bare index redirects)', async () => {
     const { binding } = recordingApiBinding();
     const { app, ssrRenderer } = appWithSpyRenderer();
     const res = await app.fetch(
@@ -792,35 +800,107 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
-    // Detail page renders via SSR (200), not a redirect.
+    // Detail page renders via SSR (200), not a redirect. (The integration DETAIL
+    // route now 301s to the pair page — see the AECI-294 block below.)
     expect(res.status).toBe(200);
     expect(ssrRenderer).toHaveBeenCalledTimes(1);
   });
 });
 
-describe('createApp /preview/* production gate', () => {
-  it('returns 404 with no-store on /preview/* when ENV is production (renderer never invoked)', async () => {
-    const { binding } = recordingApiBinding();
-    const ssrRenderer = vi.fn<SsrRenderer>(async (_req, ctx) =>
-      fixedRenderer(new Response('<html>preview</html>', { status: 200 }))(
-        new Request('https://x/'),
-        ctx,
-      ),
+describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
+  const integrationResponse = () =>
+    new Response(
+      // The redirect only reads the two product slugs. Procore < Revit, so the
+      // canonical context is procore.
+      JSON.stringify({ id: 'int-1', source: { slug: 'revit' }, target: { slug: 'procore' } }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+
+  it('301-redirects a legacy integration URL to the canonical pair page without invoking SSR', async () => {
+    const { binding, calls } = recordingApiBinding(integrationResponse());
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>x</html>', { status: 200 })),
     );
     const app = createApp({ ssrRenderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/preview/vendor-detail'),
-      { ...binding, ENV: 'production' } as unknown as Bindings,
+      new Request('https://aecintegrations.com/integrations/int-1'),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('location')).toBe(
+      'https://aecintegrations.com/products/procore/integrations/revit',
+    );
+    // Permanent, edge-cacheable mapping; tagged so a promote on the integration purges it.
+    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
+    expect(res.headers.get('cache-tag')).toBe('integration:int-1');
+    expect(ssrRenderer).not.toHaveBeenCalled();
+    // It resolved the slugs via the API binding.
+    expect(calls.some((r) => new URL(r.url).pathname === '/api/integrations/int-1')).toBe(true);
+  });
+
+  it('renders the SSR 404 for an unknown integration id rather than 301-ing to /products', async () => {
+    const notFound = new Response(JSON.stringify({ error: { code: 'NOT_FOUND' } }), {
+      status: 404,
+      headers: { 'content-type': 'application/json' },
+    });
+    const { binding, calls } = recordingApiBinding(notFound);
+    // An unknown id falls through to the SSR pipeline (the `**` wildcard renders
+    // the branded, accessible, noindex 404), so the renderer IS invoked and its
+    // 404 status carries NOT_FOUND_TTL + the route:404 sentinel tag.
+    const ssrRenderer = vi.fn<SsrRenderer>(
+      fixedRenderer(new Response('<html>not found</html>', { status: 404 })),
+    );
+    const app = createApp({ ssrRenderer });
+
+    const res = await app.fetch(
+      new Request('https://aecintegrations.com/integrations/does-not-exist'),
+      binding as unknown as Bindings,
       fakeExecutionContext(),
     );
 
     expect(res.status).toBe(404);
-    expect(res.headers.get('cache-control')).toBe('private, no-store');
-    expect(ssrRenderer).not.toHaveBeenCalled();
+    expect(res.headers.get('cache-control')).toBe('public, max-age=0, s-maxage=60');
+    expect(res.headers.get('cache-tag')).toBe('route:404');
+    expect(ssrRenderer).toHaveBeenCalledTimes(1);
+    // It consulted the API binding to distinguish a real id (301) from junk (404).
+    expect(calls.some((r) => new URL(r.url).pathname === '/api/integrations/does-not-exist')).toBe(
+      true,
+    );
   });
+});
 
-  it('serves /preview/* on preview Worker deploys (ENV !== production)', async () => {
+describe('createApp /preview/* public-tier gate', () => {
+  it.each<['production' | 'demo', string]>([
+    ['production', 'https://prod.aecintegrations.com/preview/vendor-detail'],
+    ['demo', 'https://demo.aecintegrations.com/preview/vendor-detail'],
+  ])(
+    'returns 404 with no-store on /preview/* on the %s tier (renderer never invoked)',
+    async (env, url) => {
+      const { binding } = recordingApiBinding();
+      const ssrRenderer = vi.fn<SsrRenderer>(async (_req, ctx) =>
+        fixedRenderer(new Response('<html>preview</html>', { status: 200 }))(
+          new Request('https://x/'),
+          ctx,
+        ),
+      );
+      const app = createApp({ ssrRenderer });
+
+      const res = await app.fetch(
+        new Request(url),
+        { ...binding, ENV: env } as unknown as Bindings,
+        fakeExecutionContext(),
+      );
+
+      expect(res.status).toBe(404);
+      expect(res.headers.get('cache-control')).toBe('private, no-store');
+      expect(ssrRenderer).not.toHaveBeenCalled();
+    },
+  );
+
+  it('serves /preview/* on preview Worker deploys (non-public tier)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({
       ssrRenderer: fixedRenderer(

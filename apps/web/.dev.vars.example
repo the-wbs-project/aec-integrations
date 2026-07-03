@@ -52,17 +52,48 @@ ALGOLIA_SEARCH_KEY=
 # the cookie-session factory behind /auth/*. The anon (publishable) key is not
 # truly secret — it's stored as a secret only to keep values out of git (same
 # convention as ALGOLIA_SEARCH_KEY). Both empty → auth surfaces return 503
-# `auth_not_configured` and everything else works. For local dev use the shared
-# dev project (https://dmbygwupskttzsvfzluq.supabase.co); fetch the key with
-# `supabase projects api-keys --project-ref dmbygwupskttzsvfzluq`.
+# `auth_not_configured` and everything else works. For local dev use the single
+# shared auth project (ADR 0017 — https://ktuhnlypztujpsseujzx.supabase.co);
+# fetch the key with `supabase projects api-keys --project-ref ktuhnlypztujpsseujzx`.
 # The service-role key is NEVER set on any Worker (AUTH_AND_RLS.md §3).
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 
-# Mint-script-only credentials (apps/web/scripts/mint-dev-session.mjs) — the
-# shared-dev throwaway test user. NEVER a Worker binding; the Worker does not
-# read these. Used to mint a real session cookie / bearer token for the
-# /auth/whoami 200-path smoke. See docs/environments.md → "Local dev: Supabase
-# auth (Phase 5)".
+# Test-user credentials. NEVER a Worker binding; the Worker does not read these.
+# Two consumers, both off the same recipe (capture a real `@supabase/ssr` session):
+#   1. apps/web/scripts/mint-dev-session.mjs — mints a session cookie / bearer for
+#      the /auth/whoami 200-path smoke (manual).
+#   2. apps/web/e2e/authed-console.spec.ts (AECI-235) — read via playwright.config.ts
+#      to console-check the auth-gated Phase 5 pages (/account, /admin, /admin/reviews,
+#      /products/:slug/review).
+# For (2) the user must be the ADMIN test@thewbsproject.com, AND its `role='admin'`
+# D1 profile (apps/api/seed/auth-fixtures.sql, keyed to that account's Supabase user
+# id) must be seeded — `dev:bound` → `db:seed:local` does this automatically. A valid
+# non-admin user makes the /admin* cases FAIL (not skip); absent creds → they skip.
+# See docs/environments.md → "Local dev: Supabase auth (Phase 5)".
 SUPABASE_TEST_USER_EMAIL=
 SUPABASE_TEST_USER_PASSWORD=
+
+# ─── PostHog product analytics (AECI-239 / Phase 7.4) ────────────────────────
+# POSTHOG_KEY is the project API key (publishable; client-exposed). The SSR
+# Worker inlines it into the HTML (window.__AECI_POSTHOG__) so the browser
+# Analytics layer can init PostHog — but only AFTER the visitor accepts the
+# consent banner (opt-in; DNT is honored as a hard decline). Stored as a secret
+# only to keep values out of git (same convention as ALGOLIA_SEARCH_KEY).
+# POSTHOG_HOST is the ingestion host; defaults to https://us.i.posthog.com (US
+# Cloud) when empty. The static CSP connect-src is pinned to the US hosts, so a
+# non-US host needs a matching CSP change (src/server/seo-headers.ts).
+# POSTHOG_KEY empty → no script injected and analytics no-ops (fail-open), so
+# dev boots cleanly without a PostHog account.
+POSTHOG_KEY=
+POSTHOG_HOST=https://us.i.posthog.com
+
+# ─── IndexNow verification key (AECI-236 / §20.2) ─────────────────────────────
+# The SSR Worker serves `{INDEXNOW_KEY}.txt` at the site root so search engines
+# can verify host ownership before honoring the IndexNow submissions the API
+# Worker sends on promote. Read at runtime; set as a CI-pushed Wrangler secret:
+#   wrangler secret put INDEXNOW_KEY --env production
+# Must MATCH the API Worker's INDEXNOW_KEY. 8–128 chars [A-Za-z0-9-]. Absent →
+# the key file 404s (graceful no-op) — the expected state until public launch,
+# when it is provisioned alongside ALLOW_INDEXING="true".
+INDEXNOW_KEY=

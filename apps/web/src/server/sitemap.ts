@@ -13,11 +13,13 @@
  *
  * The route wiring (headers, cache control) lives in `server-runtime.ts`.
  *
- * `<lastmod>` is emitted for products / vendors / integrations from their
- * `updated_at`. Taxonomy terms (categories / audiences / phases) expose no
+ * `<lastmod>` is emitted for products / vendors / integration PAIRS from their
+ * `updated_at` (a pair uses the newest `updated_at` across its integrations —
+ * AECI-294). Taxonomy terms (categories / audiences / phases) expose no
  * `updated_at` anywhere in the API, so those entries carry no `<lastmod>` —
  * the field is optional in the sitemap protocol (AECI-63 decision).
  */
+import { defaultIntegrationContext } from '@aeci/shared';
 import type {
   IntegrationListItem,
   PaginatedResponse,
@@ -126,6 +128,13 @@ export async function resolveSitemapEntries(
     { loc: `${base}/categories`, changefreq: 'weekly', priority: 0.6 },
     { loc: `${base}/audiences`, changefreq: 'weekly', priority: 0.6 },
     { loc: `${base}/phases`, changefreq: 'weekly', priority: 0.6 },
+    // Static legal pages (AECI-237). Indexable, rarely change — low priority,
+    // yearly changefreq. Their canonicals are self-referential against the same
+    // serving origin, so sitemap `<loc>` ⇄ page canonical stay consistent.
+    { loc: `${base}/legal/terms`, changefreq: 'yearly', priority: 0.3 },
+    { loc: `${base}/legal/privacy`, changefreq: 'yearly', priority: 0.3 },
+    { loc: `${base}/legal/review-guidelines`, changefreq: 'yearly', priority: 0.3 },
+    { loc: `${base}/legal/listing-accuracy`, changefreq: 'yearly', priority: 0.3 },
   ];
 
   for (const product of products) {
@@ -146,10 +155,29 @@ export async function resolveSitemapEntries(
     });
   }
 
+  // AECI-294 — integrations are consolidated onto the product-PAIR page, so the
+  // sitemap emits ONE canonical URL per unordered product pair (context =
+  // alphabetically-first slug via `defaultIntegrationContext`, matching the page
+  // canonical + the `/integrations/:id` 301) rather than the retired
+  // per-integration `/integrations/:id`. Two products connected by several
+  // mechanisms collapse to a single entry; the most recent `updated_at` across
+  // the pair's integrations wins as `lastmod`.
+  const pairs = new Map<string, { context: string; other: string; lastmod: string }>();
   for (const integration of integrations) {
+    const a = integration.source.slug;
+    const b = integration.target.slug;
+    const context = defaultIntegrationContext(a, b);
+    const other = context === a ? b : a;
+    const key = `${context}__${other}`;
+    const existing = pairs.get(key);
+    if (!existing || integration.updated_at > existing.lastmod) {
+      pairs.set(key, { context, other, lastmod: integration.updated_at });
+    }
+  }
+  for (const { context, other, lastmod } of pairs.values()) {
     entries.push({
-      loc: `${base}/integrations/${integration.id}`,
-      lastmod: integration.updated_at,
+      loc: `${base}/products/${context}/integrations/${other}`,
+      lastmod,
       changefreq: 'weekly',
       priority: 0.6,
     });

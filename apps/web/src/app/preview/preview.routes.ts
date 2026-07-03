@@ -4,9 +4,10 @@ import { Routes } from '@angular/router';
  * Dev-only preview routes for v0.dev → Angular ports.
  *
  * Registered in every Angular build (lazy-loaded — no eager-bundle cost) and
- * blocked at the SSR Worker when `env.ENV === 'production'`. See
- * `apps/web/src/server-runtime.ts` (`isPreviewPath`) for the runtime gate and
- * `docs/design/workflow.md` for the loop these routes participate in.
+ * blocked at the SSR Worker on the public tiers (production + demo,
+ * `isPublicSite`). See `apps/web/src/server-runtime.ts` (`isPreviewPath`) for the
+ * runtime gate and `docs/design/workflow.md` for the loop these routes
+ * participate in.
  *
  * Preview routes are not real product surfaces — they exist so designers and
  * engineers can review ported v0 screens before the corresponding entity-page
@@ -37,5 +38,25 @@ export const previewRoutes: Routes = [
   {
     path: 'home/sections',
     loadComponent: () => import('./home/home-sections-preview').then((m) => m.HomeSectionsPreview),
+  },
+  // AECI-270 — the unified marketing + directory home (AECI-269 direction pass):
+  // the full §4.1 flow with the NEW marketing bands rendered as three live-
+  // toggleable premium concepts, so the PO chooses one before the build children
+  // (AECI-269 2–6) build them.
+  {
+    path: 'unified-home',
+    loadComponent: () =>
+      import('./unified-home/unified-home-preview').then((m) => m.UnifiedHomePreview),
+  },
+  // AECI-289 — the Stage 1.5 integration-redesign prototype: the consolidated
+  // pair page (Layer A, §7) + the data-flow / claim section (Layer B, §8),
+  // rendered as the chosen `b · Flow canvas` direction (PO sign-off 2026-07-01;
+  // the Editorial-ledger + Dense-table exploration concepts were removed) with
+  // orientation-mirror + empty-state toggles. AECI-294/AECI-300 build against it.
+  // Anchor: GitBook (Customer.io exception for the directional flow rail).
+  {
+    path: 'integration-pair',
+    loadComponent: () =>
+      import('./integration-pair/integration-pair-preview').then((m) => m.IntegrationPairPreview),
   },
 ];

@@ -95,7 +95,7 @@ it('rejects body under 50 chars', () => {
 
 Angular component specs run under the `@angular/build:unit-test` builder with the Vitest runner (Angular 21 native). The wiring lives in:
 
-- `apps/web/angular.json` — `test` architect target pointing at `tsconfig.component-spec.json` with `include: ["src/**/*.component.spec.ts"]`
+- `apps/web/angular.json` — `test` architect target pointing at `tsconfig.component-spec.json` with `include: ["src/**/*.component.spec.ts"]` and **`isolate: true`**. The builder defaults `isolate` to `false` (the Karma/Jasmine-style shared environment), which runs every spec in one jsdom — so a spec that mutates a global (`window.history`/`location`, `document.referrer`) can pollute another file and cause cross-file CI flakes. We override it to `true` so each spec file gets a fresh environment (this restores plain Vitest's default). Prefer mocking the indirection that reads a global over mutating the global directly regardless (see `waitlist-welcome.component.spec.ts`).
 - `apps/web/tsconfig.component-spec.json` — dedicated tsconfig so only Angular specs are compiled (the wider `tsconfig.spec.json` also includes server vitest specs which would fail Angular's strict compile)
 - `apps/web/package.json` — `test:component` script runs `ng test`; `test:unit` runs server vitest first, then `test:component`
 
@@ -142,12 +142,12 @@ Use Miniflare for integration tests. For pure handler logic, extract and test as
 - Use async/await; never use done callbacks
 - Time-dependent code uses `vi.useFakeTimers()` — never real `setTimeout` in tests
 
-### Prisma queries
+### Drizzle/D1 queries
 
-- Pure transformations of Prisma results: unit test with a mocked Prisma client
-- The query itself: integration test with a real DB (covered in `TESTING_STRATEGY.md` integration testing — not unit tests)
+- Pure transformations of query results: unit test with a mocked Drizzle client (`getDb` double)
+- The query itself: integration test against a local D1 (covered in `TESTING_STRATEGY.md` integration testing — not unit tests)
 
-Don't mock Prisma deeply. Mock the specific call you're hitting and assert on the call's input.
+Don't mock the Drizzle client deeply. Mock the specific call you're hitting (`db.query.*`, `db.select`, `db.batch`) and assert on the call's input.
 
 ### Workflow state machines
 
@@ -180,7 +180,7 @@ Any change that triggers `invalidateForEntity()` must include a test asserting:
 
 - Configuration files (`.config.ts`)
 - Type-only files (`.d.ts`, `types.ts`)
-- Auto-generated code (Prisma client output)
+- Generated migration SQL (drizzle-kit output under `apps/api/migrations/`)
 - Tailwind class names — visual regression tests cover styling
 - Spartan UI component internals
 - Framework behavior (Angular's change detection, Vitest itself, Zod's parser)
@@ -190,7 +190,7 @@ Any change that triggers `invalidateForEntity()` must include a test asserting:
 
 ## Mocking rules
 
-**Mock at the boundary.** External services (Algolia, Loops, Datadog, Linear), the network layer, the database connection. Not internal helpers.
+**Mock at the boundary.** External services (Algolia, Resend, Datadog, Linear), the network layer, the database connection. Not internal helpers.
 
 **Never mock:**
 

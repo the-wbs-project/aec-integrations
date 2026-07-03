@@ -1,7 +1,7 @@
 /**
  * Unit tests for the Phase 3.7 Algolia index-drift core (AECI-140). Fully
- * fake-driven: a recording Prisma `.count()` stub and a recording Algolia
- * counter prove the count→compare→emit pipeline without touching Postgres or
+ * fake-driven: a recording DB `.count()` stub and a recording Algolia counter
+ * prove the count→compare→emit pipeline without touching the database or
  * Algolia. Asserts the promoted-only filters (including the transitive
  * integration filter), per-locale index naming, the always-emit gauge, the
  * drift sign, the `onDrift` hook, and the `createAlgoliaCounter` fetch contract.
@@ -14,20 +14,20 @@ import {
   findAlgoliaIndexDrift,
   reportAlgoliaDrift,
   type AlgoliaIndexDrift,
-  type DriftCountPrisma,
+  type DriftCount,
 } from './algolia-drift';
 
 // ── Recording fakes ──────────────────────────────────────────────────────────
 
 type CountArgs = { where: unknown };
 
-function makePrisma(counts: { products: number; vendors: number; integrations: number }) {
+function makeDriftCount(counts: { products: number; vendors: number; integrations: number }) {
   const calls: Record<'product' | 'vendor' | 'integration', CountArgs[]> = {
     product: [],
     vendor: [],
     integration: [],
   };
-  const prisma: DriftCountPrisma = {
+  const db: DriftCount = {
     product: {
       async count(args) {
         calls.product.push(args);
@@ -47,7 +47,7 @@ function makePrisma(counts: { products: number; vendors: number; integrations: n
       },
     },
   };
-  return { prisma, calls };
+  return { db, calls };
 }
 
 function makeCounter(byIndex: Record<string, number>) {
@@ -71,14 +71,14 @@ const silentLog = { log: () => undefined, warn: () => undefined };
 
 describe('findAlgoliaIndexDrift', () => {
   it('counts promoted rows vs index objects per entity (en-US/staging) with the right filters', async () => {
-    const { prisma, calls } = makePrisma({ products: 10, vendors: 5, integrations: 3 });
+    const { db, calls } = makeDriftCount({ products: 10, vendors: 5, integrations: 3 });
     const { counter, queried } = makeCounter({
       staging_products: 10,
       staging_vendors: 4,
       staging_integrations: 3,
     });
 
-    const rows = await findAlgoliaIndexDrift({ prisma, algolia: counter }, { env: 'staging' });
+    const rows = await findAlgoliaIndexDrift({ db, algolia: counter }, { env: 'staging' });
 
     // Promoted-only filters — products/vendors direct, integrations transitive.
     expect(calls.product[0]).toEqual({ where: { promotionStatus: 'promoted' } });
@@ -94,12 +94,12 @@ describe('findAlgoliaIndexDrift', () => {
     expect(queried).toEqual(['staging_products', 'staging_vendors', 'staging_integrations']);
 
     expect(rows).toEqual<AlgoliaIndexDrift[]>([
-      { entity: 'products', indexName: 'staging_products', supabase: 10, algolia: 10, drift: 0 },
-      { entity: 'vendors', indexName: 'staging_vendors', supabase: 5, algolia: 4, drift: 1 },
+      { entity: 'products', indexName: 'staging_products', database: 10, algolia: 10, drift: 0 },
+      { entity: 'vendors', indexName: 'staging_vendors', database: 5, algolia: 4, drift: 1 },
       {
         entity: 'integrations',
         indexName: 'staging_integrations',
-        supabase: 3,
+        database: 3,
         algolia: 3,
         drift: 0,
       },
@@ -107,27 +107,27 @@ describe('findAlgoliaIndexDrift', () => {
   });
 
   it('reports negative drift when an index holds orphan objects', async () => {
-    const { prisma } = makePrisma({ products: 2, vendors: 0, integrations: 0 });
+    const { db } = makeDriftCount({ products: 2, vendors: 0, integrations: 0 });
     const { counter } = makeCounter({
       production_products: 7,
       production_vendors: 0,
       production_integrations: 0,
     });
 
-    const rows = await findAlgoliaIndexDrift({ prisma, algolia: counter }, { env: 'production' });
+    const rows = await findAlgoliaIndexDrift({ db, algolia: counter }, { env: 'production' });
 
-    expect(rows[0]).toMatchObject({ supabase: 2, algolia: 7, drift: -5 });
+    expect(rows[0]).toMatchObject({ database: 2, algolia: 7, drift: -5 });
   });
 
   it('targets per-locale index names for a non-default locale (§7.6)', async () => {
-    const { prisma } = makePrisma({ products: 1, vendors: 1, integrations: 0 });
+    const { db } = makeDriftCount({ products: 1, vendors: 1, integrations: 0 });
     const { counter, queried } = makeCounter({
       staging_products_es: 1,
       staging_vendors_es: 1,
       staging_integrations_es: 0,
     });
 
-    await findAlgoliaIndexDrift({ prisma, algolia: counter }, { env: 'staging', locale: 'es' });
+    await findAlgoliaIndexDrift({ db, algolia: counter }, { env: 'staging', locale: 'es' });
 
     expect(queried).toEqual([
       'staging_products_es',
@@ -141,7 +141,7 @@ describe('findAlgoliaIndexDrift', () => {
 
 describe('reportAlgoliaDrift', () => {
   it('emits a gauge per entity (always) and does not fire onDrift when clean', async () => {
-    const { prisma } = makePrisma({ products: 3, vendors: 2, integrations: 1 });
+    const { db } = makeDriftCount({ products: 3, vendors: 2, integrations: 1 });
     const { counter } = makeCounter({
       staging_products: 3,
       staging_vendors: 2,
@@ -151,7 +151,7 @@ describe('reportAlgoliaDrift', () => {
     const onDrift = vi.fn();
 
     await reportAlgoliaDrift(
-      { prisma, algolia: counter, emitGauge: (r) => gauges.push(r), onDrift, log: silentLog },
+      { db, algolia: counter, emitGauge: (r) => gauges.push(r), onDrift, log: silentLog },
       { env: 'staging' },
     );
 
@@ -161,7 +161,7 @@ describe('reportAlgoliaDrift', () => {
   });
 
   it('fires onDrift with only the drifted rows when indexes mismatch', async () => {
-    const { prisma } = makePrisma({ products: 3, vendors: 2, integrations: 9 });
+    const { db } = makeDriftCount({ products: 3, vendors: 2, integrations: 9 });
     const { counter } = makeCounter({
       staging_products: 3,
       staging_vendors: 0,
@@ -171,7 +171,7 @@ describe('reportAlgoliaDrift', () => {
     const onDrift = vi.fn();
 
     await reportAlgoliaDrift(
-      { prisma, algolia: counter, emitGauge: (r) => gauges.push(r), onDrift, log: silentLog },
+      { db, algolia: counter, emitGauge: (r) => gauges.push(r), onDrift, log: silentLog },
       { env: 'staging' },
     );
 

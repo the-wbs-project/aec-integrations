@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { EntityRefSchema, PromotePayloadSchema } from './promote';
+import {
+  EntityRefSchema,
+  PromoteAttestationSchema,
+  PromoteClaimSchema,
+  PromotePayloadSchema,
+} from './promote';
 
 const uuid = '00000001-0000-4000-8000-000000000000';
 
@@ -115,5 +120,122 @@ describe('PromotePayloadSchema', () => {
       ],
     };
     expect(PromotePayloadSchema.safeParse(ok).success).toBe(true);
+  });
+});
+
+describe('PromoteAttestationSchema', () => {
+  it('accepts each attestation source and requires asserted', () => {
+    for (const source of ['aeci', 'vendor_a', 'vendor_b'] as const) {
+      expect(PromoteAttestationSchema.safeParse({ source, asserted: true }).success).toBe(true);
+    }
+    // `asserted` is required and must be a boolean.
+    expect(PromoteAttestationSchema.safeParse({ source: 'aeci' }).success).toBe(false);
+    expect(PromoteAttestationSchema.safeParse({ source: 'aeci', asserted: 'yes' }).success).toBe(
+      false,
+    );
+  });
+
+  it('rejects an unknown source', () => {
+    expect(PromoteAttestationSchema.safeParse({ source: 'curator', asserted: true }).success).toBe(
+      false,
+    );
+  });
+
+  it('accepts the dormant introducedAt / deprecatedAt / note fields', () => {
+    const parsed = PromoteAttestationSchema.parse({
+      source: 'aeci',
+      asserted: true,
+      introducedAt: '2026-01-01',
+      deprecatedAt: null,
+      note: 'seeded by AECi',
+    });
+    expect(parsed.introducedAt).toBe('2026-01-01');
+    expect(parsed.note).toBe('seeded by AECi');
+  });
+});
+
+describe('PromoteClaimSchema', () => {
+  it('accepts each stored direction', () => {
+    for (const direction of ['a_to_b', 'b_to_a', 'both'] as const) {
+      expect(PromoteClaimSchema.safeParse({ dataObject: 'rfis', direction }).success).toBe(true);
+    }
+  });
+
+  it('rejects an invalid direction (not the context-relative view)', () => {
+    // `inbound`/`outbound` are the *translated* view — never accepted on the wire.
+    expect(PromoteClaimSchema.safeParse({ dataObject: 'rfis', direction: 'inbound' }).success).toBe(
+      false,
+    );
+    expect(PromoteClaimSchema.safeParse({ dataObject: 'rfis', direction: 'a2b' }).success).toBe(
+      false,
+    );
+  });
+
+  it('requires a non-empty dataObject', () => {
+    expect(PromoteClaimSchema.safeParse({ dataObject: '', direction: 'both' }).success).toBe(false);
+    expect(PromoteClaimSchema.safeParse({ direction: 'both' }).success).toBe(false);
+  });
+
+  it('defaults attestations to an empty array when omitted', () => {
+    const parsed = PromoteClaimSchema.parse({ dataObject: 'Models', direction: 'a_to_b' });
+    expect(parsed.attestations).toEqual([]);
+  });
+});
+
+describe('PromotePayloadSchema — claims[] round-trip', () => {
+  it('preserves nested claims through a parse round-trip', () => {
+    const payload = {
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid },
+          claims: [
+            {
+              dataObject: 'rfis',
+              direction: 'a_to_b',
+              attestations: [{ source: 'aeci', asserted: true, note: 'seeded' }],
+            },
+            { dataObject: 'Models', direction: 'both' },
+          ],
+        },
+      ],
+    };
+    const parsed = PromotePayloadSchema.parse(payload);
+    const claims = parsed.integrations[0].claims;
+    expect(claims).toHaveLength(2);
+    expect(claims[0]).toEqual({
+      dataObject: 'rfis',
+      direction: 'a_to_b',
+      attestations: [{ source: 'aeci', asserted: true, note: 'seeded' }],
+    });
+    // Second claim's attestations defaulted to [].
+    expect(claims[1].attestations).toEqual([]);
+  });
+
+  it('defaults claims to [] for an integration that omits them (backwards compat)', () => {
+    const parsed = PromotePayloadSchema.parse({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: uuid } },
+      ],
+    });
+    expect(parsed.integrations[0].claims).toEqual([]);
+  });
+
+  it('rejects a claim carrying an invalid direction inside the payload', () => {
+    const bad = {
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid },
+          claims: [{ dataObject: 'rfis', direction: 'sideways' }],
+        },
+      ],
+    };
+    expect(PromotePayloadSchema.safeParse(bad).success).toBe(false);
   });
 });

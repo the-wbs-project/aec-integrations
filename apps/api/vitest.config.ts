@@ -13,16 +13,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**/*.ts'],
-      exclude: [
-        'src/index.ts',
-        'src/env.ts',
-        // Thin factory — exercises Prisma + Accelerate at Worker runtime,
-        // mocked at the handler boundary per DATABASE_SCHEMA.md §1a.
-        'src/prisma.ts',
-        'src/test/**',
-        '**/*.spec.ts',
-        'prisma/**',
-      ],
+      exclude: ['src/index.ts', 'src/env.ts', 'src/test/**', '**/*.spec.ts'],
       thresholds: {
         lines: 70,
         branches: 60,

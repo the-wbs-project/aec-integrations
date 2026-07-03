@@ -1,0 +1,24 @@
+# apps/datatool local secrets (copy to .dev.vars; gitignored). All optional.
+#
+# A deployed datatool sits behind Cloudflare Access. Locally (`pnpm --filter
+# @aeci/datatool dev`) there's no Access, so set TOOL_TOKEN and paste it into the
+# UI's "Tool token" field (or send it as `Authorization: Bearer <token>`).
+#
+# NOTE: local `wrangler dev` binds LOCAL (empty) SQLite copies, not the real
+# remote D1s — it's for UI/route iteration only. Real env→env operations run
+# against the DEPLOYED worker.
+
+# Shared-secret bearer that authenticates the API routes outside Access.
+TOOL_TOKEN="choose-a-long-random-string"
+
+# Algolia (post-write reindex). SINGLE shared values across every env — one Algolia
+# app, and its admin key reaches all `{env}_*` indexes (only the index PREFIX is
+# per-env, and that's derived from the target, not a key). Same values the apps/api
+# / apps/web Workers get from the un-suffixed ALGOLIA_* GitHub secrets.
+ALGOLIA_APP_ID=""
+ALGOLIA_ADMIN_KEY=""
+
+# Cloudflare edge-cache purge (post-write). SINGLE shared token + zone id —
+# staging/demo/production all live on the one aecintegrations.com zone.
+CF_PURGE_API_TOKEN=""
+CF_ZONE_ID=""

@@ -79,7 +79,7 @@ Useful follow-up prompts after the first generation are typically about *visual 
 
 Don't ask v0 to design these. They're either tied to our infra or are Phase 2+ concerns.
 
-- Real Supabase / Prisma data binding.
+- Real data binding (the API Worker reading Cloudflare D1 via Drizzle).
 - Routes beyond the single preview entry — no app shell, no breadcrumbs unless they're part of the visual brief.
 - Auth flows, sign-in screens, profile menus.
 - i18n machinery — strings will be wrapped in the port.

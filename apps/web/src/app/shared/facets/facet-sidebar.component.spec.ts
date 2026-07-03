@@ -285,6 +285,66 @@ describe('FacetSidebar (AECI-143)', () => {
     httpMock.verify();
   });
 
+  it('mobile: the facet panel starts collapsed and the trigger toggles it', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(facets({ categories: [term('c1', 'Cat One', 3)] }));
+    await settle();
+    fixture.detectChanges();
+
+    const root = fixture.nativeElement as HTMLElement;
+    const panel = root.querySelector('#aec-facet-panel') as HTMLElement;
+    const trigger = root.querySelector(
+      'button[aria-controls="aec-facet-panel"]',
+    ) as HTMLButtonElement;
+
+    // Collapsed by default: aria-expanded=false and the panel carries `hidden`.
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+    expect(panel.classList.contains('hidden')).toBe(true);
+
+    trigger.click();
+    await settle();
+    fixture.detectChanges();
+
+    // Expanded: aria-expanded=true and `hidden` is dropped (flex on mobile).
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(panel.classList.contains('hidden')).toBe(false);
+    httpMock.verify();
+  });
+
+  it('mobile trigger shows a badge with the active cross-filter count', async () => {
+    const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
+    await router.navigateByUrl('/products?category_id=c1,c2&audience_id=a1');
+    const fixture = TestBed.createComponent(FacetSidebarHost);
+    fixture.detectChanges();
+
+    httpMock
+      .expectOne((r) => r.url === FACETS_URL)
+      .flush(
+        facets({
+          categories: [term('c1', 'Cat One', 3), term('c2', 'Cat Two', 2)],
+          audiences: [term('a1', 'Aud One', 1)],
+        }),
+      );
+    await settle();
+    fixture.detectChanges();
+
+    const trigger = (fixture.nativeElement as HTMLElement).querySelector(
+      'button[aria-controls="aec-facet-panel"]',
+    ) as HTMLButtonElement;
+    // Three selected terms: c1, c2, a1.
+    expect(trigger.textContent).toContain('3');
+
+    fixture.detectChanges();
+    drain(httpMock);
+    httpMock.verify();
+  });
+
   it('locks (and hides) its own dimension and sends the locked id', async () => {
     const { httpMock, router } = createIndexSetup(FacetSidebarHost, 'products');
     await router.navigateByUrl('/products');

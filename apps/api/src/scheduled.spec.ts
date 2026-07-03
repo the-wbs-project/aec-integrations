@@ -8,9 +8,11 @@
  * `retry()`s on an unexpected throw.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { products, reviews } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
+import { makeTestDb, type TestDb } from './test/d1';
 
 vi.mock('./datadog', () => ({
   logToDatadog: vi.fn(),
@@ -22,15 +24,27 @@ vi.mock('./lib/algolia-sync', () => ({ runDailySync: vi.fn() }));
 vi.mock('./lib/algolia-drift', () => ({
   createAlgoliaCounter: vi.fn(() => ({})),
   reportAlgoliaDrift: vi.fn(),
+  // The data-quality job (AECI-241) reuses this for its drift check; default to a
+  // clean (empty) drift so the job runs without an Algolia round-trip.
+  findAlgoliaIndexDrift: vi.fn(() => Promise.resolve([])),
 }));
 vi.mock('./lib/home-stats', () => ({ runHomeStats: vi.fn() }));
-vi.mock('./prisma', () => ({ getPrisma: vi.fn(() => ({})) }));
+vi.mock('./lib/reconciliation-sweep', () => ({ runReconciliationSweep: vi.fn() }));
+// The WAF poll (AECI-262) reaches Cloudflare's GraphQL Analytics API; mock the
+// shared transport so the dispatch tests assert orchestration without a network call.
+vi.mock('@aeci/shared/cloudflare-analytics', () => ({ fetchWafFirewallEvents: vi.fn() }));
+// The inline jobs (moderation snapshot, drift counter) call `getDb`; mock it to
+// hand back the in-memory D1 harness so the real Drizzle reads run on real SQL.
+vi.mock('./db/client', () => ({ getDb: vi.fn() }));
 
+import { fetchWafFirewallEvents } from '@aeci/shared/cloudflare-analytics';
+
+import { getDb } from './db/client';
 import { logToDatadog, submitCount, submitDistribution, submitGauge } from './datadog';
 import { reportAlgoliaDrift } from './lib/algolia-drift';
 import { runDailySync } from './lib/algolia-sync';
 import { runHomeStats } from './lib/home-stats';
-import { getPrisma } from './prisma';
+import { runReconciliationSweep } from './lib/reconciliation-sweep';
 import { normalizeJobMessage, queue, scheduled } from './scheduled';
 
 // Must stay byte-equal to the constants / `wrangler.jsonc` triggers.
@@ -38,6 +52,9 @@ const MODERATION_CRON = '0 6 * * *';
 const STATS_CRON = '0 7 * * *';
 const SYNC_CRON = '0 8 * * *';
 const DRIFT_CRON = '0 9 * * *';
+const RECONCILE_CRON = '*/15 * * * *';
+const DATA_QUALITY_CRON = '0 4 * * *';
+const WAF_CRON = '0 * * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -73,14 +90,17 @@ function makeBatch(job: ScheduledJob, queueName: string) {
   return makeBatchFromBody({ job, trigger: 'cron', enqueuedAt: 'x' }, queueName);
 }
 
-beforeEach(() => {
+let t: TestDb;
+beforeEach(async () => {
   vi.clearAllMocks();
   // runAlgoliaSync reads `result.entities` after the call; default to a clean run.
   vi.mocked(runDailySync).mockResolvedValue({ entities: [] } as never);
   // runHomeStatsJob reads `result.keys` after the call; default to a clean run.
   vi.mocked(runHomeStats).mockResolvedValue({ keys: [] } as never);
-  vi.mocked(getPrisma).mockReturnValue({} as never);
+  t = await makeTestDb();
+  vi.mocked(getDb).mockReturnValue(t.dbCtx);
 });
+afterEach(() => t.dispose());
 
 describe('scheduled (cron producer)', () => {
   it('enqueues the sync job when the queue binding is present (does not run inline)', async () => {
@@ -114,6 +134,24 @@ describe('scheduled (cron producer)', () => {
     expect(runHomeStats).not.toHaveBeenCalled();
   });
 
+  it('enqueues the reconcile job onto its own queue every 15 min (AECI-214)', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ RECONCILE_QUEUE: { send } as never });
+
+    await scheduled(cronController(RECONCILE_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'reconcile', trigger: 'cron' }),
+    );
+    expect(runReconciliationSweep).not.toHaveBeenCalled();
+  });
+
+  it('runs the reconcile sweep inline when no RECONCILE_QUEUE binding is present', async () => {
+    await scheduled(cronController(RECONCILE_CRON), makeEnv(), ctx);
+
+    expect(runReconciliationSweep).toHaveBeenCalledTimes(1);
+  });
+
   it('runs the job inline when no queue binding is present (local/preview)', async () => {
     await scheduled(cronController(SYNC_CRON), makeEnv(), ctx);
 
@@ -127,11 +165,25 @@ describe('scheduled (cron producer)', () => {
   });
 
   it('snapshots the moderation queue inline on the 06:00 cron (queue-less) and emits its gauges', async () => {
-    const count = vi.fn().mockResolvedValue(3);
-    const findFirst = vi
-      .fn()
-      .mockResolvedValue({ createdAt: new Date('2026-06-10T06:00:00.000Z') });
-    vi.mocked(getPrisma).mockReturnValue({ review: { count, findFirst } } as never);
+    // Seed 3 pending reviews (one older) on the harness — the real Drizzle reads run.
+    await t.db.insert(products).values({ id: 'p1', slug: 'p1', name: 'P1' });
+    const review = (id: string, createdAt: string) => ({
+      id,
+      productId: 'p1',
+      ratingOverall: 5,
+      ratingOnboarding: 5,
+      title: 't',
+      body: 'b',
+      status: 'pending',
+      createdAt,
+    });
+    await t.db
+      .insert(reviews)
+      .values([
+        review('r1', '2026-06-10T06:00:00.000Z'),
+        review('r2', '2026-06-11T06:00:00.000Z'),
+        review('r3', '2026-06-12T06:00:00.000Z'),
+      ]);
 
     // Even with every queue bound, moderation has no producer → always inline.
     const send = vi.fn().mockResolvedValue(undefined);
@@ -144,12 +196,57 @@ describe('scheduled (cron producer)', () => {
     await scheduled(cronController(MODERATION_CRON), env, ctx);
 
     expect(send).not.toHaveBeenCalled();
-    expect(count).toHaveBeenCalledTimes(1);
-    const gauges = vi.mocked(submitGauge).mock.calls.map((c) => c[3]);
-    expect(gauges).toEqual([
+    const gauges = vi.mocked(submitGauge).mock.calls;
+    const names = gauges.map((c) => c[3]);
+    expect(names).toEqual([
       'aeci.moderation.queue_depth',
       'aeci.moderation.queue_oldest_age_hours',
     ]);
+    // Depth gauge reflects the 3 seeded pending reviews.
+    expect(gauges[0]![4]).toBe(3);
+  });
+
+  it('enqueues the data-quality job onto its own queue (AECI-241)', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({ DATA_QUALITY_QUEUE: { send } as never });
+
+    await scheduled(cronController(DATA_QUALITY_CRON), env, ctx);
+
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({ job: 'data_quality', trigger: 'cron' }),
+    );
+    // Did not run inline: no per-run heartbeat was emitted.
+    expect(submitCount).not.toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.job',
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
+  it('runs the data-quality job inline when no DATA_QUALITY_QUEUE binding is present', async () => {
+    // Real checks/email run against the in-memory D1 (empty → all clean) and the
+    // fail-open email skips with no RESEND_API_KEY — assert the run heartbeat fired.
+    await scheduled(cronController(DATA_QUALITY_CRON), makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.job',
+      1,
+      ['trigger:cron', 'outcome:success'],
+    );
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.email',
+      1,
+      ['outcome:skipped'],
+    );
   });
 
   it('falls back to an inline run and logs to Datadog when queue.send rejects', async () => {
@@ -165,6 +262,102 @@ describe('scheduled (cron producer)', () => {
       env,
       expect.anything(),
       expect.objectContaining({ level: 'error', message: 'aeci.algolia.sync.enqueue_failed' }),
+    );
+  });
+
+  it('runs the WAF poll inline (queue-less) and skips when no analytics token is set', async () => {
+    // Even with every queue bound, waf has no producer → always inline; and with
+    // no CF_ANALYTICS_API_TOKEN it no-ops with the skip heartbeat (AECI-262).
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({
+      ALGOLIA_SYNC_QUEUE: { send } as never,
+      STATS_QUEUE: { send } as never,
+    });
+
+    await scheduled(cronController(WAF_CRON), env, ctx);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(fetchWafFirewallEvents).not.toHaveBeenCalled();
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.poll',
+      1,
+      ['trigger:cron', 'outcome:skipped_no_creds'],
+    );
+  });
+
+  it('polls the previous hour and emits the blocked count per mitigation group (AECI-262)', async () => {
+    vi.mocked(fetchWafFirewallEvents).mockResolvedValue({
+      ok: true,
+      truncated: false,
+      groups: [
+        {
+          count: 9,
+          action: 'block',
+          source: 'ratelimit',
+          ruleId: 'rule-a',
+          host: 'demo.aecintegrations.com',
+        },
+      ],
+    });
+    const env = makeEnv({
+      CF_ANALYTICS_API_TOKEN: 'cf-analytics',
+      CF_ZONE_ID: 'zone-1',
+      PUBLIC_SITE_URL: 'https://demo.aecintegrations.com',
+    });
+
+    await scheduled(cronController(WAF_CRON), env, ctx);
+
+    expect(fetchWafFirewallEvents).toHaveBeenCalledTimes(1);
+    // host-scoped to this env's PUBLIC_SITE_URL host (shared-zone de-dup).
+    expect(vi.mocked(fetchWafFirewallEvents).mock.calls[0]![2]).toMatchObject({
+      host: 'demo.aecintegrations.com',
+    });
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.ratelimit.blocked',
+      9,
+      ['rule:rule-a', 'action:block', 'host:demo.aecintegrations.com', 'source:ratelimit'],
+    );
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.poll',
+      1,
+      ['trigger:cron', 'outcome:ok'],
+    );
+  });
+
+  it('emits the failure heartbeat when the Cloudflare query fails (AECI-262)', async () => {
+    vi.mocked(fetchWafFirewallEvents).mockResolvedValue({ ok: false, message: 'bad token' });
+    const env = makeEnv({
+      CF_ANALYTICS_API_TOKEN: 'cf-analytics',
+      CF_ZONE_ID: 'zone-1',
+      PUBLIC_SITE_URL: 'https://demo.aecintegrations.com',
+    });
+
+    await scheduled(cronController(WAF_CRON), env, ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.poll',
+      1,
+      ['trigger:cron', 'outcome:failed'],
+    );
+    expect(submitCount).not.toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.waf.ratelimit.blocked',
+      expect.anything(),
+      expect.anything(),
     );
   });
 });
@@ -199,9 +392,9 @@ describe('queue (consumer)', () => {
     expect(retry).not.toHaveBeenCalled();
   });
 
-  it('retry()s when the job throws unexpectedly (e.g. Prisma init)', async () => {
-    vi.mocked(getPrisma).mockImplementation(() => {
-      throw new Error('prisma init failed');
+  it('retry()s when the job throws unexpectedly (e.g. a missing D1 binding)', async () => {
+    vi.mocked(getDb).mockImplementation(() => {
+      throw new Error('D1 binding `DB` is not configured');
     });
     const { batch, ack, retry } = makeBatch('sync', 'aeci-algolia-sync-staging');
 
@@ -217,6 +410,33 @@ describe('queue (consumer)', () => {
     await queue(batch, makeEnv(), ctx);
 
     expect(runHomeStats).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('ack()s a reconcile job message and runs the reconciliation sweep (AECI-214)', async () => {
+    const { batch, ack, retry } = makeBatch('reconcile', 'aeci-reconcile-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(runReconciliationSweep).toHaveBeenCalledTimes(1);
+    expect(ack).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+  });
+
+  it('ack()s a data-quality job message and emits its run heartbeat (AECI-241)', async () => {
+    const { batch, ack, retry } = makeBatch('data_quality', 'aeci-data-quality-staging');
+
+    await queue(batch, makeEnv(), ctx);
+
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.data_quality.job',
+      1,
+      ['trigger:cron', 'outcome:success'],
+    );
     expect(ack).toHaveBeenCalledTimes(1);
     expect(retry).not.toHaveBeenCalled();
   });

@@ -106,7 +106,7 @@ Working reference: `apps/web/src/app/demo/spartan-demo.ts` shows BrnButton + Brn
 
 ## 5. What stays out of the port
 
-- **Real data binding.** Preview routes use hardcoded sample data inside the component file. Wire to Supabase/Prisma in the Phase 2 entity-page issue, not here.
+- **Real data binding.** Preview routes use hardcoded sample data inside the component file. Wire to the live data layer (the API Worker over Cloudflare D1) in the entity-page issue, not here.
 - **Auth, error states, loading states.** Unless v0 explicitly designed an error or empty state and that's part of the brief, skip it — Phase 2 concerns.
 - **Routes beyond the preview entry.** Don't add nav, breadcrumbs, or back buttons unless they're part of the v0 reference.
 - **Analytics, observability, server actions.** Out of scope for preview routes.

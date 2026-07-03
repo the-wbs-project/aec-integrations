@@ -43,4 +43,18 @@ echo "▶ dev:agent → SSR http://localhost:${WEB}  ·  API :${API} (proxied vi
 
 export AECI_WEB_PORT="$WEB"
 export AECI_API_PORT="$API"
+
+# Rebuild the web bundle + clear the local SSR cache before booting. `dev:preview`
+# (what `dev:bound` runs) serves a *prebuilt* `dist/`, and the content `.md` files
+# are inlined into that bundle at build time — so a stale `dist/` silently serves
+# old content on every launch. Rebuilding here makes the launch reflect current
+# source; clearing `.wrangler/state/v3/cache` drops persisted SSR edge-cache
+# entries (that dir is Cache-API only — no D1/KV lives there).
+# Set DEV_SKIP_BUILD=1 for a fast restart when the bundle is already current.
+if [ -z "${DEV_SKIP_BUILD:-}" ]; then
+  echo "▶ dev:agent — rebuilding web bundle… (DEV_SKIP_BUILD=1 to skip)"
+  pnpm --filter @aeci/web build
+fi
+rm -rf apps/web/.wrangler/state/v3/cache
+
 exec pnpm dev:bound

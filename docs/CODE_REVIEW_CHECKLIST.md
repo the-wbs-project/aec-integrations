@@ -31,7 +31,7 @@ The most distinctive concern for this codebase. Code that diverges from the spec
 - If the diff modifies behavior covered by a spec section, does the spec get updated in the same PR?
 - If the PR adds or renames a `docs/*.md` (or root doc) that governs work, is it added to the `CLAUDE.md` source-of-truth table in the same PR? (No orphaned governing docs — see AECI-106.)
 - Does the code use the entity types, error codes, and field names defined in `API_CONTRACTS.md` and `DATABASE_SCHEMA.md`?
-- Does the code respect the constraints in `CLAUDE.md` (Prisma uses `@prisma/extension-accelerate` and `@prisma/client/edge`; no `@prisma/adapter-pg-worker`; cacheable SSR responses set `Cache-Tag` via the AECI-56 helper; zoneless; both themes always; no pay-for-placement; i18n strings wrapped)?
+- Does the code respect the constraints in `CLAUDE.md` (DB access is Drizzle over the D1 `DB` binding via `getDb(env)` — no Prisma, no Accelerate, no pg adapter; atomic writes use `db.batch([...])`; cacheable SSR responses set `Cache-Tag` via the AECI-56 helper; zoneless; light theme only; no pay-for-placement; i18n strings wrapped)?
 
 If the spec is wrong, that's also a defect — flag it. Do not silently work around it.
 
@@ -57,7 +57,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Webhook handlers without HMAC signature verification
 - Secrets in code (API keys, tokens, passwords) — even commented out
 - `.dev.vars` or `.env` files added to commits
-- SQL constructed via string concatenation (Prisma's raw queries should use parameterized templates)
+- SQL constructed via string concatenation (use Drizzle's query builder or parameterized `sql` templates, never interpolation)
 - Banned-user enforcement missing on write paths
 
 ### Authorization model
@@ -86,15 +86,15 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Silent catch blocks: `try { ... } catch {}` with no logging or rethrow
 - Errors caught but the original error context lost (`throw new Error('failed')` loses the cause)
 - API or Worker responses that return 200 with an error payload instead of the right HTTP status code
-- No fallback when an external dependency (Algolia, Linear, Loops) fails
+- No fallback when an external dependency (Algolia, Linear, Resend) fails
 - Errors thrown from `ctx.waitUntil()` work that silently fail and never reach Datadog
 - New code path that can throw but doesn't include the error in audit log
 
 ### Data integrity and audit
 
 - Write path that should call `appendAuditLog()` but doesn't
-- Write path that mutates an entity and writes `audit_log` outside a `prisma.$transaction(...)` — both must commit together (see `DATABASE_SCHEMA.md` §18)
-- Cache purge (`POST /admin/purge`) fired inside a `prisma.$transaction(...)` instead of after it commits, or not wrapped in `ctx.waitUntil()` on the response path
+- Write path that mutates an entity and writes `audit_log` outside the **same** `db.batch([...])` — both must commit together (see `DATABASE_SCHEMA.md` §18)
+- Cache purge (`POST /admin/purge`) fired inside the `db.batch([...])` instead of after it commits, or not wrapped in `ctx.waitUntil()` on the response path
 - Write path that affects cached pages but doesn't purge the relevant cache tags (see `CACHE_STRATEGY.md` §5)
 - Migration that's not forward-only safe (drops a column the old code still reads)
 - Schema change without corresponding migration file
@@ -183,8 +183,8 @@ Be especially vigilant about these in AI-authored PRs. They are easy to miss bec
 - **Copy-paste from outside this codebase.** Style, naming, or patterns that don't match the rest of the codebase signal copy-paste from training data — review extra carefully.
 - **Comments that confidently describe wrong behavior.** "// This handles the bot-score check" on code that doesn't check bot score.
 - **Stub or placeholder code committed.** `// TODO: implement actual logic` left in alongside passing tests — the tests are testing the stub, not real behavior.
-- **Prisma client constructed incorrectly for Workers.** Missing `withAccelerate()` extension, or imported from `@prisma/client` instead of `@prisma/client/edge`. Both are silently wrong on Workers and may even pass type-check. See `DATABASE_SCHEMA.md` §1a.
-- **Module-level Prisma client.** Constructed once at import time and reused across requests. Should be per-request via a `prismaFor: PrismaFactory = getPrisma` factory injected into the handler. Breaks request isolation and testability.
+- **DB client reached by any path other than the D1 binding.** Any reach for Prisma / Accelerate / a pg adapter / a `DATABASE_URL` is wrong — DB access is Drizzle over the native `DB` binding via `getDb(env)` (ADR 0016, AECI-278). See `DATABASE_SCHEMA.md` §1a.
+- **Module-level DB client.** Constructed once at import time and reused across requests. Should be per-request via the `getDb(env)` factory injected into the handler. Breaks request isolation and testability.
 - **Angular-decorator carryover.** `@HostBinding` / `@HostListener` / `@Input` / `@Output` / `ngClass` / `ngStyle` / `*ngIf` / `*ngFor` / `*ngSwitch` / `[(ngModel)]` in a form context — all banned. Use the `host: { ... }` metadata object, `input()` / `output()` / `model()`, `[class.X]` / `[style.X]` bindings, `@if` / `@for` / `@switch`, and reactive forms. `pnpm lint` catches most of these; if one slips past lint, flag it as a BLOCKER. See `ANGULAR_STYLE_GUIDE.md` for the full enforcement matrix.
 
 ---
@@ -239,7 +239,7 @@ If issues are found:
 
 🔴 BLOCKERS
 - `apps/api/src/reviews/submit.ts:42` — Missing auth check. Anonymous users can POST and create reviews. Section §5.1 of the spec requires authenticated insert with reviewer_id = auth.uid.
-- `prisma/migrations/20260520_add_locale.sql:8` — Migration adds `NOT NULL` column without default; will fail on existing rows. Either add a default or use a two-phase migration (nullable, backfill, then NOT NULL).
+- `apps/api/migrations/0007_add_locale.sql:8` — Migration adds `NOT NULL` column without default; will fail on existing rows. Either add a default or use a two-phase migration (nullable, backfill, then NOT NULL).
 
 🟡 MAJOR
 - `apps/web/src/app/review-form/review-form.component.ts:78` — Form does not call appendAuditLog on submit. Audit trail for review submissions is required (STAGE_1_SPEC.md §26.1).

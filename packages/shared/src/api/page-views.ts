@@ -12,6 +12,12 @@ import { z } from 'zod';
  * `product_id` / `vendor_id` foreign keys. The browser tracker omits the entity
  * fields entirely (it only knows the route).
  *
+ * `ref_source` / `ref_token` are optional campaign-attribution fields (AECI-243 /
+ * §11.2): the waitlist welcome banner sends `{ ref_source: 'waitlist', ref_token }`
+ * once, on a tagged `?ref=waitlist&token=…` arrival, so the view can be attributed
+ * back to a subscriber. Bounded lengths so an unbounded client string can't reach
+ * the DB. Omitted by every ordinary page view.
+ *
  * Supersedes the earlier `TrackPageviewSchema` sketch in docs/API_CONTRACTS.md
  * §6.9 (path + product_id + vendor_id + session_id + referrer), which the
  * Phase 2 Spec replaces.
@@ -20,6 +26,8 @@ export const PageViewPayloadSchema = z.object({
   route: z.string().min(1),
   entity_type: z.string().optional(),
   entity_id: z.string().optional(),
+  ref_source: z.string().max(64).optional(),
+  ref_token: z.string().max(255).optional(),
 });
 
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;

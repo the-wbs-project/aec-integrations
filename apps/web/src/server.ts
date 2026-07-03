@@ -16,6 +16,7 @@ import { AngularAppEngine } from '@angular/ssr';
 import type { ApiError } from '@aeci/shared';
 
 import { injectAlgoliaBootstrap } from './algolia-bootstrap-inject';
+import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
 import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
 import { injectHtmlLangDir } from './server-html-dir-inject';
@@ -61,15 +62,16 @@ const app = createApp({
   transformResponse: async (res, env, request, ctx) => {
     // Chain the bootstrap injections: each operates on the previous one's
     // output so all `<script>` tags land before `</head>`. Each is a no-op
-    // when its public config is absent (AECI-31 / AECI-134 / AECI-194).
+    // when its public config is absent (AECI-31 / AECI-134 / AECI-194 / AECI-239).
     const ddInjected = await injectDatadogBootstrap(res, env);
     const algoliaInjected = await injectAlgoliaBootstrap(ddInjected, env);
     const supabaseInjected = await injectSupabaseBootstrap(algoliaInjected, env);
+    const posthogInjected = await injectPostHogBootstrap(supabaseInjected, env);
     // Rewrite `<html lang/dir>` from the request's locale prefix (AECI-153).
     // No-op on the shipping en-US LTR path (matches the index.html default);
     // only a non-default/RTL locale pays a body pass. `request` is the source
     // of the locale. Cache-safe — `dir`/`lang` are URL-derived (§7a.3a).
-    const injected = await injectHtmlLangDir(supabaseInjected, request);
+    const injected = await injectHtmlLangDir(posthogInjected, request);
     // Pipe-health/error smoke signal. The per-render *volume* signal lives in
     // the bounded `aeci.ssr.render` count metric (server-runtime.ts); this log
     // is gated by `shouldEmitRenderLog` to errors (every env) + all non-prod

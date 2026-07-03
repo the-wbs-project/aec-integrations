@@ -70,6 +70,25 @@ string). Store it securely in the review app's server-side config; never ship it
 to a browser. AECi compares it constant-time and rejects a missing/wrong token
 with `401`.
 
+### 2.1 `x-d1-bookmark` — read-your-writes across calls (optional, AECI-250)
+
+AECi serves reads from D1 read replicas (lower latency), so a read issued
+*immediately* after a promote could momentarily hit a replica that hasn't caught
+up. To get **read-your-writes** across successive calls, thread the D1 session
+bookmark:
+
+- Every `POST /api/promote` response includes an **`x-d1-bookmark`** response
+  header — an opaque token naming the database version your write produced.
+- On a **subsequent** request, send that value back as the **`x-d1-bookmark`**
+  request header. AECi resumes the same logical session, so the next read/write is
+  guaranteed to see everything up to that bookmark.
+
+This is **optional**. If you don't thread it, promotes are still durable and
+strongly consistent (writes go to the primary); only a same-instant follow-up read
+might briefly lag. Treat the header value as opaque (don't parse it), persist the
+**latest** one you've seen, and replay it on the next call. Omitting it is
+equivalent to "start from any replica."
+
 ---
 
 ## 3. Request body
@@ -121,7 +140,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `supabaseId` | uuid \| null | — | Present → update that vendor; absent → create. |
 | `companyName` | string | ✅ | |
 | `isPrimary` | boolean | — | Defaults to `true` for the first vendor, `false` otherwise. |
-| `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` stays a bare handle (the hero derives the URL). |
+| `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
 | `verified` | boolean | — | Defaults to `false`. |
@@ -173,8 +192,41 @@ endpoints**. The other endpoint must already be promoted (reference it by
 | `mechanismKind` | `"native"` \| `"iPaaS"` \| `"marketplace-app"` \| `"api"` \| `"webhook"` \| `"partner"` \| null | — | |
 | `direction` | `"one-way"` \| `"bidirectional"` \| null | — | |
 | `mechanismName`, `description`, `listingUrl`, `docsUrl`, `website`, `mechanismUrl`, `pricingModel`, `maturity`, `notes` | string \| null | — | |
+| `claims` | `Claim[]` | — | Data-object claims carried by this integration. Defaults to `[]`. See **`claims` shape & resolution** below. |
 
 Direction is meaningful: `sourceProduct → targetProduct`.
+
+**`claims` shape & resolution (Stage 1.5).** A **claim** asserts that a particular
+`dataObject` (e.g. RFIs, Models, Budgets) flows in a particular `direction` through
+**this** integration (mechanism) row. Claims are nested under the integration they
+belong to — the integration row is the anchor, so a pair of products connected by two
+mechanisms that both move RFIs yields two claims (one per integration).
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `dataObject` | string | ✅ | The data object's **slug or name/alias** (e.g. `"rfis"` or `"RFIs"`). Resolved **find-only** against AECi's seeded `data_object` vocabulary — see resolution below. |
+| `direction` | `"a_to_b"` \| `"b_to_a"` \| `"both"` | ✅ | Where **A = the integration's `sourceProduct`** and **B = its `targetProduct`**. `both` = bidirectional. This is the *stored* encoding; AECi translates it to a context-relative `inbound`/`outbound` view when it renders a pair page. |
+| `attestations` | `Attestation[]` | — | Who affirms the claim. Defaults to `[]`. `Attestation = { source, asserted, introducedAt?, deprecatedAt?, note? }`. |
+
+Each `Attestation`:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `source` | `"aeci"` \| `"vendor_a"` \| `"vendor_b"` | ✅ | Who attests. **In Stage 1.5, send only `"aeci"`** — `vendor_a` / `vendor_b` are accepted by the contract but produced by no current path (they're reserved for the Stage 2 vendor portal). |
+| `asserted` | boolean | ✅ | `true` = this source affirms the claim; `false` = denies it. AECi seeds `true`. |
+| `introducedAt`, `deprecatedAt` | ISO date string \| null | — | **Dormant in Stage 1.5** — version stamps accepted for forward-compatibility but unused. |
+| `note` | string \| null | — | Optional provenance / source note. |
+
+**`dataObject` resolution is find-only.** AECi matches the value against its seeded
+`data_object` slugs, directly or via a known alias (case-insensitive). **An unmatched
+term is not auto-created** — the claim is dropped and reported in `skipped[]` (§4) with
+`kind: "claim"` and `ref` set to the enclosing integration's `ref`; it is never a `500`.
+(This mirrors how the `usefulness` facet resolves against existing terms.)
+
+**Withhold rule.** A claim rides with its integration and follows the same rule (§3.4):
+send a claim only on an integration you are actually promoting (both endpoints resolve).
+If you omit an integration because its far endpoint isn't promoted yet, omit its claims
+too — they migrate when that integration does.
 
 ### 3.5 Vendor-only (or integration-only) push
 
@@ -209,7 +261,9 @@ integration-only push (send only `integrations[]`) — but note that without a
 
 ## 4. Response
 
-`200 OK`. Persist every `id`. `operation` tells you what happened.
+`200 OK`. Persist every `id`. `operation` tells you what happened. The response
+also carries an **`x-d1-bookmark`** header you can replay for read-your-writes —
+see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 
 ```jsonc
 {
@@ -218,7 +272,7 @@ integration-only push (send only `integrations[]`) — but note that without a
   ],
   "product":   { "ref": "p1", "id": "a12…", "slug": "revit", "operation": "created" },
   "integrations": [
-    { "ref": "i1", "id": "c44…", "operation": "created" }
+    { "ref": "i1", "id": "c44…", "operation": "created", "sourceSlug": "revit", "targetSlug": "navisworks" }
   ],
   "taxonomy": {
     "categories":  [ { "slug": "bim", "id": "d01…", "operation": "reused" } ],
@@ -237,11 +291,18 @@ integration-only push (send only `integrations[]`) — but note that without a
   `slug`) and store it.
 - `operation`: `created` | `updated` for vendors/product/integrations;
   `created` | `reused` for taxonomy.
+- **`sourceSlug` / `targetSlug`** on an integration result are the two products'
+  slugs for that integration — AECi returns them so it can refresh both pair-page
+  orientations without a lookup. They are informational (you don't need to persist
+  them) and **optional**: treat them as best-effort and tolerate their absence.
 - **Always inspect `skipped[]`.** An entry there means AECi could **not** link
   that integration/extension (typically the other endpoint isn't promoted yet),
-  or — for `kind: "usefulness"` — could **not** resolve a usefulness group to an
-  existing audience/phase term. It is not an error: re-push after promoting the
-  other product, or after the referenced taxonomy term exists.
+  could **not** resolve a usefulness group to an existing audience/phase term
+  (`kind: "usefulness"`), or could **not** resolve a claim's `dataObject` against
+  the seeded `data_object` vocabulary (`kind: "claim"`, `ref` = the enclosing
+  integration's `ref`). It is not an error: re-push after promoting the other
+  product, after the referenced taxonomy term exists, or with a recognized
+  `dataObject` value.
 
 ---
 
@@ -315,9 +376,17 @@ no correctness regression. No retry or action is required from the review app.
   yet (Phase 4). Until then, editing *only* a vendor refreshes the vendor's own
   page promptly but not the product pages that display it — those repaint on the
   next TTL expiry.
-- **Integrations** are not yet purged because integration seeding is temporarily
-  disabled (AECI-86). When it is re-enabled, the integration detail pages and the
-  two linked product pages will be added to the purge set.
+- **Integration *detail* pages** (`integration:{id}`) are not yet purged because
+  integration seeding is temporarily disabled (AECI-86). When it is re-enabled, the
+  integration detail pages and the two linked product pages will be added to the
+  purge set.
+- **Pair pages are purged now (AECI-297).** A promote that touches an integration —
+  including a claims-only re-push — emits the Stage 1.5 `pair:{min}__{max}` cache tag
+  and submits the canonical pair URL to IndexNow / Google, so the consolidated
+  product-pair page refreshes for both orientations. The promote response's
+  `sourceSlug` / `targetSlug` (§4) are populated by the ingest precisely so this
+  needs no extra DB read. (The pair page itself renders once AECI-294 lands; until
+  then the tag purge is a harmless no-op and the pings are best-effort.)
 
 ---
 
@@ -376,7 +445,14 @@ Content-Type: application/json
       "targetProduct": { "supabaseId": "7c9e6679-7425-40de-944b-e07fc1f90ae7" },
       "builtByVendor": { "ref": "v1" },
       "mechanismKind": "native",
-      "direction": "one-way"
+      "direction": "one-way",
+      "claims": [
+        {
+          "dataObject": "models",
+          "direction": "a_to_b",
+          "attestations": [{ "source": "aeci", "asserted": true }]
+        }
+      ]
     }
   ]
 }
@@ -396,7 +472,7 @@ Content-Type: application/json
     "operation": "created"
   },
   "integrations": [
-    { "ref": "i1", "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "operation": "created" }
+    { "ref": "i1", "id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8", "operation": "created", "sourceSlug": "revit", "targetSlug": "navisworks" }
   ],
   "taxonomy": {
     "categories": [
@@ -458,4 +534,5 @@ Every `operation` comes back `updated`; the slugs are unchanged.
 - [ ] Never send slugs; persist the slugs AECi returns (they're the public URLs).
 - [ ] Persist every returned `id` against your record, durably.
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `skipped[]`.
+- [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"`); a claim rides with its integration and an unrecognized `dataObject` comes back in `skipped[]` as `kind: "claim"`.
 - [ ] On 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry then escalate `trace_id`.

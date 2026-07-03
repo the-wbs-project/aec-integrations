@@ -5,6 +5,15 @@ Source issue: **AECI-181** (Phase 4.6 design pass). Spec anchor: `docs/STAGE_1_S
 Contracts: `DESIGN.md` (laws + Anchor-Site Rule), `PRODUCT.md` (voice/audience),
 `packages/shared/src/api/stats.ts` (`HomeStatsResponse`).
 
+> **Superseded in part (2026-06-25):** the **page contract** below (the directory-only section
+> order, and the trust band as a standalone section) is superseded for the unified marketing +
+> directory home by [`unified-home-direction.md`](./unified-home-direction.md) (**AECI-270** /
+> AECI-269). The **hero, stats-card, browse, and trust treatments** here are still reused verbatim
+> by the unified home — except the **audience** browse subsection, which the unified home replaces with
+> the dedicated "this is for you" recognition band (`home-audience.ts`, **AECI-274**); category and
+> project phase keep the count-chip browse treatment. Only the section order and the new marketing
+> bands change.
+
 This doc is self-contained: it is the contract a 4.7–4.11 port is reviewed against. The
 live concept prototype (`.context/aeci-181-home-concepts.html`, gitignored ephemeral
 selection tooling per `workflow.md` §7) and the critique baseline
@@ -42,13 +51,16 @@ Order is fixed; the home is one column of stacked modules inside the standard `m
 (the existing `SiteHeader` + Bone shelf above, `SiteFooter` below):
 
 1. **Hero** — tagline + search (reuse `SearchAutocomplete`).
-2. **Three stats cards** — total integrations (+30d) · most-integrated product · most-active category.
-3. **Browse by category** — top categories with counts.
-4. **Browse by audience** — same pattern.
-5. **Browse by project phase** — same pattern.
-6. **Recently added integrations** — last 10, source → target.
-7. **Trending products this week** — top 5 most-viewed.
-8. **Footer** — existing `SiteFooter`.
+2. **Trust band** — the three trust commitments (`HomeTrustPillars`); a full-bleed Forest band under
+   the hero. Marketing / positioning treatment layered on top of the §4.1 functional modules
+   (PRODUCT.md trust-first), not enumerated in §4.1 itself.
+3. **Three stats cards** — total integrations (+30d) · most-integrated product · most-active category.
+4. **Browse by category** — top categories with counts.
+5. **Browse by audience** — same pattern.
+6. **Browse by project phase** — same pattern.
+7. **Recently added integrations** — last 10, source → target.
+8. **Trending products this week** — top 5 most-viewed.
+9. **Footer** — existing `SiteFooter`.
 
 **Data:** `GET /api/stats/home` → `HomeStatsResponse` (read from `stats_cache`, never live-aggregated).
 `most_integrated_product` and `most_active_category` are **nullable**; `recent_integrations`,
@@ -62,8 +74,13 @@ Order is fixed; the home is one column of stacked modules inside the standard `m
 - **Left-aligned, restrained.** Inside the band, a constrained column (`max-w-3xl`):
   - small-caps eyebrow (`--text-secondary`), e.g. "The specifier's reference for AEC software";
   - **Display** tagline — Source Serif 4 **400**, `clamp(2.25rem, 4.5vw + 1rem, 4rem)`, lh 1.05,
-    tracking -0.01em. Leads with the substantive claim (trust / what-connects-to-what), not a verb
-    imperative. Placeholder copy is fine; final marketing copy is out of scope for this pass.
+    tracking -0.01em. Centres on the what-connects-to-what claim. **Final copy (2026-06-20):**
+    "Find the integrations between your AEC tools." This intentionally supersedes the earlier
+    "not a verb imperative / placeholder copy" guidance: the original placeholder ("Every
+    integration … verified by both vendors.") overpromised — nothing is dual-vendor-verified at
+    Stage 1 (spec §1 out-of-scope; §4.2 "Verified badge (placeholder — none verified in Stage 1)"),
+    and "every" overstated catalog completeness. The finalized line drops both claims; the
+    independence / no-pay-for-placement differentiator now lives in the lede.
   - one-line `--text-secondary` lede;
   - the search field as the single primary affordance.
 - **Search:** reuse `SearchAutocomplete` (`apps/web/src/app/search/search-autocomplete.ts`,
@@ -73,6 +90,27 @@ Order is fixed; the home is one column of stacked modules inside the standard `m
 - A short row of **"Popular:" quick links** to top category browse pages sits under the search
   (text links with a hairline underline), giving a no-typing entry path.
 - **No** stock photography, gradient, or large hero imagery (PRODUCT.md anti-references).
+
+## Trust band (`HomeTrustPillars`)
+
+Directly under the hero, a full-bleed **Forest** (`--accent-primary`) band states the three trust
+commitments from the pitch deck ("Trust Is the Product", Slide 10): never sell rankings, always be
+transparent, never review products ourselves. AECi is trust-first (PRODUCT.md), so this is the
+marquee value statement, not a generic feature grid.
+
+- **Static, SSR-safe, cache-neutral.** No data fetch, no per-visitor state, no client JS — it renders
+  into the cacheable, visitor-state-neutral home HTML, identical for every visitor. The source
+  issue's "carousel" is intentionally built as a static list (no auto-motion, so no pause control to
+  reason about); the only motion is a pure-CSS hover lift, neutralised under `prefers-reduced-motion`.
+- **Structure.** A `max-w-2xl` intro column (small-caps eyebrow, Source-Serif `<h2>` "Trust is the
+  product", lede) over a `md:grid-cols-3` real `<ul>`/`<li>` list; each card is `--surface-base` with
+  a visible `<h3>`, keeping a valid heading order under the section `<h2>`.
+- **Color.** White text on Forest (headline `text-white`, supporting copy `text-white/70`–`/80`, all
+  ≥ AA). Clay (`--accent-secondary`) appears only here on the home: as the decorative card top accent
+  bars (fill — DESIGN.md-compliant) and the eyebrow. On the Forest band Clay `#E89668` reads at
+  ~5.3:1 (AA-pass), so it is the readable clay member here — Clay deep `#A14D22` would *fail* at
+  ~2.1:1 on Forest, inverting the light-surface Clay-Restriction Rule. Clay stays well under the ≤5%
+  per-screen cap.
 
 ## Three stats cards — editorial, NOT the banned hero-metric template
 
@@ -91,8 +129,9 @@ cards use the **score-display / spec-sheet** posture:
   component; do not build a new metric card.
 - **Card 3 — most active category** (link → `/categories/:slug`): sentence-case label, category
   name (Source Serif), and its integration count via `IntegrationStat` `headline`.
-- **Clay budget: spent nowhere.** Forest carries every figure; Clay stays at 0% on this surface
-  (well under the ≤5% cap, body-contrast safe).
+- **Clay budget: 0% on the stats cards.** Forest carries every figure here; the only Clay on the
+  home is on the trust band above (decorative card top bars + eyebrow on the Forest band, AA-verified),
+  which stays well under the ≤5% per-screen cap.
 
 ## Section rhythm — break the grid
 
@@ -105,11 +144,15 @@ Avoid three identical card matrices stacked (DESIGN.md "no identical card grids"
   the relevant taxonomy browse page; data from the **live** `GET /api/taxonomy`
   (`TaxonomyResponse`, each facet a `TaxonomyTermWithCount[]` with `product_count`), **not**
   `stats_cache` (AECI-184): the browse counts read live taxonomy so this section is independent of
-  the stats pipeline (4.3/4.4) and the home edge cache purges on the `taxonomy` `Cache-Tag`.
+  the stats pipeline (4.3/4.4) and the home edge cache purges on the `taxonomy` `Cache-Tag`. In the
+  unified home the **audience** subsection is replaced by the dedicated recognition band
+  (`home-audience.ts`, **AECI-274**); category and project phase keep this count-chip treatment.
 - **Recently added integrations:** a 2-up grid of **integration tiles** — source monogram → target
   monogram, the "{source} → {target}" headline (Source Serif), a `mechanism_kind` chip and the
   direction label. The `→` glyph is `aria-hidden` (and should RTL-mirror, matching the shipped
-  `IntegrationCard`). Links to `/integrations/:id`.
+  `IntegrationCard`). Links to the product-PAIR page `/products/:contextSlug/integrations/:otherSlug`
+  (Stage 1.5 · AECI-294; context = alphabetically-first slug) — the standalone `/integrations/:id`
+  page was retired.
 - **Trending products this week:** the shipped **`ProductCardGrid` broken grid** — a wide featured
   lead on a Bone (`--accent-warm`) band (eyebrow "Most viewed this week") + uniform tiles for the
   rest. This is the home's single reuse of the catalog's signature broken grid, which is what ties
@@ -128,8 +171,8 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
 - **Total card** at 0: "No integrations indexed yet" (no "+X" line), not a bare `0`.
 - **Most-integrated-product** null: a non-link card reading "No product data yet".
 - **Most-active-category** null: a non-link card reading "No category data yet".
-- **Recently added** empty: a bordered note, "No integrations added yet. The first vendor-verified
-  integrations land at launch."
+- **Recently added** empty: a bordered note, "No integrations added yet. The first integrations land
+  at launch." (No "vendor-verified" — nothing is dual-vendor-verified at Stage 1; §4.2.)
 - **Trending** empty: **fall back to `recently_added_products`** (AECI-185 decision) — render the
   same broken grid under a truthful "Recently added products" heading + the grid's default
   "Recently added" eyebrow (capped at 5), never labelling recently-added products "trending". Only
@@ -162,9 +205,10 @@ with the home `Cache-Tag` (AECI-56) and `WebSite`/`Organization` JSON-LD (the 4.
 
 ## Design-law guardrails honored
 
-Source Serif 4 + Atkinson Hyperlegible Next only · Forest anchor, Clay 0% on this surface · borders
-not shadows · Bone only as accent band · sentence case everywhere · no em dashes · Lucide glyphs
-only (no emoji) · light only (Stage 1, AECI-226) · empty states real.
+Source Serif 4 + Atkinson Hyperlegible Next only · Forest anchor, Clay only on the trust band
+(decorative + AA-verified on Forest, under the ≤5% cap) · borders not shadows · Bone only as accent
+band · sentence case everywhere · no em dashes · Lucide glyphs only (no emoji) · light only
+(Stage 1, AECI-226) · empty states real.
 
 ## Tokens
 

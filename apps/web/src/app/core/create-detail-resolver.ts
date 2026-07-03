@@ -1,6 +1,8 @@
 /**
- * Shared SSR resolver factory for the entity detail routes — `/products/:slug`,
- * `/vendors/:slug`, `/integrations/:id`. Phase 2 Spec §3.1 / §7 / §9 / §10.
+ * Shared SSR resolver factory for the entity detail routes — `/products/:slug`
+ * and `/vendors/:slug`. Phase 2 Spec §3.1 / §7 / §9 / §10. (AECI-294 retired the
+ * standalone `/integrations/:id` detail route; the product-PAIR page has its own
+ * resolver in `products-pair.resolver.ts`.)
  *
  * The three detail resolvers are mechanically identical apart from the fetch
  * function, the per-entity meta/JSON-LD logic, and the embedded cache tags. This

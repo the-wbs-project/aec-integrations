@@ -3,6 +3,20 @@ import { z } from 'zod';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
+ * The §5.5 ratings-visibility gate: a product's aggregate rating averages
+ * (`rating_overall_avg` / `rating_onboarding_avg`) are only shown once it has at
+ * least this many **approved** reviews. Below the threshold a single-review
+ * average is statistically misleading, so the averages are withheld (nulled) and
+ * the UI shows an empty state instead.
+ *
+ * One source of truth for the rule, shared across every surface that enforces it:
+ * the API detail + list mappers (`apps/api/src/lib/drizzle-helpers.ts`), the
+ * `rating` sort tiebreaker (`apps/api/src/lib/sort.ts`), and the web
+ * `RatingSummary` card/table component (`apps/web/src/app/reviews/rating-summary.ts`).
+ */
+export const RATING_VISIBILITY_MIN_REVIEWS = 5;
+
+/**
  * Review-submission contract (AECI-197 / Phase 5.6): the body and response for
  * `POST /api/reviews`, the first authenticated user write in the product.
  *
@@ -33,6 +47,10 @@ export const SubmitReviewSchema = z.object({
   role_at_company: z.enum(['practitioner', 'manager', 'IT', 'exec', 'other']).optional(),
   years_using: z.number().int().min(0).max(50).optional(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).optional(),
+  // Optional free-text firm/company (AECI-284). The handler trims it and stores
+  // null for a blank/whitespace-only value; it feeds the home credibility
+  // strip's distinct contributing-firms count (never shown on the public review).
+  reviewer_firm: z.string().max(100).optional(),
 });
 export type SubmitReviewInput = z.infer<typeof SubmitReviewSchema>;
 
@@ -43,6 +61,15 @@ export type SubmitReviewResponse = {
   status: 'pending';
   message: string;
 };
+
+/**
+ * The moderation lifecycle of a review. A submitted review enters `pending`;
+ * an admin moves it to `approved` or `rejected` (§7.2). Extracted here so the
+ * admin queue, the account-reviews list, and the frontend status badge all
+ * share one source of truth rather than re-declaring the enum inline.
+ */
+export const ReviewStatusSchema = z.enum(['pending', 'approved', 'rejected']);
+export type ReviewStatus = z.infer<typeof ReviewStatusSchema>;
 
 /**
  * Public read contract for approved reviews (AECI-199 / Phase 5.8): the item
@@ -94,7 +121,7 @@ export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema
  * Source of truth is `docs/API_CONTRACTS.md` §6.10 and `STAGE_1_PHASE_5_SPEC.md`
  * §7.2 / §22.1. Both endpoints are admin-only (`requireAdmin()`); the item shape
  * carries fields the public `PublicReview` contract deliberately hides —
- * `status`, the `toxicity_score` Perspective triage signal, the moderation
+ * `status`, the `toxicity_score` moderation triage signal, the moderation
  * columns, and the author's `reviewer_email`.
  *
  * Contract note (deviates from `API_CONTRACTS.md` §6.10 as written):
@@ -109,7 +136,7 @@ export type ProductReviewsResponse = z.infer<typeof ProductReviewsResponseSchema
  *  rest of Phase 5 (`product-reviews`). `queue_age` is oldest-first (work the
  *  backlog), `created_at` is newest-first. */
 export const ListPendingReviewsQuerySchema = PageQuerySchema.extend({
-  status: z.enum(['pending', 'approved', 'rejected']).default('pending'),
+  status: ReviewStatusSchema.default('pending'),
   sort: z.enum(['queue_age', 'created_at']).default('queue_age'),
 });
 export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySchema>;
@@ -117,11 +144,14 @@ export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySche
 /** Admin-only review item (`API_CONTRACTS.md` §6.10). A superset of
  *  `PublicReview`: adds the hydrated `product` ref, the moderation columns
  *  (`status`, `rejection_reason`, `moderated_at`), and the admin-only
- *  `toxicity_score` + `reviewer_email`. */
+ *  `toxicity_score` + `reviewer_email` + `reviewer_firm`. The free-text
+ *  `reviewer_firm` (AECI-284) is admin-only moderation context — it is NOT on
+ *  the public `PublicReview` contract. */
 export const AdminReviewSchema = z.object({
   id: z.string().uuid(),
   product: LinkRefSchema,
   reviewer_email: z.string().nullable(),
+  reviewer_firm: z.string().nullable(),
   rating_overall: z.number().int().min(1).max(5),
   rating_onboarding: z.number().int().min(1).max(5),
   title: z.string(),
@@ -131,7 +161,7 @@ export const AdminReviewSchema = z.object({
   would_recommend: z.enum(['yes', 'no', 'maybe']).nullable(),
   verified_work_email: z.boolean(),
   locale: z.string(),
-  status: z.enum(['pending', 'approved', 'rejected']),
+  status: ReviewStatusSchema,
   toxicity_score: z.number().nullable(),
   rejection_reason: z.string().nullable(),
   moderated_at: z.string().datetime().nullable(),
@@ -165,5 +195,32 @@ export const ModerateReviewSchema = z
   });
 export type ModerateReviewInput = z.infer<typeof ModerateReviewSchema>;
 
-/** `PATCH /api/admin/reviews/:id` returns the moderated review (`AdminReview`). */
-export type ModerateReviewResponse = AdminReview;
+/**
+ * Advisory "consider a ban" prompt (AECI-218 / Phase 6.11 — Spec §9 / §22.3). The
+ * moderate-review response carries this **only** when a *reject* pushes the
+ * reviewer's total rejected-review count to **3 or more** (and the review was not
+ * anonymized — `reviewer_id` is known). It is informational: the admin decides
+ * whether to ban via `PATCH /api/admin/reviewers/:id`. `reviewer_id` is the ban
+ * target (= the profile id); `reviewer_email` is the same admin-only lookup the
+ * queue uses (null on failure).
+ */
+export const RepeatOffenderPromptSchema = z.object({
+  reviewer_id: z.string().uuid(),
+  reviewer_email: z.string().nullable(),
+  rejected_count: z.number().int(),
+});
+export type RepeatOffenderPrompt = z.infer<typeof RepeatOffenderPromptSchema>;
+
+/**
+ * `PATCH /api/admin/reviews/:id` response envelope. The moderated `review` plus an
+ * optional `repeat_offender` prompt (AECI-218): non-null only on the reject that
+ * makes the reviewer's rejected count ≥ 3; always null on approve / 1st–2nd
+ * rejection / anonymized reviews. Wrapping (rather than returning a bare
+ * `AdminReview`) lets the prompt ride back with the action — faithful to "when the
+ * reviewer's 3rd review is rejected, surface a prompt".
+ */
+export const ModerateReviewResponseSchema = z.object({
+  review: AdminReviewSchema,
+  repeat_offender: RepeatOffenderPromptSchema.nullable(),
+});
+export type ModerateReviewResponse = z.infer<typeof ModerateReviewResponseSchema>;

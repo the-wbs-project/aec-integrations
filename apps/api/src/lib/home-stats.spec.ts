@@ -1,454 +1,452 @@
 /**
- * Unit tests for the AECI-178 home-stats compute core. A fake Prisma (recording
- * delegate, deriving results from base fixtures — products, integrations,
- * page_views, categories) exercises each compute function and the `runHomeStats`
- * orchestration: every written value is validated against its
+ * Unit tests for the AECI-178 home-stats compute core on the Drizzle/D1 path
+ * (ADR 0016 / AECI-253). The in-memory D1 harness (`makeTestDb`) seeds real rows
+ * — products, integrations, page_views, categories — and each test exercises a
+ * compute function or the `runHomeStats` orchestration against actual queries +
+ * mapper output: every written value is validated against its
  * `statsCacheValueSchemas` schema, empty `page_views` yields `[]` without
- * throwing, and one failing key never aborts the others. No DB, no network.
+ * throwing, and one failing key never aborts the others.
  */
 
 import { statsCacheValueSchemas } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
+import { eq } from 'drizzle-orm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  integrations,
+  pageViews,
+  productCategories,
+  products,
+  reviews,
+  statsCache,
+  taxonomyCategories,
+  vendors,
+} from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
 import {
   computeIntegrationsAdded30d,
   computeMostActiveCategory,
   computeMostIntegratedProduct,
   computeRecentIntegrations,
   computeRecentlyAddedProducts,
+  computeTotalContributingFirms,
   computeTotalIntegrations,
+  computeTotalProducts,
+  computeTotalReviews,
+  computeTotalVendors,
   computeTrendingProducts,
   runHomeStats,
-  type HomeStatsPrisma,
 } from './home-stats';
-import type { RawIntegrationListRow, RawProductListRow } from './prisma-helpers';
 
 const NOW = new Date('2026-06-10T00:00:00.000Z');
-const within7d = new Date('2026-06-08T00:00:00.000Z'); // inside both windows
-const within30d = new Date('2026-05-20T00:00:00.000Z'); // inside 30d, outside 7d
-const old = new Date('2026-01-01T00:00:00.000Z'); // outside both windows
+const within7d = '2026-06-08T00:00:00.000Z'; // inside both windows
+const within30d = '2026-05-20T00:00:00.000Z'; // inside 30d, outside 7d
+const old = '2026-01-01T00:00:00.000Z'; // outside both windows
 
-// ── Fixtures ─────────────────────────────────────────────────────────────────
-
-/** A `RawProductListRow` superset — valid for `productListSelect` (trending /
- *  recently-added) and `mostIntegratedSelect` (a strict subset). */
-function productRow(over: Partial<RawProductListRow> = {}): RawProductListRow {
-  return {
-    id: 'p-1',
-    slug: 'procore',
-    name: 'Procore',
-    logoUrl: null,
-    productRole: 'application',
-    integrationCount: 0,
-    reviewCount: 0,
-    ratingOverallAvg: null,
-    ratingOnboardingAvg: null,
-    createdAt: within30d,
-    updatedAt: within30d,
-    productVendors: [],
-    productCategories: [],
-    ...over,
-  } as RawProductListRow;
-}
-
-/** An integration row carrying both the list-hydration fields (recent) and the
- *  per-endpoint category-id edges (most-active-category). */
-type IntegrationFixture = Omit<RawIntegrationListRow, 'sourceProduct' | 'targetProduct'> & {
-  sourceProduct: RawIntegrationListRow['sourceProduct'] & {
-    productCategories: { categoryId: string }[];
-  };
-  targetProduct: RawIntegrationListRow['targetProduct'] & {
-    productCategories: { categoryId: string }[];
-  };
+// Real UUIDs everywhere: the orchestration validates every written value against
+// its `statsCacheValueSchemas` schema, and those schemas require `id` to be a
+// UUID (`LinkRefSchema` / `ProductListItemSchema` / `IntegrationListItemSchema`).
+const U = {
+  p1: '11111111-1111-4111-8111-111111111111',
+  p2: '22222222-2222-4222-8222-222222222222',
+  p3: '33333333-3333-4333-8333-333333333333',
+  i1: '44444444-4444-4444-8444-444444444444',
+  i2: '55555555-5555-4555-8555-555555555555',
+  c1: '66666666-6666-4666-8666-666666666666',
+  c2: '77777777-7777-4777-8777-777777777777',
 };
 
-function integrationRow(over: Partial<IntegrationFixture> = {}): IntegrationFixture {
-  return {
-    id: 'i-1',
-    name: null,
-    mechanismKind: null,
-    mechanismName: null,
-    direction: null,
-    sourceProduct: {
-      id: 's-1',
-      name: 'Source',
-      slug: 'source',
-      logoUrl: null,
-      productCategories: [],
-    },
-    targetProduct: {
-      id: 't-1',
-      name: 'Target',
-      slug: 'target',
-      logoUrl: null,
-      productCategories: [],
-    },
-    createdAt: within30d,
-    updatedAt: within30d,
-    ...over,
-  };
-}
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
 
-type CategoryFixture = { id: string; name: string; slug: string };
-type MostIntegratedFixture = {
+// ── Seed helpers ─────────────────────────────────────────────────────────────
+
+type ProductSeed = {
   id: string;
-  name: string;
-  slug: string;
-  logoUrl: string | null;
-  integrationCount: number;
-} | null;
-type PageViewFixture = { productId: string | null; createdAt: Date };
-
-type FakeOpts = {
-  integrations?: IntegrationFixture[];
-  products?: RawProductListRow[];
-  mostIntegratedRow?: MostIntegratedFixture;
-  pageViews?: PageViewFixture[];
-  categories?: CategoryFixture[];
-  findFirstThrows?: boolean;
+  slug?: string;
+  name?: string;
+  integrationCount?: number;
+  createdAt?: string;
 };
 
-function makeFakePrisma(opts: FakeOpts = {}) {
-  const upserts = new Map<string, unknown>();
-  const calls = { findFirst: [] as unknown[] };
+/** Insert a product (defaults fill the non-null columns the schema requires). */
+async function seedProduct(over: ProductSeed): Promise<void> {
+  await t.db.insert(products).values({
+    id: over.id,
+    slug: over.slug ?? over.id,
+    name: over.name ?? over.id,
+    integrationCount: over.integrationCount ?? 0,
+    createdAt: over.createdAt ?? within30d,
+    updatedAt: over.createdAt ?? within30d,
+  });
+}
 
-  const prisma = {
-    integration: {
-      count: async (args?: { where?: { createdAt?: { gte?: Date } } }) => {
-        const items = opts.integrations ?? [];
-        const gte = args?.where?.createdAt?.gte;
-        return gte ? items.filter((i) => i.createdAt >= gte).length : items.length;
-      },
-      findMany: async (args: { take?: number }) => {
-        const items = opts.integrations ?? [];
-        // The recent-integrations query is the only one carrying `take` — sort by
-        // createdAt desc and slice. The category-edge query carries no `take`.
-        if (args.take !== undefined) {
-          const sorted = [...items].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-          return sorted.slice(0, args.take) as never;
-        }
-        return items as never;
-      },
-    },
-    product: {
-      findFirst: async (args: unknown) => {
-        calls.findFirst.push(args);
-        if (opts.findFirstThrows) throw new Error('findFirst boom');
-        return (opts.mostIntegratedRow ?? null) as never;
-      },
-      findMany: async (args: {
-        where?: { id?: { in?: string[] }; createdAt?: { gte?: Date } };
-      }) => {
-        const items = opts.products ?? [];
-        if (args.where?.id?.in) {
-          const ids = new Set(args.where.id.in);
-          // Returned in fixture order (compute reorders to the page-view ranking).
-          return items.filter((p) => ids.has(p.id)) as never;
-        }
-        const gte = args.where?.createdAt?.gte;
-        const recent = (gte ? items.filter((p) => p.createdAt >= gte) : items)
-          .slice()
-          .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
-          .slice(0, 10);
-        return recent as never;
-      },
-    },
-    pageView: {
-      groupBy: async (args: { where?: { createdAt?: { gte?: Date } }; take?: number }) => {
-        const gte = args.where?.createdAt?.gte;
-        const filtered = (opts.pageViews ?? []).filter(
-          (pv) => pv.productId !== null && (!gte || pv.createdAt >= gte),
-        );
-        const counts = new Map<string, number>();
-        for (const pv of filtered) counts.set(pv.productId!, (counts.get(pv.productId!) ?? 0) + 1);
-        const groups = [...counts.entries()]
-          .map(([productId, c]) => ({ productId, _count: { _all: c } }))
-          .sort((a, b) => b._count._all - a._count._all || a.productId.localeCompare(b.productId));
-        return groups.slice(0, args.take ?? groups.length) as never;
-      },
-    },
-    taxonomyCategory: {
-      findMany: async () => (opts.categories ?? []) as never,
-    },
-    statsCache: {
-      upsert: async (args: { where: { key: string }; create: { value: unknown } }) => {
-        upserts.set(args.where.key, args.create.value);
-        return {};
-      },
-    },
-  } as unknown as HomeStatsPrisma;
+type IntegrationSeed = {
+  id: string;
+  sourceProductId: string;
+  targetProductId: string;
+  createdAt?: string;
+};
 
-  return { prisma, upserts, calls };
+async function seedIntegration(over: IntegrationSeed): Promise<void> {
+  await t.db.insert(integrations).values({
+    id: over.id,
+    sourceProductId: over.sourceProductId,
+    targetProductId: over.targetProductId,
+    createdAt: over.createdAt ?? within30d,
+    updatedAt: over.createdAt ?? within30d,
+  });
+}
+
+async function seedCategory(id: string, name: string, slug: string): Promise<void> {
+  await t.db.insert(taxonomyCategories).values({ id, name, slug });
+}
+
+async function linkCategory(productId: string, categoryId: string): Promise<void> {
+  await t.db.insert(productCategories).values({ productId, categoryId });
+}
+
+async function seedPageView(productId: string | null, createdAt: string): Promise<void> {
+  await t.db.insert(pageViews).values({ path: '/x', productId, createdAt });
+}
+
+async function seedVendor(id: string): Promise<void> {
+  await t.db.insert(vendors).values({ id, slug: id, companyName: id });
+}
+
+/** Insert a review for a product. `reviewerId` stays null (no uniqueness clash),
+ *  so any number of reviews can be seeded per product. `reviewerFirm` is optional
+ *  (AECI-284 contributing-firms count). */
+async function seedReview(
+  id: string,
+  productId: string,
+  status: string,
+  reviewerFirm: string | null = null,
+): Promise<void> {
+  await t.db.insert(reviews).values({
+    id,
+    productId,
+    ratingOverall: 4,
+    ratingOnboarding: 4,
+    title: 't',
+    body: 'b',
+    status,
+    reviewerFirm,
+  });
 }
 
 // ── Per-key compute functions ────────────────────────────────────────────────
 
 describe('computeTotalIntegrations', () => {
   it('counts every integration', async () => {
-    const { prisma } = makeFakePrisma({
-      integrations: [integrationRow({ id: 'a' }), integrationRow({ id: 'b' })],
-    });
-    expect(await computeTotalIntegrations(prisma)).toBe(2);
+    await seedProduct({ id: U.p1 });
+    await seedProduct({ id: U.p2 });
+    await seedIntegration({ id: U.i1, sourceProductId: U.p1, targetProductId: U.p2 });
+    await seedIntegration({ id: U.i2, sourceProductId: U.p2, targetProductId: U.p1 });
+    expect(await computeTotalIntegrations(t.db)).toBe(2);
   });
 
   it('returns 0 on an empty DB', async () => {
-    const { prisma } = makeFakePrisma();
-    expect(await computeTotalIntegrations(prisma)).toBe(0);
+    expect(await computeTotalIntegrations(t.db)).toBe(0);
   });
 });
 
 describe('computeIntegrationsAdded30d', () => {
   it('counts only integrations created within the last 30 days', async () => {
-    const { prisma } = makeFakePrisma({
-      integrations: [
-        integrationRow({ id: 'fresh', createdAt: within7d }),
-        integrationRow({ id: 'recent', createdAt: within30d }),
-        integrationRow({ id: 'stale', createdAt: old }),
-      ],
+    await seedProduct({ id: U.p1 });
+    await seedProduct({ id: U.p2 });
+    await seedIntegration({
+      id: U.i1,
+      sourceProductId: U.p1,
+      targetProductId: U.p2,
+      createdAt: within7d,
     });
-    expect(await computeIntegrationsAdded30d(prisma, NOW)).toBe(2);
+    await seedIntegration({
+      id: U.i2,
+      sourceProductId: U.p2,
+      targetProductId: U.p1,
+      createdAt: within30d,
+    });
+    await seedIntegration({
+      id: U.c1, // any unique uuid for the stale row
+      sourceProductId: U.p1,
+      targetProductId: U.p2,
+      createdAt: old,
+    });
+    expect(await computeIntegrationsAdded30d(t.db, NOW)).toBe(2);
+  });
+});
+
+describe('computeTotalProducts', () => {
+  it('counts every product (no filter)', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedProduct({ id: U.p2 });
+    await seedProduct({ id: U.p3 });
+    expect(await computeTotalProducts(t.db)).toBe(3);
+  });
+
+  it('returns 0 on an empty DB', async () => {
+    expect(await computeTotalProducts(t.db)).toBe(0);
+  });
+});
+
+describe('computeTotalVendors', () => {
+  it('counts every vendor (no filter)', async () => {
+    await seedVendor(U.c1);
+    await seedVendor(U.c2);
+    expect(await computeTotalVendors(t.db)).toBe(2);
+  });
+
+  it('returns 0 on an empty DB', async () => {
+    expect(await computeTotalVendors(t.db)).toBe(0);
+  });
+});
+
+describe('computeTotalReviews', () => {
+  it('counts only approved reviews, ignoring pending / rejected / archived', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview(U.i1, U.p1, 'approved');
+    await seedReview(U.i2, U.p1, 'approved');
+    await seedReview('99999999-9999-4999-8999-999999999999', U.p1, 'pending');
+    await seedReview('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', U.p1, 'rejected');
+    await seedReview('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', U.p1, 'archived');
+    expect(await computeTotalReviews(t.db)).toBe(2);
+  });
+
+  it('returns 0 when there are no approved reviews', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview(U.i1, U.p1, 'pending');
+    expect(await computeTotalReviews(t.db)).toBe(0);
+  });
+});
+
+describe('computeTotalContributingFirms', () => {
+  it('counts distinct firms (case/whitespace-insensitive) among approved reviews only', async () => {
+    await seedProduct({ id: U.p1 });
+    // Three spellings of one firm → one distinct firm after lower(trim()).
+    await seedReview('firm-r1', U.p1, 'approved', 'Acme Architects');
+    await seedReview('firm-r2', U.p1, 'approved', 'acme architects');
+    await seedReview('firm-r3', U.p1, 'approved', '  Acme Architects  ');
+    // A genuinely different firm → second distinct.
+    await seedReview('firm-r4', U.p1, 'approved', 'Beacon Structural');
+    // Same firms but NOT approved → excluded.
+    await seedReview('firm-r5', U.p1, 'pending', 'Cornerstone Eng');
+    await seedReview('firm-r6', U.p1, 'rejected', 'Delta Build');
+    expect(await computeTotalContributingFirms(t.db)).toBe(2);
+  });
+
+  it('excludes null and blank/whitespace-only firms', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview('firm-r1', U.p1, 'approved', null);
+    await seedReview('firm-r2', U.p1, 'approved', '');
+    await seedReview('firm-r3', U.p1, 'approved', '   ');
+    await seedReview('firm-r4', U.p1, 'approved', 'Real Firm');
+    expect(await computeTotalContributingFirms(t.db)).toBe(1);
+  });
+
+  it('returns 0 when no approved review carries a firm', async () => {
+    await seedProduct({ id: U.p1 });
+    await seedReview('firm-r1', U.p1, 'approved', null);
+    await seedReview('firm-r2', U.p1, 'pending', 'Pending Firm');
+    expect(await computeTotalContributingFirms(t.db)).toBe(0);
   });
 });
 
 describe('computeMostIntegratedProduct', () => {
-  it('maps the row Prisma returns and passes the ordering', async () => {
-    const { prisma, calls } = makeFakePrisma({
-      mostIntegratedRow: {
-        id: 'p-9',
-        name: 'Revit',
-        slug: 'revit',
-        logoUrl: 'l.png',
-        integrationCount: 42,
-      },
-    });
-    const result = await computeMostIntegratedProduct(prisma);
+  it('returns the product with the highest integration_count', async () => {
+    await seedProduct({ id: U.p1, name: 'Procore', slug: 'procore', integrationCount: 7 });
+    await seedProduct({ id: U.p2, name: 'Revit', slug: 'revit', integrationCount: 42 });
+    const result = await computeMostIntegratedProduct(t.db);
     expect(result).toEqual({
-      product: { id: 'p-9', name: 'Revit', slug: 'revit', logo_url: 'l.png' },
+      product: { id: U.p2, name: 'Revit', slug: 'revit', logo_url: null },
       integration_count: 42,
-    });
-    // Ordering is delegated to the DB — assert the contract is passed through.
-    expect(calls.findFirst[0]).toMatchObject({
-      orderBy: [{ integrationCount: 'desc' }, { name: 'asc' }],
     });
   });
 
+  it('breaks ties on integration_count by name ascending', async () => {
+    await seedProduct({ id: U.p1, name: 'Bravo', slug: 'bravo', integrationCount: 5 });
+    await seedProduct({ id: U.p2, name: 'Alpha', slug: 'alpha', integrationCount: 5 });
+    const result = await computeMostIntegratedProduct(t.db);
+    expect(result?.product.name).toBe('Alpha');
+  });
+
   it('returns null on an empty DB (skips the key)', async () => {
-    const { prisma } = makeFakePrisma({ mostIntegratedRow: null });
-    expect(await computeMostIntegratedProduct(prisma)).toBeNull();
+    expect(await computeMostIntegratedProduct(t.db)).toBeNull();
   });
 });
 
 describe('computeMostActiveCategory', () => {
-  const categories = [
-    { id: 'c-1', name: 'Project Management', slug: 'project-management' },
-    { id: 'c-2', name: 'Design', slug: 'design' },
-  ];
+  beforeEach(async () => {
+    await seedCategory(U.c1, 'Project Management', 'project-management');
+    await seedCategory(U.c2, 'Design', 'design');
+  });
 
   it('counts distinct integrations whose source OR target is in the category', async () => {
-    const { prisma } = makeFakePrisma({
-      categories,
-      integrations: [
-        // i-1 touches c-1 and c-2 (union counts each once)
-        integrationRow({
-          id: 'i-1',
-          sourceProduct: {
-            id: 's-1',
-            name: 'S',
-            slug: 's',
-            logoUrl: null,
-            productCategories: [{ categoryId: 'c-1' }],
-          },
-          targetProduct: {
-            id: 't-1',
-            name: 'T',
-            slug: 't',
-            logoUrl: null,
-            productCategories: [{ categoryId: 'c-2' }],
-          },
-        }),
-        // i-2 is internal to c-1 (both endpoints) — counts c-1 once, not twice
-        integrationRow({
-          id: 'i-2',
-          sourceProduct: {
-            id: 's-2',
-            name: 'S2',
-            slug: 's2',
-            logoUrl: null,
-            productCategories: [{ categoryId: 'c-1' }],
-          },
-          targetProduct: {
-            id: 't-2',
-            name: 'T2',
-            slug: 't2',
-            logoUrl: null,
-            productCategories: [{ categoryId: 'c-1' }],
-          },
-        }),
-      ],
-    });
+    // Four products so each integration endpoint is a distinct, existing row.
+    await seedProduct({ id: U.p1 });
+    await seedProduct({ id: U.p2 });
+    await seedProduct({ id: U.p3 });
+    const p4 = '88888888-8888-4888-8888-888888888888';
+    await seedProduct({ id: p4 });
+    // i-1: source in c-1, target in c-2 (union counts each once).
+    await linkCategory(U.p1, U.c1);
+    await linkCategory(U.p2, U.c2);
+    await seedIntegration({ id: U.i1, sourceProductId: U.p1, targetProductId: U.p2 });
+    // i-2: both endpoints in c-1 (counts c-1 once, not twice).
+    await linkCategory(U.p3, U.c1);
+    await linkCategory(p4, U.c1);
+    await seedIntegration({ id: U.i2, sourceProductId: U.p3, targetProductId: p4 });
+
     // c-1 touched by i-1 + i-2 = 2; c-2 touched by i-1 = 1 → c-1 wins.
-    expect(await computeMostActiveCategory(prisma)).toEqual({
-      category: { id: 'c-1', name: 'Project Management', slug: 'project-management' },
+    expect(await computeMostActiveCategory(t.db)).toEqual({
+      category: { id: U.c1, name: 'Project Management', slug: 'project-management' },
       integration_count: 2,
     });
   });
 
   it('breaks ties alphabetically by category name', async () => {
-    const { prisma } = makeFakePrisma({
-      categories,
-      integrations: [
-        integrationRow({
-          id: 'i-1',
-          sourceProduct: {
-            id: 's',
-            name: 'S',
-            slug: 's',
-            logoUrl: null,
-            productCategories: [{ categoryId: 'c-1' }],
-          },
-          targetProduct: {
-            id: 't',
-            name: 'T',
-            slug: 't',
-            logoUrl: null,
-            productCategories: [{ categoryId: 'c-2' }],
-          },
-        }),
-      ],
-    });
+    await seedProduct({ id: U.p1 });
+    await seedProduct({ id: U.p2 });
+    await linkCategory(U.p1, U.c1);
+    await linkCategory(U.p2, U.c2);
+    await seedIntegration({ id: U.i1, sourceProductId: U.p1, targetProductId: U.p2 });
     // c-1 and c-2 each count 1 → "Design" (c-2) sorts before "Project Management".
-    expect(await computeMostActiveCategory(prisma)).toEqual({
-      category: { id: 'c-2', name: 'Design', slug: 'design' },
+    expect(await computeMostActiveCategory(t.db)).toEqual({
+      category: { id: U.c2, name: 'Design', slug: 'design' },
       integration_count: 1,
     });
   });
 
   it('returns null when there are no integrations (skips the key)', async () => {
-    const { prisma } = makeFakePrisma({ categories });
-    expect(await computeMostActiveCategory(prisma)).toBeNull();
+    expect(await computeMostActiveCategory(t.db)).toBeNull();
   });
 });
 
 describe('computeRecentIntegrations', () => {
   it('returns the newest integrations as IntegrationListItems (synthesized name)', async () => {
-    const { prisma } = makeFakePrisma({
-      integrations: [
-        integrationRow({ id: 'newest', createdAt: within7d }),
-        integrationRow({ id: 'older', createdAt: old }),
-      ],
+    await seedProduct({ id: U.p1, name: 'Source', slug: 'source' });
+    await seedProduct({ id: U.p2, name: 'Target', slug: 'target' });
+    await seedIntegration({
+      id: U.i1,
+      sourceProductId: U.p1,
+      targetProductId: U.p2,
+      createdAt: within7d,
     });
-    const result = await computeRecentIntegrations(prisma);
-    expect(result.map((r) => r.id)).toEqual(['newest', 'older']);
+    await seedIntegration({
+      id: U.i2,
+      sourceProductId: U.p2,
+      targetProductId: U.p1,
+      createdAt: old,
+    });
+    const result = await computeRecentIntegrations(t.db);
+    expect(result.map((r) => r.id)).toEqual([U.i1, U.i2]);
     expect(result[0]!.name).toBe('Source → Target'); // null name synthesized by the mapper
   });
 });
 
 describe('computeTrendingProducts', () => {
   it('ranks the top products by page views (last 7d), reordered to the ranking', async () => {
-    const { prisma } = makeFakePrisma({
-      products: [
-        productRow({ id: 'p-1', slug: 'a', name: 'A' }),
-        productRow({ id: 'p-2', slug: 'b', name: 'B' }),
-      ],
-      pageViews: [
-        { productId: 'p-1', createdAt: within7d },
-        { productId: 'p-2', createdAt: within7d },
-        { productId: 'p-2', createdAt: within7d }, // p-2 has 2 views, p-1 has 1
-        { productId: 'p-1', createdAt: old }, // outside the 7d window — ignored
-        { productId: 'ghost', createdAt: within7d }, // no product row — dropped
-      ],
-    });
-    const result = await computeTrendingProducts(prisma, NOW);
-    expect(result.map((r) => r.id)).toEqual(['p-2', 'p-1']);
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    await seedPageView(U.p1, within7d);
+    await seedPageView(U.p2, within7d);
+    await seedPageView(U.p2, within7d); // p-2 has 2 views, p-1 has 1
+    await seedPageView(U.p1, old); // outside the 7d window — ignored
+    await seedPageView(null, within7d); // no product — excluded by the null filter
+    const result = await computeTrendingProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p2, U.p1]);
   });
 
   it('returns [] when there are no page views (does not throw)', async () => {
-    const { prisma } = makeFakePrisma({ products: [productRow()], pageViews: [] });
-    await expect(computeTrendingProducts(prisma, NOW)).resolves.toEqual([]);
+    await seedProduct({ id: U.p1 });
+    await expect(computeTrendingProducts(t.db, NOW)).resolves.toEqual([]);
   });
 });
 
 describe('computeRecentlyAddedProducts', () => {
   it('returns products created in the last 30 days, newest first', async () => {
-    const { prisma } = makeFakePrisma({
-      products: [
-        productRow({ id: 'fresh', slug: 'fresh', createdAt: within7d }),
-        productRow({ id: 'recent', slug: 'recent', createdAt: within30d }),
-        productRow({ id: 'stale', slug: 'stale', createdAt: old }),
-      ],
-    });
-    const result = await computeRecentlyAddedProducts(prisma, NOW);
-    expect(result.map((r) => r.id)).toEqual(['fresh', 'recent']);
+    await seedProduct({ id: U.p1, slug: 'fresh', name: 'Fresh', createdAt: within7d });
+    await seedProduct({ id: U.p2, slug: 'recent', name: 'Recent', createdAt: within30d });
+    await seedProduct({ id: U.p3, slug: 'stale', name: 'Stale', createdAt: old });
+    const result = await computeRecentlyAddedProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1, U.p2]);
   });
 });
 
 // ── runHomeStats orchestration ───────────────────────────────────────────────
 
-// The end-to-end `runHomeStats` test validates every written value against its
-// `statsCacheValueSchemas` schema, and those schemas require `id` to be a UUID
-// (`LinkRefSchema` / `ProductListItemSchema` / `IntegrationListItemSchema`), so
-// the orchestration fixture uses real UUIDs (the per-key compute tests above
-// don't validate, so they keep friendlier ids).
-const U = {
-  p1: '11111111-1111-4111-8111-111111111111',
-  p2: '22222222-2222-4222-8222-222222222222',
-  i1: '33333333-3333-4333-8333-333333333333',
-  i2: '44444444-4444-4444-8444-444444444444',
-  c1: '55555555-5555-4555-8555-555555555555',
-  c2: '66666666-6666-4666-8666-666666666666',
-};
+/** Seed the full home-page corpus: two categorized products + two uncategorized
+ *  ones, one in-window integration touching both categories and one stale
+ *  uncategorized integration, one page view.
+ *
+ *  Categories are linked to *products* (the relational reality), not per
+ *  integration as the old Prisma fake could fake — so `i-2`'s endpoints are two
+ *  distinct *uncategorized* products. That keeps c-1 and c-2 each touched once
+ *  (by `i-1` only) → tie → "Design" wins with integration_count 1, preserving the
+ *  original assertion. (Reusing p-1/p-2 for `i-2` would let it touch both
+ *  categories transitively, giving each count 2.) */
+async function seedFullFixture(): Promise<void> {
+  const p3 = U.p3;
+  const p4 = '88888888-8888-4888-8888-888888888888';
+  await seedCategory(U.c1, 'Project Management', 'project-management');
+  await seedCategory(U.c2, 'Design', 'design');
+  await seedProduct({ id: U.p1, slug: 'a', name: 'A', integrationCount: 5, createdAt: within7d });
+  await seedProduct({ id: U.p2, slug: 'b', name: 'B', integrationCount: 9, createdAt: within30d });
+  await seedProduct({ id: p3, slug: 'c', name: 'C', createdAt: old });
+  await seedProduct({ id: p4, slug: 'd', name: 'D', createdAt: old });
+  await linkCategory(U.p1, U.c1);
+  await linkCategory(U.p2, U.c2);
+  // i-1 in-window: source→c-1, target→c-2 (each category counts 1).
+  await seedIntegration({
+    id: U.i1,
+    sourceProductId: U.p1,
+    targetProductId: U.p2,
+    createdAt: within7d,
+  });
+  // i-2 stale (outside 30d), uncategorized endpoints — touches no category.
+  await seedIntegration({
+    id: U.i2,
+    sourceProductId: p3,
+    targetProductId: p4,
+    createdAt: old,
+  });
+  await seedPageView(U.p1, within7d);
+}
 
-function fullFixture(): FakeOpts {
-  return {
-    integrations: [
-      integrationRow({
-        id: U.i1,
-        createdAt: within7d,
-        sourceProduct: {
-          id: U.p1,
-          name: 'A',
-          slug: 'a',
-          logoUrl: null,
-          productCategories: [{ categoryId: U.c1 }],
-        },
-        targetProduct: {
-          id: U.p2,
-          name: 'B',
-          slug: 'b',
-          logoUrl: null,
-          productCategories: [{ categoryId: U.c2 }],
-        },
-      }),
-      integrationRow({
-        id: U.i2,
-        createdAt: old,
-        sourceProduct: { id: U.p1, name: 'A', slug: 'a', logoUrl: null, productCategories: [] },
-        targetProduct: { id: U.p2, name: 'B', slug: 'b', logoUrl: null, productCategories: [] },
-      }),
-    ],
-    products: [
-      productRow({ id: U.p1, slug: 'a', name: 'A', integrationCount: 5, createdAt: within7d }),
-      productRow({ id: U.p2, slug: 'b', name: 'B', integrationCount: 9, createdAt: within30d }),
-    ],
-    mostIntegratedRow: { id: U.p2, name: 'B', slug: 'b', logoUrl: null, integrationCount: 9 },
-    pageViews: [{ productId: U.p1, createdAt: within7d }],
-    categories: [
-      { id: U.c1, name: 'Project Management', slug: 'project-management' },
-      { id: U.c2, name: 'Design', slug: 'design' },
-    ],
-  };
+/** Read back a written `stats_cache` value by key (null if absent). */
+async function cached(key: string): Promise<unknown> {
+  const [row] = await t.db.select().from(statsCache).where(eq(statsCache.key, key));
+  return row?.value ?? null;
+}
+
+async function hasCached(key: string): Promise<boolean> {
+  const rows = await t.db.select().from(statsCache).where(eq(statsCache.key, key));
+  return rows.length > 0;
 }
 
 describe('runHomeStats', () => {
-  it('writes all seven home.* keys with values that pass their own schema', async () => {
-    const { prisma, upserts } = makeFakePrisma(fullFixture());
+  it('writes all eleven home.* keys with values that pass their own schema', async () => {
+    await seedFullFixture();
+    // Coverage counts (AECI-271 + AECI-284): the fixture has 4 products, 0 vendors,
+    // and 0 reviews — add two approved reviews (each with a distinct firm) + one
+    // vendor so the scalars are non-zero.
+    await seedVendor(U.c1);
+    await seedReview(U.i1, U.p1, 'approved', 'Acme Architects');
+    await seedReview(U.i2, U.p1, 'approved', 'Beacon Structural');
 
-    const result = await runHomeStats(prisma, NOW);
+    const result = await runHomeStats(t.db, NOW);
 
     const written = result.keys.filter((k) => k.status === 'written').map((k) => k.key);
     expect(written).toEqual([
       'home.total_integrations',
       'home.integrations_added_30d',
+      'home.total_products',
+      'home.total_vendors',
+      'home.total_reviews',
+      'home.total_contributing_firms',
       'home.most_integrated_product',
       'home.most_active_category',
       'home.recent_integrations',
@@ -457,63 +455,80 @@ describe('runHomeStats', () => {
     ]);
 
     // Every cached value round-trips its source-of-truth schema (the §10 contract).
-    for (const [key, value] of upserts) {
+    const rows = await t.db.select().from(statsCache);
+    for (const { key, value } of rows) {
       const schema = statsCacheValueSchemas[key as keyof typeof statsCacheValueSchemas];
       expect(schema.safeParse(value).success, `${key} failed its schema`).toBe(true);
     }
 
-    expect(upserts.get('home.total_integrations')).toBe(2);
-    expect(upserts.get('home.integrations_added_30d')).toBe(1);
-    expect(upserts.get('home.most_integrated_product')).toMatchObject({ integration_count: 9 });
-    expect(upserts.get('home.most_active_category')).toMatchObject({ integration_count: 1 });
+    expect(await cached('home.total_integrations')).toBe(2);
+    expect(await cached('home.integrations_added_30d')).toBe(1);
+    expect(await cached('home.total_products')).toBe(4);
+    expect(await cached('home.total_vendors')).toBe(1);
+    expect(await cached('home.total_reviews')).toBe(2);
+    expect(await cached('home.total_contributing_firms')).toBe(2);
+    expect(await cached('home.most_integrated_product')).toMatchObject({ integration_count: 9 });
+    expect(await cached('home.most_active_category')).toMatchObject({ integration_count: 1 });
   });
 
   it('skips most_integrated_product / most_active_category on an empty DB (no throw)', async () => {
-    const { prisma, upserts } = makeFakePrisma(); // no fixtures at all
-
-    const result = await runHomeStats(prisma, NOW);
+    const result = await runHomeStats(t.db, NOW); // empty DB
 
     const byKey = new Map(result.keys.map((k) => [k.key, k.status]));
     expect(byKey.get('home.most_integrated_product')).toBe('skipped');
     expect(byKey.get('home.most_active_category')).toBe('skipped');
     // Scalar / list keys still write — 0 and [] are valid values.
-    expect(upserts.get('home.total_integrations')).toBe(0);
-    expect(upserts.get('home.trending_products')).toEqual([]);
-    expect(upserts.has('home.most_integrated_product')).toBe(false);
+    expect(await cached('home.total_integrations')).toBe(0);
+    expect(await cached('home.total_products')).toBe(0);
+    expect(await cached('home.total_vendors')).toBe(0);
+    expect(await cached('home.total_reviews')).toBe(0);
+    expect(await cached('home.total_contributing_firms')).toBe(0);
+    expect(await cached('home.trending_products')).toEqual([]);
+    expect(await hasCached('home.most_integrated_product')).toBe(false);
   });
 
   it('empty page_views → home.trending_products = [] without throwing', async () => {
-    const { prisma, upserts } = makeFakePrisma({ ...fullFixture(), pageViews: [] });
+    await seedFullFixture();
+    // Drop the seeded page view so trending resolves to [].
+    await t.db.delete(pageViews);
 
-    const result = await runHomeStats(prisma, NOW);
+    const result = await runHomeStats(t.db, NOW);
 
     expect(result.keys.find((k) => k.key === 'home.trending_products')?.status).toBe('written');
-    expect(upserts.get('home.trending_products')).toEqual([]);
+    expect(await cached('home.trending_products')).toEqual([]);
   });
 
   it('isolates a failing key — the rest still write (partial failure)', async () => {
-    // findFirst throws → most_integrated_product fails; the other six proceed.
-    const { prisma, upserts } = makeFakePrisma({ ...fullFixture(), findFirstThrows: true });
+    await seedFullFixture();
+    // Force the most_integrated_product producer to throw: stub the relational
+    // query builder's products.findFirst (the only call that path makes).
+    const original = t.db.query.products.findFirst;
+    const spy = vi.spyOn(t.db.query.products, 'findFirst').mockImplementationOnce(() => {
+      throw new Error('findFirst boom');
+    });
 
-    const result = await runHomeStats(prisma, NOW);
+    const result = await runHomeStats(t.db, NOW);
+    spy.mockRestore();
+    expect(t.db.query.products.findFirst).toBe(original);
 
     const failed = result.keys.find((k) => k.key === 'home.most_integrated_product');
     expect(failed?.status).toBe('failed');
     expect(failed?.error).toContain('findFirst boom');
-    expect(upserts.has('home.most_integrated_product')).toBe(false);
-    // The six other keys still wrote despite the one failure.
-    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(6);
+    expect(await hasCached('home.most_integrated_product')).toBe(false);
+    // The ten other keys still wrote despite the one failure (total_contributing_firms
+    // writes a valid 0 when the fixture has no firmed reviews).
+    expect(result.keys.filter((k) => k.status === 'written')).toHaveLength(10);
   });
 
   it('never throws and always returns an outcome per key', async () => {
-    const { prisma } = makeFakePrisma(fullFixture());
-    const result = await runHomeStats(prisma, NOW);
-    expect(result.keys).toHaveLength(7);
+    await seedFullFixture();
+    const result = await runHomeStats(t.db, NOW);
+    expect(result.keys).toHaveLength(11);
   });
 
   it('records a non-negative per-key durationMs for every key (AECI-180)', async () => {
-    const { prisma } = makeFakePrisma(fullFixture());
-    const result = await runHomeStats(prisma, NOW);
+    await seedFullFixture();
+    const result = await runHomeStats(t.db, NOW);
     expect(result.keys.every((k) => typeof k.durationMs === 'number' && k.durationMs >= 0)).toBe(
       true,
     );

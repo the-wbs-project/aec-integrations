@@ -3,7 +3,7 @@
  *
  *   GET /api/stats/home → HomeStatsResponse
  *
- * Reads the seven `home.*` keys from the `stats_cache` table (written daily by
+ * Reads the eleven `home.*` keys from the `stats_cache` table (written daily by
  * the compute job, 4.3 / AECI-178) and assembles the `HomeStatsResponse` shape
  * (AECI-176). It **never live-aggregates** (docs/STAGE_1_SPEC.md §10) — the
  * cache is the only source.
@@ -12,7 +12,9 @@
  * creation and the compute job's first run) the cache is sparse, so a missing
  * key — or a cached value that has drifted from its schema across deploys —
  * falls back to a sensible empty default rather than 500ing. Defaults:
- *   - scalars (`total_integrations`, `integrations_added_30d`)          → 0
+ *   - scalars (`total_integrations`, `integrations_added_30d`,
+ *     `total_products`, `total_vendors`, `total_reviews`,
+ *     `total_contributing_firms`)                                       → 0
  *   - single cards (`most_integrated_product`, `most_active_category`)  → null
  *   - lists (`recent_integrations`, `trending_products`,
  *            `recently_added_products`)                                 → []
@@ -33,13 +35,15 @@ import {
   HomeStatsResponseSchema,
   type HomeStatsResponse,
 } from '@aeci/shared';
+import { inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { z } from 'zod';
 
+import { getDb } from '../db/client';
+import { statsCache } from '../db/schema';
 import type { Env } from '../env';
 import { json } from '../http';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import { getPrisma } from '../prisma';
+import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
 
 type HomeKey = Extract<(typeof STATS_CACHE_KEYS)[number], `home.${string}`>;
 
@@ -59,15 +63,15 @@ function parseOr<T, F>(schema: z.ZodType<T>, raw: unknown, fallback: F): T | F {
 }
 
 export function createStatsHomeHandler(
-  prismaFor: PrismaFactory = getPrisma,
+  dbFor: DbFactory = getDb,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
-    const prisma = prismaFor(c.env);
+    const { db } = dbFor(c.env);
 
-    const rows = await prisma.statsCache.findMany({
-      where: { key: { in: [...HOME_KEYS] } },
-      select: { key: true, value: true },
-    });
+    const rows = await db
+      .select({ key: statsCache.key, value: statsCache.value })
+      .from(statsCache)
+      .where(inArray(statsCache.key, [...HOME_KEYS]));
 
     const byKey = new Map<string, unknown>(rows.map((row) => [row.key, row.value]));
 
@@ -80,6 +84,26 @@ export function createStatsHomeHandler(
       integrations_added_30d: parseOr(
         statsCacheValueSchemas['home.integrations_added_30d'],
         byKey.get('home.integrations_added_30d'),
+        0,
+      ),
+      total_products: parseOr(
+        statsCacheValueSchemas['home.total_products'],
+        byKey.get('home.total_products'),
+        0,
+      ),
+      total_vendors: parseOr(
+        statsCacheValueSchemas['home.total_vendors'],
+        byKey.get('home.total_vendors'),
+        0,
+      ),
+      total_reviews: parseOr(
+        statsCacheValueSchemas['home.total_reviews'],
+        byKey.get('home.total_reviews'),
+        0,
+      ),
+      total_contributing_firms: parseOr(
+        statsCacheValueSchemas['home.total_contributing_firms'],
+        byKey.get('home.total_contributing_firms'),
         0,
       ),
       most_integrated_product: parseOr(

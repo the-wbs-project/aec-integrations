@@ -9,7 +9,7 @@
  * AND the request's `workflow_instance.linear_issue_id`. Linear's own email
  * notifications then alert the assignee (`STAGE_1_PHASE_6_SPEC.md` §6.1, §10).
  *
- * The contract `createLinearIssueForRequest()` upholds (mirrors `lib/perspective.ts`):
+ * The contract `createLinearIssueForRequest()` upholds (mirrors `lib/toxicity.ts`):
  *
  *   - **Never throws.** Every failure mode (absent key, timeout, non-2xx, a
  *     200-with-`errors[]` body, `success:false`, a DB write error) is caught,
@@ -34,9 +34,18 @@
  */
 
 import type { RequestKind, RequestTargetType } from '@aeci/shared';
+import {
+  forwardWorkflowTransition,
+  type WorkflowTransitionEntry,
+  type WorkflowTransitionForwarder,
+} from '@aeci/shared/workflow-transition';
+import { and, eq, isNull } from 'drizzle-orm';
 
+import type { Db } from '../db/client';
+import { vendorRequests, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount, submitDistribution } from '../datadog';
 import type { Env } from '../env';
+import { workflowTransitionInsert } from './audit';
 
 // ─── Verified Linear board constants ─────────────────────────────────────────
 // Queried live (2026-06-13). Hardcoded rather than env-configured because they
@@ -49,8 +58,7 @@ export const VENDOR_REQUESTS_PROJECT_ID = '9f67f235-8610-4eb5-b58d-35d4ae0f2596'
 export const AECI_TEAM_ID = 'd7706bcb-c776-4064-b4da-0c350dfb8f16';
 
 /** Request-type + workflow-stage label ids. `domain-check-pending` is applied on
- *  a domain mismatch from 6.8 (§7.1); until 6.8 lands `domain_match` is always
- *  `'pending'`, so that label never fires yet. */
+ *  a domain mismatch (`domain_match:'no_match'`) computed at submit time (6.8 §7.1). */
 export const LABEL_IDS = {
   claim: '3fcb69bc-9759-4e6e-848d-84f28692289e',
   correction: '6842dec1-aaec-4fee-a3e1-9efd4ca620f2',
@@ -64,6 +72,19 @@ export const LABEL_IDS = {
  * no other change needed.
  */
 export const ASSIGNEE_IDS: readonly string[] = ['4580c38b-84de-4eca-b043-7d26b5b65416'];
+
+/**
+ * AECi-team workflow-state ids for the outbound site→Linear sync (§6.5, AECI-213).
+ * Queried live 2026-06-13. This is the **inverse** of the §6.3 webhook's
+ * `state.type`→status map: a site `resolve`→ the `completed`-type "Done" state, a
+ * `reject`→ the `canceled`-type "Canceled" state — so the two directions agree on
+ * the same terminal Linear states. Hardcoded for the same reason as the board
+ * constants above (fixed board structure, not secret).
+ */
+export const WORKFLOW_STATE_IDS = {
+  resolved: 'd1ccafd9-f13a-4210-b735-4def79b9aa00', // "Done"     (type: completed)
+  rejected: 'd3d59ae8-63b6-41b4-9b87-8d62bfcc753a', // "Canceled" (type: canceled)
+} as const;
 
 /** Cap on each Linear call so a slow API never holds the `waitUntil` open. */
 const TIMEOUT_MS = 5000;
@@ -86,11 +107,37 @@ mutation AttachSource($input: AttachmentCreateInput!) {
   }
 }`;
 
+const ISSUE_UPDATE_MUTATION = `
+mutation TransitionRequestIssue($id: String!, $input: IssueUpdateInput!) {
+  issueUpdate(id: $id, input: $input) {
+    success
+    issue { id identifier state { id name type } }
+  }
+}`;
+
+const COMMENT_CREATE_MUTATION = `
+mutation CommentOnRequestIssue($input: CommentCreateInput!) {
+  commentCreate(input: $input) {
+    success
+    comment { id }
+  }
+}`;
+
 type IssueCreatePayload = {
   issueCreate: { success: boolean; issue: { id: string; identifier: string; url: string } | null };
 };
 type AttachmentCreatePayload = {
   attachmentCreate: { success: boolean; attachment: { id: string } | null };
+};
+type IssueState = { id: string; name: string; type: string };
+type IssueUpdatePayload = {
+  issueUpdate: {
+    success: boolean;
+    issue: { id: string; identifier: string; state: IssueState | null } | null;
+  };
+};
+type CommentCreatePayload = {
+  commentCreate: { success: boolean; comment: { id: string } | null };
 };
 
 // ─── Transport ───────────────────────────────────────────────────────────────
@@ -195,27 +242,55 @@ export function labelIdsFor(kind: RequestKind, domainMatch?: string | null): str
 
 // ─── Orchestration ───────────────────────────────────────────────────────────
 
-type UpdateManyArgs = { where: Record<string, unknown>; data: Record<string, unknown> };
-
 /**
- * Minimal top-level Prisma surface the persist + idempotency guard need. The
- * post-commit task runs OUTSIDE any `$transaction`, so these are top-level
- * delegates (not a `tx`). A real accelerated client and the test fake both
- * satisfy this. (Same `UpdateManyArgs` shape as `routes/account.ts`.)
+ * ORM-neutral persistence seam for the issue link-back + idempotency guard. The
+ * post-commit task runs OUTSIDE any transaction, so these are top-level reads/
+ * writes. `createLinearIssueForRequest` depends only on this seam: both
+ * `routes/requests.ts` and `lib/reconciliation-sweep.ts` (the §6.7 sweep) pass the
+ * Drizzle-backed store (`drizzleLinearStore`).
  */
-export type LinearPersistClient = {
-  vendorRequest: {
-    findUnique(args: {
-      where: { id: string };
-      select: { linearIssueId: true };
-    }): Promise<{ linearIssueId: string | null } | null>;
-    updateMany(args: UpdateManyArgs): Promise<{ count: number }>;
+export interface LinearRequestStore {
+  /** Current `linear_issue_id` of the request — null if unlinked OR the row is
+   *  gone (both mean "proceed to create", matching the old `findUnique` guard). */
+  getLinkedIssueId(requestId: string): Promise<string | null>;
+  /** Compare-and-set the issue id (and the issue's web url, AECI-261) onto the
+   *  request row AND the issue id onto its workflow instance, by PK with a
+   *  `linear_issue_id IS NULL` guard (idempotent under a retry race). */
+  linkIssue(
+    requestId: string,
+    workflowId: string,
+    issueId: string,
+    issueUrl: string,
+  ): Promise<void>;
+}
+
+/** Drizzle/D1 `LinearRequestStore` (`routes/requests.ts`; the §6.7 sweep once it
+ *  migrates). */
+export function drizzleLinearStore(db: Db): LinearRequestStore {
+  return {
+    async getLinkedIssueId(requestId) {
+      const row = await db.query.vendorRequests.findFirst({
+        columns: { linearIssueId: true },
+        where: eq(vendorRequests.id, requestId),
+      });
+      return row?.linearIssueId ?? null;
+    },
+    async linkIssue(requestId, workflowId, issueId, issueUrl) {
+      await db
+        .update(vendorRequests)
+        // AECI-261: persist the issue url alongside its id so /admin/requests links.
+        .set({ linearIssueId: issueId, linearIssueUrl: issueUrl })
+        .where(and(eq(vendorRequests.id, requestId), isNull(vendorRequests.linearIssueId)));
+      await db
+        .update(workflowInstances)
+        .set({ linearIssueId: issueId })
+        .where(and(eq(workflowInstances.id, workflowId), isNull(workflowInstances.linearIssueId)));
+    },
   };
-  workflowInstance: { updateMany(args: UpdateManyArgs): Promise<{ count: number }> };
-};
+}
 
 /** The slice of Hono's `Context` this needs, typed structurally (like
- *  `perspective.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits. */
+ *  `toxicity.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits. */
 type LinearContext = { env: Env; executionCtx: ExecutionContext; req: { raw: Request } };
 
 export interface LinearIssueInput {
@@ -232,8 +307,32 @@ export interface LinearIssueInput {
   submitterRole?: string | null;
   body: string;
   sourceUrl?: string | null;
-  /** From 6.8 (not yet computed); `'no_match'` adds the domain-check-pending label. */
+  /** From 6.8 (§7.1); `'no_match'` adds the domain-check-pending label. */
   domainMatch?: string | null;
+  /** From 6.8 (§7.2): the earliest matching `open` request id when this submit looks
+   *  like a duplicate. Set → post an informational note on the issue (never rejects). */
+  duplicateOfRequestId?: string | null;
+  /** That duplicate request's Linear issue id, if any — referenced in the note. */
+  duplicateLinearIssueId?: string | null;
+}
+
+export interface LinearResolutionInput {
+  requestId: string;
+  /** The request's `workflow_instance.id` — the transition's parent. */
+  workflowId: string;
+  /** The linked Linear issue node id, or null if one was never created (§6.2). */
+  linearIssueId: string | null;
+  kind: RequestKind;
+  /** The resolution the admin chose: `resolved`→"Done", `rejected`→"Canceled". */
+  toStatus: keyof typeof WORKFLOW_STATE_IDS;
+  /** Prior status, for the transition's `from_state` (defaults to `'open'`). */
+  fromStatus?: string | null;
+  /** Resolution note / rejection reason → the Linear comment + `transition.reason`. */
+  reason?: string | null;
+  /** Admin profile id → `transition.actor_id`. */
+  actorId?: string | null;
+  /** Admin email/name for the comment body (display only; never required). */
+  actorLabel?: string | null;
 }
 
 /**
@@ -243,23 +342,20 @@ export interface LinearIssueInput {
  */
 export async function createLinearIssueForRequest(
   c: LinearContext,
-  prisma: LinearPersistClient,
+  store: LinearRequestStore,
   input: LinearIssueInput,
   fetchImpl: typeof fetch = fetch,
 ): Promise<void> {
   const apiKey = c.env.LINEAR_API_KEY;
   // Absent key is the expected non-prod state — silent no-op, no metric (it must
-  // not pollute the error-rate denominator; mirrors `perspective.ts`).
+  // not pollute the error-rate denominator; mirrors `toxicity.ts`).
   if (!apiKey) return;
 
   // Idempotency guard: skip if already linked. Covers a stray re-fire and the
   // §6.7 retrier reusing this function.
   try {
-    const existing = await prisma.vendorRequest.findUnique({
-      where: { id: input.requestId },
-      select: { linearIssueId: true },
-    });
-    if (existing?.linearIssueId) {
+    const existingId = await store.getLinkedIssueId(input.requestId);
+    if (existingId) {
       emit(c, 'skipped_exists', input.kind);
       return;
     }
@@ -316,17 +412,28 @@ export async function createLinearIssueForRequest(
     }
   }
 
-  // Persist the id on both the request row and its workflow instance, compare-and-
-  // set by PK so only the first writer wins (idempotent under a retry race).
+  // Duplicate note (§7.2). Best-effort like the attachment — informational only, a
+  // failure must not undo the issue or block linking.
+  if (input.duplicateOfRequestId) {
+    const noteRes = await linearGraphql<CommentCreatePayload>(
+      apiKey,
+      COMMENT_CREATE_MUTATION,
+      { input: { issueId: issue.id, body: buildDuplicateNote(input) } },
+      fetchImpl,
+    );
+    if (!noteRes.ok || !noteRes.data.commentCreate.success) {
+      warn(
+        c,
+        `linear duplicate commentCreate failed: ${noteRes.ok ? 'success=false' : noteRes.message}`,
+      );
+    }
+  }
+
+  // Persist the id (+ url, AECI-261) on the request row and the id on its workflow
+  // instance, compare-and-set by PK so only the first writer wins (idempotent under
+  // a retry race).
   try {
-    await prisma.vendorRequest.updateMany({
-      where: { id: input.requestId, linearIssueId: null },
-      data: { linearIssueId: issue.id },
-    });
-    await prisma.workflowInstance.updateMany({
-      where: { id: input.workflowId, linearIssueId: null },
-      data: { linearIssueId: issue.id },
-    });
+    await store.linkIssue(input.requestId, input.workflowId, issue.id, issue.url);
   } catch (err) {
     // The issue exists but we couldn't link it — row stays open; §6.7 reconciles
     // via the embedded `Request: <id>` marker. Reported as a pipeline failure.
@@ -336,6 +443,111 @@ export async function createLinearIssueForRequest(
   }
 
   emit(c, 'ok', input.kind, undefined, Date.now() - started);
+}
+
+/**
+ * Site → Linear sync on an admin resolve/reject (`STAGE_1_PHASE_6_SPEC.md` §6.5;
+ * `STAGE_1_SPEC.md` §26.4 — the outbound half of the bidirectional sync). After
+ * an admin resolves/rejects a vendor request on the site, this transitions the
+ * linked Linear issue to the matching terminal state ("Done"/"Canceled"), posts a
+ * comment, and records the site-originated `workflow_transition`.
+ *
+ * Called from the §8.1 resolve/reject handler's `ctx.waitUntil()` — wired into
+ * the `SyncRequestToLinear` seam at the composition root (`index.ts`, AECI-220).
+ * The handler owns the local `status`/`resolved_*` write + `audit_log`; this owns
+ * the Linear push + the sync transition. It upholds the same contract as
+ * `createLinearIssueForRequest`:
+ *
+ *   - **Never throws.** Every failure (absent key, timeout, non-2xx, `errors[]`,
+ *     `success:false`, a transition-write error) is caught, logged, and metered.
+ *   - **Absent key → silent no-op, no metric** (non-prod state; must not pollute
+ *     the `aeci.linear.sync` error-rate denominator).
+ *   - **Tolerant of a missing issue.** `linear_issue_id === null` (issue never
+ *     created — §6.2 — or the §6.7 sweep hasn't reconciled it yet) is **skip +
+ *     log**, not an error: there is simply nothing to push.
+ */
+export async function pushRequestResolutionToLinear(
+  c: LinearContext,
+  db: Db,
+  input: LinearResolutionInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  const apiKey = c.env.LINEAR_API_KEY;
+  // Absent key is the expected non-prod state — silent no-op, no metric (parity
+  // with `createLinearIssueForRequest`).
+  if (!apiKey) return;
+
+  // Tolerant of a request whose Linear issue was never created: nothing to sync.
+  // Skip + log (not an error) and don't record a transition — there is no issue
+  // the admin's resolution could have been pushed to.
+  if (!input.linearIssueId) {
+    info(c, `linear sync skipped: request ${input.requestId} has no linear_issue_id`);
+    emitSync(c, 'skipped_no_issue', input.kind, input.toStatus);
+    return;
+  }
+
+  const started = Date.now();
+  const stateId = WORKFLOW_STATE_IDS[input.toStatus];
+  const updateRes = await linearGraphql<IssueUpdatePayload>(
+    apiKey,
+    ISSUE_UPDATE_MUTATION,
+    { id: input.linearIssueId, input: { stateId } },
+    fetchImpl,
+  );
+
+  // Gate on transport ok AND Linear's own `success`/`issue` — a 200 can carry
+  // `errors[]` or `success:false` (same rationale as the create path).
+  const issue = updateRes.ok ? updateRes.data.issueUpdate.issue : null;
+  if (!updateRes.ok || !updateRes.data.issueUpdate.success || !issue) {
+    const reason = updateRes.ok ? 'graphql_error' : updateRes.reason;
+    const message = updateRes.ok ? 'issueUpdate success=false' : updateRes.message;
+    error(c, `linear issueUpdate failed (${reason}): ${message}`);
+    emitSync(c, 'failed', input.kind, input.toStatus, reason, Date.now() - started);
+    return;
+  }
+
+  // Comment — best-effort (a failed comment must not undo the state change or
+  // block the transition record), mirroring the create path's attachment step.
+  const commentRes = await linearGraphql<CommentCreatePayload>(
+    apiKey,
+    COMMENT_CREATE_MUTATION,
+    { input: { issueId: input.linearIssueId, body: buildResolutionComment(input) } },
+    fetchImpl,
+  );
+  if (!commentRes.ok || !commentRes.data.commentCreate.success) {
+    warn(c, `linear commentCreate failed: ${commentRes.ok ? 'success=false' : commentRes.message}`);
+  }
+
+  // Record the site-originated transition (§6.5, AECI-213 AC2). Append-only,
+  // non-transactional (we're post-commit in `waitUntil`); a write failure is
+  // logged + metered, never thrown. `actor_type` lives in metadata (no column).
+  const transitionEntry: WorkflowTransitionEntry = {
+    workflowId: input.workflowId,
+    fromState: input.fromStatus ?? 'open',
+    toState: input.toStatus,
+    actorId: input.actorId ?? null,
+    reason: input.reason ?? null,
+    metadata: {
+      source: 'site-linear-sync',
+      actor_type: 'admin',
+      linear_issue_id: input.linearIssueId,
+      linear_state_id: stateId,
+      linear_state_name: issue.state?.name ?? null,
+      linear_state_type: issue.state?.type ?? null,
+    },
+  };
+  try {
+    await workflowTransitionInsert(db, transitionEntry);
+  } catch (err) {
+    error(c, `linear sync transition persist failed: ${errMsg(err)}`);
+    emitSync(c, 'failed', input.kind, input.toStatus, 'db_error', Date.now() - started);
+    return;
+  }
+  // Best-effort §26.5 forward AFTER the row commits (forwarder swallows its own
+  // errors, so this can't throw out of the `waitUntil`).
+  await forwardWorkflowTransition(transitionEntry, makeSyncForwarder(c));
+
+  emitSync(c, 'ok', input.kind, input.toStatus, undefined, Date.now() - started);
 }
 
 // ─── Issue content ───────────────────────────────────────────────────────────
@@ -357,11 +569,39 @@ function buildDescription(input: LinearIssueInput): string {
   return lines.join('\n');
 }
 
+/** Linear comment for an admin resolve/reject pushed from the site (§6.5). */
+function buildResolutionComment(input: LinearResolutionInput): string {
+  const verb = input.toStatus === 'resolved' ? 'resolved' : 'rejected';
+  const who = input.actorLabel ? ` by ${input.actorLabel}` : '';
+  const lines = [`This request was **${verb}**${who} on AECi.`];
+  if (input.reason) lines.push('', `> ${input.reason}`);
+  return lines.join('\n');
+}
+
+/** Informational duplicate note (§7.2). Vendor-request duplicates are sometimes
+ *  legitimate (two people from the same vendor claim independently), so this only
+ *  flags for the admin — it never rejects. */
+function buildDuplicateNote(input: LinearIssueInput): string {
+  const lines = [
+    "⚠️ **Possible duplicate.** An existing `open` request for this target shares this submit's kind or submitter.",
+    '',
+    `**Original request:** \`${input.duplicateOfRequestId}\``,
+  ];
+  if (input.duplicateLinearIssueId) {
+    lines.push(`**Original Linear issue:** ${input.duplicateLinearIssueId}`);
+  }
+  lines.push(
+    '',
+    'Informational only — review before resolving. Vendor-request duplicates are sometimes legitimate (e.g. two people from the same vendor claiming independently).',
+  );
+  return lines.join('\n');
+}
+
 // ─── Telemetry ───────────────────────────────────────────────────────────────
 
 /** Emit the `aeci.linear.issue` outcome count (+ duration distribution on a
  *  terminal create attempt). Wrapped so a missing `DD_API_KEY` / ExecutionContext
- *  can never turn a graceful path into a throw (mirrors `perspective.ts`). */
+ *  can never turn a graceful path into a throw (mirrors `toxicity.ts`). */
 function emit(
   c: LinearContext,
   outcome: 'ok' | 'failed' | 'skipped_exists',
@@ -388,17 +628,68 @@ function emit(
   }
 }
 
+/** Emit the `aeci.linear.sync` outcome count (+ duration on a terminal attempt)
+ *  for the site→Linear resolve/reject push (§6.5, AECI-213). Same swallow-on-error
+ *  wrapper as `emit`. */
+function emitSync(
+  c: LinearContext,
+  outcome: 'ok' | 'failed' | 'skipped_no_issue',
+  kind: RequestKind,
+  toStatus: keyof typeof WORKFLOW_STATE_IDS,
+  reason?: string,
+  durationMs?: number,
+): void {
+  try {
+    const tags = [`outcome:${outcome}`, `kind:${kind}`, `to_status:${toStatus}`];
+    if (reason) tags.push(`reason:${reason}`);
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.linear.sync', 1, tags);
+    if (durationMs !== undefined) {
+      submitDistribution(
+        c.executionCtx,
+        c.env,
+        c.req.raw,
+        'aeci.linear.sync.duration_ms',
+        durationMs,
+        [`outcome:${outcome}`],
+      );
+    }
+  } catch {
+    // Telemetry must never break the pipeline.
+  }
+}
+
+/** Datadog forwarder for the sync transition write; no-op without `DD_API_KEY`.
+ *  Mirrors `routes/webhooks.ts`'s `makeWorkflowForwarder`, tagged
+ *  `source: site-linear-sync`. */
+function makeSyncForwarder(c: LinearContext): WorkflowTransitionForwarder | undefined {
+  if (!c.env.DD_API_KEY) return undefined;
+  return (entry) => {
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'info',
+      message: `workflow ${entry.fromState ?? '∅'}→${entry.toState} ${entry.workflowId}`.trim(),
+      from_state: entry.fromState ?? undefined,
+      to_state: entry.toState,
+      workflow_id: entry.workflowId,
+      source: 'site-linear-sync',
+    });
+  };
+}
+
+function info(c: LinearContext, message: string): void {
+  log(c, 'info', message);
+}
 function warn(c: LinearContext, message: string): void {
   log(c, 'warn', message);
 }
 function error(c: LinearContext, message: string): void {
   log(c, 'error', message);
 }
-function log(c: LinearContext, level: 'warn' | 'error', message: string): void {
+function log(c: LinearContext, level: 'info' | 'warn' | 'error', message: string): void {
   try {
     logToDatadog(c.executionCtx, c.env, c.req.raw, { level, message, source: 'linear' });
   } catch {
-    console[level === 'error' ? 'error' : 'warn'](`linear: ${message}`);
+    const sink = level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'info';
+    console[sink](`linear: ${message}`);
   }
 }
 

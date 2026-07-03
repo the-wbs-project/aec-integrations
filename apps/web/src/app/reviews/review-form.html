@@ -51,6 +51,82 @@
     onboarding separately.
   </p>
 
+  @if (checkingExisting()) {
+  <!-- Already-reviewed check in flight (AECI-260): a quiet placeholder, never
+       the full form — so an already-reviewed user never sees fields flash in. -->
+  <div class="mt-10 space-y-4" aria-hidden="true">
+    <div class="h-11 w-44 rounded-(--radius-md) bg-(--surface-sunken)"></div>
+    <div class="h-28 w-full rounded-(--radius-md) bg-(--surface-sunken)"></div>
+  </div>
+  } @else if (needsSignIn()) {
+  <!-- Not signed in: a notice + sign-in link instead of the form. The pop-up
+       below auto-opens over this; if it's dismissed this notice remains, so an
+       unauthenticated visitor is never shown a fillable form. -->
+  <div
+    class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+  >
+    <p class="text-base font-semibold text-(--text-primary)" i18n="@@reviews.signIn.notice.title">
+      Sign in to leave a review
+    </p>
+    <p
+      class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+      i18n="@@reviews.signIn.notice.body"
+    >
+      You need an account to share your experience. We'll bring you right back here after you sign
+      in.
+    </p>
+    <div class="mt-5 flex flex-wrap gap-3">
+      <a
+        [routerLink]="['/auth/login']"
+        [queryParams]="{ return: reviewPath() }"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-3 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@reviews.signIn.notice.cta"
+      >
+        Sign in
+      </a>
+      <a
+        [routerLink]="backRouterLink()"
+        class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+        i18n="@@reviews.signIn.notice.back"
+      >
+        Back to {{ product.name }}
+      </a>
+    </div>
+  </div>
+  } @else if (existingReview()) {
+  <!-- Already reviewed: a notice + links instead of the form (AECI-260). The
+       copy is status-agnostic — a rejected review still blocks re-submission;
+       its reason lives on /account. -->
+  <div
+    class="mt-10 rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-6"
+  >
+    <p class="text-base font-semibold text-(--text-primary)" i18n="@@reviews.alreadyReviewed.title">
+      You've already reviewed this product
+    </p>
+    <p
+      class="mt-2 max-w-prose text-sm leading-relaxed text-(--text-secondary)"
+      i18n="@@reviews.alreadyReviewed.body"
+    >
+      You can only submit one review per product. View or manage your review from your account.
+    </p>
+    <div class="mt-5 flex flex-wrap gap-3">
+      <a
+        routerLink="/account"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-3 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@reviews.alreadyReviewed.viewYourReview"
+      >
+        View your review
+      </a>
+      <a
+        [routerLink]="backRouterLink()"
+        class="inline-flex items-center rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) px-5 py-3 text-sm font-bold text-(--text-primary) no-underline transition-colors hover:border-(--border-strong) hover:text-(--accent-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+        i18n="@@reviews.alreadyReviewed.back"
+      >
+        Back to {{ product.name }}
+      </a>
+    </div>
+  </div>
+  } @else {
   <!-- ── Form ──────────────────────────────────────────────────────────── -->
   <form class="mt-10 space-y-8" novalidate (submit)="$event.preventDefault(); onSubmit()">
     <!-- Overall rating (required) -->
@@ -78,7 +154,7 @@
           [value]="n"
           [attr.aria-label]="starLabel(n)"
           class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          [style.color]="n <= (overallSel()[0] ?? 0) ? 'var(--accent-primary)' : 'var(--text-tertiary)'"
+          [style.color]="n <= (overallSel()[0] ?? 0) ? 'var(--accent-rating)' : 'var(--text-tertiary)'"
         >
           <span aria-hidden="true">★</span>
         </li>
@@ -121,7 +197,7 @@
           [value]="n"
           [attr.aria-label]="starLabel(n)"
           class="flex h-11 w-11 cursor-pointer items-center justify-center rounded-(--radius-md) text-2xl leading-none transition-colors data-[active=true]:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
-          [style.color]="n <= (onboardingSel()[0] ?? 0) ? 'var(--accent-primary)' : 'var(--text-tertiary)'"
+          [style.color]="n <= (onboardingSel()[0] ?? 0) ? 'var(--accent-rating)' : 'var(--text-tertiary)'"
         >
           <span aria-hidden="true">★</span>
         </li>
@@ -210,7 +286,7 @@
           >(optional)</span
         >
       </label>
-      <div class="relative">
+      <div #roleOrigin class="relative">
         <button
           ngCombobox
           #roleCb="ngCombobox"
@@ -226,36 +302,70 @@
           <span aria-hidden="true" class="ms-2 text-(--text-tertiary)">▾</span>
         </button>
 
-        <ng-template ngComboboxPopup [combobox]="roleCb" popupType="listbox">
-          <ul
-            ngComboboxWidget
-            ngListbox
-            #roleListbox="ngListbox"
-            [(value)]="roleSel"
-            (valueChange)="onRoleChange()"
-            [activeDescendant]="roleListbox.activeDescendant()"
-            focusMode="activedescendant"
-            selectionMode="explicit"
-            i18n-aria-label="@@reviews.role.listbox.aria"
-            aria-label="Roles"
-            class="absolute z-10 mt-1 flex max-h-72 w-full list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
-          >
-            @for (opt of roleOptions; track opt.value) {
-            <li
-              ngOption
-              [value]="opt"
-              [label]="opt.label"
-              class="flex cursor-pointer items-center justify-between rounded-(--radius-sm) px-3 py-2 text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
+        <!--
+          Aria's ComboboxPopup renders the listbox via DeferredContent.createEmbeddedView
+          (in-flow) — it is NOT itself a floating layer. An outer cdkConnectedOverlay
+          (usePopover:'inline' → browser top layer) supplies positioning, flip, and
+          overflow-escape, per ADR 0010 ("Aria supplies behavior, not the floating
+          layer"). matchWidth pins the panel to the trigger width; the <ul> only styles.
+        -->
+        <ng-template
+          [cdkConnectedOverlay]="{ origin: roleOrigin, usePopover: 'inline', matchWidth: true }"
+          [cdkConnectedOverlayOpen]="roleExpanded()"
+        >
+          <ng-template ngComboboxPopup [combobox]="roleCb" popupType="listbox">
+            <ul
+              ngComboboxWidget
+              ngListbox
+              #roleListbox="ngListbox"
+              [(value)]="roleSel"
+              (valueChange)="onRoleChange()"
+              [activeDescendant]="roleListbox.activeDescendant()"
+              focusMode="activedescendant"
+              selectionMode="explicit"
+              i18n-aria-label="@@reviews.role.listbox.aria"
+              aria-label="Roles"
+              class="flex max-h-72 list-none flex-col gap-0.5 overflow-y-auto rounded-(--radius-md) border border-(--border-default) bg-(--surface-raised) p-1.5 shadow-lg"
             >
-              <span>{{ opt.label }}</span>
-              @if (roleSel()[0]?.value === opt.value) {
-              <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+              @for (opt of roleOptions; track opt.value) {
+              <li
+                ngOption
+                [value]="opt"
+                [label]="opt.label"
+                class="flex cursor-pointer items-center justify-between rounded-(--radius-sm) px-3 py-2 text-sm text-(--text-primary) data-[active=true]:bg-(--surface-sunken)"
+              >
+                <span>{{ opt.label }}</span>
+                @if (roleSel()[0]?.value === opt.value) {
+                <span aria-hidden="true" class="text-(--accent-primary)">✓</span>
+                }
+              </li>
               }
-            </li>
-            }
-          </ul>
+            </ul>
+          </ng-template>
         </ng-template>
       </div>
+    </div>
+
+    <!-- Your firm (optional, AECI-284) — free text; feeds the home contributing-firms count -->
+    <div class="space-y-1.5">
+      <label
+        for="reviewer-firm"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      >
+        <ng-container i18n="@@reviews.firm.label">Your firm</ng-container>
+        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+          >(optional)</span
+        >
+      </label>
+      <input
+        id="reviewer-firm"
+        type="text"
+        maxlength="100"
+        autocomplete="organization"
+        [value]="firm()"
+        (input)="onFirmInput($event)"
+        class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
     </div>
 
     <!-- Years using (optional) -->
@@ -324,7 +434,19 @@
       </ul>
     </div>
 
-    @if (submitFailed()) {
+    @if (submitDuplicate()) {
+    <div role="alert" class="space-y-1">
+      <p class="text-sm font-medium text-(--text-primary)" i18n="@@reviews.submitDuplicate">
+        You've already reviewed this product.
+      </p>
+      <a
+        routerLink="/account"
+        class="inline-flex text-sm font-semibold text-(--accent-primary) underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-(--accent-primary) focus-visible:ring-offset-2 focus-visible:ring-offset-(--surface-base)"
+        i18n="@@reviews.submitDuplicate.link"
+        >View your review</a
+      >
+    </div>
+    } @else if (submitFailed()) {
     <p class="text-sm font-medium text-(--text-primary)" role="alert" i18n="@@reviews.submitFailed">
       Something went wrong submitting your review. Please try again.
     </p>
@@ -342,6 +464,54 @@
       }
     </button>
   </form>
+  }
+
+  <!-- ── Sign-in pop-up ────────────────────────────────────────────────────
+       Auto-opened from `reconcile()` for an unauthenticated visitor (the inline
+       notice above is its dismissed-state fallback). Always present in this
+       not-submitted branch so the `viewChild(BrnDialog)` resolves before
+       `open()` is called. Gentle and dismissible (Esc / backdrop / "Not now"). -->
+  <brn-dialog #signInDialog="brnDialog">
+    <ng-template brnDialogContent>
+      <div
+        class="w-[min(90vw,28rem)] rounded-lg border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-2xl"
+      >
+        <h2
+          brnDialogTitle
+          class="text-lg font-semibold tracking-tight"
+          i18n="@@reviews.signIn.dialog.title"
+        >
+          Sign in to leave a review
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@reviews.signIn.dialog.description"
+        >
+          You need an account to share your experience. Sign in and we'll bring you right back here
+          to finish your review.
+        </p>
+        <div class="mt-6 flex flex-wrap justify-end gap-3">
+          <button
+            brnDialogClose
+            type="button"
+            class="cursor-pointer rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@reviews.signIn.dialog.cancel"
+          >
+            Not now
+          </button>
+          <a
+            [routerLink]="['/auth/login']"
+            [queryParams]="{ return: reviewPath() }"
+            class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--accent-primary) px-5 py-2 text-sm font-bold text-(--surface-base) no-underline transition-colors hover:bg-(--accent-primary-hover) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@reviews.signIn.dialog.signIn"
+          >
+            Sign in
+          </a>
+        </div>
+      </div>
+    </ng-template>
+  </brn-dialog>
   }
 </section>
 }

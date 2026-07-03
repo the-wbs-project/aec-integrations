@@ -109,7 +109,7 @@ describe('MetaService.setHomeMeta', () => {
     expect(doc.title).toContain('AEC Integrations');
 
     const desc = doc.head.querySelector('meta[name="description"]') as HTMLMetaElement | null;
-    expect(desc?.getAttribute('content')).toContain('verified');
+    expect(desc?.getAttribute('content')).toContain('independent');
 
     // Home is indexable — no robots tag.
     expect(doc.head.querySelector('meta[name="robots"]')).toBeNull();
@@ -121,6 +121,30 @@ describe('MetaService.setHomeMeta', () => {
     expect(ogType?.getAttribute('content')).toBe('website');
     const ogUrl = doc.head.querySelector('meta[property="og:url"]') as HTMLMetaElement | null;
     expect(ogUrl?.getAttribute('content')).toBe('https://aecintegrations.com/');
+
+    // og:image / twitter:image point at the dedicated, ABSOLUTE home share card
+    // (AECI-276) — not the relative monogram fallback.
+    const ogImage = doc.head.querySelector('meta[property="og:image"]') as HTMLMetaElement | null;
+    expect(ogImage?.getAttribute('content')).toBe(
+      'https://aecintegrations.com/branding/home-og.png',
+    );
+    const twitterImage = doc.head.querySelector(
+      'meta[name="twitter:image"]',
+    ) as HTMLMetaElement | null;
+    expect(twitterImage?.getAttribute('content')).toBe(
+      'https://aecintegrations.com/branding/home-og.png',
+    );
+
+    // Both image-alt tags are present and non-empty (accessibility for the share
+    // preview; the card is the highest-value marketing surface).
+    const ogImageAlt = doc.head.querySelector(
+      'meta[property="og:image:alt"]',
+    ) as HTMLMetaElement | null;
+    expect(ogImageAlt?.getAttribute('content')).toBeTruthy();
+    const twitterImageAlt = doc.head.querySelector(
+      'meta[name="twitter:image:alt"]',
+    ) as HTMLMetaElement | null;
+    expect(twitterImageAlt?.getAttribute('content')).toBeTruthy();
   });
 
   it('strips query params from the canonical and derives the origin for JSON-LD', () => {

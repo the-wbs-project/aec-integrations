@@ -33,7 +33,7 @@
  *
  * ── Usage ──────────────────────────────────────────────────────────────────
  *   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<root admin key> \
- *     node scripts/algolia/provision.mjs --env <preview|staging|production> [--rotate]
+ *     node scripts/algolia/provision.mjs --env <preview|staging|demo|production> [--rotate]
  *
  * Requires Node ≥22.18 (native TypeScript type-stripping for the shared import);
  * the repo's `engines` floor (22.22.3) satisfies this.
@@ -54,7 +54,7 @@ import {
   searchKeyParams,
 } from '../../packages/shared/src/algolia.ts';
 
-const VALID_ENVS = ['preview', 'staging', 'production'];
+const VALID_ENVS = ['preview', 'staging', 'demo', 'production'];
 
 function fail(message) {
   console.error(`\n✗ ${message}\n`);
@@ -124,18 +124,22 @@ function printNextSteps({ env, appId, searchKey, managementKey }) {
   console.log(rule);
 
   console.log('\n# GitHub Actions secrets');
-  console.log(`#   ALGOLIA_APP_ID is shared across envs — set it ONCE (skip if already set).`);
+  console.log(`#   ALGOLIA_APP_ID, ALGOLIA_SEARCH_KEY and ALGOLIA_ADMIN_KEY are now`);
+  console.log(`#   SINGLE shared secrets across every env (no _STAGING/_PRODUCTION/_PREVIEW/`);
+  console.log(`#   _DEMO suffix). CAUTION: every env's deploy reads the SAME secret, so a`);
+  console.log(`#   per-env key minted here OVERWRITES the shared value — the search key you`);
+  console.log(`#   set must be able to query ALL envs' indexes (staging_*/production_*/`);
+  console.log(`#   preview_*/demo_*), or scope it to the env that actually serves users.`);
   console.log(`gh secret set ALGOLIA_APP_ID --body '${appId}'`);
+  console.log(`gh secret set ALGOLIA_SEARCH_KEY --body '${searchKey}'`);
   if (env === 'preview') {
     console.log(
       '#   preview search key → lighthouse.yml (AECI-188): the post-merge Lighthouse\n' +
         '#   workflow hard-fails without it (it provisions /search with the real SDK).\n' +
         '#   No preview ADMIN GitHub secret: sync (3.5) uses the management key directly.',
     );
-    console.log(`gh secret set ALGOLIA_SEARCH_KEY_PREVIEW --body '${searchKey}'`);
   } else {
-    console.log(`gh secret set ALGOLIA_SEARCH_KEY_${SUFFIX} --body '${searchKey}'`);
-    console.log(`gh secret set ALGOLIA_ADMIN_KEY_${SUFFIX}  --body '${managementKey}'`);
+    console.log(`gh secret set ALGOLIA_ADMIN_KEY --body '${managementKey}'`);
   }
 
   console.log('\n# Cloudflare Worker secrets (persist across deploys)');
@@ -157,7 +161,7 @@ async function main() {
     fail(
       `--env is required and must be one of ${VALID_ENVS.join(' | ')}.\n` +
         `  (development folds onto the preview index set — provision 'preview'.)\n` +
-        `  Usage: node scripts/algolia/provision.mjs --env <preview|staging|production> [--rotate]`,
+        `  Usage: node scripts/algolia/provision.mjs --env <preview|staging|demo|production> [--rotate]`,
     );
   }
 

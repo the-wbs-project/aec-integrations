@@ -18,9 +18,15 @@ import { TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { AdminReview, ListPendingReviewsResponse } from '@aeci/shared';
+import type {
+  AdminReview,
+  ListPendingReviewsResponse,
+  ModerateReviewResponse,
+  RepeatOffenderPrompt,
+} from '@aeci/shared';
 
 import { AdminSummaryStore } from '../admin-summary.store';
+import { ReviewerBansApi } from '../reviewers/reviewer-bans-api';
 import { AdminReviewsApi } from './admin-reviews-api';
 import { ReviewQueue } from './review-queue';
 
@@ -29,6 +35,7 @@ function makeReview(over: Partial<AdminReview> & { id: string }): AdminReview {
     id: over.id,
     product: over.product ?? { id: `p-${over.id}`, name: 'Product', slug: 'product' },
     reviewer_email: over.reviewer_email ?? 'reviewer@example.test',
+    reviewer_firm: over.reviewer_firm ?? null,
     rating_overall: over.rating_overall ?? 4,
     rating_onboarding: over.rating_onboarding ?? 5,
     title: over.title ?? 'Solid add-in',
@@ -76,28 +83,53 @@ interface ApiMock {
   moderate: ReturnType<typeof vi.fn>;
 }
 
+interface BansApiMock {
+  listBanned: ReturnType<typeof vi.fn>;
+  ban: ReturnType<typeof vi.fn>;
+}
+
 function makeApiMock(rows: AdminReview[] = ROWS, total = rows.length): ApiMock {
   const page: ListPendingReviewsResponse = { data: rows, page: 1, perPage: 100, total };
   return {
     listPending: vi.fn(async () => structuredClone(page)),
-    moderate: vi.fn(async (id: string, input: { action: string }) => ({
-      ...makeReview({ id }),
-      status: input.action === 'approve' ? 'approved' : 'rejected',
-    })),
+    // AECI-218: the moderate response is the envelope `{ review, repeat_offender }`.
+    // Default: no repeat-offender prompt (override per-test with mockResolvedValueOnce).
+    moderate: vi.fn(
+      async (id: string, input: { action: string }): Promise<ModerateReviewResponse> => ({
+        review: {
+          ...makeReview({ id }),
+          status: input.action === 'approve' ? 'approved' : 'rejected',
+        },
+        repeat_offender: null,
+      }),
+    ),
   };
+}
+
+function makeBansApiMock(): BansApiMock {
+  return {
+    listBanned: vi.fn(async () => ({ data: [], page: 1, perPage: 100, total: 0 })),
+    ban: vi.fn(async (id: string) => ({ reviewer_id: id, banned_at: null, ban_reason: null })),
+  };
+}
+
+/** A reject response that triggers the repeat-offender prompt. */
+function repeatOffenderEnvelope(id: string, prompt: RepeatOffenderPrompt): ModerateReviewResponse {
+  return { review: { ...makeReview({ id }), status: 'rejected' }, repeat_offender: prompt };
 }
 
 function settle(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve));
 }
 
-async function setup(api: ApiMock = makeApiMock()) {
+async function setup(api: ApiMock = makeApiMock(), bansApi: BansApiMock = makeBansApiMock()) {
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
       provideRouter([]),
       { provide: AdminReviewsApi, useValue: api },
+      { provide: ReviewerBansApi, useValue: bansApi },
     ],
   });
   const store = TestBed.inject(AdminSummaryStore);
@@ -106,7 +138,7 @@ async function setup(api: ApiMock = makeApiMock()) {
   await fixture.whenStable();
   await settle();
   fixture.detectChanges();
-  return { fixture, api, store, el: fixture.nativeElement as HTMLElement };
+  return { fixture, api, bansApi, store, el: fixture.nativeElement as HTMLElement };
 }
 
 /** Product names of the rendered cards, in DOM order (the sort outcome). */
@@ -131,6 +163,16 @@ function buttonByText(root: HTMLElement, text: string): HTMLButtonElement {
 function clickSort(el: HTMLElement, label: string): void {
   const group = el.querySelector('[role="group"]') as HTMLElement;
   buttonByText(group, label).click();
+}
+
+/** The toxicity badge button within a card (the one whose accessible name names
+ *  the toxicity score — distinguishes it from Approve/Reject). */
+function toxicityBadge(card: HTMLElement): HTMLButtonElement {
+  const btn = [...card.querySelectorAll('button')].find((b) =>
+    (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'),
+  );
+  if (!btn) throw new Error('No toxicity badge button');
+  return btn as HTMLButtonElement;
 }
 
 describe('ReviewQueue', () => {
@@ -167,6 +209,40 @@ describe('ReviewQueue', () => {
     expect(bravo.textContent).toContain('80');
     const charlie = cardFor(el, 'Charlie'); // toxicity null
     expect(charlie.textContent).toContain('Not scored');
+  });
+
+  it('exposes each toxicity badge as a button whose label gives the number meaning', async () => {
+    const { el } = await setup();
+    const bravo = toxicityBadge(cardFor(el, 'Bravo')); // 80
+    expect(bravo.tagName).toBe('BUTTON');
+    expect(bravo.getAttribute('aria-label')).toContain('80');
+    expect(bravo.getAttribute('aria-label')).toContain('of 100');
+
+    const charlie = toxicityBadge(cardFor(el, 'Charlie')); // null
+    expect(charlie.getAttribute('aria-label')?.toLowerCase()).toContain('not scored');
+  });
+
+  it('reveals the toxicity scale legend when a badge is opened', async () => {
+    const { el, fixture } = await setup();
+    toxicityBadge(cardFor(el, 'Bravo')).click();
+    await settle();
+    fixture.detectChanges();
+    // The popover content mounts in the CDK overlay container on document.body
+    // (jsdom has no Popover API, so the overlay isn't in the host element).
+    expect(document.body.textContent).toContain('Toxicity score');
+    expect(document.body.textContent).toContain('Normal');
+    expect(document.body.textContent).toContain('High (flagged)');
+    expect(document.body.textContent).toContain('never auto-rejects');
+  });
+
+  it('offers a shared toxicity-scale explainer beside the sort control', async () => {
+    const { el } = await setup();
+    const sortRow = (el.querySelector('[aria-labelledby="admin-reviews-sort-label"]')
+      ?.parentElement ?? el) as HTMLElement;
+    const info = [...sortRow.querySelectorAll('button')].find((b) =>
+      (b.getAttribute('aria-label') ?? '').toLowerCase().includes('toxicity'),
+    );
+    expect(info).toBeTruthy();
   });
 
   it('re-sorts by queue age (oldest first)', async () => {
@@ -329,6 +405,104 @@ describe('ReviewQueue', () => {
     const { el } = await setup(makeApiMock([], 0));
     expect(el.textContent).toContain('No reviews are waiting');
     expect(el.querySelector('article')).toBeNull();
+  });
+
+  describe('AECI-218 repeat-offender prompt + ban', () => {
+    const PROMPT: RepeatOffenderPrompt = {
+      reviewer_id: 'rev-1',
+      reviewer_email: 'amy@example.test',
+      rejected_count: 3,
+    };
+
+    async function rejectWithReason(
+      el: HTMLElement,
+      fixture: Awaited<ReturnType<typeof setup>>['fixture'],
+      productName: string,
+      reason: string,
+    ): Promise<void> {
+      buttonByText(cardFor(el, productName), 'Reject').click();
+      fixture.detectChanges();
+      const textarea = cardFor(el, productName).querySelector('textarea') as HTMLTextAreaElement;
+      textarea.value = reason;
+      textarea.dispatchEvent(new Event('input'));
+      textarea.dispatchEvent(new Event('blur'));
+      await settle();
+      fixture.detectChanges();
+      buttonByText(cardFor(el, productName), 'Confirm rejection').click();
+      await settle();
+      fixture.detectChanges();
+    }
+
+    function findButton(root: HTMLElement, text: string): HTMLButtonElement | undefined {
+      return [...root.querySelectorAll('button')].find((b) => b.textContent?.trim() === text) as
+        | HTMLButtonElement
+        | undefined;
+    }
+
+    it('surfaces the "consider a ban" banner when a reject returns a repeat-offender', async () => {
+      const api = makeApiMock();
+      api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+      const { el, fixture } = await setup(api);
+
+      await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+
+      expect(el.textContent).toContain('Consider a ban');
+      expect(el.textContent).toContain('amy@example.test');
+      expect(el.textContent).toContain('3');
+      expect(findButton(el, 'Ban reviewer')).toBeTruthy();
+    });
+
+    it('does not surface the banner on an ordinary rejection', async () => {
+      const { el, fixture } = await setup(); // default moderate → repeat_offender: null
+      await rejectWithReason(el, fixture, 'Alpha', 'Off-topic.');
+      expect(findButton(el, 'Ban reviewer')).toBeUndefined();
+    });
+
+    it('dismisses the banner without banning', async () => {
+      const api = makeApiMock();
+      api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+      const { el, fixture, bansApi } = await setup(api);
+
+      await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+      findButton(el, 'Dismiss')!.click();
+      fixture.detectChanges();
+
+      expect(findButton(el, 'Ban reviewer')).toBeUndefined();
+      expect(bansApi.ban).not.toHaveBeenCalled();
+    });
+
+    it('bans the reviewer from the prompt: opens the dialog and calls the API', async () => {
+      const api = makeApiMock();
+      api.moderate.mockResolvedValueOnce(repeatOffenderEnvelope('a', PROMPT));
+      const { el, fixture, bansApi } = await setup(api);
+
+      await rejectWithReason(el, fixture, 'Alpha', 'Coordinated spam.');
+
+      // Click "Ban reviewer" → opens the dialog (sets the ban target).
+      findButton(el, 'Ban reviewer')!.click();
+      fixture.detectChanges();
+      const instance = fixture.componentInstance as unknown as {
+        banTarget: () => RepeatOffenderPrompt | null;
+        banReasonModel: { set: (v: { reason: string }) => void };
+        confirmBan: () => Promise<void>;
+      };
+      expect(instance.banTarget()).toEqual(PROMPT);
+
+      // Provide the required reason and confirm.
+      instance.banReasonModel.set({ reason: 'Coordinated spam ring.' });
+      await settle();
+      await instance.confirmBan();
+      await settle();
+      fixture.detectChanges();
+
+      expect(bansApi.ban).toHaveBeenCalledWith('rev-1', {
+        action: 'ban',
+        reason: 'Coordinated spam ring.',
+      });
+      // Dialog closed + banner cleared after a successful ban.
+      expect(instance.banTarget()).toBeNull();
+      expect(findButton(el, 'Ban reviewer')).toBeUndefined();
+    });
   });
 
   describe('accessibility (structural)', () => {

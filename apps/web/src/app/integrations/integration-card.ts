@@ -1,7 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { IntegrationListItem } from '@aeci/shared';
+import { defaultIntegrationContext, type IntegrationListItem } from '@aeci/shared';
 
 import { directionLabel, mechanismKindLabel } from '../search/mechanism-labels';
 
@@ -12,9 +12,12 @@ import { directionLabel, mechanismKindLabel } from '../search/mechanism-labels';
  * `ProductCard` and Angular CDK's `tr[cdk-row]`).
  *
  * AECI-60 — the third card primitive. Renders three cells: the
- * `"{source} → {target}"` headline (linked to `/integrations/:id`, since
- * integrations are keyed by ID not slug — Phase 2 Spec §6.5), the
- * `mechanism_kind` badge, and the direction label.
+ * `"{source} → {target}"` headline, the `mechanism_kind` badge, and the
+ * direction label. AECI-298 (Stage 1.5) — the headline links to the canonical
+ * product-PAIR page `/products/:context/integrations/:other` (context =
+ * alphabetically-first slug via `defaultIntegrationContext`), matching the
+ * `IntegrationTile` precedent, rather than the retired `/integrations/:id`
+ * detail route (which now 301-redirects to the same pair page).
  */
 @Component({
   // eslint-disable-next-line @angular-eslint/component-selector
@@ -27,7 +30,7 @@ import { directionLabel, mechanismKindLabel } from '../search/mechanism-labels';
   template: `
     <td class="px-4 py-3 font-medium">
       <a
-        [routerLink]="['/integrations', integration().id]"
+        [routerLink]="pairLink()"
         class="rounded-sm transition-colors hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
       >
         {{ integration().source.name }}
@@ -71,6 +74,15 @@ import { directionLabel, mechanismKindLabel } from '../search/mechanism-labels';
 })
 export class IntegrationCard {
   readonly integration = input.required<IntegrationListItem>();
+
+  /** RouterLink to the canonical product-PAIR page for this integration's two
+   *  products (context = alphabetically-first slug). Matches `IntegrationTile`. */
+  protected readonly pairLink = computed(() => {
+    const i = this.integration();
+    const context = defaultIntegrationContext(i.source.slug, i.target.slug);
+    const other = context === i.source.slug ? i.target.slug : i.source.slug;
+    return ['/products', context, 'integrations', other];
+  });
 
   // Labels are shared with the /search integration hit card via
   // `search/mechanism-labels.ts` (AECI-142) so the `$localize` id set can't

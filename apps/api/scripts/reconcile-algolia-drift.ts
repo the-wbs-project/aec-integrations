@@ -1,218 +1,307 @@
 /**
- * Algolia ↔ Supabase index-drift reconciliation — CLI / CI runner (AECI-140).
+ * reconcile-algolia-drift.ts — operator-invokable Algolia index-drift report +
+ * orphan sweep for a DEPLOYED D1 (AECI-266; §23.1 / CICD_PLAN §3.2).
  *
- * Counts the **promoted** product / vendor / integration rows in Supabase and
- * the object count of each matching Algolia index, and reports any per-index
- * mismatch. The comparison rule lives in `src/lib/algolia-drift.ts` — this is a
- * thin runner around `findAlgoliaIndexDrift` (the daily 09:00 UTC = 04:00 EST run
- * is the Worker cron in `src/scheduled.ts`; §23.1).
+ * The orphan-removal RULE lives once in the DI'd core `src/lib/algolia-orphans.ts`
+ * (`sweepAlgoliaOrphans`) — the same core the 09:00 Worker drift cron runs. This
+ * script is the CI/CLI CALLER: it builds the authoritative promoted-id SETS from a
+ * deployed D1 — which a plain Node process can only reach through
+ * `wrangler d1 execute --remote`, not a Worker `env.DB` binding — then browses each
+ * Algolia index and deletes the objects with no promoted D1 row (the orphans the
+ * watermark sync structurally can't see to delete).
  *
- * Two surfaces use this CLI:
- *   - the `deploy-staging` job's report-only post-deploy hook (CICD §3.2 step 5),
- *   - manual / incident triage.
+ * Drift (per entity) = promoted-rows(D1) − objects(Algolia). Negative drift =
+ * orphans → this removes them. Positive drift = records MISSING from the index →
+ * NOT this tool's job (re-run the 08:00 incremental sync); the report surfaces it.
  *
- * Connection: like the bulk-sync + reconcile-counts scripts this is a Node CLI
- * (never deployed). It uses the VANILLA `@prisma/client` over `DIRECT_URL`
- * (privileged Postgres role) — NOT Accelerate / `@prisma/client/edge`, which is
- * the Worker-runtime rule. Algolia is counted with the dependency-free
- * `createAlgoliaCounter` (a single search query), so no SDK is needed.
- *
- * Report-only — no auto-remediation (§23.1; humans triage). To repair drift,
- * re-run the AECI-138 bulk sync:
- *   pnpm --filter @aeci/api db:algolia-bulk-sync -- --env <env>
+ * Default is a DRY-RUN (report only, delete nothing). `--apply` removes orphans;
+ * the core's safety cap refuses an unexpectedly large purge unless `--force`.
  *
  * Usage:
- *   pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env <preview|staging|production> [--locale en-US]
+ *   # report-only (dry-run) against a deployed env — needs CLOUDFLARE_API_TOKEN + ALGOLIA_*:
+ *   ALGOLIA_APP_ID=… ALGOLIA_ADMIN_KEY=<per-env management key> CLOUDFLARE_API_TOKEN=… \
+ *     pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env staging
+ *   # remove the orphans (deliberate):
+ *   … pnpm --filter @aeci/api db:reconcile-algolia-drift -- --env staging --apply
+ *   # large/intended purge that exceeds the safety cap:
+ *   … --env staging --apply --force
+ *   # production --apply requires the extra guard flag:
+ *   … --env production --apply --allow-production
+ *   # against the seeded local D1 (no token; for testing the query):
+ *   pnpm --filter @aeci/api db:reconcile-algolia-drift -- --local
  *
- * Exit codes: 0 on success (clean OR drift — the Datadog monitor on
- * `aeci.algolia.index_drift` is the alert, not a red run); 1 only on operational
- * failure (missing `DIRECT_URL`, an invalid `--env`, or an Algolia API error
- * when creds are present). Missing `ALGOLIA_APP_ID` / `ALGOLIA_ADMIN_KEY` → clean
- * SKIP (exit 0), mirroring `scripts/algolia/apply-settings.mjs`.
- *
- * Required env: DIRECT_URL. Optional: ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY (skip
- * when absent), DD_API_KEY / DD_SITE (Datadog), DD_ENV / ENV (env tag default).
+ * Emits the gauges `aeci.algolia.index_drift` (signed, per entity — the existing
+ * §23.1 monitor) and `aeci.algolia.orphans_removed` (per entity) when DD_API_KEY is
+ * set, mirroring the Worker `submitGauge` payload (that helper is ctx/Request-bound).
  */
 
-import { appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 
-import type { AlgoliaEnv } from '@aeci/shared/algolia';
+import { DEFAULT_LOCALE, type AlgoliaEnv } from '@aeci/shared/algolia';
 
 import {
-  createAlgoliaCounter,
-  findAlgoliaIndexDrift,
-  formatDriftTable,
-  type AlgoliaIndexDrift,
-  type DriftCountPrisma,
-} from '../src/lib/algolia-drift';
+  createAlgoliaDeleteClient,
+  createAlgoliaObjectIdClient,
+  DEFAULT_SAFETY_CAP,
+  formatOrphanTable,
+  sweepAlgoliaOrphans,
+  type OrphanSweepResult,
+  type PromotedIdProvider,
+} from '../src/lib/algolia-orphans';
 
-const VALID_ENVS: readonly AlgoliaEnv[] = ['development', 'preview', 'staging', 'production'];
+// ─── Authoritative promoted-id queries ───────────────────────────────────────
+// Plain `SELECT id` — only the membership rule, no transforms (that's what keeps
+// the orphan path ADR-0016-safe). The integration query reproduces the
+// both-endpoints-promoted filter `algolia-sync` / `drizzleDriftCounter` use.
+const PRODUCT_IDS_SQL = `SELECT "id" AS id FROM "products" WHERE "promotion_status" = 'promoted';`;
+const VENDOR_IDS_SQL = `SELECT "id" AS id FROM "vendors" WHERE "promotion_status" = 'promoted';`;
+const INTEGRATION_IDS_SQL = `SELECT i."id" AS id FROM "integrations" i
+  WHERE i."source_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted')
+    AND i."target_product_id" IN (SELECT "id" FROM "products" WHERE "promotion_status" = 'promoted');`;
 
-type CliClient = DriftCountPrisma & { $disconnect(): Promise<void> };
+// ─── Arg + target resolution ─────────────────────────────────────────────────
 
-function parseEnv(): AlgoliaEnv | null {
-  const args = process.argv.slice(2);
-  const idx = args.indexOf('--env');
-  const raw = idx >= 0 ? args[idx + 1] : (process.env.DD_ENV ?? process.env.ENV);
-  if (raw && (VALID_ENVS as readonly string[]).includes(raw)) return raw as AlgoliaEnv;
-  return null;
+function readValueFlag(argv: string[], name: string): string | undefined {
+  const eq = argv.find((a) => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const i = argv.indexOf(name);
+  if (i !== -1 && i + 1 < argv.length) return argv[i + 1];
+  return undefined;
 }
 
-function parseLocale(): string | undefined {
-  const args = process.argv.slice(2);
-  const idx = args.indexOf('--locale');
-  return idx >= 0 ? args[idx + 1] : undefined;
+interface Target {
+  /** Datadog `env:` tag + display label. */
+  label: string;
+  /** D1 database name (`wrangler.jsonc` `d1_databases[].database_name`). */
+  db: string;
+  /** Extra wrangler flags selecting local vs remote+env. */
+  flags: string[];
+  remote: boolean;
+  /** The Algolia env whose index set (`<prefix>_<entity>`) is swept. */
+  algoliaEnv: AlgoliaEnv;
 }
 
-/** Best-effort Datadog signal. Emits the `aeci.algolia.index_drift` gauge for
- * every entity (0 when clean, so a no-data monitor can tell "ran clean" from
- * "didn't run"), and an error-status log when any index drifts. No-op when
- * `DD_API_KEY` is unset. */
-async function emitDatadog(env: string, rows: AlgoliaIndexDrift[]): Promise<void> {
+function resolveTarget(argv: string[]): Target {
+  if (argv.includes('--local')) {
+    return {
+      label: 'preview',
+      db: 'aeci-app-preview',
+      flags: ['--local'],
+      remote: false,
+      algoliaEnv: 'preview',
+    };
+  }
+  const env = (readValueFlag(argv, '--env') ?? process.env.RECONCILE_ENV ?? '').trim();
+  if (env !== 'staging' && env !== 'production') {
+    throw new Error(
+      `Set --env staging|production (or RECONCILE_ENV), or pass --local for the seeded local D1. Got: ${env || '(unset)'}.`,
+    );
+  }
+  return {
+    label: env,
+    db: `aeci-app-${env}`,
+    flags: ['--env', env, '--remote'],
+    remote: true,
+    algoliaEnv: env,
+  };
+}
+
+// ─── Wrangler I/O ────────────────────────────────────────────────────────────
+
+interface D1ExecResult<T> {
+  results: T[];
+  success: boolean;
+}
+
+/** `wrangler d1 execute --json` prints `[{results, success, meta}, …]`; tolerate a
+ *  leading banner by parsing from the first `[`. (Mirrors reconcile-product-counts.ts.) */
+function parseWranglerJson<T>(stdout: string): D1ExecResult<T>[] {
+  const start = stdout.indexOf('[');
+  if (start === -1) throw new Error(`Unexpected wrangler output (no JSON):\n${stdout}`);
+  return JSON.parse(stdout.slice(start)) as D1ExecResult<T>[];
+}
+
+function wranglerMissing(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException | undefined)?.code === 'ENOENT';
+}
+
+const WRANGLER_HINT =
+  'Run via pnpm so wrangler is on PATH:\n  pnpm --filter @aeci/api db:reconcile-algolia-drift';
+
+function queryIds(target: Target, sql: string): Set<string> {
+  const res = spawnSync(
+    'wrangler',
+    ['d1', 'execute', target.db, ...target.flags, '--json', '--command', sql],
+    { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 },
+  );
+  if (res.error) {
+    if (wranglerMissing(res.error)) throw new Error(`\`wrangler\` not found. ${WRANGLER_HINT}`);
+    throw res.error;
+  }
+  if (res.status !== 0) {
+    const hint = target.remote
+      ? `Check CLOUDFLARE_API_TOKEN (Account→D1→Read) + CLOUDFLARE_ACCOUNT_ID, and that "${target.db}" exists for --env ${target.label}.`
+      : 'Set up the local D1 first:  pnpm --filter @aeci/api db:setup:local';
+    throw new Error(
+      `Could not read promoted ids from D1 "${target.db}" (wrangler exit ${res.status}).\n${hint}\n\n${res.stderr}`,
+    );
+  }
+  const rows = parseWranglerJson<{ id: string }>(res.stdout)[0]?.results ?? [];
+  return new Set(rows.map((r) => r.id));
+}
+
+/** A `PromotedIdProvider` backed by `wrangler d1 execute` (the deployed-D1 reach a
+ *  Node process has, since there's no Worker `env.DB` binding here). */
+function wranglerPromotedIds(target: Target): PromotedIdProvider {
+  return {
+    productIds: async () => queryIds(target, PRODUCT_IDS_SQL),
+    vendorIds: async () => queryIds(target, VENDOR_IDS_SQL),
+    integrationIds: async () => queryIds(target, INTEGRATION_IDS_SQL),
+  };
+}
+
+// ─── Datadog ─────────────────────────────────────────────────────────────────
+
+/** POST the per-entity `aeci.algolia.index_drift` (signed `promoted − indexed`,
+ *  the existing §23.1 monitor) and `aeci.algolia.orphans_removed` gauges. The
+ *  shared `submitGauge` needs a Worker ctx/Request, so the CLI posts directly with
+ *  the same v2-series payload. Best-effort: observability never fails the run. */
+async function emitGauges(result: OrphanSweepResult, env: string): Promise<void> {
   const apiKey = process.env.DD_API_KEY;
   if (!apiKey) return;
   const site = process.env.DD_SITE || 'us5.datadoghq.com';
-  const baseTags = ['app:aeci', 'service:aeci-api', 'source:reconcile-algolia-drift', `env:${env}`];
-  const headers = { 'content-type': 'application/json', 'dd-api-key': apiKey };
-  const timestamp = Math.floor(Date.now() / 1000);
-
-  const metric = fetch(`https://api.${site}/api/v2/series`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      series: rows.map((r) => ({
-        metric: 'aeci.algolia.index_drift',
-        type: 3, // gauge
-        points: [{ timestamp, value: r.drift }],
-        tags: [...baseTags, `entity:${r.entity}`, `index:${r.indexName}`],
-      })),
-    }),
-  }).catch((e) => console.warn('datadog: metric submit failed', e));
-
-  const drifted = rows.filter((r) => r.drift !== 0);
-  const log =
-    drifted.length > 0
-      ? fetch(`https://http-intake.logs.${site}/api/v2/logs`, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify({
-            message: `Algolia index drift on ${env}: ${drifted
-              .map((d) => `${d.indexName} ${d.drift > 0 ? '+' : ''}${d.drift}`)
-              .join(', ')}`,
-            status: 'error',
-            service: 'aeci-api',
-            ddsource: 'cli',
-            ddtags: baseTags.join(','),
-            drift: drifted,
-          }),
-        }).catch((e) => console.warn('datadog: log submit failed', e))
-      : Promise.resolve();
-
-  await Promise.allSettled([metric, log]);
-}
-
-/** Append a Markdown summary to the GitHub Actions step summary, if present. */
-function writeStepSummary(env: string, rows: AlgoliaIndexDrift[]): void {
-  const file = process.env.GITHUB_STEP_SUMMARY;
-  if (!file) return;
-  const drifted = rows.filter((r) => r.drift !== 0);
-  const lines = [
-    `### Algolia index drift — \`${env}\``,
-    '',
-    '| entity | index | supabase | algolia | drift |',
-    '| --- | --- | ---: | ---: | ---: |',
-    ...rows.map(
-      (r) => `| ${r.entity} | \`${r.indexName}\` | ${r.supabase} | ${r.algolia} | ${r.drift} |`,
-    ),
-    '',
-    drifted.length > 0
-      ? `⚠️ ${drifted.length} index(es) drifted (report-only). Repair: \`pnpm --filter @aeci/api db:algolia-bulk-sync -- --env ${env}\`.`
-      : '✓ No drift — every index matches its promoted Supabase rows.',
-    '',
+  const ts = Math.floor(Date.now() / 1000);
+  const baseTags = [
+    'app:aeci',
+    'service:aeci-api',
+    'worker:aeci-api',
+    `env:${env}`,
+    'source:reconcile',
   ];
+  const series = result.entities.flatMap((e) => {
+    const tags = [...baseTags, `entity:${e.entity}`, `index:${e.indexName}`];
+    return [
+      {
+        metric: 'aeci.algolia.index_drift',
+        type: 3,
+        points: [{ timestamp: ts, value: e.promotedCount - e.indexCount }],
+        tags,
+      },
+      {
+        metric: 'aeci.algolia.orphans_removed',
+        type: 3,
+        points: [{ timestamp: ts, value: e.deleted }],
+        tags,
+      },
+    ];
+  });
   try {
-    appendFileSync(file, lines.join('\n'));
-  } catch (e) {
-    console.warn('step summary: write failed', e);
+    const res = await fetch(`https://api.${site}/api/v2/series`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'dd-api-key': apiKey },
+      body: JSON.stringify({ series }),
+    });
+    if (!res.ok) console.warn(`Datadog gauge POST returned ${res.status}.`);
+  } catch (err) {
+    console.warn(`Datadog gauge POST failed: ${(err as Error).message}`);
   }
 }
 
-export async function main(): Promise<number> {
-  const env = parseEnv();
-  if (!env) {
-    console.error(
-      `--env is required and must be one of ${VALID_ENVS.join(' | ')} (or set DD_ENV / ENV).`,
-    );
-    return 1;
-  }
-  const locale = parseLocale();
+// ─── Main ────────────────────────────────────────────────────────────────────
 
-  const directUrl = process.env.DIRECT_URL;
-  if (!directUrl) {
-    console.error('Missing required env: DIRECT_URL (set in apps/api/.dev.vars).');
-    return 1;
-  }
+export async function main(argv: string[]): Promise<number> {
+  const apply = argv.includes('--apply');
+  const force = argv.includes('--force');
+  const locale = readValueFlag(argv, '--locale') ?? DEFAULT_LOCALE;
+  const target = resolveTarget(argv);
 
   const appId = process.env.ALGOLIA_APP_ID;
-  const adminKey = process.env.ALGOLIA_ADMIN_KEY;
-  if (!appId || !adminKey) {
+  const apiKey = process.env.ALGOLIA_ADMIN_KEY;
+  if (!appId || !apiKey) {
+    // Graceful skip (exit 0) — matches algolia:apply-settings and keeps the
+    // report-only CI step non-blocking when ALGOLIA_* are unset.
     console.warn(
-      '⚠ ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY not set — skipping Algolia index-drift check.',
+      '⚠  ALGOLIA_APP_ID / ALGOLIA_ADMIN_KEY unset — skipping Algolia orphan sweep (no-op).',
     );
     return 0;
   }
-
-  // Vanilla client over DIRECT_URL (privileged role). NOT Accelerate / edge —
-  // that rule is for the Worker runtime, not this CLI.
-  const { PrismaClient } = await import('@prisma/client');
-  const prisma = new PrismaClient({ datasourceUrl: directUrl }) as unknown as CliClient;
-  const algolia = createAlgoliaCounter(appId, adminKey);
-
-  try {
-    const rows = await findAlgoliaIndexDrift({ prisma, algolia }, { env, locale });
-    console.log(`Algolia index drift — env=${env}, locale=${locale ?? 'en-US'}:`);
-    console.log(formatDriftTable(rows));
-
-    await emitDatadog(env, rows);
-    writeStepSummary(env, rows);
-
-    const drifted = rows.filter((r) => r.drift !== 0);
-    if (drifted.length > 0) {
-      for (const r of drifted) {
-        console.warn(
-          `::warning::Algolia index drift on ${env}: ${r.indexName} ${r.drift > 0 ? '+' : ''}${
-            r.drift
-          } (supabase=${r.supabase}, algolia=${r.algolia})`,
-        );
-      }
-      console.warn(
-        `Report-only — re-run the bulk sync to repair: pnpm --filter @aeci/api db:algolia-bulk-sync -- --env ${env}`,
-      );
-    } else {
-      console.log('✓ No Algolia index drift — every index matches its promoted Supabase rows.');
-    }
-    // Report-only: drift does NOT fail the run (the Datadog monitor alerts).
-    return 0;
-  } catch (error) {
-    console.error('reconcile-algolia-drift: failed to compare indexes', error);
-    return 1;
-  } finally {
-    await prisma.$disconnect();
+  if (target.remote && !process.env.CLOUDFLARE_API_TOKEN) {
+    console.warn('⚠  CLOUDFLARE_API_TOKEN is unset — wrangler --remote will fail to authenticate.');
   }
+  if (target.label === 'production' && apply && !argv.includes('--allow-production')) {
+    console.error(
+      'Refusing to --apply against PRODUCTION without --allow-production (live search index). Re-run with both flags if intended.',
+    );
+    return 1;
+  }
+
+  console.log(
+    `Algolia orphan sweep on ${target.db} (algolia env ${target.algoliaEnv}, locale ${locale})${
+      target.remote ? `, remote --env ${target.label}` : ', local'
+    } — ${apply ? (force ? 'APPLY --force' : 'APPLY') : 'dry-run'}…`,
+  );
+
+  const result = await sweepAlgoliaOrphans(
+    {
+      ids: wranglerPromotedIds(target),
+      browse: createAlgoliaObjectIdClient(appId, apiKey),
+      remove: createAlgoliaDeleteClient({ appId, apiKey }),
+    },
+    {
+      env: target.algoliaEnv,
+      locale,
+      apply,
+      safetyCap: { ...DEFAULT_SAFETY_CAP, override: force },
+    },
+  );
+
+  console.log(formatOrphanTable(result));
+  for (const e of result.entities) {
+    if (e.orphanIds.length > 0) {
+      console.log(`  ${e.indexName} orphan objectIDs: ${e.orphanIds.join(', ')}`);
+    }
+  }
+
+  await emitGauges(result, target.label);
+
+  const failed = result.entities.filter((e) => !e.ok);
+  const capped = result.entities.filter((e) => e.skippedBySafetyCap);
+
+  if (failed.length > 0) {
+    console.error(
+      `✗ ${failed.length} index(es) errored: ${failed.map((e) => `${e.indexName} (${e.error})`).join(', ')}`,
+    );
+    return 1;
+  }
+  if (capped.length > 0) {
+    // Only reachable under --apply: the cap refused a large purge.
+    console.error(
+      `✗ ${capped.length} index(es) exceeded the safety cap (${capped.map((e) => e.indexName).join(', ')}). Re-run with --force if this purge is intended.`,
+    );
+    return 1;
+  }
+  if (result.totalOrphans === 0) {
+    console.log('✓ No Algolia orphans — every index object maps to a promoted D1 row.');
+    return 0;
+  }
+  if (apply) {
+    console.log(`✓ Removed ${result.totalDeleted} orphan object(s) across ${target.algoliaEnv}.`);
+    return 0;
+  }
+  // Dry-run with orphans: report-only (exit 0 preserves the non-blocking CI
+  // contract; the Datadog gauges/monitor are the alert). Re-run with --apply.
+  console.log(
+    `Found ${result.totalOrphans} orphan object(s) (dry-run). Re-run with --apply to remove them.`,
+  );
+  return 0;
 }
 
-const invokedDirectly =
-  typeof process !== 'undefined' &&
-  process.argv[1] !== undefined &&
-  process.argv[1].endsWith('reconcile-algolia-drift.ts');
-
-if (invokedDirectly) {
-  main()
-    .then((code) => {
-      process.exitCode = code;
-    })
+// Entrypoint guard — importing this module (e.g. in tests) must not run main().
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main(process.argv.slice(2))
+    .then((code) => process.exit(code))
     .catch((err) => {
-      console.error('reconcile-algolia-drift: fatal', err);
-      process.exitCode = 1;
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
     });
 }

@@ -5,7 +5,7 @@ import type { Env } from '../env';
 import { reportMissingVendors, validateResponseInDev } from './handler-utils';
 
 function envWith(env: Env['ENV']): Env {
-  return { DATABASE_URL: 'prisma://test', ENV: env };
+  return { ENV: env };
 }
 
 describe('validateResponseInDev (AECI-111 — hoisted from route handlers)', () => {
@@ -26,13 +26,19 @@ describe('validateResponseInDev (AECI-111 — hoisted from route handlers)', () 
     // runs because ENV is *absent*, not because of a 'development' member. The
     // gate is intentionally moved verbatim — the Env.ENV cleanup is a separate issue.
     const validate = vi.fn();
-    validateResponseInDev({ DATABASE_URL: 'prisma://test' }, validate);
+    validateResponseInDev({}, validate);
     expect(validate).toHaveBeenCalledTimes(1);
   });
 
   it('skips the validator when ENV is "production" (per-request Zod cost stripped)', () => {
     const validate = vi.fn();
     validateResponseInDev(envWith('production'), validate);
+    expect(validate).not.toHaveBeenCalled();
+  });
+
+  it('skips the validator when ENV is "demo" (public tier, same as production)', () => {
+    const validate = vi.fn();
+    validateResponseInDev(envWith('demo'), validate);
     expect(validate).not.toHaveBeenCalled();
   });
 
@@ -56,7 +62,7 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
     const waitUntil = vi.fn();
     const c = {
       executionCtx: { waitUntil },
-      env: { DATABASE_URL: 'prisma://test', ...env } as Env,
+      env: { ...env } as Env,
       req: { raw: new Request('https://api.test/api/products') },
     } as unknown as Context<{ Bindings: Env }>;
     return { c, waitUntil };
@@ -92,7 +98,7 @@ describe('reportMissingVendors (AECI-115 — data-gap observability)', () => {
       get executionCtx(): ExecutionContext {
         throw new Error('This context has no ExecutionContext');
       },
-      env: { DATABASE_URL: 'prisma://test', DD_API_KEY: 'k' } as Env,
+      env: { DD_API_KEY: 'k' } as Env,
       req: { raw: new Request('https://api.test/api/products') },
     } as unknown as Context<{ Bindings: Env }>;
     // A legitimately vendorless product must not break the request path even

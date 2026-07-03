@@ -1,209 +1,81 @@
 /**
- * Admin moderation API (AECI-204 / Phase 5.13) — the functional review
- * read + write surface behind `requireAdmin()`:
+ * Admin moderation API (AECI-204 / Phase 5.13) — Drizzle/D1 (ADR 0016 / AECI-253,
+ * AECI-254).
  *
- *   GET   /api/admin/reviews     — the moderation queue, filtered by status,
- *                                   sorted by queue age or recency, paginated.
+ *   GET   /api/admin/reviews     — the moderation queue (status filter, paginated).
  *   PATCH /api/admin/reviews/:id — approve / reject a *pending* review.
  *
- * Source of truth: `docs/API_CONTRACTS.md` §6.10, `STAGE_1_PHASE_5_SPEC.md` §7.2
- * / §22.1. Moderation is driven directly off `review.status` + the audit log;
- * the guarded FSM (enforced/throwing transitions), Slack alerts, Linear sync,
- * and the queue UI remain out of scope (Phase 6 / 5.14). AECI-210 (Phase 6.3)
- * additionally folds each approve/reject into the **lean** shared workflow
- * history (Phase 6 Spec §5 / Stage-1 §26.3 relaxation): it find-or-creates the
- * review's `review_moderation` `workflow_instance`, appends a
- * `workflow_transitions` row (`pending → approved|rejected`), and updates the
- * instance's `current_state` / `completed_at` / `final_outcome` — all in the
- * same transaction (`appendWorkflowTransition`, failure rolls back).
+ * Moderation is one atomic `db.batch`: the guarded `UPDATE … WHERE status='pending'`
+ * + the `review.approved|rejected` audit + the lean workflow history (find-or-create
+ * the `review_moderation` instance, append the `pending → approved|rejected`
+ * transition, mark the instance complete). The denormalized count recompute on
+ * approve runs as a separate post-batch step (`lib/recompute-counts.ts`).
  *
- * On **approve**: `status='approved'`, `moderated_by/at`, recompute the
- * product's denormalized `review_count` + rating averages (only approved reviews
- * count — `recomputeProductCounts`), and purge the `product:<slug>` Cache-Tag so
- * the public list/summary refresh. On **reject**: `status='rejected'` + a
- * REQUIRED `rejection_reason`; no recompute / no purge (a pending review was
- * never publicly counted). `appendAuditLog()` runs in the same transaction as
- * every transition (failure rolls the transition back).
- *
- * `reviewer_email` is admin-only and lives only in `auth.users.email` (no column
- * on `profiles`/`reviews`). The Worker's Accelerate connection runs as a
- * privileged Postgres role that bypasses GRANTs/RLS (`AUTH_AND_RLS.md` §1), so
- * we read it with a parameterized cross-schema `$queryRaw`. The lookup is
- * injected (`fetchEmails`) for testability and wrapped so an `auth`-schema read
- * failure degrades to `reviewer_email: null` + a warn — the queue must stay
- * usable, never 500 — and anonymized reviews (`reviewer_id IS NULL`) are
- * likewise null.
+ * `reviewer_email` (admin-only, lives in `auth.users`) is read via the GoTrue
+ * Admin API (seam #2, `lib/supabase-admin.ts`), injected for tests and degrading
+ * to `reviewer_email: null` — the queue must stay usable, never 500.
  */
 
 import {
   ApiErrorCode,
-  AdminReviewSchema,
   ListPendingReviewsQuerySchema,
   ListPendingReviewsResponseSchema,
+  ModerateReviewResponseSchema,
   ModerateReviewSchema,
   callCloudflarePurge,
   type ListPendingReviewsResponse,
   type ModerateReviewResponse,
+  type RepeatOffenderPrompt,
 } from '@aeci/shared';
 import {
-  appendAuditLog,
-  type AuditLogClient,
+  forwardAuditLog,
+  type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
 import {
-  appendWorkflowTransition,
-  type WorkflowTransitionClient,
+  forwardWorkflowTransition,
+  type WorkflowTransitionEntry,
   type WorkflowTransitionForwarder,
 } from '@aeci/shared/workflow-transition';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
+import { getDb } from '../db/client';
+import type { Db } from '../db/client';
+import { reviews, workflowInstances } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
 import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
-import { validateResponseInDev, type PrismaFactory } from '../lib/handler-utils';
-import { recomputeProductCounts, type RecomputeClient } from '../lib/product-counts';
-import { adminReviewSelect, toAdminReview, type RawAdminReviewRow } from '../lib/prisma-helpers';
-import { getPrisma } from '../prisma';
-import type { AcceleratedPrisma } from '../prisma';
+import {
+  auditInsert,
+  workflowTransitionInsert,
+  type BatchStmt,
+  type BatchTuple,
+} from '../lib/audit';
+import { adminReviewConfig, toAdminReview, type RawAdminReviewRow } from '../lib/drizzle-helpers';
+import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
+import { recomputeProductCounts } from '../lib/recompute-counts';
+import { fetchAuthUserEmails } from '../lib/supabase-admin';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
-// ─── Loose structural Prisma surfaces ────────────────────────────────────────
-// Same approach as `routes/reviews.ts` / `routes/promote.ts`: we touch a known
-// slice of the generated client, so we type it structurally and `as unknown as`
-// it rather than dragging in the full edge-client generics (whose
-// `$transaction` / `aggregate` types fight `recomputeProductCounts`). A real
-// accelerated client and the test fakes both satisfy these.
+const REPEAT_OFFENDER_THRESHOLD = 3;
 
-/** Read surface for `GET /api/admin/reviews`. `findMany` narrows to the admin
- *  row shape via `adminReviewSelect`. */
-type AdminReviewsClient = {
-  review: {
-    findMany(args: {
-      where: Record<string, unknown>;
-      orderBy: unknown;
-      skip: number;
-      take: number;
-      select: typeof adminReviewSelect;
-    }): Promise<RawAdminReviewRow[]>;
-    count(args: { where: Record<string, unknown> }): Promise<number>;
-  };
-};
-
-/** Transaction surface for the moderate write: the guarded `updateMany`, plus
- *  the recompute (`RecomputeClient`), audit (`AuditLogClient`), and workflow
- *  (`WorkflowTransitionClient` + the `workflowInstance` find-or-create/update)
- *  surfaces. */
-type WorkflowRow = { id: string };
-type ModerateTx = {
-  review: {
-    updateMany(args: {
-      where: { id: string; status: string };
-      data: Record<string, unknown>;
-    }): Promise<{ count: number }>;
-  };
-  workflowInstance: {
-    findFirst(args: {
-      where: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<WorkflowRow | null>;
-    create(args: {
-      data: Record<string, unknown>;
-      select?: Record<string, boolean>;
-    }): Promise<WorkflowRow>;
-    update(args: {
-      where: Record<string, unknown>;
-      data: Record<string, unknown>;
-    }): Promise<unknown>;
-  };
-} & RecomputeClient &
-  AuditLogClient &
-  WorkflowTransitionClient;
-
-/** Read + transaction surface for `PATCH /api/admin/reviews/:id`. The single
- *  `findUnique` selects the full `adminReviewSelect`, so the preloaded row both
- *  gates the transition (status) and builds the response (no post-commit read).*/
-type ModerateClient = {
-  review: {
-    findUnique(args: {
-      where: { id: string };
-      select: typeof adminReviewSelect;
-    }): Promise<RawAdminReviewRow | null>;
-  };
-  $transaction<T>(fn: (tx: ModerateTx) => Promise<T>): Promise<T>;
-};
-
-/** Injected `recomputeProductCounts` seam (mirrors `score` in `routes/reviews.ts`)
- *  so the approve path can assert the recompute fired without reconstructing the
- *  aggregate math. */
-type RecomputeFn = (db: RecomputeClient, productIds: Iterable<string>) => Promise<void>;
-
-/** Injected reviewer-email lookup seam. The default hits `auth.users`; tests
- *  pass a canned map. */
+/** Injected reviewer-email seam (seam #2). Default hits the GoTrue Admin API. */
 export type FetchReviewerEmails = (
-  prisma: AcceleratedPrisma,
-  reviewerIds: string[],
+  env: Env,
+  reviewerIds: readonly string[],
 ) => Promise<Map<string, string>>;
 
-// ─── Reviewer email lookup (auth.users) ──────────────────────────────────────
-
-/**
- * Resolve `auth.users.email` for a page's reviewers, keyed by `reviewer_id`.
- * Parameterized `$queryRaw` (never interpolation — `AUTH_AND_RLS.md` §6 forbids
- * user-supplied SQL): the ids are joined into a single scalar text param and
- * split + cast to `uuid[]` in Postgres, which avoids any array-parameter
- * serialization ambiguity through Accelerate. UUIDs cannot contain commas, so
- * the join is unambiguous. One query per page (≤100 ids).
- */
-export const fetchReviewerEmails: FetchReviewerEmails = async (prisma, reviewerIds) => {
-  const ids = [...new Set(reviewerIds)].filter((id) => id.length > 0);
-  if (ids.length === 0) return new Map();
-
-  const rows = await prisma.$queryRaw<Array<{ id: string; email: string | null }>>`
-    SELECT id::text AS id, email
-    FROM auth.users
-    WHERE id = ANY(string_to_array(${ids.join(',')}, ',')::uuid[])
-  `;
-
-  const map = new Map<string, string>();
-  for (const row of rows) {
-    if (row.email) map.set(row.id, row.email);
-  }
-  return map;
-};
-
-/** Wrap the email lookup so an `auth`-schema failure degrades to an empty map
- *  (→ `reviewer_email: null`) + a warn, never a 500. */
-async function safeFetchEmails(
-  c: AdminContext,
-  fetchEmails: FetchReviewerEmails,
-  prisma: AcceleratedPrisma,
-  reviewerIds: string[],
-): Promise<Map<string, string>> {
-  if (reviewerIds.length === 0) return new Map();
-  try {
-    return await fetchEmails(prisma, reviewerIds);
-  } catch (error) {
-    try {
-      logToDatadog(c.executionCtx, c.env, c.req.raw, {
-        level: 'warn',
-        message: 'Admin reviews: reviewer email lookup failed',
-        data_gap: 'reviewer_email_lookup_failed',
-      });
-    } catch {
-      console.warn('admin-reviews: reviewer email lookup failed', error);
-    }
-    return new Map();
-  }
-}
+/** Injected recompute seam (post-batch, approve-only). */
+type RecomputeFn = (db: Db, productIds: Iterable<string>) => Promise<void>;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Datadog forwarder for the audit write; no-op without `DD_API_KEY`. Mirrors
- *  `routes/reviews.ts`, tagged `source: admin-moderation`. */
 function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
@@ -218,9 +90,6 @@ function makeForwarder(c: AdminContext): AuditLogForwarder | undefined {
   };
 }
 
-/** Datadog forwarder for the workflow-transition write; no-op without
- *  `DD_API_KEY`. Mirrors `makeForwarder` / `routes/requests.ts`, tagged
- *  `source: admin-moderation`. */
 function makeWorkflowForwarder(c: AdminContext): WorkflowTransitionForwarder | undefined {
   if (!c.env.DD_API_KEY) return undefined;
   return (entry) => {
@@ -242,16 +111,9 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
   } catch {
     throw new ApiError(400, 'MALFORMED_REQUEST', 'Request body is not valid JSON');
   }
-  // ZodError bubbles to `errorHandler()` → canonical VALIDATION_FAILED envelope
-  // (the reject-reason refine surfaces here, keyed to `rejection_reason`).
   return schema.parse(raw);
 }
 
-/** Emit the `aeci.moderation.action` count (AECI-206 / Phase 5.15) — one per
- *  moderation attempt: `outcome:ok` on a committed approve/reject,
- *  `outcome:invalid_state` when the target isn't pending (the preload guard or
- *  the concurrent-race guard, both 422). Fire-and-forget; no-op without
- *  `DD_API_KEY`. */
 function emitModeration(
   c: AdminContext,
   action: 'approve' | 'reject',
@@ -263,8 +125,6 @@ function emitModeration(
   ]);
 }
 
-/** Best-effort, post-commit Cache-Tag purge for an approved review's product.
- *  No-op without CF creds; never throws (telemetry is wrapped). */
 async function purgeProductTag(c: AdminContext, slug: string): Promise<void> {
   const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
   const outcome = await callCloudflarePurge(fetch, creds, [`product:${slug}`]);
@@ -285,48 +145,40 @@ async function purgeProductTag(c: AdminContext, slug: string): Promise<void> {
   }
 }
 
-// ─── Handlers ────────────────────────────────────────────────────────────────
+// ─── GET /api/admin/reviews ────────────────────────────────────────────────────
 
-/** `GET /api/admin/reviews` — the moderation queue. */
 export function createAdminReviewsListHandler(
-  prismaFor: PrismaFactory = getPrisma,
-  fetchEmails: FetchReviewerEmails = fetchReviewerEmails,
+  dbFor: DbFactory = getDb,
+  fetchEmails: FetchReviewerEmails = fetchAuthUserEmails,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const query = ListPendingReviewsQuerySchema.parse(
       Object.fromEntries(new URL(c.req.url).searchParams),
     );
 
-    const prisma = prismaFor(c.env);
-    const db = prisma as unknown as AdminReviewsClient;
+    const { db } = dbFor(c.env);
+    const where = eq(reviews.status, query.status);
+    const direction = query.sort === 'created_at' ? desc : asc;
 
-    const where = { status: query.status };
-    const skip = (query.page - 1) * query.perPage;
-    // `queue_age` works the backlog oldest-first; `created_at` is newest-first.
-    // `id` tiebreaks a `created_at` collision so pagination is stable across
-    // pages. `as const` keeps the literal narrow (inline orderBy otherwise
-    // widens to `string` and drops Prisma's select-narrowing).
-    const direction = query.sort === 'created_at' ? ('desc' as const) : ('asc' as const);
-
-    const [rows, total] = await Promise.all([
-      db.review.findMany({
+    const [rows, countRows] = await Promise.all([
+      db.query.reviews.findMany({
+        ...adminReviewConfig,
         where,
-        orderBy: [{ createdAt: direction }, { id: 'asc' as const }],
-        skip,
-        take: query.perPage,
-        select: adminReviewSelect,
+        orderBy: [direction(reviews.createdAt), asc(reviews.id)],
+        limit: query.perPage,
+        offset: (query.page - 1) * query.perPage,
       }),
-      db.review.count({ where }),
+      db.select({ value: count() }).from(reviews).where(where),
     ]);
 
     const reviewerIds = rows.map((row) => row.reviewerId).filter((id): id is string => id !== null);
-    const emailByReviewerId = await safeFetchEmails(c, fetchEmails, prisma, reviewerIds);
+    const emailByReviewerId = await fetchEmails(c.env, reviewerIds);
 
     const body: ListPendingReviewsResponse = {
       data: rows.map((row) => toAdminReview(row, emailByReviewerId)),
       page: query.page,
       perPage: query.perPage,
-      total,
+      total: countRows[0]?.value ?? 0,
     };
 
     validateResponseInDev(c.env, () => {
@@ -337,10 +189,11 @@ export function createAdminReviewsListHandler(
   };
 }
 
-/** `PATCH /api/admin/reviews/:id` — approve / reject a pending review. */
+// ─── PATCH /api/admin/reviews/:id ──────────────────────────────────────────────
+
 export function createModerateReviewHandler(
-  prismaFor: PrismaFactory = getPrisma,
-  fetchEmails: FetchReviewerEmails = fetchReviewerEmails,
+  dbFor: DbFactory = getDb,
+  fetchEmails: FetchReviewerEmails = fetchAuthUserEmails,
   recompute: RecomputeFn = recomputeProductCounts,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
@@ -353,14 +206,14 @@ export function createModerateReviewHandler(
     }
 
     const payload = await parseJsonBody(c, ModerateReviewSchema);
+    const { db } = writeDb(c, dbFor);
 
-    const prisma = prismaFor(c.env);
-    const db = prisma as unknown as ModerateClient;
-
-    // Preload the full admin row: it both gates the transition (status) and
-    // builds the response — the values we set ourselves are merged in after the
-    // commit, so there is no post-commit re-read.
-    const existing = await db.review.findUnique({ where: { id }, select: adminReviewSelect });
+    // Preload the full admin row — it gates the transition (status) and builds the
+    // response (the values we set are merged in after commit; no post-commit read).
+    const existing = (await db.query.reviews.findFirst({
+      ...adminReviewConfig,
+      where: eq(reviews.id, id),
+    })) as RawAdminReviewRow | undefined;
     if (!existing) throw notFoundError('review', { id });
     if (existing.status !== 'pending') {
       emitModeration(c, payload.action, 'invalid_state');
@@ -374,128 +227,167 @@ export function createModerateReviewHandler(
     const approve = payload.action === 'approve';
     const newStatus = approve ? 'approved' : 'rejected';
     const rejectionReason = approve ? null : (payload.rejection_reason as string);
-    const moderatedAt = new Date();
-    const forward = makeForwarder(c);
-    const workflowForward = makeWorkflowForwarder(c);
+    const moderatedAt = new Date().toISOString();
 
-    await db.$transaction(async (tx) => {
-      // Atomic guard: only transition a still-pending row. If a concurrent
-      // moderation already moved it, `count` is 0 → 422 (rolls back) — closes
-      // the two-admins-racing window the preload check can't.
-      const updated = await tx.review.updateMany({
-        where: { id, status: 'pending' },
-        data: {
+    // Read the workflow instance up front (find-or-create can't be conditional
+    // inside a batch). Reviews pre-dating the AECI-210 retrofit have none.
+    const existingWf = await db.query.workflowInstances.findFirst({
+      columns: { id: true },
+      where: and(
+        eq(workflowInstances.workflowType, 'review_moderation'),
+        eq(workflowInstances.entityId, id),
+      ),
+    });
+    const workflowId = existingWf?.id ?? crypto.randomUUID();
+
+    const auditEntry: AuditLogEntry = {
+      actorId: userId,
+      actorType: auditActorType(session),
+      action: approve ? 'review.approved' : 'review.rejected',
+      entityType: 'review',
+      entityId: id,
+      metadata: {
+        source: 'admin-moderation',
+        product_id: existing.product.id,
+        ...(approve ? {} : { rejection_reason: rejectionReason }),
+      },
+    };
+    const workflowEntry: WorkflowTransitionEntry = {
+      workflowId,
+      fromState: 'pending',
+      toState: newStatus,
+      actorId: userId,
+      reason: rejectionReason,
+      metadata: {
+        source: 'admin-moderation',
+        product_id: existing.product.id,
+        ...(approve ? {} : { rejection_reason: rejectionReason }),
+      },
+    };
+
+    // The guarded update (`WHERE status='pending'`) makes the state change safe
+    // under a concurrent moderation; the preload gate covers the common case (a
+    // rare two-admin race could leave a no-op update with its audit — acceptable
+    // under the §26.3 lean relaxation). Audit + workflow are atomic with it.
+    const stmts: BatchStmt[] = [
+      db
+        .update(reviews)
+        .set({
           status: newStatus,
           moderatedBy: userId,
           moderatedAt,
           ...(approve ? {} : { rejectionReason }),
-        },
-      });
-      if (updated.count !== 1) {
-        emitModeration(c, payload.action, 'invalid_state');
-        throw new ApiError(
-          422,
-          ApiErrorCode.INVALID_STATE_TRANSITION,
-          'Review is no longer pending.',
-        );
-      }
+        })
+        .where(and(eq(reviews.id, id), eq(reviews.status, 'pending'))),
+      auditInsert(db, auditEntry),
+      existingWf
+        ? db
+            .update(workflowInstances)
+            .set({ currentState: newStatus, completedAt: moderatedAt, finalOutcome: newStatus })
+            .where(eq(workflowInstances.id, workflowId))
+        : db.insert(workflowInstances).values({
+            id: workflowId,
+            workflowType: 'review_moderation',
+            entityId: id,
+            currentState: newStatus,
+            completedAt: moderatedAt,
+            finalOutcome: newStatus,
+          }),
+      workflowTransitionInsert(db, workflowEntry),
+    ];
+    await db.batch(stmts as BatchTuple);
 
-      // Denormalized counts recompute on approval ONLY (§5.6 note): a rejected
-      // review was never counted, so nothing public changes.
-      if (approve) {
-        await recompute(tx, [existing.product.id]);
-      }
+    // Approve-only: recompute the product's denormalized counts (a rejected review
+    // was never counted). Separate post-batch step under D1.
+    if (approve) {
+      await recompute(db, [existing.product.id]);
+    }
 
-      await appendAuditLog(
-        tx,
-        {
-          actorId: userId,
-          actorType: auditActorType(session),
-          action: approve ? 'review.approved' : 'review.rejected',
-          entityType: 'review',
-          entityId: id,
-          metadata: {
-            source: 'admin-moderation',
-            product_id: existing.product.id,
-            ...(approve ? {} : { rejection_reason: rejectionReason }),
-          },
-        },
-        forward,
-      );
-
-      // Phase 6.3 (AECI-210): record the moderation in the shared workflow
-      // history. Find-or-create the `review_moderation` instance — reviews
-      // submitted before this retrofit landed have none — then append the
-      // `pending → approved|rejected` transition and update the instance so
-      // `current_state` keeps mirroring `review.status` and the workflow is
-      // marked complete (`completed_at` + `final_outcome`). Lean, no guarded FSM
-      // (Stage-1 §26.3 relaxation). Same tx → rolls back with the moderation.
-      let workflow = await tx.workflowInstance.findFirst({
-        where: { workflowType: 'review_moderation', entityId: id },
-        select: { id: true },
-      });
-      workflow ??= await tx.workflowInstance.create({
-        data: {
-          workflowType: 'review_moderation',
-          entityId: id,
-          currentState: 'pending',
-        },
-        select: { id: true },
-      });
-      await appendWorkflowTransition(
-        tx,
-        {
-          workflowId: workflow.id,
-          fromState: 'pending',
-          toState: newStatus,
-          actorId: userId,
-          reason: rejectionReason,
-          metadata: {
-            source: 'admin-moderation',
-            product_id: existing.product.id,
-            ...(approve ? {} : { rejection_reason: rejectionReason }),
-          },
-        },
-        workflowForward,
-      );
-      await tx.workflowInstance.update({
-        where: { id: workflow.id },
-        data: {
-          currentState: newStatus,
-          completedAt: moderatedAt,
-          finalOutcome: newStatus,
-        },
-      });
-    });
-
-    // Committed: one `aeci.moderation.action{outcome:ok}` per approve/reject.
     emitModeration(c, payload.action, 'ok');
 
-    // Post-commit, approve-only: purge the product Cache-Tag so the public
-    // list/summary refresh. Best-effort via `waitUntil`; no-op without CF creds.
     if (approve && c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
       c.executionCtx.waitUntil(purgeProductTag(c, existing.product.slug));
     }
+    c.executionCtx.waitUntil(
+      Promise.all([
+        forwardAuditLog(auditEntry, makeForwarder(c)),
+        forwardWorkflowTransition(workflowEntry, makeWorkflowForwarder(c)),
+      ]),
+    );
 
-    // Build the response from the preloaded row + the values we just committed.
     const moderatedRow: RawAdminReviewRow = {
       ...existing,
       status: newStatus,
       moderatedAt,
       rejectionReason: approve ? existing.rejectionReason : rejectionReason,
     };
-    const emailByReviewerId = await safeFetchEmails(
-      c,
-      fetchEmails,
-      prisma,
+    const emailByReviewerId = await fetchEmails(
+      c.env,
       existing.reviewerId ? [existing.reviewerId] : [],
     );
-    const body: ModerateReviewResponse = toAdminReview(moderatedRow, emailByReviewerId);
+
+    // §11.1 reviewer notification, fire-and-forget. Reuses the email already
+    // fetched for the response; fails open (absent key/email → silent skip).
+    const reviewerEmail = existing.reviewerId
+      ? emailByReviewerId.get(existing.reviewerId)
+      : undefined;
+    c.executionCtx.waitUntil(
+      approve
+        ? sendReviewApprovedEmail(c, {
+            to: reviewerEmail,
+            productName: existing.product.name,
+            productSlug: existing.product.slug,
+          })
+        : sendReviewRejectedEmail(c, {
+            to: reviewerEmail,
+            productName: existing.product.name,
+            reason: rejectionReason ?? '',
+          }),
+    );
+
+    const repeatOffender = await computeRepeatOffenderPrompt(
+      db,
+      approve ? null : existing.reviewerId,
+      emailByReviewerId,
+    );
+
+    const body: ModerateReviewResponse = {
+      review: toAdminReview(moderatedRow, emailByReviewerId),
+      repeat_offender: repeatOffender,
+    };
 
     validateResponseInDev(c.env, () => {
-      AdminReviewSchema.parse(body);
+      ModerateReviewResponseSchema.parse(body);
     });
 
     return json(body);
+  };
+}
+
+/** AECI-218 repeat-offender prompt: reject-only, identified reviewers, ≥ threshold
+ *  total rejected. Best-effort — a count failure degrades to no prompt (the
+ *  moderation already committed). */
+async function computeRepeatOffenderPrompt(
+  db: Db,
+  reviewerId: string | null,
+  emailByReviewerId: ReadonlyMap<string, string>,
+): Promise<RepeatOffenderPrompt | null> {
+  if (!reviewerId) return null;
+  let rejectedCount: number;
+  try {
+    const [row] = await db
+      .select({ value: count() })
+      .from(reviews)
+      .where(and(eq(reviews.reviewerId, reviewerId), eq(reviews.status, 'rejected')));
+    rejectedCount = row?.value ?? 0;
+  } catch (error) {
+    console.warn('admin-reviews: repeat-offender count failed', error);
+    return null;
+  }
+  if (rejectedCount < REPEAT_OFFENDER_THRESHOLD) return null;
+  return {
+    reviewer_id: reviewerId,
+    reviewer_email: emailByReviewerId.get(reviewerId) ?? null,
+    rejected_count: rejectedCount,
   };
 }

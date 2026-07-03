@@ -257,17 +257,17 @@ describe('SSR Worker', () => {
 });
 ```
 
-### 6.3 Prisma in integration tests
+### 6.3 The Drizzle/D1 client in tests
 
-API Worker handlers are factories that take the Prisma client through a `prismaFor: PrismaFactory = getPrisma` parameter and call it per request — the factory-DI shape in `DATABASE_SCHEMA.md` §1a (modeled on `apps/api/src/routes/health.ts`). Do **not** import a module-level Prisma singleton; doing so makes handlers untestable without a live database.
+API Worker handlers are factories that take the Drizzle client through a `getDb`-style factory parameter and call it per request — the factory-DI shape in `DATABASE_SCHEMA.md` §1a (`getDb(env)`, `apps/api/src/db/client.ts`). Do **not** import a module-level DB singleton; doing so makes handlers untestable without a live database. (Prisma was removed entirely in AECI-278 — there is no `getPrisma` / `prismaFor`.)
 
-**Unit/handler tests** — inject a Prisma double through the `prismaFor` factory param (e.g. `createHealthHandler(() => mock)`). Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (e.g. `findMany`, `create`, `update`, `delete`). Assert on the call shape, not the return.
+**Unit/handler tests** — inject a Drizzle double through the factory param. Vitest's `vi.fn()` or a minimal hand-rolled stub is enough for most cases (`db.query.*`, `db.select()`, `db.insert/update/delete`, `db.batch`). Assert on the call shape, not the return.
 
-**Higher-fidelity integration tests** — point `DATABASE_URL` at a dedicated preview Supabase Accelerate URL. Each test run must clean up after itself by truncating tables in `afterEach`/`afterAll`. Run serially or per-test-suite isolated to avoid cross-test interference.
+**Higher-fidelity integration tests** — run against a local D1 (the in-memory / Miniflare D1 harness, or the seeded local SQLite). The authz no-leakage matrix specs (`apps/api/src/routes/*.authz-matrix.spec.ts`, AECI-234) compose the real guards with the real handlers over the in-memory D1.
 
-**Accelerate-specific constraint:** the common Node Postgres pattern of "open a transaction, run the test, rollback" does **not** work the same way over Accelerate's HTTPS boundary — `prisma.$transaction` is supported, but each interactive-transaction statement is a separate round-trip, and the transaction does not span the test's surrounding code. Use truncation, not rollback, for test isolation.
+**Atomicity constraint:** D1 has **no interactive transactions** — atomic multi-statement writes are `db.batch([...])`. So the "open a transaction, run the test, rollback" isolation pattern does not apply; reset/reseed the local D1 between suites instead.
 
-**Audit + cache assertions.** Tests that exercise a write path should assert both the `prisma.$transaction(...)` call shape (mutation + `audit_log`) and the `ctx.waitUntil(invalidateForEntity(...))` call. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
+**Audit + cache assertions.** Tests that exercise a write path should assert both the `db.batch([...])` call shape (mutation + the `auditInsert(...)` row in the same batch) and the `ctx.waitUntil(invalidateForEntity(...))` call. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
 
 ### 6.4 Edge-cache integration layer (complementary to Miniflare)
 
@@ -286,15 +286,17 @@ Keep a small bash- or Playwright-driven suite for these multi-request, edge-stat
 
 Run this suite in CI against the preview deploy for the PR. It's slow relative to Miniflare (each test is a real HTTP round-trip) but covers gaps Miniflare cannot.
 
-### 6.5 DB-backed integration suites in CI (AECI-90)
+### 6.5 Live-auth integration suite in CI (AECI-90; pruned AECI-265)
 
-The `apps/api/src/integration/**` suites talk to a real Postgres + PostgREST + GoTrue rather than Miniflare: the PostgREST RLS deny matrix (`vendor_requests.rls`, `landing_forms.rls`), the auth-user-delete GDPR trigger (`auth_user_delete_trigger`), the idempotent Airtable→Supabase bulk migrate (`airtable-to-supabase-bulk-migrate`), and the `TEST_DATABASE_URL`-gated recompute/backfill checks (`product-counts`, `backfill-slugs`). Locally they run via `pnpm --filter @aeci/api test:integration` after `pnpm db:reset` (see `docs/migrations.md` §4).
+The `apps/api/src/integration/**` lane talks to a real Supabase service rather than Miniflare. Post-D1 migration (PR #359, AECI-248→257) it holds a **single** spec — `user-auth.jwks.spec.ts`, a live **ES256 JWKS** regression guard for `requireUserAuth()`: it fetches the project's published signing keys over the network (`createRemoteJWKSet`) and verifies a real, freshly-minted access token, so a dashboard signing-key rotation back to HS256 (which would break the production JWKS-only contract) fails the build. Auth is the only thing retained on Supabase (ADR 0015/0016); the application DB is Cloudflare D1. The former Postgres/PostgREST suites this lane was built for — the RLS deny matrices, the auth-user-delete GDPR trigger, the Airtable→Supabase bulk migrate, and the `TEST_DATABASE_URL`-gated recompute/backfill checks — were **deleted in PR #359** (the planned `landing_forms.rls` was never created and the landing lead-capture tables moved to D1, AECI-257), so nothing remains on Supabase **Postgres**. Locally the spec runs via `pnpm --filter @aeci/api test:integration` with `SUPABASE_URL` + a fresh `SUPABASE_TEST_USER_JWT` (mint via `apps/web/scripts/mint-dev-session.mjs`).
 
-In CI the `integration-db-tests` job in `.github/workflows/deploy.yml` boots a **full local Supabase stack** on the runner (`supabase start`, the same image `drift-check.yml` uses), maps `supabase status -o env` into the env vars the specs read (`SUPABASE_URL`, `TEST_DATABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), mints a non-admin `SUPABASE_TEST_USER_JWT`, then runs the `test:integration:ci` script (the JSON-reporter variant of `test:integration`, without the `dotenv` wrapper). **No repo secrets are required** — a local stack is isolated from the shared dev DB, which matters because these suites create/delete `auth.users` and product/vendor rows that would otherwise corrupt the DB staging serves.
+In CI the `integration-db-tests` job — its own workflow, `.github/workflows/integration-db-tests.yml` (extracted from `deploy.yml`) — boots a **full local Supabase stack** on the runner (`supabase start`), maps `supabase status -o env` into the env the spec + mint step read (`SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`), mints a `SUPABASE_TEST_USER_JWT` (the local stack issues ES256), then runs the `test:integration:ci` script (the JSON-reporter variant of `test:integration`, without the `dotenv` wrapper). **No repo secrets are required** — the local GoTrue both mints the token and serves the JWKS endpoint, isolated from any shared project. There is no ORM client-generation step: Drizzle needs none, and Prisma was removed from `apps/api` wholesale (AECI-278).
 
-**Silent-skip guard.** Every spec is wrapped in `describe.skipIf(<env unset>)` so the default unit lane stays green without live services. That same guard means a *misconfigured* CI job would *collect* the tests but *skip* them and still exit 0. The job therefore parses the JSON summary and fails on either `numTotalTests === 0` (nothing collected) **or** `numPendingTests > 0` (a `skipIf` fired → env not wired). A green check must mean these security tests actually executed — not that they were quietly excluded.
+**Silent-skip guard.** Every spec is wrapped in `describe.skipIf(<env unset>)` so the default unit lane stays green without live services. That same guard means a *misconfigured* CI job would *collect* the tests but *skip* them and still exit 0. The job therefore parses the JSON summary and fails on either `numTotalTests === 0` (nothing collected) **or** `numPendingTests > 0` (a `skipIf` fired → env not wired). A green check must mean the JWKS regression guard actually executed — not that it was quietly excluded.
 
 The job is **non-blocking** today (intentionally not in `deploy-staging`'s `needs`); promote it to a required check once it has proven stable.
+
+> **ADR-0016 note (AECI-234).** The reviews/profiles authorization deny-matrix is **not** in this lane. ADR 0016 moved the application DB to Cloudflare D1 (no RLS, no PostgREST), so the reviews/profiles **no-leakage matrix is an app-layer test in the normal unit lane** — `apps/api/src/routes/reviews.authz-matrix.spec.ts` + `profiles.authz-matrix.spec.ts` — composing the real `requireAuth`/`requireAdmin` guard with the real read and write handlers over the in-memory D1 harness (read-leakage cells plus write paths rejecting anon/banned/non-admin before the handler). It runs on every PR (no Supabase boot, not path-gated).
 
 ---
 
@@ -355,28 +357,55 @@ test('user can search and find a product', async ({ page }) => {
 
 ### 7.5 Test data
 
-- Preview environment uses a fixed seed data set in Supabase
+- The local/preview environment uses a fixed seed data set in D1
 - Tests assume seed data exists (Procore, Autodesk, etc.)
-- Seed data lives in `apps/api/prisma/seed.ts` and is applied to preview/staging on initialization
+- Seed data lives in `apps/api/seed/*.sql` and is applied to the local D1 via `pnpm db:seed:local` (`db:setup:local` migrates + seeds)
 
 ### 7.6 Auth in tests
 
-Magic link doesn't work well in E2E (requires real email). Two options:
+Magic link doesn't work in E2E (real email), and there is **no** `TEST_MODE`/`?test_user=`
+bypass — the API Worker verifies a real Supabase JWT against the project's JWKS on every
+request (`apps/api/src/lib/authz.ts`), so the only way an auth-gated page renders its real
+content is a real session. Two postures, by what the page needs:
 
-- **Test mode bypass**: API Worker has a `TEST_MODE=true` flag that accepts a `?test_user=email@example.com` query param to create a session. Only enabled in preview environment.
-- **Direct Supabase JWT**: tests use the Supabase admin SDK to mint a JWT for a test user, set it as a cookie.
+- **Cookie-presence + API stubs** — for pages whose SSR gate is only a cookie *presence*
+  check and which fetch their data **client-side** (`/account`, `/products/:slug/review`):
+  a dummy `sb-…-auth-token` cookie passes the gate and `page.route()` stubs the
+  `/api/*` reads. See `account-delete.spec.ts` / `reviews-submission.spec.ts`. Deterministic,
+  no secrets — but it never exercises a real signed-in hydration (the client's
+  `@supabase/ssr` `getSession()` sees no real session) and **cannot** cover the admin pages.
+- **Real minted session** — for pages that authorize **server-side inside the SSR Worker**
+  (`/admin`, `/admin/reviews`: `adminSummaryResolver` → `GET /api/admin/summary`, a
+  service-binding call `page.route()` can't intercept). `apps/web/e2e/auth-session.ts`
+  mints a session with the `@supabase/ssr` capture-jar recipe (the same one
+  `apps/web/scripts/mint-dev-session.mjs` prints) and hands Playwright the real cookies.
 
-Recommend the test mode bypass for simplicity. Enable only with `ENV !== 'production'`.
+**Authed console-health (AECI-235, Spec §15.15).** `apps/web/e2e/authed-console.spec.ts` is
+the Phase 5 analogue of the AECI-162 console crawler: it visits the four auth-gated pages
+(`/account`, `/admin`, `/admin/reviews`, `/products/:slug/review`) with one minted **admin**
+session (admin is also an authed user, so it covers all four) and asserts zero console
+`error`/`pageerror` via the shared, single-sourced `console-capture.ts` helpers (warnings
+stay reported-not-gated). It **skips when unconfigured** (no anon key / no
+`SUPABASE_TEST_USER_*` creds / sign-in fails), matching `auth-whoami.spec.ts`. To run it the
+test user must be `test@thewbsproject.com` (an admin account in the shared Supabase project)
+and its `role='admin'` D1 profile must exist — seeded automatically by `dev:bound` →
+`db:seed:local` (`apps/api/seed/auth-fixtures.sql`, keyed to that account's Supabase user
+id; update both together if the account is recreated). Env is
+read from `process.env`; locally `playwright.config.ts` hydrates the four `SUPABASE_*` keys
+from `apps/web/.dev.vars`, and in CI they come from the Playwright step `env:` in
+`deploy.yml` (warn-and-skip when the secrets are absent). Remaining manual step to activate
+it in CI: set the `SUPABASE_TEST_USER_EMAIL` / `SUPABASE_TEST_USER_PASSWORD` GH secrets.
 
-### 7.7 Cross-browser & real-device — BrowserStack (Phase 7)
+### 7.7 Cross-browser & real-device — BrowserStack (Phase 7.8 — shipped, AECI-154)
 
-The projects list above is **chromium-only** by design — cross-browser/mobile is deferred to Phase 7 (see the `apps/web/playwright.config.ts` comment). The chosen Phase 7 approach is **BrowserStack** (real-device cloud), recorded in **ADR 0012** (Proposed) and tracked by **AECI-154**. Planned shape:
+The `projects` list above is **chromium-only** by design — cross-browser/mobile is handled by a separate **BrowserStack** (real-device cloud) lane, recorded in **ADR 0012** (**Accepted**) and shipped in Phase 7.8 (AECI-154). The lane:
 
-- Fan the *existing* Playwright suite out to **BrowserStack Automate** (`browserstack-node-sdk` + `browserstack.yml`) running a **curated cross-browser smoke subset** — critical journeys only, not the full suite (parallel-session quota).
-- Matrix: **real iOS Safari** + **real Android Chrome** (the gap local WebKit can't reproduce — bundled WebKit ≈ Safari, not the real engine), plus desktop Safari, Firefox, Edge.
-- A **separate, non-blocking** CI job — the fast PR lane (unit / component / integration / chromium-E2E / axe) stays fast and free and keeps gating merge.
-- Access-gated staging/preview are reached with the CF Access **service-token headers** (`CF-Access-Client-Id` / `CF-Access-Client-Secret`); `demo.aecintegrations.com` is public and needs none.
-- A BrowserStack **MCP server** (`@browserstack/mcp-server`) is already wired for ad-hoc real-device checks during UI work — that part is *not* CI.
+- Fans the *existing* Playwright suite out to **BrowserStack Automate** via `browserstack-node-sdk` + `apps/web/browserstack.yml`, running a **curated cross-browser smoke subset** — critical **read-only render journeys only** (`smoke`, `home`, `products-detail`, `search`, `facets`), not the full suite (parallel-session quota). The selection lives in `apps/web/playwright.browserstack.config.ts` (`testMatch`); the mutating journeys (auth / review-submission / account-delete) stay on the local chromium lane.
+- Matrix (`apps/web/browserstack.yml`): **real iOS Safari** + **real Android Chrome** (the gap local WebKit can't reproduce — bundled WebKit ≈ Safari, not the real engine), plus desktop Safari, Firefox, Edge.
+- Runs as a **separate, non-blocking** workflow — `.github/workflows/browserstack.yml`, triggered **post-merge** (`workflow_run` after the `deploy` workflow succeeds) + `workflow_dispatch` + a weekly schedule, against **deployed staging**. It is never in any deploy `needs:`, so the fast PR lane (unit / component / integration / chromium-E2E / axe) stays fast, free, and keeps gating merge.
+- Reaches Access-gated staging over the public internet with the CF Access **service-token headers** (`CF-Access-Client-Id` / `CF-Access-Client-Secret`, sent via Playwright `extraHTTPHeaders`) — **no BrowserStackLocal tunnel**; `demo.aecintegrations.com` is public and needs none.
+- **Inert until provisioned:** the lane **skips green** (does not gate, does not fail) until the personal-subscription secrets `BROWSERSTACK_USERNAME` / `BROWSERSTACK_ACCESS_KEY` are set (`gh secret set …`). The real iOS Safari row requires the **Automate** product specifically.
+- A BrowserStack **MCP server** (`@browserstack/mcp-server`) is also wired for ad-hoc real-device checks during UI work — that part is *not* CI.
 
 ---
 
@@ -410,7 +439,7 @@ Run axe on:
 
 Run in the light theme (Stage 1 is light-only — AECI-226).
 
-**Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (13 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`supabase/fixtures/phase2-fixtures.sql`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
+**Phase 2 implementation (AECI-65).** `apps/web/e2e/phase2-a11y.spec.ts` runs axe against every live Phase 2 page type — product/vendor/integration index+detail, category/audience/phase browse, the three flat taxonomy indexes (`/categories`, `/audiences`, `/phases`), and the 404 — in the **light theme** (13 URLs; the dark pass was removed in AECI-226), plus the open state of the AECI-155 taxonomy flyout nav. Detail pages run against committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`); they self-skip if the fixtures aren't seeded so the suite never wedges CI. Both the header (incl. the new flyout nav) and the **footer** are in scope: the footer's former `.exclude('aec-site-footer')` carve-out covered dark-theme contrast debt only, and AECI-226 removed it after verifying the footer is WCAG-AA clean in the (now sole) light theme.
 
 **Phase 3.12 implementation (AECI-145).** `/search` axe coverage (zero WCAG-AA violations) ships in `apps/web/e2e/search.spec.ts` — against the graceful-degradation shell that renders in CI, where Algolia is absent. The `/products` listing + facet sidebar is covered by `products-index.spec.ts` (`tags wcag2a/2aa/21a/21aa`); the facet-interaction states add no new always-on surface beyond what those axe runs already scan.
 
@@ -448,7 +477,7 @@ Visual diffs appear as a check on the PR. Reviewers approve or reject visual cha
 
 ### 9.5 Why not Percy (BrowserStack)
 
-BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run both.** Chromatic stays the visual-regression tool (above); Percy is only worth adopting if cross-*real*-browser visual diffs become a requirement, in which case it consolidates billing under BrowserStack alongside the Phase 7 cross-browser work (ADR 0012, AECI-154).
+BrowserStack's visual tool, **Percy**, overlaps Chromatic directly. **Do not run both.** Phase 7.8 (AECI-154) shipped the BrowserStack **Automate** *functional* cross-browser lane (§7.7) **without Percy** — Percy was evaluated and deliberately not adopted. Chromatic stays the visual-regression tool (above); Percy is only worth revisiting if cross-*real*-browser visual diffs become a requirement, in which case it consolidates billing under BrowserStack alongside the cross-browser lane (ADR 0012, AECI-154).
 
 ---
 
@@ -496,7 +525,7 @@ Mobile and desktop profiles separately.
 
 ### 10.4 Phase 2 implementation status (AECI-65)
 
-Lighthouse CI is wired in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow (push-to-main only) and runs **mobile** (simulated Slow-4G throttle, median-of-3) against **every Phase 2 page type** on a local `dev:bound` server — not a deployed preview — using the committed fixtures (`supabase/fixtures/phase2-fixtures.sql`). The URL set and assertions live in [`.lighthouserc.cjs`](../.lighthouserc.cjs).
+Lighthouse CI is wired in its own [`lighthouse.yml`](../.github/workflows/lighthouse.yml) workflow (push-to-main only) and runs **mobile** (simulated Slow-4G throttle, median-of-3) against **every Phase 2 page type** on a local `dev:bound` server — not a deployed preview — using the committed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into the local D1 by `dev:bound`). The URL set and assertions live in [`.lighthouserc.cjs`](../.lighthouserc.cjs).
 
 Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / Accessibility / Best-Practices / SEO; LCP ≤ 2.5s; CLS ≤ 0.1; detail-page total JS transfer ≤ 200 KB). Per-URL handling: the JS budget targets detail/browse pages only; the `noindex` 404 is exempt from the SEO score.
 
@@ -509,7 +538,7 @@ Budgets follow `STAGE_1_PHASE_2_SPEC.md` §12 (scores ≥ 90 for Performance / A
 - **`noindex`** — like the 404, its SEO audit fails by design. AECI-146 grouped `/search` with the 404 in the **noindex class** (matched by `NOINDEX_URL_PATTERN`): perf/a11y/CWV only, **SEO-exempt** (excluded from the indexable class's `categories:seo`).
 - **No-cache (always an edge MISS)** — `/search` is `private, no-store`, the one route that never serves from an edge HIT. AECI-145 adds a `/search`-only class with a **MISS-only TTFB budget** (`server-response-time ≤ 600ms`, error-level since AECI-188) rather than inheriting cached-page timing assumptions. The threshold is Lighthouse's own native pass bar and measures the SSR-shell document fetch on `dev:bound` — the document itself involves no Algolia round-trip (InstantSearch loads browser-side) — not production search latency.
 
-`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. Instead it carries its **own JS-transfer budget** (AECI-188; ceiling recorded in `.lighthouserc.cjs`, measured against the real SDK). To make that measurement meaningful, `lighthouse.yml` provisions the preview search key (`ALGOLIA_SEARCH_KEY_PREVIEW`) into `apps/web/.dev.vars`, so CI's `/search` boots real InstantSearch against the `preview_*` indexes rather than the degraded shell — and hard-fails if the key is missing. `?q=…` is intentionally not collected: the empty-query page already loads the full SDK + widgets, and a pinned query would couple the budget to index contents. Enforcement: a11y + TTFB at `'error'`; perf/CWV + the JS budget stay `'warn'` (§10.4).
+`/search` does **not** match the detail/browse URL pattern, so it correctly skips the 200 KB JS budget — InstantSearch ships more than a detail page. Instead it carries its **own JS-transfer budget** (AECI-188; ceiling recorded in `.lighthouserc.cjs`, measured against the real SDK). To make that measurement meaningful, `lighthouse.yml` provisions the shared search key (`ALGOLIA_SEARCH_KEY`, which must cover the `preview_*` indexes) into `apps/web/.dev.vars`, so CI's `/search` boots real InstantSearch against the `preview_*` indexes rather than the degraded shell — and hard-fails if the key is missing. `?q=…` is intentionally not collected: the empty-query page already loads the full SDK + widgets, and a pinned query would couple the budget to index contents. Enforcement: a11y + TTFB at `'error'`; perf/CWV + the JS budget stay `'warn'` (§10.4).
 
 ---
 
@@ -607,7 +636,7 @@ Files exempt from coverage requirements:
 
 - Configuration files (`*.config.ts`)
 - Type-only files (`.d.ts`, `types.ts`)
-- Auto-generated code (Prisma client)
+- Generated migration SQL (drizzle-kit output under `apps/api/migrations/`)
 - Storybook stories
 - Test utilities themselves
 

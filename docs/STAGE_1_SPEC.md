@@ -36,6 +36,8 @@ This spec is the master document. Detailed content for the following areas lives
 | `CICD_PLAN.md` | GitHub Actions pipeline, environments, deployments, rollback, secrets | Complete |
 | `TESTING_STRATEGY.md` | Test tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy | Complete |
 | `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
+| `STAGE_1_5_SPEC.md` | **Stage 1.5 — Integration Redesign**: product-PAIR page + claim/attestation model (supersedes the integration portions of §3.1 / §4.4 / §7.5) | Complete |
+| `DATA_OBJECT_VOCABULARY.md` | The frozen, closed `data_object` controlled vocabulary (+ generated `data-object-vocabulary.json` mirror) both apps seed from | Complete |
 | `CODE_REVIEW_CHECKLIST.md` | Pre-merge review categories and severity rubric for humans and LLMs | Complete |
 | `BRAND_GUIDELINES.md` | Canonical brand colors (light; dark variants documented but not shipped in Stage 1 — AECI-226), Bone reclassification, Clay restriction, visual principles | Complete |
 | `SEARCH_RANKING.md` | Algolia ranking customization, tuning, feedback loops | Pending |
@@ -56,11 +58,11 @@ When a section of this spec references one of these documents, the companion doc
 | Hydration | `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))` — v22 incremental hydration is on by default and auto-enables event replay (no explicit `withEventReplay()`; AECI-130). See `apps/web/src/app/app.config.ts:13-30` |
 | i18n | `@angular/localize` |
 | Hosting | Cloudflare Workers (SSR Worker with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills) |
-| Database | Supabase (PostgreSQL) |
-| ORM | Prisma (via `@prisma/extension-accelerate`; HTTPS — independent of `nodejs_compat`; see `DATABASE_SCHEMA.md` §1a) |
+| Database | Cloudflare D1 (SQLite) — the application DB (ADR 0016); Supabase retained for **Auth only** |
+| ORM | Drizzle (`drizzle-orm/d1`) over the API Worker's native `DB` binding — no Prisma, no Accelerate, no `nodejs_compat` for the DB path; see `DATABASE_SCHEMA.md` §1a |
 | Search | Algolia + InstantSearch Angular |
 | Auth | Supabase Auth (magic link + Google OAuth) |
-| Email | Loops |
+| Email | Resend (transactional) + Microsoft 365 (mailboxes) |
 | Issue tracking | Linear (with GitHub integration via API) |
 | Design | Figma |
 | AI development | Claude Code (manual, against Linear issues) |
@@ -100,7 +102,8 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 | `--accent-primary-hover` | `#2E5C45` | Hover state |
 | `--accent-primary-soft` | `#ECF1EE` | Forest wash — selected/active/verified-soft state fills; always paired with a border or selected affordance (AECI-230) |
 | `--accent-secondary` | `#E89668` | Clay — decorative/fill only, carrying `--text-primary` (2.33:1 on white: below even the 3:1 large-text floor — AECI-230) |
-| `--accent-secondary-deep` | `#A14D22` | Clay deep — text-capable clay: clay text, icons, star ratings (5.83:1 on white); doubles as the warning hue (AECI-230) |
+| `--accent-secondary-deep` | `#A14D22` | Clay deep — text-capable clay: clay text, icons (5.83:1 on white); doubles as the warning hue (AECI-230) |
+| `--accent-rating` | `#DAA520` | Goldenrod — gold-star fill for rating glyphs; decorative (`aria-hidden`), so its 2.24:1 on white is permitted (value carried by numeral + `aria-label`); empty stars use `--border-strong` in displays, `--text-tertiary` in the interactive review-form picker |
 | `--accent-warm` | `#F5F2EA` | Bone — subtle warm-tinted sections, never primary surface |
 | `--status-error` | `#B3261E` | Form/validation errors (6.54:1 on white); success = Forest, warning = Clay deep (AECI-230) |
 
@@ -110,12 +113,13 @@ All colors expressed as CSS custom properties on `:root`. Tailwind config reads 
 
 Forest and Clay remain the brand colors. Brand-approved *dark* variants of Forest and Clay exist (the originals lack contrast against near-black surfaces) and are documented in `BRAND_GUIDELINES.md` §3 — but they are **not shipped in Stage 1**; they return with the dark theme at Stage 2.
 
-Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero band — anywhere warmth and identity are desired. It is no longer the default page background.
+Bone is reclassified from "the background" to "a warm-tinted accent surface." It still appears in marketing pages, About page hero, callout sections, and the home page hero / marketing bands — anywhere warmth and identity are desired. It is no longer the default page background.
 
 ### 2a.4 Contrast validation
 
 - All text/background pairs verified for WCAG 2.1 AA contrast before launch
-- Clay `#E89668` measures ~2.3:1 on white — below AA body text (4.5:1) **and** below the 3:1 floor for large text and meaning-bearing graphics. It is therefore decorative/fill only (fills carry `--text-primary` at 8.48:1, never white). The former "large text allowed" clause was mathematically false and was struck in AECI-230. Clay-colored text, icons, and star ratings use `--accent-secondary-deep` `#A14D22` (5.83:1). See `BRAND_GUIDELINES.md` §5.
+- Clay `#E89668` measures ~2.3:1 on white — below AA body text (4.5:1) **and** below the 3:1 floor for large text and meaning-bearing graphics. It is therefore decorative/fill only (fills carry `--text-primary` at 8.48:1, never white). The former "large text allowed" clause was mathematically false and was struck in AECI-230. Clay-colored text and icons use `--accent-secondary-deep` `#A14D22` (5.83:1). See `BRAND_GUIDELINES.md` §5.
+- Star-rating glyphs use `--accent-rating` (Goldenrod `#DAA520`, ~2.24:1 on white). The sub-3:1 ratio is permitted because the glyphs are decorative (`aria-hidden`) — the value is carried by the adjacent numeral and the `aria-label`, never by color alone. Read-only displays pair the gold with `--border-strong` empties (a faint track); the interactive review-form picker uses `--text-tertiary` empties so the unselected control stays visible before a rating is chosen. See `BRAND_GUIDELINES.md` §5.1.
 - `--text-tertiary` was re-pointed `#A1A1AA` → `#71717A` in AECI-230 (the old value measured 2.56:1 on white). Tertiary text is never placed on sunken/muted surfaces (4.40:1 there).
 - Contrast verification is automated in CI via a token-pair check matrix
 
@@ -186,7 +190,8 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/products/:slug/reviews` | Product detail — Reviews tab | 1 hr edge / 5 min browser |
 | `/products/:slug/details` | Product detail — Details tab | 1 hr edge / 5 min browser |
 | `/vendors/:slug` | Vendor detail page | 1 hr edge / 5 min browser |
-| `/integrations/:id` | Integration detail page | 1 hr edge |
+| `/products/:contextSlug/integrations/:otherSlug` | **Product-PAIR page** (Stage 1.5 — `STAGE_1_5_SPEC.md` §7) | 1 hr edge |
+| `/integrations/:id` | Integration detail page — **superseded: 301 → pair page (Stage 1.5, `STAGE_1_5_SPEC.md` §7.2)** | 1 hr edge |
 | `/categories` | All categories (flat taxonomy index) | 5 min edge |
 | `/categories/:slug` | Browse by category | 30 min edge |
 | `/audiences` | All audiences (flat taxonomy index) | 5 min edge |
@@ -226,25 +231,34 @@ Admin auth is a simple role check on the `profiles` table. No separate admin UI 
 
 ## 4. Page Specifications
 
-### 4.1 Home page (`/`)
+### 4.1 Home page (`/`) — the unified launch front door
 
-**Above the fold:**
-- Hero section with tagline and search bar (Algolia-powered autocomplete)
-- Three stats cards:
-  - **Total integrations indexed** — large number + "+X in the last 30 days" in smaller text below
-  - **Most integrated product** — product name + integration count, links to product page
-  - **Most active category** — category name + integration count, links to category page
+> **This rewrite supersedes the directory-only §4.1** (the prior "hero + stats + browse + recent + trending" spec). It is the contract for **AECI-269** (unify the marketing landing page + app home into one launch front door) and the build children it blocks. The visual treatment, section rhythm, and `/impeccable shape` direction live in `docs/design/unified-home-direction.md` (**AECI-270**), which supersedes the *page contract* of `docs/design/home-direction.md` (AECI-181) while reusing its hero / stats / browse / trust treatments.
 
-**Below the fold:**
-- "Browse by category" — grid of top categories with counts
-- "Browse by audience" — same pattern
-- "Browse by project phase" — same pattern
-- "Recently added integrations" — last 10 integrations with source → target product names
-- "Trending products this week" — top 5 most-viewed products (from PostHog data, cached)
+At go-live there is no separate marketing page: when the apex flips from the static `apps/landing` to the app (§11.2 / Phase 7.13, AECI-247), the app home **is** the marketing page. The home therefore carries **two jobs as one editorial publication** — the directory/utility job for the ready visitor (search, browse, live data) and the marketing/persuasion job for the cold visitor (why AECi, trust, how it works). The marketing content is **translated into the app's editorial voice + Faire tokens** (`PRODUCT.md` voice; `DESIGN.md` Anchor-Site Rule → Faire), **never pasted** from `apps/landing/public/index.html`, and it **reuses** the existing trust band + stats rather than duplicating them.
 
-**Footer:** standard nav, legal links, contact, social.
+**Canonical positioning.** The home's one-liner is **"The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement."** Three live expressions ladder up to it: the hero lede (`home-hero.ts`), the footer tagline (`site-footer.ts`), and the home `<meta>` description (`setHomeMeta`, `core/meta.service.ts`). No launch copy claims integrations are "verified" — nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope; §4.2 verified-badge placeholder), which is why the prior footer "vendor-verified reviews" tagline was reconciled out.
 
-**Stats card data source:** a daily stats job on the **existing** scheduled API Worker (the AECI-139 cron→queue→consumer; runs in early UTC alongside the Algolia sync at `0 8 * * *` and drift at `0 9 * * *` — *not* a separate Worker, superseding the stale "02:00 UTC") recomputes stats and writes to the `stats_cache` table in Supabase (already created in the baseline migration). Pages read from this cache via `GET /api/stats/home`, not live aggregations.
+**Canonical section order.** One column of stacked modules in the standard shell (`SiteHeader` above, `SiteFooter` below). The cold-visitor path (why → trust → how) interleaves with the ready-visitor path (search → browse → data) so the page reads as one publication, not two pages stacked:
+
+| # | Section | At launch | Status / data source |
+|---|---|:--:|---|
+| 1 | **Hero + search** | ✓ | Existing `home-hero.ts`: positioning lede (cold visitor) + the reused `SearchAutocomplete` (ready visitor). |
+| 2 | **Credibility strip** | ✓ | **NEW** (AECI-271, `home-credibility-strip.ts`). Coverage counts (products / vendors / integrations) + "independent · no pay-for-placement". Counts come from the cached `GET /api/stats/home` (`total_products` / `total_vendors` / `total_integrations`, added to the daily stats job §10 — never live-aggregated); `total_reviews` and `total_contributing_firms` join once meaningful. The independence line is static. Each metric is suppressed at 0 (no "0 reviews", no "0 contributing firms"); an all-zero cache renders a real empty state. Contributing firms (AECI-284) = distinct count of the free-text `reviews.reviewer_firm` (normalized, approved reviews only); the firm is captured optionally at review submission (§4.7) and GDPR-cleared with `reviewer_id` on account deletion. |
+| 3 | **Why AECi (the problem)** | ✓ | **NEW** (AECI-272, `home-why.ts`), static. The broken-landscape narrative + three cited figures (≈19% of Google reviews AI-generated · $27K/yr typical paid visibility on a leading review site · 900+ tools in generic categories). Figures are static cited stats, not live data; each carries a per-figure "Source" link to a citable source (AECI-285 — Originality.AI · Vendr · Capterra; full research in `docs/design/home-why-market-figures.md`). |
+| 4 | **What's different / trust** | ✓ | **NEW** (AECI-273, `home-differentiation.ts`), static. Reconciles the shipped three trust commitments (never sell rankings · always be transparent · never review products ourselves) with the landing's "three ideas" (reviewable integrations · separate product + onboarding ratings · no pay-for-placement): leads with the three ideas, folds the operator promise into the closing trust line. The reconciliation is fixed in `unified-home-direction.md`. (Built as a new component rather than reworking `home-trust-pillars.ts` in place, because that band is shared with `/about` and is left as the standalone "three trust commitments" there.) |
+| 5 | **How it works** | ✓ | **NEW** (AECI-273, `home-how-it-works.ts`), static, compact. The dual-review + no-pay-for-placement method, framed as the operating model (not a claim of verified inventory): integrations are documented · practitioners review the product and onboarding separately · nothing is for sale. Earns the "reviews" framing the footer used to assert. |
+| 6 | **Stats cards** | ✓ | Existing `home-stats-cards.ts`: total integrations (+30d) · most-integrated product · most-active category. `GET /api/stats/home`. |
+| 7 | **Browse by category / audience / phase** | ✓ | Category + phase use the existing `browse-grid.ts` (count-chips). The **audience** facet is the dedicated "this is for you" recognition band `home-audience.ts` (**AECI-274**), which **replaces** the audience browse-grid instance (one coherent audience moment, not two): the landing's ten role callouts + a use-case lede, nine linking to `/audiences/:slug` and the non-mapping one (Technology directors) as plain text. Live `GET /api/taxonomy` (`TaxonomyResponse`, `product_count`). |
+| 8 | **Recently added + trending** | ✓ | Existing `recent-integrations-section.ts` + `trending-products-section.ts`. `GET /api/stats/home`; proof the directory is alive. Trending falls back to recently-added (AECI-185 empty-state precedent). |
+| 9 | **Closing CTA + capture** | ✓ | **NEW.** Email → `POST /api/subscribe`; suggest-a-tool / feedback → `POST /api/feedback` (both already shipped, AECI-257; see `API_CONTRACTS.md`). A **progressively-enhanced client island**: the SSR HTML is the static form, the POST targets the non-cached `/api/*`, so the route stays edge-cache-neutral. |
+| 10 | **Footer** | ✓ | Existing `site-footer.ts`. |
+
+**In scope at launch:** all ten sections, **plus the home OG share card** (the SEO child AECI-276 — a real rendered 1200×630 PNG; see §20.4). **Deferred:** the post-launch waitlist welcome-state banner (§11.2). No new design tokens — add to `DESIGN.md` (and `styles.css` + `BRAND_GUIDELINES.md` + §2a.2) in lockstep first if a band needs one.
+
+**Non-negotiables.** Edge-cache-neutral SSR (the capture island is the only client-state surface, and it POSTs to the non-cached `/api/*`; the cacheable HTML stays visitor-state-neutral — §9); i18n `@@` ids on every string; **light theme only** (§2a, AECI-226); the **Faire** anchor (`DESIGN.md` Anchor-Site Rule); editorial voice (`PRODUCT.md` banned-words, sentence case, **no em dashes**); borders not shadows.
+
+**Stats / live-data source:** a daily stats job on the **existing** scheduled API Worker (the AECI-139 cron→queue→consumer; runs in early UTC alongside the Algolia sync at `0 8 * * *` and drift at `0 9 * * *`) recomputes the home aggregates and writes the `stats_cache` table in the app database (D1, ADR 0016). The stats cards, credibility counts, recently-added, and trending modules read this cache via `GET /api/stats/home`, **not** live aggregations; the browse grids read the **live** `GET /api/taxonomy` so they purge on the `taxonomy` `Cache-Tag` independently of the stats pipeline (AECI-184).
 
 ### 4.2 Product page (`/products/:slug`)
 
@@ -312,6 +326,8 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 
 ### 4.4 Integration page (`/integrations/:id`)
 
+> **Superseded by Stage 1.5 (Integration Redesign).** The single-row `source → target` page below is replaced by the context-oriented **product-PAIR page** (`/products/:contextSlug/integrations/:otherSlug`), which consolidates every mechanism between two products and renders the claim data-flow section. `/integrations/:id` 301-redirects to the pair page. See `STAGE_1_5_SPEC.md` §7 (pair page) and §8 (claim rendering). The fields below remain the per-mechanism content the pair page surfaces.
+
 - Source product → Target product header (both linked)
 - Mechanism kind badge (native, iPaaS, marketplace-app, api, webhook, partner)
 - Mechanism name (e.g. "Zapier connector", "Procore App")
@@ -351,6 +367,7 @@ Same layout pattern for all three:
    - Title (required, max 100 chars)
    - Body (required, min 50 / max 2000 chars)
    - Role at company (optional dropdown: practitioner, manager, IT, exec, other)
+   - Your firm (optional free text, max 100 chars — AECI-284; powers the home credibility strip's distinct contributing-firms count, never shown on the public review, GDPR-cleared on account deletion)
    - Years using product (optional)
    - Would recommend (yes/no/maybe)
 6. Submit → review saved with `status='pending'`
@@ -425,13 +442,13 @@ High-level intent:
 - All reviews by that user have `reviewer_id` set to `null` (anonymized, content remains)
 - `profiles` row deleted
 - `auth.users` row deleted via Supabase Auth API
-- Confirmation email sent via Loops
+- Confirmation email sent via Resend
 
 This satisfies right-to-erasure while preserving the directory's content integrity.
 
 ### 5.5 Taxonomy facets (Categories, Audiences, Phases)
 
-The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `supabase/reference-data/taxonomy.sql`, applied to every environment via idempotent upserts (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
+The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `apps/api/seed/taxonomy.sql`, applied to every environment via idempotent upserts to D1 with `wrangler d1 execute` (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
 
 | Facet | Question it answers | Table | Browse route | Examples |
 |---|---|---|---|---|
@@ -471,7 +488,7 @@ Cloudflare Worker at `apps/api/`, exposed via service binding to the SSR worker.
 - `GET /api/products/:slug` — product detail
 - `GET /api/products/:slug/reviews` — approved reviews for product
 - `GET /api/vendors`, `GET /api/vendors/:slug`
-- `GET /api/integrations`, `GET /api/integrations/:id`
+- `GET /api/integrations`, `GET /api/integrations/:id` _(Stage 1.5 adds the pair-page + claims read paths — `STAGE_1_5_SPEC.md` §6, §8; shapes in `API_CONTRACTS.md`)_
 - `GET /api/taxonomy/categories`, `/audiences`, `/phases`
 - `GET /api/stats/home`
 
@@ -586,7 +603,7 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 
 ### 7.4 Sync strategy
 
-- **Initial bulk import**: one-off script `apps/api/scripts/algolia-bulk-sync.ts` (Prisma-bound — it reuses the AECI-137 transform and the vanilla `@prisma/client` over `DIRECT_URL`, so it lives alongside the other `apps/api` Node CLIs rather than at the repo root; AECI-138) reads **promoted** rows from Supabase, transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
+- **Initial bulk import**: a one-off `apps/api` CLI (AECI-138) that reuses the AECI-137 Drizzle/D1 transform (`apps/api/src/lib/algolia-transforms.ts`) to read **promoted** rows from D1 (via `wrangler d1 execute --remote`), transforms to the §7.1 Algolia record shapes, applies the §7.2/§7.3 settings, and batch-uploads via `saveObjects` (upsert by `objectID`). Accepts a `--locale` param (§7.6, default `en-US`) and `--dry-run`.
 - **Ongoing sync**: scheduled Cloudflare Worker at 08:00 UTC (= 03:00 EST, our US-East launch base; UTC is DST-unaware so 04:00 EDT in summer) daily reads Supabase changes since last sync, pushes incremental updates to Algolia
 - **Real-time sync (deferred)**: Supabase webhook → Worker → Algolia, planned for Stage 2 when vendors edit their data
 
@@ -597,6 +614,13 @@ Default Algolia ranking (typo, geo, words, filters, proximity, attribute, exact,
 > maintained by the API sync; the search page simply does not query or display it for now. Re-enable by
 > restoring the Integrations tab in `apps/web/src/app/search/search-page.ts` and re-wiring the
 > integrations index in `search-controller.ts`. (Header autocomplete already excludes integrations.)
+>
+> **Stage 1.5 follow-through:** per-pair Algolia records are **deferred to Stage 2** (the integrations
+> tab stays hidden); the future `{prefix}_pairs` record shape is recorded in `SEARCH_RANKING.md` §3.4
+> as part of the §9 follow-through (AECI-298). The still-built per-integration records and internal links
+> must resolve to the pair page — either directly (the `/integrations` + `/search` cards emit the canonical
+> pair URL, AECI-298) or through the `/integrations/:id` → pair-page 301 — never a dead route.
+> See `STAGE_1_5_SPEC.md` §9.
 
 > **Deviation (AECI-142 / Phase 3.9 — see `docs/adr/0014-instantsearch-js-over-angular-instantsearch.md`):**
 > `angular-instantsearch` (below) is **not used**. It caps its peer dep at `@angular/core <16`,
@@ -639,7 +663,7 @@ The site launches in `en-US` only, but every layer is built to support additiona
 - Empty at launch; schema is in place
 - Read pattern: fetch entity by ID, then `SELECT field, value FROM translations WHERE entity_type=? AND entity_id=? AND locale=?` with **per-field fallback** to the canonical `en-US` value on the entity row — a missing row in `translations` for a given field falls back to canonical, *not* to a blank
 - All entities that store user-facing strings have implicit `en-US` content in their primary columns
-- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in the frozen probe `spikes/stack-test/src/server.ts:119-136` and `spikes/stack-test/src/app/data.service.server.ts:33-50` (no live equivalent yet — translations are en-US-only at launch); the probe uses Cloudflare KV as the overlay store, **Stage 1 production reads from the `translations` table via Prisma — KV is not the production substrate for translations**
+- The merge runs in two places in production-shaped flow: once on the Worker side (list/aggregate responses) and once in SSR (individual entity render). Both implementations must apply the same per-field fallback rule. The merge pattern is validated in the frozen probe `spikes/stack-test/src/server.ts:119-136` and `spikes/stack-test/src/app/data.service.server.ts:33-50` (no live equivalent yet — translations are en-US-only at launch); the probe uses Cloudflare KV as the overlay store, **Stage 1 production reads from the `translations` table in D1 (via Drizzle) — KV is not the production substrate for translations**
 
 ### 7a.3 URL strategy
 
@@ -768,7 +792,7 @@ The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Ca
 
 ### 9.4 API response caching
 
-Worker API responses use `Cache-Control` and Cloudflare KV for hot paths. The SSR Worker should rarely call the API directly — it should query Supabase via Prisma in the same Worker. Reserve the API for client-side calls and Stage 2 vendor portal.
+Worker API responses use `Cache-Control` and Cloudflare KV for hot paths. Data access lives in the private API Worker, which reads Cloudflare D1 via Drizzle over its `DB` binding (ADR 0016); the SSR Worker reaches it over the `env.API` service binding (its same-origin `/api/*` passthrough is the sanctioned browser read path).
 
 ---
 
@@ -779,6 +803,10 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 **Computes and writes to `stats_cache`:**
 - `home.total_integrations` — count from integrations table
 - `home.integrations_added_30d` — count where `created_at >= now() - 30 days`
+- `home.total_products` — count from products table (credibility strip, AECI-271)
+- `home.total_vendors` — count from vendors table (credibility strip, AECI-271)
+- `home.total_reviews` — count of **approved** reviews (credibility strip, AECI-271)
+- `home.total_contributing_firms` — distinct count of `reviewer_firm` (normalized `lower(trim(...))`, non-blank) among **approved** reviews (credibility strip, AECI-284)
 - `home.most_integrated_product` — product with highest integration count
 - `home.most_active_category` — category with highest aggregate integration count
 - `home.recent_integrations` — last 10 integrations with linked product names
@@ -798,21 +826,28 @@ Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggreg
 
 ## 11. Email & Communication
 
-### 11.1 Loops integration
+### 11.1 Transactional email (Resend)
 
-Transactional emails sent via Loops:
+> **Provider: Resend, not Loops (AECI-240 / Phase 7.5).** This section originally
+> specced Loops; the build standardized on **Resend** for transactional email
+> (mailboxes are Microsoft 365). The wiring, the template catalogue, the secret/env
+> setup, and the Supabase→Resend SMTP step for magic links live in `docs/email.md`.
+
+Transactional emails sent via Resend (`apps/api/src/lib/email.ts`, fire-and-forget
+via `ctx.waitUntil`, fail-open):
 - Review submission confirmation: "Thanks — your review is in moderation"
 - Review approved: "Your review of {product} is now live"
 - Review rejected: "Your review needs revision — {reason}"
 - Account deletion confirmation
-- Magic link emails (via Supabase Auth — Loops is the sender)
+- Request-pipeline-failure admin alert (the §6.2 stuck-request email)
+- Magic link emails (via Supabase Auth — Resend is the SMTP sender; dashboard config)
 
 ### 11.2 Waitlist transition
 
-The existing coming-soon landing page captures emails to a `marketing.waitlist` table (already in Supabase per existing setup).
+Pre-launch, the static coming-soon landing page (`apps/landing`) captures emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). At launch the unified home's closing CTA (§4.1, section 9) carries the same capture forward, so signup survives the apex flip.
 
 **On launch:**
-- One-time Loops campaign sends to entire waitlist: "We're live — explore the directory"
+- One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"
 - Landing page DNS flips to the new Angular SSR app
 
 **Welcome state for waitlist subscribers:**
@@ -923,7 +958,7 @@ Single platform for performance, error tracking, logs, and audit log forwarding.
 
 **Backend (Datadog Worker SDK in both SSR Worker and API Worker):**
 - APM traces across the full request lifecycle
-- Distributed tracing: SSR Worker → API Worker → Supabase → Algolia → Loops
+- Distributed tracing: SSR Worker → API Worker → Supabase → Algolia → Resend
 - Logs structured as JSON with trace correlation IDs
 - Error tracking with grouping and alerting
 
@@ -982,6 +1017,37 @@ Existing WAF rules in place (per current setup). Stage 1 additions:
 - Rate limit on `/api/auth/login` magic link requests: 5 per email per hour
 - Block known scraper user agents from `/products/*` and `/vendors/*`
 
+> **Implementation (AECI-242, Phase 7.7).** These rules are live on the
+> `aecintegrations.com` zone (applied via the CF Rulesets API) — see the operator
+> runbook [`waf-rate-limits.md`](./waf-rate-limits.md) for the exact expressions,
+> thresholds, deployed rule IDs, and verification. Several spec targets cannot be honored literally on
+> our **Pro** plan and are handled differently (recorded here rather than silently
+> reworked):
+> - **The counting window caps at 1 minute on Pro** (10 s or 1 min — not 1 hour),
+>   so *both* WAF rate-limit rules are **per-minute burst caps**, not the spec's
+>   hourly caps: `/api/requests/*` and `/api/reviews` are each **5 per IP per
+>   minute**. A true hourly cap would need in-Worker KV/Durable-Object state (kept
+>   out of scope). The burst caps stop scripted floods; slow-drip abuse across an
+>   hour is bounded instead by the app-layer controls below.
+> - **`/api/reviews` "3 per authenticated user"** is additionally only a **per-IP**
+>   approximation — Pro WAF counts by client IP only (per-user counting is an
+>   Enterprise feature). The real per-user controls are the existing auth gate,
+>   one-review-per-product-per-user dedup, toxicity scoring, and moderation queue.
+> - **magic-link "5 per email / hour"** → lives in **Supabase Auth → Rate Limits**,
+>   not Cloudflare: the magic-link request goes browser→Supabase directly and never
+>   transits our zone, so no WAF rule can see it. (Owner-managed; out of AECI-242
+>   scope.)
+>
+> The acceptance criteria's "configured as code (Terraform / CF API)" clause was
+> intentionally relaxed for launch (dashboard + runbook instead). Datadog visibility
+> of WAF events shipped in AECI-262 — the API Worker's hourly cron polls the zone's
+> `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emits
+> `aeci.waf.ratelimit.blocked` (the free Pro-plan alternative to Enterprise Logpush);
+> CF Security Events remains the per-IP triage surface. See `waf-rate-limits.md` §5
+> and `OBSERVABILITY.md`. `/api/page-views` (high-volume beacon) and
+> `/api/webhooks/linear` (HMAC-verified, single source) are deliberately excluded —
+> see the runbook.
+
 ### 15.2 API privacy
 
 API Worker remains private via Cloudflare service binding (per existing architecture): it has no public ingress on its own hostname. The SSR Worker is the only public ingress — and it re-proxies `/api/*` same-origin to the API Worker (the path hydrated browser code and the `/api/health` / `/api/version` checks use; ADR 0001 §Consequences). Read GETs are public through that passthrough by construction; write routes (`/api/promote`, `/admin/purge`, …) carry per-endpoint auth.
@@ -1014,8 +1080,8 @@ Phased to deliver working software at each step. Each phase ends with a deployab
 - [ ] Spartan **brain** primitives + Angular CDK installed (no `helm` codegen)
 - [ ] Cloudflare Workers deployment pipeline (`wrangler.jsonc`, GitHub Actions) — SSR Worker has `compatibility_flags: ["nodejs_compat"]`
 - [ ] SSR Worker entry implements cookie-stripping middleware for cacheable routes (§9.1a) and URL-prefix locale dispatch (§7a.3a); mirror `apps/web/src/server-runtime.ts`
-- [ ] Supabase connection via Prisma in `apps/api/` using the per-request Accelerate pattern validated in `apps/api/src/prisma.ts` (`PrismaClient` from `@prisma/client/edge` + `withAccelerate()`; `DATABASE_URL` is the `prisma://` URL; `DIRECT_URL` is CLI-only). See `DATABASE_SCHEMA.md` §1a.
-- [ ] PostgREST GRANTs + RLS policies + `public.is_admin()`/`is_active_user()` helpers ship as numbered migrations in `supabase/migrations/` (applied to every env by `supabase db push`; PostgREST anon surface locked down; Worker continues to bypass via privileged role — see `AUTH_AND_RLS.md` §1, AECI-87)
+- [ ] Cloudflare D1 access via Drizzle in `apps/api/` using the per-request `getDb(env)` client over the native `DB` binding (`apps/api/src/db/client.ts`; no Prisma, no Accelerate, no `DATABASE_URL`/`DIRECT_URL` — ADR 0016). See `DATABASE_SCHEMA.md` §1a.
+- [ ] App-table authorization is **app-layer only** — D1 has no PostgREST/GRANT/RLS; the Worker request guard (`apps/api/src/lib/authz.ts`) is the only authorization layer, gated by the no-leakage authz-matrix specs (see `AUTH_AND_RLS.md` Layer 1)
 - [ ] Service binding between SSR Worker and API Worker
 - [ ] Datadog Browser RUM and Worker SDK installed and reporting
 - [ ] Basic layout shell: header, footer, navigation (all strings i18n-wrapped)
@@ -1060,6 +1126,7 @@ Decomposed into AECI Phase 4.1–4.12 (planned 2026-06-10). The `stats_cache` an
 - [ ] "Browse by" category / audience / phase grids (live taxonomy endpoints)
 - [ ] Recently-added integrations + Trending products sections (graceful empty states)
 - [ ] Home page assembly: SSR route/resolver, cache tags, home `WebSite`/`Organization` JSON-LD
+  - _Re-opened by **AECI-269** (unify marketing + directory home): §4.1 was rewritten (AECI-270) and the marketing bands — credibility, why, how-it-works, closing CTA + capture — ship as AECI-269 build children. See §4.1 + `docs/design/unified-home-direction.md`._
 - [ ] Phase 4 completion checkpoint
 
 ### Phase 5: Auth & reviews (Week 7)
@@ -1068,11 +1135,11 @@ Governed by `docs/STAGE_1_PHASE_5_SPEC.md` (decomposed into AECI Phase 5.1–5.1
 
 - [ ] Supabase Auth (magic link + Google OAuth): `/auth/login`, `/auth/callback`, SSR session read, sign-out
 - [ ] API Worker authz middleware (JWT verify + role/ban; `AUTH_AND_RLS.md` §4)
-- [ ] `POST /api/reviews` (dedup, banned rejection, locale) + Perspective toxicity flagging
+- [ ] `POST /api/reviews` (dedup, banned rejection, locale) + Claude toxicity flagging
 - [ ] `GET /api/products/:slug/reviews` (public, approved-only) + ProductDetail summary + ≥5 threshold
 - [ ] Review submission form `/products/:slug/review` (Signal Forms + Angular Aria — satisfies AECI-133)
 - [ ] Reviews display + "Be the first to review" empty state + cache-neutral personalized CTA
-- [ ] `/account` + `DELETE /api/account` (GDPR anonymization; Loops email deferred to Phase 7)
+- [ ] `/account` + `DELETE /api/account` (GDPR anonymization; Resend email deferred to Phase 7.5 / AECI-240)
 - [ ] Admin moderation: `/admin` guard, `GET`/`PATCH /api/admin/reviews`, `/admin/reviews` queue UI
 - [ ] Auth/reviews observability + Phase 5 completion checkpoint
 
@@ -1089,36 +1156,47 @@ Governed by `docs/STAGE_1_PHASE_6_SPEC.md` (decomposed into AECI Phase 6.1–6.1
 - [ ] Reviewer ban management (admin sets `banned_at`; enforcement-on-submit is Phase 5)
 - [ ] Phase 6 observability + completion checkpoint
 
-### Phase 7: SEO, accessibility, legal, polish (Week 9–10)
-- [ ] Dynamic XML sitemap (root + per-entity sub-sitemaps)
-- [ ] IndexNow integration on write-event pipeline
-- [ ] Schema.org JSON-LD on product, vendor, integration, home pages
-- [ ] OpenGraph and Twitter Card meta tags on all entity pages
-- [ ] Canonical URL tags on all pages
-- [ ] Useful 404 page
-- [ ] Robots.txt
-- [ ] Legal pages drafted and counsel-reviewed
-- [ ] About and Contact pages
-- [ ] axe-core integrated into e2e tests
-- [ ] Manual screen reader testing pass
-- [ ] Color contrast validation against brand palette
-- [ ] Lighthouse Accessibility score ≥95 in CI
-- [ ] PostHog integration with locale dimension
-- [ ] Datadog dashboards and Slack alerts configured
-- [ ] Loops transactional email setup
-- [ ] Daily data quality job Worker
-- [ ] Waitlist launch campaign prepared
-- [ ] Welcome banner for waitlist subscribers
-- [ ] WAF rate limits configured
-- [ ] Cross-browser and mobile QA
-- [ ] Performance audit (Lighthouse, Core Web Vitals)
-- [ ] DNS cutover from coming-soon page
+### Phase 7: SEO, accessibility, legal, launch polish (Week 9–10)
+
+Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec — straight to issues**). Much of §16's original Phase 7 list **already shipped in Phases 2–4** (verified on `main` 2026-06-10) and is struck below; Phase 7 is the genuine launch-readiness remainder.
+
+**Already shipped:** ~~XML sitemap~~ (AECI-63) · ~~OG/Twitter meta~~ + ~~product/vendor JSON-LD~~ (AECI-51) + ~~home JSON-LD~~ (AECI-186) · ~~canonical tags~~ (AECI-147) · ~~404 page~~ (AECI-62) · ~~robots.txt~~ (AECI-63) · ~~axe-core in e2e~~ + ~~Lighthouse a11y ≥95 in CI~~ (AECI-65) · ~~CSP/security headers~~ (AECI-89) · ~~color-contrast validation~~ (AECI-148/150/166/230) · ~~Datadog dashboards~~ (per-phase: AECI-66/141/180/206) — **no Slack** (Phase 6 decision).
+**Deferred (not Stage 1):** integration-page JSON-LD (Phase 2 §9.2 → Stage 2); sitemap index/sub-sitemap split (AECI-63 — only needed beyond 50k URLs).
+
+**Phase 7.1–7.13 (the remainder):**
+- [x] 7.1 — IndexNow on the write-event pipeline (§20.2) — AECI-236 (Google Indexing API ping deferred → AECI-263)
+- [ ] 7.2 — Legal pages: Terms, Privacy, Review Guidelines, Listing Accuracy (§13, §27); counsel-reviewed
+- [ ] 7.3 — About + Contact pages
+- [ ] 7.4 — PostHog integration (event set + locale/theme dimensions; §14.1)
+- [ ] 7.5 — Resend transactional email (review + account-deletion + magic-link sender; §11.1) — home for the Phase 5/6 deferred emails
+- [ ] 7.6 — Daily data-quality job (full §23.1 suite + email summary; Algolia-drift line already shipped in AECI-140)
+- [x] 7.7 — WAF rate limits on the public endpoints (§15.1) — dashboard runbook `docs/waf-rate-limits.md` (AECI-242)
+- [x] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154) — non-blocking BrowserStack Automate lane wired (`.github/workflows/browserstack.yml` + `apps/web/browserstack.yml` + `playwright.browserstack.config.ts`); ADR 0012 Accepted. Inert until the personal-subscription `BROWSERSTACK_*` secrets are set (skips green); pre-launch full sweep + a11y audit still pending.
+- [ ] 7.9 — Waitlist welcome banner + token attribution (§11.2)
+- [ ] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3)
+- [ ] 7.11 — Performance / Core Web Vitals audit
+- [ ] 7.12 — Phase 7 completion checkpoint (launch-readiness gate)
+- [ ] 7.13 — DNS cutover from the coming-soon page (§11.2)
 
 ### Phase 8: Post-launch (Week 11+)
 - [ ] Monitor errors, performance, search quality
 - [ ] Iterate on stats card content based on real traffic
 - [ ] Refine moderation workflow based on first reviews
 - [ ] Start Stage 2 planning
+
+### Stage 1.5 — Integration Redesign (pre-launch; parallel track)
+
+Governed by `docs/STAGE_1_5_SPEC.md` (decomposed into AECI-287…300). A focused redesign of the integration surface that runs alongside the Phase 7 launch-readiness work, not a numbered phase of it. Two coordinated changes: **(A)** replace the single-row `source → target` integration page (§4.4) with a context-oriented **product-PAIR page** (`STAGE_1_5_SPEC.md` §7), and **(B)** add a structured **claim/attestation model** — a closed `data_object` vocabulary + computed agreement + a `confirmed/total` sync headline, **AECi-seeded only** (`STAGE_1_5_SPEC.md` §2–§6, §8). Layer A (the pair page) needs no claim data and ships first. Decisions recorded in **ADR 0018** (claims attach to the mechanism row; agreement is computed-not-stored).
+
+- [ ] §2 `data_object` controlled vocabulary — frozen, closed (AECI-287; `DATA_OBJECT_VOCABULARY.md`)
+- [ ] §3 + ADR 0018 the claim/attestation model + this spec (AECI-288)
+- [ ] §4 Review app (bamako): Airtable `data_objects`/`integration_claims` + claim MCP tools + read-only QA tab (AECI-290/292/295) + OPS re-curation (AECI-299)
+- [ ] §5 Promote contract: `claims[]` shared schema + Review emit (AECI-291/296)
+- [ ] §6 Main app: D1 schema (`taxonomy_data_objects`/`claims`/`attestations`) + promote ingest (AECI-293/297)
+- [ ] §7/§8 Pair page (Layer A) + claim rendering (Layer B) against the AECI-289 prototype (AECI-294/300)
+- [ ] §9 Search/SEO follow-through — per-pair Algolia deferred; no dead `/integrations/:id` links (AECI-298)
+
+**Moved to Stage 2 (vendor-portal-dependent):** vendor attestation authoring (AECI-301), conflict UI + notification pipeline (AECI-302), version-diff timeline (AECI-303), paywalled integration depth (AECI-304). Everything in Stage 1.5 renders **"Unverified"** until the vendor portal exists. See §18.
 
 ---
 
@@ -1147,6 +1225,11 @@ Design decisions in Stage 1 that enable Stage 2 without rework:
 - API endpoint pattern (`/api/admin/*`) extends naturally to `/api/vendor/*`
 - `translations` table supports localized vendor-managed content
 - `profiles.banned_at` supports moderation escalation
+
+**Stage 1.5 integration spine (claims/attestations) is Stage-2-ready** (`STAGE_1_5_SPEC.md`, ADR 0018):
+- Agreement is **computed-not-stored** (`computeAgreement`), so vendor attestations light up the confirmed/`conflict` states with no migration — the function and its branches already exist and are unit-tested.
+- Attestation `source` already enumerates `vendor_a` / `vendor_b` (dormant in 1.5); the `introduced_at` / `deprecated_at` version stamps ship dormant for the Stage 2 version-diff timeline.
+- The Stage 2 integration carve-outs are tracked as **AECI-301** (vendor attestation authoring), **AECI-302** (conflict UI + notification pipeline), **AECI-303** (version-diff timeline), **AECI-304** (paywalled integration depth).
 
 No schema migrations required for Stage 2 vendor portal — only new endpoints and new UI.
 
@@ -1191,6 +1274,10 @@ On any write to products, vendors, or integrations, a Cloudflare Worker submits 
 
 This runs as part of the single write-event pipeline described in Section 20.5.
 
+> **Implemented (AECI-236):** the API Worker's `POST /api/promote` post-commit pipeline computes the affected public URLs (`apps/api/src/routes/promote-indexnow-urls.ts`) and submits them to IndexNow (`apps/api/src/lib/indexnow.ts`) right where the Cache-Tag purge fires — best-effort, failures logged to Datadog, never blocking the write. The SSR Worker serves the `{key}.txt` verification file at the site root (`apps/web/src/server/routes/indexnow-key.ts`). Gated on `INDEXNOW_KEY` + `PUBLIC_SITE_URL`, provisioned **only at public launch** (alongside `ALLOW_INDEXING="true"`) so a `noindex` site is never pinged.
+
+> **Implemented (AECI-263):** the **Google Indexing API** ping is now an additional best-effort `waitUntil` consumer in the same post-commit block, reusing the SAME affected-URL set (`affectedUrlsForPromote`, no second deriver). The transport (`apps/api/src/lib/google-indexing.ts`) signs an RS256 service-account JWT with `jose`, exchanges it for an OAuth access token, then `urlNotifications:publish`-es each URL (`URL_UPDATED`) — pure, never throws, failures recorded to Datadog (`aeci.google_indexing.submit` + `aeci.api.promote.google_indexing_failed`), never blocking the write. Gated on `GOOGLE_INDEXING_SA_EMAIL` + `GOOGLE_INDEXING_SA_PRIVATE_KEY` + `PUBLIC_SITE_URL`, provisioned **only at launch** alongside IndexNow (a missing cred → graceful no-op). It stays best-effort because Google officially supports only `JobPosting`/`BroadcastEvent`; the sitemap `<lastmod>` (§20.5 step 5) remains the primary discovery path.
+
 ### 20.3 Structured data (Schema.org JSON-LD)
 
 Embedded in `<head>` on relevant pages:
@@ -1198,10 +1285,12 @@ Embedded in `<head>` on relevant pages:
 - **Products** — `SoftwareApplication` with `aggregateRating` (once ≥5 reviews), `offers`, `description`
 - **Vendors** — `Organization` with `address`, `foundingDate`, `url`
 - **Integrations** — `WebPage` with rich description; no perfect schema.org type exists
-- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box
+- **Home** — `WebSite` with `SearchAction` for Google sitelinks search box, plus a publisher `Organization` (whose `logo` is the square monogram)
 - **Reviews** — `Review` nested in `SoftwareApplication`
 
 Generates rich results in search once data accumulates (star ratings in Google results, etc.).
+
+> **Home JSON-LD at launch (AECI-276):** the home emits **only** the `WebSite` (with `SearchAction`) + publisher `Organization` — **no** site-level `aggregateRating`/`Review`. Nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope) and the launch review corpus is not an honest basis for star ratings, so org/home aggregate review markup is deliberately withheld until it is genuinely supported. Product-level `aggregateRating` still appears per its own ≥5-review threshold above.
 
 ### 20.4 OpenGraph and Twitter Card meta tags
 
@@ -1211,6 +1300,8 @@ Every product, vendor, and integration page includes:
 - `twitter:card` (`summary_large_image`), `twitter:title`, `twitter:description`, `twitter:image`
 
 Dynamic OG image generation (via Cloudflare Workers + Satori) deferred to a Stage 1.x iteration. At launch, OG image is the entity's logo on a branded background, generated server-side or pre-rendered.
+
+> **Implemented — home share card (AECI-276):** the **home** (`/`) does not use the monogram fallback. It ships a dedicated, pre-rendered **1200×630 PNG** share card (`apps/web/public/branding/home-og.png`, served at `/branding/home-og.png`), and `setHomeMeta` (`apps/web/src/app/core/meta.service.ts`) points `og:image` + `twitter:image` (with `og:image:alt` / `twitter:image:alt`) at it as an **absolute** URL — the home is the highest-value share surface ("buyers send the link to colleagues"). The card is light-editorial and **evergreen** (no live numbers, so the static asset never goes stale); regenerate from `apps/web/scripts/home-og-template.html` via `pnpm --filter @aeci/web og:home` (a manual Playwright-render dev tool, not in CI). **Per-entity** product/vendor OG cards remain the monogram fallback (`DEFAULT_OG_IMAGE`) — a separate effort. The home `Organization` JSON-LD `logo` (§20.3) intentionally stays the square monogram, not the share card.
 
 ### 20.5 Single write-event pipeline
 
@@ -1290,7 +1381,7 @@ Brand tokens validated against WCAG AA contrast ratios:
 
 ### 22.2 Profanity filter
 
-- Reviews passed through Perspective API on submission
+- Reviews scored for toxicity on submission via **Anthropic Claude** (Claude Haiku — AECI-258; supersedes the original Perspective API, which Google is sunsetting)
 - High-toxicity scores flag the review in the moderation queue (not auto-reject)
 - Saves moderation time by surfacing the worst content first
 - Flagged reviews show toxicity score in admin UI
@@ -1335,7 +1426,7 @@ Cloudflare Worker runs daily at 04:00 UTC. Checks for:
 - Brandfetch logo URLs returning 404 (sample check, not exhaustive)
 - Algolia index drift (record count mismatch with Supabase)
 
-Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage.
+Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation — humans triage (exception: the Algolia index-drift check self-heals the orphan / negative-drift case; see the AECI-266 note below).
 
 > **Implementation note (AECI-140):** the "Algolia index drift" line item ships as the
 > API Worker's scheduled (`scheduled`) handler — `apps/api/src/scheduled.ts`, a daily 09:00
@@ -1345,8 +1436,18 @@ Output: email summary to Chris and Bill at 04:30 UTC. No automatic remediation �
 > promoted-row counts to Algolia object counts per entity and emits the `aeci.algolia.index_drift`
 > gauge; the **alert is the Datadog monitor** (`observability/datadog/monitor-algolia-index-drift.json`),
 > not the email summary (the full §23.1 email + the other nine checks remain to be built). A
-> report-only post-deploy check also runs in `deploy-staging` (CICD §3.2). Report-only — re-run
-> the AECI-138 bulk sync to repair.
+> report-only (dry-run) post-deploy check also runs in `deploy-staging` (CICD §3.2).
+>
+> **Self-healing update (AECI-266):** the daily 09:00 cron no longer stops at reporting — right
+> after emitting the `index_drift` gauge it runs the orphan sweep (`apps/api/src/lib/algolia-orphans.ts`):
+> browse every objectID per index, diff against the authoritative promoted-id set from D1, and
+> `deleteObject` the orphans (objects with no promoted D1 row — what the incremental sync
+> structurally can't see to delete). The sweep is **delete-only and safety-capped** (≤50 objects
+> and ≤20% of an index per pass; a larger purge is refused and surfaced via
+> `aeci.algolia.orphans_skipped_cap` for an operator to confirm with
+> `db:reconcile-algolia-drift --apply --force`). It heals **negative** drift only; **positive**
+> drift (records missing from the index) stays repaired by the 08:00 incremental sync. The
+> AECI-138 bulk sync this note once pointed to as the repair path never landed.
 
 ### 23.2 Duplicate detection on submission
 
@@ -1696,7 +1797,7 @@ For users who care about historical versions:
 
 ### 27.4 Significant changes
 
-When a change materially affects users (e.g. new data collection, expanded use of personal data), Stage 2+ may require notification to affected users via Loops. Stage 1 has no notification mechanism since users don't have persistent accounts that need notifying.
+When a change materially affects users (e.g. new data collection, expanded use of personal data), Stage 2+ may require notification to affected users via Resend. Stage 1 has no notification mechanism since users don't have persistent accounts that need notifying.
 
 For Stage 1 launch, initial drafts of all four legal documents are produced from templates and reviewed by counsel before launch. The launch versions become version 1.0 of each document.
 

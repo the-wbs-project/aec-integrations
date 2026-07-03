@@ -1,0 +1,1 @@
+ALTER TABLE `vendor_requests` ADD `linear_issue_url` text;

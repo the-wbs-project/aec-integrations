@@ -19,7 +19,7 @@ function fakeExecutionContext(): ExecutionContext {
   };
 }
 
-const baseEnv: Env = { DATABASE_URL: 'prisma://test' };
+const baseEnv: Env = {};
 
 describe('createVersionHandler', () => {
   it('returns 200 with a body matching VersionResponseSchema', async () => {

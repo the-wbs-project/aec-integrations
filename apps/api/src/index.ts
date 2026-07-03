@@ -6,9 +6,11 @@ import {
 } from '@aeci/shared';
 import { Hono } from 'hono';
 
+import { getDb } from './db/client';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
+import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
 import type { UserAuthVariables } from './lib/user-auth';
@@ -17,15 +19,27 @@ import {
   createGetAccountHandler,
   createUpdateAccountHandler,
 } from './routes/account';
+import { createGetAccountReviewsHandler } from './routes/account-reviews';
+import {
+  createAdminRequestsListHandler,
+  createModerateRequestHandler,
+} from './routes/admin-requests';
+import {
+  createBanReviewerHandler,
+  createBannedReviewersListHandler,
+} from './routes/admin-reviewers';
 import { createAdminSummaryHandler } from './routes/admin-summary';
 import { createEnsureProfileHandler } from './routes/auth-profile';
 import { createAuthWhoamiHandler } from './routes/auth-whoami';
+import { bookmarkMiddleware } from './bookmark-middleware';
 import { metricsMiddleware } from './metrics-middleware';
 import { createHealthHandler } from './routes/health';
 import {
   createIntegrationDetailHandler,
   createIntegrationsListHandler,
+  createProductPairHandler,
 } from './routes/integrations';
+import { createFeedbackHandler, createSubscribeHandler } from './routes/landing-forms';
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
@@ -35,6 +49,7 @@ import { createPromoteHandler } from './routes/promote';
 import { createClaimSubmitHandler, createCorrectionSubmitHandler } from './routes/requests';
 import { createSubmitReviewHandler } from './routes/reviews';
 import { createStatsHomeHandler } from './routes/stats';
+import { createLinearWebhookHandler } from './routes/webhooks';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
@@ -48,6 +63,14 @@ const app = new Hono<{ Bindings: Env }>();
 // `aeci.api.query.duration_ms` tagged by endpoint + status. Registered first so
 // it wraps the legacy routes, the Phase 2.8 sub-router, and the `*` fallthrough.
 app.use('*', metricsMiddleware());
+
+// AECI-250 — emit the D1 Sessions API `x-d1-bookmark` on write responses (for
+// read-your-writes on the next request). Hono's `route()` flattens the sub-routers
+// onto this app and runs them on the SAME context, so a write handler's
+// `writeDb(c, …)` → `c.set('dbCtx', …)` is readable here. Reads never set `dbCtx`,
+// so this is a no-op on the read path. Registered after metrics so it shares the
+// same post-`next()` `finally` shape.
+app.use('*', bookmarkMiddleware());
 
 // AECI-101 — the root app gets the same `errorHandler()` as the Phase 2.8
 // sub-router, so the legacy routes below and the `*` fall-throughs emit the
@@ -78,6 +101,9 @@ phase28.get('/api/products/:slug', createProductDetailHandler());
 // AECI-199 — public approved-reviews list. Longer literal path than `:slug`, so
 // Hono matching order vs the detail route is unambiguous.
 phase28.get('/api/products/:slug/reviews', createProductReviewsListHandler());
+// AECI-294 — product-PAIR read (Stage 1.5 §7). `:slug` is the context product;
+// reuses the `:slug` param name (Hono forbids differing names at one position).
+phase28.get('/api/products/:slug/integrations/:otherSlug', createProductPairHandler());
 
 phase28.get('/api/vendors', createVendorsListHandler());
 phase28.get('/api/vendors/:slug', createVendorDetailHandler());
@@ -89,8 +115,6 @@ phase28.get('/api/categories', createTaxonomyListHandler('categories'));
 phase28.get(
   '/api/categories/:slug',
   createTaxonomyDetailHandler({
-    delegate: (p) => p.taxonomyCategory,
-    relationKey: 'productCategories',
     resource: 'category',
     schema: CategoryDetailSchema,
   }),
@@ -99,8 +123,6 @@ phase28.get('/api/audiences', createTaxonomyListHandler('audiences'));
 phase28.get(
   '/api/audiences/:slug',
   createTaxonomyDetailHandler({
-    delegate: (p) => p.taxonomyAudience,
-    relationKey: 'productAudiences',
     resource: 'audience',
     schema: AudienceDetailSchema,
   }),
@@ -109,8 +131,6 @@ phase28.get('/api/phases', createTaxonomyListHandler('phases'));
 phase28.get(
   '/api/phases/:slug',
   createTaxonomyDetailHandler({
-    delegate: (p) => p.taxonomyPhase,
-    relationKey: 'productPhases',
     resource: 'phase',
     schema: PhaseDetailSchema,
   }),
@@ -124,11 +144,28 @@ phase28.get('/api/taxonomy', createTaxonomyHandler());
 phase28.get('/api/stats/home', createStatsHomeHandler());
 
 // Vendor requests (AECI-128) — claim & correction form submissions. Public (no
-// auth until Phase 5); insert into `vendor_requests` with an audit row. The
-// Phase 6 moderation pipeline (n8n/Linear/admin, including duplicate detection)
-// is out of scope — see `routes/requests.ts`.
+// auth). Insert into `vendor_requests` with an audit + genesis workflow transition;
+// the Phase 6 pipeline (Linear issue creation, domain-match + duplicate flags,
+// reconciliation sweep, admin moderation) hangs off the submit + the seams in
+// `routes/requests.ts` / `lib/linear.ts`. No n8n (dropped — STAGE_1_PHASE_6_SPEC.md §4).
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
+
+// Landing lead-capture (ADR 0016 / AECI-257) — the `apps/landing` feedback +
+// mailing-list signup forms, moved off Supabase Postgres onto D1. Public (no
+// auth), no audit row (write-once analytics, §26.1 exemption). `subscribe` is
+// idempotent on email. Reached only over the service binding (from the landing
+// Worker), like every other route — no new public ingress.
+phase28.post('/api/feedback', createFeedbackHandler());
+phase28.post('/api/subscribe', createSubscribeHandler());
+
+// Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the
+// moderation sync. Public URL; auth is the `Linear-Signature` HMAC verified
+// inside the handler against `LINEAR_WEBHOOK_SIGNING_SECRET` (no user session).
+// On an Issue state change it updates the matching `vendor_requests.status` and
+// records a `workflow_transitions` + `audit_log` row. Reached only over the
+// service binding like every other route. See `routes/webhooks.ts`.
+phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 
 // Review-app push endpoint (promotion). Bearer-auth middleware runs first so an
 // unauthenticated request never reaches the DB; both it and the handler throw
@@ -184,6 +221,7 @@ app.route('/', authReviews);
 const authAccount = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAccount.onError(errorHandler());
 authAccount.get('/api/account', requireAuth(), createGetAccountHandler());
+authAccount.get('/api/account/reviews', requireAuth(), createGetAccountReviewsHandler());
 authAccount.patch('/api/account', requireAuth(), createUpdateAccountHandler());
 authAccount.delete('/api/account', requireAuth(), createDeleteAccountHandler());
 app.route('/', authAccount);
@@ -195,16 +233,31 @@ app.route('/', authAccount);
 // identity (no `bannedCode` — a banned admin gets the default `403 FORBIDDEN`).
 // Registered before the `/api/*` 404 catch-all so they can match; reached only
 // over the service binding, no ingress.
-//   - GET   /api/admin/summary     (5.12) — admin shell badge feed (pending
+//   - GET   /api/admin/summary      (5.12) — admin shell badge feed (pending
 //     review count); also the SSR `/admin` gate signal (200 = admin, 401/403 →
 //     the resolver renders a 404).
-//   - GET   /api/admin/reviews     (5.13) — paginated moderation queue.
-//   - PATCH /api/admin/reviews/:id (5.13) — approve/reject a review.
+//   - GET   /api/admin/reviews      (5.13) — paginated moderation queue.
+//   - PATCH /api/admin/reviews/:id  (5.13) — approve/reject a review.
+//   - GET   /api/admin/requests     (6.9)  — paginated vendor-requests queue.
+//   - PATCH /api/admin/requests/:id (6.9)  — resolve/reject a vendor request.
+//   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
+//   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
 authAdmin.onError(errorHandler());
 authAdmin.get('/api/admin/summary', requireAdmin(), createAdminSummaryHandler());
 authAdmin.get('/api/admin/reviews', requireAdmin(), createAdminReviewsListHandler());
 authAdmin.patch('/api/admin/reviews/:id', requireAdmin(), createModerateReviewHandler());
+authAdmin.get('/api/admin/requests', requireAdmin(), createAdminRequestsListHandler());
+// Phase 6.6 / AECI-213: wire the real site → Linear sync (issue transition +
+// comment + site-originated `workflow_transition`) into the resolve/reject seam.
+// `pushRequestResolutionToLinear` is a silent no-op without `LINEAR_API_KEY`.
+authAdmin.patch(
+  '/api/admin/requests/:id',
+  requireAdmin(),
+  createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
+);
+authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
+authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 app.route('/', authAdmin);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope

@@ -12,6 +12,7 @@ export const EnvironmentSchema = z.union([
   z.literal('development'),
   z.literal('preview'),
   z.literal('staging'),
+  z.literal('demo'),
   z.literal('production'),
   z.string().regex(/^preview-pr-\d+$/),
 ]);

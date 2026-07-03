@@ -1,0 +1,14 @@
+{
+  "name": "AECi — Linear reconciliation: persistent stuck requests",
+  "type": "query alert",
+  "query": "sum(last_1h):sum:aeci.linear.reconcile.persistent_failure{env:production}.as_count() > 0",
+  "message": "A vendor request has been stuck for >~1h and is still failing Linear issue creation (AECI-214 / Phase 6.7). `aeci.linear.reconcile.persistent_failure` is emitted by the every-15-min reconciliation sweep (`lib/reconciliation-sweep.ts`) when an `open` `vendor_requests` row with `linear_issue_id=null` is older than the persistent threshold AND a fresh retry of §6.4 still failed. The request is NOT lost — it's visible in /admin/requests and retried every 15 min — but the Linear assignee was never notified, so it needs a human. This is the §6.2 backstop alert: until Loops lands (Phase 7), the admin-email seam is a fail-open no-op (`aeci.linear.reconcile.email{outcome:skipped}`), so THIS alert + the /admin/requests queue ARE the notification. First checks: read `service:aeci-api source:reconcile` error logs for the stuck `request_ids`; pivot `aeci.linear.issue{outcome:failed}` by `reason` (`http_error 401/403` → LINEAR_API_KEY missing/revoked; `graphql_error` → drifted board ids in `lib/linear.ts`; `timeout`/`network` → Linear down; `db_error` → link-back write failed). `aeci.linear.reconcile.stuck` is the live backlog size. Fix the root cause and the next 15-min sweep self-heals (the retry is idempotent — never double-creates).\n\nNote: deliberately NO notify_no_data — `persistent_failure` is emitted only when the failure condition holds (like `aeci.toxicity.api`), so zero points is the healthy state and a no-data alert would be constant noise. Sweep-liveness (a no-data check on the always-emitted `aeci.linear.reconcile.stuck` gauge) lands with the Phase-6 dashboard (6.12). The >~1h persistent threshold + the 15-min cadence are launch-tunable (constants in `lib/reconciliation-sweep.ts`).\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#linear-reconciliation--stuck-requests\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:6", "managed-by:aeci-214"],
+  "options": {
+    "thresholds": { "critical": 0 },
+    "notify_no_data": false,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

@@ -5,6 +5,16 @@
 **Inherits from:** Phase 1 (AECI-16 through AECI-45)
 **Companion docs:** `DATABASE_SCHEMA.md`, `AUTH_AND_RLS.md`, `API_CONTRACTS.md`, `DESIGN.md`, `PRODUCT.md`, `CICD_PLAN.md`, `TESTING_STRATEGY.md`
 
+> **Stack note (ADR 0016 / AECI-278):** this spec predates the move of the
+> application database to **Cloudflare D1 + Drizzle**. Its data still flows
+> exactly as described, but the *implementation* mechanics named below are now
+> D1/Drizzle, not Supabase Postgres / Prisma Accelerate. Read every "Prisma
+> Accelerate" / "Prisma `<Model>`" / "Prisma query" as the **Drizzle** client
+> (`getDb(env)`, schema in `apps/api/src/db/schema.ts`), and every "PostgREST
+> `GRANT`" / "RLS policy" as **not applicable to app tables** — D1 has no RLS;
+> the Worker request guard is the only authorization layer for app tables (see
+> `AUTH_AND_RLS.md`). Supabase is retained for Auth only.
+
 ---
 
 ## 1. Goal
@@ -243,7 +253,7 @@ Per `API_CONTRACTS.md` §2, contracts are TypeScript types + Zod schemas in `pac
 
 ```
 GET /api/products
-  query: ?page=1&perPage=24&sort=created|name|updated   (default: created DESC)
+  query: ?page=1&perPage=24&sort=created|name|updated|rating|reviews   (default: created DESC)
   → { data: ProductListItem[], page, perPage, total }
 
 GET /api/products/:slug
@@ -295,6 +305,10 @@ Not every `ProductDetail` field is a hydrated relation. `usefulness` (`ProductUs
 
 - `/products`, `/vendors`: **`created DESC`** ("newest first") — gives a sense of liveliness, surfaces fresh content
 - `/integrations`: **`name ASC`** — since names are `"Source → Target"`, alphabetical groups by source product, which is useful for browsing
+
+**Review-driven product sorts** (`/products` only): `rating` ("Highest rated") and `reviews` ("Most reviewed"), both **DESC**. For `rating`, products whose average is withheld by the §5.5 ≥5-review gate sort **last** (the orderBy nulls the sort key below the threshold, so a lone 5★ review can't top a well-reviewed 4.8★ product). Both are mostly inert until reviews accumulate post-launch, but ship now so the option is ready. Vendors do not expose these (no vendor rating field; no live `/vendors` list).
+
+**Rating display on cards/tables.** The product table rows, the card-grid tiles, and the `/search` product cards surface the **gated overall rating** via `RatingSummary` (`<aec-rating-summary>`, `DESIGN.md` § Rating summary) — a numeral-forward gold-star + average + review-count unit, shown only at ≥5 approved reviews (the same §5.5 gate, now applied on the **list** mapper too, not just detail). Below the gate the table cell shows an en-dash and the grid/search cards omit the line. This closes the 2026-06-12 trust-audit P0 ("zero social-proof on cards") and gives the two sorts above a visible counterpart. Vendors/integrations have no rating field, so they show no rating.
 
 ---
 

@@ -7,8 +7,11 @@
   // `worker-configuration.d.ts` brings in Cloudflare global types (Fetcher,
   // ExecutionContext, etc.) that some `src/` modules reference transitively
   // when imported into Angular component specs (e.g. `server-api-client.ts`
-  // is imported by AECI-57's resolver spec).
-  "include": ["src/**/*.component.spec.ts", "worker-configuration.d.ts"],
+  // is imported by AECI-57's resolver spec). `src/markdown.d.ts` declares the
+  // ambient `*.md` text-import module (AECI-237); it isn't imported by anything
+  // (it's ambient), so it must be listed explicitly to enter the program for the
+  // legal-page spec, which transitively imports the `.md` sources.
+  "include": ["src/**/*.component.spec.ts", "worker-configuration.d.ts", "src/markdown.d.ts"],
   "angularCompilerOptions": {
     "extendedDiagnostics": {
       "checks": {

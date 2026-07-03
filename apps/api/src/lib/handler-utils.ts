@@ -2,31 +2,68 @@
  * Shared boilerplate for Phase 2.8 route-handler factories (AECI-111).
  *
  * Both helpers below were previously copy-pasted across the `routes/` files —
- * `PrismaFactory` in 9 of them and `validateResponseInDev` in 7. Hoisting them
+ * the DB factory in 9 of them and `validateResponseInDev` in 7. Hoisting them
  * here makes a policy change (e.g. "also skip response validation in staging")
  * a one-file edit instead of a shotgun edit.
  */
 
-import type { Context } from 'hono';
+import { isPublicSite } from '@aeci/shared/deploy-env';
+import type { Context, Env as HonoEnv } from 'hono';
 
+import { getDb, type DbContext, type GetDbOptions } from '../db/client';
 import { logToDatadog, submitCount } from '../datadog';
 import type { Env } from '../env';
-import type { AcceleratedPrisma } from '../prisma';
 
 /**
- * Builds a per-request Accelerated Prisma client from the Worker env. Injected
- * into route-handler factories (defaulting to `getPrisma`) so tests can pass a
- * mock client.
+ * Builds a per-request Drizzle/D1 client context from the Worker env (ADR 0016).
+ * Injected into route-handler factories (defaulting to `getDb`) so tests pass a
+ * client over a local/mock D1. `opts` carries the Sessions-API anchor
+ * (`bookmark` / `constraint`); see `getDb`.
  */
-export type PrismaFactory = (env: Env) => AcceleratedPrisma;
+export type DbFactory = (env: Env, opts?: GetDbOptions) => DbContext;
+
+/**
+ * Hono request-scoped storage for the per-request `DbContext`. Augmenting
+ * `ContextVariableMap` makes `c.set/get('dbCtx')` available on every Hono context
+ * without threading a Variables type through every router, so `bookmarkMiddleware`
+ * can read `getBookmark()` after the handler runs and emit the `x-d1-bookmark`
+ * response header. (AECI-250)
+ */
+declare module 'hono' {
+  interface ContextVariableMap {
+    dbCtx?: DbContext;
+  }
+}
+
+/**
+ * Write-path DbContext: anchors the D1 session at `'first-primary'` (so a
+ * pre-write read sees the latest version — avoids spurious unique-constraint
+ * conflicts and wrong create/update branches) and resumes any inbound
+ * `x-d1-bookmark` for read-your-writes. Stashes the context so `bookmarkMiddleware`
+ * emits the outbound bookmark. Each write handler swaps `dbFor(c.env)` →
+ * `writeDb(c, dbFor)`. Reads keep `dbFor(c.env)` (the `'first-unconstrained'`
+ * replica-served default). (AECI-250)
+ */
+export function writeDb<E extends HonoEnv & { Bindings: Env }>(
+  c: Context<E>,
+  dbFor: DbFactory = getDb,
+): DbContext {
+  const ctx = dbFor(c.env, {
+    bookmark: c.req.header('x-d1-bookmark') ?? null,
+    constraint: 'first-primary',
+  });
+  c.set('dbCtx', ctx);
+  return ctx;
+}
 
 /**
  * Inline response-shape validation. Phase 2.8 acceptance criterion requires
  * the response to be Zod-validated in dev/preview/staging so mapper drift
- * fails loudly, but stripped in production to avoid the per-request cost.
+ * fails loudly, but stripped on the public tiers (production + demo, which run
+ * the real build at audience traffic) to avoid the per-request cost.
  */
 export function validateResponseInDev(env: Env, validate: () => void): void {
-  if (env.ENV !== 'production') validate();
+  if (!isPublicSite(env.ENV)) validate();
 }
 
 /** Shape needed to detect + report a product with no primary vendor. */

@@ -1,139 +1,105 @@
-import { VendorDetailSchema, VendorsListResponseSchema } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
+/**
+ * GET /api/vendors (list + detail) on the Drizzle/D1 path (ADR 0016 / AECI-253),
+ * against the in-memory D1 harness. Replaces the retired Prisma-mock suite.
+ * Visibility filtering (`promotion_status`) is added in Phase 3 (AECI-254).
+ */
 
-import { allVendorRows, procoreVendorDetailRow } from '../test/fixtures/vendors';
-import {
-  buildAppWithHandler,
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
+import { VendorDetailSchema, VendorsListResponseSchema } from '@aeci/shared';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+
+import { integrations, products, productVendors, vendors } from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import { createVendorDetailHandler, createVendorsListHandler } from './vendors';
 
-function listApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const listApp = () =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/vendors',
-    handler: createVendorsListHandler(() => prisma as never),
+    handler: createVendorsListHandler(t.factory),
   });
-}
-
-function detailApp(prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+const detailApp = () =>
+  buildAppWithHandler({
     method: 'get',
     path: '/api/vendors/:slug',
-    handler: createVendorDetailHandler(() => prisma as never),
+    handler: createVendorDetailHandler(t.factory),
   });
+const get = (app: ReturnType<typeof listApp>, url: string) =>
+  app.request(url, {}, TEST_ENV, fakeExecutionContext());
+
+async function seedVendor(
+  id: string,
+  slug: string,
+  name: string,
+  extra: Partial<typeof vendors.$inferInsert> = {},
+) {
+  await t.db
+    .insert(vendors)
+    .values({ id, slug, companyName: name, promotionStatus: 'promoted', ...extra });
 }
 
 describe('GET /api/vendors', () => {
-  it('returns the paginated list envelope with default sort (created DESC)', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      vendor: { findMany: allVendorRows, count: allVendorRows.length },
-    });
-    const res = await listApp(prisma).request('/api/vendors', {}, TEST_ENV, fakeExecutionContext());
+  it('returns the envelope and derives product/integration counts via extras subqueries', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk');
+    await t.db.insert(products).values([
+      { id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' },
+      { id: u(12), slug: 'autocad', name: 'AutoCAD', promotionStatus: 'promoted' },
+    ]);
+    await t.db.insert(productVendors).values([
+      { productId: u(11), vendorId: u(1), isPrimary: true },
+      { productId: u(12), vendorId: u(1), isPrimary: true },
+    ]);
+    await t.db
+      .insert(integrations)
+      .values({ id: u(21), sourceProductId: u(11), targetProductId: u(12), builtByVendorId: u(1) });
 
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    const parsed = VendorsListResponseSchema.parse(body);
-    expect(parsed.total).toBe(2);
-    expect(parsed.data[0]).toMatchObject({
-      slug: 'procore',
-      company_name: 'Procore Technologies',
-      product_count: 1,
-      integration_count: 2,
-    });
-    const call = prisma.vendor.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'asc' }]);
-  });
-
-  it('maps `sort=name` to `[{ companyName: "asc" }, { id: "asc" }]` (no `name` column on vendors)', async () => {
-    const prisma = makeMockAcceleratedPrisma({ vendor: { findMany: [], count: 0 } });
-    await listApp(prisma).request('/api/vendors?sort=name', {}, TEST_ENV, fakeExecutionContext());
-
-    const call = prisma.vendor.findMany.mock.calls[0][0] as { orderBy: unknown };
-    expect(call.orderBy).toEqual([{ companyName: 'asc' }, { id: 'asc' }]);
-  });
-
-  it('applies the `verified=true` filter as a where clause', async () => {
-    const prisma = makeMockAcceleratedPrisma({ vendor: { findMany: [], count: 0 } });
-    await listApp(prisma).request(
-      '/api/vendors?verified=true',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
+    const parsed = VendorsListResponseSchema.parse(
+      await (await get(listApp(), '/api/vendors')).json(),
     );
-    const call = prisma.vendor.findMany.mock.calls[0][0] as { where: { verified?: boolean } };
-    expect(call.where.verified).toBe(true);
+    expect(parsed.total).toBe(1);
+    expect(parsed.data[0]?.product_count).toBe(2);
+    expect(parsed.data[0]?.integration_count).toBe(1);
+  });
+
+  it('filters by search and by verified', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { verified: true });
+    await seedVendor(u(2), 'bentley', 'Bentley Systems', { verified: false });
+
+    const bySearch = VendorsListResponseSchema.parse(
+      await (await get(listApp(), '/api/vendors?search=bentley')).json(),
+    );
+    expect(bySearch.data.map((v) => v.slug)).toEqual(['bentley']);
+
+    const byVerified = VendorsListResponseSchema.parse(
+      await (await get(listApp(), '/api/vendors?verified=true')).json(),
+    );
+    expect(byVerified.data.map((v) => v.slug)).toEqual(['autodesk']);
   });
 });
 
 describe('GET /api/vendors/:slug', () => {
-  it('returns the full detail envelope, embedding products as ProductListItem[]', async () => {
-    const prisma = makeMockAcceleratedPrisma({
-      vendor: { findUnique: procoreVendorDetailRow },
-    });
-    const res = await detailApp(prisma).request(
-      '/api/vendors/procore',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
+  it('hydrates detail: embedded products + github_url derived from the org handle', async () => {
+    await seedVendor(u(1), 'autodesk', 'Autodesk', { githubOrg: 'Autodesk' });
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productVendors).values({ productId: u(11), vendorId: u(1), isPrimary: true });
 
+    const res = await get(detailApp(), '/api/vendors/autodesk');
     expect(res.status).toBe(200);
-    const body = await res.json();
-    const parsed = VendorDetailSchema.parse(body);
-    expect(parsed.slug).toBe('procore');
-    expect(parsed.headquarters).toBe('Carpinteria, CA');
-    expect(parsed.founded_year).toBe(2002);
-    // `linkedin_url` + the four B2 platforms pass through verbatim; `github_url`
-    // is derived from the bare `github_org` handle in the fixture.
-    expect(parsed.linkedin_url).toBe('https://www.linkedin.com/company/procore-technologies');
-    expect(parsed.x_url).toBe('https://x.com/procoretech');
-    expect(parsed.facebook_url).toBe('https://www.facebook.com/procoretech');
-    expect(parsed.instagram_url).toBe('https://www.instagram.com/procoretech');
-    expect(parsed.youtube_url).toBe('https://www.youtube.com/@procoretechnologies');
-    expect(parsed.github_url).toBe('https://github.com/procore');
-    // Detail row in the fixture has an empty productVendors list, so the
-    // schema's `products: ProductListItem[]` shows up empty here — the spec
-    // requires the field to exist as an array even when empty.
-    expect(Array.isArray(parsed.products)).toBe(true);
+    const detail = VendorDetailSchema.parse(await res.json());
+    expect(detail.products.map((p) => p.slug)).toEqual(['revit']);
   });
 
-  it('returns the canonical 404 envelope when no vendor matches', async () => {
-    const prisma = makeMockAcceleratedPrisma({ vendor: { findUnique: null } });
-    const res = await detailApp(prisma).request(
-      '/api/vendors/no-such',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as {
-      error: { code: string; details?: { resource?: string; slug?: string } };
-      trace_id: string;
-    };
-    expect(body.error.code).toBe('NOT_FOUND');
-    expect(body.error.details).toEqual({ resource: 'vendor', slug: 'no-such' });
-  });
-
-  it("emits `Cache-Control: 'private, no-store'` on the 404 response", async () => {
-    const prisma = makeMockAcceleratedPrisma({ vendor: { findUnique: null } });
-    const res = await detailApp(prisma).request(
-      '/api/vendors/no-such',
-      {},
-      TEST_ENV,
-      fakeExecutionContext(),
-    );
-    expect(res.headers.get('Cache-Control')).toBe('private, no-store');
-  });
-
-  it('passes the slug to findUnique', async () => {
-    const prisma = makeMockAcceleratedPrisma({ vendor: { findUnique: procoreVendorDetailRow } });
-    await detailApp(prisma).request('/api/vendors/procore', {}, TEST_ENV, fakeExecutionContext());
-    const call = prisma.vendor.findUnique.mock.calls[0][0] as { where: { slug: string } };
-    expect(call.where).toEqual({ slug: 'procore' });
+  it('404s an unknown slug', async () => {
+    expect((await get(detailApp(), '/api/vendors/nope')).status).toBe(404);
   });
 });

@@ -3,8 +3,9 @@
  *
  * Runs Lighthouse MOBILE against every live Phase 2 page type — plus the Phase 3
  * `/search` page (AECI-146) — on the local `dev:bound` SSR Worker (:8788), using
- * the committed seed fixtures (`supabase/fixtures/phase2-fixtures.sql`) so the
- * detail/browse pages have real content to measure. Replaces the Phase 1
+ * the committed seed fixtures (`apps/api/seed/phase2-fixtures.sql`, seeded into
+ * the local D1 by `dev:bound`) so the detail/browse pages have real content to
+ * measure. Replaces the Phase 1
  * single-`/`, desktop, parked config.
  *
  * ENFORCEMENT POSTURE — PARTIAL ERROR GATE (AECI-188; TBT relaxed 2026-06-11).
@@ -40,8 +41,9 @@
  * because `/search` is the one always-edge-MISS route (`private, no-store`) — so
  * its server-response-time gets a realistic budget rather than inheriting the
  * cached-page timing the other routes enjoy. CI measures /search with the REAL
- * InstantSearch SDK: lighthouse.yml provisions ALGOLIA_SEARCH_KEY_PREVIEW into
- * apps/web/.dev.vars (AECI-188) — budgets measured against the degraded
+ * InstantSearch SDK: lighthouse.yml provisions the shared ALGOLIA_SEARCH_KEY into
+ * apps/web/.dev.vars (AECI-188; the key must cover the preview_* indexes) —
+ * budgets measured against the degraded
  * "search unavailable" shell would be meaningless. `?q=…` is intentionally not
  * collected: the empty-query page already loads the full SDK + widgets, and a
  * pinned query would couple the budget to index contents.
@@ -57,7 +59,7 @@
  * one. Chrome comes from the CI runner image (a CHROME_PATH env can pin it
  * further); locking the exact Chrome build rides along with AECI-221.
  *
- * Fixture identities mirror supabase/fixtures/phase2-fixtures.sql and
+ * Fixture identities mirror apps/api/seed/phase2-fixtures.sql and
  * apps/web/e2e/phase2-a11y.spec.ts. Taxonomy slugs are existing reference data.
  */
 

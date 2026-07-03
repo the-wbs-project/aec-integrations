@@ -21,6 +21,10 @@
       "types": "./src/api/*.ts",
       "default": "./src/api/*.ts"
     },
+    "./agreement": {
+      "types": "./src/agreement.ts",
+      "default": "./src/agreement.ts"
+    },
     "./errors": {
       "types": "./src/errors/index.ts",
       "default": "./src/errors/index.ts"
@@ -41,6 +45,10 @@
       "types": "./src/algolia.ts",
       "default": "./src/algolia.ts"
     },
+    "./deploy-env": {
+      "types": "./src/deploy-env.ts",
+      "default": "./src/deploy-env.ts"
+    },
     "./algolia-records": {
       "types": "./src/algolia-records.ts",
       "default": "./src/algolia-records.ts"
@@ -48,6 +56,10 @@
     "./cache-purge": {
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
+    },
+    "./cloudflare-analytics": {
+      "types": "./src/cloudflare-analytics.ts",
+      "default": "./src/cloudflare-analytics.ts"
     },
     "./algolia-batch": {
       "types": "./src/algolia-batch.ts",
@@ -64,6 +76,10 @@
     "./workflow-transition": {
       "types": "./src/workflow-transition.ts",
       "default": "./src/workflow-transition.ts"
+    },
+    "./seed-reviews": {
+      "types": "./src/seed-reviews/index.ts",
+      "default": "./src/seed-reviews/index.ts"
     }
   },
   "scripts": {

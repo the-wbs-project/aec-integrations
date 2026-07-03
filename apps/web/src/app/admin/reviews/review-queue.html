@@ -32,6 +32,25 @@
         </button>
         }
       </div>
+
+      <!-- One-time explainer for the toxicity scale (the same legend the per-row
+           badges show), anchored next to the Sort-by → Toxicity control. -->
+      <button
+        #infoOrigin
+        type="button"
+        (mouseenter)="openLegend(infoOrigin)"
+        (mouseleave)="scheduleCloseLegend()"
+        (blur)="scheduleCloseLegend()"
+        (click)="toggleLegend(infoOrigin)"
+        (keydown.escape)="closeLegend()"
+        [attr.aria-expanded]="legendOrigin() === infoOrigin"
+        [attr.aria-describedby]="legendOrigin() === infoOrigin ? 'toxicity-legend' : null"
+        class="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-full border border-(--border-default) text-(--text-tertiary) transition-colors hover:bg-(--surface-sunken) hover:text-(--text-secondary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        aria-label="About the toxicity score"
+        i18n-aria-label="@@admin.reviews.toxicity.aria.about"
+      >
+        <span aria-hidden="true" class="text-xs font-bold tabular-nums">i</span>
+      </button>
     </div>
     }
   </div>
@@ -39,7 +58,41 @@
   <!-- Polite announcements: rows vanish on success, so announce the outcome. -->
   <p class="sr-only" role="status" aria-live="polite">{{ liveMessage() }}</p>
 
-  @if (loading()) {
+  <!-- AECI-218: advisory "consider a ban" banner — appears after a reviewer's 3rd+
+       rejection. The rejected row is already gone, so the banner (not the row) is
+       where the admin acts. -->
+  @if (repeatOffenderPrompt(); as p) {
+  <div
+    role="status"
+    class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-(--radius-md) border border-(--accent-secondary) bg-(--accent-warm) px-4 py-3"
+  >
+    <p class="text-sm text-(--text-primary)">
+      <span class="font-bold" i18n="@@admin.reviews.ban.prompt.lead">Consider a ban.</span>
+      <span i18n="@@admin.reviews.ban.prompt.detail"
+        >{{ p.reviewer_email ?? fallbackReviewerName }} now has {{ p.rejected_count }} rejected
+        reviews.</span
+      >
+    </p>
+    <div class="flex flex-wrap gap-2">
+      <button
+        type="button"
+        (click)="openBan()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-4 py-1.5 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.reviews.ban.prompt.ban"
+      >
+        Ban reviewer
+      </button>
+      <button
+        type="button"
+        (click)="dismissPrompt()"
+        class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-4 py-1.5 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+        i18n="@@admin.reviews.ban.prompt.dismiss"
+      >
+        Dismiss
+      </button>
+    </div>
+  </div>
+  } @if (loading()) {
   <p class="mt-8 text-sm text-(--text-secondary)" i18n="@@admin.reviews.loading">
     Loading the moderation queue…
   </p>
@@ -93,8 +146,18 @@
           </h3>
 
           @if (isHighToxicity(r.toxicity_score)) {
-          <span
-            class="inline-flex items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary)"
+          <button
+            #toxOrigin
+            type="button"
+            (mouseenter)="openLegend(toxOrigin)"
+            (mouseleave)="scheduleCloseLegend()"
+            (blur)="scheduleCloseLegend()"
+            (click)="toggleLegend(toxOrigin)"
+            (keydown.escape)="closeLegend()"
+            [attr.aria-label]="toxicityAriaLabel(r.toxicity_score)"
+            [attr.aria-expanded]="legendOrigin() === toxOrigin"
+            [attr.aria-describedby]="legendOrigin() === toxOrigin ? 'toxicity-legend' : null"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-(--accent-secondary) bg-(--accent-warm) px-2.5 py-0.5 text-xs font-bold text-(--text-primary) transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           >
             <span
               class="text-[0.625rem] uppercase tracking-[0.08em] text-(--text-secondary)"
@@ -103,10 +166,20 @@
             >
             <span>{{ r.toxicity_score }}</span>
             <span i18n="@@admin.reviews.toxicity.high">· High</span>
-          </span>
+          </button>
           } @else {
-          <span
-            class="inline-flex items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary)"
+          <button
+            #toxOrigin
+            type="button"
+            (mouseenter)="openLegend(toxOrigin)"
+            (mouseleave)="scheduleCloseLegend()"
+            (blur)="scheduleCloseLegend()"
+            (click)="toggleLegend(toxOrigin)"
+            (keydown.escape)="closeLegend()"
+            [attr.aria-label]="toxicityAriaLabel(r.toxicity_score)"
+            [attr.aria-expanded]="legendOrigin() === toxOrigin"
+            [attr.aria-describedby]="legendOrigin() === toxOrigin ? 'toxicity-legend' : null"
+            class="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-(--border-default) px-2.5 py-0.5 text-xs font-medium text-(--text-secondary) transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
           >
             <span
               class="text-[0.625rem] uppercase tracking-[0.08em] text-(--text-secondary)"
@@ -118,7 +191,7 @@
             } @else {
             <span>{{ r.toxicity_score }}</span>
             }
-          </span>
+          </button>
           }
         </div>
 
@@ -275,4 +348,157 @@
     }
   </ul>
   }
+
+  <!-- AECI-218 ban dialog: opened from the banner's "Ban reviewer" button. A
+       required reason mirrors the reject form. Driven imperatively by `banTarget()`
+       (see the component effect); the backdrop/Escape `closed` output keeps state
+       in sync. -->
+  <brn-dialog (closed)="closeBan()">
+    <ng-template brnDialogContent>
+      @if (banTarget(); as t) {
+      <div
+        class="fixed left-1/2 top-1/2 z-50 w-[min(92vw,28rem)] -translate-x-1/2 -translate-y-1/2 rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-6 text-(--text-primary) shadow-[0_16px_48px_-8px_rgb(0_0_0/0.18),0_4px_16px_-2px_rgb(0_0_0/0.10)]"
+      >
+        <h2
+          brnDialogTitle
+          class="text-lg font-bold text-(--text-primary)"
+          i18n="@@admin.reviews.ban.dialog.title"
+        >
+          Ban this reviewer?
+        </h2>
+        <p
+          brnDialogDescription
+          class="mt-1.5 text-sm leading-relaxed text-(--text-secondary)"
+          i18n="@@admin.reviews.ban.dialog.description"
+        >
+          {{ t.reviewer_email ?? fallbackReviewerName }} will be blocked from submitting new
+          reviews. Their existing approved reviews stay visible. You can unban them later.
+        </p>
+
+        <form novalidate (submit)="$event.preventDefault(); confirmBan()" class="mt-5 space-y-2">
+          <label
+            for="ban-reason"
+            class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+            i18n="@@admin.reviews.ban.dialog.label"
+          >
+            Reason for ban
+          </label>
+          <textarea
+            id="ban-reason"
+            rows="3"
+            [formField]="banForm.reason"
+            [attr.aria-invalid]="
+              banForm.reason().touched() && banForm.reason().invalid() ? 'true' : null
+            "
+            [attr.aria-describedby]="
+              banForm.reason().touched() && banForm.reason().getError('standardSchema')
+                ? 'ban-reason-error'
+                : null
+            "
+            class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+          ></textarea>
+          @if (banForm.reason().touched() && banForm.reason().getError('standardSchema')) {
+          <p
+            id="ban-reason-error"
+            class="text-xs font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@admin.reviews.ban.dialog.error"
+          >
+            Enter a reason between 1 and 500 characters.
+          </p>
+          } @if (banFailed()) {
+          <p
+            class="text-sm font-medium text-(--text-primary)"
+            role="alert"
+            i18n="@@admin.reviews.ban.dialog.failed"
+          >
+            Something went wrong. Please try again.
+          </p>
+          }
+          <div class="flex flex-wrap gap-3 pt-2">
+            <button
+              type="submit"
+              [disabled]="banSubmitting()"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--text-primary) bg-(--text-primary) px-5 py-2 text-sm font-bold text-(--surface-base) transition-opacity hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              @if (banSubmitting()) {
+              <span i18n="@@admin.reviews.ban.dialog.banning">Banning…</span>
+              } @else {
+              <span i18n="@@admin.reviews.ban.dialog.confirm">Confirm ban</span>
+              }
+            </button>
+            <button
+              type="button"
+              (click)="closeBan()"
+              [disabled]="banSubmitting()"
+              class="inline-flex items-center justify-center rounded-(--radius-md) border border-(--border-strong) bg-(--surface-base) px-5 py-2 text-sm font-medium text-(--text-primary) transition-colors hover:bg-(--surface-sunken) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary) disabled:cursor-not-allowed disabled:opacity-50"
+              i18n="@@admin.reviews.ban.dialog.cancel"
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      </div>
+      }
+    </ng-template>
+  </brn-dialog>
+
+  <!-- Shared toxicity-scale legend: one connected overlay anchored to whichever
+       badge / explainer is active (`legendOrigin`). A `cdkConnectedOverlay` rather
+       than a focus-trapping dialog, so revealing it on hover never moves focus. The
+       overlay is portaled to the CDK container (escapes the card's bounds), keeps
+       itself open while hovered, and closes via mouse-out, blur, or Escape. -->
+  <ng-template
+    [cdkConnectedOverlay]="legendOverlayConfig()"
+    [cdkConnectedOverlayOpen]="legendOrigin() !== null"
+  >
+    <div
+      id="toxicity-legend"
+      role="tooltip"
+      (mouseenter)="keepLegendOpen()"
+      (mouseleave)="scheduleCloseLegend()"
+      class="w-[min(90vw,18rem)] rounded-md border border-(--border-default) bg-(--surface-raised) p-4 text-(--text-primary) shadow-lg"
+    >
+      <p
+        class="text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+        i18n="@@admin.reviews.toxicity.legend.title"
+      >
+        Toxicity score · 0–100
+      </p>
+      <p
+        class="mt-2 text-sm leading-relaxed text-(--text-secondary)"
+        i18n="@@admin.reviews.toxicity.legend.intro"
+      >
+        AI-rated when a review is submitted. A higher number means the text is more likely to be
+        abusive.
+      </p>
+      <ul class="mt-3 space-y-1.5 text-sm">
+        <li class="flex items-center gap-2">
+          <span
+            class="inline-block h-2 w-2 shrink-0 rounded-full bg-(--border-strong)"
+            aria-hidden="true"
+          ></span>
+          <span class="text-(--text-primary)" i18n="@@admin.reviews.toxicity.legend.normal"
+            >0–{{ highToxicityThreshold - 1 }} · Normal</span
+          >
+        </li>
+        <li class="flex items-center gap-2">
+          <span
+            class="inline-block h-2 w-2 shrink-0 rounded-full bg-(--accent-secondary)"
+            aria-hidden="true"
+          ></span>
+          <span class="text-(--text-primary)" i18n="@@admin.reviews.toxicity.legend.high"
+            >{{ highToxicityThreshold }}–100 · High (flagged)</span
+          >
+        </li>
+      </ul>
+      <p
+        class="mt-3 border-t border-(--border-default) pt-3 text-xs leading-relaxed text-(--text-tertiary)"
+        i18n="@@admin.reviews.toxicity.legend.note"
+      >
+        A harsh or critical opinion isn't toxic on its own. This score only surfaces the worst
+        content first; it never auto-rejects a review.
+      </p>
+    </div>
+  </ng-template>
 </section>

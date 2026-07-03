@@ -3,18 +3,20 @@
 # (AECI-56 / docs/CACHE_STRATEGY.md §5).
 #
 # Used by the deploy workflows after the taxonomy reference-data seed
-# (supabase/reference-data/taxonomy.sql) reconciles the `taxonomy_*` vocabulary
-# directly in Postgres. That write bypasses the app's normal purge path, so the
+# (apps/api/seed/taxonomy.sql, applied via `wrangler d1 execute`) reconciles the
+# `taxonomy_*` vocabulary directly in D1. That write bypasses the app's normal purge path, so the
 # edge keeps serving the old vocabulary until TTL (≤5 min browse, ≤1 hr nav)
 # unless we purge explicitly here. See docs/adr/0008-taxonomy-reference-data.md.
 #
-# Like smoke-test.sh: non-prod hostnames sit behind Cloudflare Access and are
-# reachable from CI only via the `aeci-gh-actions` service token; web prod
-# (demo.aecintegrations.com) is public and ignores the headers, so we always
-# attach them and never branch on host.
+# Like smoke-test.sh: staging, PR previews, AND prod (prod.aecintegrations.com,
+# gated by Cloudflare Access until launch per ADR 0017) are reachable from CI only
+# via the `aeci-gh-actions` service token, so we always attach the headers and
+# never branch on host. The public demo tier (demo.aecintegrations.com) ignores
+# them; at the prod launch, dropping the prod Access app makes the headers a
+# harmless no-op there too (they're ignored once the destination is public).
 #
 # Usage (env):
-#   HOST                    https://demo.aecintegrations.com
+#   HOST                    https://prod.aecintegrations.com
 #   PURGE_TAGS              space-separated tag list, e.g. "taxonomy route:browse"
 #   ADMIN_PURGE_TOKEN       Bearer token (SSR Worker `ADMIN_PURGE_TOKEN` secret)
 #   CF_ACCESS_CLIENT_ID     service-token client id
@@ -30,7 +32,7 @@
 
 set -euo pipefail
 
-: "${HOST:?HOST is required, e.g. https://demo.aecintegrations.com}"
+: "${HOST:?HOST is required, e.g. https://prod.aecintegrations.com}"
 : "${PURGE_TAGS:?PURGE_TAGS is required, e.g. \"taxonomy route:browse\"}"
 : "${ADMIN_PURGE_TOKEN:?ADMIN_PURGE_TOKEN is required (SSR Worker bearer secret)}"
 : "${CF_ACCESS_CLIENT_ID:?CF_ACCESS_CLIENT_ID is required (Cloudflare Access service token)}"

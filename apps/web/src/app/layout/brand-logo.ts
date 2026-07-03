@@ -32,6 +32,14 @@ import { RouterLink } from '@angular/router';
  */
 @Component({
   selector: 'aec-brand-logo',
+  // The host is a flex container so the inner `<a>` is laid out as a flex item,
+  // not inline-flow text. As an inline-level element the `<a>` would sit on the
+  // host's text baseline and the line-box strut would reserve ~7px of descent
+  // *below* it, inflating the host box and floating the wordmark above its own
+  // centre — which knocked it ~4px out of vertical alignment with the adjacent
+  // hamburger button in the `items-center` header row. Flex layout drops the
+  // strut so the host box hugs the wordmark exactly.
+  host: { class: 'inline-flex items-center' },
   imports: [RouterLink],
   template: `
     <a

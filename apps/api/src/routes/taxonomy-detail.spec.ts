@@ -1,128 +1,87 @@
-import { CategoryDetailSchema, AudienceDetailSchema, PhaseDetailSchema } from '@aeci/shared';
-import { describe, expect, it } from 'vitest';
-
-import {
-  constructionAudienceDetailRow,
-  constructionPhaseDetailRow,
-  projectManagementCategoryDetailRow,
-} from '../test/fixtures/taxonomy';
-import {
-  buildAppWithHandler,
-  fakeExecutionContext,
-  makeMockAcceleratedPrisma,
-  TEST_ENV,
-  type MockAcceleratedPrisma,
-} from '../test/helpers';
-import { createTaxonomyDetailHandler, type TaxonomyDetailConfig } from './taxonomy-detail';
-
 /**
- * One factory (`createTaxonomyDetailHandler`) backs all three taxonomy detail
- * endpoints (AECI-120 A6), so the per-kind handler tests collapse into this
- * parametrised suite. The category *list* endpoint keeps its own
- * `categories.spec.ts`.
+ * GET /api/categories|audiences|phases/:slug detail on the Drizzle/D1 path
+ * (ADR 0016 / AECI-253), against the in-memory D1 harness.
  */
-interface Case {
-  /** URL segment + 404 `details.resource`. */
-  resource: 'category' | 'audience' | 'phase';
-  /** Path segment (`categories` / `audiences` / `phases`). */
-  segment: string;
-  config: TaxonomyDetailConfig;
-  /** Mock keyed by the model the factory's `delegate` selects. */
-  mock: (findUnique: unknown) => MockAcceleratedPrisma;
-  detailRow: unknown;
-  slug: string;
-  productCount: number;
-}
 
-const CASES: Case[] = [
-  {
-    resource: 'category',
-    segment: 'categories',
-    config: {
-      delegate: (p) => p.taxonomyCategory,
-      relationKey: 'productCategories',
-      resource: 'category',
-      schema: CategoryDetailSchema,
-    },
-    mock: (findUnique) => makeMockAcceleratedPrisma({ taxonomyCategory: { findUnique } }),
-    detailRow: projectManagementCategoryDetailRow,
-    slug: 'project-management',
-    productCount: 5,
-  },
-  {
-    resource: 'audience',
-    segment: 'audiences',
-    config: {
-      delegate: (p) => p.taxonomyAudience,
-      relationKey: 'productAudiences',
-      resource: 'audience',
-      schema: AudienceDetailSchema,
-    },
-    mock: (findUnique) => makeMockAcceleratedPrisma({ taxonomyAudience: { findUnique } }),
-    detailRow: constructionAudienceDetailRow,
-    slug: 'construction',
-    productCount: 7,
-  },
-  {
-    resource: 'phase',
-    segment: 'phases',
-    config: {
-      delegate: (p) => p.taxonomyPhase,
-      relationKey: 'productPhases',
-      resource: 'phase',
-      schema: PhaseDetailSchema,
-    },
-    mock: (findUnique) => makeMockAcceleratedPrisma({ taxonomyPhase: { findUnique } }),
-    detailRow: constructionPhaseDetailRow,
-    slug: 'construction-phase',
-    productCount: 4,
-  },
-];
+import { AudienceDetailSchema, CategoryDetailSchema } from '@aeci/shared';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-function app(c: Case, prisma: MockAcceleratedPrisma) {
-  return buildAppWithHandler({
+import {
+  productAudiences,
+  productCategories,
+  products,
+  taxonomyAudiences,
+  taxonomyCategories,
+} from '../db/schema';
+import { makeTestDb, type TestDb } from '../test/d1';
+import { buildAppWithHandler, fakeExecutionContext, TEST_ENV } from '../test/helpers';
+import { createTaxonomyDetailHandler } from './taxonomy-detail';
+
+const u = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+let t: TestDb;
+beforeEach(async () => {
+  t = await makeTestDb();
+});
+afterEach(() => t.dispose());
+
+const categoryApp = () =>
+  buildAppWithHandler({
     method: 'get',
-    path: `/api/${c.segment}/:slug`,
-    handler: createTaxonomyDetailHandler(c.config, () => prisma as never),
+    path: '/api/categories/:slug',
+    handler: createTaxonomyDetailHandler(
+      { resource: 'category', schema: CategoryDetailSchema },
+      t.factory,
+    ),
   });
-}
+const audienceApp = () =>
+  buildAppWithHandler({
+    method: 'get',
+    path: '/api/audiences/:slug',
+    handler: createTaxonomyDetailHandler(
+      { resource: 'audience', schema: AudienceDetailSchema },
+      t.factory,
+    ),
+  });
+const get = (app: ReturnType<typeof categoryApp>, url: string) =>
+  app.request(url, {}, TEST_ENV, fakeExecutionContext());
 
-describe('createTaxonomyDetailHandler', () => {
-  for (const c of CASES) {
-    describe(`GET /api/${c.segment}/:slug`, () => {
-      it('returns the detail shape with embedded products and product_count', async () => {
-        const res = await app(c, c.mock(c.detailRow)).request(
-          `/api/${c.segment}/${c.slug}`,
-          {},
-          TEST_ENV,
-          fakeExecutionContext(),
-        );
+describe('GET /api/categories/:slug', () => {
+  it('hydrates the term, its product_count, and embedded products', async () => {
+    await t.db
+      .insert(taxonomyCategories)
+      .values({ id: u(1), slug: 'bim', name: 'BIM', displayOrder: 10 });
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productCategories).values({ productId: u(11), categoryId: u(1) });
 
-        expect(res.status).toBe(200);
-        const parsed = c.config.schema.parse(await res.json()) as {
-          slug: string;
-          product_count: number;
-          products: { slug: string }[];
-        };
-        expect(parsed.slug).toBe(c.slug);
-        expect(parsed.product_count).toBe(c.productCount);
-        expect(parsed.products.map((p) => p.slug)).toEqual(['procore']);
-      });
+    const res = await get(categoryApp(), '/api/categories/bim');
+    expect(res.status).toBe(200);
+    const body = CategoryDetailSchema.parse(await res.json());
+    expect(body.slug).toBe('bim');
+    expect(body.product_count).toBe(1);
+    expect(body.products.map((p) => p.slug)).toEqual(['revit']);
+  });
 
-      it(`returns 404 with details.resource = "${c.resource}" for an unknown slug`, async () => {
-        const res = await app(c, c.mock(null)).request(
-          `/api/${c.segment}/no-such`,
-          {},
-          TEST_ENV,
-          fakeExecutionContext(),
-        );
+  it('404s an unknown slug', async () => {
+    expect((await get(categoryApp(), '/api/categories/nope')).status).toBe(404);
+  });
+});
 
-        expect(res.status).toBe(404);
-        const body = (await res.json()) as {
-          error: { code: string; details?: { resource?: string; slug?: string } };
-        };
-        expect(body.error.details).toEqual({ resource: c.resource, slug: 'no-such' });
-      });
-    });
-  }
+describe('GET /api/audiences/:slug', () => {
+  it('reuses the factory for the audience facet', async () => {
+    await t.db
+      .insert(taxonomyAudiences)
+      .values({ id: u(1), slug: 'arch', name: 'Architecture', displayOrder: 10 });
+    await t.db
+      .insert(products)
+      .values({ id: u(11), slug: 'revit', name: 'Revit', promotionStatus: 'promoted' });
+    await t.db.insert(productAudiences).values({ productId: u(11), audienceId: u(1) });
+
+    const body = AudienceDetailSchema.parse(
+      await (await get(audienceApp(), '/api/audiences/arch')).json(),
+    );
+    expect(body.products.map((p) => p.slug)).toEqual(['revit']);
+  });
 });

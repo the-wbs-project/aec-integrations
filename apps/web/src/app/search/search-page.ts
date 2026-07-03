@@ -22,8 +22,9 @@
  * results aren't canonical content).
  *
  * The deliberate §7.5 deviation (`angular-instantsearch` → `instantsearch.js` +
- * connectors → signals) and the deferred per-tab sort dropdown are documented in
- * `search-controller.ts` and ADR 0014.
+ * connectors → signals) is documented in `search-controller.ts` and ADR 0014.
+ * The per-tab sort dropdown (AECI-175 / §4.6) is the `aec-search-sort-by` control
+ * above the results, backed by Algolia replica indexes; `?sort=` mirrors it.
  */
 import { NgTemplateOutlet } from '@angular/common';
 import {
@@ -38,9 +39,13 @@ import {
 } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 
+import { replicaIndexName, sortReplicasFor } from '@aeci/shared/algolia';
+
+import { Analytics } from '../analytics/analytics';
 import { canonicalUrl } from '../core/canonical';
 import { MetaService } from '../core/meta.service';
 
+import type { AlgoliaPublicConfig } from './algolia-config';
 import { readAlgoliaConfig } from './algolia-config';
 import { SEARCH_ENGINE_FACTORY } from './search-controller.factory';
 import { SearchController } from './search-controller';
@@ -50,6 +55,7 @@ import { SearchNumericMenu } from './widgets/search-numeric-menu';
 import { SearchPaginator } from './widgets/search-paginator';
 import { SearchRangeInput } from './widgets/search-range-input';
 import { SearchRefinementList } from './widgets/search-refinement-list';
+import { SearchSortBy, type SortUiOption } from './widgets/search-sort-by';
 
 // Integrations are intentionally excluded from `/search` for now (product
 // decision, 2026-06-11). The `{prefix}_integrations` Algolia index is still
@@ -74,6 +80,7 @@ const URL_SYNC_DEBOUNCE_MS = 350;
     SearchNumericMenu,
     SearchRangeInput,
     SearchPaginator,
+    SearchSortBy,
   ],
   template: `
     <section class="bg-(--surface-base) text-(--text-primary)">
@@ -163,8 +170,21 @@ const URL_SYNC_DEBOUNCE_MS = 350;
             tabindex="0"
             class="mt-6 focus-visible:outline-none"
           >
+            @if (controller(); as ctrl) {
+              <div class="mb-4 flex items-center justify-end">
+                <aec-search-sort-by
+                  [options]="sortUiOptions()"
+                  [value]="ctrl[activeTab()].sortBy()"
+                  (sort)="onSortChange($event)"
+                />
+              </div>
+            }
             <div class="grid gap-8 md:grid-cols-[16rem_1fr]">
-              <aside i18n-aria-label="@@search.filters.aria" aria-label="Filters" class="space-y-6">
+              <aside
+                i18n-aria-label="@@search.filters.aria"
+                aria-label="Filters"
+                class="flex flex-col gap-6"
+              >
                 @if (showSkeleton()) {
                   <ng-container [ngTemplateOutlet]="facetsSkeleton" />
                 } @else if (currentFacets(); as facets) {
@@ -348,6 +368,7 @@ export class SearchPage implements OnDestroy {
   private readonly router = inject(Router);
   private readonly meta = inject(MetaService);
   private readonly engineFactory = inject(SEARCH_ENGINE_FACTORY);
+  private readonly analytics = inject(Analytics);
 
   protected readonly tabs = TABS;
   protected readonly panelId = 'search-tabpanel';
@@ -358,6 +379,9 @@ export class SearchPage implements OnDestroy {
 
   /** Seeded once from `?q=` for the SSR `[value]` and the controller's first query. */
   private readonly initialQuery = this.route.snapshot.queryParamMap.get('q')?.trim() ?? '';
+
+  /** Seeded once from `?sort=` (a sort token, applied to the initial active tab). */
+  private readonly initialSortToken = this.route.snapshot.queryParamMap.get('sort')?.trim() ?? '';
 
   /**
    * Buffers keystrokes typed before the controller mounts. The search SDK loads
@@ -409,6 +433,17 @@ export class SearchPage implements OnDestroy {
     return $localize`:@@search.results.status:${count}:COUNT: results`;
   });
 
+  /** The active tab's sort options, with the `key` token mapped to a localized
+   *  label, for the sort control (AECI-175). Empty until the controller mounts. */
+  protected readonly sortUiOptions = computed<readonly SortUiOption[]>(() => {
+    const ctrl = this.controller();
+    if (!ctrl) return [];
+    return ctrl[this.activeTab()].sortOptions.map((option) => ({
+      value: option.value,
+      label: this.sortLabel(option.key),
+    }));
+  });
+
   constructor() {
     // SSR + client: set the noindex/title/canonical so it ships in the initial
     // HTML head and is refreshed on an in-app nav onto /search.
@@ -424,7 +459,15 @@ export class SearchPage implements OnDestroy {
       void this.engineFactory(config)
         .then(({ lib, searchClient }) => {
           if (this.destroyed) return;
-          const controller = new SearchController(lib, searchClient, config, this.initialQuery);
+          const controller = new SearchController(
+            lib,
+            searchClient,
+            config,
+            this.initialQuery,
+            this.initialSort(config),
+            undefined, // keep the default RUM emitter
+            (event) => this.analytics.searchPerformed(event),
+          );
           controller.start();
           // Replay anything typed while the SDK was loading. `onQueryInput`
           // buffered it in `pendingQuery` because there was no controller yet.
@@ -468,13 +511,69 @@ export class SearchPage implements OnDestroy {
   protected selectTab(tab: EntityTab): void {
     if (this.activeTab() === tab) return;
     this.activeTab.set(tab);
-    // Default tab (products) drops `?tab=`; others set it. Immediate, replaceUrl.
+    // Default tab (products) drops `?tab=`; others set it. `?sort=` is per-tab, so
+    // it re-points at the newly-active tab's current sort (relevance → cleared).
+    const sort = this.currentSortToken(tab);
     void this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { tab: tab === 'products' ? null : tab },
+      queryParams: {
+        tab: tab === 'products' ? null : tab,
+        sort: sort === 'relevance' ? null : sort,
+      },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
+  }
+
+  /** Apply a sort to the active tab and mirror it to `?sort=` (AECI-175). */
+  protected onSortChange(indexName: string): void {
+    const ctrl = this.controller();
+    if (!ctrl) return;
+    const view = ctrl[this.activeTab()];
+    view.refineSort(indexName);
+    const token = view.sortOptions.find((option) => option.value === indexName)?.key ?? 'relevance';
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { sort: token === 'relevance' ? null : token },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** The active sort token (`relevance` | `integrations` | `name`) for a tab. */
+  private currentSortToken(tab: EntityTab): string {
+    const ctrl = this.controller();
+    if (!ctrl) return 'relevance';
+    const view = ctrl[tab];
+    return view.sortOptions.find((option) => option.value === view.sortBy())?.key ?? 'relevance';
+  }
+
+  /** Localized label for a sort token. */
+  private sortLabel(key: string): string {
+    switch (key) {
+      case 'relevance':
+        return $localize`:@@search.sort.relevance:Relevance`;
+      case 'integrations':
+        return $localize`:@@search.sort.integrations:Most integrations`;
+      case 'name':
+        return $localize`:@@search.sort.name:Name (A–Z)`;
+      default:
+        return key;
+    }
+  }
+
+  /**
+   * Resolve the inbound `?sort=` token into a per-tab initial index name for the
+   * controller, applied to the initial active tab only (the URL carries one sort,
+   * scoped to the visible tab). Relevance / unknown tokens seed nothing (primary).
+   */
+  private initialSort(config: AlgoliaPublicConfig): Partial<Record<EntityTab, string>> {
+    const tab = this.activeTab();
+    const token = this.initialSortToken;
+    if (!token || token === 'relevance') return {};
+    const replica = sortReplicasFor(tab).find((sort) => sort.sort === token);
+    if (!replica) return {};
+    return { [tab]: replicaIndexName(config.indexes[tab], replica.suffix) };
   }
 
   /** APG tabs: ←/→ move + activate, Home/End jump to the ends. */

@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { AutocompleteController } from './autocomplete-controller';
 import type { AutocompleteSuggestion } from './autocomplete-mapping';
 import { AUTOCOMPLETE_SEARCH_FACTORY } from './autocomplete-search.factory';
 import { SearchAutocomplete } from './search-autocomplete';
@@ -45,7 +46,14 @@ function setup(): void {
 
 describe('SearchAutocomplete', () => {
   beforeEach(() => TestBed.resetTestingModule());
-  afterEach(() => delete (globalThis as GlobalWithConfig).__AECI_ALGOLIA__);
+  afterEach(() => {
+    delete (globalThis as GlobalWithConfig).__AECI_ALGOLIA__;
+    // The CDK overlay renders into a body-level container under jsdom (no Popover
+    // API → `usePopover` auto-downgrades), so an opened popup persists on
+    // `document.body`. Sweep it between tests so it can't bleed into the next
+    // test's `document` queries.
+    document.querySelectorAll('.cdk-overlay-container').forEach((n) => n.remove());
+  });
 
   it('names the input with a real <label for> (not placeholder-as-label)', async () => {
     setup();
@@ -98,8 +106,10 @@ describe('SearchAutocomplete', () => {
 
     // Aria opened the combobox on input...
     expect(input.getAttribute('aria-expanded')).toBe('true');
-    // ...but no listbox is rendered because there are zero suggestions.
+    // ...but no listbox is rendered because there are zero suggestions — neither in
+    // the host nor in the CDK overlay container (the popup is portaled out now).
     expect(host.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
   });
 
   it('degrades to a working submit box and emits the trimmed query', async () => {
@@ -118,8 +128,63 @@ describe('SearchAutocomplete', () => {
     form.dispatchEvent(new SubmitEvent('submit', { cancelable: true }));
 
     expect(emitted).toEqual(['revit']);
-    // No listbox is ever rendered without a controller.
+    // No listbox is ever rendered without a controller (host or overlay container).
     expect(host.querySelector('[role="listbox"]')).toBeNull();
+    expect(document.querySelector('[role="listbox"]')).toBeNull();
+  });
+
+  it('renders the suggestion listbox through a connected overlay (out of the form flow) so it cannot grow the header row', async () => {
+    // Regression guard for the header-search layout bug, re-expressed for the CDK-overlay
+    // architecture (AECI-232). Aria renders the combobox popup in-flow
+    // (DeferredContent.createEmbeddedView); an outer cdkConnectedOverlay
+    // (usePopover:'inline') lifts the listbox out of the form, so it can no longer grow
+    // the row and the header's `items-center` can't shove the input out. Under jsdom
+    // there is no Popover API, so CDK downgrades to the body-level `.cdk-overlay-container`
+    // — the listbox renders in `document`, NOT inside the host's <form>.
+    setup(); // config absent → afterNextRender no-ops; we inject our own settled controller
+    const fixture = TestBed.createComponent(SearchAutocomplete);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // A controller settled to one suggestion, without the Algolia SDK or RUM.
+    const controller = new AutocompleteController(
+      () => Promise.resolve({ products: [SUGGESTION], vendors: [], nbHits: 1 }),
+      () => {},
+    );
+    controller.setQuery('rev');
+    await new Promise((resolve) => setTimeout(resolve, 220)); // past the 180ms debounce
+    expect(controller.suggestions().length, 'controller should hold one suggestion').toBe(1);
+
+    // Inject the settled controller (the component normally builds this in afterNextRender).
+    (
+      fixture.componentInstance as unknown as {
+        controller: { set(c: AutocompleteController): void };
+      }
+    ).controller.set(controller);
+
+    // Drive Aria's expand exactly as the empty-listbox test does (focusin + input),
+    // which is what keeps aria-expanded=true in the test environment.
+    const host = fixture.nativeElement as HTMLElement;
+    const input = host.querySelector('input')!;
+    input.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    input.value = 'rev';
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    fixture.detectChanges();
+    await fixture.whenStable();
+    fixture.detectChanges();
+
+    // The listbox renders via the overlay — present in `document`, absent from the form.
+    const listbox = document.querySelector('[role="listbox"]');
+    expect(listbox, 'listbox renders once a query returns ≥1 suggestion').not.toBeNull();
+    expect(
+      host.querySelector('form [role="listbox"]'),
+      'listbox must not live in the form flow — it is portaled into the overlay',
+    ).toBeNull();
+    // Positioning is the overlay's job now: the element no longer self-positions,
+    // but it keeps its visual styling.
+    expect(listbox!.classList.contains('absolute'), 'no self-positioning class').toBe(false);
+    expect(listbox!.classList.contains('top-full'), 'no self-positioning class').toBe(false);
+    expect(listbox!.classList.contains('shadow-lg'), 'visual styling stays on the <ul>').toBe(true);
   });
 
   it('emits suggestionChosen on commit and suppresses the coincident submit', () => {
