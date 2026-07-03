@@ -113,6 +113,11 @@ live; axe + Lighthouse on `/products/:slug/review`, `/account`, `/admin`, `/admi
 deployed origin with a session; and applying `dashboard-auth-reviews.json` + the AECI-206 monitors to
 the live Datadog org with the dashboard URL pasted into `docs/OBSERVABILITY.md`.
 
+> **Runbook + sign-off:** [`docs/PHASE_5_OPERATIONAL_VERIFICATION.md`](./PHASE_5_OPERATIONAL_VERIFICATION.md)
+> holds the step-by-step procedure (Parts A–D) and the per-AC sign-off tables for the live run.
+> AECI-233 also pre-fixed the `dashboard-auth-reviews.json` `reflow_type` defect (`fixed` → `auto`)
+> so the Datadog apply doesn't reject the way AECI-222's first attempt did.
+
 ### F2 — Reviews/profiles RLS deny-matrix → **new [AECI-234](https://linear.app/aec-integrations/issue/AECI-234)** (extends AECI-90)
 
 Phase 5 authz is enforced and tested at the **Worker layer** (`requireAuth`/`requireAdmin` + JWKS

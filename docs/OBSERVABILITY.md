@@ -372,7 +372,7 @@ Widgets (Worker-side home-stats + page_views health, AECI-180): stats compute ru
 ### `AECi Phase 5 — Auth / Reviews`
 
 - **Definition (for record):** `observability/datadog/dashboard-auth-reviews.json`
-- **Live URL:** _TBD — filled in after the live apply (AECI-206 verification step)._
+- **Live URL:** _TBD — filled in after the AECI-233 live apply; runbook + sign-off table in [`docs/PHASE_5_OPERATIONAL_VERIFICATION.md`](./PHASE_5_OPERATIONAL_VERIFICATION.md) (Part D)._
 
 Widgets (Phase 5.15 auth + reviews health, AECI-206): sign-ins by `outcome` · sign-ins by
 `method` · auth failure rate (`100 × failed / total`, with a 30% marker) · review submits by
