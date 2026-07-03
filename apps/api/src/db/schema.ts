@@ -804,9 +804,12 @@ export const translations = sqliteTable(
 );
 
 // ===========================================================================
-// Landing-page tables (pre-AECI). Written by apps/landing via PostgREST, NOT by
-// the API Worker. Modeled here for completeness; the landing write path's
-// cut-over (or retention on Supabase) is tracked separately (ADR 0016 Phase 5/6).
+// Lead-capture tables (pre-AECI). Written by the API Worker's POST /api/feedback
+// + /api/subscribe handlers (routes/landing-forms.ts) on D1 (AECI-257) — NOT via
+// Supabase/PostgREST. The pre-launch apps/landing Worker was the original caller;
+// it was retired at the apex cutover (AECI-247/277), so the sole caller is now the
+// unified home's closing-CTA island (apps/web). Out of scope for the AECI Stage 1
+// spec; modeled here because they share the D1 database (ADR 0016).
 // ===========================================================================
 
 export const feedback = sqliteTable('feedback', {
