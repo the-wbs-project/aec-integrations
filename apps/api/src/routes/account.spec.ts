@@ -108,6 +108,7 @@ describe('DELETE /api/account', () => {
       ratingOnboarding: 4,
       title: 'T',
       body: 'B',
+      reviewerFirm: 'Acme Architects',
       status: 'approved',
     });
 
@@ -117,10 +118,13 @@ describe('DELETE /api/account', () => {
 
     // Profile gone; review survives but is anonymized — `reviewer_id` nulled AND
     // `anonymized_at` stamped in the same batch (the §23.1 / AECI-241 invariant).
+    // The free-text `reviewer_firm` is cleared too (AECI-284 — more identifying
+    // than the generic role enum, so it is erased).
     expect(await t.db.select().from(profiles)).toHaveLength(0);
     const [review] = await t.db.select().from(reviews);
     expect(review!.reviewerId).toBeNull();
     expect(review!.anonymizedAt).not.toBeNull();
+    expect(review!.reviewerFirm).toBeNull();
 
     // account.deleted audit written with a null actor.
     const audit = await t.db.select().from(auditLog);

@@ -21,6 +21,11 @@
  *     when the *set* of taxonomy terms changed, i.e. a term was newly created.
  *   - `sitemap` invalidates `sitemap.xml` (enumerates all entities) — only when a
  *     product or vendor was newly created.
+ *   - `pair:{min}__{max}` (Stage 1.5, §6.2) invalidates the consolidated
+ *     product-pair page for an integration, keyed by its two product slugs sorted
+ *     alphabetically (`promote-pair.ts`). Emitted per integration result that
+ *     carries `sourceSlug`/`targetSlug` (the claims ingest, AECI-297); the pair page
+ *     (AECI-294) emits the identical tag, so purge and render stay in lockstep.
  *   - **No `route:*` tags.** §3.3 reserves the coarse `route:detail|index|browse`
  *     tags for incident bulk-invalidation and explicitly forbids them on routine
  *     writes (they would nuke every detail/index/browse page site-wide).
@@ -36,6 +41,8 @@
  */
 
 import type { PromoteResponse } from '@aeci/shared';
+
+import { pairCacheTag } from './promote-pair';
 
 /**
  * Returns the deduplicated set of cache tags to purge for a promote `response`,
@@ -78,6 +85,18 @@ export function cacheTagsForPromote(response: PromoteResponse): string[] {
   // Global taxonomy nav (home / `/categories` / footer) only changes when a new
   // term was minted — a reused term is already in the nav.
   if (taxonomyCreated) tags.add('taxonomy');
+
+  // Pair pages (Stage 1.5, §6.2 / §7.3): a promote that touches an integration —
+  // or the claims riding on it — invalidates the consolidated product-pair page.
+  // Tag it by both product slugs (`pair:{min}__{max}`) so either orientation
+  // repaints. The slugs come from the response's integration results (populated by
+  // the claims ingest, AECI-297); older responses may omit them, so guard. The
+  // pair page (AECI-294) emits the identical tag — keep them in lockstep.
+  for (const integration of response.integrations) {
+    if (integration.sourceSlug && integration.targetSlug) {
+      tags.add(pairCacheTag(integration.sourceSlug, integration.targetSlug));
+    }
+  }
 
   return [...tags];
 }

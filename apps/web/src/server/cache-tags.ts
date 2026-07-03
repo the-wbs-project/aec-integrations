@@ -23,6 +23,8 @@
  * detail pages render their embedded entities.
  */
 
+import { orderedPairSlugs } from '@aeci/shared';
+
 /** Route classes that map to `route:<class>` tags. */
 export type CacheableRouteClass = 'detail' | 'index' | 'browse';
 
@@ -111,12 +113,33 @@ export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
   if (path === '/legal' || path.startsWith('/legal/')) return { route: 'index' };
 
   let m: RegExpExecArray | null;
+  // AECI-294 — the product-PAIR page. The `pair:{min}__{max}` tag is
+  // orientation-independent (both `/products/A/integrations/B` and its mirror
+  // emit the same tag, since `orderedPairSlugs` sorts the two slugs), and both
+  // products are embedded so a promote touching either one purges the page
+  // (§7.3). Matched BEFORE `/products/:slug` (a 3-segment path can't match that
+  // single-segment pattern, but the order documents intent).
+  const pairMatch = path.match(/^\/products\/([^/]+)\/integrations\/([^/]+)$/);
+  if (pairMatch) {
+    const context = pairMatch[1]!;
+    const other = pairMatch[2]!;
+    const [min, max] = orderedPairSlugs(context, other);
+    return {
+      route: 'detail',
+      entity: { type: 'pair', slug: `${min}__${max}` },
+      embedded: [
+        { type: 'product', slug: context },
+        { type: 'product', slug: other },
+      ],
+    };
+  }
   if ((m = /^\/products\/([^/]+)$/.exec(path)))
     return { route: 'detail', entity: { type: 'product', slug: m[1]! } };
   if ((m = /^\/vendors\/([^/]+)$/.exec(path)))
     return { route: 'detail', entity: { type: 'vendor', slug: m[1]! } };
-  if ((m = /^\/integrations\/([^/]+)$/.exec(path)))
-    return { route: 'detail', entity: { type: 'integration', id: m[1]! } };
+  // AECI-294 retired `/integrations/:id` — it now 301-redirects to the pair page
+  // in `server-runtime.ts` and never reaches the SSR cache pipeline; the 301
+  // response carries its own `integration:{id}` Cache-Tag.
 
   if (path === '/products') return { route: 'index', entity: { type: 'index', slug: 'products' } };
   // AECI-165 removed the `/vendors` and `/integrations` index pages — they now

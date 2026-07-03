@@ -50,6 +50,14 @@ describe('LegalPage', () => {
     expect(article!.querySelector('a[href="/legal/review-guidelines"]')).not.toBeNull();
   });
 
+  it('routes review reports to the reviews@ alias (AECI-307), not the founders@ catch-all', () => {
+    const { host } = render('review-guidelines');
+    const article = host.querySelector('article.legal-prose');
+    expect(article!.querySelector('a[href="mailto:reviews@thewbsproject.com"]')).not.toBeNull();
+    // The review-report path must not fall back to the general contact address.
+    expect(article!.querySelector('a[href="mailto:founders@thewbsproject.com"]')).toBeNull();
+  });
+
   it('sets the per-slug document title chrome via MetaService', () => {
     expect(render('terms').title.getTitle()).toBe('Terms of Service · AEC Integrations');
     expect(render('privacy').title.getTitle()).toBe('Privacy Policy · AEC Integrations');

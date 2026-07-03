@@ -2,10 +2,10 @@
 title: Terms of Service
 version: 1.0
 effective_date:
-last_updated: 23 June 2026
-counsel_approved_by:
-counsel_approved_on:
-linear_issue: AECI-237
+last_updated: 2 July 2026
+counsel_approved_by: pending sign-off
+counsel_approved_on: pending sign-off
+linear_issue: AECI-308
 ---
 
 > **Draft, pending legal review.** This document is a pre-launch template draft and is not yet in force. The counsel-approved version becomes version 1.0 and takes effect at launch.
@@ -54,7 +54,7 @@ The service is provided "as is" and "as available", without warranties of any ki
 
 If you believe a listing or review is inaccurate or breaches these terms, please contact us first so we can review it; most issues are resolved this way. Corrections follow the process in our [Listing Accuracy Policy](/legal/listing-accuracy); review concerns follow our [Review Guidelines](/legal/review-guidelines).
 
-These terms are governed by the laws of [governing jurisdiction], and the courts of [venue] have exclusive jurisdiction over any dispute, except where applicable consumer law provides otherwise.
+These terms are governed by the laws of Pending, and the courts of Pending have exclusive jurisdiction over any dispute, except where applicable consumer law provides otherwise.
 
 ## Changes to these terms
 

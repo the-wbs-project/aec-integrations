@@ -1,0 +1,201 @@
+<!doctype html>
+<!--
+  Home OpenGraph share card — 1200×630 source template (AECI-276).
+
+  Rendered to apps/web/public/branding/home-og.png by scripts/render-home-og.mjs
+  (Playwright Chromium). This file is the editable source of the shipped PNG; edit
+  here, then regenerate with `pnpm --filter @aeci/web og:home`.
+
+  Design contract (DESIGN.md Faire anchor, docs/design/unified-home-direction.md):
+  light editorial, evergreen (no live numbers), white surface, Forest accent, Bone
+  warmth, borders not shadows, sentence case, no em dashes. Copy is the canonical
+  §4.1 one-liner, split into headline + subline. The wordmark is the official AEC
+  Integrations primary logo (system-font lockup + Clay connector, per
+  branding/logo-construction.md), inlined transparent so it sits on the white card.
+-->
+<html lang="en-US">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <!-- Same Google Fonts request the live site uses (apps/web/src/index.html). -->
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible+Next:ital,wght@0,400..700;1,400..700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&display=swap"
+    />
+    <style>
+      :root {
+        --surface: #ffffff;
+        --bone: #f5f2ea;
+        --forest: #1e3a2f;
+        --clay: #e89668;
+        --text-primary: #0a0a0a;
+        --text-secondary: #52525b;
+        --border: #e4e4e7;
+        --font-display: 'Source Serif 4', Georgia, 'Times New Roman', serif;
+        --font-body: 'Atkinson Hyperlegible Next', system-ui, -apple-system, 'Segoe UI', sans-serif;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+      }
+
+      /* The card. A 10px Forest edge anchors the brand (a structural accent, not a
+         shadow); a hairline frame keeps the white surface from floating. */
+      .card {
+        position: relative;
+        width: 1200px;
+        height: 630px;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-inline-start: 10px solid var(--forest);
+        font-family: var(--font-body);
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 84px 92px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0;
+      }
+
+      .brand svg {
+        height: 46px;
+        width: auto;
+        display: block;
+      }
+
+      .body {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        flex: 1 1 auto;
+        padding-block: 28px;
+      }
+
+      .headline {
+        font-family: var(--font-display);
+        font-weight: 600;
+        font-size: 68px;
+        line-height: 1.08;
+        letter-spacing: -0.012em;
+        color: var(--forest);
+        max-width: 940px;
+      }
+
+      .subline {
+        margin-top: 28px;
+        font-family: var(--font-body);
+        font-weight: 400;
+        font-size: 32px;
+        line-height: 1.35;
+        color: var(--text-secondary);
+      }
+
+      .footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 28px;
+        border-top: 1px solid var(--border);
+      }
+
+      .domain {
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 24px;
+        letter-spacing: 0.01em;
+        color: var(--forest);
+      }
+
+      /* Bone tag echoing the wordmark's Clay connector — a quiet brand signature. */
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        background: var(--bone);
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        padding: 10px 20px;
+        font-family: var(--font-body);
+        font-weight: 600;
+        font-size: 20px;
+        color: var(--forest);
+      }
+
+      .tag svg {
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <div class="brand">
+        <!-- Official primary wordmark (branding/primary-logo-transparent.svg),
+             inlined transparent: Forest "AEC" / "Integrations" with the locked Clay
+             connector. System-font lockup by design (branding/logo-construction.md). -->
+        <svg viewBox="0 0 280 80" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <text
+            x="10"
+            y="47"
+            font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+            font-size="22"
+            font-weight="600"
+            fill="#1E3A2F"
+            letter-spacing="-0.3"
+          >
+            AEC
+          </text>
+          <circle cx="65.25" cy="40" r="2.5" fill="#E89668" />
+          <line x1="68.75" y1="40" x2="75.75" y2="40" stroke="#E89668" stroke-width="1.5" />
+          <circle cx="79.25" cy="40" r="2.5" fill="#E89668" />
+          <text
+            x="86.5"
+            y="47"
+            font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+            font-size="22"
+            font-weight="300"
+            fill="#1E3A2F"
+            letter-spacing="-0.3"
+          >
+            Integrations
+          </text>
+        </svg>
+      </div>
+
+      <div class="body">
+        <div class="headline">The independent directory of AEC software integrations.</div>
+        <div class="subline">No vendor marketing. No pay-for-placement.</div>
+      </div>
+
+      <div class="footer">
+        <span class="domain">aecintegrations.com</span>
+        <span class="tag">
+          <svg
+            width="40"
+            height="10"
+            viewBox="0 0 40 10"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
+          >
+            <circle cx="5" cy="5" r="3" fill="#E89668" />
+            <line x1="9" y1="5" x2="31" y2="5" stroke="#E89668" stroke-width="2" />
+            <circle cx="35" cy="5" r="3" fill="#E89668" />
+          </svg>
+          Independent directory
+        </span>
+      </div>
+    </div>
+  </body>
+</html>

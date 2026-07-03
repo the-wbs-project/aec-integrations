@@ -1,0 +1,1 @@
+ALTER TABLE `reviews` ADD `reviewer_firm` text;

@@ -61,12 +61,15 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.linear.reconcile.attempt` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | `outcome` (cleared / still_failing) — submits the **row count** as the value, so query with `sum:` |
 | `aeci.linear.reconcile.persistent_failure` | count | `apps/api/src/lib/reconciliation-sweep.ts` (`runReconciliationSweep`, AECI-214) | — (count of requests stuck past the persistent threshold AND still failing after a retry; the alert signal — submits the row count, query with `sum:`) |
 | `aeci.linear.reconcile.email` | count | `apps/api/src/lib/admin-alert.ts` (`sendAdminAlert`, AECI-214; transport AECI-240) | `outcome` (sent / failed / skipped) — sends via Resend; `skipped` when `RESEND_API_KEY` / `ADMIN_ALERT_EMAIL` are absent (the seam is fail-open and the Datadog alert is the backstop) |
+| `aeci.request.moderation.action` | count | `apps/api/src/routes/admin-requests.ts` (`emitRequestModeration`, AECI-216 / Phase 6.9 — the `PATCH /api/admin/requests/:id` resolve/reject handler) | `action` (`resolve` / `reject`), `outcome` (`ok` / `invalid_state`) — one count per moderation attempt; `invalid_state` is the §6.9 preload guard (422 when the target isn't `open`/`in_review`) |
 | `aeci.email.send` | count | `apps/api/src/lib/email.ts` (the Resend transactional client, AECI-240 / Phase 7.5 — review submit/approve/reject confirmations, the account-deletion email, and the reconcile-sweep admin alert) | `outcome` (sent / failed / skipped), `template` (`review-submitted` / `review-approved` / `review-rejected` / `account-deleted` / `stuck-request-alert`) — fail-open; `skipped` when `RESEND_API_KEY` / `EMAIL_FROM` / the recipient are absent (see `docs/email.md`) |
 | `aeci.data_quality.job` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily 04:00 UTC cron, AECI-241 / Phase 7.6) | `trigger` (cron), `outcome` (success / failed) — one heartbeat per completed run (incl. the pre-run crash path); `outcome:failed` is the failure signal, the always-emitted `{trigger:cron}` series is the liveness signal |
 | `aeci.data_quality.job.duration_ms` | distribution | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron) | `trigger` (cron) |
 | `aeci.data_quality.check` | gauge | `apps/api/src/scheduled.ts` (`runDataQualityJob`, daily cron, AECI-241) | `check` (the check id, e.g. `products_without_vendor` / `broken_integration_refs` / `reviews_missing_anonymized_at` / `algolia_index_drift`), `severity` (error / warn) — **value is the issue count or 0** (emitted every run so a monitor can break down by check and detect no-data); a check that threw emits the sentinel **-1** |
 | `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the Datadog monitors are the delivery backstop) |
-| `aeci.moderation.ban` | count | _deferred — the reviewer-ban handler, **AECI-218 / Phase 6.11** (the ban write-path is unbuilt; see the deferred-metric note below)_ | `action` (`ban` / `unban`), `outcome` (`ok`) — **planned contract, not yet emitted** |
+| `aeci.waf.ratelimit.blocked` | count | `apps/api/src/lib/waf-metrics.ts` (`emitWafEventMetrics`, from the hourly WAF poll in `apps/api/src/scheduled.ts` `runWafMetricsJob`, AECI-262) | `rule` (CF rule id), `action` (block / managed_challenge / …), `host`, `source` (ratelimit / firewallcustom) — **value is the event count, so query with `sum:`** (gotcha 3); only mitigation actions counted |
+| `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
+| `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
 of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
@@ -78,6 +81,24 @@ requests.
 
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.
+
+### Measuring the D1 read-replication latency win (AECI-250)
+
+The edge-read-latency thesis (ADR 0016) is realized by the D1 Sessions API:
+reads default to the `'first-unconstrained'` session anchor and are served by the
+nearest replica. **The signal is the existing `aeci.api.query.duration_ms`
+distribution** (no new metric) — split by `endpoint`, it already isolates the
+representative reads (`/api/products`, `/api/products/:slug`, `/api/vendors/:slug`,
+`/api/integrations/:id`).
+
+To quantify the delta: capture a baseline p50/p95 on those `endpoint` slices, then
+enable read replication on the database (Cloudflare dashboard → D1 → *db* →
+Settings → Enable Read Replication, or REST `read_replication:{"mode":"auto"}`)
+and compare. The win is **prod-only** (local/preview run a single un-replicated
+SQLite; `getDb` falls back to the plain binding there) and only appears **after**
+the per-database flip — the code ships inert-safe before it. Replica reads also
+surface in the D1 binding's own analytics (`served_by_region` / `served_by_colo`
+on query results) for a region-routing sanity check.
 
 `aeci.api.data_gap` (AECI-115) surfaces curated-data gaps that used to be hidden by
 silent fabrication. A product with no `ProductVendor` row now renders an empty state
@@ -138,7 +159,7 @@ count (`outcome:success` = every key written/skipped cleanly, `partial` = some w
 `failed` = nothing wrote and ≥1 key failed), one job-level `aeci.stats.compute.duration_ms`
 distribution, plus per-key `aeci.stats.compute.key` (`outcome:written|skipped|failed`) and
 `aeci.stats.compute.key.duration_ms` so a dashboard/monitor sees *which* `home.*` key failed or
-slowed without reading logs. The pre-compute crash path (a Prisma-init throw before `runHomeStats`)
+slowed without reading logs. The pre-compute crash path (a DB-client-init throw before `runHomeStats`)
 stays an inline single `aeci.stats.compute{outcome:failed}` count — like the Algolia crash path, it
 isn't a completed run. Because every completed invocation (and the crash path) emits exactly one
 job-level `aeci.stats.compute{trigger:cron}` point regardless of outcome, that series is the
@@ -239,15 +260,34 @@ the throughput signal (and, paired against a sudden zero, the "secret rotated bu
 deliveries bouncing" tell); `…hmac_failure` is the security/mis-config signal behind the
 `monitor-webhook-hmac-failure.json` alert. The full dashboard + alert land in 6.12 (AECI-219, below).
 
-`aeci.moderation.ban` (count, `action:ban|unban` × `outcome:ok`) is a **deferred contract**, documented
-here ahead of its feature the same way the browser `aeci.search.query` RUM metric was reserved by AECI-141
-before AECI-174 implemented it. The reviewer-**ban management** write-path (admin sets `profiles.banned_at`
-+ `ban_reason`) is **AECI-218 / Phase 6.11**, still unbuilt — Phase 5 (AECI-197) only *enforces* an
-existing ban on review submit; nothing yet *writes* one outside SQL. So there is no emit, dashboard widget,
-or monitor for it yet: the emit (one count per ban/unban, alongside the §9 `appendAuditLog()` +
-`workflow_transition`) and its dashboard widget land **with AECI-218**, not with this observability issue
-(6.12 depends only on 6.4 + 6.5). This row reserves the name + tag vocabulary so the feature issue doesn't
-re-invent it.
+`aeci.moderation.ban` (count, `action:ban|unban` × `outcome:ok|invalid_state|forbidden`) **shipped with
+AECI-218 / Phase 6.11**: the reviewer-**ban management** write-path (`PATCH /api/admin/reviewers/:id`,
+admin sets/clears `profiles.banned_at` + `ban_reason`) emits one count per ban/unban attempt via
+`emitBanAction` in `apps/api/src/routes/admin-reviewers.ts`, alongside the §9 `appendAuditLog()` + the
+reversible `reviewer_ban` `workflow_transition`. Phase 5 (AECI-197) only *enforces* an existing ban on
+review submit; the *write* path is this Phase 6 handler (the ban *action* is raised from the moderation
+queue's repeat-offender prompt — `docs/STAGE_1_PHASE_6_SPEC.md` §9). It rides the Phase 6 dashboard +
+monitors shipped by AECI-219 / Phase 6.12 (`observability/datadog/`).
+
+`aeci.waf.ratelimit.blocked` / `aeci.waf.poll` (AECI-262, §15.1) surface the Cloudflare WAF
+rate-limit + scraper-challenge mitigations (`docs/waf-rate-limits.md`) in Datadog. Enterprise
+Logpush is the "push" path Cloudflare offers; we're on **Pro**, so the API Worker's hourly cron
+(`runWafMetricsJob`) **polls** instead — it reads the previous clock hour of the zone's
+`firewallEventsAdaptiveGroups` over the GraphQL Analytics API
+(`packages/shared/src/cloudflare-analytics.ts`) and `submitCount`s one
+`aeci.waf.ratelimit.blocked` point per mitigation group (`rule`/`action`/`host`/`source`). **Its
+value is the event count, not 1, so query it with `sum:` / `sum:…{}.as_count()`** (gotcha 3);
+only mitigation actions (block / challenge) are counted — `allow`/`log`/`skip` are dropped. A
+quiet hour emits no blocked points (a count series is sparse — silence = no attacks), so
+cron-liveness rides the **separate** always-emitted `aeci.waf.poll{outcome:ok}` heartbeat
+(`outcome:failed` on a Cloudflare error, `outcome:skipped_no_creds` when `CF_ANALYTICS_API_TOKEN`
+is absent — the local/preview/pre-provisioning state, a silent no-op). Same failure + liveness
+split as Algolia/stats. The poll is **per-env host-scoped** (each env filters to its own
+`PUBLIC_SITE_URL` host) because all envs share one Cloudflare zone — an unscoped query would
+count the same zone-wide events under every `env:` tag. The "WAF rate-limit / challenge spike"
+monitor alerts on a sustained `aeci.waf.ratelimit.blocked` spike (no `notify_no_data`); there is
+no committed dashboard widget yet (this is a post-launch shim — add one if the signal proves
+worth a panel).
 
 ### Three gotchas when querying
 
@@ -384,6 +424,7 @@ nine monitors were applied 2026-06-12 with that substitution.
 | Linear webhook HMAC failures | `aeci.webhooks.linear.hmac_failure` > 3 over 1h | `observability/datadog/monitor-webhook-hmac-failure.json` |
 | Linear reconciliation: persistent stuck requests | any `aeci.linear.reconcile.persistent_failure` in the last 1h | `observability/datadog/monitor-linear-reconcile-stuck.json` |
 | Linear reconciliation sweep not running | no `aeci.linear.reconcile.stuck` gauge for ~1h (no-data liveness) | `observability/datadog/monitor-linear-reconcile-no-data.json` |
+| WAF rate-limit / challenge spike | `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m (`env:production`) | `observability/datadog/monitor-waf-ratelimit-spike.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
@@ -399,7 +440,7 @@ Home stats (AECI-180) follow the **same failure + liveness split**. "Home stats 
 alerts when either the per-key `aeci.stats.compute.key{outcome:failed}` count or the job-level
 `aeci.stats.compute{outcome:failed}` count is non-zero (no `notify_no_data` — both are empty on a
 healthy run). The per-key term names the offending `home.*` key; the job-level term also catches a
-**pre-compute crash** (a Prisma-init throw before `runHomeStats`), which emits the job-level
+**pre-compute crash** (a DB-client-init throw before `runHomeStats`), which emits the job-level
 `outcome:failed` heartbeat but no per-key points. That term is load-bearing — the crash also emits
 the `{trigger:cron}` liveness heartbeat, which keeps the "not running" monitor green, so without the
 job-level failure term a total crash would slip past **both** monitors. "Home stats not running" is the
@@ -452,6 +493,16 @@ its sole job is the no-data heartbeat; the backlog *value* is alerted by the per
 Same rule as Algolia/stats: keep the failure and liveness concerns on separate metrics. Thresholds
 (50% / 3-per-hour / ~1h) are launch-tunable starting points. The Phase 6 **ban-action** metric
 (`aeci.moderation.ban`) and its monitor are deferred to AECI-218 / Phase 6.11 (the feature is unbuilt).
+
+**"WAF rate-limit / challenge spike"** (AECI-262) is a single **threshold** monitor on
+`sum:aeci.waf.ratelimit.blocked{env:production}.as_count() > 500 / 15m`, **no** `notify_no_data` —
+a quiet hour emits nothing (no attacks = healthy), so a no-data alert would be constant noise, and
+the metric is value-bearing so it uses `sum:` + `.as_count()` (gotcha 3). Detection lags up to ~1h
+because the source is an hourly poll. Cron-liveness is intentionally **not** folded in here — it
+rides the separate always-emitted `aeci.waf.poll{outcome:ok}` heartbeat (same failure + liveness
+split as Algolia/stats), so a liveness no-data monitor on that series is an easy add if the poll
+ever needs one. The 500/15m threshold is a launch-tunable placeholder — set it once baseline
+mitigation volume is known.
 
 ## Browser search RUM (`aeci.search.query`, AECI-174)
 

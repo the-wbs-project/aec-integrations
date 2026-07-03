@@ -19,7 +19,13 @@
  * Composition (mirrors `cacheTagsForPromote`, expressed as URLs):
  *   - product → `/products/{slug}` detail + `/products` index.
  *   - each vendor → `/vendors/{slug}` detail.
- *   - each integration → `/integrations/{id}` detail (UUID route).
+ *   - each integration with both endpoint slugs → the canonical pair page
+ *     `/products/{context}/integrations/{other}` (Stage 1.5, §6.2 / §7.3; context =
+ *     alphabetically-first slug; the other orientation canonicalises to it). This is
+ *     the *only* URL an integration contributes — the retired `/integrations/{id}`
+ *     detail route (Stage 1.5 / AECI-294) now 301-redirects to the pair page, and
+ *     submitting a redirecting URL to indexing services is undesirable, so AECI-298
+ *     dropped it. An integration missing either endpoint slug contributes nothing.
  *   - each touched taxonomy term (created *and* reused — the product's facet
  *     membership changed either way) → `/{categories|audiences|phases}/{slug}`
  *     browse page.
@@ -29,15 +35,14 @@
  *     re-fetch it on their own and `updated_at`/`<lastmod>` covers it (§20.5
  *     step 5).
  *
- * Intentional divergence from `cacheTagsForPromote`: that deriver emits **no**
- * integration tags while integration seeding is disabled (AECI-86; see its
- * doc-comment). IndexNow still submits `/integrations/{id}` when the response
- * carries integrations — §20.2 lists integrations as a write trigger and the
- * public route exists, so submitting the URL is correct and harmless (IndexNow is
- * idempotent). Keep the asymmetry; do not "fix" it to match the tag deriver.
+ * This now models the same "what changed" set as `cacheTagsForPromote` for
+ * integrations — both point at the pair page, not the retired detail route
+ * (AECI-298 resolved the earlier interim asymmetry).
  */
 
 import type { PromoteResponse } from '@aeci/shared';
+
+import { sortedPairSlugs } from './promote-pair';
 
 /**
  * Returns the deduplicated set of absolute public URLs to submit to IndexNow for
@@ -60,10 +65,19 @@ export function affectedUrlsForPromote(response: PromoteResponse, baseUrl: strin
     urls.add(`${base}/vendors/${vendor.slug}`);
   }
 
-  // Integration detail pages (UUID-keyed). See the intentional-divergence note
-  // in the module doc-comment (AECI-86).
+  // Pair pages (Stage 1.5, §6.2 / §7.3): an integration contributes only the
+  // consolidated product-pair page at the canonical default-context URL
+  // `/products/{context}/integrations/{other}` (context = alphabetically-first
+  // slug; the other orientation canonicalises to it). The legacy
+  // `/integrations/{id}` route is a 301 redirect now, so it is not submitted
+  // (AECI-298). Slugs come from the response integration results (populated by the
+  // claims ingest, AECI-297); guard on both — an integration missing either slug
+  // contributes no URL.
   for (const integration of response.integrations) {
-    urls.add(`${base}/integrations/${integration.id}`);
+    if (integration.sourceSlug && integration.targetSlug) {
+      const [context, other] = sortedPairSlugs(integration.sourceSlug, integration.targetSlug);
+      urls.add(`${base}/products/${context}/integrations/${other}`);
+    }
   }
 
   // Taxonomy browse pages: one per touched term (created and reused). The URL

@@ -77,6 +77,10 @@ export type TaxonomyCounts = z.infer<typeof TaxonomyCountsSchema>;
 export const STATS_CACHE_KEYS = [
   'home.total_integrations',
   'home.integrations_added_30d',
+  'home.total_products',
+  'home.total_vendors',
+  'home.total_reviews',
+  'home.total_contributing_firms',
   'home.most_integrated_product',
   'home.most_active_category',
   'home.recent_integrations',
@@ -109,6 +113,10 @@ export type StatsCacheKey = (typeof STATS_CACHE_KEYS)[number];
 export const statsCacheValueSchemas = {
   'home.total_integrations': z.number().int().min(0),
   'home.integrations_added_30d': z.number().int().min(0),
+  'home.total_products': z.number().int().min(0),
+  'home.total_vendors': z.number().int().min(0),
+  'home.total_reviews': z.number().int().min(0),
+  'home.total_contributing_firms': z.number().int().min(0),
   'home.most_integrated_product': MostIntegratedProductSchema,
   'home.most_active_category': MostActiveCategorySchema,
   'home.recent_integrations': z.array(IntegrationListItemSchema).max(10),
@@ -136,6 +144,14 @@ export const statsCacheValueSchemas = {
 export const HomeStatsResponseSchema = z.object({
   total_integrations: statsCacheValueSchemas['home.total_integrations'],
   integrations_added_30d: statsCacheValueSchemas['home.integrations_added_30d'],
+  // Coverage counts for the home credibility strip (AECI-271, +AECI-284). Scalars
+  // with a valid empty (`0`); the strip suppresses each metric at 0 (no "0 reviews",
+  // no "0 firms"). `total_contributing_firms` is the distinct count of normalized
+  // reviewer firms among approved reviews (AECI-284).
+  total_products: statsCacheValueSchemas['home.total_products'],
+  total_vendors: statsCacheValueSchemas['home.total_vendors'],
+  total_reviews: statsCacheValueSchemas['home.total_reviews'],
+  total_contributing_firms: statsCacheValueSchemas['home.total_contributing_firms'],
   most_integrated_product: statsCacheValueSchemas['home.most_integrated_product'].nullable(),
   most_active_category: statsCacheValueSchemas['home.most_active_category'].nullable(),
   recent_integrations: statsCacheValueSchemas['home.recent_integrations'],

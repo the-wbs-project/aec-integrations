@@ -12,8 +12,18 @@
  * minutes (see `RECONCILE_CRON` in `scheduled.ts`) — a tight backstop, not a
  * daily batch. `data_quality` is the daily 04:00 UTC §23.1 data-quality suite
  * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
+ * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
+ * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
+ * read) and always runs inline.
  */
-export type ScheduledJob = 'sync' | 'drift' | 'stats' | 'moderation' | 'reconcile' | 'data_quality';
+export type ScheduledJob =
+  | 'sync'
+  | 'drift'
+  | 'stats'
+  | 'moderation'
+  | 'reconcile'
+  | 'data_quality'
+  | 'waf';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -52,18 +62,12 @@ export type Env = {
    * Cloudflare D1 binding for the application database (ADR 0016, AECI-252).
    * Accessed via the Drizzle client factory `getDb(env)` (`src/db/client.ts`),
    * which asserts its presence. `wrangler dev` serves a local SQLite copy;
-   * staging/production bind per-env databases. Replaces the Prisma Accelerate
-   * `DATABASE_URL` path. Optional during the migration (test/tooling contexts
-   * lack it); tightens to required in Phase 5 (AECI-256) once Prisma is removed.
+   * staging/production bind per-env databases. The application DB is D1 only —
+   * the former Prisma Accelerate `DATABASE_URL` path is gone (ADR 0016 / AECI-278).
+   * Optional because some test/tooling contexts construct a partial Env without
+   * a binding.
    */
   DB?: D1Database;
-  /**
-   * Prisma Accelerate URL (`prisma://...`). DEPRECATED by ADR 0016 — retained
-   * only while the Prisma→Drizzle query rewrite (AECI-253) is in flight; goes
-   * optional then removed in Phase 5 (AECI-256). Still required while `prisma.ts`
-   * and its call sites exist.
-   */
-  DATABASE_URL: string;
   /**
    * Supabase service-role key (auth project only), used by the split-identity
    * seams (ADR 0016 §3 / AECI-254): `auth.users` email reads (seam #2) and GDPR
@@ -115,7 +119,7 @@ export type Env = {
   LINEAR_WEBHOOK_SIGNING_SECRET?: string;
   /**
    * KV namespace for `GET /api/taxonomy` read-through caching (AECI-54).
-   * Optional: handler falls back to a direct Prisma fetch when the binding is
+   * Optional: handler falls back to a direct D1 read when the binding is
    * absent (e.g. local `wrangler dev` without `--remote`). 5-minute TTL is
    * the staleness bound until admin/purge lands (Phase 2.10).
    */
@@ -135,9 +139,24 @@ export type Env = {
   /**
    * Cloudflare zone ID the promote purge targets (AECI-105). Public value, set
    * per environment alongside `CF_PURGE_API_TOKEN`. Optional: absent → cache
-   * purge is a graceful no-op.
+   * purge is a graceful no-op. Also reused (as the GraphQL `zoneTag`) by the
+   * AECI-262 WAF firewall-event poll.
    */
   CF_ZONE_ID?: string;
+  /**
+   * Cloudflare API token used by the hourly WAF firewall-event poll
+   * (`scheduled.ts` `runWafMetricsJob`, AECI-262 / §15.1) to read the zone's
+   * `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emit the
+   * `aeci.waf.ratelimit.blocked` count. Scope: `Zone Analytics: Read` on
+   * `aecintegrations.com` — a DIFFERENT scope than `CF_PURGE_API_TOKEN`
+   * (`Zone.Cache Purge`), so it is its own secret. One un-suffixed GH secret
+   * covers the shared zone across all envs; CI pushes it per env (deploy.yml /
+   * promote-to-demo.yml / promote-to-prod.yml — graceful warn-skip, no hard gate).
+   * Optional + fail-safe: absent (with `CF_ZONE_ID`) → the poll logs
+   * `outcome:skipped_no_creds` and no-ops (local/preview/pre-provisioning). See
+   * `docs/waf-rate-limits.md` §5.
+   */
+  CF_ANALYTICS_API_TOKEN?: string;
   /**
    * IndexNow key for the post-promote URL submission (AECI-236, §20.2). Also the
    * contents of the `{key}.txt` verification file the SSR Worker serves at the
@@ -166,6 +185,28 @@ export type Env = {
    * dead host).
    */
   PUBLIC_SITE_URL?: string;
+  /**
+   * Google Indexing API service-account email (`client_email` from the SA JSON)
+   * for the best-effort post-promote ping (AECI-263, §20.2). The `iss` of the
+   * RS256 JWT the Worker signs to obtain an OAuth access token. Set as a Wrangler
+   * secret. Optional + fail-open: absent (with or without
+   * `GOOGLE_INDEXING_SA_PRIVATE_KEY` / `PUBLIC_SITE_URL`) → the promote Google
+   * Indexing submission is a graceful no-op (local `dev:bound` / PR previews /
+   * pre-launch).
+   *
+   * **Provision ONLY at public launch**, on the env whose web Worker has
+   * `ALLOW_INDEXING="true"` — alongside `INDEXNOW_KEY`. Pinging Google for a
+   * `noindex` site is a correctness bug; the secret's absence is the enforcement.
+   */
+  GOOGLE_INDEXING_SA_EMAIL?: string;
+  /**
+   * Google Indexing API service-account private key (`private_key` from the SA
+   * JSON): a PKCS#8 PEM (`-----BEGIN PRIVATE KEY-----`), RSA-2048. Signs the
+   * assertion JWT (AECI-263). Set as a Wrangler secret; `\n`-escaped single-line
+   * values are normalized to real newlines before import. Optional + fail-open
+   * like `GOOGLE_INDEXING_SA_EMAIL` above — provision ONLY at launch.
+   */
+  GOOGLE_INDEXING_SA_PRIVATE_KEY?: string;
   /**
    * Algolia application id (AECI-134). Single, shared across envs (one app;
    * only indexes/keys differ). Provisioned in Phase 3.1. Optional until the

@@ -178,6 +178,10 @@ export class ReviewForm {
   /** Whether the years field has been blurred (gates its error display). */
   protected readonly yearsTouched = signal(false);
 
+  /** Free-text firm/company (optional, AECI-284). Trimmed + nulled-if-blank at
+   *  submit; feeds the home credibility strip's contributing-firms count. */
+  protected readonly firm = signal('');
+
   protected readonly stars: readonly number[] = [1, 2, 3, 4, 5];
 
   protected readonly roleOptions: ReadonlyArray<Choice<RoleValue>> = [
@@ -295,6 +299,10 @@ export class ReviewForm {
     this.yearsUsing.set((event.target as HTMLInputElement).value);
   }
 
+  protected onFirmInput(event: Event): void {
+    this.firm.set((event.target as HTMLInputElement).value);
+  }
+
   /** Parse the years field: `undefined` (empty), a number, or `'invalid'`. */
   private parseYears(): number | undefined | 'invalid' {
     const raw = this.yearsUsing().trim();
@@ -330,6 +338,7 @@ export class ReviewForm {
     const role = this.roleSel()[0]?.value;
     const recommend = this.recommendSel()[0]?.value;
     const years = this.parseYears();
+    const firm = this.firm().trim();
     return {
       product_id: v.product_id,
       rating_overall: v.rating_overall,
@@ -339,6 +348,7 @@ export class ReviewForm {
       ...(role ? { role_at_company: role } : {}),
       ...(typeof years === 'number' ? { years_using: years } : {}),
       ...(recommend ? { would_recommend: recommend } : {}),
+      ...(firm ? { reviewer_firm: firm } : {}),
     };
   }
 

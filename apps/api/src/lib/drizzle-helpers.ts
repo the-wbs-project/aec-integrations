@@ -20,18 +20,30 @@
  * `select` discipline gave us.
  */
 
-import { ProductUsefulnessSchema } from '@aeci/shared';
+import {
+  claimDirectionForContext,
+  computeAgreement,
+  computeSyncHeadline,
+  integrationDirectionForContext,
+  ProductUsefulnessSchema,
+  RATING_VISIBILITY_MIN_REVIEWS,
+} from '@aeci/shared';
 import type {
   AccountReview,
   AdminReview,
   AdminVendorRequest,
+  ClaimDirection,
   IntegrationDetail,
   IntegrationListItem,
   IntegrationMechanismKind,
   LinkRef,
+  PairClaimAttestation,
   ProductDetail,
   ProductLink,
   ProductListItem,
+  ProductPairClaim,
+  ProductPairMechanism,
+  ProductPairResponse,
   ProductRole,
   ProductUsefulness,
   PublicReview,
@@ -99,6 +111,49 @@ export const integrationDetailConfig = {
     targetProduct: { columns: productLinkColumns },
     builtByVendor: { columns: vendorLinkColumns },
     poweredByProduct: { columns: productLinkColumns },
+  },
+} as const;
+
+/**
+ * Pair-page mechanism hydration (Stage 1.5 §7 — AECI-294). Like the detail
+ * config but drops the redundant `mechanism_url`/`pricing_model`/`maturity`
+ * fields (unused by the pair card) while keeping source/target — needed to
+ * translate the stored direction into the context product's frame.
+ */
+export const integrationPairConfig = {
+  columns: {
+    id: true,
+    name: true,
+    mechanismKind: true,
+    mechanismName: true,
+    direction: true,
+    description: true,
+    listingUrl: true,
+    docsUrl: true,
+  },
+  with: {
+    sourceProduct: { columns: productLinkColumns },
+    targetProduct: { columns: productLinkColumns },
+    builtByVendor: { columns: vendorLinkColumns },
+    poweredByProduct: { columns: productLinkColumns },
+    // Layer B (§8 — AECI-300): the `data_object` claims on this mechanism, each
+    // with its stored direction + AECi-seeded attestations, mapped to a
+    // context-relative claim with computed agreement in `toProductPairClaim`.
+    claims: {
+      columns: { id: true, direction: true },
+      with: {
+        dataObject: { columns: { slug: true, name: true, displayOrder: true } },
+        attestations: {
+          columns: {
+            source: true,
+            asserted: true,
+            note: true,
+            introducedAt: true,
+            deprecatedAt: true,
+          },
+        },
+      },
+    },
   },
 } as const;
 
@@ -191,6 +246,7 @@ export const adminReviewConfig = {
     roleAtCompany: true,
     yearsUsing: true,
     wouldRecommend: true,
+    reviewerFirm: true,
     verifiedWorkEmail: true,
     locale: true,
     status: true,
@@ -352,6 +408,37 @@ export interface RawIntegrationDetailRow extends RawIntegrationListRow {
   poweredByProduct: RawProductLink | null;
 }
 
+export interface RawClaimAttestationRow {
+  source: string;
+  asserted: boolean;
+  note: string | null;
+  introducedAt: string | null;
+  deprecatedAt: string | null;
+}
+
+export interface RawPairClaimRow {
+  id: string;
+  direction: string;
+  dataObject: { slug: string; name: string; displayOrder: number | null };
+  attestations: RawClaimAttestationRow[];
+}
+
+export interface RawIntegrationPairRow {
+  id: string;
+  name: string | null;
+  mechanismKind: string | null;
+  mechanismName: string | null;
+  direction: string | null;
+  description: string | null;
+  listingUrl: string | null;
+  docsUrl: string | null;
+  sourceProduct: RawProductLink;
+  targetProduct: RawProductLink;
+  builtByVendor: RawVendorLink | null;
+  poweredByProduct: RawProductLink | null;
+  claims: RawPairClaimRow[];
+}
+
 export interface RawProductListRow {
   id: string;
   slug: string;
@@ -414,6 +501,7 @@ export interface RawAdminReviewRow {
   roleAtCompany: string | null;
   yearsUsing: number | null;
   wouldRecommend: string | null;
+  reviewerFirm: string | null;
   verifiedWorkEmail: boolean;
   locale: string;
   status: string;
@@ -487,6 +575,13 @@ export function coerceDirection(raw: string | null): 'one-way' | 'bidirectional'
   return null;
 }
 
+/** Narrow a `claims.direction` string (DB check-constrained — §6.1) to the typed
+ *  union. Fail loud on an unexpected value rather than silently mis-rendering. */
+export function coerceClaimDirection(raw: string, claimId: string): ClaimDirection {
+  if (raw === 'a_to_b' || raw === 'b_to_a' || raw === 'both') return raw;
+  throw new Error(`Data integrity: claim ${claimId} has unknown direction "${raw}"`);
+}
+
 function toProductRole(raw: string, productId: string): ProductRole {
   if (raw === 'application' || raw === 'connector' || raw === 'hybrid') return raw;
   throw new Error(`Data integrity: product ${productId} has unknown product_role "${raw}"`);
@@ -545,6 +640,90 @@ export function toIntegrationDetail(raw: RawIntegrationDetailRow): IntegrationDe
   };
 }
 
+function toPairClaimAttestation(raw: RawClaimAttestationRow): PairClaimAttestation {
+  return {
+    source: raw.source as PairClaimAttestation['source'],
+    asserted: raw.asserted,
+    note: raw.note,
+    introduced_at: raw.introducedAt,
+    deprecated_at: raw.deprecatedAt,
+  };
+}
+
+/** One `data_object` claim on a mechanism (§8), with its stored direction
+ *  translated to the context product's frame (§3.2) and its agreement computed
+ *  from the attestation set (§3.4 — never stored, ADR 0018). `contextIsSource`
+ *  is whether the page's context product is the integration's endpoint A. */
+function toProductPairClaim(raw: RawPairClaimRow, contextIsSource: boolean): ProductPairClaim {
+  return {
+    data_object_slug: raw.dataObject.slug,
+    data_object_name: raw.dataObject.name,
+    direction: claimDirectionForContext(
+      coerceClaimDirection(raw.direction, raw.id),
+      contextIsSource,
+    ),
+    agreement: computeAgreement(raw.attestations),
+    attestations: raw.attestations.map(toPairClaimAttestation),
+  };
+}
+
+/** Order claims for stable rendering: by the data_object's curated
+ *  `display_order`, then name — independent of D1 row order. */
+function compareClaims(a: RawPairClaimRow, b: RawPairClaimRow): number {
+  const oa = a.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER;
+  const ob = b.dataObject.displayOrder ?? Number.MAX_SAFE_INTEGER;
+  if (oa !== ob) return oa - ob;
+  return a.dataObject.name.localeCompare(b.dataObject.name);
+}
+
+/** One mechanism row on the pair page, with its direction translated to the
+ *  context product's frame (§3.2 / §7) and its `data_object` claims (§8).
+ *  `mechanism_name` is the integration's own title, falling back to the
+ *  mechanism label; source/target are redundant on the pair page (both are the
+ *  page's endpoints) so they are not surfaced. */
+function toProductPairMechanism(
+  raw: RawIntegrationPairRow,
+  contextProductId: string,
+): ProductPairMechanism {
+  const contextIsSource = raw.sourceProduct.id === contextProductId;
+  return {
+    id: raw.id,
+    mechanism_kind: toMechanismKind(raw.mechanismKind, raw.id),
+    mechanism_name: raw.name ?? raw.mechanismName,
+    direction: integrationDirectionForContext(coerceDirection(raw.direction), contextIsSource),
+    description: raw.description,
+    listing_url: raw.listingUrl,
+    docs_url: raw.docsUrl,
+    built_by_vendor: raw.builtByVendor ? toVendorLink(raw.builtByVendor) : null,
+    powered_by_product: raw.poweredByProduct ? toProductLink(raw.poweredByProduct) : null,
+    claims: [...raw.claims]
+      .sort(compareClaims)
+      .map((claim) => toProductPairClaim(claim, contextIsSource)),
+  };
+}
+
+/**
+ * Assemble the product-PAIR response (§7 + §8). Both products hydrate as
+ * `ProductListItem` (vendor + review recap) for the rail; each integration row
+ * becomes a mechanism with a context-relative direction and its `data_object`
+ * claims. `sync_headline` is derived from every claim on the pair via
+ * `computeSyncHeadline` (§3.5) — `confirmed` is `0` in Stage 1.5 (no vendor
+ * attestations), `total` is the distinct claim count across all mechanisms.
+ */
+export function toProductPairResponse(
+  contextProduct: RawProductListRow,
+  otherProduct: RawProductListRow,
+  integrations: RawIntegrationPairRow[],
+): ProductPairResponse {
+  const mechanisms = integrations.map((row) => toProductPairMechanism(row, contextProduct.id));
+  return {
+    context_product: toProductListItem(contextProduct),
+    other_product: toProductListItem(otherProduct),
+    mechanisms,
+    sync_headline: computeSyncHeadline(mechanisms.flatMap((m) => m.claims)),
+  };
+}
+
 function pickPrimaryCategory(
   rows: Array<{ category: RawTaxonomyLinkWithOrder }>,
 ): { id: string; name: string; slug: string } | null {
@@ -573,6 +752,12 @@ export function pickPrimaryVendor(
 }
 
 export function toProductListItem(raw: RawProductListRow): ProductListItem {
+  // §5.5 gate (shared with `toProductDetail` + the `rating` sort): a product's
+  // averages are withheld until it has ≥5 approved reviews, so the list/grid/
+  // search cards never render a statistically misleading sub-5 average. The
+  // `review_count` itself is always truthful (a card may show "N reviews"
+  // without an average).
+  const ratingsVisible = raw.reviewCount >= RATING_VISIBILITY_MIN_REVIEWS;
   return {
     id: raw.id,
     slug: raw.slug,
@@ -583,8 +768,8 @@ export function toProductListItem(raw: RawProductListRow): ProductListItem {
     primary_category: pickPrimaryCategory(raw.productCategories),
     integration_count: raw.integrationCount,
     review_count: raw.reviewCount,
-    rating_overall_avg: raw.ratingOverallAvg,
-    rating_onboarding_avg: raw.ratingOnboardingAvg,
+    rating_overall_avg: ratingsVisible ? raw.ratingOverallAvg : null,
+    rating_onboarding_avg: ratingsVisible ? raw.ratingOnboardingAvg : null,
     created_at: raw.createdAt,
     updated_at: raw.updatedAt,
   };
@@ -620,6 +805,7 @@ export function toAdminReview(
     id: raw.id,
     product: { id: raw.product.id, name: raw.product.name, slug: raw.product.slug },
     reviewer_email: raw.reviewerId ? (emailByReviewerId.get(raw.reviewerId) ?? null) : null,
+    reviewer_firm: raw.reviewerFirm,
     rating_overall: raw.ratingOverall,
     rating_onboarding: raw.ratingOnboarding,
     title: raw.title,
@@ -791,13 +977,11 @@ export function toProductDetail(
   relatedProducts: RawProductListRow[],
   reviews: RawPublicReviewRow[] = [],
 ): ProductDetail {
+  // `toProductListItem` already applies the §5.5 ≥5-review gate (nulling the
+  // averages below the threshold), so the detail inherits it via the spread.
   const base = toProductListItem(raw);
-  // ≥5 gate (§5.5): averages withheld until ≥5 approved reviews.
-  const ratingsVisible = base.review_count >= 5;
   return {
     ...base,
-    rating_overall_avg: ratingsVisible ? base.rating_overall_avg : null,
-    rating_onboarding_avg: ratingsVisible ? base.rating_onboarding_avg : null,
     description: raw.description,
     website: raw.website,
     tool_integrations_url: raw.toolIntegrationsUrl,

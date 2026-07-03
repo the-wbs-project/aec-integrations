@@ -21,7 +21,8 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 |---|---|
 | `product:{slug}` | The product detail page for that slug |
 | `vendor:{slug}` | The vendor detail page for that slug |
-| `integration:{id}` | The integration detail page |
+| `pair:{min}__{max}` | The Stage 1.5 consolidated product-**pair** page (`/products/:context/integrations/:other`). `{min}`/`{max}` are the two product slugs in **alphabetical** order (`min` = context), so the tag is **orientation-independent** — both `/products/A/integrations/B` and its mirror carry the same `pair:` tag. The page also embeds `product:{slug}` for **both** products, so a promote touching either product — or a claim on the integration — purges it. Emitted by both the pair page SSR (AECI-294) and the promote deriver (`promote-cache-tags.ts` → `pairCacheTag`, AECI-297), which must stay in lockstep. |
+| `integration:{id}` | Stage 1.5 (AECI-294) retired the `/integrations/:id` detail page; this tag now rides the **301 redirect** to the pair page (so a promote on that integration can purge the cached redirect). |
 | `category:{slug}` | Category browse page |
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
@@ -44,7 +45,7 @@ Every cacheable response carries **at minimum**:
 Codified so callers don't re-derive the rules per surface:
 
 1. **Entity tag + route-class tag are mandatory.** Every cacheable response sets at least one entity-specific tag (e.g. `product:procore`) and exactly one route-class tag (`route:detail` | `route:index` | `route:browse`). A response that doesn't fit either category isn't cacheable — see §4.
-2. **Embedded entities also tag.** Any entity rendered in the response — even transitively — contributes a tag. A product detail page embeds its vendor → also `vendor:{vendor-slug}`. An integration page embeds both linked products → also `product:{source-slug}` and `product:{target-slug}`. A browse page lists every product matching the facet → tag each: `product:{slug-1}, product:{slug-2}, …`. A page that renders the taxonomy nav also carries `taxonomy`. This is what makes purge-by-tag exhaustive — editing a vendor invalidates every product page that displays it, with no URL bookkeeping.
+2. **Embedded entities also tag.** Any entity rendered in the response — even transitively — contributes a tag. A product detail page embeds its vendor → also `vendor:{vendor-slug}`. The product-PAIR page embeds both products → also `product:{context-slug}` and `product:{other-slug}` (plus each mechanism's `built_by` vendor / `powered_by` product, pushed by the resolver), and carries its own `pair:{min}__{max}` tag — so both a product edit and a claims-only promote (AECI-297) repaint it. A browse page lists every product matching the facet → tag each: `product:{slug-1}, product:{slug-2}, …`. A page that renders the taxonomy nav also carries `taxonomy`. This is what makes purge-by-tag exhaustive — editing a vendor invalidates every product page that displays it, with no URL bookkeeping.
 3. **Coarse tags for incident response.** `route:detail` / `route:index` / `route:browse` exist for bulk invalidation when something goes wrong at the route-class layer (e.g. a layout change that needs to repaint every detail page). Don't use them for routine writes.
 
 ### Cache-Tag header construction helper
@@ -60,7 +61,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities, id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -110,7 +111,8 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 |---|---|
 | `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
 | Browse (`/categories\|audiences\|phases/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
-| Detail (`/products/:slug`, `/vendors/:slug`, `/integrations/:id`) | none — strip all |
+| Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
+| Product-PAIR page (`/products/:context/integrations/:other`) | `view` — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). |
 | Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
 | Home (`/`), `/about`, `/legal/*` | none — strip all |
 
@@ -167,6 +169,8 @@ Edge cache is keyed by URL. If SSR reads a request cookie (e.g. `theme=dark`) an
 This is *not* solvable with `Vary: Cookie` — see §7 below for which `Vary` values are permitted and which still fragment the cache. The cookie-stripping middleware lives at `apps/web/src/server.ts` (shipped in [AECI-35](https://linear.app/aec-integrations/issue/AECI-35); theme service test coverage added in [AECI-41](https://linear.app/aec-integrations/issue/AECI-41)). Cross-reference: `STAGE_1_SPEC.md` §9.1a.
 
 **Incremental hydration stays cache-neutral.** The two detail-page `@defer (on viewport; hydrate on viewport)` grids (`product-detail.ts` integrations, `vendor-detail.ts` products; AECI-130) SSR-render their main template instead of the `@placeholder`. The rendered rows come only from resolver data (no request cookie is read), so the SSR HTML remains visitor-state-neutral and the edge cache is not fragmented.
+
+**Client-only preference cookies are exempt — and MUST stay that way.** A per-visitor preference that the browser reconciles *after* hydration is cache-safe precisely because SSR never reads it, so it must **not** be added to `VISITOR_STATE_COOKIES` (that list is for cookies SSR *does* read, which are then stripped on the cacheable branch). Current example: the product-PAIR page's `aeci_pair_view` cookie remembers the reader's Basic/Detailed choice; it is written only on a toggle click and read only in `afterNextRender` (browser-only), so the SSR render always emits the `detailed` default and the URL-keyed edge entry stays shared. The deep-linkable `?view=` param (a cache-key fork, §4a) remains the source of truth; the cookie only supplies the default when the URL carries no `?view=`. The analytics-consent state (`localStorage`, `consent-banner.ts`) is the same pattern in a different store. The rule: if you introduce a per-visitor preference, reconcile it post-hydration from the client store — do **not** make SSR read it.
 
 ### 6.2 Pinned-404 trap
 

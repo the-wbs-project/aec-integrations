@@ -148,6 +148,34 @@ describe('GET /api/products', () => {
     expect(parsed.data.map((p) => p.slug)).toEqual(['best', 'good', 'ok', 'hidden']);
   });
 
+  it('applies the §5.5 gate to list rows: withholds sub-5 averages, keeps ≥5', async () => {
+    await seedProduct(u(1), 'shown', 'Shown', {
+      reviewCount: 5,
+      ratingOverallAvg: 4.2,
+      ratingOnboardingAvg: 3.8,
+    });
+    await seedProduct(u(2), 'hidden', 'Hidden', {
+      reviewCount: 4,
+      ratingOverallAvg: 4.9,
+      ratingOnboardingAvg: 4.7,
+    });
+
+    const parsed = ProductsListResponseSchema.parse(
+      await (await get(listApp(), '/api/products?sort=name')).json(),
+    );
+    const bySlug = new Map(parsed.data.map((p) => [p.slug, p]));
+
+    // ≥5 reviews → averages visible, so the card shows the same value the
+    // detail page does.
+    expect(bySlug.get('shown')?.rating_overall_avg).toBe(4.2);
+    expect(bySlug.get('shown')?.rating_onboarding_avg).toBe(3.8);
+    // <5 reviews → averages withheld (statistically misleading), but the
+    // review_count itself stays truthful.
+    expect(bySlug.get('hidden')?.rating_overall_avg).toBeNull();
+    expect(bySlug.get('hidden')?.rating_onboarding_avg).toBeNull();
+    expect(bySlug.get('hidden')?.review_count).toBe(4);
+  });
+
   it('filters by category_id and by search', async () => {
     await seedProduct(u(1), 'revit', 'Revit');
     await seedProduct(u(2), 'autocad', 'AutoCAD');

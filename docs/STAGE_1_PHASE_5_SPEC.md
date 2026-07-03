@@ -2,6 +2,19 @@
 
 Sibling to `STAGE_1_PHASE_2_SPEC.md`. Governs Phase 5 of the build order (`STAGE_1_SPEC.md` §16). Where this doc and §16 disagree, **this doc wins for Phase 5** (and §16 has been reconciled to point here). Planned 2026-06-10; decomposed into AECI Phase 5.1–5.16.
 
+> **Stack note (ADR 0016 / AECI-278):** this spec predates the move of the
+> application database to **Cloudflare D1 + Drizzle**. The authorization *flow*
+> below is unchanged, but the mechanics are now D1/Drizzle: read every
+> "privileged Prisma/Accelerate client" / "before any Prisma write" as the
+> **Drizzle** client (`getDb(env)`) writing to D1 — the role/ban check still
+> runs in the Worker before the write, and the audit row is written in the same
+> atomic `db.batch([...])`. D1 has no RLS, so the Worker guard is the **only**
+> authorization layer for app tables (PostgREST GRANTs / RLS no longer apply).
+> GDPR erasure deletes the D1 rows in the Worker and the `auth.users` row via
+> the Supabase Admin API (`AUTH_AND_RLS.md` §8). Supabase is retained for Auth
+> only; the `Profile`/`Review` field lists below match the Drizzle schema
+> (`apps/api/src/db/schema.ts`).
+
 ---
 
 ## 1. Goal
@@ -23,7 +36,7 @@ Phase 5 is **app code**. The data layer and authorization model shipped in earli
 - **`workflow_instances` / `workflow_transitions`** (generic FSM tables) exist — used by the Phase 6 moderation orchestration, **not** Phase 5 (§3.2).
 - **`appendAuditLog()`** (`packages/shared/src/audit-log.ts`) — production-ready, used by every state-changing write.
 - **Cache-neutrality** (`apps/web/src/server-runtime.ts`): `/auth/*`, `/account*`, `/api/*`, `/search` are **non-cacheable** and pass cookies through unchanged; only the `theme` cookie is stripped on cacheable routes. The Supabase session cookie therefore survives by design.
-- **Forms**: Signal Forms is the standard (ADR 0009, AECI-128); `apps/web/src/app/requests/request-form.ts` is the exemplar (model `signal()` + `form()` + `validateStandardSchema(p, ZodSchema)` against a shared `@aeci/shared` schema). Angular Aria for select/combobox/radio (ADR 0010 **Proposed**; AECI-133 is the designated first-Aria-form issue).
+- **Forms**: Signal Forms is the standard (ADR 0009, AECI-128); `apps/web/src/app/requests/request-form.ts` is the exemplar (model `signal()` + `form()` + `validateStandardSchema(p, ZodSchema)` against a shared `@aeci/shared` schema). Angular Aria for select/combobox/radio (ADR 0010 **Accepted**; AECI-133 — the first-Aria-form issue — was delivered by the AECI-200 review form, now the reference Aria-in-forms impl). Note: Aria@22 ships no `radio`/`select`, so those are realised via listbox/combobox, and discrete-choice controls bridge into Signal Forms via `[(value)]`+`(valueChange)` rather than `[formField]` (native inputs only).
 - **Authorization model**: `AUTH_AND_RLS.md` is **complete** (not a placeholder — CLAUDE.md note corrected). It already specifies the three-layer model and, critically for Phase 5, the **Worker authorization layer** (§4: JWT verify → hard fail; role + ban check before Prisma; audit inside the transaction; endpoint-by-endpoint expectations; GDPR auth→public sync). Phase 5 **implements** AUTH_AND_RLS §4 — it does not redesign it.
 - **API contracts already specified** in `API_CONTRACTS.md`: `POST /api/reviews` (§6.6), `DELETE /api/account` (§6.8), `GET /api/admin/reviews` + `PATCH /api/admin/reviews/:id` (§6.10). Phase 5 implements these. **Gap filled by this spec:** a public reviews-list endpoint (§5.4) — added to API_CONTRACTS as part of Phase 5.1.
 

@@ -1,5 +1,5 @@
 /**
- * Resolves the public sort key on Phase 2.8 list endpoints to a Prisma
+ * Resolves the public sort key on Phase 2.8 list endpoints to a Drizzle
  * `orderBy` clause. Direction is fixed per `docs/STAGE_1_PHASE_2_SPEC.md` §7.4:
  *
  *   - `created → DESC` ("newest first" lists feel alive)
@@ -31,6 +31,7 @@
  * §7.4 default-direction rule lives in exactly one place.
  */
 
+import { RATING_VISIBILITY_MIN_REVIEWS } from '@aeci/shared';
 import type { IntegrationSort, ProductSort, VendorSort } from '@aeci/shared';
 import { asc, desc, sql, type SQL } from 'drizzle-orm';
 
@@ -39,9 +40,10 @@ import { integrations, products, vendors } from '../db/schema';
 type Direction = 'asc' | 'desc';
 
 // ---------------------------------------------------------------------------
-// Drizzle orderBy resolvers (ADR 0016 / AECI-253). Same §7.4 directions + the
-// stable `id ASC` tiebreaker, returning Drizzle `SQL[]` for `db.query.*` /
-// `.orderBy(...)`. Replace the Prisma resolvers above as each route migrates.
+// Drizzle orderBy resolvers (ADR 0016 / AECI-253) — the live sort path. Same
+// §7.4 directions + the stable `id ASC` tiebreaker, returning Drizzle `SQL[]`
+// for `db.query.*` / `.orderBy(...)`. (The legacy object-form `resolveProductSort`
+// below is retained only for the AECI-99 tiebreaker test; no route uses it.)
 // ---------------------------------------------------------------------------
 
 export function resolveProductOrderBy(sort: ProductSort): SQL[] {
@@ -59,7 +61,9 @@ export function resolveProductOrderBy(sort: ProductSort): SQL[] {
       // under DESC — so the order matches what the card actually shows. Tie-break
       // by review_count (more reviews = more confidence), then the stable id.
       return [
-        desc(sql`case when ${products.reviewCount} >= 5 then ${products.ratingOverallAvg} end`),
+        desc(
+          sql`case when ${products.reviewCount} >= ${RATING_VISIBILITY_MIN_REVIEWS} then ${products.ratingOverallAvg} end`,
+        ),
         desc(products.reviewCount),
         asc(products.id),
       ];

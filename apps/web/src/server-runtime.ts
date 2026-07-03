@@ -57,14 +57,15 @@
  * from cookie stripping (i.e. added to the non-cacheable list instead).
  */
 
-import { PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
+import { defaultIntegrationContext, LANDING_CF_HEADERS, PAGE_VIEW_CF_HEADERS } from '@aeci/shared';
+import type { IntegrationDetail } from '@aeci/shared';
 import { isPublicSite } from '@aeci/shared/deploy-env';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
 import type { WebEnv } from './env';
 import { submitCount, submitDistribution } from './server-datadog';
-import { createServerApiClient } from './server-api-client';
+import { createServerApiClient, isServerApiError } from './server-api-client';
 import { buildCacheTags, cacheTagInputsForPath, type CacheTagInputs } from './server/cache-tags';
 import { createRequestContext, type AeciRequestContext } from './server/request-context';
 import { buildRobotsTxt } from './server/robots';
@@ -327,12 +328,26 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },
   },
-  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-60 brought
-  // /integrations/:id onto this matrix (it was on a legacy 1hr/5min TTL before
-  // the detail page existed).
+  // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-294 retired
+  // the standalone /integrations/:id detail (now a 301 to the pair page) and
+  // added the product-PAIR page /products/:contextSlug/integrations/:otherSlug —
+  // a detail-class route on the same TTL. It is listed BEFORE the plain
+  // /products/:slug matcher for clarity (a three-segment path can't match the
+  // single-segment product pattern, so ordering here isn't load-bearing).
+  //
+  // The pair page SSR-renders a different layout for `?view=basic` (the Overview:
+  // sync headline + mechanism descriptions, no claim lanes) vs. the `detailed`
+  // default, so `view` is content-affecting and MUST be in the key — otherwise the
+  // two renders collapse onto one entry and serve wrong HTML. Same rationale as
+  // AECI-190's `/products ?view=table`; the pair route reads only `view`, so the
+  // listing union isn't reused here.
+  {
+    match: (p) => /^\/products\/[^/]+\/integrations\/[^/]+$/.test(p),
+    ttl: { edge: 900, browser: 0 },
+    cacheKeyParams: ['view'],
+  },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
-  { match: (p) => /^\/integrations\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   // Phase 2 Spec §8.3 — the `/products` index: edge 5 min, browser 0. The
   // shorter edge TTL is fine because the route also carries the `index:products`
   // tag that the /admin/purge endpoint can invalidate on writes; the browser is
@@ -580,6 +595,61 @@ export function withForwardedCfContext(request: Request): Request {
   const headers = new Headers(request.headers);
   for (const name of Object.values(PAGE_VIEW_CF_HEADERS)) headers.delete(name);
   applyCfContextHeaders(headers, request);
+  return new Request(request, { headers });
+}
+
+/**
+ * Cloudflare request context (`request.cf`) the API Worker needs to enrich the
+ * landing lead-capture rows (`mailing_list` / `feedback`, AECI-275). Like the
+ * page-view fields it is populated on the inbound eyeball request but does NOT
+ * survive the `env.API` service binding, so the SSR Worker copies it onto the
+ * trusted `LANDING_CF_HEADERS` (`x-aeci-cf-*`) before forwarding the unified
+ * home's closing-CTA island `POST /api/subscribe` + `/api/feedback`. Structural —
+ * only the fields we forward are read, so a `.cf`-less request (Node tests, local
+ * dev) is a clean no-op and geo simply stays null.
+ */
+interface LandingCfLike {
+  country?: string | null;
+  city?: string | null;
+  region?: string | null;
+  timezone?: string | null;
+  asOrganization?: string | null;
+  asn?: number | null;
+  metroCode?: number | null;
+}
+
+/**
+ * Set the trusted `LANDING_CF_HEADERS` from `request.cf`. Only fields that are
+ * actually present are set, so the API Worker sees a header exactly when the
+ * value exists. No-op when `request.cf` is absent.
+ */
+export function applyLandingCfHeaders(headers: Headers, request: Request): void {
+  const cf = (request as { cf?: LandingCfLike }).cf;
+  if (!cf) return;
+  if (cf.country) headers.set(LANDING_CF_HEADERS.country, cf.country);
+  if (cf.city) headers.set(LANDING_CF_HEADERS.city, cf.city);
+  if (cf.region) headers.set(LANDING_CF_HEADERS.region, cf.region);
+  if (cf.timezone) headers.set(LANDING_CF_HEADERS.timezone, cf.timezone);
+  if (cf.asOrganization) {
+    headers.set(LANDING_CF_HEADERS.asOrganization, String(cf.asOrganization));
+  }
+  if (typeof cf.asn === 'number') headers.set(LANDING_CF_HEADERS.asn, String(cf.asn));
+  if (typeof cf.metroCode === 'number') {
+    headers.set(LANDING_CF_HEADERS.metroCode, String(cf.metroCode));
+  }
+}
+
+/**
+ * Rebuild a proxied `POST /api/subscribe` or `/api/feedback` request carrying
+ * trusted CF geo context (AECI-275). The SSR Worker is the sole writer of
+ * `LANDING_CF_HEADERS`, so any client-supplied copies are stripped first
+ * (anti-spoof) before fresh values are set from `request.cf`. Body / method /
+ * other headers (incl. the body's UTM + referrer) pass through unchanged.
+ */
+export function withForwardedLandingCf(request: Request): Request {
+  const headers = new Headers(request.headers);
+  for (const name of Object.values(LANDING_CF_HEADERS)) headers.delete(name);
+  applyLandingCfHeaders(headers, request);
   return new Request(request, { headers });
 }
 
@@ -832,15 +902,24 @@ export function createApp(options: {
   // the API Worker untouched. No envelope normalization on this path; SSR
   // data loaders that want normalization go through `createServerApiClient`.
   //
-  // `POST /api/page-views` is the one enriched exception (AECI-177): the
-  // browser's view-capture POST is rebuilt with trusted Cloudflare request
-  // context headers (request.cf doesn't survive the binding) after stripping any
-  // client-supplied copies. Every other `/api/*` request still forwards
-  // `c.req.raw` byte-for-byte.
+  // Two enriched POST exceptions rebuild the request with trusted Cloudflare
+  // request-context headers (request.cf doesn't survive the binding) after
+  // stripping any client-supplied copies (anti-spoof):
+  //   - `POST /api/page-views` (AECI-177) → `PAGE_VIEW_CF_HEADERS`.
+  //   - `POST /api/subscribe` + `/api/feedback` (AECI-275) → `LANDING_CF_HEADERS`,
+  //     the closing-CTA island's lead-capture geo. UTM + referrer still ride the
+  //     body; only geo is header-forwarded.
+  // Every other `/api/*` request still forwards `c.req.raw` byte-for-byte.
   app.all('/api/*', (c) => {
     const req = c.req.raw;
-    if (req.method === 'POST' && new URL(req.url).pathname === '/api/page-views') {
-      return c.env.API.fetch(withForwardedCfContext(req));
+    if (req.method === 'POST') {
+      const { pathname } = new URL(req.url);
+      if (pathname === '/api/page-views') {
+        return c.env.API.fetch(withForwardedCfContext(req));
+      }
+      if (pathname === '/api/subscribe' || pathname === '/api/feedback') {
+        return c.env.API.fetch(withForwardedLandingCf(req));
+      }
     }
     return c.env.API.fetch(req);
   });
@@ -978,6 +1057,57 @@ export function createApp(options: {
   };
   app.get('/vendors', removedIndexRedirect);
   app.get('/integrations', removedIndexRedirect);
+
+  // AECI-294 (Stage 1.5) — the standalone `/integrations/:id` detail page was
+  // consolidated into the product-PAIR page. Any legacy link 301-redirects to the
+  // canonical pair URL: we resolve the integration's two product slugs via the
+  // API binding, pick the alphabetically-first as the context (`defaultIntegrationContext`
+  // — the SAME rule the pair route, canonical, and sitemap use), and redirect.
+  // The 301 is emitted as a standalone Response (NOT via `handleSsr`, which forces
+  // 3xx to `no-store`) so the permanent mapping stays edge-cacheable, and tagged
+  // `integration:{id}` so a promote touching that integration can purge the
+  // redirect. Slugs are immutable (§6.2), so the target is stable. Registered
+  // BEFORE the SSR catch-all so it wins. An unknown id is NOT redirected — it
+  // renders the standard SSR 404 (the Angular `**` wildcard: branded, accessible,
+  // `noindex`, with `NOT_FOUND_TTL` + `route:404`), exactly like a junk
+  // product/vendor slug, so junk ids never 301 to `/products`.
+  const pairRedirect = async (c: Context<{ Bindings: Bindings }>): Promise<Response> => {
+    const url = new URL(c.req.url);
+    const id = c.req.param('id');
+    // Delegate to the SSR pipeline so a missing/unknown id gets the real 404 page
+    // (accessible + noindex), not a bare text body. `/integrations/:id` is
+    // non-cacheable, so `handleSsr` renders the `**` wildcard and applies
+    // `NOT_FOUND_TTL` + `route:404` to the 404 response.
+    const notFound = () => handleSsr(c.req.raw, c.env, renderer, c.executionCtx, transformResponse);
+    if (!id) return notFound();
+
+    let integration: IntegrationDetail | null = null;
+    try {
+      integration = await createServerApiClient(c.env).request<IntegrationDetail>(
+        `/api/integrations/${encodeURIComponent(id)}`,
+      );
+    } catch (err) {
+      // A NOT_FOUND (unknown/malformed id) → render the SSR 404 below; any other
+      // API error is a real failure and must surface.
+      if (!(isServerApiError(err) && err.status === 404)) throw err;
+    }
+
+    if (!integration) return notFound();
+
+    const context = defaultIntegrationContext(integration.source.slug, integration.target.slug);
+    const other =
+      context === integration.source.slug ? integration.target.slug : integration.source.slug;
+
+    return new Response(null, {
+      status: 301,
+      headers: {
+        Location: `${url.origin}/products/${context}/integrations/${other}`,
+        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+        'Cache-Tag': `integration:${id}`,
+      },
+    });
+  };
+  app.get('/integrations/:id', pairRedirect);
 
   // Everything else: cache-aware SSR pipeline.
   app.all('*', (c) => {

@@ -1,12 +1,13 @@
 # ADR 0012: BrowserStack for cross-browser / real-device testing (Phase 7)
 
-**Status:** **Proposed** (2026-06-09)
+**Status:** **Accepted** (2026-06-25; proposed 2026-06-09)
 
 **Context owner:** Chris Walton
 
-Tracks **AECI-154**. A **recommendation**, not yet ratified — the CI fan-out is Phase 7 work; see
-"Decision" for the proposed posture and "Follow-ups" for what flips this to **Accepted**. Adds to the
-testing approach in `docs/TESTING_STRATEGY.md` §7/§9; supersedes nothing.
+Tracks **AECI-154**. **Ratified and shipped** in Phase 7.8 (AECI-154): the CI fan-out landed as the
+non-blocking BrowserStack lane (`apps/web/browserstack.yml`, `apps/web/playwright.browserstack.config.ts`,
+`.github/workflows/browserstack.yml`). See "Decision" for the posture and "Follow-ups" for what shipped.
+Adds to the testing approach in `docs/TESTING_STRATEGY.md` §7/§9; supersedes nothing.
 
 ---
 
@@ -32,8 +33,8 @@ free PR-blocking lane.
 
 ## Decision
 
-**Proposed posture: adopt BrowserStack as the cross-browser / real-device approach for Phase 7, as a
-separate non-blocking lane — not a replacement for any existing layer.**
+**Accepted posture: adopt BrowserStack as the cross-browser / real-device approach (shipped in Phase
+7.8), as a separate non-blocking lane — not a replacement for any existing layer.**
 
 1. **MCP server now (done).** The BrowserStack MCP server (`@browserstack/mcp-server`) is wired + verified,
    for ad-hoc real-device checks during UI work (pairs with the `/impeccable` + Mobbin design loop and the
@@ -79,9 +80,17 @@ separate non-blocking lane — not a replacement for any existing layer.**
 
 **Follow-ups**
 
-- **Phase 7 (AECI-154):** add `browserstack-node-sdk` + `browserstack.yml` + the non-blocking CI job;
-  curated smoke subset; CF-Access headers; confirm subscription products (Automate vs Live vs App Automate
-  vs Percy).
+- **Phase 7.8 (AECI-154) — SHIPPED:** `browserstack-node-sdk` + `apps/web/browserstack.yml` +
+  `apps/web/playwright.browserstack.config.ts` (curated read-only smoke subset:
+  `smoke`/`home`/`products-detail`/`search`/`facets`) + the non-blocking
+  `.github/workflows/browserstack.yml` job (post-merge `workflow_run` after `deploy` + dispatch + weekly,
+  against deployed staging); CF-Access headers via Playwright `extraHTTPHeaders`, no tunnel; Percy **not**
+  adopted (Chromatic stays the visual tool — `TESTING_STRATEGY.md` §9.5).
+- **Inert until provisioned:** the lane **skips green** until `gh secret set BROWSERSTACK_USERNAME` /
+  `BROWSERSTACK_ACCESS_KEY` (personal subscription) — `CF_ACCESS_*` already exist as repo secrets. Confirm
+  the subscription includes the **Automate** product (real iOS Safari Playwright is Automate-only) and a
+  parallel-session quota ≥ the 5-platform matrix; reconcile the `deviceName`/`osVersion` strings against
+  BrowserStack's live device list at provisioning.
 - **Pre-launch:** one-off full real-device sweep + BrowserStack accessibility audit as a launch gate.
-- **Ratify:** on sign-off, flip this ADR **Proposed → Accepted** and promote `TESTING_STRATEGY.md`
-  §7.7/§9.5 from "planned" to the documented approach.
+- **Ratified:** this ADR flipped **Proposed → Accepted** (2026-06-25) and `TESTING_STRATEGY.md` §7.7/§9.5
+  were promoted from "planned" to the documented approach.

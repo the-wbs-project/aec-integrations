@@ -37,11 +37,9 @@
 #   CLOUDFLARE_API_TOKEN       Scoped per docs/CICD_PLAN.md §7.1 (Workers + D1 +
 #                              Queues edit).
 #   CLOUDFLARE_ACCOUNT_ID      e62ec9d8012c3e0c225f8e4dbab76b79.
-#   DATABASE_URL_PRODUCTION    Prisma Accelerate `prisma://...` for the SHARED
-#                              prod Supabase project. Pushed to the demo API
-#                              Worker as its `DATABASE_URL` secret so /api/health
-#                              is db:ok and admin email reads work. (Demo shares
-#                              the prod Supabase project — same value as prod.)
+#   (No DATABASE_URL_PRODUCTION — the demo app DB is Cloudflare D1 `aeci-app-demo`
+#    (ADR 0016); /api/health's db:ok check runs over the `DB` binding. The Prisma
+#    Accelerate runtime path is retired, AECI-253.)
 #
 # Recommended GH Actions secrets (warn-and-skip; demo is not launch-critical):
 #   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET  Service token for the staging
@@ -52,10 +50,14 @@
 #   ALGOLIA_ADMIN_KEY          Shared Algolia admin key — a SINGLE key across all
 #                              envs (it reaches every index; `--env` is only an
 #                              index-name prefix, not a per-env key scope).
-#   ALGOLIA_SEARCH_KEY_DEMO    Demo-only query-only key (client-exposed; scoped to
-#                              the `demo_*` indexes so the showcase browser can't
-#                              query the live `production_*` set).
-#   SUPABASE_ANON_KEY_PRODUCTION  Shared publishable key (same Supabase project).
+#   ALGOLIA_SEARCH_KEY         Single shared query-only key (client-exposed).
+#                              NOTE: previously a demo-scoped key restricted the
+#                              showcase browser to `demo_*` indexes; the shared
+#                              key must cover demo_* (and no longer enforces that
+#                              isolation on its own — index scoping is per-env).
+#   SUPABASE_ANON_KEY          Shared publishable/anon key — the SINGLE shared
+#                              auth project, un-suffixed, identical for every env
+#                              (ADR 0017).
 #   ANTHROPIC_API_KEY_PRODUCTION / RESEND_API_KEY_PRODUCTION / POSTHOG_KEY_PRODUCTION
 #                              Shared fail-open keys (reused on demo).
 #   DATADOG_API_KEY            Deploy marker.
@@ -122,21 +124,24 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL_PRODUCTION: ${{ secrets.DATABASE_URL_PRODUCTION }}
           CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           REVIEW_APP_TOKEN: ${{ secrets.REVIEW_APP_TOKEN }}
           ALGOLIA_APP_ID: ${{ secrets.ALGOLIA_APP_ID }}
           ALGOLIA_ADMIN_KEY: ${{ secrets.ALGOLIA_ADMIN_KEY }}
-          ALGOLIA_SEARCH_KEY_DEMO: ${{ secrets.ALGOLIA_SEARCH_KEY_DEMO }}
-          SUPABASE_ANON_KEY_PRODUCTION: ${{ secrets.SUPABASE_ANON_KEY_PRODUCTION }}
+          ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
           RESEND_API_KEY_PRODUCTION: ${{ secrets.RESEND_API_KEY_PRODUCTION }}
           POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
+          CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           ENV_LABEL: demo
-          REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID DATABASE_URL_PRODUCTION'
-          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY_DEMO SUPABASE_ANON_KEY_PRODUCTION ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION POSTHOG_KEY_PRODUCTION DATADOG_API_KEY'
+          REQUIRED_SECRETS: 'CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID'
+          # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the
+          # hourly WAF firewall-event poll — recommended/fail-safe (absent → the poll
+          # no-ops outcome:skipped_no_creds).
+          RECOMMENDED_SECRETS: 'CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET REVIEW_APP_TOKEN ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION POSTHOG_KEY_PRODUCTION DATADOG_API_KEY CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       # Assert STAGING (the immediate upstream tier) is at the SHA on BOTH the API
@@ -185,10 +190,6 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
 
-      # wrangler-action bypasses the package.json `deploy` script chain, so
-      # generate the Prisma client explicitly before bundling the API Worker.
-      - run: pnpm --filter @aeci/api exec prisma generate
-
       # The SSR Worker's `main` is a pre-built artifact (dist/server/server.mjs);
       # `wrangler deploy` does not generate it, so build inline here.
       - run: pnpm --filter @aeci/web build
@@ -227,16 +228,17 @@ jobs:
 
       # ADR 0016 / AECI-256: apply the app DB's D1 schema to the demo D1
       # (aeci-app-demo) and reconcile the taxonomy reference data BEFORE the API
-      # Worker deploys (it reads/writes via getDb(env)). Idempotent.
+      # Worker deploys (it reads/writes via getDb(env)). Idempotent. The shared
+      # helper retries each remote D1 command on a transient Cloudflare D1 API
+      # internal error ([code: 7500]) — a single blip otherwise aborts the whole
+      # promote (observed run 28671935011); safe because every command is
+      # idempotent. See scripts/d1-apply-migrations.sh.
       - name: Apply D1 migrations (demo)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         working-directory: apps/api
-        run: |
-          set -euo pipefail
-          pnpm exec wrangler d1 migrations apply aeci-app-demo --env demo --remote
-          pnpm exec wrangler d1 execute aeci-app-demo --env demo --remote --file=seed/taxonomy.sql
+        run: bash "$GITHUB_WORKSPACE/scripts/d1-apply-migrations.sh" aeci-app-demo demo
 
       # API deploys FIRST (the SSR Worker's services.API binding targets aeci-api-demo).
       - name: Deploy API (demo)
@@ -247,25 +249,10 @@ jobs:
         working-directory: apps/api
         run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # Push DATABASE_URL to the demo API Worker (from DATABASE_URL_PRODUCTION —
-      # demo shares the prod Supabase project). Required: /api/health is db:ok only
-      # with it, and the smoke gate below fails the promote otherwise. printf (not
-      # echo) avoids a trailing newline that would corrupt the URL.
-      - name: Push DATABASE_URL to API Worker (demo)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_PRODUCTION }}
-        working-directory: apps/api
-        run: |
-          set -euo pipefail
-          if [ -z "$DATABASE_URL_VALUE" ]; then
-            echo "::error::DATABASE_URL_PRODUCTION secret is empty. The demo API Worker reuses the prod Supabase Accelerate URL for /api/health + admin email reads."
-            exit 1
-          fi
-          printf '%s' "$DATABASE_URL_VALUE" \
-            | pnpm exec wrangler secret put DATABASE_URL --env demo
-
+      # (No DATABASE_URL push — the demo app DB is Cloudflare D1 `aeci-app-demo`
+      # (ADR 0016), reached via the `DB` binding and applied with `wrangler d1
+      # migrations apply`; the Prisma Accelerate runtime path is retired, AECI-253.
+      # /api/health's db:ok check runs over the D1 binding.)
       # Push REVIEW_APP_TOKEN (shared) so the demo catalog can be (re)promoted from
       # the review app. Warn-and-skip: absent → POST /api/promote is 401 on demo,
       # which only blocks re-seeding via the promote API (a clone/datatool seed
@@ -340,6 +327,27 @@ jobs:
           printf '%s' "$RESEND_API_KEY_VALUE" \
             | pnpm exec wrangler secret put RESEND_API_KEY --env demo
 
+      # AECI-262: push the Cloudflare Analytics token to the demo API Worker so the
+      # hourly WAF firewall-event poll (scheduled.ts runWafMetricsJob) can read the
+      # zone's firewallEventsAdaptiveGroups and emit aeci.waf.ratelimit.blocked.
+      # SINGLE shared token (Zone Analytics: Read on the shared zone), un-suffixed
+      # like SUPABASE_ANON_KEY. Optional + FAIL-SAFE — a missing key makes the poll a
+      # silent no-op (outcome:skipped_no_creds).
+      - name: Push CF_ANALYTICS_API_TOKEN to API Worker (demo)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CF_ANALYTICS_API_TOKEN_VALUE: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
+        working-directory: apps/api
+        run: |
+          set -euo pipefail
+          if [ -z "$CF_ANALYTICS_API_TOKEN_VALUE" ]; then
+            echo "::warning::CF_ANALYTICS_API_TOKEN not set — skipping. WAF→Datadog poll no-ops on demo (outcome:skipped_no_creds)."
+            exit 0
+          fi
+          printf '%s' "$CF_ANALYTICS_API_TOKEN_VALUE" \
+            | pnpm exec wrangler secret put CF_ANALYTICS_API_TOKEN --env demo
+
       - name: Deploy SSR (demo)
         id: deploy_ssr
         env:
@@ -348,18 +356,19 @@ jobs:
         working-directory: apps/web
         run: pnpm exec wrangler deploy --env demo --var COMMIT_SHA:${{ inputs.commit_sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
-      # Push the Supabase anon (publishable) key to the demo WEB Worker (shared
-      # prod project). Warn-and-skip: absent → demo auth surfaces 503 until set.
+      # Push the Supabase anon (publishable) key to the demo WEB Worker — the
+      # SINGLE shared auth project (ADR 0017). Warn-and-skip: absent → demo auth
+      # surfaces 503 until set.
       - name: Push SUPABASE_ANON_KEY to web Worker (demo)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_PRODUCTION }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$SUPABASE_ANON_KEY_VALUE" ]; then
-            echo "::warning::SUPABASE_ANON_KEY_PRODUCTION not set — skipping. Demo auth surfaces 503 auth_not_configured until it is provisioned."
+            echo "::warning::SUPABASE_ANON_KEY not set — skipping. Demo auth surfaces 503 auth_not_configured until it is provisioned."
             exit 0
           fi
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \
@@ -372,12 +381,12 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           ALGOLIA_APP_ID_VALUE: ${{ secrets.ALGOLIA_APP_ID }}
-          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY_DEMO }}
+          ALGOLIA_SEARCH_KEY_VALUE: ${{ secrets.ALGOLIA_SEARCH_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$ALGOLIA_APP_ID_VALUE" ] || [ -z "$ALGOLIA_SEARCH_KEY_VALUE" ]; then
-            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY_DEMO not set — skipping. Demo /search renders the degraded shell until they are provisioned."
+            echo "::warning::ALGOLIA_APP_ID / ALGOLIA_SEARCH_KEY not set — skipping. Demo /search renders the degraded shell until they are provisioned."
             exit 0
           fi
           printf '%s' "$ALGOLIA_APP_ID_VALUE" \
@@ -401,18 +410,17 @@ jobs:
           printf '%s' "$POSTHOG_KEY_VALUE" \
             | pnpm exec wrangler secret put POSTHOG_KEY --env demo
 
-      # Postflight: assert the demo API Worker carries the one secret it can't run
-      # without (DATABASE_URL → /api/health). Algolia is recommended on demo, so
-      # it is NOT in REQUIRED_WORKER_SECRETS (unlike production).
-      - name: Verify demo API Worker has required secrets
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          WRANGLER_ENV: demo
-          REQUIRED_WORKER_SECRETS: 'DATABASE_URL'
-        working-directory: apps/api
-        run: bash ../../scripts/verify-worker-secrets.sh
+      # (No Worker-secrets postflight on demo: the app DB is D1 `aeci-app-demo`
+      # reached via the `DB` binding — not a secret — and DATABASE_URL is retired
+      # (ADR 0016 / AECI-253). The /api/health smoke gate below still proves the
+      # DB is reachable. Algolia/REVIEW_APP_TOKEN are recommended, not required.)
 
+      # Warn-and-skip when DATADOG_API_KEY is absent (demo is a showcase, the
+      # marker is non-critical). The presence check lives in the step body, not a
+      # step-level `if:` — the `secrets` context is NOT available in `if:`
+      # (GitHub rejects the whole workflow at parse time → a startup failure that
+      # surfaces as a failed run on every push). Mirrors the other optional-secret
+      # steps in this workflow (REVIEW_APP_TOKEN, ALGOLIA, …).
       - name: Datadog deployment marker
         env:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
@@ -420,8 +428,8 @@ jobs:
           ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
-          if [ -z "$DATADOG_API_KEY" ]; then
-            echo "::warning::DATADOG_API_KEY not set — skipping demo deployment marker."
+          if [ -z "${DATADOG_API_KEY:-}" ]; then
+            echo "::warning::DATADOG_API_KEY not set — skipping the demo deployment marker."
             exit 0
           fi
           curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \

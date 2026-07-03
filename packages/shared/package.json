@@ -21,6 +21,10 @@
       "types": "./src/api/*.ts",
       "default": "./src/api/*.ts"
     },
+    "./agreement": {
+      "types": "./src/agreement.ts",
+      "default": "./src/agreement.ts"
+    },
     "./errors": {
       "types": "./src/errors/index.ts",
       "default": "./src/errors/index.ts"
@@ -52,6 +56,10 @@
     "./cache-purge": {
       "types": "./src/cache-purge.ts",
       "default": "./src/cache-purge.ts"
+    },
+    "./cloudflare-analytics": {
+      "types": "./src/cloudflare-analytics.ts",
+      "default": "./src/cloudflare-analytics.ts"
     },
     "./algolia-batch": {
       "types": "./src/algolia-batch.ts",

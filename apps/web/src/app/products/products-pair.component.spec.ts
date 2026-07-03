@@ -1,0 +1,315 @@
+/**
+ * ProductsPairPage render tests (AECI-294). Named `.component.spec.ts` so it
+ * runs under `ng test` (TestBed). The pair is delivered via a stub
+ * `ActivatedRoute` — the same channel `productsPairResolver` populates in
+ * production.
+ */
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideZonelessChangeDetection } from '@angular/core';
+import { TestBed } from '@angular/core/testing';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
+import { of } from 'rxjs';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { ContextDirection, ProductPairClaim, ProductPairResponse } from '@aeci/shared';
+
+import { ProductsPairPage } from './products-pair';
+
+const productListItem = (slug: string, name: string, overrides = {}) => ({
+  id: `00000000-0000-4000-8000-${slug.padEnd(12, '0')}`,
+  slug,
+  name,
+  logo_url: null,
+  product_role: 'application' as const,
+  vendor: null,
+  primary_category: null,
+  integration_count: 1,
+  review_count: 0,
+  rating_overall_avg: null,
+  rating_onboarding_avg: null,
+  created_at: '2026-01-01T00:00:00.000Z',
+  updated_at: '2026-01-02T00:00:00.000Z',
+  ...overrides,
+});
+
+const claim = (
+  slug: string,
+  name: string,
+  direction: ContextDirection,
+  note = 'Curated by AECi.',
+): ProductPairClaim => ({
+  data_object_slug: slug,
+  data_object_name: name,
+  direction,
+  agreement: 'unverified',
+  attestations: [
+    { source: 'aeci', asserted: true, note, introduced_at: null, deprecated_at: null },
+  ],
+});
+
+function buildPair(overrides: Partial<ProductPairResponse> = {}): ProductPairResponse {
+  return {
+    context_product: productListItem('procore', 'Procore'),
+    other_product: productListItem('revit', 'Revit'),
+    mechanisms: [
+      {
+        id: '00000000-0000-4000-8000-0000000000aa',
+        mechanism_kind: 'marketplace-app',
+        mechanism_name: 'Procore + Autodesk Construction Cloud',
+        direction: 'outbound',
+        description: 'The marketplace connector.',
+        listing_url: 'https://example.com/listing',
+        docs_url: null,
+        built_by_vendor: null,
+        powered_by_product: null,
+        claims: [],
+      },
+    ],
+    sync_headline: { total: 0, confirmed: 0 },
+    ...overrides,
+  };
+}
+
+/** A pair whose single mechanism carries claims (Layer B). */
+function buildPairWithClaims(claims: ProductPairClaim[]): ProductPairResponse {
+  const base = buildPair();
+  return {
+    ...base,
+    mechanisms: [{ ...base.mechanisms[0]!, claims }],
+    sync_headline: { total: claims.length, confirmed: 0 },
+  };
+}
+
+function setup(pair: ProductPairResponse | null, queryParams: Record<string, string> = {}) {
+  TestBed.configureTestingModule({
+    providers: [
+      provideZonelessChangeDetection(),
+      provideRouter([]),
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      {
+        provide: ActivatedRoute,
+        useValue: {
+          data: of({ pair }),
+          snapshot: { data: { pair } },
+          // The pair page reads `?view=` synchronously (SSR). `of()` satisfies
+          // toSignal's `requireSync`; default (no param) resolves to `detailed`.
+          queryParamMap: of(convertToParamMap(queryParams)),
+        },
+      },
+    ],
+  });
+  const fixture = TestBed.createComponent(ProductsPairPage);
+  fixture.detectChanges();
+  return { fixture, el: fixture.nativeElement as HTMLElement };
+}
+
+/** Flush the browser-only `afterNextRender` cookie read + the resulting update
+ *  (the remembered Basic/Detailed choice). Mirrors `ConsentBanner`'s harness. */
+async function hydrate(fixture: ReturnType<typeof setup>['fixture']): Promise<void> {
+  await fixture.whenStable();
+  await new Promise((resolve) => setTimeout(resolve));
+  fixture.detectChanges();
+}
+
+const PAIR_VIEW_COOKIE = 'aeci_pair_view';
+function setViewCookie(mode: 'basic' | 'detailed'): void {
+  document.cookie = `${PAIR_VIEW_COOKIE}=${mode}; path=/`;
+}
+function clearViewCookie(): void {
+  document.cookie = `${PAIR_VIEW_COOKIE}=; path=/; max-age=0`;
+}
+
+describe('ProductsPairPage', () => {
+  // Clear the persisted view before each test: the post-hydration cookie read
+  // would otherwise leak a prior test's choice into the "detailed by default"
+  // cases and make them order-dependent.
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    clearViewCookie();
+  });
+
+  it('renders the rail, heading, and a mechanism card', () => {
+    const { el } = setup(buildPair());
+
+    expect(el.querySelector('h1')?.textContent).toContain('How Procore and Revit exchange data');
+    // Both endpoints appear (rail + breadcrumb).
+    expect(el.textContent).toContain('Procore');
+    expect(el.textContent).toContain('Revit');
+    // Mechanism card: kind chip + name + external listing link.
+    expect(el.textContent).toContain('Marketplace app');
+    expect(el.textContent).toContain('Procore + Autodesk Construction Cloud');
+    expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
+  });
+
+  it('renders the context-relative direction for the mechanism', () => {
+    const { el } = setup(buildPair());
+    // Context = Procore, integration outbound → "Sends to Revit".
+    expect(el.textContent).toContain('Sends to Revit');
+  });
+
+  it('renders the empty data-flow band when the pair has no claims', () => {
+    const { el } = setup(buildPair());
+    expect(el.textContent).toContain('Data flows aren’t documented yet');
+  });
+
+  it('renders the sync headline + claim rows grouped by direction (Layer B)', () => {
+    const { el } = setup(
+      buildPairWithClaims([
+        claim('models', 'Models', 'outbound'),
+        claim('rfis', 'RFIs', 'inbound'),
+      ]),
+    );
+
+    // Sync headline leads with breadth; the empty band is gone.
+    expect(el.textContent).toContain('2 data objects sync');
+    expect(el.textContent).not.toContain('Data flows aren’t documented yet');
+    // Data-object rows, one per claim, each with a neutral badge + provenance.
+    expect(el.textContent).toContain('Models');
+    expect(el.textContent).toContain('RFIs');
+    expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(2);
+    expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(2);
+    expect(el.textContent).toContain('Unverified · AECi');
+    // Grouped into context-relative lanes (headings), not a standalone arrow.
+    expect(el.textContent).toContain('Sends to Revit');
+    expect(el.textContent).toContain('Receives from Revit');
+  });
+
+  it('suppresses the standalone mechanism arrow when the mechanism has claims', () => {
+    const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+    // "Sends to Revit" appears exactly once — as the lane heading, not also as a
+    // duplicate standalone mechanism arrow.
+    const occurrences = (el.textContent ?? '').split('Sends to Revit').length - 1;
+    expect(occurrences).toBe(1);
+    expect(el.querySelector('h3.aec-overline')?.textContent).toContain('Sends to Revit');
+  });
+
+  it('renders the singular sync headline for one claim', () => {
+    const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+    expect(el.textContent).toContain('1 data object syncs');
+  });
+
+  it('shows the empty-mechanisms message when the pair has no integrations', () => {
+    const { el } = setup(buildPair({ mechanisms: [] }));
+    expect(el.textContent).toContain('don’t have any integrations documented');
+  });
+
+  it('renders the NotFound shell when the pair is null', () => {
+    const { el } = setup(null);
+    expect(el.querySelector('aec-not-found')).toBeTruthy();
+  });
+
+  describe('Basic/Detailed view toggle', () => {
+    it('renders the toggle (Detailed pressed) when the pair has detail to hide', () => {
+      const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+
+      const group = el.querySelector('[role="group"]');
+      expect(group).toBeTruthy();
+      const buttons = group!.querySelectorAll('button');
+      expect(buttons).toHaveLength(2);
+      expect(buttons[0]!.textContent).toContain('Basic');
+      expect(buttons[1]!.textContent).toContain('Detailed');
+      // No ?view= → detailed default.
+      expect(buttons[0]!.getAttribute('aria-pressed')).toBe('false');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('hides the claim lanes in Basic view but keeps the sync headline, description, and links', () => {
+      const { el } = setup(
+        buildPairWithClaims([
+          claim('models', 'Models', 'outbound'),
+          claim('rfis', 'RFIs', 'inbound'),
+        ]),
+        { view: 'basic' },
+      );
+
+      // The "data transfers" (Layer-B claim rows + lane headings) are gone.
+      expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
+      expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(0);
+      expect(el.querySelector('h3.aec-overline')).toBeNull();
+      expect(el.textContent).not.toContain('Sends to Revit');
+      expect(el.textContent).not.toContain('Receives from Revit');
+      // The Overview essentials remain.
+      expect(el.textContent).toContain('2 data objects sync');
+      expect(el.textContent).toContain('The marketplace connector.');
+      expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
+      // Basic is the pressed segment.
+      const buttons = el.querySelectorAll('[role="group"] button');
+      expect(buttons[0]!.getAttribute('aria-pressed')).toBe('true');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('hides the standalone direction arrow in Basic view (no-claims mechanism)', () => {
+      const { el } = setup(buildPair(), { view: 'basic' });
+      // buildPair()'s mechanism has a direction but no claims → the Layer-A arrow
+      // is Detailed-only, so Basic drops it while keeping the description.
+      expect(el.textContent).not.toContain('Sends to Revit');
+      expect(el.textContent).toContain('The marketplace connector.');
+      expect(el.querySelector('[role="group"]')).toBeTruthy();
+    });
+
+    it('omits the toggle entirely when there is no detail to collapse', () => {
+      const base = buildPair();
+      const noDetail = buildPair({
+        mechanisms: [{ ...base.mechanisms[0]!, direction: null, claims: [] }],
+      });
+      const { el } = setup(noDetail);
+      expect(el.querySelector('[role="group"]')).toBeNull();
+    });
+  });
+
+  describe('Remembered view (cookie persistence)', () => {
+    // SSR cache-neutrality is structural: the cookie is read ONLY inside
+    // `afterNextRender`, which never runs during SSR — so the cached HTML always
+    // carries the `detailed` default and no visitor choice leaks into the shared
+    // edge entry. The browser test harness fires afterNextRender synchronously on
+    // the first CD (same as ConsentBanner), so there is no observable
+    // "before reconciliation" frame to assert; we assert the reconciled result.
+    it('defaults to the remembered Basic choice after hydration when the URL has no ?view=', async () => {
+      setViewCookie('basic');
+      const { fixture, el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+      await hydrate(fixture);
+
+      // The remembered Basic choice takes over: lanes collapse and the Basic
+      // segment becomes pressed — without any ?view= in the URL.
+      expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
+      const buttons = el.querySelectorAll('[role="group"] button');
+      expect(buttons[0]!.getAttribute('aria-pressed')).toBe('true');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('lets an explicit ?view= in the URL win over the remembered cookie', async () => {
+      setViewCookie('basic');
+      const { fixture, el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]), {
+        view: 'detailed',
+      });
+      await hydrate(fixture);
+
+      // The deep-linked (cache-forked) Detailed view is honored despite the Basic
+      // cookie — the URL param is the source of truth when present.
+      expect(el.querySelector('aec-agreement-badge')).toBeTruthy();
+      const buttons = el.querySelectorAll('[role="group"] button');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('writes the cookie and applies the choice when the toggle is clicked', () => {
+      const { fixture, el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+      // Stub the URL navigation (the fake ActivatedRoute can't back a real
+      // relative navigation); we assert the cookie write + the in-memory apply.
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+      const basicButton = el.querySelectorAll('[role="group"] button')[0] as HTMLButtonElement;
+      basicButton.click();
+      fixture.detectChanges();
+
+      expect(document.cookie).toContain(`${PAIR_VIEW_COOKIE}=basic`);
+      expect(navigate).toHaveBeenCalledWith(
+        [],
+        expect.objectContaining({ queryParams: { view: 'basic' }, queryParamsHandling: 'merge' }),
+      );
+      // The click applies immediately via the in-memory mirror (no round-trip).
+      expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
+    });
+  });
+});

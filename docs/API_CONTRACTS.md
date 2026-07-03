@@ -44,6 +44,7 @@ packages/shared/
 │   │   ├── integrations.ts    # IntegrationListItem / IntegrationDetail / IntegrationsListQuery / IntegrationsListResponse
 │   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Audience/Phase Detail, TaxonomyResponse
 │   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
+│   │   ├── landing.ts         # Subscribe / Feedback capture (POST /api/subscribe, /api/feedback)
 │   │   ├── reviews.ts         # (Phase 5)
 │   │   ├── requests.ts        # (Phase 6 — claim and correction)
 │   │   ├── stats.ts           # (Phase 4)
@@ -125,7 +126,7 @@ Per-entity defaults (Phase 2 Spec §7.4):
 - `/api/products`, `/api/vendors` → `created` (i.e. created DESC, "newest first")
 - `/api/integrations` → `name` (alphabetical; groups by source product since names render as `"Source → Target"`)
 
-`rating` ("Highest rated") and `reviews` ("Most reviewed") are **products-only** sorts (the `/products` index dropdown). For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` itself is applied on the **detail** mapper only (the list endpoint returns the raw average, since the index cards render no rating today).
+`rating` ("Highest rated") and `reviews` ("Most reviewed") are **products-only** sorts (the `/products` index dropdown). For `rating`, products whose rating is withheld by the §5.5 gate (`review_count < 5`) sort **last** — the orderBy nulls the sort key below the threshold so a single 5★ review can't outrank a well-reviewed 4.8★ product. The §5.5 gate that nulls `rating_overall_avg` / `rating_onboarding_avg` is applied on **both** the list and detail mappers (`toProductListItem` / `toProductDetail`), so a sub-5 product never emits a misleading average and the card / table / detail surfaces stay consistent. The shared threshold constant is `RATING_VISIBILITY_MIN_REVIEWS` (`@aeci/shared`); the `rating` sort reuses it in its `CASE` guard.
 
 `SortOrderSchema = z.enum(['asc', 'desc'])` is retained in `common.ts` for server-side helpers, but does not appear in any Phase 2 public query.
 
@@ -428,7 +429,7 @@ export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 
 #### `GET /api/products/facets`
 
-Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Prisma aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
 
 ```typescript
 export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
@@ -524,6 +525,72 @@ export type IntegrationsListResponse = z.infer<typeof IntegrationsListResponseSc
 export type IntegrationDetail = z.infer<typeof IntegrationDetailSchema>;
 ```
 
+> The standalone `/integrations/:id` **page** is retired in Stage 1.5 (AECI-294) — the SSR Worker 301-redirects it to the product-PAIR page. The `GET /api/integrations/:id` **endpoint** stays (the sitemap generator + the 301 handler read it to resolve a pair's two product slugs).
+
+#### `GET /api/products/:slug/integrations/:otherSlug` (Stage 1.5 · AECI-294 / AECI-300)
+
+The **product-PAIR read**. Consolidates every integration between two products into one context-oriented view (Stage 1.5 §7–§8). `:slug` is the **context** product; `:otherSlug` the other. Query resolves the unordered pair (matches integrations in either source/target orientation). Layer B (AECI-300) hydrates each mechanism's `data_object` claims + attestations and fills the `sync_headline`.
+
+```typescript
+// packages/shared/src/api/product-pairs.ts
+export const ContextDirectionSchema = z.enum(['outbound', 'inbound', 'both']);
+
+// The claim's computed agreement (§3.4 — computeAgreement, never stored). Only
+// `unverified` is reachable in Stage 1.5 (AECi-only attestations, AECi-never-red).
+export const AgreementStateSchema = z.enum(['unverified', 'confirmed', 'conflict']);
+
+// One attestation behind a claim (§3.3), for the AECi-annotated provenance (§8).
+export const PairClaimAttestationSchema = z.object({
+  source: z.enum(['aeci', 'vendor_a', 'vendor_b']),   // only `aeci` written in 1.5
+  asserted: z.boolean(),
+  note: z.string().nullable(),
+  introduced_at: z.string().nullable(),               // dormant version stamps (Stage 2)
+  deprecated_at: z.string().nullable(),
+});
+
+// One data_object claim on a mechanism (Layer B — §8). `direction` is already
+// translated to the context product's frame (§3.2); `agreement` is computed.
+export const ProductPairClaimSchema = z.object({
+  data_object_slug: z.string(),
+  data_object_name: z.string(),
+  direction: ContextDirectionSchema,
+  agreement: AgreementStateSchema,
+  attestations: z.array(PairClaimAttestationSchema),
+});
+
+export const ProductPairMechanismSchema = z.object({
+  id: z.string().uuid(),
+  mechanism_kind: IntegrationMechanismKindSchema.nullable(),
+  mechanism_name: z.string().nullable(),
+  direction: ContextDirectionSchema.nullable(),   // the stored one-way/bidirectional, translated context-relative (§3.2)
+  description: z.string().nullable(),
+  listing_url: z.string().url().nullable(),
+  docs_url: z.string().url().nullable(),
+  built_by_vendor: VendorLinkSchema.nullable(),
+  powered_by_product: ProductLinkSchema.nullable(),
+  claims: z.array(ProductPairClaimSchema).default([]),   // Layer B: [] for an unseeded mechanism
+});
+
+export const SyncHeadlineSchema = z.object({
+  total: z.number().int().min(0),      // distinct claims on the pair (all mechanisms/directions)
+  confirmed: z.number().int().min(0),  // vendor-confirmed — always 0 in Stage 1.5
+});
+
+export const ProductPairResponseSchema = z.object({
+  context_product: ProductListItemSchema,   // both products hydrate as ProductListItem (vendor + review recap)
+  other_product: ProductListItemSchema,
+  mechanisms: z.array(ProductPairMechanismSchema),
+  sync_headline: SyncHeadlineSchema,
+});
+export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
+```
+
+- **`direction`** (mechanism) is the integration row's stored `one-way`/`bidirectional` translated to the **context product's** frame: `one-way` → `outbound` when the context product is the integration's `source`, else `inbound`; `bidirectional` → `both`; `null` → `null` (§3.2, applied at the mechanism level).
+- **`claims[]`** (Layer B — §8) are the `data_object` flows on each mechanism. `direction` is the **claim-level** stored `a_to_b`/`b_to_a`/`both` translated to the context frame (§3.2 — distinct from the mechanism translation), and `agreement` is `computeAgreement(attestations)` (§3.4, `packages/shared/src/agreement.ts`) — always `unverified` in 1.5. Ordered by the `data_object`'s `display_order`. A `data_object` moving through two mechanisms is **two claims** (§3.1), never de-duplicated.
+- **`sync_headline`** = `computeSyncHeadline` over every claim on the pair (§3.5): `total` is the distinct claim count, `confirmed` is always `0` in Stage 1.5. `{ total: 0, confirmed: 0 }` for an unseeded/empty pair.
+- **Errors / status:** `NOT_FOUND` when either slug is unknown **or the two slugs are equal**. A valid-but-unconnected pair (both products exist, no integration between them) is a **200** with `mechanisms: []`.
+- SSR caching (pair page): detail TTL, `Cache-Tag: route:detail,pair:{min}__{max},product:{slug}×2` (see `CACHE_STRATEGY.md`).
+
 ### 6.4 Taxonomy
 
 #### `GET /api/categories`, `/api/audiences`, `/api/phases`
@@ -578,10 +645,23 @@ applies per-field if a cached value has drifted from its schema.
 `Cache-Control: private, no-store` (per `CACHE_STRATEGY.md` §4 — API responses are
 never edge-cached; daily-freshness edge caching is owned by the SSR home route).
 
+The coverage counts (`total_products` / `total_vendors` / `total_reviews` /
+`total_contributing_firms`) feed the home credibility strip (AECI-271 + AECI-284,
+§4.1 section 2). Products and vendors count every row (the DB holds only promoted
+rows — the promote pipeline is the gate); `total_reviews` counts only `approved`
+reviews; `total_contributing_firms` is the distinct count of the free-text
+`reviewer_firm` (normalized `lower(trim(...))`, non-blank) among `approved`
+reviews (AECI-284). All are plain scalars with a valid empty (`0`); the strip
+suppresses each at `0` (no "0 reviews", no "0 contributing firms").
+
 ```typescript
 export type HomeStatsResponse = {
   total_integrations: number;
   integrations_added_30d: number;
+  total_products: number;                // coverage counts (AECI-271)
+  total_vendors: number;
+  total_reviews: number;                 // approved reviews only
+  total_contributing_firms: number;      // distinct firms among approved reviews (AECI-284)
   most_integrated_product: {
     product: ProductRef;
     integration_count: number;
@@ -612,6 +692,7 @@ export const SubmitReviewSchema = z.object({
   role_at_company: z.enum(['practitioner', 'manager', 'IT', 'exec', 'other']).optional(),
   years_using: z.number().int().min(0).max(50).optional(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).optional(),
+  reviewer_firm: z.string().max(100).optional(), // AECI-284: trimmed server-side, null if blank
 });
 
 export type SubmitReviewResponse = {
@@ -660,7 +741,7 @@ Errors: `NOT_FOUND` (unknown product slug — distinct from a known product with
 
 - `review_count`, `rating_overall_avg`, `rating_onboarding_avg` — the denormalized summary columns (already on `ProductListItem`).
 - `reviews: PublicReview[]` — the **first page** of approved reviews (newest-first, same shape/order as page 1 of the list endpoint) so the product page renders reviews server-side without a client round-trip.
-- **≥5 averages gate:** when `review_count < 5`, both `rating_overall_avg` and `rating_onboarding_avg` are **`null`** on `ProductDetail` (a single-review average is statistically misleading — §5.5). The UI infers state from `review_count`: `0` → "Be the first to review", `1–4` → reviews shown / averages hidden, `5+` → averages shown. The gate is **`ProductDetail`-only**; `ProductListItem` (cards/lists) keeps its raw averages.
+- **≥5 averages gate:** when `review_count < 5`, both `rating_overall_avg` and `rating_onboarding_avg` are **`null`** (a single-review average is statistically misleading — §5.5). The UI infers state from `review_count`: `0` → "Be the first to review", `1–4` → reviews shown / averages hidden, `5+` → averages shown. The gate is applied on **both** `ProductListItem` (`toProductListItem`) and `ProductDetail` — list/grid/search cards render the gated overall rating (`RatingSummary`, AECI trust-audit P0), so a sub-5 average never reaches a card. `review_count` itself is always truthful (a card may show "N reviews" without an average). The gate also covers the denormalized Algolia `rating_overall_avg`'s consumer defensively: the `RatingSummary` card component re-checks `review_count >= RATING_VISIBILITY_MIN_REVIEWS`, so it is source-agnostic.
 
 ### 6.7 Vendor requests
 
@@ -819,7 +900,7 @@ export const PageViewPayloadSchema = z.object({
 export type PageViewPayload = z.infer<typeof PageViewPayloadSchema>;
 ```
 
-**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). The table + Prisma `PageView` model already exist (baseline migration), so there is no migration. A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
+**Phase 4 (AECI-177) wires the write.** The handler validates the body synchronously (so a malformed body still surfaces `400`), returns `204` immediately, and inserts one `page_views` row via `ctx.waitUntil()` — the write never blocks the response (§14.2). The `page_views` table already exists in the D1 schema (`apps/api/src/db/schema.ts`), so there is no migration. A capture failure is logged to Datadog (`warn`) and swallowed; the endpoint still returns `204`. User-blocking errors are never raised.
 
 **Enrichment** (DATABASE_SCHEMA §9.1 columns): `cf_country`, `cf_colo`, `cf_asn`, `cf_bot_score` from Cloudflare request context; `user_agent_hash` = SHA-256 of the `User-Agent` (the raw UA is **never** stored); `locale` = the served locale (`en-US` today); and `product_id` / `vendor_id` resolved from `(entity_type, entity_id)` — `entity_id` is the entity's own UUID (the SSR resolvers attach `entity.id`), existence-checked before storing so a stale/spoofed id becomes null rather than an FK error. `user_id` / `profile_role` stay null until Phase 5 wires the authenticated session. **No raw IP is ever persisted** (§14.2 privacy).
 
@@ -855,7 +936,7 @@ export const AdminSummaryResponseSchema = z.object({
 export type AdminSummaryResponse = z.infer<typeof AdminSummaryResponseSchema>;
 ```
 
-Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (`prisma.review.count({ where: { status: 'pending' } })`). Read-only — no audit log.
+Source of truth: `packages/shared/src/api/admin.ts`. Implemented in `apps/api/src/routes/admin-summary.ts` (a Drizzle/D1 count of `reviews` where `status = 'pending'`). Read-only — no audit log.
 
 #### `GET /api/admin/reviews`
 
@@ -869,7 +950,8 @@ export type AdminReview = Review & {
   status: 'pending' | 'approved' | 'rejected';
   toxicity_score: number | null;   // from the toxicity scorer (Claude), 0–100
   product: ProductRef;
-  reviewer_email: string;          // visible to admins only
+  reviewer_email: string | null;   // visible to admins only; null on anonymized reviews
+  reviewer_firm: string | null;    // AECI-284: free-text firm, admin-only moderation context
 };
 
 export type ListPendingReviewsResponse = PaginatedResponse<AdminReview>;
@@ -1087,11 +1169,12 @@ Worker writes corresponding `workflow_transitions` entries (see `STAGE_1_SPEC.md
 
 #### `POST /api/promote`
 
-Push-based Airtable → Supabase promotion. The review application sends one
+Push-based Airtable → app-DB (Cloudflare D1) promotion. The review application sends one
 product plus its dependencies (vendors, taxonomy, integrations); the Worker
-upserts the whole bundle in a single transaction and returns the created/updated
-IDs so the review app can persist the mapping and re-push edits. Supersedes the
-pull-based CLI `scripts/airtable-to-supabase-bulk-migrate.ts` (deprecated).
+upserts the whole bundle in a single atomic `db.batch([...])` and returns the created/updated
+IDs so the review app can persist the mapping and re-push edits. This is the live
+curator → app-DB path; the pull-based CLI `scripts/airtable-to-supabase-bulk-migrate.ts`
+was **retired** (AECI-278).
 
 **Auth:** `Authorization: Bearer <REVIEW_APP_TOKEN>` (a Wrangler secret, compared
 constant-time). Missing/invalid → `401 UNAUTHENTICATED`. This is machine-to-
@@ -1118,19 +1201,31 @@ export const PromotePayloadSchema = z.object({
   integrations: z.array(PromoteIntegrationSchema).default([]),
   //  integrations[i].sourceProduct / targetProduct: { ref: <product.ref> } | { supabaseId }
   //  (a { ref } endpoint requires `product`; without it, reference products by supabaseId)
+  //  integrations[i].claims[]: Stage 1.5 data-object claims (AECI-291) —
+  //    { dataObject: slug|name, direction: 'a_to_b'|'b_to_a'|'both',
+  //      attestations: { source: 'aeci'|'vendor_a'|'vendor_b', asserted, introducedAt?, deprecatedAt?, note? }[] }
+  //    `dataObject` resolves find-only against the seeded vocabulary; a miss → skipped[] kind 'claim'.
 });
 
 // Response — `product` is null for a vendor-only / integration-only push
 export interface PromoteResponse {
   vendors: { ref: string; id: string; slug: string; operation: 'created' | 'updated' }[];
   product: { ref: string; id: string; slug: string; operation: 'created' | 'updated' } | null;
-  integrations: { ref: string; id: string; operation: 'created' | 'updated' }[];
+  // sourceSlug/targetSlug (the two products' slugs) are optional — populated by the
+  // claims ingest (AECI-297) so pair-page purge needs no DB read.
+  integrations: {
+    ref: string;
+    id: string;
+    operation: 'created' | 'updated';
+    sourceSlug?: string;
+    targetSlug?: string;
+  }[];
   taxonomy: {
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];
     audiences: { slug: string; id: string; operation: 'created' | 'reused' }[];
     phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
   };
-  skipped: { ref: string; kind: 'integration' | 'extension'; reason: string }[];
+  skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim'; reason: string }[];
 }
 ```
 
@@ -1140,9 +1235,67 @@ other must already be promoted (`supabaseId`). Integrations whose other endpoint
 isn't promoted yet land in `skipped[]` rather than failing the request. Every
 create/update writes an `audit_log` row in the same transaction (§26).
 
+**Claims (Stage 1.5, AECI-291 contract / AECI-297 ingest):** each integration may
+carry a nested `claims[]` of data-object assertions (`STAGE_1_5_SPEC.md` §5/§6.2). A
+claim rides with its integration (same withhold rule), and its `dataObject` resolves
+**find-only** (slug or alias) against the seeded `data_object` vocabulary — an
+unmatched value lands in `skipped[]` with `kind: 'claim'`, never a 500. The ingest
+upserts by the identity `(integration_id, data_object_id, direction)` via
+replace-by-integration (an integration's claims are cleared and re-inserted to match
+the payload exactly, attestations cascading), emits `claim.*` / `attestation.*`
+audit rows in the same `db.batch`, and populates each integration result's
+`sourceSlug`/`targetSlug` so the promote derivers can purge the `pair:{min}__{max}`
+tag and ping the canonical pair URL without a DB read.
+
 Errors: `MALFORMED_REQUEST` (bad JSON), `VALIDATION_FAILED` (schema / duplicate
 `ref` / bad enum), `UNAUTHENTICATED` (token). Full integration guide for the
 review app: `docs/REVIEW_APP_PROMOTE_API.md`.
+
+### 6.13 Landing capture (mailing list + feedback)
+
+Two lead-capture write hooks shipped in **AECI-257** (ADR 0016). Schemas live in `@aeci/shared` (`api/landing.ts`). Both persist to D1 (`mailing_list` / `feedback` — `apps/api/src/db/schema.ts`) and, like `page_views`, are **write-once analytics, not domain state**, so they are exempt from the §26.1 audit-in-batch invariant (no `audit_log` row). The geo / attribution fields are derived from `request.cf` by the **caller** and carried to the API Worker out of band (in the request body, or — for the app island — on trusted headers; see below), because `request.cf` does not survive a service binding (the same constraint `POST /api/page-views` works around).
+
+There are **two callers**. The `apps/landing` Worker (pre-launch coming-soon forms) forwards the CF-derived geo IN THE BODY over the `env.API` binding. The unified home's closing-CTA island (§4.1, section 9; AECI-269 build child 6 / **AECI-275**) is the second caller: a progressively-enhanced browser island POSTing through the SSR Worker's `/api/*` passthrough. The browser can't read `request.cf`, so the SSR proxy forwards the geo on **trusted `LANDING_CF_HEADERS`** (`@aeci/shared`, `api/landing.ts`) — `x-aeci-cf-{country,city,region,timezone,as-organization,asn,metro-code}` — exactly the way `POST /api/page-views` forwards `PAGE_VIEW_CF_HEADERS`. UTM / referrer still ride the body (the island reads them from the live URL + `document.referrer`).
+
+The handlers read a header when present and fall back to the body value otherwise (`readLandingCfFromHeaders`, `apps/api/src/routes/landing-forms.ts`), so both callers work unchanged. The headers are trusted because the API Worker has no public ingress (service-binding only) and the SSR proxy is the sole writer: it strips any client-supplied copies first (anti-spoof), then sets fresh values from `request.cf` (`withForwardedLandingCf`, `apps/web/src/server-runtime.ts`). Every geo / attribution field is `nullish`, so the API Worker still accepts a body (or a header set) without them.
+
+#### `POST /api/subscribe`
+
+Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list (`ON CONFLICT DO NOTHING` no-op).
+
+```typescript
+export const SubscribeSubmitSchema = z.object({
+  email: z.string().trim().email().max(200),
+  as_organization: z.string().max(255).nullish(),
+  asn: z.number().int().nullish(),
+  metro_code: z.number().int().nullish(),
+  utm_source: z.string().max(255).nullish(),
+  utm_medium: z.string().max(255).nullish(),
+  utm_campaign: z.string().max(255).nullish(),
+  // + shared geo (all nullish): country, city, region, timezone, referrer
+});
+```
+
+#### `POST /api/feedback`
+
+Free-text product feedback. At least one of `features` / `tools` must be present (mirrors the form's own guard). `email` is optional; when present it must be valid, and `subscribed` is the mailing-list opt-in flag. No unique constraint, so it always returns `created: true`.
+
+```typescript
+export const FeedbackSubmitSchema = z
+  .object({
+    features: z.string().max(5000).nullish(),
+    tools: z.string().max(5000).nullish(),
+    email: z.string().trim().email().max(200).nullish(),
+    subscribed: z.boolean().default(false),
+    // + shared geo (all nullish): country, city, region, timezone, referrer
+  })
+  .refine((d) => Boolean(d.features) || Boolean(d.tools), {
+    message: 'Provide at least one of features or tools.',
+    path: ['features'],
+  });
+```
+
+**Response (both):** `LandingSubmitResult` — `{ created: boolean }`. `created` is `false` only for a subscribe no-op on an already-listed email; feedback always returns `true`.
 
 ---
 

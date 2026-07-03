@@ -45,12 +45,19 @@ at render time (that would be an SSR/CSR hydration and edge-cache trap).
 
 ## Status: pre-launch drafts
 
-As of AECI-237 these are **template drafts pending counsel review** — the empty
-`counsel_approved_*` frontmatter is the machine-readable "unapproved" signal, and each body opens
-with a visible "Draft — pending legal review" notice. The counsel review is a human gate tracked
-separately and verified at completion checkpoint 7.12; it does not block the page scaffolding.
-Bracketed placeholders (e.g. `[Legal entity name]`, `[governing jurisdiction]`) mark the
-counsel-specific details that must be filled before launch.
+These remain **drafts pending counsel review** (AECI-308). The `counsel_approved_by` /
+`counsel_approved_on` frontmatter now carries the literal marker `pending sign-off` — the
+machine-readable "not yet approved" signal (it was blank as of AECI-237) — and each body still
+opens with a visible "Draft, pending legal review" notice. `effective_date` stays blank until
+launch. The counsel review is a human gate tracked separately and verified at completion
+checkpoint 7.12; it does not block the page scaffolding.
+
+The counsel-specific details that must be filled before launch now carry a `Pending` marker in
+place of the former bracketed placeholders: governing law + venue in `terms-of-service.md`, and
+the controller legal entity + registered address in `privacy-policy.md`. The real values land via
+**AECI-306** (legal entity, registered address, governing law, venue); the Privacy Policy's
+US-primary rewrite (with GDPR deferred) lands via **AECI-309**. Both are separate open issues —
+until they merge, these files carry `Pending` / GDPR-primary text, not launch-final language.
 
 ## Change / versioning workflow (spec §27.2)
 

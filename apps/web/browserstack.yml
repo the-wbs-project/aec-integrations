@@ -1,0 +1,73 @@
+# Phase 7.8 (AECI-154) — BrowserStack Automate config for the curated
+# cross-browser smoke lane. Consumed by `npx browserstack-node-sdk playwright
+# test` (see the `test:e2e:browserstack` script) on the dedicated, NON-BLOCKING
+# CI lane: .github/workflows/browserstack.yml.
+#
+# Credentials come from the BROWSERSTACK_USERNAME / BROWSERSTACK_ACCESS_KEY env
+# vars (set from the personal-subscription GitHub secrets). The placeholders
+# below are interpolated from those env vars — nothing secret is committed. The
+# lane SKIPS GREEN until those secrets are set (see the workflow's preflight job).
+userName: ${BROWSERSTACK_USERNAME}
+accessKey: ${BROWSERSTACK_ACCESS_KEY}
+
+framework: playwright
+
+# Device matrix. The SDK fans these over the specs selected by
+# playwright.browserstack.config.ts (m specs × n platforms = m·n grid runs).
+# The exact deviceName / osVersion strings must be reconciled against
+# BrowserStack's live capability list at provisioning — devices rotate.
+platforms:
+  # --- Real iOS Safari: the gap local WebKit cannot reproduce (bundled WebKit ≈
+  #     Safari, not the real engine). REQUIRES the Automate product specifically
+  #     (Playwright-on-real-iOS is NodeJS-SDK + Automate only).
+  - deviceName: iPhone 15 Pro Max
+    osVersion: '17'
+    browserName: safari
+
+  # --- Real Android Chrome.
+  - deviceName: Samsung Galaxy S24
+    osVersion: '14.0'
+    browserName: chrome
+
+  # --- Desktop Safari (Playwright WebKit on real macOS).
+  - os: OS X
+    osVersion: Sonoma
+    browserName: playwright-webkit
+    browserVersion: latest
+
+  # --- Desktop Firefox.
+  - os: Windows
+    osVersion: '11'
+    browserName: playwright-firefox
+    browserVersion: latest
+
+  # --- Desktop Edge.
+  - os: Windows
+    osVersion: '11'
+    browserName: edge
+    browserVersion: latest
+
+# One parallel session per platform → 5 concurrent sessions total. Raise only if
+# the subscription's parallel-session quota allows; lower it (the lane serializes,
+# still passes) if the quota is < 5.
+parallelsPerPlatform: 1
+
+# Public-internet target (Access-gated at the edge, cleared via the CF-Access
+# request headers set in playwright.browserstack.config.ts) — NO tunnel.
+browserstackLocal: false
+
+# Dashboard grouping. buildIdentifier comes from the CI run (BUILD_NUMBER is set
+# to ${{ github.run_id }} by the workflow) so each run maps to a distinct build.
+projectName: AECi cross-browser smoke
+buildName: aeci-xbrowser-smoke
+buildIdentifier: '${BUILD_NUMBER}'
+
+# Diagnostics. consoleLogs is unsupported on iOS real devices (ignored there);
+# networkLogs off keeps sessions lean; testObservability gives the rich
+# dashboard + root-cause view.
+debug: true
+networkLogs: false
+consoleLogs: errors
+testObservability: true
+
+source: aeci-web:browserstack-node-sdk:v1

@@ -3,21 +3,11 @@
 # ─── App database = Cloudflare D1 (ADR 0016) — NO connection secret ─────────
 # The Worker reads/writes the app database through its `DB` D1 binding, not a
 # connection URL. Local `wrangler dev` uses a per-workspace local SQLite D1 that
-# `pnpm dev` / `dev:preview` auto-migrate + seed via `db:setup:local`. So you do
-# NOT need DATABASE_URL to boot the app locally, and there is no app-DB secret to
-# set in deployed envs — schema is applied with `wrangler d1 migrations apply`.
-#
-# DATABASE_URL / DIRECT_URL below are NO LONGER read by the Worker (the Prisma
-# Accelerate runtime path is retired, AECI-253). They survive only for the
-# RETAINED Supabase-Postgres surface — the landing lead-capture tables
-# (feedback / mailing_list) — consumed by `prisma generate` and the landing /
-# integration test suites, which `describe.skipIf` themselves when unset. Leave
-# both empty unless you run those Postgres tests. (Full removal: AECI-257.)
-DATABASE_URL=
-# Supabase pooler URL — used by the Supabase CLI (`supabase db push / pull /
-# diff`, now scoped to landing + auth) and `prisma generate` introspection. The
-# deployed Worker does NOT read this. See docs/migrations.md.
-DIRECT_URL=
+# `pnpm dev` / `dev:preview` auto-migrate + seed via `db:setup:local`. So there is
+# no app-DB secret to set locally or in deployed envs — schema is applied with
+# `wrangler d1 migrations apply`. The former Prisma Accelerate `DATABASE_URL` /
+# `DIRECT_URL` connection vars are fully gone (ADR 0016 / AECI-278); Supabase is
+# retained for Auth only (the `SUPABASE_*` vars below).
 
 # ─── Supabase URL + integration tests (AECI-48 / AECI-193) ──────────────────
 # SUPABASE_URL is now ALSO read by the Worker at runtime (AECI-193): it drives
@@ -48,44 +38,19 @@ SUPABASE_ANON_KEY=
 # (src/integration/user-auth.jwks.spec.ts), which skips itself when unset or
 # expired.
 SUPABASE_TEST_USER_JWT=
-# Service-role key. Required by the AECI-69 trigger test, which mints and
-# deletes throwaway auth users via the Supabase admin API. Local Supabase
-# exposes this as the "Secret" key (`pnpm exec supabase status`). Never
-# commit a real value — the Worker has no use for the service role at
-# runtime and shouldn't see it.
+# Service-role key. Used by the integration CI lane's mint step
+# (.github/workflows/integration-db-tests.yml) to create a throwaway confirmed
+# user via the Supabase admin API, whose freshly-issued access token feeds the
+# JWKS spec. Local Supabase exposes this as the "Secret" key
+# (`pnpm exec supabase status`). Never commit a real value — the Worker has no
+# use for the service role at runtime and shouldn't see it.
 SUPABASE_SERVICE_ROLE_KEY=
 
-# ─── Slug backfill integration test (AECI-53) ──────────────────────────────
-# Direct Postgres URL used by `apps/api/src/integration/backfill-slugs.spec.ts`
-# only. Points at a local Supabase dev DB or any throwaway Postgres with the
-# schema migrations applied. The script under test (`scripts/backfill-slugs.ts`)
-# uses the Accelerate-flavoured `DATABASE_URL` in production; the test bypasses
-# Accelerate for speed. The test `describe.skipIf` itself when this is unset.
-# Example: postgresql://postgres:postgres@127.0.0.1:54322/postgres
-TEST_DATABASE_URL=
-
-# ─── Local seeding from staging (AECI-80) ──────────────────────────────────
-# Opt-in. Only required if you run `pnpm db:seed-from-staging` to pull
-# staging's data shape into your local Postgres. Workers never read this —
-# it is consumed only by `scripts/seed-from-staging.sh` from your shell
-# (the script reads the variable from the environment, not from .dev.vars).
-#
-# Where to find it: Supabase Dashboard → `aeci-development` project →
-# Project Settings → Database → Connection string → "URI" (use the
-# "Transaction" / pooler form). Looks like:
-#   postgresql://postgres:<password>@aws-0-<region>.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1
-#
-# Export it in your shell (.zshrc / .bashrc / direnv) — DO NOT paste it
-# into .dev.vars, because the Worker has no use for it and shouldn't see
-# raw Postgres credentials.
-# DIRECT_URL_STAGING="postgresql://postgres:REPLACE_ME@aws-0-REGION.pooler.supabase.com:6543/postgres?pgbouncer=true&connection_limit=1"
-
-# ─── Airtable bulk migration (AECI-83) ─────────────────────────────────────
-# Consumed ONLY by `scripts/airtable-to-supabase-bulk-migrate.ts` (one-time
-# Airtable → Supabase migration). Workers never read these. The script writes
-# to production Supabase via DIRECT_URL above using the privileged role — point
-# DIRECT_URL at a SESSION-capable connection (Supabase "Session" pooler or the
-# direct 5432 endpoint), because the script uses interactive transactions.
+# ─── Airtable PAT (AECI-83) ────────────────────────────────────────────────
+# Used by the Airtable gateway lib (apps/api/scripts/lib/airtable.ts) for the
+# one-time bulk-migration tooling. Workers never read these. (The original
+# Airtable → Supabase-Postgres bulk-migrate script is retired — the live curator
+# → app-DB path is POST /api/promote into D1; see docs/API_CONTRACTS.md.)
 #
 # AIRTABLE_PAT: a Personal Access Token with scopes data.records:read,
 # data.records:write, and schema.bases:write on the base below (the script
@@ -127,6 +92,18 @@ LINEAR_WEBHOOK_SIGNING_SECRET=
 # graceful no-op; pages fall back to the TTL (≤15 min).
 CF_PURGE_API_TOKEN=
 CF_ZONE_ID=
+
+# ─── WAF firewall-event poll → Datadog (AECI-262 / §15.1) ──────────────────
+# The hourly WAF poll reads the zone's firewallEventsAdaptiveGroups over the
+# Cloudflare GraphQL Analytics API and emits aeci.waf.ratelimit.blocked (the free
+# Pro-plan alternative to Enterprise Logpush). Reuses CF_ZONE_ID above as the
+# zoneTag; needs its OWN token scoped to `Zone Analytics: Read` (a DIFFERENT scope
+# than CF_PURGE_API_TOKEN's Zone.Cache Purge). In DEPLOYED envs CI pushes it from the
+# single shared `CF_ANALYTICS_API_TOKEN` GH secret (deploy.yml / promote-to-demo.yml /
+# promote-to-prod.yml — graceful warn-skip); set it locally only if you want to
+# exercise the poll against the real zone. Absent → the poll logs
+# outcome:skipped_no_creds and no-ops. See docs/waf-rate-limits.md §5.
+CF_ANALYTICS_API_TOKEN=
 
 # ─── Datadog (AECI-31) ─────────────────────────────────────────────────────
 # DD_API_KEY is the only required secret for `logToDatadog()` (Datadog Logs
@@ -198,3 +175,20 @@ INDEXNOW_KEY=
 # default below; set the real launch host as a wrangler var in production. Absent →
 # email links are omitted and IndexNow no-ops.
 PUBLIC_SITE_URL=http://localhost:8788
+
+# ─── Google Indexing API ping after promote (AECI-263 / §20.2) ─────────────
+# On promote, the WORKER also pings Google's Indexing API for the SAME affected
+# URLs (best-effort, additive to IndexNow). It signs an RS256 JWT with the service
+# account, exchanges it for an OAuth token, then publishes each URL. Two secrets,
+# both read at runtime (the third value, PUBLIC_SITE_URL, is the var above):
+#   wrangler secret put GOOGLE_INDEXING_SA_EMAIL --env production
+#   wrangler secret put GOOGLE_INDEXING_SA_PRIVATE_KEY --env production
+# Values are the `client_email` + `private_key` fields of a Google Cloud service-
+# account JSON (the SA added as an owner of the Search Console property). The
+# private key is a PKCS#8 PEM; `\n`-escaped single-line values are normalized.
+# FAIL-OPEN: either absent (local dev, PR previews, pre-launch) → the ping is a
+# graceful no-op. PROVISION ONLY AT LAUNCH, alongside INDEXNOW_KEY and the web
+# Worker's ALLOW_INDEXING="true" — pinging Google for a noindex'd site is a
+# correctness bug, so the creds' absence is the enforcement.
+GOOGLE_INDEXING_SA_EMAIL=
+GOOGLE_INDEXING_SA_PRIVATE_KEY=

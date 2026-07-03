@@ -59,11 +59,18 @@ ALGOLIA_SEARCH_KEY=
 SUPABASE_URL=
 SUPABASE_ANON_KEY=
 
-# Mint-script-only credentials (apps/web/scripts/mint-dev-session.mjs) — the
-# shared-dev throwaway test user. NEVER a Worker binding; the Worker does not
-# read these. Used to mint a real session cookie / bearer token for the
-# /auth/whoami 200-path smoke. See docs/environments.md → "Local dev: Supabase
-# auth (Phase 5)".
+# Test-user credentials. NEVER a Worker binding; the Worker does not read these.
+# Two consumers, both off the same recipe (capture a real `@supabase/ssr` session):
+#   1. apps/web/scripts/mint-dev-session.mjs — mints a session cookie / bearer for
+#      the /auth/whoami 200-path smoke (manual).
+#   2. apps/web/e2e/authed-console.spec.ts (AECI-235) — read via playwright.config.ts
+#      to console-check the auth-gated Phase 5 pages (/account, /admin, /admin/reviews,
+#      /products/:slug/review).
+# For (2) the user must be the ADMIN test@thewbsproject.com, AND its `role='admin'`
+# D1 profile (apps/api/seed/auth-fixtures.sql, keyed to that account's Supabase user
+# id) must be seeded — `dev:bound` → `db:seed:local` does this automatically. A valid
+# non-admin user makes the /admin* cases FAIL (not skip); absent creds → they skip.
+# See docs/environments.md → "Local dev: Supabase auth (Phase 5)".
 SUPABASE_TEST_USER_EMAIL=
 SUPABASE_TEST_USER_PASSWORD=
 

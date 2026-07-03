@@ -1,0 +1,150 @@
+# AEC Integrations — cross-browser / real-device smoke on BrowserStack Automate
+# (AECI-154, Phase 7.8).
+#
+# NON-BLOCKING BY DESIGN. This is a separate workflow that NEVER appears in any
+# deploy job's `needs:` and has no `pull_request` trigger — so the fast PR lane
+# (unit / component / integration / chromium-E2E / axe) stays fast, free, and
+# merge-gating, exactly as before (ADR 0012 §Decision-3).
+#
+# WHY ITS OWN WORKFLOW (same reasoning as lighthouse.yml). It must run
+# POST-MERGE against the SHA that is actually live on staging, must ALWAYS finish
+# for the commit it measured (per-SHA, never-cancelled concurrency), and must
+# never gate a merge or a deploy.
+#
+# WHERE IT POINTS. The curated Playwright smoke subset runs on real iOS Safari +
+# real Android Chrome + desktop Safari/Firefox/Edge against DEPLOYED staging
+# (`https://staging.aecintegrations.com`) over the public internet. Cloudflare
+# Access is cleared with the `CF-Access-Client-Id` / `CF-Access-Client-Secret`
+# service-token headers (sent via Playwright `extraHTTPHeaders` in
+# `apps/web/playwright.browserstack.config.ts`) — NO BrowserStackLocal tunnel
+# (ADR 0012 §Decision-4). `demo.aecintegrations.com` is public and needs none.
+#
+# GRACEFUL SKIP. The BrowserStack credentials come from Chris's PERSONAL
+# subscription. Until `BROWSERSTACK_USERNAME` / `BROWSERSTACK_ACCESS_KEY` are set
+# (`gh secret set ...`), the lane SKIPS CLEAN (green, not red) via the `preflight`
+# gate below — `secrets.*` can't be read in a job-level `if:`, so we coerce the
+# secret to a boolean output and gate the real job on it. Same warn-and-skip
+# discipline the other workflows use for optional secrets.
+#
+# Required repo secrets (already present, shared with deploy.yml / pr-preview.yml):
+#   CF_ACCESS_CLIENT_ID / CF_ACCESS_CLIENT_SECRET — Access service token.
+# Personal-subscription secrets (set these to activate the lane):
+#   BROWSERSTACK_USERNAME / BROWSERSTACK_ACCESS_KEY.
+#
+# SECURITY NOTE: every `github.event.*` value (incl. the user-supplied
+# `target_url` dispatch input) is consumed only through `env:` and never
+# interpolated into a `run:` shell line — avoids workflow command injection.
+#
+# NOTE: a `workflow_run` trigger only fires once this file is on the DEFAULT
+# branch (main) — validate first via `workflow_dispatch`.
+
+name: browserstack
+
+on:
+  # Run after deploy.yml finishes so we test the SHA that is actually live on
+  # staging. `branches: [main]` restricts this to the push-to-main deploy runs
+  # (which deploy staging) — deploy.yml also runs build-only on PRs, and we must
+  # NOT fan the real-device grid out on every PR (quota + it'd test main's SHA,
+  # not the PR's). The preflight job additionally gates on conclusion == success.
+  workflow_run:
+    workflows: ['deploy'] # must match deploy.yml's `name:` exactly
+    types: [completed]
+    branches: [main]
+  # Manual run on any branch (parity with lighthouse.yml) — lets a cross-browser-
+  # affecting branch be smoke-tested on real devices against staging on demand.
+  workflow_dispatch:
+    inputs:
+      target_url:
+        description: 'Target URL (default: staging)'
+        required: false
+        default: 'https://staging.aecintegrations.com'
+  # Weekly real-device drift sweep against staging — cheap insurance the device
+  # matrix still passes even with no merges.
+  schedule:
+    - cron: '0 7 * * 1' # Mondays 07:00 UTC
+
+# Per-SHA, never cancelled — a real-device run should always finish for the exact
+# commit it measured (mirrors lighthouse.yml, decoupled from deploy.yml's
+# ref-based cancel-in-progress concurrency). Under workflow_run, github.sha is the
+# triggering commit; fall back to it for dispatch/schedule.
+concurrency:
+  group: browserstack-${{ github.event.workflow_run.head_sha || github.sha }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: '24'
+  PNPM_VERSION: '10.33.0'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
+jobs:
+  # Gate: proceed only if (a) the trigger was a SUCCESSFUL deploy (or a manual /
+  # scheduled run) and (b) the BrowserStack creds exist. `secrets.*` is not
+  # allowed in a job-level `if:`, so coerce the secret to a boolean output.
+  preflight:
+    name: preflight (creds + deploy success)
+    runs-on: ubuntu-latest
+    outputs:
+      run: ${{ steps.gate.outputs.run }}
+    steps:
+      - id: gate
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          DEPLOY_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_run" ] && [ "$DEPLOY_CONCLUSION" != "success" ]; then
+            echo "::notice::deploy did not succeed (conclusion=$DEPLOY_CONCLUSION) — skipping BrowserStack smoke."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          if [ -z "$BROWSERSTACK_USERNAME" ] || [ -z "$BROWSERSTACK_ACCESS_KEY" ]; then
+            echo "::notice::BROWSERSTACK_USERNAME / BROWSERSTACK_ACCESS_KEY not set — skipping (expected until the personal-subscription creds are provisioned via 'gh secret set')."
+            echo "run=false" >> "$GITHUB_OUTPUT"; exit 0
+          fi
+          echo "run=true" >> "$GITHUB_OUTPUT"
+
+  browserstack-smoke:
+    name: Cross-browser smoke (BrowserStack)
+    needs: preflight
+    if: ${{ needs.preflight.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # Check out the repo at the deployed SHA so the curated spec subset matches
+      # what is live on staging (under workflow_run the workflow file itself comes
+      # from main, but the checked-out tree should be the measured commit).
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Install pnpm
+        run: npm install -g pnpm@${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+      - run: pnpm install --frozen-lockfile
+      # No Playwright browser download — the tests run on real BrowserStack
+      # devices via the Node SDK, not on the runner.
+      - name: Run curated cross-browser smoke on BrowserStack
+        working-directory: apps/web
+        env:
+          BROWSERSTACK_USERNAME: ${{ secrets.BROWSERSTACK_USERNAME }}
+          BROWSERSTACK_ACCESS_KEY: ${{ secrets.BROWSERSTACK_ACCESS_KEY }}
+          # CF Access service-token headers → Playwright use.extraHTTPHeaders.
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+          # Deployed target. Manual runs may override; default is staging.
+          BROWSERSTACK_TARGET_URL: ${{ github.event.inputs.target_url || 'https://staging.aecintegrations.com' }}
+          # Maps into browserstack.yml's buildIdentifier '${BUILD_NUMBER}'.
+          BUILD_NUMBER: ${{ github.run_id }}
+        run: pnpm run test:e2e:browserstack
+      - name: Upload BrowserStack Playwright report
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: browserstack-report
+          path: |
+            apps/web/playwright-report
+            apps/web/browserstack-results
+          retention-days: 14
+          if-no-files-found: ignore

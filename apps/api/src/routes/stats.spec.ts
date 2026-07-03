@@ -27,12 +27,23 @@ const get = () =>
 
 describe('GET /api/stats/home', () => {
   it('reads cached values and falls back for absent keys', async () => {
-    await t.db.insert(statsCache).values({ key: 'home.total_integrations', value: 7 });
+    await t.db.insert(statsCache).values([
+      { key: 'home.total_integrations', value: 7 },
+      // AECI-271 + AECI-284 coverage counts flow through the same read path.
+      { key: 'home.total_products', value: 43 },
+      { key: 'home.total_vendors', value: 33 },
+      { key: 'home.total_reviews', value: 12 },
+      { key: 'home.total_contributing_firms', value: 8 },
+    ]);
 
     const res = await get();
     expect(res.status).toBe(200);
     const body = HomeStatsResponseSchema.parse(await res.json());
     expect(body.total_integrations).toBe(7);
+    expect(body.total_products).toBe(43);
+    expect(body.total_vendors).toBe(33);
+    expect(body.total_reviews).toBe(12);
+    expect(body.total_contributing_firms).toBe(8);
     // absent keys fall back without 500ing
     expect(body.integrations_added_30d).toBe(0);
     expect(body.most_integrated_product).toBeNull();
@@ -42,6 +53,12 @@ describe('GET /api/stats/home', () => {
   it('returns all defaults on an empty cache', async () => {
     const body = HomeStatsResponseSchema.parse(await (await get()).json());
     expect(body.total_integrations).toBe(0);
+    // AECI-271 coverage counts default to 0 on a sparse cache (no "0 reviews"
+    // suppression here — that is the UI's job).
+    expect(body.total_products).toBe(0);
+    expect(body.total_vendors).toBe(0);
+    expect(body.total_reviews).toBe(0);
+    expect(body.total_contributing_firms).toBe(0);
     expect(body.trending_products).toEqual([]);
   });
 });

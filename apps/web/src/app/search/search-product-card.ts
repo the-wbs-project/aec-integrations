@@ -3,6 +3,8 @@ import { RouterLink } from '@angular/router';
 
 import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
 
+import { RatingSummary } from '../reviews/rating-summary';
+
 /**
  * Grid hit card for a `products` search result (AECI-142). Unlike the
  * `/products` table row (`products/product-card.ts`, a `<tr>`), this is an
@@ -18,7 +20,7 @@ import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
  */
 @Component({
   selector: 'aec-search-product-card',
-  imports: [RouterLink],
+  imports: [RouterLink, RatingSummary],
   host: { class: 'block h-full' },
   template: `
     <article
@@ -54,6 +56,16 @@ import type { AlgoliaProductRecord } from '@aeci/shared/algolia-records';
           {{ description }}
         </p>
       }
+
+      <!-- Overall rating, omitted below the §5.5 ≥5-review gate (the host
+           collapses to display:none so it leaves no gap). Algolia records carry
+           only the overall average, which is all the card shows. -->
+      <aec-rating-summary
+        class="mt-3"
+        variant="inline"
+        [ratingOverall]="record().rating_overall_avg"
+        [reviewCount]="record().review_count"
+      />
 
       @if (chips().length) {
         <ul class="mt-4 flex flex-wrap gap-1.5">

@@ -41,8 +41,9 @@
  * because `/search` is the one always-edge-MISS route (`private, no-store`) — so
  * its server-response-time gets a realistic budget rather than inheriting the
  * cached-page timing the other routes enjoy. CI measures /search with the REAL
- * InstantSearch SDK: lighthouse.yml provisions ALGOLIA_SEARCH_KEY_PREVIEW into
- * apps/web/.dev.vars (AECI-188) — budgets measured against the degraded
+ * InstantSearch SDK: lighthouse.yml provisions the shared ALGOLIA_SEARCH_KEY into
+ * apps/web/.dev.vars (AECI-188; the key must cover the preview_* indexes) —
+ * budgets measured against the degraded
  * "search unavailable" shell would be meaningless. `?q=…` is intentionally not
  * collected: the empty-query page already loads the full SDK + widgets, and a
  * pinned query would couple the budget to index contents.

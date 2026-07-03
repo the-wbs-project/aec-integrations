@@ -7,6 +7,7 @@ import type { ProductDetail, VendorDetail } from '@aeci/shared';
 import {
   DEFAULT_OG_IMAGE,
   type EntityKind,
+  HOME_OG_IMAGE,
   SITE_NAME,
   buildEntityTitle,
   buildOgTags,
@@ -42,6 +43,14 @@ export interface SetEntityMetaInput {
   description: string | null | undefined;
   canonical: string;
   ogImage?: string;
+  /**
+   * Emit `robots: noindex` for an otherwise-canonical entity page whose current
+   * state isn't worth indexing — e.g. a product-PAIR page with no integrations
+   * between the two products (thin content; AECI-294). Defaults to indexable.
+   * The tag is actively removed when `false` so an in-app navigation OFF a
+   * noindexed page back onto an indexable one doesn't leave a stale robots tag.
+   */
+  noindex?: boolean;
 }
 
 /**
@@ -76,6 +85,12 @@ export class MetaService {
 
     const canonical = stripQueryParams(input.canonical);
     this.upsertCanonical(canonical);
+
+    // Indexable by default; noindex only when the caller opts in (e.g. an empty
+    // pair page). Clear the tag otherwise so a client nav off a noindexed page
+    // doesn't carry the tag onto an indexable one.
+    if (input.noindex) this.meta.updateTag({ name: 'robots', content: 'noindex' });
+    else this.meta.removeTag('name="robots"');
 
     const ogType = ogTypeForKind(input.entity);
     const tags = buildOgTags({
@@ -159,19 +174,26 @@ export class MetaService {
    * Home is indexable, so no `robots` tag is set (cf. `setNotFoundMeta` /
    * `setSearchMeta`, which both noindex).
    *
+   * OG/Twitter point at the dedicated 1200×630 home share card (`HOME_OG_IMAGE`,
+   * AECI-276) — an absolute URL, with an `og:image:alt` / `twitter:image:alt`
+   * pair — not the fallback monogram.
+   *
    * Emits, beyond `<title>` + description + canonical + OG/Twitter
    * (`og:type=website`), the two home-specific JSON-LD items not covered by
    * AECI-51's product/vendor structured data: the §20.3 `WebSite` (with a
    * `SearchAction` for Google's sitelinks search box) and a publisher
-   * `Organization`. Both are derived from the serving origin so they follow the
-   * self-referential canonical (ADR 0011). Stale detail JSON-LD from a prior
-   * in-app navigation is left untouched — like `setProductJsonLd` /
-   * `setVendorJsonLd`, which only upsert their own kind; each SSR render (the
-   * SEO-relevant path) is a fresh per-URL app, so it never ships cross-page LD.
+   * `Organization` (whose `logo` stays the square monogram, not the share card).
+   * Both are derived from the serving origin so they follow the self-referential
+   * canonical (ADR 0011). No `aggregateRating`/`Review` LD: nothing is verified
+   * and the launch corpus is not an honest basis for star ratings (§20.3). Stale
+   * detail JSON-LD from a prior in-app navigation is left untouched — like
+   * `setProductJsonLd` / `setVendorJsonLd`, which only upsert their own kind;
+   * each SSR render (the SEO-relevant path) is a fresh per-URL app, so it never
+   * ships cross-page LD.
    */
   setHomeMeta(input: { canonical: string }): void {
     const title = $localize`:@@meta.homeTitle:AEC Integrations: the independent directory of AEC software integrations`;
-    const description = $localize`:@@meta.homeDescription:The independent directory of integrations between AEC software tools. No vendor marketing, no pay-for-placement.`;
+    const description = $localize`:@@meta.homeDescription:The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement.`;
 
     this.title.setTitle(title);
     this.meta.updateTag({ name: 'description', content: description });
@@ -180,14 +202,25 @@ export class MetaService {
     this.upsertCanonical(canonical);
 
     const origin = originOf(canonical);
+    // The home is the highest-value share surface (the Stage 1 success metric is
+    // "buyers send the link to colleagues"), so its og:image is the dedicated
+    // 1200×630 card emitted as an ABSOLUTE URL — older LinkedIn/Slack scrapers are
+    // the ones the DEFAULT_OG_IMAGE comment flags as flaky with relative paths.
+    // Entity pages deliberately stay relative (they have no `origin` in hand).
+    const ogImage = `${origin}${HOME_OG_IMAGE}`;
+    const ogImageAlt = $localize`:@@meta.homeOgImageAlt:AEC Integrations: the independent directory of AEC software integrations.`;
     const tags = buildOgTags({
       title,
       description,
       url: canonical,
       type: 'website',
-      image: DEFAULT_OG_IMAGE,
+      image: ogImage,
     });
     for (const tag of tags) this.meta.updateTag(tag);
+    // `buildOgTags` covers the 9 shared tags; the image-alt pair is home-only, so
+    // set it here rather than widening the helper (and perturbing entity callers).
+    this.meta.updateTag({ property: 'og:image:alt', content: ogImageAlt });
+    this.meta.updateTag({ name: 'twitter:image:alt', content: ogImageAlt });
 
     this.upsertJsonLdScript('website', buildWebSiteJsonLd({ origin, name: SITE_NAME }));
     this.upsertJsonLdScript(

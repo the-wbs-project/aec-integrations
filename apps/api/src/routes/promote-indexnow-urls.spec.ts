@@ -76,7 +76,7 @@ describe('affectedUrlsForPromote', () => {
     );
   });
 
-  it('includes integration detail URLs (UUID route)', () => {
+  it('an integration missing endpoint slugs contributes no URL — the retired /integrations/{id} route is not submitted (AECI-298)', () => {
     const response: PromoteResponse = {
       vendors: [],
       product: null,
@@ -84,9 +84,33 @@ describe('affectedUrlsForPromote', () => {
       taxonomy: emptyTaxonomy,
       skipped: [],
     };
-    expect(affectedUrlsForPromote(response, BASE)).toEqual([
-      `${BASE}/integrations/11111111-2222-4333-8444-555555555555`,
-    ]);
+    const urls = affectedUrlsForPromote(response, BASE);
+    expect(urls).toEqual([]);
+    // The legacy detail route is a 301 redirect now; never submit it.
+    expect(urls).not.toContain(`${BASE}/integrations/11111111-2222-4333-8444-555555555555`);
+  });
+
+  it('emits only the canonical pair URL for an integration carrying both slugs — never the legacy detail URL (AECI-297 / AECI-298)', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [
+        {
+          ref: 'i1',
+          id: 'id-1',
+          operation: 'created',
+          sourceSlug: 'revit',
+          targetSlug: 'navisworks',
+        },
+      ],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    const urls = affectedUrlsForPromote(response, BASE);
+    // Pair context = alphabetically-first slug; the retired /integrations/{id}
+    // detail URL is not submitted (AECI-298).
+    expect(urls).toEqual([`${BASE}/products/navisworks/integrations/revit`]);
+    expect(urls).not.toContain(`${BASE}/integrations/id-1`);
   });
 
   it('a newly created phase → phase browse page + home + nav', () => {

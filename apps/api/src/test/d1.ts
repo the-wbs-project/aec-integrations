@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 
-import type { Db, DbContext } from '../db/client';
+import type { Db, DbContext, GetDbOptions } from '../db/client';
 import { schema } from '../db/schema';
 import type { DbFactory } from '../lib/handler-utils';
 
@@ -78,4 +78,36 @@ export async function makeTestDb(): Promise<TestDb> {
   const db = sqlDb as unknown as Db;
   const dbCtx: DbContext = { db, getBookmark: () => null };
   return { db, dbCtx, factory: () => dbCtx, raw, dispose: () => raw.close() };
+}
+
+/**
+ * A `DbFactory` over an existing `Db` that records the `opts` each call received
+ * and lets a test set the bookmark `getBookmark()` reports. The in-memory harness
+ * has no real D1 session, so this is how route specs assert the Sessions-API
+ * threading (AECI-250): inbound `x-d1-bookmark` → `opts.bookmark`, the
+ * `first-primary` write anchor, and the outbound `x-d1-bookmark` header.
+ */
+export interface RecordingFactory {
+  /** Pass to a handler factory in place of `t.factory`. */
+  factory: DbFactory;
+  /** Every `opts` the factory was called with, in order (`{}` when omitted). */
+  calls: GetDbOptions[];
+  /** Set the bookmark the returned `DbContext.getBookmark()` reports. */
+  setBookmark(bookmark: string | null): void;
+}
+
+export function recordingFactory(db: Db): RecordingFactory {
+  const calls: GetDbOptions[] = [];
+  let bookmark: string | null = null;
+  const factory: DbFactory = (_env, opts) => {
+    calls.push(opts ?? {});
+    return { db, getBookmark: () => bookmark };
+  };
+  return {
+    factory,
+    calls,
+    setBookmark: (b) => {
+      bookmark = b;
+    },
+  };
 }

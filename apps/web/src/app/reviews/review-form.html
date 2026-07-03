@@ -346,6 +346,28 @@
       </div>
     </div>
 
+    <!-- Your firm (optional, AECI-284) — free text; feeds the home contributing-firms count -->
+    <div class="space-y-1.5">
+      <label
+        for="reviewer-firm"
+        class="block text-xs font-bold uppercase tracking-[0.08em] text-(--text-secondary)"
+      >
+        <ng-container i18n="@@reviews.firm.label">Your firm</ng-container>
+        <span class="font-normal normal-case text-(--text-secondary)" i18n="@@reviews.optional"
+          >(optional)</span
+        >
+      </label>
+      <input
+        id="reviewer-firm"
+        type="text"
+        maxlength="100"
+        autocomplete="organization"
+        [value]="firm()"
+        (input)="onFirmInput($event)"
+        class="w-full rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2 text-sm text-(--text-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+      />
+    </div>
+
     <!-- Years using (optional) -->
     <div class="space-y-1.5">
       <label

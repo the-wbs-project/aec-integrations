@@ -11,11 +11,9 @@
 #      + DEPLOYED_AT injected per the CLAUDE.md "Version reporting (AECI-74)"
 #      pattern. `--name` overrides `env.preview.name` in
 #      `apps/api/wrangler.jsonc`.
-#   3. Push `DATABASE_URL` (= the dev project's Prisma Accelerate URL, reused
-#      from the `DATABASE_URL_STAGING` GH Actions secret since Option 1 means
-#      all previews share the dev DB) to the new API Worker via
-#      `wrangler secret put`. Secrets persist across deploys, so subsequent
-#      synchronize runs against the same PR re-push redundantly but harmlessly.
+#   3. (No DATABASE_URL push — the app DB is Cloudflare D1 (ADR 0016), reached
+#      via the API Worker's `DB` binding; the Prisma Accelerate runtime path is
+#      retired, AECI-253.)
 #   4. Rewrite the SSR Worker's static service binding from `aeci-api-preview`
 #      to `aeci-api-pr-<N>` so it talks to the matching per-PR API. Wrangler 4
 #      has no CLI flag to override service bindings at deploy time, so we sed
@@ -37,33 +35,25 @@
 #      whose deploy never succeeded doesn't fail the cleanup.
 #   2. Update the sticky comment to "torn down".
 #
-# DB strategy: **Option 1 (shared dev DB)** — confirmed with Chris during
-# AECI-79 planning. Per-PR API Workers connect via Prisma Accelerate to the
-# dev project's `main` branch (= the staging DB), reusing the
-# `DATABASE_URL_STAGING` secret value. No per-PR Supabase branches, no
-# Supabase Management API calls. See `docs/environments.md` §"PR previews"
-# for the trade-off and the revisit conditions for Options 2 and 3.
+# DB strategy: the app DB is **Cloudflare D1** (ADR 0016). Per-PR API Workers
+# inherit the `env.preview` D1 binding from `apps/api/wrangler.jsonc` — no Prisma
+# Accelerate, no DATABASE_URL secret, no per-PR Supabase branches or Management
+# API calls. See `docs/environments.md` §"PR previews".
 #
 # Required GH Actions secrets (all already configured):
 #   CLOUDFLARE_API_TOKEN     Scoped per `docs/CICD_PLAN.md` §7.1.
 #   CLOUDFLARE_ACCOUNT_ID    e62ec9d8012c3e0c225f8e4dbab76b79.
 #   CF_ACCESS_CLIENT_ID      Cloudflare Access service token (`aeci-gh-actions`).
 #   CF_ACCESS_CLIENT_SECRET  Same token's secret.
-#   DATABASE_URL_STAGING     Prisma Accelerate URL for the dev project's main
-#                            branch — reused for per-PR API Workers under
-#                            Option 1 (shared dev DB).
 #
 # Required GH Actions repo variables: none.
 
 name: pr-preview
 
-# Re-enabled 2026-05-28. The Accelerate schema-cache lag that motivated the
-# original gate was measured empirically with `scripts/measure-accelerate-lag.mjs`
-# at ~1.1s (single cycle); `deploy.yml`'s `db-migrate-dev` job now sleeps 30s
-# post-push so any schema change is visible to per-PR Workers by the time they
-# spin up. `DATABASE_URL_STAGING` is now populated, so the empty-secret
-# silent-failure mode is also closed. `workflow_dispatch` is retained for
-# manual replays.
+# Re-enabled 2026-05-28. (The Prisma Accelerate schema-cache lag that motivated
+# the original gating concern is moot under Cloudflare D1 — ADR 0016 / AECI-278;
+# the app DB is reached through the Worker's native `DB` binding, not a cached
+# HTTPS proxy.) `workflow_dispatch` is retained for manual replays.
 on:
   workflow_dispatch:
   pull_request:
@@ -119,11 +109,8 @@ jobs:
 
       # ---------------------------------------------------------------------
       # Step 2: Install toolchain
-      #   Same shape as refresh-staging.yml step 2 — pnpm + node + workspace
-      #   install + prisma generate (the web build transitively bundles the
-      #   shared package, but `pnpm --filter @aeci/api exec prisma generate`
-      #   keeps the workspace consistent if any future preview job touches
-      #   the API bundle).
+      #   pnpm + node + workspace install (the web build transitively bundles
+      #   the shared package; the API Worker bundles src/index.ts on the fly).
       # ---------------------------------------------------------------------
       - name: Install pnpm
         run: npm install -g pnpm@${{ env.PNPM_VERSION }}
@@ -132,7 +119,6 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @aeci/api exec prisma generate
 
       # ---------------------------------------------------------------------
       # Step 3: Build SSR Worker bundle
@@ -157,10 +143,9 @@ jobs:
       #   head SHA (the endpoint proxies via the service binding from SSR
       #   into API, so the API's COMMIT_SHA is what shows up).
       #
-      #   No DB-related secrets are pushed yet — Step 6 does that. The API
-      #   Worker will boot without DATABASE_URL on first deploy, which is
-      #   fine for /api/version (it reads vars, not the DB). Subsequent
-      #   synchronize runs reuse the secret already on the Worker.
+      #   No DB connection secret is needed — the app DB is Cloudflare D1 (ADR
+      #   0016), reached via the per-PR Worker's `DB` binding inherited from
+      #   `env.preview` in apps/api/wrangler.jsonc.
       # ---------------------------------------------------------------------
       - name: Deploy API Worker (preview, PR-scoped)
         env:
@@ -170,36 +155,15 @@ jobs:
         run: pnpm exec wrangler deploy --env preview --name ${{ env.API_WORKER_NAME }} --var COMMIT_SHA:${{ github.event.pull_request.head.sha }} --var DEPLOYED_AT:${{ steps.ts.outputs.deployed_at }}
 
       # ---------------------------------------------------------------------
-      # Step 6: Push DATABASE_URL to the per-PR API Worker
-      #   Reuses the dev-DB Accelerate URL stored as `DATABASE_URL_STAGING`
-      #   in GH Actions secrets (Option 1 = shared dev DB; the staging
-      #   Worker secret is the same value we want here).
-      #
-      #   `wrangler secret put` reads stdin in non-interactive mode. `printf`
-      #   (not `echo`) avoids a trailing newline that would corrupt the URL.
-      #   Idempotent: the put overwrites whatever's there. Cloudflare API
-      #   credentials are passed as env vars instead of via wrangler-action
-      #   because wrangler-action doesn't expose a stdin hook.
-      # ---------------------------------------------------------------------
-      - name: Push DATABASE_URL to per-PR API Worker
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          DATABASE_URL_VALUE: ${{ secrets.DATABASE_URL_STAGING }}
-        working-directory: apps/api
-        run: |
-          set -euo pipefail
-          printf '%s' "$DATABASE_URL_VALUE" \
-            | pnpm exec wrangler secret put DATABASE_URL --name "${API_WORKER_NAME}"
-
+      # (No DATABASE_URL push: the app DB is Cloudflare D1 (ADR 0016) reached via
+      #  the `DB` binding; the Prisma Accelerate runtime path is retired, AECI-253.)
       # ---------------------------------------------------------------------
       # Step 6b: Push ANTHROPIC_API_KEY to the per-PR API Worker (AECI-258)
       #   Review toxicity scoring (Claude Haiku, lib/toxicity.ts) on POST
-      #   /api/reviews. Reuses the staging-tier key (shared dev project, like the
-      #   DATABASE_URL push above) and targets the per-PR Worker by `--name`.
-      #   Optional + FAIL-OPEN: warn-and-skip when unset — a preview without the
-      #   key just stores toxicity_score=null ('Not scored'); submissions still
-      #   work. Same printf-over-stdin idempotent pattern as the DATABASE_URL push.
+      #   /api/reviews. Reuses the staging-tier key and targets the per-PR Worker
+      #   by `--name`. Optional + FAIL-OPEN: warn-and-skip when unset — a preview
+      #   without the key just stores toxicity_score=null ('Not scored');
+      #   submissions still work. Idempotent printf-over-stdin `secret put`.
       # ---------------------------------------------------------------------
       - name: Push ANTHROPIC_API_KEY to per-PR API Worker
         env:
@@ -263,25 +227,25 @@ jobs:
 
       # ---------------------------------------------------------------------
       # Step 8b: Push SUPABASE_ANON_KEY to the per-PR web Worker (AECI-193)
-      #   The preview env's `vars.SUPABASE_URL` (dev project) is inherited from
-      #   wrangler.jsonc; only the anon key is a secret. We reuse the staging
-      #   value (Option 1 = shared dev project) so the preview's /auth surfaces
-      #   work against the same Supabase project as staging. Web Worker only —
+      #   The preview env's `vars.SUPABASE_URL` is inherited from wrangler.jsonc;
+      #   only the anon key is a secret. ADR 0017: every environment uses the
+      #   SINGLE shared auth project, so previews push the un-suffixed
+      #   SUPABASE_ANON_KEY (same key as staging/demo/prod). Web Worker only —
       #   the API Worker verifies user JWTs with public JWKS material and carries
       #   no Supabase keys. Warn-and-skip while auth is a spike (the SSR auth
       #   surfaces then 503 `auth_not_configured`) — flips to required in 5.5.
-      #   Same printf-over-stdin idempotent pattern as the DATABASE_URL push.
+      #   Idempotent printf-over-stdin `secret put`.
       # ---------------------------------------------------------------------
       - name: Push SUPABASE_ANON_KEY to per-PR web Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY_STAGING }}
+          SUPABASE_ANON_KEY_VALUE: ${{ secrets.SUPABASE_ANON_KEY }}
         working-directory: apps/web
         run: |
           set -euo pipefail
           if [ -z "$SUPABASE_ANON_KEY_VALUE" ]; then
-            echo "::warning::SUPABASE_ANON_KEY_STAGING not set — skipping push. This preview's auth surfaces will return 503 auth_not_configured."
+            echo "::warning::SUPABASE_ANON_KEY not set — skipping push. This preview's auth surfaces will return 503 auth_not_configured."
             exit 0
           fi
           printf '%s' "$SUPABASE_ANON_KEY_VALUE" \

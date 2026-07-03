@@ -387,14 +387,19 @@ describe('PATCH /api/admin/requests/:id', () => {
     expect(wf!.finalOutcome).toBe('completed');
     expect(wf!.completedAt).not.toBeNull();
 
-    // Site→Linear sync fired post-commit with the right args.
+    // Site→Linear sync fired post-commit with the full resolution input.
     expect(sync).toHaveBeenCalledTimes(1);
-    expect(sync.mock.calls[0]![2]).toEqual({
+    expect(sync.mock.calls[0]![2]).toMatchObject({
       requestId: REQUEST_ID,
-      status: 'resolved',
-      reason: null,
       linearIssueId: null,
+      kind: 'claim',
+      toStatus: 'resolved',
+      fromStatus: 'open',
+      reason: null,
+      actorId: ADMIN_ID,
+      actorLabel: null,
     });
+    expect(sync.mock.calls[0]![2].workflowId).toEqual(expect.any(String));
 
     expect(requestModerationActions()).toEqual([['action:resolve', 'outcome:ok']]);
   });
@@ -424,7 +429,7 @@ describe('PATCH /api/admin/requests/:id', () => {
       .where(eq(workflowInstances.entityId, REQUEST_ID));
     expect(wf!.finalOutcome).toBe('rejected');
     expect(sync.mock.calls[0]![2]).toMatchObject({
-      status: 'rejected',
+      toStatus: 'rejected',
       reason: 'Not a real claim',
     });
     expect(requestModerationActions()).toEqual([['action:reject', 'outcome:ok']]);

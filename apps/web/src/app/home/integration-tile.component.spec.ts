@@ -36,10 +36,11 @@ function setupFixture(initial: IntegrationListItem = baseIntegration) {
 }
 
 describe('IntegrationTile', () => {
-  it('renders the source → target headline as a link to /integrations/:id', () => {
+  it('renders the source → target headline as a link to the canonical pair page (AECI-294)', () => {
     const fixture = setupFixture();
+    // navisworks < revit → the canonical context is navisworks.
     const link = (fixture.nativeElement as HTMLElement).querySelector(
-      'a[href="/integrations/00000000-0000-4000-8000-000000030001"]',
+      'a[href="/products/navisworks/integrations/revit"]',
     );
     expect(link).not.toBeNull();
     expect(link?.textContent).toContain('Revit');

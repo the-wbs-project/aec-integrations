@@ -1,9 +1,9 @@
 ---
 name: spec-anchor
-description: Before implementing or modifying code for any AECI-* Linear issue, anchor the work to docs/STAGE_1_SPEC.md. Fetches the Linear issue, parses its "**Spec section:** §X.Y" line, loads the matching section from STAGE_1_SPEC.md, and follows cross-references into the companion docs (API_CONTRACTS.md, DATABASE_SCHEMA.md, AUTH_AND_RLS.md, CICD_PLAN.md, TESTING_STRATEGY.md, UNIT_TESTING_GUIDE.md, CODE_REVIEW_CHECKLIST.md). Use whenever the user names an AECI-* issue, pastes a Linear URL, asks to "start AECI-N", or asks you to implement/fix/review something governed by the Stage 1 spec. Do not invoke for non-AECI work, doc-only edits to the spec itself, or pure config/lint tasks with no spec contract.
+description: Before implementing or modifying code for any AECI-* Linear issue, anchor the work to the governing spec. Fetches the Linear issue, parses its "**Spec section:** §X.Y" line (which may name the spec doc in parentheses, e.g. "§6.1 (docs/STAGE_1_5_SPEC.md)" for Stage 1.5 work — default docs/STAGE_1_SPEC.md), loads the matching section, and follows cross-references into the companion docs (API_CONTRACTS.md, DATABASE_SCHEMA.md, AUTH_AND_RLS.md, CICD_PLAN.md, TESTING_STRATEGY.md, UNIT_TESTING_GUIDE.md, CODE_REVIEW_CHECKLIST.md). Use whenever the user names an AECI-* issue, pastes a Linear URL, asks to "start AECI-N", or asks you to implement/fix/review something governed by the Stage 1 or Stage 1.5 spec. Do not invoke for non-AECI work, doc-only edits to the spec itself, or pure config/lint tasks with no spec contract.
 user-invocable: false
 metadata:
-  version: 1.0.0
+  version: 1.1.0
   type: project-procedure
 ---
 
@@ -22,7 +22,7 @@ Run automatically at the start of a turn when any of these are true:
 
 **Skip** when:
 
-- The task is editing `docs/STAGE_1_SPEC.md` itself, or any companion doc.
+- The task is editing `docs/STAGE_1_SPEC.md` or `docs/STAGE_1_5_SPEC.md` itself, or any companion doc.
 - The task is pure tooling (CI yaml, eslint config, prettier, dependency bumps) with no spec contract.
 - The user has already loaded the spec section earlier in the conversation and is iterating on the same surface.
 
@@ -39,10 +39,13 @@ mcp__claude_ai_Linear__get_issue(issueId: "AECI-N")
 From the returned `description`, extract the first line matching:
 
 ```
-\*\*Spec section:\*\*\s*§?(\d+[a-z]?(?:\.\d+)*)
+\*\*Spec section:\*\*\s*§?(\d+[a-z]?(?:\.\d+)*)\s*(?:\(([^)]*\.md)[^)]*\))?
 ```
 
-That capture group is the anchor — e.g. `9.3`, `2a`, `6`, `24.2`. If the line is missing, **stop and tell the user**: per the team's Linear issue templates (`Build Issue Template`, `Bug Template`, `Vendor Claim Template`, `Correction Request Template`), every issue should open with a Spec section reference. Ask whether the issue is genuinely out-of-spec (e.g., infra-only) or the template was skipped.
+- **Group 1** is the section anchor — e.g. `9.3`, `2a`, `6`, `24.2`.
+- **Group 2** (optional) is the **spec doc the issue anchors against**, when the line names one in parentheses — e.g. `§6.1 (docs/STAGE_1_5_SPEC.md)` captures `docs/STAGE_1_5_SPEC.md`. **Stage 1.5 — Integration Redesign issues (AECI-287…300) always name `docs/STAGE_1_5_SPEC.md` this way.** When group 2 is absent, the spec doc defaults to **`docs/STAGE_1_SPEC.md`**. (A bare path without `docs/` — e.g. `(STAGE_1_5_SPEC.md)` — still resolves under `docs/`.)
+
+If the line is missing, **stop and tell the user**: per the team's Linear issue templates (`Build Issue Template`, `Bug Template`, `Vendor Claim Template`, `Correction Request Template`), every issue should open with a Spec section reference. Ask whether the issue is genuinely out-of-spec (e.g., infra-only) or the template was skipped.
 
 Also capture from the issue:
 
@@ -51,13 +54,15 @@ Also capture from the issue:
 
 ### 2. Load the spec section
 
-Read `docs/STAGE_1_SPEC.md`. The spec uses ATX headings like:
+Read the **spec doc resolved in step 1** — the `.md` named in the Spec-section line (e.g. `docs/STAGE_1_5_SPEC.md` for Stage 1.5 — Integration Redesign issues), or **`docs/STAGE_1_SPEC.md`** by default. Both use the same ATX-heading convention, so the slicing below is identical:
 
 ```
 ## 9. Caching Strategy
 ## 9a. Stage 2 Carve-Outs
 ## 26. Audit Trail & Workflows
 ```
+
+`docs/STAGE_1_5_SPEC.md` is self-contained (§1–§10) and its subsection numbers (e.g. `§4.1`, `§5.2`, `§6.1`) are what the 1.5 issues cite; when an anchor resolves there, read that doc, not `STAGE_1_SPEC.md`.
 
 Sub-sections appear as `### 9.3 Invalidation` (or sometimes as numbered subheadings inside the section body). To find the right slice:
 

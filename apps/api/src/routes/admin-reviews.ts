@@ -57,7 +57,7 @@ import {
 } from '../lib/audit';
 import { adminReviewConfig, toAdminReview, type RawAdminReviewRow } from '../lib/drizzle-helpers';
 import { sendReviewApprovedEmail, sendReviewRejectedEmail } from '../lib/email';
-import { validateResponseInDev, type DbFactory } from '../lib/handler-utils';
+import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 
@@ -206,7 +206,7 @@ export function createModerateReviewHandler(
     }
 
     const payload = await parseJsonBody(c, ModerateReviewSchema);
-    const { db } = dbFor(c.env);
+    const { db } = writeDb(c, dbFor);
 
     // Preload the full admin row — it gates the transition (status) and builds the
     // response (the values we set are merged in after commit; no post-commit read).

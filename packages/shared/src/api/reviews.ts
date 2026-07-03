@@ -3,6 +3,20 @@ import { z } from 'zod';
 import { LinkRefSchema, PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
+ * The §5.5 ratings-visibility gate: a product's aggregate rating averages
+ * (`rating_overall_avg` / `rating_onboarding_avg`) are only shown once it has at
+ * least this many **approved** reviews. Below the threshold a single-review
+ * average is statistically misleading, so the averages are withheld (nulled) and
+ * the UI shows an empty state instead.
+ *
+ * One source of truth for the rule, shared across every surface that enforces it:
+ * the API detail + list mappers (`apps/api/src/lib/drizzle-helpers.ts`), the
+ * `rating` sort tiebreaker (`apps/api/src/lib/sort.ts`), and the web
+ * `RatingSummary` card/table component (`apps/web/src/app/reviews/rating-summary.ts`).
+ */
+export const RATING_VISIBILITY_MIN_REVIEWS = 5;
+
+/**
  * Review-submission contract (AECI-197 / Phase 5.6): the body and response for
  * `POST /api/reviews`, the first authenticated user write in the product.
  *
@@ -33,6 +47,10 @@ export const SubmitReviewSchema = z.object({
   role_at_company: z.enum(['practitioner', 'manager', 'IT', 'exec', 'other']).optional(),
   years_using: z.number().int().min(0).max(50).optional(),
   would_recommend: z.enum(['yes', 'no', 'maybe']).optional(),
+  // Optional free-text firm/company (AECI-284). The handler trims it and stores
+  // null for a blank/whitespace-only value; it feeds the home credibility
+  // strip's distinct contributing-firms count (never shown on the public review).
+  reviewer_firm: z.string().max(100).optional(),
 });
 export type SubmitReviewInput = z.infer<typeof SubmitReviewSchema>;
 
@@ -126,11 +144,14 @@ export type ListPendingReviewsQuery = z.infer<typeof ListPendingReviewsQuerySche
 /** Admin-only review item (`API_CONTRACTS.md` §6.10). A superset of
  *  `PublicReview`: adds the hydrated `product` ref, the moderation columns
  *  (`status`, `rejection_reason`, `moderated_at`), and the admin-only
- *  `toxicity_score` + `reviewer_email`. */
+ *  `toxicity_score` + `reviewer_email` + `reviewer_firm`. The free-text
+ *  `reviewer_firm` (AECI-284) is admin-only moderation context — it is NOT on
+ *  the public `PublicReview` contract. */
 export const AdminReviewSchema = z.object({
   id: z.string().uuid(),
   product: LinkRefSchema,
   reviewer_email: z.string().nullable(),
+  reviewer_firm: z.string().nullable(),
   rating_overall: z.number().int().min(1).max(5),
   rating_onboarding: z.number().int().min(1).max(5),
   title: z.string(),

@@ -255,6 +255,56 @@ describe('ReviewForm', () => {
     httpMock.verify();
   });
 
+  it('includes a trimmed reviewer_firm when the optional field is filled (AECI-284)', async () => {
+    const api = makeApiMock();
+    const { fixture, el, httpMock } = setup(product(), api);
+    await showForm(fixture);
+    clickStar(el, 'overall-label', 4);
+    clickStar(el, 'onboarding-label', 5);
+    setValue(fixture, '#review-title-input', 'Solid revit connector');
+    setValue(
+      fixture,
+      '#review-body',
+      'We rolled this out across three offices and the sync held up under heavy model loads.',
+    );
+    setValue(fixture, '#reviewer-firm', '  Acme Architects  ');
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitReview).toHaveBeenCalledTimes(1);
+    expect(api.submitReview.mock.calls[0][0]).toMatchObject({ reviewer_firm: 'Acme Architects' });
+    httpMock.verify();
+  });
+
+  it('omits reviewer_firm when the optional firm field is left blank', async () => {
+    const api = makeApiMock();
+    const { fixture, el, httpMock } = setup(product(), api);
+    await showForm(fixture);
+    clickStar(el, 'overall-label', 4);
+    clickStar(el, 'onboarding-label', 5);
+    setValue(fixture, '#review-title-input', 'Solid revit connector');
+    setValue(
+      fixture,
+      '#review-body',
+      'We rolled this out across three offices and the sync held up under heavy model loads.',
+    );
+    setValue(fixture, '#reviewer-firm', '   ');
+    await settle();
+    fixture.detectChanges();
+
+    (el.querySelector('form') as HTMLFormElement).dispatchEvent(new Event('submit'));
+    await settle();
+    fixture.detectChanges();
+
+    expect(api.submitReview).toHaveBeenCalledTimes(1);
+    expect(api.submitReview.mock.calls[0][0]).not.toHaveProperty('reviewer_firm');
+    httpMock.verify();
+  });
+
   it('shows the generic retryable notice when the API call fails (non-409)', async () => {
     const api = makeApiMock(async () => {
       throw new Error('boom');

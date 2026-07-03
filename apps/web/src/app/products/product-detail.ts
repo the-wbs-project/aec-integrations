@@ -40,10 +40,10 @@ import { ProductUsefulnessSection } from './product-usefulness';
  * viewport)` block. Under v22 incremental hydration the deferred rows are
  * SSR-rendered (crawlable, no hydration layout shift); the `on viewport`
  * trigger still defers the block on client-side navigations (see AECI-130).
- * Each integration links to
- * `/integrations/:id` with the *other* product also linked alongside, per
- * AC line "each integration links to `/integrations/:id` with the *other*
- * product also linked".
+ * Each integration links to the product-PAIR page
+ * `/products/:contextSlug/integrations/:otherSlug` (this product as the context
+ * slug) with the *other* product also linked alongside — AECI-294 retired the
+ * standalone `/integrations/:id` detail route the original AC named.
  *
  * Cache discipline: tags are written by the SSR runtime (vendor + each
  * integration shown), and the page-view payload was queued by the resolver.
@@ -411,10 +411,10 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 >.
               </p>
             } @else {
-              <ng-template #integrationRow let-item>
+              <ng-template #integrationRow let-item let-contextSlug="contextSlug">
                 <li>
                   <a
-                    [routerLink]="['/integrations', item.integration.id]"
+                    [routerLink]="['/products', contextSlug, 'integrations', item.other.slug]"
                     class="flex items-center gap-3 rounded-(--radius-lg)
                       border border-(--border-default) bg-(--surface-raised) p-4
                       text-(--text-primary) no-underline transition-colors
@@ -450,7 +450,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 @for (item of integrationsAbove(); track item.integration.id) {
                   <ng-container
                     [ngTemplateOutlet]="integrationRow"
-                    [ngTemplateOutletContext]="{ $implicit: item }"
+                    [ngTemplateOutletContext]="{ $implicit: item, contextSlug: p.slug }"
                   ></ng-container>
                 }
               </ul>
@@ -461,7 +461,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
                     @for (item of integrationsDeferred(); track item.integration.id) {
                       <ng-container
                         [ngTemplateOutlet]="integrationRow"
-                        [ngTemplateOutletContext]="{ $implicit: item }"
+                        [ngTemplateOutletContext]="{ $implicit: item, contextSlug: p.slug }"
                       ></ng-container>
                     }
                   </ul>

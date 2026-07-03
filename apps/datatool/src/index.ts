@@ -30,7 +30,7 @@ import {
   readProducts,
   summarizePlan,
 } from './seed';
-import { isEnvId, type Target, targetFor } from './targets';
+import { ENV_IDS, isEnvId, type Target, targetFor } from './targets';
 import { renderUi } from './ui';
 
 type App = { Bindings: Env; Variables: AccessVariables };
@@ -131,7 +131,7 @@ app.post('/api/copy', requireAccess(), async (c) => {
       {
         error: {
           code: 'BAD_REQUEST',
-          message: 'source and dest must be preview|staging|production',
+          message: `source and dest must be ${ENV_IDS.join('|')}`,
         },
       },
       400,
@@ -196,7 +196,7 @@ app.post('/api/seed', requireAccess(), async (c) => {
   const { target, action } = body;
   if (!isEnvId(target)) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'target must be preview|staging|production' } },
+      { error: { code: 'BAD_REQUEST', message: `target must be ${ENV_IDS.join('|')}` } },
       400,
     );
   }
@@ -271,7 +271,7 @@ app.post('/api/reindex', requireAccess(), async (c) => {
   const { target } = body;
   if (!isEnvId(target)) {
     return c.json(
-      { error: { code: 'BAD_REQUEST', message: 'target must be preview|staging|production' } },
+      { error: { code: 'BAD_REQUEST', message: `target must be ${ENV_IDS.join('|')}` } },
       400,
     );
   }

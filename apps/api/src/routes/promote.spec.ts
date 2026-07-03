@@ -16,25 +16,30 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  attestations,
   auditLog,
+  claims,
   integrations,
   productCategories,
   products,
   productVendors,
   taxonomyAudiences,
   taxonomyCategories,
+  taxonomyDataObjects,
   taxonomyPhases,
   vendors,
 } from '../db/schema';
+import { bookmarkMiddleware } from '../bookmark-middleware';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { DbFactory } from '../lib/handler-utils';
 import { requireReviewAppAuth } from '../lib/review-auth';
-import { makeTestDb, type TestDb } from '../test/d1';
+import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
   createPromoteHandler,
   type PromoteAlgoliaSync,
+  type PromoteGoogleIndexingNotify,
   type PromoteIndexNowNotify,
 } from './promote';
 import { cacheTagsForPromote } from './promote-cache-tags';
@@ -43,7 +48,6 @@ import { cacheTagsForPromote } from './promote-cache-tags';
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 
 const baseEnv: Env = {
-  DATABASE_URL: 'prisma://test',
   ENV: 'preview',
   REVIEW_APP_TOKEN: 'secret-token',
 };
@@ -55,6 +59,11 @@ const noopAlgolia: PromoteAlgoliaSync = async () => {};
 /** A no-op IndexNow seam — default for all tests so the real default (which calls
  *  the global `fetch`) is never hit; the wiring tests inject a spy instead. */
 const noopIndexNow: PromoteIndexNowNotify = async () => {};
+
+/** A no-op Google Indexing seam — default for all tests so the real default
+ *  (which signs a JWT + calls the global `fetch`) is never hit; the wiring tests
+ *  inject a spy instead. */
+const noopGoogleIndexing: PromoteGoogleIndexingNotify = async () => {};
 
 let t: TestDb;
 beforeEach(async () => {
@@ -70,6 +79,7 @@ function buildApp(
     withAuth?: boolean;
     syncAlgolia?: PromoteAlgoliaSync;
     notifyIndexNow?: PromoteIndexNowNotify;
+    notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
     dbFor?: DbFactory;
   } = {},
 ) {
@@ -79,6 +89,7 @@ function buildApp(
     opts.dbFor ?? t.factory,
     opts.syncAlgolia ?? noopAlgolia,
     opts.notifyIndexNow ?? noopIndexNow,
+    opts.notifyGoogleIndexing ?? noopGoogleIndexing,
   );
   if (opts.withAuth) app.post('/api/promote', requireReviewAppAuth(), handler);
   else app.post('/api/promote', handler);
@@ -108,6 +119,42 @@ const seedProduct = (
   name: string,
   extra: Partial<typeof products.$inferInsert> = {},
 ) => t.db.insert(products).values({ id, slug, name, promotionStatus: 'promoted', ...extra });
+const seedDataObject = (id: string, slug: string, name: string, aliases: string[] = []) =>
+  t.db.insert(taxonomyDataObjects).values({ id, slug, name, aliases });
+
+describe('createPromoteHandler — Sessions API bookmark threading (AECI-250)', () => {
+  it('threads inbound x-d1-bookmark + first-primary into getDb and emits the outbound bookmark', async () => {
+    const rec = recordingFactory(t.db);
+    rec.setBookmark('bk-after-write');
+
+    const app = new Hono<{ Bindings: Env }>();
+    app.onError(errorHandler());
+    app.use('*', bookmarkMiddleware());
+    app.post('/api/promote', createPromoteHandler(rec.factory, noopAlgolia, noopIndexNow));
+
+    const res = await app.request(
+      '/api/promote',
+      post(
+        {
+          vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+          product: { ref: 'p1', name: 'Revit' },
+          integrations: [],
+        },
+        { 'x-d1-bookmark': 'in-99' },
+      ),
+      baseEnv,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    // Inbound bookmark + the write anchor reached getDb …
+    expect(rec.calls[0]).toEqual({ bookmark: 'in-99', constraint: 'first-primary' });
+    // … and the session bookmark came back out for the next request.
+    expect(res.headers.get('x-d1-bookmark')).toBe('bk-after-write');
+    // The real write still happened over the recording factory's client.
+    expect(await t.db.select().from(products)).toHaveLength(1);
+  });
+});
 
 describe('createPromoteHandler', () => {
   it('creates a product with vendor and taxonomy', async () => {
@@ -545,6 +592,220 @@ describe('usefulness resolution on promote (AECI-172)', () => {
   });
 });
 
+describe('createPromoteHandler — claims ingest (AECI-297)', () => {
+  it('ingests claims + attestations for a created integration and returns the pair slugs', async () => {
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedDataObject(uuid(20), 'rfis', 'RFIs', ['RFI', 'Requests for Information']);
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [
+            {
+              dataObject: 'rfis',
+              direction: 'a_to_b',
+              attestations: [{ source: 'aeci', asserted: true }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      integrations: { ref: string; sourceSlug?: string; targetSlug?: string }[];
+      skipped: unknown[];
+    };
+    expect(b.skipped).toHaveLength(0);
+    // The two product slugs ride back so the pair derivers need no DB read.
+    expect(b.integrations[0]).toMatchObject({ sourceSlug: 'revit', targetSlug: 'navisworks' });
+
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({ dataObjectId: uuid(20), direction: 'a_to_b' });
+
+    const attRows = await t.db.select().from(attestations);
+    expect(attRows).toHaveLength(1);
+    expect(attRows[0]).toMatchObject({ claimId: claimRows[0]!.id, source: 'aeci', asserted: true });
+
+    expect(await auditActions()).toEqual(
+      expect.arrayContaining(['integration.created', 'claim.created', 'attestation.created']),
+    );
+  });
+
+  it('reports an unresolved dataObject in skipped[] (kind: claim), never a 500', async () => {
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [{ dataObject: 'not-a-real-object', direction: 'both', attestations: [] }],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      integrations: unknown[];
+      skipped: { ref: string; kind: string }[];
+    };
+    // The integration still lands; only the unresolved claim is skipped.
+    expect(b.integrations).toHaveLength(1);
+    expect(b.skipped).toEqual([expect.objectContaining({ ref: 'i1', kind: 'claim' })]);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+    expect(await t.db.select().from(integrations)).toHaveLength(1);
+  });
+
+  it('resolves a dataObject by alias (case-insensitive)', async () => {
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedDataObject(uuid(20), 'models', 'Models', ['BIM Models', 'IFC']);
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [{ dataObject: 'BIM Models', direction: 'b_to_a', attestations: [] }],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({ dataObjectId: uuid(20), direction: 'b_to_a' });
+  });
+
+  it('replaces the claim set (+ cascades attestations) on re-promote by supabaseId; idempotent', async () => {
+    const [srcId, tgtId, intgId] = [uuid(3), uuid(1), uuid(2)];
+    await seedProduct(srcId, 'revit', 'Revit');
+    await seedProduct(tgtId, 'navisworks', 'Navisworks');
+    await seedDataObject(uuid(20), 'rfis', 'RFIs');
+    await seedDataObject(uuid(21), 'models', 'Models');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgId, sourceProductId: srcId, targetProductId: tgtId });
+    // A stale claim + attestation already on the integration.
+    await t.db
+      .insert(claims)
+      .values({ id: uuid(30), integrationId: intgId, dataObjectId: uuid(20), direction: 'a_to_b' });
+    await t.db
+      .insert(attestations)
+      .values({ id: uuid(40), claimId: uuid(30), source: 'aeci', asserted: true });
+
+    const body = {
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgId,
+          sourceProduct: { supabaseId: srcId },
+          targetProduct: { supabaseId: tgtId },
+          claims: [
+            {
+              dataObject: 'models',
+              direction: 'both',
+              attestations: [{ source: 'aeci', asserted: true }],
+            },
+          ],
+        },
+      ],
+    };
+
+    const res = await promote(body);
+    expect(res.status).toBe(200);
+
+    // Stale claim (rfis/a_to_b) is gone; only the new one survives.
+    let claimRows = await t.db.select().from(claims);
+    expect(claimRows).toHaveLength(1);
+    expect(claimRows[0]).toMatchObject({ dataObjectId: uuid(21), direction: 'both' });
+    // The stale attestation cascade-deleted with its claim; one remains (the new claim's).
+    let attRows = await t.db.select().from(attestations);
+    expect(attRows).toHaveLength(1);
+    expect(attRows[0]!.claimId).toBe(claimRows[0]!.id);
+
+    // Re-pushing the identical bundle is idempotent (still exactly one claim/attestation).
+    const res2 = await promote(body);
+    expect(res2.status).toBe(200);
+    claimRows = await t.db.select().from(claims);
+    attRows = await t.db.select().from(attestations);
+    expect(claimRows).toHaveLength(1);
+    expect(attRows).toHaveLength(1);
+  });
+
+  it('withholds claims when their integration is withheld (far endpoint not promoted)', async () => {
+    await seedDataObject(uuid(20), 'rfis', 'RFIs');
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: uuid(9) },
+          claims: [
+            {
+              dataObject: 'rfis',
+              direction: 'a_to_b',
+              attestations: [{ source: 'aeci', asserted: true }],
+            },
+          ],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      integrations: unknown[];
+      skipped: { ref: string; kind: string }[];
+    };
+    expect(b.integrations).toHaveLength(0);
+    // The integration is skipped; its claims ride with it (not separately ingested).
+    expect(b.skipped).toEqual([expect.objectContaining({ ref: 'i1', kind: 'integration' })]);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+  });
+
+  it('clears prior claims when an integration is re-promoted with an empty claims[]', async () => {
+    const [srcId, tgtId, intgId] = [uuid(3), uuid(1), uuid(2)];
+    await seedProduct(srcId, 'revit', 'Revit');
+    await seedProduct(tgtId, 'navisworks', 'Navisworks');
+    await seedDataObject(uuid(20), 'rfis', 'RFIs');
+    await t.db
+      .insert(integrations)
+      .values({ id: intgId, sourceProductId: srcId, targetProductId: tgtId });
+    await t.db
+      .insert(claims)
+      .values({ id: uuid(30), integrationId: intgId, dataObjectId: uuid(20), direction: 'a_to_b' });
+
+    const res = await promote({
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: intgId,
+          sourceProduct: { supabaseId: srcId },
+          targetProduct: { supabaseId: tgtId },
+          // no claims → replace-by-integration clears the prior set
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    expect(await t.db.select().from(claims)).toHaveLength(0);
+  });
+});
+
 describe('cache purge after promote (AECI-105)', () => {
   const CF_PURGE_URL = 'https://api.cloudflare.com/client/v4/zones/zone-1/purge_cache';
   const purgeEnv: Env = { ...baseEnv, CF_PURGE_API_TOKEN: 'cf-token', CF_ZONE_ID: 'zone-1' };
@@ -586,6 +847,40 @@ describe('cache purge after promote (AECI-105)', () => {
       ]),
     );
     expect(sent.tags.some((tag) => tag.startsWith('route:'))).toBe(false);
+  });
+
+  it('purges the pair tag for an integration carrying claims (AECI-297)', async () => {
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedDataObject(uuid(20), 'rfis', 'RFIs');
+
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    const { res } = await promoteWithPurge(
+      {
+        product: { ref: 'p1', name: 'Revit' },
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { ref: 'p1' },
+            targetProduct: { supabaseId: target },
+            claims: [
+              {
+                dataObject: 'rfis',
+                direction: 'a_to_b',
+                attestations: [{ source: 'aeci', asserted: true }],
+              },
+            ],
+          },
+        ],
+      },
+      fetchMock,
+    );
+
+    expect(res.status).toBe(200);
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(init.body as string) as { tags: string[] };
+    // Alphabetically-first slug is the pair context: navisworks < revit.
+    expect(sent.tags).toContain('pair:navisworks__revit');
   });
 
   it('does not purge when CF credentials are absent (graceful no-op)', async () => {
@@ -724,6 +1019,84 @@ describe('IndexNow submission after promote (AECI-236)', () => {
       indexNowEnv,
       { product: { ref: 'p1', name: 'Revit' } },
       notifyIndexNow,
+    );
+    expect(res.status).toBe(200); // returned before the waitUntil settles
+    await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+  });
+});
+
+describe('Google Indexing submission after promote (AECI-263)', () => {
+  const googleEnv: Env = {
+    ...baseEnv,
+    GOOGLE_INDEXING_SA_EMAIL: 'svc@aeci.iam.gserviceaccount.com',
+    GOOGLE_INDEXING_SA_PRIVATE_KEY: '-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----',
+    PUBLIC_SITE_URL: 'https://aecintegrations.com',
+  };
+
+  async function promoteWithSeam(
+    env: Env,
+    body: unknown,
+    notifyGoogleIndexing: PromoteGoogleIndexingNotify,
+  ) {
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp({ notifyGoogleIndexing }).request(
+      '/api/promote',
+      post(body),
+      env,
+      execCtx,
+    );
+    return { res, execCtx };
+  }
+
+  it('schedules the Google Indexing notify (with the touched response) when creds are present', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
+    const { res, execCtx } = await promoteWithSeam(
+      googleEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+
+    expect(res.status).toBe(200);
+    expect(notifyGoogleIndexing).toHaveBeenCalledTimes(1);
+    const response = notifyGoogleIndexing.mock.calls[0]![1] as PromoteResponse;
+    expect(response.product?.slug).toBe('revit');
+  });
+
+  it('does not schedule the Google Indexing notify when creds are absent (graceful no-op)', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
+    const { res } = await promoteWithSeam(
+      baseEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
+    );
+    expect(res.status).toBe(200);
+    expect(notifyGoogleIndexing).not.toHaveBeenCalled();
+  });
+
+  it('does not schedule the Google Indexing notify when only the email is set (both creds required)', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {});
+    const { res } = await promoteWithSeam(
+      {
+        ...baseEnv,
+        GOOGLE_INDEXING_SA_EMAIL: 'svc@aeci.iam.gserviceaccount.com',
+        PUBLIC_SITE_URL: 'https://aecintegrations.com',
+      },
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
+    );
+    expect(res.status).toBe(200);
+    expect(notifyGoogleIndexing).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 when the Google Indexing notify rejects (post-response, never fails the promote)', async () => {
+    const notifyGoogleIndexing = vi.fn<PromoteGoogleIndexingNotify>(async () => {
+      throw new Error('google indexing unreachable');
+    });
+    const { res, execCtx } = await promoteWithSeam(
+      googleEnv,
+      { product: { ref: 'p1', name: 'Revit' } },
+      notifyGoogleIndexing,
     );
     expect(res.status).toBe(200); // returned before the waitUntil settles
     await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
