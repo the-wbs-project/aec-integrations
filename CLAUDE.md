@@ -35,6 +35,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Cloudflare WAF rate limits + scraper block on the public endpoints (rule expressions, thresholds, Pro-plan limits, verification) | `docs/waf-rate-limits.md` |
 | Testing tools, coverage targets, patterns | `docs/TESTING_STRATEGY.md` |
 | Writing unit tests | `docs/UNIT_TESTING_GUIDE.md` |
+| Manual accessibility testing (repeatable VoiceOver/NVDA + keyboard-only screen-reader pass; the human layer beyond axe/Lighthouse CI) | `docs/a11y-manual-testing-checklist.md` |
 | Reviewing code (pre-merge) | `docs/CODE_REVIEW_CHECKLIST.md` |
 | Code-review exemptions (accepted/deferred findings, expiry rules) | `docs/CODE_REVIEW_EXEMPTIONS.md` |
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
@@ -42,6 +43,8 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
 | Transactional email (Resend client, template catalogue, secrets) + the Supabase→Resend SMTP magic-link sender + deliverability (SPF/DKIM/DMARC) | `docs/email.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
+| Launch / DNS cutover runbook (go-live: apex flip off the coming-soon landing, launch-secret provisioning, waitlist broadcast, post-cutover verification, rollback) | `docs/launch-cutover-runbook.md` |
+| Phase completion checkpoints (per-phase launch-readiness gates: AC + build-order mapping, punts) | `docs/PHASE_{2..7}_COMPLETION.md` |
 | Auth model, GRANTs & RLS policies (3-layer authz: Worker JWT/role/ban, PostgREST GRANTs, RLS; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
 | Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
 | Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |

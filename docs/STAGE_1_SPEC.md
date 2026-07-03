@@ -1153,18 +1153,18 @@ Decomposed into AECI Phase 7.1–7.13 (planned 2026-06-10; **no sibling spec —
 
 **Phase 7.1–7.13 (the remainder):**
 - [x] 7.1 — IndexNow on the write-event pipeline (§20.2) — AECI-236 (Google Indexing API ping deferred → AECI-263)
-- [ ] 7.2 — Legal pages: Terms, Privacy, Review Guidelines, Listing Accuracy (§13, §27); counsel-reviewed
-- [ ] 7.3 — About + Contact pages
-- [ ] 7.4 — PostHog integration (event set + locale/theme dimensions; §14.1)
-- [ ] 7.5 — Resend transactional email (review + account-deletion + magic-link sender; §11.1) — home for the Phase 5/6 deferred emails
-- [ ] 7.6 — Daily data-quality job (full §23.1 suite + email summary; Algolia-drift line already shipped in AECI-140)
+- [x] 7.2 — Legal pages: Terms, Privacy, Review Guidelines, Listing Accuracy (§13, §27) — AECI-237 (#372); pages live, **counsel review + publish is the launch gate** (`PHASE_7_COMPLETION.md` §F1)
+- [x] 7.3 — About + Contact pages — AECI-238 (#360)
+- [x] 7.4 — PostHog integration (event set + locale/theme dimensions; §14.1) — AECI-239 (#363); live on `POSTHOG_KEY`
+- [x] 7.5 — Resend transactional email (review + account-deletion + magic-link sender; §11.1) — AECI-240 (#379); home for the Phase 5/6 deferred emails
+- [x] 7.6 — Daily data-quality job (full §23.1 suite + email summary; Algolia-drift line already shipped in AECI-140) — AECI-241 (#381)
 - [x] 7.7 — WAF rate limits on the public endpoints (§15.1) — dashboard runbook `docs/waf-rate-limits.md` (AECI-242)
 - [x] 7.8 — Cross-browser / real-device QA via BrowserStack (AECI-154) — non-blocking BrowserStack Automate lane wired (`.github/workflows/browserstack.yml` + `apps/web/browserstack.yml` + `playwright.browserstack.config.ts`); ADR 0012 Accepted. Inert until the personal-subscription `BROWSERSTACK_*` secrets are set (skips green); pre-launch full sweep + a11y audit still pending.
-- [ ] 7.9 — Waitlist welcome banner + token attribution (§11.2)
-- [ ] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3)
-- [ ] 7.11 — Performance / Core Web Vitals audit
-- [ ] 7.12 — Phase 7 completion checkpoint (launch-readiness gate)
-- [ ] 7.13 — DNS cutover from the coming-soon page (§11.2)
+- [x] 7.9 — Waitlist welcome banner + token attribution (§11.2) — AECI-243 (#365)
+- [x] 7.10 — Manual screen-reader pass (VoiceOver/NVDA; §21.3) — AECI-244; manual pass signed off at the launch gate; repeatable procedure `docs/a11y-manual-testing-checklist.md`
+- [x] 7.11 — Performance / Core Web Vitals audit — AECI-245 (#371); results `docs/PERFORMANCE_AUDIT.md`
+- [x] 7.12 — Phase 7 completion checkpoint (launch-readiness gate) — AECI-246; `docs/PHASE_7_COMPLETION.md` (launch punts F1–F4 + `docs/launch-cutover-runbook.md`)
+- [ ] 7.13 — DNS cutover from the coming-soon page (§11.2) — AECI-247; runbook prepared: `docs/launch-cutover-runbook.md`
 
 ### Phase 8: Post-launch (Week 11+)
 - [ ] Monitor errors, performance, search quality
