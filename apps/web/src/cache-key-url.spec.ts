@@ -60,6 +60,31 @@ describe('cacheKeyUrl — ?view= forks the /products key (AECI-190)', () => {
   });
 });
 
+describe('cacheKeyUrl — ?view= forks the product-PAIR key (mirrors AECI-190)', () => {
+  // The pair page /products/:context/integrations/:other SSR-renders a Basic
+  // ("Overview": sync headline + descriptions, no claim lanes) for ?view=basic
+  // vs. the `detailed` default. `view` is content-affecting, so it's in the pair
+  // route's cacheKeyParams — otherwise the two renders collapse onto one entry
+  // and the edge serves whichever warmed the key first.
+  const pair = '/products/autodesk-revit/integrations/procore';
+
+  it('forks the key for the basic view vs. the detailed default', () => {
+    expect(key(`${pair}?view=basic`)).not.toBe(key(pair));
+  });
+
+  it('forks the key for basic vs. an explicit detailed view', () => {
+    expect(key(`${pair}?view=basic`)).not.toBe(key(`${pair}?view=detailed`));
+  });
+
+  it('keeps view while still stripping tracking params on the pair route', () => {
+    expect(key(`${pair}?view=basic&utm_source=g&fbclid=z`)).toBe(`${ORIGIN}${pair}?view=basic`);
+  });
+
+  it('strips other query params on the pair route (only view is allowlisted)', () => {
+    expect(key(`${pair}?page=2&sort=name`)).toBe(`${ORIGIN}${pair}`);
+  });
+});
+
 describe('cacheKeyUrl — canonicalization (param order must not fork the key)', () => {
   it('is invariant to the order of page + sort', () => {
     expect(key('/products?page=2&sort=name')).toBe(key('/products?sort=name&page=2'));
