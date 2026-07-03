@@ -235,7 +235,7 @@ Admin auth is a simple role check on the `profiles` table. No separate admin UI 
 
 > **This rewrite supersedes the directory-only §4.1** (the prior "hero + stats + browse + recent + trending" spec). It is the contract for **AECI-269** (unify the marketing landing page + app home into one launch front door) and the build children it blocks. The visual treatment, section rhythm, and `/impeccable shape` direction live in `docs/design/unified-home-direction.md` (**AECI-270**), which supersedes the *page contract* of `docs/design/home-direction.md` (AECI-181) while reusing its hero / stats / browse / trust treatments.
 
-At go-live there is no separate marketing page: when the apex flips from the static `apps/landing` to the app (§11.2 / Phase 7.13, AECI-247), the app home **is** the marketing page. The home therefore carries **two jobs as one editorial publication** — the directory/utility job for the ready visitor (search, browse, live data) and the marketing/persuasion job for the cold visitor (why AECi, trust, how it works). The marketing content is **translated into the app's editorial voice + Faire tokens** (`PRODUCT.md` voice; `DESIGN.md` Anchor-Site Rule → Faire), **never pasted** from `apps/landing/public/index.html`, and it **reuses** the existing trust band + stats rather than duplicating them.
+At go-live there is no separate marketing page: when the apex flips from the static coming-soon `apps/landing` to the app (§11.2 / Phase 7.13, AECI-247/277 — which also retires `apps/landing`), the app home **is** the marketing page. The home therefore carries **two jobs as one editorial publication** — the directory/utility job for the ready visitor (search, browse, live data) and the marketing/persuasion job for the cold visitor (why AECi, trust, how it works). The marketing content was **translated into the app's editorial voice + Faire tokens** (`PRODUCT.md` voice; `DESIGN.md` Anchor-Site Rule → Faire), **never pasted** from the former landing page's `index.html`, and it **reuses** the existing trust band + stats rather than duplicating them.
 
 **Canonical positioning.** The home's one-liner is **"The independent directory of AEC software integrations. No vendor marketing, no pay-for-placement."** Three live expressions ladder up to it: the hero lede (`home-hero.ts`), the footer tagline (`site-footer.ts`), and the home `<meta>` description (`setHomeMeta`, `core/meta.service.ts`). No launch copy claims integrations are "verified" — nothing is dual-vendor-verified at Stage 1 (§1 out-of-scope; §4.2 verified-badge placeholder), which is why the prior footer "vendor-verified reviews" tagline was reconciled out.
 
@@ -844,11 +844,11 @@ via `ctx.waitUntil`, fail-open):
 
 ### 11.2 Waitlist transition
 
-Pre-launch, the static coming-soon landing page (`apps/landing`) captures emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). At launch the unified home's closing CTA (§4.1, section 9) carries the same capture forward, so signup survives the apex flip.
+Pre-launch, the static coming-soon landing page (`apps/landing`) captured emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). The unified home's closing CTA (§4.1, section 9) carries the same capture forward, so signup survives the apex flip. The apex cutover (AECI-247/277) **retires `apps/landing`** — its lead-capture forms and its operator "new signup / feedback" email move to the API Worker (`routes/landing-forms.ts`, to `ADMIN_ALERT_EMAIL`), and the closing-CTA island becomes the sole caller.
 
-**On launch:**
+**On launch (the ordered ceremony + rollback live in `docs/launch-cutover-runbook.md`):**
 - One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"
-- Landing page DNS flips to the new Angular SSR app
+- The apex (`aecintegrations.com`) + `www` reassign off the retired landing Worker onto `aeci-web-production` (armed via `custom_domain` routes; flips on the launch `promote-to-prod` deploy), with `www`→apex 301
 
 **Welcome state for waitlist subscribers:**
 - Email includes a unique link with `?ref=waitlist&token=xyz`

@@ -1,18 +1,21 @@
 import { z } from 'zod';
 
 /**
- * Landing lead-capture contracts (ADR 0016 / AECI-257): the pre-launch feedback
- * and mailing-list signup forms served by `apps/landing`.
+ * Landing lead-capture contracts (ADR 0016 / AECI-257): the feedback and
+ * mailing-list signup forms. Originally served by the pre-launch `apps/landing`
+ * Worker, which was retired at the apex cutover (AECI-247/277); the sole caller is
+ * now the unified home's closing-CTA island (see below).
  *
- * The landing Worker used to POST these straight to Supabase Postgres via
- * PostgREST. Post-D1 cut-over it forwards them over the `env.API` service binding
+ * The retired landing Worker used to POST these straight to Supabase Postgres via
+ * PostgREST; post-D1 cut-over it forwarded them over the `env.API` service binding
  * to the API Worker, which persists them to the D1 `feedback` / `mailing_list`
- * tables (`apps/api/src/db/schema.ts`). The geo/enrichment fields are derived
- * server-side from `request.cf` by the landing Worker and carried IN THE BODY,
- * because `request.cf` does not survive the service binding (same constraint the
- * page-view enrichment headers work around — see `api/page-views.ts`).
+ * tables (`apps/api/src/db/schema.ts`). It derived the geo/enrichment fields
+ * server-side from `request.cf` and carried them IN THE BODY, because `request.cf`
+ * does not survive the service binding (same constraint the page-view enrichment
+ * headers work around — see `api/page-views.ts`). That body-geo path is retained on
+ * the API handlers as the fallback (see `LANDING_CF_HEADERS` below).
  *
- * AECI-275 adds a SECOND caller: the unified home's closing-CTA island
+ * AECI-275 added the current caller: the unified home's closing-CTA island
  * (`apps/web/src/app/home/`) POSTs through the SSR Worker's `/api/*` passthrough.
  * The browser can't read `request.cf`, so the SSR Worker enriches geo there,
  * forwarding it on the trusted `LANDING_CF_HEADERS` below (instead of in the
@@ -25,7 +28,7 @@ import { z } from 'zod';
  * exempt from the §26.1 audit-in-batch invariant (like `page_views`).
  *
  * i18n note: this package is framework-agnostic, so the messages here are plain
- * English for API consumers / logs; the landing forms render their own copy.
+ * English for API consumers / logs; the closing-CTA island renders its own copy.
  */
 
 /** Cloudflare-derived geo + referrer fields shared by both forms. */

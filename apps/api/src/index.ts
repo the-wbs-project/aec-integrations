@@ -151,11 +151,13 @@ phase28.get('/api/stats/home', createStatsHomeHandler());
 phase28.post('/api/requests/correction', createCorrectionSubmitHandler());
 phase28.post('/api/requests/claim', createClaimSubmitHandler());
 
-// Landing lead-capture (ADR 0016 / AECI-257) — the `apps/landing` feedback +
-// mailing-list signup forms, moved off Supabase Postgres onto D1. Public (no
-// auth), no audit row (write-once analytics, §26.1 exemption). `subscribe` is
-// idempotent on email. Reached only over the service binding (from the landing
-// Worker), like every other route — no new public ingress.
+// Landing lead-capture (ADR 0016 / AECI-257) — the feedback + mailing-list signup
+// forms, moved off Supabase Postgres onto D1. Public (no auth), no audit row
+// (write-once analytics, §26.1 exemption). `subscribe` is idempotent on email.
+// Reached only over the service binding (the pre-launch `apps/landing` Worker was
+// retired at the apex cutover, AECI-247/277; the sole caller is now the unified
+// home's closing-CTA island via the SSR `/api/*` passthrough), like every other
+// route — no new public ingress.
 phase28.post('/api/feedback', createFeedbackHandler());
 phase28.post('/api/subscribe', createSubscribeHandler());
 

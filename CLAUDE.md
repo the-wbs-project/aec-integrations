@@ -66,7 +66,7 @@ If your work touches a topic governed by one of these documents, that document i
 - **Frontend:** Angular 21+ with SSR, zoneless change detection
 - **Styling:** Tailwind CSS v4 + Spartan UI (brain primitives) + Angular CDK. New interactive/form-control patterns (select, combobox, listbox, radio, accordion, tabs, …) use Angular Aria (`@angular/aria`, stable in v22); Spartan stays for overlay primitives (Popover, Dialog). Two deviations to know: Aria@22 ships no `radio`/`select`, so combobox/listbox stand in; and discrete-choice Aria controls bridge into Signal Forms via `[(value)]`+`(valueChange)`, not `[formField]` (native inputs only). See `docs/adr/0010-angular-aria-alongside-spartan.md` (Accepted).
 - **Hosting:** Cloudflare Workers (SSR Worker + private API Worker via service binding). SSR Worker runs with `compatibility_flags: ["nodejs_compat"]` for `@angular/ssr` runtime polyfills.
-- **Database:** Cloudflare D1 (SQLite) via Drizzle ORM (`drizzle-orm/d1`) over the API Worker's `DB` binding — no external proxy, no `nodejs_compat` for the DB path (ADR 0016). Supabase is retained for **Auth only**. The landing lead-capture tables (`feedback`/`mailing_list`) have been cut over to D1 (AECI-257): the landing Worker writes them via the API Worker's `POST /api/feedback` + `/api/subscribe` over the `env.API` service binding, not Supabase Postgres.
+- **Database:** Cloudflare D1 (SQLite) via Drizzle ORM (`drizzle-orm/d1`) over the API Worker's `DB` binding — no external proxy, no `nodejs_compat` for the DB path (ADR 0016). Supabase is retained for **Auth only**. The lead-capture tables (`feedback`/`mailing_list`) live in D1 (AECI-257), written by the API Worker's `POST /api/feedback` + `/api/subscribe`. Their original caller — the pre-launch coming-soon `apps/landing` Worker — was **retired at the apex cutover (AECI-247/277)**; the sole caller is now the unified home's closing-CTA island (§4.1), which POSTs through the SSR Worker's `/api/*` passthrough (trusted `LANDING_CF_HEADERS` geo). The operator "new signup / feedback" email those handlers now send (to `ADMIN_ALERT_EMAIL`) replaced the landing Worker's own send.
 - **Search:** Algolia + InstantSearch Angular
 - **Auth:** Supabase Auth (magic link + Google OAuth)
 - **Observability:** Datadog (RUM + APM + logs) and PostHog (product analytics)
@@ -123,7 +123,7 @@ Shared TypeScript types in `packages/shared/`, validated at runtime with Zod sch
 pnpm install
 
 # Run locally — boots the AECi app: SSR Worker (:8788) + private API Worker (:8787), bound.
-# Alias for `pnpm dev:bound` (uses .dev.vars for secrets). The legacy landing page is `pnpm dev:landing`.
+# Alias for `pnpm dev:bound` (uses .dev.vars for secrets).
 pnpm dev
 
 # Type check across the monorepo

@@ -40,6 +40,7 @@ import { feedback, mailingList } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
+import { sendLandingFeedbackNotification, sendLandingSignupNotification } from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 
 async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T>): Promise<T> {
@@ -102,19 +103,44 @@ export function createFeedbackHandler(
     const { db } = dbFor(c.env);
     const cf = readLandingCfFromHeaders(c);
 
+    // Trusted header geo (island path) wins; body geo (landing path) is the
+    // fallback. `feedback` has no asn/metro/as_organization columns. Resolved once
+    // so the insert and the operator notification below carry the same values.
+    const country = cf.country ?? payload.country ?? null;
+    const city = cf.city ?? payload.city ?? null;
+    const region = cf.region ?? payload.region ?? null;
+    const email = payload.email ?? null;
+    const features = payload.features ?? null;
+    const tools = payload.tools ?? null;
+    const referrer = payload.referrer ?? null;
+
     await db.insert(feedback).values({
-      features: payload.features ?? null,
-      tools: payload.tools ?? null,
-      email: payload.email ?? null,
+      features,
+      tools,
+      email,
       subscribed: payload.subscribed,
-      // Trusted header geo (island path) wins; body geo (landing path) is the
-      // fallback. `feedback` has no asn/metro/as_organization columns.
-      country: cf.country ?? payload.country ?? null,
-      city: cf.city ?? payload.city ?? null,
-      region: cf.region ?? payload.region ?? null,
+      country,
+      city,
+      region,
       timezone: cf.timezone ?? payload.timezone ?? null,
-      referrer: payload.referrer ?? null,
+      referrer,
     });
+
+    // Operator "new feedback" notification — retires the `apps/landing` Worker's
+    // own Resend send (AECI-247/277). Fire-and-forget after the insert; fail-open
+    // (absent RESEND_API_KEY / ADMIN_ALERT_EMAIL → silent skip, never affects 201).
+    c.executionCtx.waitUntil(
+      sendLandingFeedbackNotification(c, {
+        email,
+        features,
+        tools,
+        subscribed: payload.subscribed,
+        city,
+        region,
+        country,
+        referrer,
+      }),
+    );
 
     return json({ created: true } satisfies LandingSubmitResult, { status: 201 });
   };
@@ -128,31 +154,60 @@ export function createSubscribeHandler(
     const { db } = writeDb(c, dbFor);
     const cf = readLandingCfFromHeaders(c);
 
+    // Trusted header geo (island path) wins over body geo (landing path); UTM
+    // always rides the body. Resolved once so the insert and the operator
+    // notification below carry the same values.
+    const country = cf.country ?? payload.country ?? null;
+    const city = cf.city ?? payload.city ?? null;
+    const region = cf.region ?? payload.region ?? null;
+    const asOrganization = cf.asOrganization ?? payload.as_organization ?? null;
+    const utmSource = payload.utm_source ?? null;
+    const utmCampaign = payload.utm_campaign ?? null;
+    const referrer = payload.referrer ?? null;
+
     // `ON CONFLICT DO NOTHING … RETURNING` on the `mailing_list_email_key` unique
     // index: a returned row means we created it; [] means the email was already
     // on the list (idempotent no-op). Same pattern as `auth-profile.ts`.
-    // Trusted header geo (island path) wins over body geo (landing path); UTM
-    // always rides the body.
     const inserted = await db
       .insert(mailingList)
       .values({
         email: payload.email,
-        country: cf.country ?? payload.country ?? null,
-        city: cf.city ?? payload.city ?? null,
-        region: cf.region ?? payload.region ?? null,
+        country,
+        city,
+        region,
         timezone: cf.timezone ?? payload.timezone ?? null,
-        asOrganization: cf.asOrganization ?? payload.as_organization ?? null,
+        asOrganization,
         asn: cf.asn ?? payload.asn ?? null,
         metroCode: cf.metroCode ?? payload.metro_code ?? null,
-        utmSource: payload.utm_source ?? null,
+        utmSource,
         utmMedium: payload.utm_medium ?? null,
-        utmCampaign: payload.utm_campaign ?? null,
-        referrer: payload.referrer ?? null,
+        utmCampaign,
+        referrer,
       })
       .onConflictDoNothing({ target: mailingList.email })
       .returning({ id: mailingList.id });
 
     const created = inserted.length > 0;
+
+    // Operator "new signup" notification — retires the `apps/landing` Worker's own
+    // Resend send (AECI-247/277). Only on a real insert, never on the idempotent
+    // already-listed no-op (matches the landing Worker, which 409'd a dup before
+    // sending). Fire-and-forget; fail-open on absent secrets.
+    if (created) {
+      c.executionCtx.waitUntil(
+        sendLandingSignupNotification(c, {
+          email: payload.email,
+          city,
+          region,
+          country,
+          asOrganization,
+          utmSource,
+          utmCampaign,
+          referrer,
+        }),
+      );
+    }
+
     return json({ created } satisfies LandingSubmitResult, { status: created ? 201 : 200 });
   };
 }

@@ -66,14 +66,14 @@ Migration approach is documented in Section 10.
 
 ### 2a. Landing-page lead-capture tables
 
-The landing site's two lead-capture tables — `feedback` and `mailing_list` — were cut over to **D1** (AECI-257). The landing Worker writes them through the API Worker's `POST /api/feedback` + `/api/subscribe` over the `env.API` service binding (no longer Supabase Postgres / PostgREST). They predate the AECI Stage 1 schema and are otherwise **out of scope for everything in this document**:
+The two lead-capture tables — `feedback` and `mailing_list` — were cut over to **D1** (AECI-257). They are written by the API Worker's `POST /api/feedback` + `/api/subscribe` handlers (`apps/api/src/routes/landing-forms.ts`), reached over the `env.API` service binding (no longer Supabase Postgres / PostgREST). They predate the AECI Stage 1 schema and are otherwise **out of scope for everything in this document**:
 
-| Table | Owner | Purpose |
+| Table | Written by | Purpose |
 | --- | --- | --- |
-| `feedback` | `apps/landing/` | Lead-capture feedback form (`apps/landing/src/services/feedback.ts`), written via `POST /api/feedback`. |
-| `mailing_list` | `apps/landing/` | Pre-launch mailing-list signups (`apps/landing/src/services/subscribe.ts`), written via `POST /api/subscribe`. |
+| `feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | Lead-capture feedback form. |
+| `mailing_list` | `POST /api/subscribe` (`routes/landing-forms.ts`) | Mailing-list signups (idempotent on `email`). |
 
-These tables are defined in the D1 schema (`apps/api/src/db/schema.ts`) and reproduce on a fresh local D1 via `pnpm db:setup:local`. The original `supabase/migrations/20260101000000_landing_baseline.sql` is retained only as an archived record (`supabase/archive/migrations/`) — the app DB no longer runs on Postgres (ADR 0016 / AECI-278). No AECI Stage 1 directory code reads or writes them; treat them as the landing app's private surface within the shared D1 database.
+The **pre-launch `apps/landing` Worker** was the original caller of both endpoints; it was **retired at the apex cutover (AECI-247/277)**, so the sole caller is now the unified home's closing-CTA island (`apps/web`, AECI-275). These tables are defined in the D1 schema (`apps/api/src/db/schema.ts`) and reproduce on a fresh local D1 via `pnpm db:setup:local`. The original `supabase/migrations/20260101000000_landing_baseline.sql` is retained only as an archived record (`supabase/archive/migrations/`) — the app DB no longer runs on Postgres (ADR 0016 / AECI-278). No AECI Stage 1 directory code reads or writes them; treat them as the lead-capture surface within the shared D1 database.
 
 ---
 

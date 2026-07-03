@@ -59,7 +59,11 @@ export type EmailTemplate =
   | 'review-approved'
   | 'review-rejected'
   | 'account-deleted'
-  | 'stuck-request-alert';
+  | 'stuck-request-alert'
+  // Operator lead-capture notifications — retire the `apps/landing` Worker's own
+  // Resend send (AECI-247/277). Recipient is `ADMIN_ALERT_EMAIL`.
+  | 'landing-signup'
+  | 'landing-feedback';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -257,6 +261,79 @@ export function sendStuckRequestAdminAlert(
   });
 }
 
+// ─── Operator lead-capture notifications (AECI-247/277) ─────────────────────────
+// When `apps/landing` retires, its two forms (`/api/subscribe`, `/api/feedback`)
+// are served straight by this Worker (via the SSR passthrough), so the operator
+// "new signup / new feedback" email the landing Worker used to send moves here.
+// Recipient is `ADMIN_ALERT_EMAIL` (the operator address the reconcile-sweep alert
+// already uses — no new secret to provision). Fired fire-and-forget via
+// `ctx.waitUntil` from `routes/landing-forms.ts`; fail-open like every send.
+// Internal ops mail, en-US (not i18n'd — the CLAUDE.md i18n rule is for rendered
+// `apps/web` templates).
+
+/** Operator alert: a fresh mailing-list signup (`POST /api/subscribe`, on a real
+ *  insert — not the idempotent already-listed no-op). */
+export function sendLandingSignupNotification(
+  c: EmailContext,
+  opts: {
+    email: string;
+    city: string | null;
+    region: string | null;
+    country: string | null;
+    asOrganization: string | null;
+    utmSource: string | null;
+    utmCampaign: string | null;
+    referrer: string | null;
+  },
+): Promise<EmailOutcome> {
+  const rows: Array<[string, string]> = [
+    ['Email', opts.email],
+    ['Location', `${opts.city ?? '—'}, ${opts.region ?? '—'}, ${opts.country ?? '—'}`],
+    ['Organization', opts.asOrganization ?? '—'],
+    ['Source', opts.utmSource ?? 'direct'],
+    ['Campaign', opts.utmCampaign ?? '—'],
+    ['Referrer', opts.referrer ?? '—'],
+  ];
+  return sendTransactionalEmail(c, {
+    to: c.env.ADMIN_ALERT_EMAIL ?? '',
+    template: 'landing-signup',
+    subject: '[AECi] New mailing list signup',
+    text: opsText('Someone just joined the AEC Integrations mailing list.', rows),
+    html: opsTable('Someone just joined the AEC Integrations mailing list.', rows),
+  });
+}
+
+/** Operator alert: a feedback submission (`POST /api/feedback`). */
+export function sendLandingFeedbackNotification(
+  c: EmailContext,
+  opts: {
+    email: string | null;
+    features: string | null;
+    tools: string | null;
+    subscribed: boolean;
+    city: string | null;
+    region: string | null;
+    country: string | null;
+    referrer: string | null;
+  },
+): Promise<EmailOutcome> {
+  const rows: Array<[string, string]> = [
+    ['From', opts.email ?? '(anonymous)'],
+    ['Features requested', opts.features ?? '(none)'],
+    ['Tools/software', opts.tools ?? '(none)'],
+    ['Subscribed', opts.subscribed ? 'yes' : 'no'],
+    ['Location', `${opts.city ?? '—'}, ${opts.region ?? '—'}, ${opts.country ?? '—'}`],
+    ['Referrer', opts.referrer ?? '—'],
+  ];
+  return sendTransactionalEmail(c, {
+    to: c.env.ADMIN_ALERT_EMAIL ?? '',
+    template: 'landing-feedback',
+    subject: '[AECi] New feedback submitted',
+    text: opsText('Someone just submitted feedback on AEC Integrations.', rows),
+    html: opsTable('Someone just submitted feedback on AEC Integrations.', rows),
+  });
+}
+
 // ─── Low-level transport (AECI-241 / Phase 7.6) ─────────────────────────────────
 // Used by the daily data-quality digest cron (`scheduled.ts`). Dependency-free with
 // an injectable fetch/logger; no Datadog metric here (the cron emits its own).
@@ -358,6 +435,20 @@ function toHtml(paragraphs: string[]): string {
     .map((p) => `<p style="margin:0 0 16px">${p}</p>`)
     .join('');
   return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#27272a">${body}</body></html>`;
+}
+
+/** Plain-text operator notification: intro line + `Key: value` rows. */
+function opsText(intro: string, rows: ReadonlyArray<readonly [string, string]>): string {
+  return `${intro}\n\n${rows.map(([k, v]) => `${k}: ${v}`).join('\n')}`;
+}
+
+/** HTML operator notification: intro paragraph + a bordered table. Every cell is
+ *  escaped (rows carry user-supplied email / features / tools). */
+function opsTable(intro: string, rows: ReadonlyArray<readonly [string, string]>): string {
+  const body = rows
+    .map(([k, v]) => `<tr><td><strong>${escapeHtml(k)}</strong></td><td>${escapeHtml(v)}</td></tr>`)
+    .join('');
+  return `<!doctype html><html lang="en"><body style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;font-size:14px;color:#27272a"><p style="margin:0 0 16px">${escapeHtml(intro)}</p><table border="1" cellpadding="8" cellspacing="0" style="border-collapse:collapse">${body}</table></body></html>`;
 }
 
 function escapeHtml(value: string): string {
