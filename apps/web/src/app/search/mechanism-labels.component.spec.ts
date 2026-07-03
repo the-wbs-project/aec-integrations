@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { directionLabel, mechanismKindLabel } from './mechanism-labels';
+import { contextDirectionLabel, directionLabel, mechanismKindLabel } from './mechanism-labels';
 
 /**
  * Runs under `ng test` (`.component.spec.ts`) because `$localize` is provided by
@@ -39,5 +39,36 @@ describe('directionLabel', () => {
     expect(directionLabel(null)).toBe('');
     expect(directionLabel(undefined)).toBe('');
     expect(directionLabel('sideways')).toBe('');
+  });
+});
+
+describe('contextDirectionLabel', () => {
+  it('re-frames a one-way flow to the context product (source → Outbound, target → Inbound)', () => {
+    expect(contextDirectionLabel('one-way', true)).toEqual({
+      label: 'Outbound',
+      glyph: '→',
+      token: 'outbound',
+    });
+    expect(contextDirectionLabel('one-way', false)).toEqual({
+      label: 'Inbound',
+      glyph: '←',
+      token: 'inbound',
+    });
+  });
+
+  it('reads a bidirectional flow as Both from either endpoint', () => {
+    for (const isSource of [true, false]) {
+      expect(contextDirectionLabel('bidirectional', isSource)).toEqual({
+        label: 'Both',
+        glyph: '⇄',
+        token: 'both',
+      });
+    }
+  });
+
+  it('yields an empty token for a null / undefined direction (rendered as the em-dash empty state)', () => {
+    for (const absent of [null, undefined] as const) {
+      expect(contextDirectionLabel(absent, true)).toEqual({ label: '', glyph: '', token: null });
+    }
   });
 });
