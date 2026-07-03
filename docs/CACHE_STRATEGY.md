@@ -111,7 +111,8 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 |---|---|
 | `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
 | Browse (`/categories\|audiences\|phases/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
-| Detail (`/products/:slug`, `/vendors/:slug`, and the product-PAIR page `/products/:context/integrations/:other`) | none — strip all |
+| Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
+| Product-PAIR page (`/products/:context/integrations/:other`) | `view` — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). |
 | Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
 | Home (`/`), `/about`, `/legal/*` | none — strip all |
 
@@ -168,6 +169,8 @@ Edge cache is keyed by URL. If SSR reads a request cookie (e.g. `theme=dark`) an
 This is *not* solvable with `Vary: Cookie` — see §7 below for which `Vary` values are permitted and which still fragment the cache. The cookie-stripping middleware lives at `apps/web/src/server.ts` (shipped in [AECI-35](https://linear.app/aec-integrations/issue/AECI-35); theme service test coverage added in [AECI-41](https://linear.app/aec-integrations/issue/AECI-41)). Cross-reference: `STAGE_1_SPEC.md` §9.1a.
 
 **Incremental hydration stays cache-neutral.** The two detail-page `@defer (on viewport; hydrate on viewport)` grids (`product-detail.ts` integrations, `vendor-detail.ts` products; AECI-130) SSR-render their main template instead of the `@placeholder`. The rendered rows come only from resolver data (no request cookie is read), so the SSR HTML remains visitor-state-neutral and the edge cache is not fragmented.
+
+**Client-only preference cookies are exempt — and MUST stay that way.** A per-visitor preference that the browser reconciles *after* hydration is cache-safe precisely because SSR never reads it, so it must **not** be added to `VISITOR_STATE_COOKIES` (that list is for cookies SSR *does* read, which are then stripped on the cacheable branch). Current example: the product-PAIR page's `aeci_pair_view` cookie remembers the reader's Basic/Detailed choice; it is written only on a toggle click and read only in `afterNextRender` (browser-only), so the SSR render always emits the `detailed` default and the URL-keyed edge entry stays shared. The deep-linkable `?view=` param (a cache-key fork, §4a) remains the source of truth; the cookie only supplies the default when the URL carries no `?view=`. The analytics-consent state (`localStorage`, `consent-banner.ts`) is the same pattern in a different store. The rule: if you introduce a per-visitor preference, reconcile it post-hydration from the client store — do **not** make SSR read it.
 
 ### 6.2 Pinned-404 trap
 

@@ -334,9 +334,17 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // a detail-class route on the same TTL. It is listed BEFORE the plain
   // /products/:slug matcher for clarity (a three-segment path can't match the
   // single-segment product pattern, so ordering here isn't load-bearing).
+  //
+  // The pair page SSR-renders a different layout for `?view=basic` (the Overview:
+  // sync headline + mechanism descriptions, no claim lanes) vs. the `detailed`
+  // default, so `view` is content-affecting and MUST be in the key — otherwise the
+  // two renders collapse onto one entry and serve wrong HTML. Same rationale as
+  // AECI-190's `/products ?view=table`; the pair route reads only `view`, so the
+  // listing union isn't reused here.
   {
     match: (p) => /^\/products\/[^/]+\/integrations\/[^/]+$/.test(p),
     ttl: { edge: 900, browser: 0 },
+    cacheKeyParams: ['view'],
   },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },

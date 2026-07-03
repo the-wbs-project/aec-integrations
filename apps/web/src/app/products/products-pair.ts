@@ -1,6 +1,6 @@
-import { Component, computed, inject } from '@angular/core';
+import { Component, afterNextRender, computed, inject, signal } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
-import { ActivatedRoute, RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
 import type {
@@ -110,6 +110,52 @@ interface PairView {
   readonly syncTotal: number;
   readonly syncHeadline: string;
   readonly confirmedRatio: string;
+  /** True when some mechanism carries a Layer-B claim lane or a Layer-A direction
+   *  arrow — i.e. there is detail for the Basic view to hide. Gates the toggle so
+   *  a pair with nothing to collapse doesn't show a no-op control. */
+  readonly hasDetail: boolean;
+}
+
+/** The pair page's two disclosure levels (URL `?view=`). `detailed` (the default,
+ *  param-absent) is the full page; `basic` hides the per-direction claim lanes +
+ *  standalone direction arrow, keeping the rail, sync headline, and each
+ *  mechanism's identity/description/links. Content-affecting → forked in the edge
+ *  cache key (see `server-runtime.ts`, mirrors AECI-190's `/products ?view=table`). */
+type PairViewMode = 'basic' | 'detailed';
+
+/**
+ * Client-only persistence of the reader's last Basic/Detailed choice so it
+ * becomes the default on future pair-page visits.
+ *
+ * CACHE-NEUTRALITY (§9.1a): the cookie is written ONLY on a toggle click and
+ * read ONLY post-hydration (`afterNextRender`, browser-only) — SSR never reads
+ * it, so it can NOT bake a visitor-specific view into the URL-keyed edge cache.
+ * That is exactly why it is deliberately NOT in `VISITOR_STATE_COOKIES`
+ * (`server-runtime.ts`), which is reserved for cookies SSR *does* read. The
+ * deep-linkable `?view=` URL param — the cache-key fork — remains the source of
+ * truth; the cookie only supplies the default when the URL carries no `?view=`.
+ * Mirrors `ConsentBanner`'s post-hydration reconciliation of persisted state.
+ */
+const PAIR_VIEW_COOKIE = 'aeci_pair_view';
+const PAIR_VIEW_COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
+
+function readPairViewCookie(): PairViewMode | null {
+  if (typeof document === 'undefined') return null;
+  for (const part of document.cookie.split(';')) {
+    const [name, value] = part.split('=');
+    if (name?.trim() === PAIR_VIEW_COOKIE) {
+      const v = value?.trim();
+      if (v === 'basic' || v === 'detailed') return v;
+    }
+  }
+  return null;
+}
+
+function writePairViewCookie(mode: PairViewMode): void {
+  if (typeof document === 'undefined') return;
+  // `Secure` only over HTTPS so local http dev (jsdom too) still persists it.
+  const secure = globalThis.location?.protocol === 'https:' ? '; secure' : '';
+  document.cookie = `${PAIR_VIEW_COOKIE}=${mode}; path=/; max-age=${PAIR_VIEW_COOKIE_MAX_AGE}; samesite=lax${secure}`;
 }
 
 /**
@@ -124,6 +170,13 @@ interface PairView {
  * direction lanes with neutral "Unverified · AECi" badges + AECi provenance, and
  * the `confirmed/total` sync headline (§3.5). A mechanism with no claims yet (or
  * a pair with none) falls back to the Layer-A arrow + empty data-flow band.
+ *
+ * A **Basic/Detailed** disclosure toggle sits in the header (URL `?view=`, default
+ * `detailed`). Basic (Overview) keeps the rail, sync headline, and each
+ * mechanism's kind/name/description/links; it hides the Layer-B claim lanes and
+ * the standalone Layer-A arrow (the granular data transfers). `view` is
+ * content-affecting and forked in the edge cache key (mirrors AECI-190's
+ * `/products ?view=table`); the toggle is suppressed when there's no detail to hide.
  *
  * Data comes from `productsPairResolver` via `route.data['pair']`:
  *   - `null` → the global `aec-not-found` shell (the resolver set
@@ -179,19 +232,51 @@ interface PairView {
             </ol>
           </nav>
 
-          <header class="mb-8 space-y-3">
-            <p
-              class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
-              i18n="@@pair.eyebrow"
-            >
-              Integration
-            </p>
-            <h1
-              class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
-              i18n="@@pair.heading"
-            >
-              How {{ context.name }} and {{ other.name }} exchange data
-            </h1>
+          <header class="mb-8 flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+            <div class="space-y-3">
+              <p
+                class="text-xs uppercase tracking-[0.14em] text-(--text-secondary)"
+                i18n="@@pair.eyebrow"
+              >
+                Integration
+              </p>
+              <h1
+                class="font-display text-3xl font-semibold leading-tight tracking-tight text-(--text-primary) sm:text-4xl"
+                i18n="@@pair.heading"
+              >
+                How {{ context.name }} and {{ other.name }} exchange data
+              </h1>
+            </div>
+
+            <!-- Basic/Detailed disclosure toggle (§8). Shown only when a mechanism
+                 carries claim lanes or a direction arrow; otherwise the two views
+                 are identical, so the control would be a no-op. -->
+            @if (v.hasDetail) {
+              <div
+                role="group"
+                class="inline-flex shrink-0 gap-1 self-start rounded-(--radius-md) border
+                  border-(--border-default) bg-(--surface-raised) p-1"
+                i18n-aria-label="@@pair.view.aria"
+                aria-label="Choose a view"
+              >
+                <button
+                  type="button"
+                  [class]="viewBtnClass('basic')"
+                  [attr.aria-pressed]="viewMode() === 'basic'"
+                  (click)="setView('basic')"
+                >
+                  <span i18n="@@pair.view.basic">Basic</span>
+                </button>
+                <button
+                  type="button"
+                  [class]="viewBtnClass('detailed')"
+                  [attr.aria-pressed]="viewMode() === 'detailed'"
+                  (click)="setView('detailed')"
+                >
+                  <span i18n="@@pair.view.detailed">Detailed</span>
+                </button>
+              </div>
+            }
           </header>
 
           <!-- The rail: context (left) ⇄ other (right). Context is always left;
@@ -297,10 +382,11 @@ interface PairView {
                   }
                 </header>
 
-                <!-- Layer-A mechanism arrow: shown only when this mechanism has no
-                     claims. When claims exist the per-lane arrows below carry the
-                     direction, so the standalone arrow would be redundant (§8). -->
-                @if (!m.hasClaims && m.direction) {
+                <!-- Layer-A mechanism arrow: a Detailed-view detail, shown only when
+                     this mechanism has no claims. When claims exist the per-lane
+                     arrows below carry the direction, so the standalone arrow would
+                     be redundant (§8). Hidden in Basic (Overview). -->
+                @if (viewMode() === 'detailed' && !m.hasClaims && m.direction) {
                   <p class="flex items-center gap-2 text-sm text-(--text-secondary)">
                     <span
                       class="font-display text-xl text-(--accent-primary)"
@@ -318,35 +404,39 @@ interface PairView {
                 }
 
                 <!-- Layer B (§8): data_object claim rows, grouped into direction
-                     lanes, each with a neutral agreement badge + AECi provenance. -->
-                @for (g of m.claimGroups; track g.direction) {
-                  <div
-                    class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4"
-                  >
-                    <div class="flex items-center gap-3">
-                      <span
-                        class="font-display text-2xl text-(--accent-primary)"
-                        [attr.aria-label]="g.aria"
-                        >{{ g.glyph }}</span
-                      >
-                      <h3 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h3>
-                    </div>
-                    <ul class="mt-3 grid gap-2 sm:grid-cols-2">
-                      @for (c of g.claims; track c.data_object_slug + '|' + c.direction) {
-                        <li
-                          class="flex items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
+                     lanes, each with a neutral agreement badge + AECi provenance.
+                     The "data transfers back and forth", shown in Detailed only;
+                     Basic (Overview) collapses to the description + sync headline. -->
+                @if (viewMode() === 'detailed') {
+                  @for (g of m.claimGroups; track g.direction) {
+                    <div
+                      class="rounded-(--radius-lg) border border-(--border-default) bg-(--surface-raised) p-4"
+                    >
+                      <div class="flex items-center gap-3">
+                        <span
+                          class="font-display text-2xl text-(--accent-primary)"
+                          [attr.aria-label]="g.aria"
+                          >{{ g.glyph }}</span
                         >
-                          <span class="text-sm text-(--text-primary)">{{
-                            c.data_object_name
-                          }}</span>
-                          <span class="flex items-center gap-2">
-                            <aec-agreement-badge [agreement]="c.agreement" />
-                            <aec-claim-provenance [claim]="c" />
-                          </span>
-                        </li>
-                      }
-                    </ul>
-                  </div>
+                        <h3 class="aec-overline text-(--text-secondary)">{{ g.heading }}</h3>
+                      </div>
+                      <ul class="mt-3 grid gap-2 sm:grid-cols-2">
+                        @for (c of g.claims; track c.data_object_slug + '|' + c.direction) {
+                          <li
+                            class="flex items-center justify-between gap-3 rounded-(--radius-md) border border-(--border-default) bg-(--surface-base) px-3 py-2"
+                          >
+                            <span class="text-sm text-(--text-primary)">{{
+                              c.data_object_name
+                            }}</span>
+                            <span class="flex items-center gap-2">
+                              <aec-agreement-badge [agreement]="c.agreement" />
+                              <aec-claim-provenance [claim]="c" />
+                            </span>
+                          </li>
+                        }
+                      </ul>
+                    </div>
+                  }
                 }
 
                 @if (m.listingUrl || m.docsUrl) {
@@ -395,6 +485,7 @@ interface PairView {
 })
 export class ProductsPairPage {
   private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
 
   protected readonly breadcrumbAria = $localize`:@@pair.breadcrumb.aria:Breadcrumb`;
 
@@ -404,18 +495,71 @@ export class ProductsPairPage {
     { initialValue: (this.route.snapshot.data['pair'] ?? null) as ProductPairResponse | null },
   );
 
+  /** The reader's remembered Basic/Detailed choice, or `null` until hydrated.
+   *  Populated ONLY post-hydration (see the constructor + the cookie helpers) so
+   *  it never influences the cache-shared SSR render — the SSR default stays
+   *  `detailed` (param-absent), and the browser reconciles after hydration. */
+  private readonly cookieView = signal<PairViewMode | null>(null);
+
+  constructor() {
+    // Browser-only (`afterNextRender` never runs during SSR), so reading the
+    // persisted view here can't leak a visitor-specific choice into the cached
+    // HTML. When the URL carries no `?view=`, `viewMode` defers to this remembered
+    // value; an explicit `?view=` in the URL still wins. Mirrors `ConsentBanner`.
+    afterNextRender(() => this.cookieView.set(readPairViewCookie()));
+  }
+
+  /** Disclosure level from the URL (`?view=basic|detailed`). `requireSync` so SSR
+   *  reads it synchronously; the param is in the pair route's cache-key allowlist,
+   *  so each render is its own cache entry (mirrors AECI-190). */
+  private readonly queryParamMap = toSignal(this.route.queryParamMap, { requireSync: true });
+  protected readonly viewMode = computed<PairViewMode>(() => {
+    // An explicit URL param wins — it's deep-linkable and cache-key-forked, so the
+    // SSR render is already correct. Otherwise fall back to the remembered cookie
+    // choice (client-only, applied post-hydration), else the `detailed` default.
+    const param = this.queryParamMap().get('view');
+    if (param === 'basic' || param === 'detailed') return param;
+    return this.cookieView() ?? 'detailed';
+  });
+
+  /** Reflect the toggle into the URL (preserving other params) AND remember the
+   *  choice in a client-only cookie so it becomes the default on the next visit. */
+  protected setView(mode: PairViewMode): void {
+    writePairViewCookie(mode);
+    // Keep the in-memory mirror in sync so client-side navigations to another pair
+    // page (no SSR round-trip) pick up the remembered choice without re-reading.
+    this.cookieView.set(mode);
+    void this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: mode },
+      queryParamsHandling: 'merge',
+    });
+  }
+
+  protected viewBtnClass(mode: PairViewMode): string {
+    const base =
+      'inline-flex items-center gap-1.5 rounded-(--radius-sm) px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)';
+    return this.viewMode() === mode
+      ? `${base} bg-(--accent-primary) text-(--surface-base)`
+      : `${base} text-(--text-secondary) hover:text-(--text-primary)`;
+  }
+
   /** View-model: mechanisms with their direction copy + claim lanes resolved once. */
   protected readonly view = computed<PairView | null>(() => {
     const pair = this.pair();
     if (!pair) return null;
     const otherName = pair.other_product.name;
     const { total, confirmed } = pair.sync_headline;
+    const mechanisms = pair.mechanisms.map((m) => this.toMechanismView(m, otherName));
     return {
       pair,
-      mechanisms: pair.mechanisms.map((m) => this.toMechanismView(m, otherName)),
+      mechanisms,
       syncTotal: total,
       syncHeadline: syncHeadlineText(total),
       confirmedRatio: confirmedRatioText(confirmed, total),
+      hasDetail: mechanisms.some(
+        (m) => m.claimGroups.length > 0 || (m.direction !== null && !m.hasClaims),
+      ),
     };
   });
 

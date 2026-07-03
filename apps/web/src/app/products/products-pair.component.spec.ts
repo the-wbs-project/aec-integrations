@@ -8,9 +8,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
-import { ActivatedRoute, provideRouter } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter, Router } from '@angular/router';
 import { of } from 'rxjs';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ContextDirection, ProductPairClaim, ProductPairResponse } from '@aeci/shared';
 
@@ -81,7 +81,7 @@ function buildPairWithClaims(claims: ProductPairClaim[]): ProductPairResponse {
   };
 }
 
-function setup(pair: ProductPairResponse | null) {
+function setup(pair: ProductPairResponse | null, queryParams: Record<string, string> = {}) {
   TestBed.configureTestingModule({
     providers: [
       provideZonelessChangeDetection(),
@@ -90,7 +90,13 @@ function setup(pair: ProductPairResponse | null) {
       provideHttpClientTesting(),
       {
         provide: ActivatedRoute,
-        useValue: { data: of({ pair }), snapshot: { data: { pair } } },
+        useValue: {
+          data: of({ pair }),
+          snapshot: { data: { pair } },
+          // The pair page reads `?view=` synchronously (SSR). `of()` satisfies
+          // toSignal's `requireSync`; default (no param) resolves to `detailed`.
+          queryParamMap: of(convertToParamMap(queryParams)),
+        },
       },
     ],
   });
@@ -99,8 +105,30 @@ function setup(pair: ProductPairResponse | null) {
   return { fixture, el: fixture.nativeElement as HTMLElement };
 }
 
+/** Flush the browser-only `afterNextRender` cookie read + the resulting update
+ *  (the remembered Basic/Detailed choice). Mirrors `ConsentBanner`'s harness. */
+async function hydrate(fixture: ReturnType<typeof setup>['fixture']): Promise<void> {
+  await fixture.whenStable();
+  await new Promise((resolve) => setTimeout(resolve));
+  fixture.detectChanges();
+}
+
+const PAIR_VIEW_COOKIE = 'aeci_pair_view';
+function setViewCookie(mode: 'basic' | 'detailed'): void {
+  document.cookie = `${PAIR_VIEW_COOKIE}=${mode}; path=/`;
+}
+function clearViewCookie(): void {
+  document.cookie = `${PAIR_VIEW_COOKIE}=; path=/; max-age=0`;
+}
+
 describe('ProductsPairPage', () => {
-  beforeEach(() => TestBed.resetTestingModule());
+  // Clear the persisted view before each test: the post-hydration cookie read
+  // would otherwise leak a prior test's choice into the "detailed by default"
+  // cases and make them order-dependent.
+  beforeEach(() => {
+    TestBed.resetTestingModule();
+    clearViewCookie();
+  });
 
   it('renders the rail, heading, and a mechanism card', () => {
     const { el } = setup(buildPair());
@@ -170,5 +198,118 @@ describe('ProductsPairPage', () => {
   it('renders the NotFound shell when the pair is null', () => {
     const { el } = setup(null);
     expect(el.querySelector('aec-not-found')).toBeTruthy();
+  });
+
+  describe('Basic/Detailed view toggle', () => {
+    it('renders the toggle (Detailed pressed) when the pair has detail to hide', () => {
+      const { el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+
+      const group = el.querySelector('[role="group"]');
+      expect(group).toBeTruthy();
+      const buttons = group!.querySelectorAll('button');
+      expect(buttons).toHaveLength(2);
+      expect(buttons[0]!.textContent).toContain('Basic');
+      expect(buttons[1]!.textContent).toContain('Detailed');
+      // No ?view= → detailed default.
+      expect(buttons[0]!.getAttribute('aria-pressed')).toBe('false');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('hides the claim lanes in Basic view but keeps the sync headline, description, and links', () => {
+      const { el } = setup(
+        buildPairWithClaims([
+          claim('models', 'Models', 'outbound'),
+          claim('rfis', 'RFIs', 'inbound'),
+        ]),
+        { view: 'basic' },
+      );
+
+      // The "data transfers" (Layer-B claim rows + lane headings) are gone.
+      expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
+      expect(el.querySelectorAll('aec-claim-provenance')).toHaveLength(0);
+      expect(el.querySelector('h3.aec-overline')).toBeNull();
+      expect(el.textContent).not.toContain('Sends to Revit');
+      expect(el.textContent).not.toContain('Receives from Revit');
+      // The Overview essentials remain.
+      expect(el.textContent).toContain('2 data objects sync');
+      expect(el.textContent).toContain('The marketplace connector.');
+      expect(el.querySelector('a[href="https://example.com/listing"]')).toBeTruthy();
+      // Basic is the pressed segment.
+      const buttons = el.querySelectorAll('[role="group"] button');
+      expect(buttons[0]!.getAttribute('aria-pressed')).toBe('true');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('hides the standalone direction arrow in Basic view (no-claims mechanism)', () => {
+      const { el } = setup(buildPair(), { view: 'basic' });
+      // buildPair()'s mechanism has a direction but no claims → the Layer-A arrow
+      // is Detailed-only, so Basic drops it while keeping the description.
+      expect(el.textContent).not.toContain('Sends to Revit');
+      expect(el.textContent).toContain('The marketplace connector.');
+      expect(el.querySelector('[role="group"]')).toBeTruthy();
+    });
+
+    it('omits the toggle entirely when there is no detail to collapse', () => {
+      const base = buildPair();
+      const noDetail = buildPair({
+        mechanisms: [{ ...base.mechanisms[0]!, direction: null, claims: [] }],
+      });
+      const { el } = setup(noDetail);
+      expect(el.querySelector('[role="group"]')).toBeNull();
+    });
+  });
+
+  describe('Remembered view (cookie persistence)', () => {
+    // SSR cache-neutrality is structural: the cookie is read ONLY inside
+    // `afterNextRender`, which never runs during SSR — so the cached HTML always
+    // carries the `detailed` default and no visitor choice leaks into the shared
+    // edge entry. The browser test harness fires afterNextRender synchronously on
+    // the first CD (same as ConsentBanner), so there is no observable
+    // "before reconciliation" frame to assert; we assert the reconciled result.
+    it('defaults to the remembered Basic choice after hydration when the URL has no ?view=', async () => {
+      setViewCookie('basic');
+      const { fixture, el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+      await hydrate(fixture);
+
+      // The remembered Basic choice takes over: lanes collapse and the Basic
+      // segment becomes pressed — without any ?view= in the URL.
+      expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
+      const buttons = el.querySelectorAll('[role="group"] button');
+      expect(buttons[0]!.getAttribute('aria-pressed')).toBe('true');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('lets an explicit ?view= in the URL win over the remembered cookie', async () => {
+      setViewCookie('basic');
+      const { fixture, el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]), {
+        view: 'detailed',
+      });
+      await hydrate(fixture);
+
+      // The deep-linked (cache-forked) Detailed view is honored despite the Basic
+      // cookie — the URL param is the source of truth when present.
+      expect(el.querySelector('aec-agreement-badge')).toBeTruthy();
+      const buttons = el.querySelectorAll('[role="group"] button');
+      expect(buttons[1]!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('writes the cookie and applies the choice when the toggle is clicked', () => {
+      const { fixture, el } = setup(buildPairWithClaims([claim('models', 'Models', 'outbound')]));
+      // Stub the URL navigation (the fake ActivatedRoute can't back a real
+      // relative navigation); we assert the cookie write + the in-memory apply.
+      const navigate = vi.spyOn(TestBed.inject(Router), 'navigate').mockResolvedValue(true);
+
+      const basicButton = el.querySelectorAll('[role="group"] button')[0] as HTMLButtonElement;
+      basicButton.click();
+      fixture.detectChanges();
+
+      expect(document.cookie).toContain(`${PAIR_VIEW_COOKIE}=basic`);
+      expect(navigate).toHaveBeenCalledWith(
+        [],
+        expect.objectContaining({ queryParams: { view: 'basic' }, queryParamsHandling: 'merge' }),
+      );
+      // The click applies immediately via the in-memory mirror (no round-trip).
+      expect(el.querySelectorAll('aec-agreement-badge')).toHaveLength(0);
+    });
   });
 });
