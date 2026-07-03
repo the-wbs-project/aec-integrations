@@ -34,8 +34,9 @@ If a rule here contradicts one of those, the more-specific document wins.
 
 ## 3. Angular 21 + zoneless
 
-- `provideZonelessChangeDetection()` is the first provider in every `ApplicationConfig`. No `zone.js` in `polyfills` or anywhere else. Reference: `apps/web/src/app/app.config.ts:19`.
-- Pair zoneless with `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))`. Angular v22 incremental hydration is the default and auto-enables event replay, so a separate `withEventReplay()` is redundant (AECI-130). Reference: `apps/web/src/app/app.config.ts:19-27`.
+- `provideZonelessChangeDetection()` is the first provider in every `ApplicationConfig`. No `zone.js` in `polyfills` or anywhere else. Reference: `apps/web/src/app/app.config.ts:16`.
+- Pair zoneless with `provideClientHydration(withHttpTransferCacheOptions({ includePostRequests: false }))`. Angular v22 incremental hydration is the default and auto-enables event replay, so a separate `withEventReplay()` is redundant (AECI-130). Reference: `apps/web/src/app/app.config.ts:37-45`.
+- `provideRouter` gets `withInMemoryScrolling({ scrollPositionRestoration: 'enabled', anchorScrolling: 'enabled' })` so new routes open at the top and Back/Forward restores scroll (`apps/web/src/app/app.config.ts:19-36`). The router resets scroll with `window.scrollTo`, which honors the global `html { scroll-behavior: smooth }`, so a browser-only `ScrollBehaviorManager` (`core/scroll-behavior-manager.ts`, started from `App`) forces the reset instant while native fragment anchors (section-nav, skip-link) stay smooth. Don't route in-page section jumps through the router — they're native `<a href="{path}#id">` anchors by design.
 - Don't reintroduce `zone.js` to make a flaky test pass — fix the test instead.
 
 Lint: 🟡 review-only.
