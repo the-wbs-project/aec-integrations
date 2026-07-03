@@ -414,13 +414,16 @@ jobs:
         run: bash ../../scripts/verify-worker-secrets.sh
 
       - name: Datadog deployment marker
-        if: ${{ secrets.DATADOG_API_KEY != '' }}
         env:
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
           INPUT_SHA: ${{ inputs.commit_sha }}
           ACTOR: ${{ github.actor }}
         run: |
           set -euo pipefail
+          if [ -z "$DATADOG_API_KEY" ]; then
+            echo "::warning::DATADOG_API_KEY not set — skipping demo deployment marker."
+            exit 0
+          fi
           curl -fsS -X POST "https://api.datadoghq.com/api/v1/events" \
             -H "DD-API-KEY: ${DATADOG_API_KEY}" \
             -H "Content-Type: application/json" \
