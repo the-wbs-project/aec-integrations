@@ -2,6 +2,8 @@
 file_include_globs = ".env*\n**/.dev.vars*"
 
 [environment_variables]
+ALGOLIA_ADMIN_KEY = "conductor-keychain"
+ALGOLIA_APP_ID = "conductor-keychain"
 CLOUDFLARE_ACCOUNT_ID = "conductor-keychain"
 CLOUDFLARE_API_TOKEN = "conductor-keychain"
 CLOUDFLARE_ZONE_ID = "conductor-keychain"
@@ -10,8 +12,8 @@ DD_APP_KEY = "conductor-keychain"
 LINEAR_API_KEY = "conductor-keychain"
 
 [prompts]
-code_review = "Use @docs/CODE_REVIEW_CHECKLIST.md to perform code reviews."
-general = "When starting a workspace from a Linear issue, assign that issue to chrisw@thewbsproject.com then change the status to \"In Progress\".\n\nWhen creating a plan, always include a bullet point summary at the end of the plan. This way I can read the quick points and decide if I need to read the full plan (I usually will).\n\nMake sure you status the project accordingly. Do not create PRs automatically unless I specify."
+code_review = "Use @docs/CODE_REVIEW_CHECKLIST.md to perform code reviews. If the finding is a doc issue, go ahead and address it automatically. Give an indicator it was fixed when telling me about it and mark approved if there's no other issues."
+general = "When starting a workspace from a Linear issue, assign that issue to chrisw@thewbsproject.com then change the status to \"In Progress\".\n\nWhen creating a plan, always include a bullet point summary at the end of the plan. This way I can read the quick points and decide if I need to read the full plan (I usually will).\n\nMake sure you status the project accordingly. Do not create PRs automatically unless I specify.\n\nMake sure you update all documents based on changes you have made. Most code reviews are finding documents are stale because they do not reflect changes made to the application."
 
 [scripts]
 run_mode = "concurrent"
