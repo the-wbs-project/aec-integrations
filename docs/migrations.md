@@ -62,8 +62,16 @@ Rules:
   `docs/DATA_OBJECT_VOCABULARY.md`). The local catalog fixture is
   `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
   Airtable via `POST /api/promote`).
-- **Per-env apply** (preview/staging/production) is wired into CI in Phase 5
-  (AECI-256): `wrangler d1 migrations apply aeci-app-<env> --env <env>`.
+- **Per-env apply** (staging/demo/production) is wired into CI in Phase 5
+  (AECI-256): the deploy lanes (`deploy.yml`, `promote-to-demo.yml`,
+  `promote-to-prod.yml`) run `scripts/d1-apply-migrations.sh <db> <env>`, which
+  applies `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote` and
+  reconciles the two reference-data seeds. The helper **retries each remote D1
+  command** on a transient Cloudflare D1 API internal error (`[code: 7500]`) —
+  a single such blip otherwise aborts the whole deploy (seen on promote-to-demo
+  run 28671935011); retrying is safe because every command is idempotent
+  (`migrations apply` is a tracked no-op once applied; both seeds are UPSERTs on
+  deterministic UUIDv5 ids).
 - **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
   (ADR 0016 §4, `docs/AUTH_AND_RLS.md`), and `updated_at` is refreshed app-side
   (Drizzle `$onUpdate`), not by a DB trigger.
