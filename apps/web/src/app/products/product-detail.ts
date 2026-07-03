@@ -1,4 +1,3 @@
-import { NgTemplateOutlet } from '@angular/common';
 import { Component, afterNextRender, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -18,6 +17,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { ProductIntegrationRow } from './product-integration-row';
 import { ProductReviews } from './product-reviews';
 import { ProductUsefulnessSection } from './product-usefulness';
 
@@ -35,15 +35,19 @@ import { ProductUsefulnessSection } from './product-usefulness';
  *   - `product` set → render hero / metadata sidebar / description /
  *     integrations sections inside the shared `DetailLayout`.
  *
- * Integrations section: if the combined source + target list exceeds 20,
- * everything past the first 20 ships in an `@defer (on viewport; hydrate on
- * viewport)` block. Under v22 incremental hydration the deferred rows are
- * SSR-rendered (crawlable, no hydration layout shift); the `on viewport`
- * trigger still defers the block on client-side navigations (see AECI-130).
- * Each integration links to the product-PAIR page
- * `/products/:contextSlug/integrations/:otherSlug` (this product as the context
- * slug) with the *other* product also linked alongside — AECI-294 retired the
- * standalone `/integrations/:id` detail route the original AC named.
+ * Integrations section: a column-aligned `<table>` (partner · direction ·
+ * connection), one `ProductIntegrationRow` per integration — replacing the old
+ * stack of near-identical cards, which was hard to scan and nested an `<a>`
+ * (partner product) inside an `<a>` (pair page). If the combined source + target
+ * list exceeds 20, everything past the first 20 ships as deferred `<tr>`s in an
+ * `@defer (on viewport; hydrate on viewport)` block inside the same `<tbody>`.
+ * Under v22 incremental hydration the deferred rows are SSR-rendered (crawlable,
+ * no hydration layout shift); the `on viewport` trigger still defers the block on
+ * client-side navigations (see AECI-130). Each row's whole surface links to the
+ * product-PAIR page `/products/:contextSlug/integrations/:otherSlug` (this
+ * product as the context slug) via a stretched-link overlay, with the *other*
+ * product linked separately on top — AECI-294 retired the standalone
+ * `/integrations/:id` detail route the original AC named.
  *
  * Cache discipline: tags are written by the SSR runtime (vendor + each
  * integration shown), and the page-view payload was queued by the resolver.
@@ -56,8 +60,8 @@ import { ProductUsefulnessSection } from './product-usefulness';
     DetailLayout,
     ExternalLinkTracker,
     LogoOrInitial,
-    NgTemplateOutlet,
     NotFound,
+    ProductIntegrationRow,
     ProductReviews,
     ProductUsefulnessSection,
     RequestDrawer,
@@ -411,68 +415,85 @@ import { ProductUsefulnessSection } from './product-usefulness';
                 >.
               </p>
             } @else {
-              <ng-template #integrationRow let-item let-contextSlug="contextSlug">
-                <li>
-                  <a
-                    [routerLink]="['/products', contextSlug, 'integrations', item.other.slug]"
-                    class="flex items-center gap-3 rounded-(--radius-lg)
-                      border border-(--border-default) bg-(--surface-raised) p-4
-                      text-(--text-primary) no-underline transition-colors
-                      hover:border-(--border-strong)"
+              <!-- Real table (replaces the former card stack) so the partner,
+                   flow direction, and connection mechanism align into scannable
+                   columns. Horizontal scroll below the min width; Direction +
+                   Connection collapse at md (matching ProductCard / the browse
+                   tables), with the mechanism folding into the partner cell. -->
+              <div class="overflow-x-auto">
+                <table
+                  class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
+                  i18n-aria-label="@@products.detail.body.integrations.table.aria"
+                  aria-label="Integrations"
+                >
+                  <thead
+                    class="border-b border-(--border-default) text-start text-xs
+                      font-medium tracking-wide text-(--text-secondary)"
                   >
-                    <span class="min-w-0 flex-1">
-                      <span class="block break-words text-sm font-bold">{{
-                        item.integration.name
-                      }}</span>
-                      <span class="block break-words text-sm text-(--text-secondary)">
-                        <ng-container i18n="@@products.detail.body.integrations.with"
-                          >with</ng-container
+                    <tr>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 text-start font-medium"
+                        i18n="@@products.detail.body.integrations.col.product"
+                      >
+                        Integrates with
+                      </th>
+                      <th
+                        scope="col"
+                        class="hidden px-4 py-3 text-start font-medium md:table-cell"
+                        i18n="@@products.detail.body.integrations.col.direction"
+                      >
+                        Direction
+                      </th>
+                      <th
+                        scope="col"
+                        class="hidden px-4 py-3 text-start font-medium md:table-cell"
+                        i18n="@@products.detail.body.integrations.col.connection"
+                      >
+                        Connection
+                      </th>
+                      <th scope="col" class="px-4 py-3">
+                        <span class="sr-only" i18n="@@products.detail.body.integrations.col.details"
+                          >Details</span
                         >
-                        <a
-                          [routerLink]="['/products', item.other.slug]"
-                          class="ms-1 text-(--accent-primary) underline underline-offset-2"
-                          (click)="$event.stopPropagation()"
-                        >
-                          {{ item.other.name }}
-                        </a>
-                      </span>
-                    </span>
-                    <span
-                      class="text-(--text-tertiary) inline-block rtl:-scale-x-100"
-                      aria-hidden="true"
-                      >→</span
-                    >
-                  </a>
-                </li>
-              </ng-template>
-
-              <ul class="grid gap-3">
-                @for (item of integrationsAbove(); track item.integration.id) {
-                  <ng-container
-                    [ngTemplateOutlet]="integrationRow"
-                    [ngTemplateOutletContext]="{ $implicit: item, contextSlug: p.slug }"
-                  ></ng-container>
-                }
-              </ul>
-
-              @if (integrationsDeferred().length > 0) {
-                @defer (on viewport; hydrate on viewport) {
-                  <ul class="mt-3 grid gap-3">
-                    @for (item of integrationsDeferred(); track item.integration.id) {
-                      <ng-container
-                        [ngTemplateOutlet]="integrationRow"
-                        [ngTemplateOutletContext]="{ $implicit: item, contextSlug: p.slug }"
-                      ></ng-container>
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-(--border-default)">
+                    @for (item of integrationsAbove(); track item.integration.id) {
+                      <tr
+                        aec-product-integration-row
+                        [integration]="item.integration"
+                        [other]="item.other"
+                        [contextSlug]="p.slug"
+                        [contextIsSource]="item.contextIsSource"
+                      ></tr>
                     }
-                  </ul>
-                } @placeholder (minimum 100ms) {
-                  <div
-                    class="mt-3 h-24 animate-pulse rounded-(--radius-lg)
-                      border border-(--border-default) bg-(--surface-sunken)"
-                    aria-hidden="true"
-                  ></div>
-                }
-              }
+                    @if (integrationsDeferred().length > 0) {
+                      @defer (on viewport; hydrate on viewport) {
+                        @for (item of integrationsDeferred(); track item.integration.id) {
+                          <tr
+                            aec-product-integration-row
+                            [integration]="item.integration"
+                            [other]="item.other"
+                            [contextSlug]="p.slug"
+                            [contextIsSource]="item.contextIsSource"
+                          ></tr>
+                        }
+                      } @placeholder (minimum 100ms) {
+                        <tr aria-hidden="true">
+                          <td colspan="4" class="px-4 py-3">
+                            <div
+                              class="h-16 animate-pulse rounded-(--radius-lg)
+                                border border-(--border-default) bg-(--surface-sunken)"
+                            ></div>
+                          </td>
+                        </tr>
+                      }
+                    }
+                  </tbody>
+                </table>
+              </div>
             }
           </section>
 
@@ -544,16 +565,28 @@ export class ProductDetailPage {
    * particular ordering.
    */
   protected readonly integrations = computed<
-    ReadonlyArray<{ integration: IntegrationListItem; other: ProductLink }>
+    ReadonlyArray<{
+      integration: IntegrationListItem;
+      other: ProductLink;
+      contextIsSource: boolean;
+    }>
   >(() => {
     const p = this.product();
     if (!p) return [];
-    const items: { integration: IntegrationListItem; other: ProductLink }[] = [];
+    const items: {
+      integration: IntegrationListItem;
+      other: ProductLink;
+      contextIsSource: boolean;
+    }[] = [];
+    // `contextIsSource` re-frames the stored `source → target` direction to this
+    // page's product for `contextDirectionLabel()` (product-integration-row.ts):
+    // in the source bucket this product IS the source (outbound), in the target
+    // bucket it's the target (inbound).
     for (const integration of p.integrations_as_source) {
-      items.push({ integration, other: integration.target });
+      items.push({ integration, other: integration.target, contextIsSource: true });
     }
     for (const integration of p.integrations_as_target) {
-      items.push({ integration, other: integration.source });
+      items.push({ integration, other: integration.source, contextIsSource: false });
     }
     return items;
   });
