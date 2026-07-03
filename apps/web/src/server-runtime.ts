@@ -870,6 +870,30 @@ export function createApp(options: {
   const transformResponse = options.transformResponse;
   const app = new Hono<{ Bindings: Bindings }>();
 
+  // www → apex 301 (AECI-247 / apex cutover). Production binds BOTH the bare apex
+  // (`aecintegrations.com`) and `www.aecintegrations.com` to this Worker; the
+  // canonical host is the bare apex (self-referential canonicals + `PUBLIC_SITE_URL`,
+  // ADR 0011), so any `www.` host is folded to it with a permanent redirect.
+  // Registered first so it short-circuits before SSR and the X-Robots stamp; path
+  // + query are preserved and the mapping never changes, so the 301 is edge-cacheable.
+  // Only a `www.` prefix matches — the apex, the `prod.`/`demo.`/`staging.` tiers,
+  // `localhost`, and `*.workers.dev` never carry it, so no other host is touched.
+  // This replaces the retired `apps/landing` Worker's apex↔www handling: the
+  // pre-launch coming-soon page did apex→www; the app does www→apex.
+  app.use('*', async (c, next) => {
+    const url = new URL(c.req.url);
+    if (url.hostname.startsWith('www.')) {
+      return new Response(null, {
+        status: 301,
+        headers: {
+          Location: `${url.protocol}//${url.hostname.slice(4)}${url.pathname}${url.search}`,
+          'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+        },
+      });
+    }
+    return next();
+  });
+
   // Pre-launch crawler block (`server/robots-policy.ts`). FAIL-CLOSED: unless
   // `ALLOW_INDEXING=true`, stamp `X-Robots-Tag: noindex, nofollow` on every
   // response so demo (public, NOT behind Access), staging, and PR previews never

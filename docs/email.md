@@ -51,6 +51,8 @@ decision record; no separate ADR.
 | `review-rejected` | `PATCH /api/admin/reviews/:id` reject | reviewer | includes the moderator's reason + a guidelines link |
 | `account-deleted` | `DELETE /api/account` (`routes/account.ts`) | the deleted user (captured pre-erasure) | GDPR confirmation |
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
+| `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. |
+| `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). |
 
 Copy is en-US plain text + minimal HTML, built inline in `lib/email.ts` (emails are
 not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` templates).
@@ -62,7 +64,7 @@ not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` temp
 | `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from `RESEND_API_KEY_{STAGING,PRODUCTION}` GH secrets (graceful warn-and-skip, like `ANTHROPIC_API_KEY`). Absent → sends `'skipped'`. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on a verified domain. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
-| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert. |
+| `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert **and** the landing signup/feedback operator notifications (AECI-247/277). |
 
 **One-time ops step (not in CI):** provision the keys —
 

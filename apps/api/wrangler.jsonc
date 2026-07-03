@@ -463,14 +463,13 @@
         // email (absolute links in the approved/rejected emails, AECI-240) AND the
         // post-promote IndexNow submission (the origin its URLs are built against,
         // AECI-236 / §20.2; canonicals are self-referential to the serving origin,
-        // ADR 0011). Public value. Pre-launch the production tier serves
-        // `prod.aecintegrations.com` (no-index), so this points there for email
-        // links; it flips to the apex (`https://aecintegrations.com`) at the apex
-        // cutover, alongside the web Worker's `ALLOW_INDEXING="true"` + the
-        // `INDEXNOW_KEY` secret and the `GOOGLE_INDEXING_SA_EMAIL` /
-        // `GOOGLE_INDEXING_SA_PRIVATE_KEY` secrets (AECI-263; both IndexNow and the
-        // best-effort Google Indexing ping stay no-ops until those are provisioned).
-        "PUBLIC_SITE_URL": "https://prod.aecintegrations.com",
+        // ADR 0011). Public value. AECI-247/277 apex cutover: flipped to the apex
+        // `https://aecintegrations.com` (the app's public host), alongside the web
+        // Worker's `ALLOW_INDEXING="true"`. The launch-only `INDEXNOW_KEY` +
+        // `GOOGLE_INDEXING_SA_EMAIL` / `GOOGLE_INDEXING_SA_PRIVATE_KEY` secrets
+        // (AECI-263) must be provisioned at the same time — both the IndexNow and
+        // best-effort Google Indexing pings stay no-ops until they are.
+        "PUBLIC_SITE_URL": "https://aecintegrations.com",
       },
       "kv_namespaces": [
         {

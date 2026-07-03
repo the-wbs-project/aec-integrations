@@ -7,7 +7,7 @@
 >
 > **This runbook is prepared as the 7.12 deliverable; running it is AECI-247, out of scope for the 7.12 gate.**
 >
-> **Relationship to AECI-277 (retire `apps/landing`).** Per the locked decision (2026-06-26), the **destructive execution** — bind the apex/`www` to `aeci-web-production`, `git rm apps/landing`, add the operator-notification email to `apps/api/src/routes/landing-forms.ts` while removing the landing Worker's own send, and add the `www`→apex 301 Redirect Rule — lands as **one combined AECI-247 + AECI-277 PR when the launch ceremony is imminent**. This document is the **prepared plan that PR executes from**; it changes no code or DNS by itself.
+> **Relationship to AECI-277 (retire `apps/landing`).** Per the locked decision (2026-06-26), the **destructive execution** is now **prepared as the combined AECI-247 + AECI-277 PR** (branch `chris/aeci-247-phase-713-dns-cutover-from-the-coming-soon-page-go-live`). That PR carries, in config/code: the apex + `www` `custom_domain` routes on `aeci-web-production`; the production web Worker's `ALLOW_INDEXING="true"`; the API Worker's `PUBLIC_SITE_URL`→apex; the `www`→apex 301 in the SSR Worker (`server-runtime.ts`, replacing the landing Worker's apex↔www handling); `git rm apps/landing`; and the operator "new signup / feedback" notification moved into `apps/api/src/routes/landing-forms.ts` (to `ADMIN_ALERT_EMAIL`, replacing the landing Worker's own Resend send). **The PR changes no live DNS by itself** — the apex/`www` reassignment happens only when it is **merged and the next `promote-to-prod` deploys** (custom-domain reconciliation, the same mechanism `demo.` uses). This document is the ops procedure that deploy executes against. Hold the merge until the §1 preconditions are green.
 
 ---
 
@@ -21,7 +21,7 @@ Do **not** start the cutover until every box below is checked. These are the AEC
 - [ ] **F4 — BrowserStack full real-device sweep + a11y audit passed** (`BROWSERSTACK_*` set; ADR 0012 launch gate).
 - [ ] **Production data is present + correct** in `aeci-app-production` D1 (catalog promoted; reviews seeded/real). `demo`→`prod` promote order per `environments.md` already run.
 - [ ] **Deploy gates green on the target commit** — CI `deploy.yml` / `promote-to-prod.yml` passed; the dual SSR+API version gate (`scripts/verify-version.sh`: `/api/version` **and** `/_version` == target SHA) is satisfied on `prod.aecintegrations.com`.
-- [ ] **Backups / snapshot** of the current landing config noted for rollback (§5).
+- [ ] **Rollback path confirmed (§6).** The deployed `landing-page` Worker still serves the coming-soon page and the apex/`www` can be reassigned back to it at the DNS layer. (Its source is removed from the repo by the cutover PR but recoverable from git history; the deployed Worker is untouched until a deliberate post-launch `wrangler delete`.)
 
 ---
 
@@ -48,10 +48,10 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 
 Run top to bottom. Steps 1–3 are config on the prod Worker; step 4 is the DNS flip; step 5 is the broadcast.
 
-1. [ ] **Turn on indexing.** Set the production web Worker's `ALLOW_INDEXING="true"` (removes `x-robots-tag: noindex`, lets the SEO header set + sitemap go crawlable). Re-deploy prod web with the standard `COMMIT_SHA`/`DEPLOYED_AT` vars (CLAUDE.md version-reporting rule).
-2. [ ] **Point the API at the apex.** Flip the API Worker's `PUBLIC_SITE_URL` to `https://aecintegrations.com` so promote-time IndexNow / Google pings + canonical/OG absolute URLs use the apex.
-3. [ ] **Verify prod on `prod.aecintegrations.com` before moving the apex** — home, search, a detail page, `/legal/*`, `/about`, `/contact` all render; dual version gate green; `robots`/canonical now indexable.
-4. [ ] **Move the apex + www onto the app.** Reassign `aecintegrations.com` **and** `www.aecintegrations.com` off the landing Worker (`apps/landing`) onto `aeci-web-production` (Cloudflare custom-domain routes / zone records per `environments.md` §"Cloudflare DNS"). Keep a **`www` → apex 301** so the canonical host is the bare apex. (The landing Worker's `LANDING_CF_HEADERS` continuity was handled in the AECI-275 server-runtime work; the app home already renders the closing-CTA capture + real OG card per AECI-277 parity.)
+1. [ ] **Indexing is ON in config.** The production web Worker ships `ALLOW_INDEXING="true"` (AECI-247/277) — removes `x-robots-tag: noindex`, lets the SEO header set + sitemap go crawlable. Nothing to flip by hand; it takes effect on the deploy below. (Provision the launch-only `INDEXNOW_KEY` + Google Indexing secrets FIRST per §2 — pinging for a still-noindex site is the bug the secrets' absence guards against.)
+2. [ ] **API points at the apex in config.** The API Worker ships `PUBLIC_SITE_URL=https://aecintegrations.com` (AECI-247/277) so promote-time IndexNow / Google pings + canonical/OG absolute URLs use the apex. Takes effect on the deploy below.
+3. [ ] **Merge the cutover PR, then run `promote-to-prod`** with the standard `COMMIT_SHA`/`DEPLOYED_AT` vars (CLAUDE.md version-reporting rule). This deploy applies steps 1–2 **and** reconciles the apex + `www` custom domains onto `aeci-web-production` — **it is the DNS flip** (see step 4). Before it, **verify on `prod.aecintegrations.com`** (the Access-gated internal host, unaffected by the apex move): home, search, a detail page, `/legal/*`, `/about`, `/contact` all render; dual version gate green; `robots`/canonical now indexable.
+4. [ ] **The apex + www move onto the app** as a side effect of step 3's deploy: `custom_domain: true` on the apex + `www` routes reassigns both hostnames off the (now retired) landing Worker onto `aeci-web-production`. The SSR Worker 301s `www`→apex so the canonical host is the bare apex. (The `LANDING_CF_HEADERS` geo continuity was handled in AECI-275; the app home renders the closing-CTA capture + real OG card per AECI-277 parity.) If you must stage it separately from the code deploy, reassign the custom domains via the Cloudflare dashboard per `environments.md`.
 5. [ ] **Send the waitlist broadcast** (§4) — one-time Resend broadcast to the entire `mailing_list` with the `?ref=waitlist&token=…` link that lights the welcome banner (AECI-243).
 
 ---
@@ -115,7 +115,7 @@ Unsubscribe: {{unsubscribe_url}}
 
 There is **no automatic rollback** — but the flip is reversible at the DNS layer within minutes if go-live goes wrong:
 
-- **Revert the apex + www** custom-domain routes back to the landing Worker (`apps/landing`) — restores the coming-soon page (still deployed, unchanged). Do this first if the app home is broken at the apex.
+- **Revert the apex + www** custom-domain routes back to the landing Worker — restores the coming-soon page. **The landing Worker's SOURCE (`apps/landing`) is removed from the repo, but the deployed `landing-page` Worker persists on Cloudflare** (removing the source does not undeploy it), so the reassignment is a dashboard/DNS action and works for the whole rollback window. Do this first if the app home is broken at the apex. (Only after go-live is stable and rollback is no longer wanted should the `landing-page` Worker be intentionally decommissioned with `wrangler delete` — a separate, deliberate step, NOT part of this cutover.)
 - **Re-set `ALLOW_INDEXING="false"`** on prod web and re-deploy if you need to pull the app back out of the index while you fix forward (then request re-crawl once resolved).
 - **Hold the broadcast** — do not send §4 until the apex is confirmed healthy (§5); an unsent broadcast is the cheapest rollback.
 - Landing lead-capture (`feedback`/`mailing_list`) already writes to D1 via the API Worker (AECI-257), so subscriber capture survives either side of the flip.

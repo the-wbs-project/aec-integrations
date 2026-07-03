@@ -7,11 +7,11 @@
  * `CLAUDE.md` and `docs/CICD_PLAN.md` §4.1.
  *
  * Tiers (promotion order): preview → staging → demo → production.
- *   - Web production serves `prod.aecintegrations.com` (the eventual home page;
- *     pre-launch, no-index until the apex cutover).
+ *   - Web production serves the apex `aecintegrations.com` + `www.` (the public
+ *     home) AND `prod.aecintegrations.com` (the Access-gated internal host). The
+ *     apex cutover (AECI-247/277) moved apex + www off the retired landing Worker
+ *     onto this Worker; `www.` 301s to the bare apex in the SSR Worker.
  *   - Web demo serves `demo.aecintegrations.com` (the public showcase tier).
- *   - The apex (`aecintegrations.com`) and `www.` remain served by the landing
- *     Worker (`apps/landing`) — we are not promoting the app to the apex yet.
  *   - Preview deploys use `workers_dev` URLs per PR; staging is
  *     `staging.aecintegrations.com`.
  * All tiers share ONE Supabase auth project (ADR 0017); per-environment
@@ -164,11 +164,14 @@
       "name": "aeci-web-production",
       "vars": {
         "ENV": "production",
-        // See the preview env's note. prod.aecintegrations.com is gated by
-        // Cloudflare Access until launch (ADR 0017) and no-index — keep "false"
-        // until the apex cutover (when the app takes over aecintegrations.com),
-        // then flip to "true" to allow indexing.
-        "ALLOW_INDEXING": "false",
+        // AECI-247/277 apex cutover: the app is the public home, so indexing is
+        // ON. Removes `X-Robots-Tag: noindex` + makes robots.txt/sitemap.xml
+        // crawlable (server-runtime.ts). The Access-gated `prod.` internal host
+        // stays crawler-free via Cloudflare Access (docs/access.md), so a single
+        // ALLOW_INDEXING="true" doesn't leak a duplicate index. Provision the
+        // launch-only SEO secrets (INDEXNOW_KEY, GOOGLE_INDEXING_SA_*) at the same
+        // time — pinging for a noindex site is a bug (docs/launch-cutover-runbook.md).
+        "ALLOW_INDEXING": "true",
         "DD_SITE": "us5.datadoghq.com",
         "COMMIT_SHA": "unknown",
         "DEPLOYED_AT": "1970-01-01T00:00:00.000Z",
@@ -176,12 +179,23 @@
         "POSTHOG_HOST": "https://us.i.posthog.com",
       },
       "observability": { "enabled": true },
-      // Web prod serves prod.aecintegrations.com (the demo tier serves
-      // demo.aecintegrations.com). The apex (aecintegrations.com) and www stay
-      // on the landing Worker (apps/landing) until the apex cutover.
-      // `custom_domain: true` makes wrangler reconcile the DNS record + cert on
-      // the aecintegrations.com zone on deploy.
+      // AECI-247/277 apex cutover. Web prod now serves the public apex
+      // `aecintegrations.com` + `www.` AND the Access-gated internal
+      // `prod.aecintegrations.com`. `custom_domain: true` makes wrangler reconcile
+      // the DNS record + cert on the aecintegrations.com zone on deploy — for the
+      // apex + www it REASSIGNS the hostnames off the (retired) landing Worker onto
+      // this one (same mechanism environments.md relies on for demo.). THIS IS THE
+      // DNS FLIP: the next promote-to-prod deploy after this merges makes the app
+      // the live apex. `www.` 301s to the bare apex inside the SSR Worker.
       "routes": [
+        {
+          "pattern": "aecintegrations.com",
+          "custom_domain": true,
+        },
+        {
+          "pattern": "www.aecintegrations.com",
+          "custom_domain": true,
+        },
         {
           "pattern": "prod.aecintegrations.com",
           "custom_domain": true,

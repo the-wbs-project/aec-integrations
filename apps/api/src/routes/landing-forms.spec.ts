@@ -259,3 +259,66 @@ describe('AECI-275 trusted geo headers + app-origin', () => {
     expect(await t.db.select().from(mailingList)).toHaveLength(1);
   });
 });
+
+// AECI-247/277 — retiring `apps/landing` moves its operator "new signup / new
+// feedback" Resend send into these handlers (to `ADMIN_ALERT_EMAIL`, fail-open).
+// It's fired fire-and-forget via `ctx.waitUntil` AFTER the DB write, so the send
+// (skipped in tests — TEST_ENV has no RESEND_API_KEY) never affects the response.
+// These assert the scheduling contract: notify on a real insert, never on the
+// idempotent already-listed no-op.
+describe('operator lead-capture notifications (AECI-247/277)', () => {
+  function subscribeApp() {
+    return buildAppWithHandler({
+      method: 'post',
+      path: '/api/subscribe',
+      handler: createSubscribeHandler(t.factory),
+    });
+  }
+  function request(
+    app: Hono<{ Bindings: Env }>,
+    path: string,
+    body: unknown,
+    ctx: ExecutionContext,
+  ) {
+    return app.request(
+      path,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+        headers: { 'content-type': 'application/json' },
+      },
+      TEST_ENV,
+      ctx,
+    );
+  }
+
+  it('subscribe: schedules a background send on a fresh insert', async () => {
+    const app = subscribeApp();
+    const ctx = fakeExecutionContext();
+    const res = await request(app, '/api/subscribe', { email: 'notify@example.com' }, ctx);
+    expect(res.status).toBe(201);
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+  });
+
+  it('subscribe: schedules NO send on the idempotent already-listed no-op', async () => {
+    const app = subscribeApp();
+    await request(app, '/api/subscribe', { email: 'dupe3@example.com' }, fakeExecutionContext());
+
+    const ctx = fakeExecutionContext();
+    const res = await request(app, '/api/subscribe', { email: 'dupe3@example.com' }, ctx);
+    expect(res.status).toBe(200);
+    expect(ctx.waitUntil).not.toHaveBeenCalled();
+  });
+
+  it('feedback: schedules a background send after the insert', async () => {
+    const app = buildAppWithHandler({
+      method: 'post',
+      path: '/api/feedback',
+      handler: createFeedbackHandler(t.factory),
+    });
+    const ctx = fakeExecutionContext();
+    const res = await request(app, '/api/feedback', { tools: 'Revit' }, ctx);
+    expect(res.status).toBe(201);
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+  });
+});

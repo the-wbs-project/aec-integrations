@@ -471,6 +471,50 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
   });
 });
 
+describe('createApp www → apex 301 (AECI-247 apex cutover)', () => {
+  const htmlRenderer = (): SsrRenderer =>
+    fixedRenderer(
+      new Response('<!doctype html><title>x</title>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+  it('301-redirects www to the bare apex, preserving path + query', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const req = new Request('https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz');
+    const res = await app.fetch(
+      req,
+      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(301);
+    expect(res.headers.get('Location')).toBe(
+      'https://aecintegrations.com/products/acme?ref=waitlist&token=xyz',
+    );
+    // The permanent host mapping is edge-cacheable.
+    expect(res.headers.get('Cache-Control')).toContain('s-maxage=');
+  });
+
+  it('does NOT redirect the bare apex (falls through to SSR)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    const req = new Request('https://aecintegrations.com/');
+    const res = await app.fetch(
+      req,
+      { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Location')).toBeNull();
+  });
+});
+
 describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)', () => {
   it('returns the SSR Worker’s build metadata from env without calling the API binding', async () => {
     // Guards AECI-92: /_version must be served by the SSR Worker itself so CI
