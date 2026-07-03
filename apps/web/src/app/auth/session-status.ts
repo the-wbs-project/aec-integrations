@@ -11,8 +11,17 @@ import { AuthService } from './auth.service';
  * so its SSR HTML must be visitor-state-neutral (§8). This store therefore
  * stays `signedIn() === false` during SSR and pre-hydration — the header paints
  * the neutral "Sign in" link for everyone — and reconciles **once** after
- * hydration via the browser-only `AuthService.isSignedIn()` probe. Exactly the
- * pattern `ReviewCta` (AECI-201) uses for the review CTA.
+ * hydration. Exactly the pattern `ReviewCta` (AECI-201) uses for the review CTA.
+ *
+ * Reconciliation is two-step so the header flips the instant hydration runs —
+ * not a beat later. Right after the OAuth/magic-link callback the browser lands
+ * on a (cacheable, hence neutral-rendered) page with a fresh, JS-readable
+ * `sb-<ref>-auth-token` cookie; the SYNCHRONOUS cookie-presence check flips the
+ * header immediately, before the ~58 kB `@supabase/ssr` SDK even loads. The
+ * async `AuthService.isSignedIn()` probe then confirms (or corrects a stale
+ * cookie back to neutral). Without the synchronous step the header stayed on
+ * "Sign in" until the dynamic import + `getSession()` resolved, so a just-signed-
+ * in visitor saw the wrong affordance on their landing page until they navigated.
  *
  * `providedIn: 'root'` (singleton) so the desktop header (`site-header.ts`) and
  * the mobile overlay (`nav-menu.ts`) share one reconciled value — they never
@@ -42,10 +51,24 @@ export class SessionStatus {
 
   private async reconcile(): Promise<void> {
     if (!this.auth.isConfigured()) return; // unconfigured env → stay neutral
+
+    // Instant hint: a session cookie is present → paint the account menu the
+    // moment hydration runs, WITHOUT waiting on the ~58 kB `@supabase/ssr`
+    // dynamic import. This is what flips the header on the callback landing page
+    // itself instead of a beat later. `httpOnly:false` on the auth cookie makes
+    // it readable here (see `AuthService.hasSessionCookie`).
+    if (this.auth.hasSessionCookie()) this._signedIn.set(true);
+
     try {
+      // Confirm against the cookie-derived session: a present-but-stale cookie
+      // corrects back to neutral, and the fast-path in `isSignedIn()` means an
+      // absent cookie resolves without loading the SDK at all.
       this._signedIn.set(await this.auth.isSignedIn());
     } catch {
-      // Any probe failure → keep the neutral default; the "Sign in" link works.
+      // Probe failed (e.g. the SDK chunk didn't load) → keep the synchronous
+      // cookie hint. Cookie-present stays "signed in" (a UI hint only; every
+      // real gate is server-side), cookie-absent stays neutral. The "Sign in"
+      // link still works either way.
     }
   }
 }

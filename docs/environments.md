@@ -354,6 +354,47 @@ After editing the allow-list, re-request the magic link — the email's `redirec
 should now carry the staging callback, not localhost. No deploy is needed (it's
 project config, not a Worker secret).
 
+## Deployed Supabase Auth: Google OAuth provider (dashboard)
+
+The redirect-URL allow-list above governs where Supabase is *allowed to send the
+user back*; it is **independent** of which OAuth providers are *enabled*. Magic
+link can work perfectly while Google is off. If the Google provider is not enabled
+on the shared project, `auth.service.ts`'s `signInWithOAuth({ provider: 'google' })`
+fails immediately — before any redirect — with:
+
+```
+{"code":400,"error_code":"validation_failed","msg":"Unsupported provider: provider is not enabled"}
+```
+
+Because there is **one** shared auth project (ADR 0017), enabling Google there
+turns it on for every environment at once (and leaving it off breaks Google in
+every environment at once). Provider config, like redirect URLs, does **not** live
+in `supabase/config.toml` for the deployed project — the dashboard is the source of
+truth. Two dashboards, done once:
+
+1. **Google Cloud Console** (create the OAuth client):
+   - APIs & Services → OAuth consent screen → configure (External; add the app name,
+     support email, and the `aecintegrations.com` authorized domain).
+   - APIs & Services → Credentials → **Create Credentials → OAuth client ID** →
+     **Web application**.
+   - **Authorized redirect URI** — add **exactly one**, the shared project's Supabase
+     callback (Google only ever redirects back to Supabase; the app origins live in
+     the "Redirect URLs" allow-list above, **not** here):
+     `https://ktuhnlypztujpsseujzx.supabase.co/auth/v1/callback`
+   - Copy the generated **Client ID** and **Client Secret**.
+2. **Supabase Dashboard** (`ktuhnlypztujpsseujzx`) → **Authentication → Providers →
+   Google**:
+   - Toggle **Enable Sign in with Google** on.
+   - Paste the **Client ID** and **Client Secret** from step 1. **Save**.
+
+No Worker deploy is needed — it's project config, not a Worker secret. Verify from
+`/auth/login` on any origin already in the redirect allow-list (e.g. `localhost:8788`
+or staging): "Continue with Google" should now reach the Google consent screen and
+land back on `/auth/callback` with a session (watch `aeci.auth.signin{method:google}`
+in Datadog, per `docs/OBSERVABILITY.md`). If it still 400s with "provider is not
+enabled", the toggle didn't save or `SUPABASE_URL` is pointed at a different project
+than the one you edited.
+
 ## Secrets
 
 Secrets are stored in three places:
