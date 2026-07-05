@@ -379,7 +379,7 @@ Stored in GitHub Settings → Secrets and Variables → Actions. Scoped per envi
 | `POSTHOG_KEY_STAGING` / `_PRODUCTION` | Per-env PostHog **project API key** (publishable, client-exposed). Pushed to the **web Worker** as `POSTHOG_KEY` by `deploy.yml` (staging), `promote-to-prod.yml` (production), and `pr-preview.yml` (per-PR, reuses `_STAGING`) — all **warn-and-skip** (analytics no-ops/fail-open if unset). `POSTHOG_HOST` is a public `var` (US Cloud). AECI-239. **Never on the API Worker.** | staging, production (+ preview reuses `_STAGING`) |
 | `DATADOG_API_KEY` | RUM and APM | All |
 | `DATADOG_APP_KEY` | Deployment markers | staging, production |
-| `RESEND_API_KEY_STAGING` / `_PRODUCTION` | Resend key for transactional email (AECI-240, §11.1); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging) / `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. | staging, production |
+| `RESEND_API_KEY` | Resend key for transactional email (AECI-240, §11.1). **Single shared, un-suffixed key** — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); pushed to the API Worker as `RESEND_API_KEY` by `deploy.yml` (staging), `promote-to-demo.yml` (demo), and `promote-to-prod.yml` (production). **Optional + fail-open on every env** (warn-and-skip): a missing key makes every send a silent `'skipped'` and the triggering action still succeeds. Pairs with the `EMAIL_FROM` var (sender). See `docs/email.md`. | staging, demo, production |
 | `LINEAR_API_TOKEN` | Issue creation | All |
 | `LINEAR_WEBHOOK_SECRET` | Webhook signature verification | All |
 | `ANTHROPIC_API_KEY_STAGING` / `_PRODUCTION` | Anthropic key for review toxicity scoring (Claude Haiku, AECI-258); pushed to the API Worker as `ANTHROPIC_API_KEY`. **Optional + fail-open on every env** (prod included — warn-and-skip, NOT fail-closed): a missing key stores `toxicity_score=null` and the review still enters the moderation queue. Previews reuse the `_STAGING` value. Supersedes the sunsetting `PERSPECTIVE_API_KEY`. **GDPR:** confirm zero-data-retention (ZDR) is enabled on the Anthropic org before provisioning a real key — the Messages API has no per-request no-store control, so otherwise scored review bodies are retained ~30 days outside the §8 erasure boundary. | staging, production |
@@ -607,7 +607,7 @@ Before the first deploy:
 - [ ] Supabase projects created for dev/staging/production
 - [ ] Algolia app created; per-env indexes + scoped keys provisioned via `scripts/algolia/provision.mjs` (`preview_*` / `staging_*` / `production_*`, per §7.5)
 - [ ] Datadog account configured with appropriate API keys
-- [ ] Resend account configured: verified sending domain (SPF/DKIM/DMARC), `EMAIL_FROM` sender, and `RESEND_API_KEY_{STAGING,PRODUCTION}` GH secrets; Supabase Auth SMTP pointed at Resend for magic links (see `docs/email.md`)
+- [ ] Resend account configured: verified sending domain (SPF/DKIM/DMARC), `EMAIL_FROM` sender, and the single shared `RESEND_API_KEY` GH secret; Supabase Auth SMTP pointed at Resend for magic links (see `docs/email.md`)
 - [ ] Linear workspace configured per `STAGE_1_SPEC.md` §24
 - [ ] DNS configured for `demo.aecintegrations.com` (web prod), `staging.aecintegrations.com`, and the landing apex + `www.aecintegrations.com`
 - [ ] `.dev.vars.example` committed showing all required local secrets

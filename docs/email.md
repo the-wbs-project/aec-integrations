@@ -61,7 +61,7 @@ not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` temp
 
 | Name | Kind | Where | Notes |
 |---|---|---|---|
-| `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from `RESEND_API_KEY_{STAGING,PRODUCTION}` GH secrets (graceful warn-and-skip, like `ANTHROPIC_API_KEY`). Absent → sends `'skipped'`. |
+| `RESEND_API_KEY` | Wrangler **secret** | API Worker, staging + production | CI pushes it from a **single shared, un-suffixed** `RESEND_API_KEY` GH secret — one Resend account/key spans every env (like `SUPABASE_ANON_KEY`); `deploy.yml`, `promote-to-demo.yml`, and `promote-to-prod.yml` all push the same secret. Graceful warn-and-skip; absent → sends `'skipped'`. |
 | `EMAIL_FROM` | plain `var` | API Worker, per env (`wrangler.jsonc`) | Resend `from`; `Name <addr>` on a verified domain. |
 | `PUBLIC_SITE_URL` | plain `var` | API Worker, per env | Builds absolute links in emails; absent → link omitted. |
 | `ADMIN_ALERT_EMAIL` | plain `var` | API Worker, staging + production | `To:` for the stuck-request alert **and** the landing signup/feedback operator notifications (AECI-247/277). |
@@ -69,8 +69,7 @@ not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` temp
 **One-time ops step (not in CI):** provision the keys —
 
 ```bash
-gh secret set RESEND_API_KEY_STAGING     # from the Resend dashboard
-gh secret set RESEND_API_KEY_PRODUCTION
+gh secret set RESEND_API_KEY     # single shared key from the Resend dashboard (all envs)
 ```
 
 Until these exist, deploys still succeed and email simply no-ops (`'skipped'`).

@@ -175,6 +175,17 @@ jobs:
           ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
+          # These four are launch-only recommended secrets. They MUST be mapped
+          # here (not just named in RECOMMENDED_SECRETS) — require-secrets.sh checks
+          # the VALUE of each env var, so an unmapped name always reads empty and
+          # warns "not set" even when the GH secret exists (that false alarm is why
+          # GOOGLE_INDEXING_* looked missing while the deploy job below uploads them
+          # fine). RESEND_API_KEY is a single shared (un-suffixed) key, like
+          # SUPABASE_ANON_KEY / CF_ANALYTICS_API_TOKEN.
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          INDEXNOW_KEY_PRODUCTION: ${{ secrets.INDEXNOW_KEY_PRODUCTION }}
+          GOOGLE_INDEXING_SA_EMAIL_PRODUCTION: ${{ secrets.GOOGLE_INDEXING_SA_EMAIL_PRODUCTION }}
+          GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION: ${{ secrets.GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION }}
           ENV_LABEL: production
           REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY'
           # AECI-193 / ADR 0017: SUPABASE_ANON_KEY is the SINGLE shared auth
@@ -186,8 +197,8 @@ jobs:
           # scoring is fail-open, so a missing key only drops the moderation-queue
           # triage signal (reviews still submit + enter the queue), never a
           # launch-critical surface, so prod does NOT fail closed on it. AECI-240:
-          # RESEND_API_KEY_PRODUCTION is recommended on the same footing —
-          # transactional email is fail-open (absent → sends 'skipped'). AECI-236:
+          # RESEND_API_KEY (single shared, un-suffixed) is recommended on the same
+          # footing — transactional email is fail-open (absent → sends 'skipped'). AECI-236:
           # INDEXNOW_KEY_PRODUCTION is recommended (NOT required) — the post-promote
           # IndexNow submission + the {key}.txt file are fail-open no-ops until it's
           # provisioned at launch, never blocking a promote. AECI-263:
@@ -197,7 +208,7 @@ jobs:
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the hourly WAF
           # firewall-event poll — recommended/fail-safe (absent → the poll no-ops
           # outcome:skipped_no_creds), never a launch-critical surface.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY_PRODUCTION INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
@@ -432,12 +443,14 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          RESEND_API_KEY_VALUE: ${{ secrets.RESEND_API_KEY_PRODUCTION }}
+          # Single shared (un-suffixed) Resend key — one Resend account/key spans
+          # every env, so there is no _PRODUCTION suffix (like SUPABASE_ANON_KEY).
+          RESEND_API_KEY_VALUE: ${{ secrets.RESEND_API_KEY }}
         working-directory: apps/api
         run: |
           set -euo pipefail
           if [ -z "$RESEND_API_KEY_VALUE" ]; then
-            echo "::warning::RESEND_API_KEY_PRODUCTION not set — skipping push. Transactional email will no-op in production (sends 'skipped') until it is provisioned."
+            echo "::warning::RESEND_API_KEY not set — skipping push. Transactional email will no-op in production (sends 'skipped') until it is provisioned."
             exit 0
           fi
           printf '%s' "$RESEND_API_KEY_VALUE" \
