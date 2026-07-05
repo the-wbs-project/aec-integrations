@@ -24,7 +24,7 @@
  * curated role list is static, and the only dynamic input is the already-resolved
  * live taxonomy (`GET /api/taxonomy`, the same payload the browse grids read),
  * used solely to look up counts. The band renders into the cacheable,
- * visitor-state-neutral home HTML (`Cache-Tag: route:index,taxonomy`,
+ * visitor-state-neutral home HTML (`Cache-Tag: route:index,index:home,taxonomy`,
  * `s-maxage=900`), identical for every visitor.
  *
  * Treatment per `DESIGN.md` (AECI-270 concept **b · warm commerce**): an eyebrow

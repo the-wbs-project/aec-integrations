@@ -647,7 +647,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
   }
 
   it.each([
-    ['/', 'route:index,taxonomy'],
+    ['/', 'route:index,index:home,taxonomy'],
     ['/products', 'route:index,index:products'],
     ['/products/procore', 'route:detail,product:procore'],
     ['/vendors/autodesk', 'route:detail,vendor:autodesk'],

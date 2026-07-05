@@ -96,6 +96,8 @@ import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { callGoogleIndexing } from '../lib/google-indexing';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
+import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
+import { emitHomeStatsMetrics, type StatsMetricSink } from '../lib/home-stats-metrics';
 import { callIndexNow } from '../lib/indexnow';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote } from './promote-cache-tags';
@@ -508,6 +510,112 @@ function logGoogleIndexingFailure(
   });
 }
 
+// ─── Home-stats refresh (AECI-305) ───────────────────────────────────────────
+
+/** The edge-cache tag the home page (`/`) carries — the SSR emitter is
+ *  `apps/web/src/server/cache-tags.ts` → `cacheTagInputsForPath('/')`. Kept in
+ *  lockstep with that side per `docs/CACHE_STRATEGY.md` §2: purging it here evicts
+ *  the cached home HTML so it repaints with the fresh counts. */
+const HOME_CACHE_TAG = 'index:home';
+
+/**
+ * Post-commit home-stats refresh seam. The home page's credibility strip + stats
+ * cards read the `home.*` `stats_cache` keys, which are **never live-aggregated**
+ * (`routes/stats.ts` / §10) and were previously written ONLY by the daily 07:00 UTC
+ * cron (`scheduled.ts`). So a promote that added products/vendors/integrations left
+ * the home banner frozen at the last cron snapshot until the next run. This
+ * recomputes the cache immediately after the promote commits, then purges the home
+ * page's edge cache so the next render repaints with the fresh numbers.
+ *
+ * Ordering is load-bearing: refresh `stats_cache` FIRST, purge `/` SECOND, so any
+ * render after the purge reads the already-fresh cache (and never re-caches stale
+ * HTML for another edge TTL). Injected for tests; never throws. Mirrors the Algolia
+ * seam above.
+ */
+export type PromoteHomeStatsRefresh = (c: Context<{ Bindings: Env }>) => Promise<void>;
+
+const defaultHomeStatsRefresh: PromoteHomeStatsRefresh = (c) =>
+  // Re-read with the promote's write bookmark (`dbCtx` stashed by `writeDb`) so the
+  // recompute's COUNT(*)s see the just-committed rows even once D1 read replication
+  // is enabled — otherwise a lagging replica would recount the stale catalog. Falls
+  // back to the read default when no bookmark exists (single-DB local/test). (AECI-250)
+  refreshHomeStatsAfterPromote(
+    c,
+    getDb(c.env, { bookmark: c.get('dbCtx')?.getBookmark() ?? null }).db,
+  );
+
+/** Exported for the promote spec: recompute the `home.*` `stats_cache` keys, then
+ *  purge the home page. Not the injected seam (`PromoteHomeStatsRefresh`) — that's
+ *  the thin `getDb`-binding wrapper above; this is the testable body. */
+export async function refreshHomeStatsAfterPromote(
+  c: Context<{ Bindings: Env }>,
+  db: Db,
+): Promise<void> {
+  const started = Date.now();
+  let result: HomeStatsResult;
+  try {
+    result = await runHomeStats(db, new Date());
+  } catch (error) {
+    // `runHomeStats` is per-key best-effort and never throws on a compute/write
+    // failure, so reaching here is a pre-compute crash. Count an outright failure +
+    // error-log; never rethrow — the promote already committed (this is a
+    // post-commit task).
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.stats.compute', 1, [
+      'trigger:promote',
+      'outcome:failed',
+    ]);
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'error',
+      message: 'aeci.stats.compute.crashed',
+      source: 'review-app-promote',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return;
+  }
+
+  const sink: StatsMetricSink = {
+    count: (metric, value, tags) =>
+      submitCount(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+    distribution: (metric, value, tags) =>
+      submitDistribution(c.executionCtx, c.env, c.req.raw, metric, value, tags),
+  };
+  emitHomeStatsMetrics(sink, 'promote', result, Date.now() - started);
+  for (const k of result.keys) {
+    if (k.status !== 'failed') continue;
+    logToDatadog(c.executionCtx, c.env, c.req.raw, {
+      level: 'warn',
+      message: `aeci.stats.compute ${k.key} status=failed`,
+      source: 'review-app-promote',
+      key: k.key,
+      ...(k.error ? { reason: k.error } : {}),
+    });
+  }
+
+  // Purge the home page's edge cache now that `stats_cache` is fresh, so the next
+  // render repaints with the new counts. Best-effort, post-refresh; no-ops without
+  // CF creds (local/preview don't edge-cache, so the refresh above already suffices).
+  // Wrapped so a network-level `fetch` throw can't reject this post-commit task —
+  // the CF error is recorded, never rethrown.
+  const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
+  if (!creds.apiToken || !creds.zoneId) return;
+  try {
+    const outcome = await callCloudflarePurge(fetch, creds, [HOME_CACHE_TAG]);
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
+      'source:promote',
+      `outcome:${outcome.ok ? 'ok' : 'cf_failed'}`,
+    ]);
+    if (!outcome.ok) {
+      logPurgeFailure(c, [HOME_CACHE_TAG], `cf_${outcome.status}: ${outcome.message}`);
+    }
+  } catch (error) {
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
+      'source:promote',
+      'outcome:cf_failed',
+    ]);
+    logPurgeFailure(c, [HOME_CACHE_TAG], error instanceof Error ? error.message : String(error));
+  }
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 /** A taxonomy facet model (table + the columns the find-or-create reads). The
@@ -524,6 +632,7 @@ export function createPromoteHandler(
   syncAlgolia: PromoteAlgoliaSync = defaultAlgoliaSync,
   notifyIndexNow: PromoteIndexNowNotify = defaultIndexNowNotify,
   notifyGoogleIndexing: PromoteGoogleIndexingNotify = defaultGoogleIndexingNotify,
+  refreshHomeStats: PromoteHomeStatsRefresh = defaultHomeStatsRefresh,
 ): (c: Context<{ Bindings: Env }>) => Promise<Response> {
   return async (c) => {
     let raw: unknown;
@@ -1174,6 +1283,16 @@ export function createPromoteHandler(
     // post-commit; no-ops without CF creds.
     if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
       c.executionCtx.waitUntil(purgeAfterPromote(c, response));
+    }
+
+    // AECI-305: refresh the `home.*` `stats_cache` keys the home page reads, then
+    // purge `/` so its credibility strip + stats cards repaint with the new counts.
+    // Those numbers come from the cache, not a live count, so without this the home
+    // banner lags the catalog until the daily cron. Gate on an actual write (an
+    // all-skipped promote changed nothing); best-effort, post-commit — the seam
+    // never throws and self-gates the purge on CF creds.
+    if (stmts.length) {
+      c.executionCtx.waitUntil(refreshHomeStats(c));
     }
 
     // AECI-139: push the promoted records to Algolia immediately (independent

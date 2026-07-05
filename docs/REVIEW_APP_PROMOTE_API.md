@@ -409,6 +409,31 @@ only when both its endpoint products are promoted.
 
 ---
 
+## 6c. Home-page stats freshness after a promote (AECI-305)
+
+Also nothing for you to do — documented for expectations. The home page's
+credibility strip and stats cards ("N products · N vendors · N integrations", the
+most-integrated product, etc.) read the `home.*` `stats_cache` keys, which are **not
+live-aggregated** (§10). They were historically written only by the daily 07:00 UTC
+compute cron — so before this change, a promote made the products/vendors/integrations
+counts on `/products` update immediately (live) while the **home banner stayed frozen
+at the last cron snapshot** until the next run.
+
+Now a successful promote also recomputes those `stats_cache` keys post-commit (via
+the same `runHomeStats` the cron uses) and **then** purges the home page's edge cache
+(`index:home`) so it repaints with the fresh numbers within one edge round-trip.
+
+Same failure semantics as the purge and Algolia push: **best-effort, post-commit, and
+never affects your response** — a promote returns `200` even if the recompute or purge
+fails. Outcomes are observable as `aeci.stats.compute{trigger:promote,outcome}` (plus
+the per-key `aeci.stats.compute.key*` signals) and `aeci.cache.purge{source:promote,
+outcome}`. Ordering is deliberate: the `stats_cache` recompute runs in **every**
+environment (it fixes the read-endpoint data even locally); only the `index:home`
+purge is gated on the Worker's CF credentials. A failed recompute self-heals at the
+next daily cron.
+
+---
+
 ## 7. Worked example
 
 A product (**Revit**) with one vendor (**Autodesk**), two categories, and one

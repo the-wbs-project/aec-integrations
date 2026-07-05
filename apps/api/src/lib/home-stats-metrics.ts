@@ -1,11 +1,13 @@
 /**
  * Per-run home-stats metric emission (AECI-180 / Phase 4.5).
  *
- * The daily stats cron (`scheduled.ts:runHomeStatsJob`) computes the seven
- * `home.*` `stats_cache` keys (AECI-178) and finishes with a `HomeStatsResult`.
- * This is the single place that maps a completed run to its Datadog signals, so
- * the job handler stays free of metric-vocabulary detail and the emission is a
- * pure, fast-to-unit-test function (cf. `algolia-sync-metrics.ts`).
+ * A home-stats run computes the eleven `home.*` `stats_cache` keys (AECI-178) and
+ * finishes with a `HomeStatsResult` — fired by the daily cron
+ * (`scheduled.ts:runHomeStatsJob`, `trigger:cron`) and by a successful promote's
+ * post-commit refresh (`routes/promote.ts`, `trigger:promote`, AECI-305). This is
+ * the single place that maps a completed run to its Datadog signals, so those
+ * callers stay free of metric-vocabulary detail and the emission is a pure,
+ * fast-to-unit-test function (cf. `algolia-sync-metrics.ts`).
  *
  * The metric vocabulary (mirrors `docs/OBSERVABILITY.md`):
  *   - `aeci.stats.compute` (count, value 1) — one per run, `outcome:success`
@@ -19,8 +21,8 @@
  *   - `aeci.stats.compute.key.duration_ms` (distribution) — one per key, `key`.
  *     Surfaces a single slow producer hiding inside a healthy job duration.
  *
- * Only a **completed** run flows through here. The cron's pre-compute crash path
- * (a Prisma-init throw before `runHomeStats`) stays inline in the caller as a
+ * Only a **completed** run flows through here. A caller's pre-compute crash path
+ * (a throw before/inside `runHomeStats` returns) stays inline in that caller as a
  * single `aeci.stats.compute{outcome:failed}` count — it has no per-key outcomes
  * and isn't a completed run, exactly as the Algolia crash path stays inline.
  *
@@ -30,10 +32,12 @@
 
 import type { HomeStatsResult } from './home-stats';
 
-/** Which writer produced the run — the `trigger` tag value. Only the daily cron
- *  today; typed as a union so a future manual/REST producer (ADR 0013) can add a
- *  value without touching the metric shape. */
-export type StatsComputeTrigger = 'cron';
+/** Which writer produced the run — the `trigger` tag value. `cron` is the daily
+ *  compute (`scheduled.ts`); `promote` is the on-write refresh a successful
+ *  `POST /api/promote` fires so the home banner doesn't lag the catalog (AECI-305).
+ *  A union so a future manual/REST producer (ADR 0013) can add a value without
+ *  touching the metric shape. */
+export type StatsComputeTrigger = 'cron' | 'promote';
 
 /** Datadog transport, narrowed to the two submitters this module needs. The
  *  caller binds `(ctx, env, request)` and forwards to the shared client's
