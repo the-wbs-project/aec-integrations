@@ -121,7 +121,9 @@ describe('buildCacheTags', () => {
 
 describe('cacheTagInputsForPath', () => {
   it.each([
-    ['/', { route: 'index', taxonomy: true }],
+    // Home carries `index:home` (its purge handle for the AECI-305 stats refresh)
+    // alongside `taxonomy`.
+    ['/', { route: 'index', entity: { type: 'index', slug: 'home' }, taxonomy: true }],
     ['/about', { route: 'index' }],
     ['/legal', { route: 'index' }],
     ['/legal/privacy', { route: 'index' }],

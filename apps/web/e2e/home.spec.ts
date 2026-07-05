@@ -46,7 +46,7 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
     expect(html, 'no second audience block').not.toContain('Browse by audience');
   });
 
-  test('emits §4 home cache headers — public, max-age=300, s-maxage=900, Cache-Tag route:index,taxonomy', async ({
+  test('emits §4 home cache headers — public, max-age=300, s-maxage=900, Cache-Tag route:index,index:home,taxonomy', async ({
     request,
   }) => {
     const res = await request.get('/');
@@ -58,6 +58,8 @@ test.describe('/ — home "Browse by" grids (AECI-184)', () => {
 
     const cacheTag = res.headers()['cache-tag'] ?? '';
     expect(cacheTag, `got: ${cacheTag}`).toContain('route:index');
+    // AECI-305 — the home page's per-promote purge handle for the stats refresh.
+    expect(cacheTag, `got: ${cacheTag}`).toContain('index:home');
     expect(cacheTag, `got: ${cacheTag}`).toContain('taxonomy');
   });
 

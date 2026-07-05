@@ -4,8 +4,10 @@
  *
  * The daily scheduled job (`../scheduled.ts`, ADR 0013 cron→queue→consumer)
  * recomputes the eleven `home.*` `stats_cache` keys and upserts each as its own
- * row. The read endpoint (4.4) and home UI (4.8) consume these via `@aeci/shared`
- * — this module is the only writer.
+ * row. A successful `POST /api/promote` also fires `runHomeStats` post-commit
+ * (`routes/promote.ts`, AECI-305) so the home banner reflects a promotion at once
+ * instead of lagging until the next cron. The read endpoint (4.4) and home UI
+ * (4.8) consume these via `@aeci/shared` — this module is the only writer.
  *
  * Contract (docs/STAGE_1_SPEC.md §10, §4.1; types/schemas from AECI-176):
  *   - Eleven keys: total_integrations, integrations_added_30d, total_products,

@@ -822,6 +822,8 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 
 Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggregation on page load.
 
+**Write path beyond the daily cron (AECI-305):** the cron is no longer the only writer. A successful `POST /api/promote` also recomputes these `home.*` keys post-commit (via the same `runHomeStats` core) and then purges the home page's `index:home` `Cache-Tag`, so the credibility strip and stats cards reflect a promotion at once rather than lagging up to a day until the next cron run. Reads are unchanged — still `stats_cache` only, never live-aggregated. Best-effort and post-commit: a failed refresh never fails the promote and self-heals at the next daily cron. See `docs/REVIEW_APP_PROMOTE_API.md` §6c and `docs/CACHE_STRATEGY.md` (the `index:home` tag).
+
 ---
 
 ## 11. Email & Communication

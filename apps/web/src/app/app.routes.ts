@@ -28,7 +28,7 @@ export const routes: Routes = [
   //   - `stats` (`homeStatsResolver`, AECI-186) — the daily `stats_cache`
   //     snapshot (`GET /api/stats/home`, AECI-179) for the stats cards +
   //     recently-added + trending sections.
-  // The home carries `Cache-Tag: route:index,taxonomy` (`cacheTagInputsForPath`),
+  // The home carries `Cache-Tag: route:index,index:home,taxonomy` (`cacheTagInputsForPath`),
   // so a taxonomy edit purges it; the daily stats snapshot needs no purge handle
   // (the §4 900s edge TTL bounds staleness). Home meta/JSON-LD is set by the
   // `Home` component (static copy), not a resolver.

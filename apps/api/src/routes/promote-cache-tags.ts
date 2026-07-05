@@ -29,6 +29,11 @@
  *   - **No `route:*` tags.** §3.3 reserves the coarse `route:detail|index|browse`
  *     tags for incident bulk-invalidation and explicitly forbids them on routine
  *     writes (they would nuke every detail/index/browse page site-wide).
+ *   - **No `index:home` tag.** The home page IS purged on a promote, but NOT here:
+ *     its counts come from the `stats_cache`, which the promote must refresh FIRST,
+ *     so the home purge lives in `promote.ts`'s ordered refresh-then-purge task
+ *     (AECI-305), not in this concurrently-fired set. Adding `index:home` here would
+ *     let the purge race ahead of the refresh and re-cache stale HTML.
  *
  * Known bounded gaps (out of scope here — see the handler doc-comment and
  * `docs/REVIEW_APP_PROMOTE_API.md`):

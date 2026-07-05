@@ -66,7 +66,7 @@ import { TrendingProductsSection } from './trending-products-section';
  * section below renders an `<h2>`, so the heading order stays valid and axe-clean.
  *
  * Caching is unchanged from 4.9: the route is cacheable + visitor-state-neutral
- * (no cookie/theme read) and carries `Cache-Tag: route:index,taxonomy` with the
+ * (no cookie/theme read) and carries `Cache-Tag: route:index,index:home,taxonomy` with the
  * §4 home TTL (`s-maxage=900`) from `cacheTagInputsForPath('/')`. The daily
  * snapshot needs no extra purge handle — the 900s edge TTL bounds staleness.
  */

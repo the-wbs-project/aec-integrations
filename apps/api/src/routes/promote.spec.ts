@@ -23,6 +23,7 @@ import {
   productCategories,
   products,
   productVendors,
+  statsCache,
   taxonomyAudiences,
   taxonomyCategories,
   taxonomyDataObjects,
@@ -38,8 +39,10 @@ import { makeTestDb, recordingFactory, type TestDb } from '../test/d1';
 import { fakeExecutionContext } from '../test/helpers';
 import {
   createPromoteHandler,
+  refreshHomeStatsAfterPromote,
   type PromoteAlgoliaSync,
   type PromoteGoogleIndexingNotify,
+  type PromoteHomeStatsRefresh,
   type PromoteIndexNowNotify,
 } from './promote';
 import { cacheTagsForPromote } from './promote-cache-tags';
@@ -65,6 +68,12 @@ const noopIndexNow: PromoteIndexNowNotify = async () => {};
  *  inject a spy instead. */
 const noopGoogleIndexing: PromoteGoogleIndexingNotify = async () => {};
 
+/** A no-op home-stats refresh seam — default for all tests so the real default
+ *  (which opens a fresh `getDb` on `env.DB` + recomputes/purges) is never hit; the
+ *  wiring tests inject a spy, and the default-behavior tests call
+ *  `refreshHomeStatsAfterPromote` directly against the in-memory `t.db`. */
+const noopHomeStats: PromoteHomeStatsRefresh = async () => {};
+
 let t: TestDb;
 beforeEach(async () => {
   t = await makeTestDb();
@@ -80,6 +89,7 @@ function buildApp(
     syncAlgolia?: PromoteAlgoliaSync;
     notifyIndexNow?: PromoteIndexNowNotify;
     notifyGoogleIndexing?: PromoteGoogleIndexingNotify;
+    refreshHomeStats?: PromoteHomeStatsRefresh;
     dbFor?: DbFactory;
   } = {},
 ) {
@@ -90,6 +100,7 @@ function buildApp(
     opts.syncAlgolia ?? noopAlgolia,
     opts.notifyIndexNow ?? noopIndexNow,
     opts.notifyGoogleIndexing ?? noopGoogleIndexing,
+    opts.refreshHomeStats ?? noopHomeStats,
   );
   if (opts.withAuth) app.post('/api/promote', requireReviewAppAuth(), handler);
   else app.post('/api/promote', handler);
@@ -130,7 +141,16 @@ describe('createPromoteHandler — Sessions API bookmark threading (AECI-250)', 
     const app = new Hono<{ Bindings: Env }>();
     app.onError(errorHandler());
     app.use('*', bookmarkMiddleware());
-    app.post('/api/promote', createPromoteHandler(rec.factory, noopAlgolia, noopIndexNow));
+    app.post(
+      '/api/promote',
+      createPromoteHandler(
+        rec.factory,
+        noopAlgolia,
+        noopIndexNow,
+        noopGoogleIndexing,
+        noopHomeStats,
+      ),
+    );
 
     const res = await app.request(
       '/api/promote',
@@ -829,7 +849,9 @@ describe('cache purge after promote (AECI-105)', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
+    // Two post-commit tasks on a write: the cache purge + the AECI-305 home-stats
+    // refresh (a no-op seam here). Only the purge fetches, so `fetchMock` sees one call.
+    expect(execCtx.waitUntil).toHaveBeenCalledTimes(2);
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(CF_PURGE_URL);
@@ -894,7 +916,9 @@ describe('cache purge after promote (AECI-105)', () => {
       execCtx,
     );
     expect(res.status).toBe(200);
-    expect(execCtx.waitUntil).not.toHaveBeenCalled();
+    // The AECI-305 home-stats refresh still schedules its waitUntil on a write, but
+    // with no CF creds the cache purge is skipped — so no fetch fires.
+    expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -1100,6 +1124,122 @@ describe('Google Indexing submission after promote (AECI-263)', () => {
     );
     expect(res.status).toBe(200); // returned before the waitUntil settles
     await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+  });
+});
+
+describe('home-stats refresh after promote (AECI-305)', () => {
+  const CF_PURGE_URL = 'https://api.cloudflare.com/client/v4/zones/zone-1/purge_cache';
+  const purgeEnv: Env = { ...baseEnv, CF_PURGE_API_TOKEN: 'cf-token', CF_ZONE_ID: 'zone-1' };
+
+  // ── Seam wiring: scheduled iff the promote actually wrote rows ──────────────
+  async function promoteWithSeam(body: unknown, refreshHomeStats: PromoteHomeStatsRefresh) {
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp({ refreshHomeStats }).request(
+      '/api/promote',
+      post(body),
+      baseEnv,
+      execCtx,
+    );
+    return { res, execCtx };
+  }
+
+  it('schedules the home-stats refresh when the promote wrote rows', async () => {
+    const refreshHomeStats = vi.fn<PromoteHomeStatsRefresh>(async () => {});
+    const { res, execCtx } = await promoteWithSeam(
+      { product: { ref: 'p1', name: 'Revit' } },
+      refreshHomeStats,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    expect(res.status).toBe(200);
+    expect(refreshHomeStats).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not schedule the refresh for an all-skipped promote (nothing written)', async () => {
+    const refreshHomeStats = vi.fn<PromoteHomeStatsRefresh>(async () => {});
+    // Both endpoints reference unpromoted products → the integration is skipped and
+    // no product/vendor is written, so the batch is empty.
+    const { res } = await promoteWithSeam(
+      {
+        integrations: [
+          {
+            ref: 'i1',
+            sourceProduct: { supabaseId: uuid(8) },
+            targetProduct: { supabaseId: uuid(9) },
+          },
+        ],
+      },
+      refreshHomeStats,
+    );
+    expect(res.status).toBe(200);
+    expect(refreshHomeStats).not.toHaveBeenCalled();
+  });
+
+  it('still returns 200 when the refresh rejects (post-response, never fails the promote)', async () => {
+    const refreshHomeStats = vi.fn<PromoteHomeStatsRefresh>(async () => {
+      throw new Error('stats recompute exploded');
+    });
+    const { res, execCtx } = await promoteWithSeam(
+      { product: { ref: 'p1', name: 'Revit' } },
+      refreshHomeStats,
+    );
+    expect(res.status).toBe(200); // returned before the waitUntil settles
+    await Promise.allSettled(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+  });
+
+  // ── Default behaviour: recompute stats_cache, THEN purge the home page ──────
+  function fakeContext(env: Env) {
+    return {
+      env,
+      executionCtx: fakeExecutionContext(),
+      req: { raw: new Request('https://api.local/api/promote', { method: 'POST' }) },
+    } as unknown as Parameters<typeof refreshHomeStatsAfterPromote>[0];
+  }
+
+  it('recomputes the home.* stats_cache keys and purges index:home when CF creds are present', async () => {
+    await seedProduct(uuid(1), 'revit', 'Revit', { integrationCount: 2 });
+    const fetchSpy = vi.fn().mockResolvedValue(new Response('{"success":true}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await refreshHomeStatsAfterPromote(fakeContext(purgeEnv), t.db);
+
+    const cached = await t.db.select().from(statsCache);
+    const byKey = new Map(cached.map((r) => [r.key, r.value]));
+    // The counts the home banner reads are now written from live state.
+    expect(byKey.get('home.total_products')).toBe(1);
+    expect(byKey.has('home.total_integrations')).toBe(true);
+
+    // …and only then is the home page purged, by exactly the tag the SSR route emits.
+    const purgeCalls = fetchSpy.mock.calls.filter(([url]) => url === CF_PURGE_URL);
+    expect(purgeCalls).toHaveLength(1);
+    const body = JSON.parse((purgeCalls[0]![1] as RequestInit).body as string) as {
+      tags: string[];
+    };
+    expect(body.tags).toEqual(['index:home']);
+  });
+
+  it('recomputes the stats_cache but skips the purge when CF creds are absent', async () => {
+    await seedProduct(uuid(1), 'revit', 'Revit');
+    const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    await refreshHomeStatsAfterPromote(fakeContext(baseEnv), t.db);
+
+    expect((await t.db.select().from(statsCache)).length).toBeGreaterThan(0);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it('recomputes the stats_cache and never throws when the purge fetch rejects', async () => {
+    await seedProduct(uuid(1), 'revit', 'Revit');
+    const fetchSpy = vi.fn().mockRejectedValue(new Error('cf unreachable'));
+    vi.stubGlobal('fetch', fetchSpy);
+
+    // Must resolve (never reject) so the post-commit waitUntil can't turn into an
+    // unhandled rejection — the recompute still lands.
+    await expect(
+      refreshHomeStatsAfterPromote(fakeContext(purgeEnv), t.db),
+    ).resolves.toBeUndefined();
+    expect((await t.db.select().from(statsCache)).length).toBeGreaterThan(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
 

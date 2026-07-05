@@ -39,10 +39,10 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.algolia.sync.records` | count | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `entity` (products / vendors / integrations), `op` (saved / deleted) |
 | `aeci.algolia.sync.duration_ms` | distribution | `apps/api/src/lib/algolia-sync-metrics.ts` (`emitAlgoliaSyncMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
 | `aeci.search.query` | RUM action | `apps/web/src/app/search/search-rum.ts` (`emitSearchQuery`), called by `search-controller.ts` (per-index `connectStats` render + instance `error` event) and `autocomplete-controller.ts` (`runSearch`) — AECI-174; see "Browser search RUM" below | `index` (products/vendors/integrations/federated), `status` (ok/error), `results_bucket` (none/1-5/6-20/21+), `duration_ms` |
-| `aeci.stats.compute` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` | `trigger` (cron), `outcome` (success / partial / failed) |
-| `aeci.stats.compute.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron) |
-| `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
-| `aeci.stats.compute.key.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron) | `trigger` (cron), `key` (the `home.*` stats_cache key) |
+| `aeci.stats.compute` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the daily cron + the post-promote refresh) + an inline pre-compute-crash count in `apps/api/src/scheduled.ts` and `apps/api/src/routes/promote.ts` | `trigger` (cron / promote), `outcome` (success / partial / failed) |
+| `aeci.stats.compute.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote) |
+| `aeci.stats.compute.key` | count | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `key` (the `home.*` stats_cache key), `outcome` (written / skipped / failed) |
+| `aeci.stats.compute.key.duration_ms` | distribution | `apps/api/src/lib/home-stats-metrics.ts` (`emitHomeStatsMetrics`, from the cron + promote hook) | `trigger` (cron / promote), `key` (the `home.*` stats_cache key) |
 | `aeci.pageviews.write` | count | `apps/api/src/routes/page-views.ts` (`capturePageView`, the deferred `POST /api/page-views` insert) | `outcome` (ok / failed) |
 | `aeci.auth.signin` | count | `apps/web/src/server/routes/auth-callback.ts` (the SSR `/auth/callback` handler — **carries `service:aeci-web`**, AECI-206) | `method` (google / magic_link / unknown), `outcome` (success / failed), `reason` on failure (link_invalid / missing_code / auth_not_configured) |
 | `aeci.review.submit` | count | `apps/api/src/routes/reviews.ts` (`createSubmitReviewHandler`, AECI-206) | `outcome` (ok / duplicate / product_not_found) |
@@ -165,6 +165,14 @@ isn't a completed run. Because every completed invocation (and the crash path) e
 job-level `aeci.stats.compute{trigger:cron}` point regardless of outcome, that series is the
 **liveness heartbeat** the "not running" monitor watches via `notify_no_data` (the same
 always-reports pattern as the index-drift gauge).
+
+The same `runHomeStats` also fires on every successful promote (`trigger:promote`, AECI-305 —
+so the home banner reflects a promotion at once rather than lagging until the cron), emitting the
+identical metric family with a `promote` trigger tag (and its own inline pre-compute-crash count in
+`promote.ts`). The "not running" liveness monitor keys on `{trigger:cron}` only — promote runs are
+event-driven and mustn't feed a fixed-cadence heartbeat — but the "compute failed" monitor is
+trigger-agnostic, so a failed *promote* refresh alerts the same as a failed cron run (a genuine
+"home stats didn't refresh" signal). A failed promote refresh also self-heals at the next daily cron.
 
 `aeci.pageviews.write` (AECI-180) is the write-health signal for the `POST /api/page-views` insert
 (AECI-177): one count per attempted insert, `outcome:ok` after a successful `page_views` write and

@@ -3,10 +3,10 @@
  *
  *   GET /api/stats/home → HomeStatsResponse
  *
- * Reads the eleven `home.*` keys from the `stats_cache` table (written daily by
- * the compute job, 4.3 / AECI-178) and assembles the `HomeStatsResponse` shape
- * (AECI-176). It **never live-aggregates** (docs/STAGE_1_SPEC.md §10) — the
- * cache is the only source.
+ * Reads the eleven `home.*` keys from the `stats_cache` table (written by the
+ * daily compute job, 4.3 / AECI-178, and refreshed on every successful promote,
+ * AECI-305) and assembles the `HomeStatsResponse` shape (AECI-176). It **never
+ * live-aggregates** (docs/STAGE_1_SPEC.md §10) — the cache is the only source.
  *
  * Resilience is the headline requirement: pre-launch (and between the table's
  * creation and the compute job's first run) the cache is sparse, so a missing

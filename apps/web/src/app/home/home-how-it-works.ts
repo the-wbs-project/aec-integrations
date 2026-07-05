@@ -19,7 +19,7 @@ import { Component } from '@angular/core';
  *
  * **Static + edge-cache / SSR-safe.** No data fetch, no per-visitor state, and
  * no client JS — it renders into the cacheable, visitor-state-neutral home HTML
- * (`Cache-Tag: route:index,taxonomy`, `s-maxage=900`), identical for every
+ * (`Cache-Tag: route:index,index:home,taxonomy`, `s-maxage=900`), identical for every
  * visitor. It is a bare `<section>` (no internal `max-w` wrapper): the 4.11 page
  * assembly mounts it inside the centred home column, whose `flex` gap carries the
  * vertical rhythm (see `home.ts`). The single `<h2>` keeps a valid heading order

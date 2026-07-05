@@ -108,7 +108,13 @@ export function buildCacheTags(opts: CacheTagInputs): string {
  * deliberate and keeps the helper from minting ad-hoc tag namespaces.
  */
 export function cacheTagInputsForPath(path: string): CacheTagInputs | null {
-  if (path === '/') return { route: 'index', taxonomy: true };
+  // Home carries its own `index:home` entity tag (alongside `taxonomy`) so a
+  // promote can purge just the home page — its credibility strip + stats cards
+  // render `home.*` `stats_cache` counts that a promote refreshes (AECI-305).
+  // `route:index` alone is incident-only (§3.3) and `taxonomy` only fires on a
+  // term-set change, so neither is a routine per-promote handle for `/`.
+  if (path === '/')
+    return { route: 'index', entity: { type: 'index', slug: 'home' }, taxonomy: true };
   if (path === '/about') return { route: 'index' };
   if (path === '/legal' || path.startsWith('/legal/')) return { route: 'index' };
 

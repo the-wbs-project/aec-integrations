@@ -12,7 +12,7 @@
  *
  * **Static + edge-cache / SSR-safe.** No data fetch, no per-visitor state, no
  * client JS — the band renders into the cacheable, visitor-state-neutral home HTML
- * (`Cache-Tag: route:index,taxonomy`, `s-maxage=900`), identical for every
+ * (`Cache-Tag: route:index,index:home,taxonomy`, `s-maxage=900`), identical for every
  * visitor. The three figures are **static cited stats, not live data** (the live
  * directory aggregates live in the credibility strip + stats cards).
  *
