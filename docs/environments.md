@@ -45,6 +45,8 @@ local → PR preview → staging (auto on merge to main) → demo (manual) → p
 
 There is intentionally **no auto-deploy to demo or production** — both are deliberate `workflow_dispatch` buttons.
 
+> **Branch model (post-launch, ADR 0019).** Production is live, so `main` is the **production/stable line** and Stage 2 develops on a **long-lived `stage-2` integration branch** (`docs/CICD_PLAN.md` §10). Staging auto-tracks `main`, which now means **staging is always a prod candidate** — only hotfixes and prod-safe additive work land on `main`. Applying a fix to live prod is the ordinary flow: branch from `main` → PR → squash-merge → staging auto-deploys → `promote-to-demo` (SHA) → `promote-to-prod` (SHA). Because the promote buttons take an **arbitrary** `commit_sha` (gated only on the SHA being live one tier up), no workflow change was needed; keeping Stage 2 off `main` is what keeps prod's D1 from receiving a Stage 2 migration (`promote-to-prod` applies migrations forward-only). Stage 2 is previewed via per-PR preview Workers, not staging.
+
 ## PR previews
 
 Every PR against `main` gets a pair of ephemeral preview Workers — `aeci-api-pr-<N>` (private; bound to via service binding) and `aeci-web-pr-<N>` (public on the `*.aec-integrations.workers.dev` wildcard) — deployed by [`pr-preview.yml`](../.github/workflows/pr-preview.yml) on `pull_request` `opened` / `synchronize` / `reopened` and torn down on `closed`. First-party PRs only — fork PRs skip cleanly since they receive no secrets.
