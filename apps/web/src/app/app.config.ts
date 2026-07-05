@@ -23,12 +23,17 @@ export const appConfig: ApplicationConfig = {
       // previous page's scroll offset — the new page renders scrolled down).
       // `'enabled'` is the standard-website behavior: forward navigations scroll
       // to top, Back/Forward restores the prior scroll position. `anchorScrolling`
-      // is a no-op for today's section-nav (those are native `<a href="#id">`
-      // clicks the browser handles, not router navigations) but is the correct
-      // pairing and future-proofs any `routerLink [fragment]`. The route-reset
-      // scroll is forced instant (bypassing the global `scroll-behavior: smooth`,
-      // which `window.scrollTo` otherwise honors) by the browser-only hook in
-      // `App` — see `app.ts`.
+      // handles in-app navigations to a hashed URL (a `routerLink [fragment]`, or a
+      // link from another page to `/products/x#integrations`); today's section-nav
+      // uses native `<a href="…#id">` same-document clicks the browser scrolls
+      // itself. It does NOT cover the *initial* load, though: this sets
+      // `history.scrollRestoration = 'manual'` (disabling the browser's native
+      // fragment scroll) and the router emits no `Scroll` event on the initial
+      // hydration navigation — so a reload or deep link to `…#integrations` is
+      // scrolled by the browser-only `InitialFragmentScroller` (see `app.ts`). The
+      // route-reset scroll is forced instant (bypassing the global
+      // `scroll-behavior: smooth`, which `window.scrollTo` otherwise honors) by the
+      // browser-only `ScrollBehaviorManager`, also in `App`.
       withInMemoryScrolling({
         scrollPositionRestoration: 'enabled',
         anchorScrolling: 'enabled',
