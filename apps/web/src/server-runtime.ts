@@ -870,23 +870,26 @@ export function createApp(options: {
   const transformResponse = options.transformResponse;
   const app = new Hono<{ Bindings: Bindings }>();
 
-  // www → apex 301 (AECI-247 / apex cutover). Production binds BOTH the bare apex
-  // (`aecintegrations.com`) and `www.aecintegrations.com` to this Worker; the
-  // canonical host is the bare apex (self-referential canonicals + `PUBLIC_SITE_URL`,
-  // ADR 0011), so any `www.` host is folded to it with a permanent redirect.
+  // apex → www 301 (canonical host = `www.`; ADR 0011 amendment 2026-07-05, which
+  // flips the original AECI-247 www→apex direction). Production binds BOTH the bare
+  // apex (`aecintegrations.com`) and `www.aecintegrations.com` to this Worker; the
+  // canonical host is now `www.` (self-referential canonicals + `PUBLIC_SITE_URL`,
+  // ADR 0011), so the bare apex is folded to `www.` with a permanent redirect.
   // Registered first so it short-circuits before SSR and the X-Robots stamp; path
   // + query are preserved and the mapping never changes, so the 301 is edge-cacheable.
-  // Only a `www.` prefix matches — the apex, the `prod.`/`demo.`/`staging.` tiers,
-  // `localhost`, and `*.workers.dev` never carry it, so no other host is touched.
-  // This replaces the retired `apps/landing` Worker's apex↔www handling: the
-  // pre-launch coming-soon page did apex→www; the app does www→apex.
+  // Only the EXACT bare apex matches — `www.` itself (which serves), the `prod.`/
+  // `demo.`/`staging.` tiers, `localhost`, and `*.workers.dev` never carry it, so no
+  // other host is touched. `www.` never redirects, so a fresh client does at most one
+  // apex→www hop and there is no apex↔www loop (a loop is only possible for a client
+  // still replaying the retired www→apex 301 from cache — bounded by its 1h browser
+  // TTL / 24h edge TTL, so purge the edge cache after the direction flip deploys).
   app.use('*', async (c, next) => {
     const url = new URL(c.req.url);
-    if (url.hostname.startsWith('www.')) {
+    if (url.hostname === 'aecintegrations.com') {
       return new Response(null, {
         status: 301,
         headers: {
-          Location: `${url.protocol}//${url.hostname.slice(4)}${url.pathname}${url.search}`,
+          Location: `${url.protocol}//www.${url.hostname}${url.pathname}${url.search}`,
           'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
         },
       });

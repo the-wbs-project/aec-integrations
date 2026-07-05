@@ -10,7 +10,8 @@
  *   - Web production serves the apex `aecintegrations.com` + `www.` (the public
  *     home) AND `prod.aecintegrations.com` (the Access-gated internal host). The
  *     apex cutover (AECI-247/277) moved apex + www off the retired landing Worker
- *     onto this Worker; `www.` 301s to the bare apex in the SSR Worker.
+ *     onto this Worker; the bare apex 301s to `www.` in the SSR Worker (`www.` is
+ *     the canonical served host — ADR 0011 amendment 2026-07-05).
  *   - Web demo serves `demo.aecintegrations.com` (the public showcase tier).
  *   - Preview deploys use `workers_dev` URLs per PR; staging is
  *     `staging.aecintegrations.com`.
@@ -186,7 +187,8 @@
       // apex + www it REASSIGNS the hostnames off the (retired) landing Worker onto
       // this one (same mechanism environments.md relies on for demo.). THIS IS THE
       // DNS FLIP: the next promote-to-prod deploy after this merges makes the app
-      // the live apex. `www.` 301s to the bare apex inside the SSR Worker.
+      // the live apex. The bare apex 301s to `www.` inside the SSR Worker (`www.` is
+      // the canonical served host — ADR 0011 amendment 2026-07-05).
       "routes": [
         {
           "pattern": "aecintegrations.com",

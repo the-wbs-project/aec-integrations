@@ -249,7 +249,7 @@ describe('GET /sitemap.xml route', () => {
   it('returns 200 XML with the sitemap cache headers and seeded URLs', async () => {
     const app = createApp({ ssrRenderer: throwingRenderer() });
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/sitemap.xml'),
+      new Request('https://www.aecintegrations.com/sitemap.xml'),
       sitemapApiBinding() as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -261,10 +261,10 @@ describe('GET /sitemap.xml route', () => {
 
     const body = await res.text();
     expect(body).toContain('<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">');
-    // Built against the request origin.
-    expect(body).toContain('<loc>https://aecintegrations.com/products/procore</loc>');
-    expect(body).toContain('<loc>https://aecintegrations.com/vendors/autodesk</loc>');
-    expect(body).toContain('<loc>https://aecintegrations.com/categories/cost</loc>');
+    // Built against the request origin (the canonical served host is www — ADR 0011 amendment).
+    expect(body).toContain('<loc>https://www.aecintegrations.com/products/procore</loc>');
+    expect(body).toContain('<loc>https://www.aecintegrations.com/vendors/autodesk</loc>');
+    expect(body).toContain('<loc>https://www.aecintegrations.com/categories/cost</loc>');
     // lastmod present and ISO-8601.
     expect(body).toMatch(/<lastmod>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z<\/lastmod>/);
   });
@@ -278,7 +278,7 @@ describe('GET /sitemap.xml route', () => {
     };
     const app = createApp({ ssrRenderer: throwingRenderer() });
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/sitemap.xml'),
+      new Request('https://www.aecintegrations.com/sitemap.xml'),
       failing as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -292,7 +292,7 @@ describe('GET /robots.txt route', () => {
   it('returns 200 text/plain with allow rules and a Sitemap line when indexing is allowed', async () => {
     const app = createApp({ ssrRenderer: throwingRenderer() });
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/robots.txt'),
+      new Request('https://www.aecintegrations.com/robots.txt'),
       { ...sitemapApiBinding(), ALLOW_INDEXING: 'true' } as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -303,7 +303,7 @@ describe('GET /robots.txt route', () => {
 
     const body = await res.text();
     expect(body).toContain('Allow: /');
-    expect(body).toContain('Sitemap: https://aecintegrations.com/sitemap.xml');
+    expect(body).toContain('Sitemap: https://www.aecintegrations.com/sitemap.xml');
   });
 
   it('returns a crawl-allowed, sitemap-less robots.txt when indexing is blocked (pre-launch default)', async () => {

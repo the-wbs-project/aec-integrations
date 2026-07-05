@@ -850,7 +850,7 @@ Pre-launch, the static coming-soon landing page (`apps/landing`) captured emails
 
 **On launch (the ordered ceremony + rollback live in `docs/launch-cutover-runbook.md`):**
 - One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"
-- The apex (`aecintegrations.com`) + `www` reassign off the retired landing Worker onto `aeci-web-production` (armed via `custom_domain` routes; flips on the launch `promote-to-prod` deploy), with `www`→apex 301
+- The apex (`aecintegrations.com`) + `www` reassign off the retired landing Worker onto `aeci-web-production` (armed via `custom_domain` routes; flips on the launch `promote-to-prod` deploy), with the bare apex→`www` 301 (canonical host is `www.` — ADR 0011 amendment 2026-07-05)
 
 **Welcome state for waitlist subscribers:**
 - Email includes a unique link with `?ref=waitlist&token=xyz`

@@ -41,7 +41,7 @@ export const notFoundResolver: ResolveFn<null> = (_route, state) => {
   // Canonical for a 404 has no meaningful entity; use the requested URL so
   // the noindex'd page still self-references rather than pointing somewhere
   // unrelated. `setNotFoundMeta` strips query params internally.
-  const canonical = request ? request.url : 'https://aecintegrations.com/';
+  const canonical = request ? request.url : 'https://www.aecintegrations.com/';
 
   if (responseInit) responseInit.status = 404;
   meta.setNotFoundMeta({ kind: 'index', slug: '', canonical });

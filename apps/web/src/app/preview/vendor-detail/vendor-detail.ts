@@ -77,7 +77,7 @@ export class VendorDetail implements OnInit {
       entity: 'vendor',
       name: VENDOR_DETAIL_FIXTURE.company_name,
       description: VENDOR_DETAIL_FIXTURE.description,
-      canonical: 'https://aecintegrations.com/preview/vendor-detail',
+      canonical: 'https://www.aecintegrations.com/preview/vendor-detail',
     });
     this.meta.setVendorJsonLd(VENDOR_DETAIL_FIXTURE);
   }

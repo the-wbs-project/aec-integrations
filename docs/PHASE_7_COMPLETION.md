@@ -136,7 +136,7 @@ The Phase 7 launch-readiness verification: AC + §16-bullet mapping with file:li
 
 ### 4.2 DNS-cutover runbook (`docs/launch-cutover-runbook.md`)
 
-The AC6 deliverable — the go-live runbook for 7.13 (AECI-247), built from §11.2 + `docs/environments.md`'s apex-cutover steps: pre-cutover gates, the ordered cutover (provision launch secrets → `ALLOW_INDEXING="true"` → `PUBLIC_SITE_URL`→apex → move `aecintegrations.com`+`www` off the landing Worker onto `aeci-web-production` → `www`→apex 301 → one-time **Resend** waitlist broadcast), a **drafted broadcast email** (subject + body — the "campaign drafted + ready to send"), post-cutover verification (dual `/api/version`+`/_version` SHA gate, indexable headers, sitemap, IndexNow ping, RUM CWV), and a rollback note. Added a `CLAUDE.md` source-of-truth row for it.
+The AC6 deliverable — the go-live runbook for 7.13 (AECI-247), built from §11.2 + `docs/environments.md`'s apex-cutover steps: pre-cutover gates, the ordered cutover (provision launch secrets → `ALLOW_INDEXING="true"` → `PUBLIC_SITE_URL`→`www.` → move `aecintegrations.com`+`www` off the landing Worker onto `aeci-web-production` → apex→`www` 301 (canonical host is `www.`, ADR 0011 amendment 2026-07-05) → one-time **Resend** waitlist broadcast), a **drafted broadcast email** (subject + body — the "campaign drafted + ready to send"), post-cutover verification (dual `/api/version`+`/_version` SHA gate, indexable headers, sitemap, IndexNow ping, RUM CWV), and a rollback note. Added a `CLAUDE.md` source-of-truth row for it.
 
 ### 4.3 §16 Phase 7 checkbox staleness fix (`docs/STAGE_1_SPEC.md`)
 

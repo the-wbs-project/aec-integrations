@@ -23,9 +23,10 @@ import { REQUEST, inject } from '@angular/core';
 
 /**
  * Fallback when neither the SSR request nor a browser location is available (e.g. a
- * build-time prerender with no request context). The production apex / eventual launch home.
+ * build-time prerender with no request context). The canonical public home — `www.`
+ * (ADR 0011 amendment 2026-07-05: the bare apex 301s to `www.` in the SSR Worker).
  */
-const FALLBACK_ORIGIN = 'https://aecintegrations.com';
+const FALLBACK_ORIGIN = 'https://www.aecintegrations.com';
 
 /**
  * The serving origin for the current render.

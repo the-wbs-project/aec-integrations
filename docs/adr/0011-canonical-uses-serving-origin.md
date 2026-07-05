@@ -1,10 +1,16 @@
 # ADR 0011: Canonical URLs use the serving origin (self-referential, multi-host)
 
-**Status:** Accepted
+**Status:** Accepted (amended 2026-07-05 — canonical host flipped apex → `www.`; see [Amendment](#amendment-2026-07-05--canonical-host-is-www) below)
 **Date:** 2026-06-08
 **Context owner:** chrisw@thewbsproject.com
 **Issue:** AECI-147
 **Interacts with:** #210 (web prod points at `demo.aecintegrations.com`), #211 (CI secret/seed fix)
+
+> **Amendment 2026-07-05:** the self-referential mechanism below is unchanged, but the
+> **canonical served host is now `www.aecintegrations.com`**, not the bare apex. The SSR
+> Worker 301s the bare apex → `www.` (reversing the original AECI-247 www→apex direction),
+> and the no-request fallback / `PUBLIC_SITE_URL` follow. See the [Amendment](#amendment-2026-07-05--canonical-host-is-www) section for details. Where the text below says "the production
+> apex `https://aecintegrations.com`" as the fallback/canonical host, read `www.`.
 
 ---
 
@@ -50,3 +56,13 @@ Alternatives considered:
 - ➖ Canonicals are environment-dependent. Tests must assert the **serving origin**, not a fixed string (done). Any future canonical-asserting test must follow suit.
 - ➖ The apex literal survives only as the no-request fallback and in two documented exceptions (404, `/preview/*`); a reviewer scanning for `aecintegrations.com` will still find those — they are intentional.
 - ➖ If a non-prod tier ever became publicly crawlable (Access removed), its self-canonical would be indexable. The mitigation is the Access gate, not the canonical; revisit if that gate changes.
+
+## Amendment (2026-07-05): canonical host is `www.`
+
+The apex cutover (AECI-247/277) originally made the **bare apex** the canonical served host: production binds both `aecintegrations.com` and `www.aecintegrations.com` to the SSR Worker, and the Worker 301'd any `www.` host → the bare apex. That direction is now **reversed** — the canonical public host is **`www.aecintegrations.com`**.
+
+- **What changed:** the SSR Worker's host-redirect middleware (`apps/web/src/server-runtime.ts`) now folds the **exact bare apex → `www.`** (301, path + query preserved, edge-cacheable); `www.` serves directly. Other hosts (`prod.`/`demo.`/`staging.`, `localhost`, `*.workers.dev`) are untouched, and `www.` never redirects, so there is no apex↔www loop by construction.
+- **What did NOT change:** the self-referential decision above. Canonicals, `og:url`, sitemap `<loc>`s, and the `robots` `Sitemap:` line still derive from the **serving origin**, so with `www.` as the served host they all become `www.` **automatically — no per-surface code change**. Only three baked-in apex literals flipped to `www.`: the no-request **fallback** in `apps/web/src/app/core/canonical.ts`, the **404** fallback (`not-found.resolver.ts`), and the `/preview/*` design sample (`preview/vendor-detail`).
+- **Non-web surface:** the API Worker's `PUBLIC_SITE_URL` (production) flipped to `https://www.aecintegrations.com` — it builds absolute links in transactional email, IndexNow submissions, and Google Indexing pings, so those now emit canonical `www.` URLs (no redirect hop, consistent with the sitemap). The AECI-262 WAF-metrics cron host-scopes on `PUBLIC_SITE_URL`, so it now polls firewall events for the `www.` host.
+- **Deploy note:** the retired `www.→apex` 301 is cached (≤1h browser via `max-age`, ≤24h edge via `s-maxage`). A client still replaying it from cache can loop against the new apex→www 301 until the entry expires; **purge the Cloudflare edge cache after the direction flip deploys**, and note the browser side self-heals within the hour. Done pre-launch, exposure is minimal.
+- **Why:** operator preference for `www.` as the indexed canonical (an apex-vs-www SEO choice). Because canonicals were already self-referential, the flip is a one-line direction change plus the baked-in fallbacks and `PUBLIC_SITE_URL`.
