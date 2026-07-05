@@ -1,7 +1,7 @@
 import { Component, computed, input } from '@angular/core';
 import { RouterLink } from '@angular/router';
 
-import type { IntegrationListItem, ProductLink } from '@aeci/shared';
+import type { ProductIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { contextDirectionLabel, mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
@@ -19,13 +19,16 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
  * `ProductCard` / `IntegrationCard` / Angular CDK's `tr[cdk-row]`).
  *
  * Three columns + a trailing affordance:
- *   1. **Integrates with** — the *other* product (monogram via `LogoOrInitial` +
+ *   1. **Direction** — leads the row (a glance conveys the relationship): a
+ *      prominent accent arrow + label, context-relative to *this* page's product
+ *      — `→ Outbound` (data leaves it), `← Inbound` (data arrives), `⇄ Both`.
+ *      Always visible (incl. below `md`). The value is the server-precomputed,
+ *      claims-aware `context_direction` (`STAGE_1_5_SPEC.md` §3.2), so it can't
+ *      contradict the pair page; `–` when unknown (no claims, no stored direction).
+ *   2. **Integrates with** — the *other* product (monogram via `LogoOrInitial` +
  *      a name link to that product's page). Always visible. Below `md` the
  *      Connection column collapses and the mechanism surfaces here as a muted
  *      sublabel (mirrors `ProductCard`'s vendor sublabel at the same breakpoint).
- *   2. **Direction** — context-relative (`Outbound`/`Inbound`/`Both`) via
- *      `contextDirectionLabel()`; the stored `source → target` flow re-framed to
- *      this page's product (`STAGE_1_5_SPEC.md` §3.2). Hidden below `md`.
  *   3. **Connection** — the `mechanism_kind` badge (shared `mechanismKindLabel()`)
  *      plus the optional `mechanism_name`. Hidden below `md`. `–` when absent.
  *
@@ -50,6 +53,31 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
       'group relative text-(--text-primary) transition-colors hover:bg-(--surface-muted) focus-within:bg-(--surface-muted)',
   },
   template: `
+    <!-- Direction leads the row (always visible, incl. below md): the flow
+         relative to THIS page's product, precomputed server-side as
+         context_direction (claims-aware, §3.2). Prominent accent arrow +
+         label; em-dash when unknown. The stretched row overlay (in the next
+         cell) covers this cell too, so a click here still opens the pair page. -->
+    <td class="px-4 py-3 align-middle">
+      @if (direction().token) {
+        <span class="inline-flex items-center gap-2">
+          <span
+            class="font-display inline-block text-xl leading-none text-(--accent-primary) rtl:-scale-x-100"
+            aria-hidden="true"
+            >{{ direction().glyph }}</span
+          >
+          <span class="text-(--text-secondary)">{{ direction().label }}</span>
+        </span>
+      } @else {
+        <span
+          class="text-(--text-secondary)"
+          i18n="@@products.detail.integrations.direction.none"
+          i18n-aria-label="@@products.detail.integrations.direction.none.aria"
+          aria-label="Direction not listed"
+          >–</span
+        >
+      }
+    </td>
     <!-- No "relative" on this cell: the pair-page overlay below must anchor to
          the relative <tr> host (see class doc), not this cell, so it spans the
          whole row. A relative <td> would intercept inset-0 (as the nearest
@@ -87,24 +115,6 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
       ></a>
     </td>
     <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
-      @if (direction().token) {
-        <span class="inline-flex items-center gap-1.5">
-          <span class="text-(--text-tertiary) inline-block rtl:-scale-x-100" aria-hidden="true">{{
-            direction().glyph
-          }}</span>
-          {{ direction().label }}
-        </span>
-      } @else {
-        <span
-          class="text-(--text-secondary)"
-          i18n="@@products.detail.integrations.direction.none"
-          i18n-aria-label="@@products.detail.integrations.direction.none.aria"
-          aria-label="Direction not listed"
-          >–</span
-        >
-      }
-    </td>
-    <td class="hidden px-4 py-3 text-(--text-secondary) md:table-cell">
       <span class="flex flex-col items-start gap-1">
         @if (mechanismKindLabel(); as label) {
           <span
@@ -131,14 +141,12 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
   `,
 })
 export class ProductIntegrationRow {
-  /** The integration row (mechanism / direction / both endpoints). */
-  readonly integration = input.required<IntegrationListItem>();
+  /** The integration row (mechanism + server-precomputed `context_direction`). */
+  readonly integration = input.required<ProductIntegrationItem>();
   /** The *other* product — the endpoint that is not this page's product. */
   readonly other = input.required<ProductLink>();
   /** This page's product slug; the pair-page context (keeps direction relative). */
   readonly contextSlug = input.required<string>();
-  /** Whether this page's product is the integration's `source` (drives direction). */
-  readonly contextIsSource = input.required<boolean>();
 
   /** RouterLink to the product-PAIR page, this product as the context slug. */
   protected readonly pairLink = computed(() => [
@@ -155,7 +163,7 @@ export class ProductIntegrationRow {
   );
 
   protected readonly direction = computed(() =>
-    contextDirectionLabel(this.integration().direction, this.contextIsSource()),
+    contextDirectionLabel(this.integration().context_direction),
   );
 
   // Built in TS (not an interpolated i18n-aria-label, which emits no attribute)

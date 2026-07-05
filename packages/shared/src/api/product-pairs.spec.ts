@@ -1,10 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  ContextDirectionSchema,
-  ProductPairMechanismSchema,
-  ProductPairResponseSchema,
-} from './product-pairs';
+import { ContextDirectionSchema } from './integrations';
+import { ProductPairMechanismSchema, ProductPairResponseSchema } from './product-pairs';
 
 const uuid = (n: number) => `${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
 

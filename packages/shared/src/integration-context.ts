@@ -14,8 +14,7 @@
  * Spec: `docs/STAGE_1_5_SPEC.md` §7.1 (context + routing), §3.2 (stored vs
  * context-relative direction).
  */
-import type { ContextDirection } from './api/product-pairs';
-import type { IntegrationDirection } from './api/integrations';
+import type { ContextDirection, IntegrationDirection } from './api/integrations';
 import type { ClaimDirection } from './api/promote';
 
 /**
@@ -86,4 +85,50 @@ export function claimDirectionForContext(
 ): ContextDirection {
   if (direction === 'both') return 'both';
   return (direction === 'a_to_b') === contextIsSource ? 'outbound' : 'inbound';
+}
+
+/**
+ * Aggregate a mechanism's `data_object` claim directions (each stored relative to
+ * the row's source/target — §3.2) into ONE context-relative direction: any
+ * `both` claim, or any pair of opposing flows across claims, reads `both`;
+ * otherwise the single shared direction. `null` when the mechanism has no claims
+ * — the caller then falls back to the stored row direction. `contextIsSource` is
+ * whether the page's context product is the integration's `source` (endpoint A).
+ */
+export function contextDirectionFromClaims(
+  claimDirections: readonly ClaimDirection[],
+  contextIsSource: boolean,
+): ContextDirection | null {
+  let outbound = false;
+  let inbound = false;
+  for (const claim of claimDirections) {
+    const framed = claimDirectionForContext(claim, contextIsSource);
+    if (framed === 'both') return 'both';
+    if (framed === 'outbound') outbound = true;
+    else inbound = true;
+    if (outbound && inbound) return 'both';
+  }
+  if (!outbound && !inbound) return null;
+  return outbound ? 'outbound' : 'inbound';
+}
+
+/**
+ * The **effective** context-relative direction for the product-detail
+ * integrations table (§3.2). Claims are the more specific, richer signal — and
+ * the one the pair page surfaces — so when the mechanism carries any, their
+ * aggregate wins; otherwise fall back to the row's own stored
+ * `one-way`/`bidirectional` translated to the context frame. `null` only when
+ * there is neither claim nor stored direction (an honest "unknown", rendered as
+ * an em-dash). Precomputing this here — the single home for direction framing —
+ * keeps the table and the pair page from drifting.
+ */
+export function effectiveContextDirection(
+  storedDirection: IntegrationDirection | null,
+  claimDirections: readonly ClaimDirection[],
+  contextIsSource: boolean,
+): ContextDirection | null {
+  return (
+    contextDirectionFromClaims(claimDirections, contextIsSource) ??
+    integrationDirectionForContext(storedDirection, contextIsSource)
+  );
 }

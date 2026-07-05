@@ -24,6 +24,7 @@ import {
   claimDirectionForContext,
   computeAgreement,
   computeSyncHeadline,
+  effectiveContextDirection,
   integrationDirectionForContext,
   ProductUsefulnessSchema,
   RATING_VISIBILITY_MIN_REVIEWS,
@@ -39,6 +40,7 @@ import type {
   LinkRef,
   PairClaimAttestation,
   ProductDetail,
+  ProductIntegrationItem,
   ProductLink,
   ProductListItem,
   ProductPairClaim,
@@ -92,6 +94,21 @@ export const integrationListConfig = {
   with: {
     sourceProduct: { columns: productLinkColumns },
     targetProduct: { columns: productLinkColumns },
+  },
+} as const;
+
+/**
+ * Product-detail embed of an integration (`ProductDetail.integrations_as_*`).
+ * Like the list config but also loads each mechanism's claim **directions** so
+ * `toProductIntegrationItem` can derive the claims-aware `context_direction`
+ * (Stage 1.5 §3.2) the table renders. Kept separate from `integrationListConfig`
+ * so `/api/integrations` and the home rail don't pay for the extra join.
+ */
+export const productDetailIntegrationConfig = {
+  columns: integrationListConfig.columns,
+  with: {
+    ...integrationListConfig.with,
+    claims: { columns: { direction: true } },
   },
 } as const;
 
@@ -209,8 +226,8 @@ export const productDetailConfig = {
     },
     productAudiences: { columns: {}, with: { audience: { columns: taxonomyLinkColumns } } },
     productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
-    sourceIntegrations: integrationListConfig,
-    targetIntegrations: integrationListConfig,
+    sourceIntegrations: productDetailIntegrationConfig,
+    targetIntegrations: productDetailIntegrationConfig,
   },
 } as const;
 
@@ -397,6 +414,12 @@ export interface RawIntegrationListRow {
   sourceProduct: RawProductLink;
   targetProduct: RawProductLink;
 }
+/** List row + each mechanism's claim directions, for the product-detail embed
+ *  (`productDetailIntegrationConfig`). Directions feed `effectiveContextDirection`. */
+export interface RawProductIntegrationRow extends RawIntegrationListRow {
+  claims: Array<{ direction: string }>;
+}
+
 export interface RawIntegrationDetailRow extends RawIntegrationListRow {
   description: string | null;
   listingUrl: string | null;
@@ -463,8 +486,8 @@ export interface RawProductDetailRow extends RawProductListRow {
   usefulness: unknown;
   productAudiences: Array<{ audience: RawTaxonomyLink }>;
   productPhases: Array<{ phase: RawTaxonomyLink }>;
-  sourceIntegrations: RawIntegrationListRow[];
-  targetIntegrations: RawIntegrationListRow[];
+  sourceIntegrations: RawProductIntegrationRow[];
+  targetIntegrations: RawProductIntegrationRow[];
 }
 
 export interface RawPublicReviewRow {
@@ -623,6 +646,29 @@ export function toIntegrationListItem(raw: RawIntegrationListRow): IntegrationLi
     target: toProductLink(raw.targetProduct),
     created_at: raw.createdAt,
     updated_at: raw.updatedAt,
+  };
+}
+
+/**
+ * Product-detail embed of an integration: the list item plus the claims-aware
+ * `context_direction` (Stage 1.5 §3.2). The effective direction prefers the
+ * mechanism's `data_object` claim directions (the richer signal the pair page
+ * surfaces) and falls back to the stored row `direction`, both framed to this
+ * page's product. `contextIsSource` is whether this product is the integration's
+ * `source` (its endpoint A). Precomputed here so the table can't drift from the
+ * pair page.
+ */
+export function toProductIntegrationItem(
+  raw: RawProductIntegrationRow,
+  contextIsSource: boolean,
+): ProductIntegrationItem {
+  return {
+    ...toIntegrationListItem(raw),
+    context_direction: effectiveContextDirection(
+      coerceDirection(raw.direction),
+      raw.claims.map((claim) => coerceClaimDirection(claim.direction, raw.id)),
+      contextIsSource,
+    ),
   };
 }
 
@@ -995,8 +1041,10 @@ export function toProductDetail(
     audiences: raw.productAudiences.map((r) => r.audience),
     phases: raw.productPhases.map((r) => r.phase),
     usefulness: toUsefulness(raw.usefulness),
-    integrations_as_source: raw.sourceIntegrations.map(toIntegrationListItem),
-    integrations_as_target: raw.targetIntegrations.map(toIntegrationListItem),
+    // Source bucket: this product IS the integration's source (contextIsSource:
+    // true → outbound flows read outbound); target bucket is the mirror.
+    integrations_as_source: raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
+    integrations_as_target: raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
     related_products: relatedProducts.map(toProductListItem),
     reviews: reviews.map(toPublicReview),
   };

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { AGREEMENT_STATES } from '../agreement';
 import { ProductLinkSchema, VendorLinkSchema } from './common';
-import { IntegrationMechanismKindSchema } from './integrations';
+import { ContextDirectionSchema, IntegrationMechanismKindSchema } from './integrations';
 import { ProductListItemSchema } from './products';
 import { ATTESTATION_SOURCES } from './promote';
 
@@ -18,17 +18,10 @@ import { ATTESTATION_SOURCES } from './promote';
  * `sync_headline` ratio (§3.5) derived from those claims.
  */
 
-/**
- * Direction of a mechanism (or, in Layer B, a claim) **relative to the page's
- * context product** (§3.2). The stored integration/claim direction is canonical
- * to the row's own endpoints; the API translates it into the visitor's frame
- * before it leaves the Worker (the browser never re-derives it). `outbound` =
- * flows from the context product to the other; `inbound` = the reverse; `both`
- * = bidirectional.
- */
-export const ContextDirectionSchema = z.enum(['outbound', 'inbound', 'both']);
-
-export type ContextDirection = z.infer<typeof ContextDirectionSchema>;
+// `ContextDirectionSchema` / `ContextDirection` moved to `./integrations` (its
+// conceptual home — integration/claim direction) so the product-detail table can
+// reference it without a `products → product-pairs → products` import cycle. It
+// is still re-exported from the package barrel via `./integrations`.
 
 /**
  * A claim's computed agreement state (§3.4 — AECI-300). Derived on read from the

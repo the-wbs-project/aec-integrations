@@ -7,7 +7,7 @@ import {
   uuidList,
   VendorLinkSchema,
 } from './common';
-import { IntegrationListItemSchema } from './integrations';
+import { ProductIntegrationItemSchema } from './integrations';
 import { PublicReviewSchema } from './reviews';
 
 /**
@@ -108,8 +108,8 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.
   usefulness: ProductUsefulnessSchema.nullable(),
-  integrations_as_source: z.array(IntegrationListItemSchema),
-  integrations_as_target: z.array(IntegrationListItemSchema),
+  integrations_as_source: z.array(ProductIntegrationItemSchema),
+  integrations_as_target: z.array(ProductIntegrationItemSchema),
   related_products: z.array(ProductListItemSchema),
   // First page of approved reviews, newest-first, SSR'd into the cached product
   // page so the reviews section renders without a client round-trip (AECI-199 /

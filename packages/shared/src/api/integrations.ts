@@ -28,6 +28,19 @@ export const IntegrationDirectionSchema = z.enum(['one-way', 'bidirectional']);
 export type IntegrationDirection = z.infer<typeof IntegrationDirectionSchema>;
 
 /**
+ * Direction of a mechanism (or, in Layer B, a claim) **relative to the page's
+ * context product** (Stage 1.5 §3.2). The stored integration/claim direction is
+ * canonical to the row's own endpoints; the API translates it into the visitor's
+ * frame before it leaves the Worker (the browser never re-derives it). `outbound`
+ * = flows from the context product to the other; `inbound` = the reverse; `both`
+ * = bidirectional. Lives here (not in `product-pairs`) so both the pair page and
+ * the product-detail integrations table can reference it without an import cycle.
+ */
+export const ContextDirectionSchema = z.enum(['outbound', 'inbound', 'both']);
+
+export type ContextDirection = z.infer<typeof ContextDirectionSchema>;
+
+/**
  * Public sort key for `GET /api/integrations`. Phase 2 Spec §7.4: default
  * `name ASC`. Server-side maps `name → ASC`, `created → DESC` per §7.4.
  */
@@ -58,6 +71,26 @@ export const IntegrationListItemSchema = z.object({
 });
 
 export type IntegrationListItem = z.infer<typeof IntegrationListItemSchema>;
+
+/**
+ * Product-detail embed of an integration — the rows in
+ * `ProductDetail.integrations_as_source` / `integrations_as_target`. Extends the
+ * list item with `context_direction`: the effective flow direction **relative to
+ * the page's product**, made claims-aware (Stage 1.5 §3.2). It is derived on the
+ * server from the mechanism's `data_object` claims when it has them (the same
+ * signal the pair page surfaces), else the stored row `direction` translated to
+ * this product's frame, else `null` (unknown → the table renders an em-dash).
+ *
+ * Precomputed server-side and rendered verbatim so the table's Direction column
+ * can never contradict the pair page (superseding the stored-`direction`-only
+ * framing of §3.2). Only this embed carries it — the bare `IntegrationListItem`
+ * used by `/api/integrations` and the home rail has no single context product.
+ */
+export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
+  context_direction: ContextDirectionSchema.nullable(),
+});
+
+export type ProductIntegrationItem = z.infer<typeof ProductIntegrationItemSchema>;
 
 /**
  * Full integration detail returned by `GET /api/integrations/:id`. Adds the

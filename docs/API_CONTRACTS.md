@@ -41,7 +41,7 @@ packages/shared/
 │   │   │                      # paginatedResponseSchema, ApiError, SortOrder
 │   │   ├── products.ts        # ProductListItem / ProductDetail / ProductsListQuery / ProductsListResponse
 │   │   ├── vendors.ts         # VendorListItem / VendorDetail / VendorsListQuery / VendorsListResponse
-│   │   ├── integrations.ts    # IntegrationListItem / IntegrationDetail / IntegrationsListQuery / IntegrationsListResponse
+│   │   ├── integrations.ts    # IntegrationListItem / ProductIntegrationItem / IntegrationDetail / ContextDirection / IntegrationsListQuery / IntegrationsListResponse
 │   │   ├── taxonomy.ts        # TaxonomyTermWithCount, Category/Audience/Phase Detail, TaxonomyResponse
 │   │   ├── page-views.ts      # PageViewPayload (POST /api/page-views)
 │   │   ├── landing.ts         # Subscribe / Feedback capture (POST /api/subscribe, /api/feedback)
@@ -175,7 +175,7 @@ Per-detail hydration rules:
 |---|---|---|
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` | `LinkRef[]` |
-| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `IntegrationListItem[]` |
+| `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction`) |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `VendorDetail` | `products` | `ProductListItem[]` |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
@@ -306,8 +306,9 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // facet LinkRef[] above. `null` when the source has nothing for either facet;
   // otherwise either facet array may be empty.
   usefulness: ProductUsefulnessSchema.nullable(),
-  integrations_as_source: z.array(IntegrationListItemSchema),
-  integrations_as_target: z.array(IntegrationListItemSchema),
+  // ProductIntegrationItem = IntegrationListItem + `context_direction` (see §5.3).
+  integrations_as_source: z.array(ProductIntegrationItemSchema),
+  integrations_as_target: z.array(ProductIntegrationItemSchema),
   related_products: z.array(ProductListItemSchema),
 });
 ```
@@ -356,11 +357,24 @@ export const IntegrationListItemSchema = z.object({
     .enum(['native', 'iPaaS', 'marketplace-app', 'api', 'webhook', 'partner'])
     .nullable(), // null when the column is unset (AECI-115); an out-of-enum non-null value is rejected (500) server-side
   mechanism_name: z.string().nullable(),
-  direction: z.enum(['one-way', 'bidirectional']).nullable(),
+  direction: z.enum(['one-way', 'bidirectional']).nullable(), // the stored connector-level direction, verbatim
   source: ProductLinkSchema,
   target: ProductLinkSchema,
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
+});
+
+// Product-detail embed (`ProductDetail.integrations_as_*`). Adds the effective,
+// claims-aware direction relative to the page's product (Stage 1.5 §3.2 / §7.1):
+// `effectiveContextDirection` prefers the aggregate of the mechanism's claim
+// directions (the same signal the pair page surfaces) and falls back to the
+// stored `direction`, both framed to this product; `null` (em-dash) only when
+// there is neither. Precomputed server-side so the product-detail table can never
+// contradict the pair page. Only this embed carries it — the bare
+// `IntegrationListItem` used by `/api/integrations` and the home rail has no
+// single context product. `ContextDirectionSchema` = `['outbound','inbound','both']`.
+export const ProductIntegrationItemSchema = IntegrationListItemSchema.extend({
+  context_direction: ContextDirectionSchema.nullable(),
 });
 
 export const IntegrationDetailSchema = IntegrationListItemSchema.extend({
@@ -533,7 +547,9 @@ The **product-PAIR read**. Consolidates every integration between two products i
 
 ```typescript
 // packages/shared/src/api/product-pairs.ts
-export const ContextDirectionSchema = z.enum(['outbound', 'inbound', 'both']);
+// ContextDirectionSchema is defined in `./integrations` (shared with the
+// product-detail table's `ProductIntegrationItem.context_direction`, §5.3) and
+// imported here; conceptually it is `z.enum(['outbound', 'inbound', 'both'])`.
 
 // The claim's computed agreement (§3.4 — computeAgreement, never stored). Only
 // `unverified` is reachable in Stage 1.5 (AECi-only attestations, AECi-never-red).
