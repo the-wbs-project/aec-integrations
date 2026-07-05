@@ -107,7 +107,7 @@ The Phase 7 integrations are built to **fail open / no-op without their secrets*
 
 - **IndexNow (7.1):** `INDEXNOW_KEY_PRODUCTION` + host the key file at the site root + `PUBLIC_SITE_URL`=apex; Google Indexing `GOOGLE_INDEXING_SA_EMAIL_PRODUCTION` + `_PRIVATE_KEY_PRODUCTION` (AECI-263).
 - **PostHog (7.4):** `POSTHOG_KEY` (+ `POSTHOG_HOST`).
-- **Resend (7.5):** `RESEND_API_KEY_{STAGING,PRODUCTION}` + `EMAIL_FROM`; Supabase→Resend SMTP configured (`docs/email.md`).
+- **Resend (7.5):** `RESEND_API_KEY` (single shared, un-suffixed) + `EMAIL_FROM`; Supabase→Resend SMTP configured (`docs/email.md`).
 - **Data-quality (7.6):** deployed cron (staging+prod) + `DATA_QUALITY_EMAIL_FROM`/`_TO` (Chris + Bill).
 - **WAF→Datadog (7.7):** `CF_ANALYTICS_API_TOKEN` (Zone Analytics: Read) for `aeci.waf.ratelimit.blocked` (AECI-262).
 - **Toxicity (Phase 5/6 dep):** `ANTHROPIC_API_KEY_{STAGING,PRODUCTION}` (AECI-258); **prod Algolia** `ALGOLIA_APP_ID` + `ALGOLIA_ADMIN_KEY_PRODUCTION` (fail-closed on prod promote).

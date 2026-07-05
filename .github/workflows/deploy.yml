@@ -79,12 +79,13 @@
 #                              absent → scoring no-ops (toxicity_score=null) and the
 #                              review still enters the moderation queue. Production
 #                              uses ANTHROPIC_API_KEY_PRODUCTION (promote-to-prod.yml).
-#   RESEND_API_KEY_STAGING    — Resend key for transactional email (AECI-240).
-#                              deploy-staging pushes it to the staging API Worker as
-#                              `RESEND_API_KEY`. Optional + fail-open: absent → every
-#                              email send no-ops ('skipped') and the triggering action
-#                              still succeeds. Production uses RESEND_API_KEY_PRODUCTION
-#                              (promote-to-prod.yml).
+#   RESEND_API_KEY            — Resend key for transactional email (AECI-240).
+#                              Single shared (un-suffixed) key — one Resend account/key
+#                              spans every env (like SUPABASE_ANON_KEY). deploy-staging
+#                              pushes it to the staging API Worker as `RESEND_API_KEY`.
+#                              Optional + fail-open: absent → every email send no-ops
+#                              ('skipped') and the triggering action still succeeds.
+#                              promote-to-{demo,prod}.yml push the same shared secret.
 #
 # Required repo variables:
 #   STAGING_ENABLED          — set to "true" after the manual prerequisites
@@ -403,6 +404,10 @@ jobs:
           ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_STAGING: ${{ secrets.ANTHROPIC_API_KEY_STAGING }}
+          # Single shared (un-suffixed) Resend key; must be mapped here (not just
+          # named in RECOMMENDED_SECRETS) or require-secrets.sh reads it empty and
+          # false-warns "not set".
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           ENV_LABEL: staging
           REQUIRED_SECRETS: 'REVIEW_APP_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID CF_ACCESS_CLIENT_ID CF_ACCESS_CLIENT_SECRET'
@@ -412,8 +417,8 @@ jobs:
           # when real auth surfaces ship. AECI-258: ANTHROPIC_API_KEY_STAGING is recommended too —
           # review toxicity scoring is fail-open, so a missing key only degrades
           # the moderation-queue triage signal, never a launch-critical surface.
-          # AECI-240: RESEND_API_KEY_STAGING is recommended on the same footing —
-          # transactional email is fail-open (absent → sends 'skipped').
+          # AECI-240: RESEND_API_KEY (single shared, un-suffixed) is recommended on the
+          # same footing — transactional email is fail-open (absent → sends 'skipped').
           # AECI-236: there is NO INDEXNOW_KEY_STAGING — IndexNow is production /
           # launch-only (staging is Access-gated + non-indexed, and PUBLIC_SITE_URL
           # is unset on staging, so the submission gate is off there). The secret is
@@ -423,7 +428,7 @@ jobs:
           # AECI-262: CF_ANALYTICS_API_TOKEN is the SINGLE shared (un-suffixed) token
           # for the hourly WAF firewall-event poll — recommended/fail-safe (absent →
           # the poll no-ops outcome:skipped_no_creds, never a launch-critical surface).
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY_STAGING CF_ANALYTICS_API_TOKEN'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY ALGOLIA_APP_ID ALGOLIA_ADMIN_KEY ALGOLIA_SEARCH_KEY SUPABASE_ANON_KEY ANTHROPIC_API_KEY_STAGING RESEND_API_KEY CF_ANALYTICS_API_TOKEN'
         run: bash scripts/require-secrets.sh
 
       - name: Install pnpm
@@ -581,12 +586,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          RESEND_API_KEY_VALUE: ${{ secrets.RESEND_API_KEY_STAGING }}
+          # Single shared (un-suffixed) Resend key — one account/key spans every env.
+          RESEND_API_KEY_VALUE: ${{ secrets.RESEND_API_KEY }}
         working-directory: apps/api
         run: |
           set -euo pipefail
           if [ -z "$RESEND_API_KEY_VALUE" ]; then
-            echo "::warning::RESEND_API_KEY_STAGING not set — skipping push. Transactional email will no-op on staging (sends 'skipped') until it is provisioned."
+            echo "::warning::RESEND_API_KEY not set — skipping push. Transactional email will no-op on staging (sends 'skipped') until it is provisioned."
             exit 0
           fi
           printf '%s' "$RESEND_API_KEY_VALUE" \
