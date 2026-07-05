@@ -28,7 +28,9 @@
  *   the restore to `requestAnimationFrame` lands it *after* the scroll — keeping
  *   the reset instant. Keying the restore to `NavigationEnd` (not the router's
  *   `Scroll` event) also makes it fire on the initial hydration navigation, which
- *   does not emit a `Scroll` event — otherwise smooth would stay disabled.
+ *   does not emit a `Scroll` event — otherwise smooth would stay disabled. (That
+ *   same missing `Scroll` event is why the router skips anchor scrolling on the
+ *   initial load; `InitialFragmentScroller` handles the `…#section` deep-link case.)
  * - Cancelled / errored navigations never scroll, so they restore immediately;
  *   skipped navigations restore deferred (they may still scroll on a same-URL nav).
  *
