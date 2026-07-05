@@ -79,7 +79,7 @@ describe('notFoundResolver — server path', () => {
     expect(setNotFoundMeta).toHaveBeenCalledWith({
       kind: 'index',
       slug: '',
-      canonical: 'https://aecintegrations.com/',
+      canonical: 'https://www.aecintegrations.com/',
     });
   });
 });
