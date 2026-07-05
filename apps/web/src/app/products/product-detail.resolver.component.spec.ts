@@ -71,13 +71,14 @@ registerDetailResolverSuite<ProductDetail>({
   buildFixture: () =>
     buildProduct({
       integrations_as_source: [
-        // Minimal IntegrationListItem shape — only id is read by the resolver.
+        // Minimal ProductIntegrationItem shape — only id is read by the resolver.
         {
           id: 'int-a',
           name: 'A → B',
           mechanism_kind: 'native',
           mechanism_name: null,
           direction: null,
+          context_direction: null,
           source: { id: 's1', name: 'A', slug: 'a', logo_url: null },
           target: { id: 't1', name: 'B', slug: 'b', logo_url: null },
           created_at: '2024-01-01T00:00:00.000Z',
@@ -91,6 +92,7 @@ registerDetailResolverSuite<ProductDetail>({
           mechanism_kind: 'native',
           mechanism_name: null,
           direction: null,
+          context_direction: null,
           source: { id: 's2', name: 'C', slug: 'c', logo_url: null },
           target: { id: 't2', name: 'Procore', slug: 'procore', logo_url: null },
           created_at: '2024-01-01T00:00:00.000Z',

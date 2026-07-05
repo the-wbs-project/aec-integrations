@@ -43,32 +43,30 @@ describe('directionLabel', () => {
 });
 
 describe('contextDirectionLabel', () => {
-  it('re-frames a one-way flow to the context product (source → Outbound, target → Inbound)', () => {
-    expect(contextDirectionLabel('one-way', true)).toEqual({
+  // The frame translation now happens on the server (context_direction); this
+  // helper only turns a precomputed token into its label + glyph.
+  it('maps outbound → Outbound (→) and inbound → Inbound (←)', () => {
+    expect(contextDirectionLabel('outbound')).toEqual({
       label: 'Outbound',
       glyph: '→',
       token: 'outbound',
     });
-    expect(contextDirectionLabel('one-way', false)).toEqual({
+    expect(contextDirectionLabel('inbound')).toEqual({
       label: 'Inbound',
       glyph: '←',
       token: 'inbound',
     });
   });
 
-  it('reads a bidirectional flow as Both from either endpoint', () => {
-    for (const isSource of [true, false]) {
-      expect(contextDirectionLabel('bidirectional', isSource)).toEqual({
-        label: 'Both',
-        glyph: '⇄',
-        token: 'both',
-      });
-    }
+  it('maps both → Both (⇄)', () => {
+    expect(contextDirectionLabel('both')).toEqual({
+      label: 'Both',
+      glyph: '⇄',
+      token: 'both',
+    });
   });
 
-  it('yields an empty token for a null / undefined direction (rendered as the em-dash empty state)', () => {
-    for (const absent of [null, undefined] as const) {
-      expect(contextDirectionLabel(absent, true)).toEqual({ label: '', glyph: '', token: null });
-    }
+  it('yields an empty token for a null direction (rendered as the em-dash empty state)', () => {
+    expect(contextDirectionLabel(null)).toEqual({ label: '', glyph: '', token: null });
   });
 });

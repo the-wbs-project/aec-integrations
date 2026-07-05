@@ -3,7 +3,7 @@ import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { map } from 'rxjs';
 
-import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shared';
+import type { ProductDetail, ProductIntegrationItem, ProductLink } from '@aeci/shared';
 
 import { Analytics } from '../analytics/analytics';
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -386,16 +386,12 @@ import { ProductUsefulnessSection } from './product-usefulness';
             aria-labelledby="integrations-title"
             class="scroll-mt-20 space-y-4"
           >
-            <div class="flex items-baseline justify-between gap-4">
-              <h2
-                id="integrations-title"
-                class="font-display text-2xl font-semibold text-(--text-primary)"
-                i18n="@@products.detail.body.integrations"
-              >
-                Integrations
-              </h2>
-              <span class="text-sm text-(--text-secondary)">{{ integrationCountLabel() }}</span>
-            </div>
+            <h2
+              id="integrations-title"
+              class="font-display text-2xl font-semibold text-(--text-primary)"
+            >
+              {{ integrationsHeading() }}
+            </h2>
 
             @if (integrations().length === 0) {
               <p
@@ -434,16 +430,16 @@ import { ProductUsefulnessSection } from './product-usefulness';
                       <th
                         scope="col"
                         class="px-4 py-3 text-start font-medium"
-                        i18n="@@products.detail.body.integrations.col.product"
-                      >
-                        Integrates with
-                      </th>
-                      <th
-                        scope="col"
-                        class="hidden px-4 py-3 text-start font-medium md:table-cell"
                         i18n="@@products.detail.body.integrations.col.direction"
                       >
                         Direction
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 text-start font-medium"
+                        i18n="@@products.detail.body.integrations.col.product"
+                      >
+                        Integrates with
                       </th>
                       <th
                         scope="col"
@@ -466,7 +462,6 @@ import { ProductUsefulnessSection } from './product-usefulness';
                         [integration]="item.integration"
                         [other]="item.other"
                         [contextSlug]="p.slug"
-                        [contextIsSource]="item.contextIsSource"
                       ></tr>
                     }
                     @if (integrationsDeferred().length > 0) {
@@ -477,7 +472,6 @@ import { ProductUsefulnessSection } from './product-usefulness';
                             [integration]="item.integration"
                             [other]="item.other"
                             [contextSlug]="p.slug"
-                            [contextIsSource]="item.contextIsSource"
                           ></tr>
                         }
                       } @placeholder (minimum 100ms) {
@@ -566,27 +560,24 @@ export class ProductDetailPage {
    */
   protected readonly integrations = computed<
     ReadonlyArray<{
-      integration: IntegrationListItem;
+      integration: ProductIntegrationItem;
       other: ProductLink;
-      contextIsSource: boolean;
     }>
   >(() => {
     const p = this.product();
     if (!p) return [];
     const items: {
-      integration: IntegrationListItem;
+      integration: ProductIntegrationItem;
       other: ProductLink;
-      contextIsSource: boolean;
     }[] = [];
-    // `contextIsSource` re-frames the stored `source → target` direction to this
-    // page's product for `contextDirectionLabel()` (product-integration-row.ts):
-    // in the source bucket this product IS the source (outbound), in the target
-    // bucket it's the target (inbound).
+    // The direction shown per row is the server-precomputed, context-relative
+    // `context_direction` (claims-aware, §3.2) — the source/target buckets only
+    // pick which endpoint is the "other" product to link.
     for (const integration of p.integrations_as_source) {
-      items.push({ integration, other: integration.target, contextIsSource: true });
+      items.push({ integration, other: integration.target });
     }
     for (const integration of p.integrations_as_target) {
-      items.push({ integration, other: integration.source, contextIsSource: false });
+      items.push({ integration, other: integration.source });
     }
     return items;
   });
@@ -597,9 +588,11 @@ export class ProductDetailPage {
   /** Anything past 20 is deferred via `@defer (on viewport)`. */
   protected readonly integrationsDeferred = computed(() => this.integrations().slice(20));
 
-  protected readonly integrationCountLabel = computed(() => {
+  /** Section heading with the count inline — "Integrations (10)" — so the total
+   *  reads next to the title instead of drifting to the far right where it's missed. */
+  protected readonly integrationsHeading = computed(() => {
     const count = this.integrations().length;
-    return $localize`:@@products.detail.body.integrations.count:${count}:INTERPOLATION:`;
+    return $localize`:@@products.detail.body.integrations.heading:Integrations (${count}:count:)`;
   });
 
   /**

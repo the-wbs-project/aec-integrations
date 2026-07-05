@@ -13,6 +13,7 @@ import { ProductDetailSchema, ProductsListResponseSchema } from '@aeci/shared';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import {
+  claims,
   integrations,
   productAudiences,
   productCategories,
@@ -22,6 +23,7 @@ import {
   reviews,
   taxonomyAudiences,
   taxonomyCategories,
+  taxonomyDataObjects,
   taxonomyPhases,
   vendors,
 } from '../db/schema';
@@ -246,6 +248,61 @@ describe('GET /api/products/:slug', () => {
     // ≥5 approved reviews → averages visible; only the approved review is embedded.
     expect(detail.rating_overall_avg).toBe(4.2);
     expect(detail.reviews.map((r) => r.id)).toEqual([u(61)]);
+  });
+
+  it('derives the table Direction from claims when the row direction is null (§3.2 — regression: table matched "–" while the pair page said "Syncs both ways")', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte'); // context product (integration source)
+    await seedProduct(u(2), 'procore', 'Procore'); // the other endpoint (target)
+    // The reported bug's shape: a mechanism row with NO stored direction column...
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db.insert(taxonomyDataObjects).values([
+      { id: u(71), slug: 'drawings', name: 'Drawings' },
+      { id: u(72), slug: 'rfis', name: 'RFIs' },
+    ]);
+    // ...but whose data_object claims all flow both ways (what the pair page reads).
+    await t.db.insert(claims).values([
+      { id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'both' },
+      { id: u(82), integrationId: u(51), dataObjectId: u(72), direction: 'both' },
+    ]);
+
+    const detail = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    const row = detail.integrations_as_source[0];
+    // Stored row direction is still null (unchanged — the mapper never rewrites it)...
+    expect(row?.direction).toBeNull();
+    // ...but the effective, claims-aware context direction is 'both' — so the
+    // table now shows the same ⇄ the pair page does, not an em-dash.
+    expect(row?.context_direction).toBe('both');
+  });
+
+  it('frames a one-way claim relative to the page product (outbound from source, inbound from target)', async () => {
+    await seedProduct(u(1), 'egnyte', 'Egnyte');
+    await seedProduct(u(2), 'procore', 'Procore');
+    // source=egnyte, target=procore; a_to_b flows source→target.
+    await t.db
+      .insert(integrations)
+      .values({ id: u(51), sourceProductId: u(1), targetProductId: u(2) });
+    await t.db
+      .insert(taxonomyDataObjects)
+      .values({ id: u(71), slug: 'drawings', name: 'Drawings' });
+    await t.db
+      .insert(claims)
+      .values({ id: u(81), integrationId: u(51), dataObjectId: u(71), direction: 'a_to_b' });
+
+    // Viewed from egnyte (the source) → outbound.
+    const fromSource = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/egnyte')).json(),
+    );
+    expect(fromSource.integrations_as_source[0]?.context_direction).toBe('outbound');
+
+    // Viewed from procore (the target) → inbound (the mirror), same claim.
+    const fromTarget = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(fromTarget.integrations_as_target[0]?.context_direction).toBe('inbound');
   });
 
   it('withholds rating averages below the 5-review gate', async () => {

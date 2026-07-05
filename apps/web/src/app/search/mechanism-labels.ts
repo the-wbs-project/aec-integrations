@@ -16,11 +16,7 @@
  *
  * Spec: `STAGE_1_SPEC.md` §7.1 (integration record enums).
  */
-import {
-  integrationDirectionForContext,
-  type ContextDirection,
-  type IntegrationDirection,
-} from '@aeci/shared';
+import { type ContextDirection } from '@aeci/shared';
 
 /** Localized label for an integration `mechanism_kind`, or `''` when absent/unknown. */
 export function mechanismKindLabel(kind: string | null | undefined): string {
@@ -55,20 +51,18 @@ export function directionLabel(direction: string | null | undefined): string {
 }
 
 /**
- * A `direction` label rendered *relative to the page's context product*, for the
- * product-detail integrations table. The stored `source → target` flow is
- * re-framed to whichever endpoint is the page we're on (`STAGE_1_5_SPEC.md`
- * §3.2) — **outbound** when the context product is the row's `source` (data
- * leaves it), **inbound** when it's the `target`, **both** for bidirectional.
+ * Presentation (localized `label` + decorative arrow `glyph`) for a
+ * *context-relative* integration direction on the product-detail integrations
+ * table (`STAGE_1_5_SPEC.md` §3.2) — **outbound** (data leaves this page's
+ * product), **inbound** (data arrives), **both** (bidirectional).
  *
- * The frame translation itself is NOT re-derived here: it delegates to the
- * canonical, spec-mandated `integrationDirectionForContext()` in
- * `@aeci/shared` (`integration-context.ts`), which the spec requires be the
- * single home for both the mechanism- and claim-level translations. This helper
- * only adds the presentation layer the shared module can't (it is `$localize`-
- * free): the localized `label` and a decorative arrow `glyph`, keyed off the
- * shared `outbound`/`inbound`/`both` token. A null/unknown direction yields an
- * empty `token`, which the caller renders as its em-dash empty state.
+ * The frame translation is done on the SERVER now — `ProductIntegrationItem`
+ * carries the already-resolved `context_direction`, made claims-aware via the
+ * canonical `effectiveContextDirection()` in `@aeci/shared`
+ * (`integration-context.ts`). This helper only turns that token into a
+ * `$localize`d label + glyph (the shared module is `$localize`-free). A
+ * `null` token (unknown — no claims and no stored direction) yields an empty
+ * `token`, which the caller renders as its em-dash empty state.
  */
 export type ContextDirectionLabel = {
   /** Visible label, or `''` when the direction is absent/unknown. */
@@ -79,12 +73,9 @@ export type ContextDirectionLabel = {
   token: ContextDirection | null;
 };
 
-/** Context-relative direction for the product-detail table. See `ContextDirectionLabel`. */
-export function contextDirectionLabel(
-  direction: IntegrationDirection | null | undefined,
-  isSource: boolean,
-): ContextDirectionLabel {
-  switch (integrationDirectionForContext(direction ?? null, isSource)) {
+/** Presentation for a precomputed context-relative direction. See `ContextDirectionLabel`. */
+export function contextDirectionLabel(direction: ContextDirection | null): ContextDirectionLabel {
+  switch (direction) {
     case 'outbound':
       return {
         label: $localize`:@@integrations.direction.outbound:Outbound`,
