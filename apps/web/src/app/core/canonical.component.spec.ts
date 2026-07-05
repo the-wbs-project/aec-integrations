@@ -56,11 +56,11 @@ describe('canonicalUrl / servingOrigin', () => {
     expect(url).toBe('https://demo.aecintegrations.com/audiences');
   });
 
-  it('falls back to the production apex when neither REQUEST nor a DOM location exists (prerender)', () => {
+  it('falls back to the canonical www host when neither REQUEST nor a DOM location exists (prerender)', () => {
     const url = inContext([{ provide: REQUEST, useValue: null }, docWithOrigin(null)], () =>
       canonicalUrl('/categories'),
     );
-    expect(url).toBe('https://aecintegrations.com/categories');
+    expect(url).toBe('https://www.aecintegrations.com/categories');
   });
 
   it('tolerates a path with no leading slash', () => {

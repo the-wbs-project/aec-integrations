@@ -313,7 +313,7 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
     const { binding, calls } = recordingApiBinding();
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
 
-    const req = new Request('https://aecintegrations.com/api/health', {
+    const req = new Request('https://www.aecintegrations.com/api/health', {
       method: 'GET',
       headers: { cookie: 'sb-access-token=abc.def.ghi; ui-pref=compact' },
     });
@@ -352,7 +352,7 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
     );
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
 
-    const req = new Request('https://aecintegrations.com/api/version');
+    const req = new Request('https://www.aecintegrations.com/api/version');
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
 
     expect(res.status).toBe(200);
@@ -366,7 +366,7 @@ describe('createApp /api/* passthrough (AC: cookies intact to API Worker)', () =
     const { binding, calls } = recordingApiBinding(new Response('{}', { status: 201 }));
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
 
-    const req = new Request('https://aecintegrations.com/api/reviews', {
+    const req = new Request('https://www.aecintegrations.com/api/reviews', {
       method: 'POST',
       headers: {
         cookie: 'sb-access-token=session',
@@ -410,7 +410,7 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: htmlRenderer() });
 
-    const req = new Request('https://aecintegrations.com/products/acme');
+    const req = new Request('https://www.aecintegrations.com/products/acme');
     const res = await app.fetch(
       req,
       { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
@@ -460,18 +460,18 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     expect(blocked.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
 
     const allowed = await app.fetch(
-      new Request('https://aecintegrations.com/robots.txt'),
+      new Request('https://www.aecintegrations.com/robots.txt'),
       { ...binding, ALLOW_INDEXING: 'true' } as unknown as Bindings,
       fakeExecutionContext(),
     );
     const allowedBody = await allowed.text();
     expect(allowedBody).toContain('Allow: /');
-    expect(allowedBody).toContain('Sitemap: https://aecintegrations.com/sitemap.xml');
+    expect(allowedBody).toContain('Sitemap: https://www.aecintegrations.com/sitemap.xml');
     expect(allowed.headers.get('X-Robots-Tag')).toBeNull();
   });
 });
 
-describe('createApp www → apex 301 (AECI-247 apex cutover)', () => {
+describe('createApp apex → www 301 (canonical host = www; ADR 0011 amendment)', () => {
   const htmlRenderer = (): SsrRenderer =>
     fixedRenderer(
       new Response('<!doctype html><title>x</title>', {
@@ -480,11 +480,11 @@ describe('createApp www → apex 301 (AECI-247 apex cutover)', () => {
       }),
     );
 
-  it('301-redirects www to the bare apex, preserving path + query', async () => {
+  it('301-redirects the bare apex to www, preserving path + query', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: htmlRenderer() });
 
-    const req = new Request('https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz');
+    const req = new Request('https://aecintegrations.com/products/acme?ref=waitlist&token=xyz');
     const res = await app.fetch(
       req,
       { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
@@ -493,17 +493,17 @@ describe('createApp www → apex 301 (AECI-247 apex cutover)', () => {
 
     expect(res.status).toBe(301);
     expect(res.headers.get('Location')).toBe(
-      'https://aecintegrations.com/products/acme?ref=waitlist&token=xyz',
+      'https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz',
     );
     // The permanent host mapping is edge-cacheable.
     expect(res.headers.get('Cache-Control')).toContain('s-maxage=');
   });
 
-  it('does NOT redirect the bare apex (falls through to SSR)', async () => {
+  it('does NOT redirect www (falls through to SSR — the canonical served host)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: htmlRenderer() });
 
-    const req = new Request('https://aecintegrations.com/');
+    const req = new Request('https://www.aecintegrations.com/');
     const res = await app.fetch(
       req,
       { ...binding, ENV: 'production', ALLOW_INDEXING: 'true' } as unknown as Bindings,
@@ -531,7 +531,7 @@ describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)
     };
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
 
-    const req = new Request('https://aecintegrations.com/_version');
+    const req = new Request('https://www.aecintegrations.com/_version');
     const res = await app.fetch(req, env as unknown as Bindings, fakeExecutionContext());
 
     expect(res.status).toBe(200);
@@ -556,7 +556,7 @@ describe('createApp GET /_version (AECI-92: SSR Worker’s OWN SHA, not proxied)
     const { binding, calls } = recordingApiBinding();
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')) });
 
-    const req = new Request('https://aecintegrations.com/_version');
+    const req = new Request('https://www.aecintegrations.com/_version');
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
 
     expect(res.status).toBe(200);
@@ -583,7 +583,7 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
 
     const cookie = 'ui-pref=compact; sb-access-token=abc';
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/', { headers: { cookie } }),
+      new Request('https://www.aecintegrations.com/', { headers: { cookie } }),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -612,7 +612,7 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
     });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/'),
+      new Request('https://www.aecintegrations.com/'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -663,7 +663,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
   ])('cacheable path %s emits Cache-Tag=%s', async (path, expected) => {
     const { binding } = recordingApiBinding();
     const res = await appReturningOk().fetch(
-      new Request(`https://aecintegrations.com${path}`),
+      new Request(`https://www.aecintegrations.com${path}`),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -682,7 +682,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     ];
     for (const [path, expected] of cases) {
       const res = await appReturningOk().fetch(
-        new Request(`https://aecintegrations.com${path}`),
+        new Request(`https://www.aecintegrations.com${path}`),
         binding as unknown as Bindings,
         fakeExecutionContext(),
       );
@@ -695,7 +695,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
     const { binding } = recordingApiBinding();
     for (const path of ['/about', '/legal/privacy']) {
       const res = await appReturningOk().fetch(
-        new Request(`https://aecintegrations.com${path}`),
+        new Request(`https://www.aecintegrations.com${path}`),
         binding as unknown as Bindings,
         fakeExecutionContext(),
       );
@@ -716,7 +716,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
       ),
     });
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/account/settings'),
+      new Request('https://www.aecintegrations.com/account/settings'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -729,7 +729,7 @@ describe('createApp Cache-Tag header (AECI-56, CACHE_STRATEGY.md §2–3)', () =
       ssrRenderer: fixedRenderer(new Response('Not found', { status: 404 })),
     });
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/products/missing'),
+      new Request('https://www.aecintegrations.com/products/missing'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -752,12 +752,14 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     const { binding } = recordingApiBinding();
     const { app, ssrRenderer } = appWithSpyRenderer();
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/disciplines/architecture'),
+      new Request('https://www.aecintegrations.com/disciplines/architecture'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('https://aecintegrations.com/audiences/architecture');
+    expect(res.headers.get('location')).toBe(
+      'https://www.aecintegrations.com/audiences/architecture',
+    );
     // Permanent mapping → long edge TTL (NOT no-store), tagged with the canonical
     // `audience:<slug>` so /admin/purge can evict it. Same vocabulary the browse
     // route + promote purge emit (lockstep).
@@ -771,12 +773,12 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     const { binding } = recordingApiBinding();
     const { app } = appWithSpyRenderer();
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/disciplines'),
+      new Request('https://www.aecintegrations.com/disciplines'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('https://aecintegrations.com/audiences');
+    expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/audiences');
     expect(res.headers.get('cache-tag')).toBe('audience:*');
   });
 
@@ -784,13 +786,13 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     const { binding } = recordingApiBinding();
     const { app } = appWithSpyRenderer();
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/disciplines/structural?utm_source=x'),
+      new Request('https://www.aecintegrations.com/disciplines/structural?utm_source=x'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(301);
     expect(res.headers.get('location')).toBe(
-      'https://aecintegrations.com/audiences/structural?utm_source=x',
+      'https://www.aecintegrations.com/audiences/structural?utm_source=x',
     );
   });
 });
@@ -809,12 +811,12 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
       const { binding } = recordingApiBinding();
       const { app, ssrRenderer } = appWithSpyRenderer();
       const res = await app.fetch(
-        new Request(`https://aecintegrations.com${path}`),
+        new Request(`https://www.aecintegrations.com${path}`),
         binding as unknown as Bindings,
         fakeExecutionContext(),
       );
       expect(res.status).toBe(301);
-      expect(res.headers.get('location')).toBe('https://aecintegrations.com/products');
+      expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/products');
       // Permanent mapping → long edge TTL (NOT no-store). No Cache-Tag: the
       // mapping never changes, so there is no purge handle to mint.
       expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
@@ -828,19 +830,19 @@ describe('createApp /vendors + /integrations → /products 301 redirects (AECI-1
     const { binding } = recordingApiBinding();
     const { app } = appWithSpyRenderer();
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/integrations?sourceProductId=abc&page=2'),
+      new Request('https://www.aecintegrations.com/integrations?sourceProductId=abc&page=2'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
     expect(res.status).toBe(301);
-    expect(res.headers.get('location')).toBe('https://aecintegrations.com/products');
+    expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/products');
   });
 
   it('leaves the vendor DETAIL route to the SSR pipeline (only the bare index redirects)', async () => {
     const { binding } = recordingApiBinding();
     const { app, ssrRenderer } = appWithSpyRenderer();
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/vendors/autodesk'),
+      new Request('https://www.aecintegrations.com/vendors/autodesk'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -868,14 +870,14 @@ describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
     const app = createApp({ ssrRenderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/integrations/int-1'),
+      new Request('https://www.aecintegrations.com/integrations/int-1'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
 
     expect(res.status).toBe(301);
     expect(res.headers.get('location')).toBe(
-      'https://aecintegrations.com/products/procore/integrations/revit',
+      'https://www.aecintegrations.com/products/procore/integrations/revit',
     );
     // Permanent, edge-cacheable mapping; tagged so a promote on the integration purges it.
     expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
@@ -900,7 +902,7 @@ describe('createApp /integrations/:id → pair 301 (AECI-294)', () => {
     const app = createApp({ ssrRenderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/integrations/does-not-exist'),
+      new Request('https://www.aecintegrations.com/integrations/does-not-exist'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -978,7 +980,7 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/this-route-does-not-exist'),
+      new Request('https://www.aecintegrations.com/this-route-does-not-exist'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -995,7 +997,7 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
     });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/products/missing'),
+      new Request('https://www.aecintegrations.com/products/missing'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1035,7 +1037,7 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
     });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/'),
+      new Request('https://www.aecintegrations.com/'),
       binding as unknown as Bindings,
       ctx,
     );
@@ -1054,7 +1056,7 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
     });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/products/missing'),
+      new Request('https://www.aecintegrations.com/products/missing'),
       binding as unknown as Bindings,
       ctx,
     );
@@ -1078,7 +1080,7 @@ describe('createApp edge-cache integration (only 2xx is stored)', () => {
     const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/'),
+      new Request('https://www.aecintegrations.com/'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1131,13 +1133,13 @@ describe('createApp edge-cache key normalization end-to-end (AECI-100)', () => {
     const app = createApp({ ssrRenderer: renderer });
 
     // First request primes the cache: MISS → render → store one entry.
-    const first = await fetchPath(app, 'https://aecintegrations.com/products/foo?utm_source=x');
+    const first = await fetchPath(app, 'https://www.aecintegrations.com/products/foo?utm_source=x');
     expect(first.status).toBe(200);
     expect(renderer).toHaveBeenCalledTimes(1);
     expect(store.size).toBe(1);
 
     // A different tracking param on the same page must HIT — no second render.
-    const second = await fetchPath(app, 'https://aecintegrations.com/products/foo?fbclid=y');
+    const second = await fetchPath(app, 'https://www.aecintegrations.com/products/foo?fbclid=y');
     expect(await second.text()).toBe('<html>detail</html>');
     expect(renderer).toHaveBeenCalledTimes(1);
     expect(store.size).toBe(1);
@@ -1153,14 +1155,14 @@ describe('createApp edge-cache key normalization end-to-end (AECI-100)', () => {
     });
     const app = createApp({ ssrRenderer: renderer });
 
-    await fetchPath(app, 'https://aecintegrations.com/products?page=1');
-    await fetchPath(app, 'https://aecintegrations.com/products?page=2');
+    await fetchPath(app, 'https://www.aecintegrations.com/products?page=1');
+    await fetchPath(app, 'https://www.aecintegrations.com/products?page=2');
     // page=1 and page=2 are distinct content → two renders, two entries.
     expect(renderer).toHaveBeenCalledTimes(2);
     expect(store.size).toBe(2);
 
     // A tracking-only variant of page=1 normalizes to the page=1 key → HIT.
-    await fetchPath(app, 'https://aecintegrations.com/products?page=1&utm_source=x');
+    await fetchPath(app, 'https://www.aecintegrations.com/products?page=1&utm_source=x');
     expect(renderer).toHaveBeenCalledTimes(2);
     expect(store.size).toBe(2);
   });
@@ -1218,7 +1220,7 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
       ),
     });
     await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
+      new Request('https://www.aecintegrations.com/products/procore'),
       envWithDatadog(),
       fakeExecutionContext(),
     );
@@ -1239,7 +1241,7 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
     const renderer = vi.fn();
     const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
     await app.fetch(
-      new Request('https://aecintegrations.com/'),
+      new Request('https://www.aecintegrations.com/'),
       envWithDatadog(),
       fakeExecutionContext(),
     );
@@ -1260,7 +1262,7 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
       ),
     });
     await app.fetch(
-      new Request('https://aecintegrations.com/account/settings'),
+      new Request('https://www.aecintegrations.com/account/settings'),
       envWithDatadog(),
       fakeExecutionContext(),
     );
@@ -1326,7 +1328,7 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
       ),
     });
     await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
+      new Request('https://www.aecintegrations.com/products/procore'),
       envWithDatadog(),
       fakeExecutionContext(),
     );
@@ -1346,7 +1348,7 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
     const renderer = vi.fn();
     const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
     await app.fetch(
-      new Request('https://aecintegrations.com/'),
+      new Request('https://www.aecintegrations.com/'),
       envWithDatadog(),
       fakeExecutionContext(),
     );
@@ -1366,7 +1368,7 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
       ),
     });
     await app.fetch(
-      new Request('https://aecintegrations.com/account/settings'),
+      new Request('https://www.aecintegrations.com/account/settings'),
       envWithDatadog(),
       fakeExecutionContext(),
     );
@@ -1400,7 +1402,7 @@ describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', (
     });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/'),
+      new Request('https://www.aecintegrations.com/'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1426,7 +1428,7 @@ describe('createApp transformResponse hook (AECI-31 RUM bootstrap injection)', (
     });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/account/settings'),
+      new Request('https://www.aecintegrations.com/account/settings'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1454,7 +1456,7 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
     const app = createApp({ ssrRenderer: renderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
+      new Request('https://www.aecintegrations.com/products/procore'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1477,7 +1479,7 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
     const app = createApp({ ssrRenderer: renderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
+      new Request('https://www.aecintegrations.com/products/procore'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1498,7 +1500,7 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
     const app = createApp({ ssrRenderer: renderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/products/missing'),
+      new Request('https://www.aecintegrations.com/products/missing'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1516,7 +1518,7 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
     const app = createApp({ ssrRenderer: renderer });
 
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
+      new Request('https://www.aecintegrations.com/products/procore'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1561,7 +1563,7 @@ describe('createApp page-view capture (AECI-58)', () => {
     });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/products?page=2'),
+      new Request('https://www.aecintegrations.com/products?page=2'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1586,7 +1588,7 @@ describe('createApp page-view capture (AECI-58)', () => {
     const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/products'),
+      new Request('https://www.aecintegrations.com/products'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1601,7 +1603,7 @@ describe('createApp page-view capture (AECI-58)', () => {
     });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/account/settings'),
+      new Request('https://www.aecintegrations.com/account/settings'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1614,7 +1616,7 @@ describe('createApp page-view capture (AECI-58)', () => {
     const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/api/health'),
+      new Request('https://www.aecintegrations.com/api/health'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1642,7 +1644,7 @@ describe('createApp page-view capture (AECI-58)', () => {
 
     const ctx = fakeExecutionContext();
     const res = await app.fetch(
-      new Request('https://aecintegrations.com/products'),
+      new Request('https://www.aecintegrations.com/products'),
       binding as unknown as Bindings,
       ctx,
     );
@@ -1666,7 +1668,7 @@ describe('createApp page-view capture (AECI-58)', () => {
     const app = createApp({ ssrRenderer: renderer });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/products/procore'),
+      new Request('https://www.aecintegrations.com/products/procore'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1693,7 +1695,7 @@ describe('createApp page-view capture (AECI-58)', () => {
     const app = createApp({ ssrRenderer: renderer });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/products/missing'),
+      new Request('https://www.aecintegrations.com/products/missing'),
       binding as unknown as Bindings,
       fakeExecutionContext(),
     );
@@ -1711,7 +1713,7 @@ describe('createApp page-view capture (AECI-58)', () => {
     });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/products', {
+      new Request('https://www.aecintegrations.com/products', {
         headers: { 'user-agent': 'Mozilla/5.0 (AECI test)' },
       }),
       binding as unknown as Bindings,
@@ -1768,7 +1770,7 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
 
     await app.fetch(
-      new Request('https://aecintegrations.com/api/page-views', {
+      new Request('https://www.aecintegrations.com/api/page-views', {
         method: 'POST',
         headers: {
           'content-type': 'application/json',
@@ -1797,7 +1799,7 @@ describe('CF context forwarding for page-views (AECI-177)', () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
 
-    const original = new Request('https://aecintegrations.com/api/health', {
+    const original = new Request('https://www.aecintegrations.com/api/health', {
       headers: { 'x-aeci-cf-country': 'SPOOF' },
     });
     await app.fetch(original, binding as unknown as Bindings, fakeExecutionContext());
@@ -1827,7 +1829,7 @@ describe('isReviewPath (AECI-200)', () => {
 
 describe('hasSessionCookie (AECI-200)', () => {
   function req(cookie?: string): Request {
-    return new Request('https://aecintegrations.com/products/x/review', {
+    return new Request('https://www.aecintegrations.com/products/x/review', {
       headers: cookie ? { cookie } : {},
     });
   }
@@ -1854,7 +1856,7 @@ describe('createApp review-route auth gate (AECI-200)', () => {
       ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
     });
 
-    const req = new Request('https://aecintegrations.com/products/acme-build/review', {
+    const req = new Request('https://www.aecintegrations.com/products/acme-build/review', {
       headers: { cookie: 'theme=dark' }, // no session cookie
     });
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -1870,7 +1872,7 @@ describe('createApp review-route auth gate (AECI-200)', () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
 
-    const req = new Request('https://aecintegrations.com/products/acme-build/review', {
+    const req = new Request('https://www.aecintegrations.com/products/acme-build/review', {
       headers: { cookie: 'sb-proj-auth-token=session' },
     });
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -1883,7 +1885,7 @@ describe('createApp review-route auth gate (AECI-200)', () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
 
-    const req = new Request('https://aecintegrations.com/products/acme-build', {
+    const req = new Request('https://www.aecintegrations.com/products/acme-build', {
       headers: { cookie: 'theme=dark' },
     });
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -1915,7 +1917,7 @@ describe('createApp admin-surface anon gate (AECI-203)', () => {
       ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
     });
 
-    const req = new Request('https://aecintegrations.com/admin', {
+    const req = new Request('https://www.aecintegrations.com/admin', {
       headers: { cookie: 'theme=dark' }, // no session cookie
     });
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -1931,7 +1933,7 @@ describe('createApp admin-surface anon gate (AECI-203)', () => {
       ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run')),
     });
 
-    const req = new Request('https://aecintegrations.com/admin/reviews', {
+    const req = new Request('https://www.aecintegrations.com/admin/reviews', {
       headers: { cookie: 'theme=light' },
     });
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -1944,7 +1946,7 @@ describe('createApp admin-surface anon gate (AECI-203)', () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
 
-    const req = new Request('https://aecintegrations.com/admin', {
+    const req = new Request('https://www.aecintegrations.com/admin', {
       headers: { cookie: 'sb-proj-auth-token=session' },
     });
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -1959,7 +1961,7 @@ describe('createApp admin-surface anon gate (AECI-203)', () => {
 
     // No real POST handler under /admin besides the earlier-registered
     // /admin/purge, so this falls through to SSR rather than a login bounce.
-    const req = new Request('https://aecintegrations.com/admin/not-purge', {
+    const req = new Request('https://www.aecintegrations.com/admin/not-purge', {
       method: 'POST',
       headers: { cookie: 'theme=dark' }, // no session cookie
     });
@@ -1990,7 +1992,7 @@ describe('createApp authenticated-SSR cookie neutrality (AECI-203)', () => {
     const { binding, calls } = recordingApiBinding();
     const app = createApp({ ssrRenderer: apiProbeRenderer() });
 
-    const req = new Request('https://aecintegrations.com/admin', {
+    const req = new Request('https://www.aecintegrations.com/admin', {
       headers: { cookie: 'sb-proj-auth-token=session; theme=dark' },
     });
     await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
@@ -2005,7 +2007,7 @@ describe('createApp authenticated-SSR cookie neutrality (AECI-203)', () => {
     // The session cookie survives into the SSR render (it is not visitor-state),
     // but the cacheable branch's API client must never carry it — else a
     // per-user response could be written to the shared edge cache.
-    const req = new Request('https://aecintegrations.com/', {
+    const req = new Request('https://www.aecintegrations.com/', {
       headers: { cookie: 'sb-proj-auth-token=session' },
     });
     await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());

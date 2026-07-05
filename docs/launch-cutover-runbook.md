@@ -7,7 +7,7 @@
 >
 > **This runbook is prepared as the 7.12 deliverable; running it is AECI-247, out of scope for the 7.12 gate.**
 >
-> **Relationship to AECI-277 (retire `apps/landing`).** Per the locked decision (2026-06-26), the **destructive execution** is now **prepared as the combined AECI-247 + AECI-277 PR** (branch `chris/aeci-247-phase-713-dns-cutover-from-the-coming-soon-page-go-live`). That PR carries, in config/code: the apex + `www` `custom_domain` routes on `aeci-web-production`; the production web Worker's `ALLOW_INDEXING="true"`; the API Worker's `PUBLIC_SITE_URL`→apex; the `www`→apex 301 in the SSR Worker (`server-runtime.ts`, replacing the landing Worker's apex↔www handling); `git rm apps/landing`; and the operator "new signup / feedback" notification moved into `apps/api/src/routes/landing-forms.ts` (to `ADMIN_ALERT_EMAIL`, replacing the landing Worker's own Resend send). **The PR changes no live DNS by itself** — the apex/`www` reassignment happens only when it is **merged and the next `promote-to-prod` deploys** (custom-domain reconciliation, the same mechanism `demo.` uses). This document is the ops procedure that deploy executes against. Hold the merge until the §1 preconditions are green.
+> **Relationship to AECI-277 (retire `apps/landing`).** Per the locked decision (2026-06-26), the **destructive execution** is now **prepared as the combined AECI-247 + AECI-277 PR** (branch `chris/aeci-247-phase-713-dns-cutover-from-the-coming-soon-page-go-live`). That PR carries, in config/code: the apex + `www` `custom_domain` routes on `aeci-web-production`; the production web Worker's `ALLOW_INDEXING="true"`; the API Worker's `PUBLIC_SITE_URL`→`www.` (canonical host, ADR 0011 amendment 2026-07-05); the apex→`www` 301 in the SSR Worker (`server-runtime.ts`, replacing the landing Worker's apex↔www handling); `git rm apps/landing`; and the operator "new signup / feedback" notification moved into `apps/api/src/routes/landing-forms.ts` (to `ADMIN_ALERT_EMAIL`, replacing the landing Worker's own Resend send). **The PR changes no live DNS by itself** — the apex/`www` reassignment happens only when it is **merged and the next `promote-to-prod` deploys** (custom-domain reconciliation, the same mechanism `demo.` uses). This document is the ops procedure that deploy executes against. Hold the merge until the §1 preconditions are green.
 
 ---
 
@@ -49,9 +49,9 @@ These are unset pre-launch by design — the integrations fail-open/no-op until 
 Run top to bottom. Steps 1–3 are config on the prod Worker; step 4 is the DNS flip; step 5 is the broadcast.
 
 1. [ ] **Indexing is ON in config.** The production web Worker ships `ALLOW_INDEXING="true"` (AECI-247/277) — removes `x-robots-tag: noindex`, lets the SEO header set + sitemap go crawlable. Nothing to flip by hand; it takes effect on the deploy below. (Provision the launch-only `INDEXNOW_KEY` + Google Indexing secrets FIRST per §2 — pinging for a still-noindex site is the bug the secrets' absence guards against.)
-2. [ ] **API points at the apex in config.** The API Worker ships `PUBLIC_SITE_URL=https://aecintegrations.com` (AECI-247/277) so promote-time IndexNow / Google pings + canonical/OG absolute URLs use the apex. Takes effect on the deploy below.
+2. [ ] **API points at `www.` in config.** The API Worker ships `PUBLIC_SITE_URL=https://www.aecintegrations.com` (canonical host is `www.` per the ADR 0011 amendment 2026-07-05) so promote-time IndexNow / Google pings + canonical/OG absolute URLs use `www.`. Takes effect on the deploy below.
 3. [ ] **Merge the cutover PR, then run `promote-to-prod`** with the standard `COMMIT_SHA`/`DEPLOYED_AT` vars (CLAUDE.md version-reporting rule). This deploy applies steps 1–2 **and** reconciles the apex + `www` custom domains onto `aeci-web-production` — **it is the DNS flip** (see step 4). Before it, **verify on `prod.aecintegrations.com`** (the Access-gated internal host, unaffected by the apex move): home, search, a detail page, `/legal/*`, `/about`, `/contact` all render; dual version gate green; `robots`/canonical now indexable.
-4. [ ] **The apex + www move onto the app** as a side effect of step 3's deploy: `custom_domain: true` on the apex + `www` routes reassigns both hostnames off the (now retired) landing Worker onto `aeci-web-production`. The SSR Worker 301s `www`→apex so the canonical host is the bare apex. (The `LANDING_CF_HEADERS` geo continuity was handled in AECI-275; the app home renders the closing-CTA capture + real OG card per AECI-277 parity.) If you must stage it separately from the code deploy, reassign the custom domains via the Cloudflare dashboard per `environments.md`.
+4. [ ] **The apex + www move onto the app** as a side effect of step 3's deploy: `custom_domain: true` on the apex + `www` routes reassigns both hostnames off the (now retired) landing Worker onto `aeci-web-production`. The SSR Worker 301s the bare apex→`www` so the canonical host is `www.` (ADR 0011 amendment 2026-07-05). **After the flip deploys, purge the Cloudflare edge cache** so no stale `www`→apex 301 (≤24h `s-maxage`) lingers and loops against the new direction. (The `LANDING_CF_HEADERS` geo continuity was handled in AECI-275; the app home renders the closing-CTA capture + real OG card per AECI-277 parity.) If you must stage it separately from the code deploy, reassign the custom domains via the Cloudflare dashboard per `environments.md`.
 5. [ ] **Send the waitlist broadcast** (§4) — one-time Resend broadcast to the entire `mailing_list` with the `?ref=waitlist&token=…` link that lights the welcome banner (AECI-243).
 
 ---
@@ -77,7 +77,7 @@ reviews, AEC-native categories, and no pay-for-placement. Rankings are earned,
 never bought.
 
 Explore the directory:
-https://aecintegrations.com/?ref=waitlist&token={{token}}
+https://www.aecintegrations.com/?ref=waitlist&token={{token}}
 
 A few places to start:
 - Search by the tool you already use
@@ -100,13 +100,13 @@ Unsubscribe: {{unsubscribe_url}}
 
 ## 5. Post-cutover verification
 
-- [ ] **Apex serves the app** — `https://aecintegrations.com` and `https://www.aecintegrations.com` (301→apex) return the Angular SSR home, not the coming-soon page.
+- [ ] **The app serves the public home** — `https://www.aecintegrations.com` returns the Angular SSR home (not the coming-soon page), and `https://aecintegrations.com` 301s to it (canonical host is `www.`).
 - [ ] **Dual version gate** — `/api/version` and `/_version` both report the target SHA (stale-SSR guard, CLAUDE.md).
-- [ ] **Indexable** — `curl -sI https://aecintegrations.com/` shows no `x-robots-tag: noindex`; `/robots.txt` + `/sitemap.xml` are present and reference the apex; canonical/OG are absolute apex URLs.
+- [ ] **Indexable** — `curl -sI https://www.aecintegrations.com/` (the served host) shows no `x-robots-tag: noindex`; `/robots.txt` + `/sitemap.xml` are present and reference `www.`; canonical/OG are absolute `www.` URLs (the apex 301s to `www.`, verified above).
 - [ ] **IndexNow fired** — a promote (or the first crawl-worthy write) records `aeci.indexnow.submit{source:promote,outcome:ok}`; the `<key>.txt` file resolves at the root.
 - [ ] **Analytics + email** — a PostHog pageview lands with `locale`/`theme` dims; a test transactional email sends via Resend; the 04:00 UTC data-quality digest arrives next cycle.
-- [ ] **RUM CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real apex traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`).
-- [ ] **WAF** — `aeci.waf.ratelimit.blocked` reports for the apex host; legitimate review/request submits are not throttled.
+- [ ] **RUM CWV** — Datadog RUM (the `aeci` app, us5) shows field LCP/CLS/INP within budget on real production traffic (re-read after a day of real sample — `PERFORMANCE_AUDIT.md`).
+- [ ] **WAF** — `aeci.waf.ratelimit.blocked` reports for the `www.` host (the AECI-262 cron host-scopes on `PUBLIC_SITE_URL`); legitimate review/request submits are not throttled.
 - [ ] **Welcome banner** — arriving via a `?ref=waitlist&token=…` link shows the dismissible banner and logs attribution to `page_views`.
 
 ---
