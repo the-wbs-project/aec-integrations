@@ -23,7 +23,7 @@ test.describe('MetaService SSR output (/preview/vendor-detail)', () => {
 
     // Canonical link is present and query-stripped.
     expect(html, 'canonical <link> must be in <head>').toMatch(
-      /<link[^>]+rel="canonical"[^>]+href="https:\/\/aecintegrations\.com\/preview\/vendor-detail"/,
+      /<link[^>]+rel="canonical"[^>]+href="https:\/\/www\.aecintegrations\.com\/preview\/vendor-detail"/,
     );
 
     // OG/Twitter tags are present.
@@ -31,7 +31,7 @@ test.describe('MetaService SSR output (/preview/vendor-detail)', () => {
       /<meta[^>]+property="og:title"[^>]+content="[^"]*Procore[^"]*"/,
     );
     expect(html, 'og:url must be set').toMatch(
-      /<meta[^>]+property="og:url"[^>]+content="https:\/\/aecintegrations\.com\/preview\/vendor-detail"/,
+      /<meta[^>]+property="og:url"[^>]+content="https:\/\/www\.aecintegrations\.com\/preview\/vendor-detail"/,
     );
     expect(html, 'og:image must fall back to the brand monogram').toMatch(
       /<meta[^>]+property="og:image"[^>]+content="\/branding\/monogram-light\.svg"/,
