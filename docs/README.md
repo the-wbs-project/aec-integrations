@@ -75,7 +75,7 @@ Historical, superseded documents kept for reference — see [`archive/README.md`
 
 ## How to propose changes
 
-1. Open a branch from `main`
+1. Open a branch from `main` (post-launch base-branch rule, ADR 0019 / `CICD_PLAN.md` §10: doc changes and hotfixes branch from `main`; docs shipping *with* Stage 2 code branch from `stage-2` alongside that code)
 2. Edit the relevant document(s)
 3. Open a PR with a clear description of what's changing and why
 4. Link any related Linear issues using `Closes AECI-N`

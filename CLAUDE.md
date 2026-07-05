@@ -204,12 +204,22 @@ Commit any changes under `.agents/skills/`.
 
 ## Git workflow
 
-- Branch from `main`
+> **Post-launch branch model (2026-07-05, ADR 0019 / `docs/CICD_PLAN.md` §10).** Production is
+> **live**, so `main` is the **production/stable line** and Stage 2 development happens on a
+> **long-lived `stage-2` integration branch**. **Pick your base branch by the nature of the
+> work:** production-destined work (**hotfixes** + prod-safe additive changes) branches from and
+> merges to `main`; **Stage 2 work branches from and merges to `stage-2`**. `main` HEAD must stay
+> always-promotable — staging auto-tracks it and it is the only source for a prod promote. Merge
+> `main → stage-2` regularly (after every hotfix) to keep drift small; when Stage 2 ships, merge
+> `stage-2 → main`. Applying a fix to live prod is the ordinary flow below, then promote by SHA
+> (`promote-to-demo` → `promote-to-prod`; see `docs/environments.md`).
+
+- Branch from `main` for production-destined work / hotfixes; branch from `stage-2` for Stage 2 work
 - Branch naming: `aeci-{issue-number}-short-description` (use Linear's "Copy git branch name" action)
 - Commit messages: descriptive; reference issue ID if helpful
-- PR description includes `Closes AECI-{N}` for the primary issue
+- PR description includes `Closes AECI-{N}` for the primary issue; set the PR **base branch** to `main` or `stage-2` to match the work
 - Wait for CI to pass: lint, typecheck, unit tests, build, preview deploy, E2E, accessibility, Lighthouse
-- Squash merge to `main`
+- Squash merge to the base branch (`main` or `stage-2`)
 - Linear auto-closes the issue on merge
 
 ## What's in scope for Stage 1

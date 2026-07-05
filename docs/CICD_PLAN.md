@@ -520,13 +520,42 @@ If the smoke check fails, the deployment is marked failed and:
 
 ## 10. Branch strategy
 
-Single long-lived branch: `main`.
+> **Post-launch model (2026-07-05, ADR 0019).** Production is **live**, and Stage 2 must be
+> built without blocking prod hotfixes. `main` is now the **production/stable line**; Stage 2
+> development happens on a **long-lived `stage-2` integration branch**. This is a deliberate,
+> time-boxed exception to the original single-trunk rule below — see ADR 0019 for the full
+> rationale (the short version: the promote chain is a single linear trunk gated by SHA, and
+> `promote-to-prod` applies **forward-only** D1 migrations, so any Stage 2 commit or migration
+> on `main` would ship to prod on the next promote — feature flags hide UI, not migrations).
 
-- Feature branches off `main`, merged via squash merge
-- No `develop` branch — `main` is always deployable to staging
-- Release tags (`v1.0.0`, `v1.1.0`) cut from `main` after a production deploy is validated
+- **`main` = production line.** Only production-destined work lands here: **hotfixes**, and
+  Stage 2 work that is genuinely additive *and* safe to ship to prod now. `main` HEAD must stay
+  **always-promotable** — staging auto-tracks `main` (§2.2 / `deploy.yml`), so `main` HEAD is
+  always a valid prod candidate. Production-destined feature branches branch off `main` and
+  squash-merge back.
+- **`stage-2` = long-lived integration branch.** All Stage 2 feature branches (and Conductor
+  workspaces doing Stage 2 work) target `stage-2` and squash-merge into it. Merge
+  **`main → stage-2` regularly** (after every hotfix, at least weekly) to absorb fixes and keep
+  drift small. When Stage 2 is ready, merge **`stage-2 → main`** via PR, promote through the
+  tiers, then reset/retire the branch.
+- **Hotfix flow (unchanged)** — this *is* the "apply a fix to live prod" path:
+  branch from `main` → PR to `main` → squash-merge → staging auto-deploys → `promote-to-demo`
+  (SHA) → `promote-to-prod` (SHA). The promote buttons already take an **arbitrary** `commit_sha`
+  (gated only on the SHA being live one tier up), so no workflow change is needed.
+- **Migration-journal reconciliation.** Stage 2 migrations accumulate on `stage-2` while hotfix
+  migrations may land on `main`. Before merging `stage-2 → main`, re-run
+  `pnpm --filter @aeci/api db:generate` and reconcile against any `main` migrations so the
+  Drizzle journal (`apps/api/migrations/meta/_journal.json`) stays linear. `drift-check.yml` is
+  base-branch-agnostic, so Stage 2 PRs into `stage-2` still get the PR-time schema-drift gate.
+- Release tags (`v1.0.0`, `v1.1.0`) cut from `main` after a production deploy is validated —
+  they double as break-glass branch points.
 
-This keeps the model simple. If parallel feature work creates conflicts, work it out in PRs, not via long-lived branches.
+**Original single-trunk model (pre-launch — Stage 1 build).** Retained for context and as the
+target state once Stage 2 lands: single long-lived branch `main`; feature branches off `main`
+squash-merged; **no `develop`/long-lived branches** (`main` always deployable to staging); cut
+release tags from `main` after each validated prod deploy. This keeps the model simple — if
+parallel feature work creates conflicts, work it out in PRs. ADR 0019 reinstates this once
+`stage-2` merges up and no further parallel-stage work is outstanding.
 
 ---
 
