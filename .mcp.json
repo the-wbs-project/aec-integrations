@@ -9,7 +9,7 @@
     },
     "linear": {
       "command": "npx",
-      "args": ["-y", "linear-mcp-server"],
+      "args": ["-y", "--prefer-offline", "linear-mcp-server@0.1.0"],
       "env": { "LINEAR_API_KEY": "${LINEAR_API_KEY}" }
     }
   }
