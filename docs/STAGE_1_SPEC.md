@@ -320,7 +320,7 @@ Each tab gets its own `<title>`, `<meta name="description">`, OpenGraph, and Sch
 
 - Vendor header: name, logo, HQ, founded year, website
 - Description (from Crunchbase/Wikipedia enrichment)
-- Products grid — all products under this vendor with logos
+- Products table — all products under this vendor as a column-aligned `<table>` (product · category · rating · integrations), mirroring the integrations table on the product page. Category + Rating collapse at `md` (matching the browse tables); each row's whole surface links to `/products/:slug`. Replaces the former card grid.
 - Aggregate stats: total products, total integrations across portfolio, total reviews
 - "Is this your company?" CTA → claim form modal
 
