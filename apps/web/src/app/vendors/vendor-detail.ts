@@ -1,4 +1,3 @@
-import { NgTemplateOutlet } from '@angular/common';
 import { Component, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -12,6 +11,8 @@ import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+
+import { VendorProductRow } from './vendor-product-row';
 
 /** Hero social platforms, in launch priority order (PRODUCT.md §B0). */
 type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
@@ -27,14 +28,21 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
  *     resolver already set `RESPONSE_INIT.status = 404` and
  *     `MetaService.setNotFoundMeta`.
  *   - `vendor` set → render hero / metadata sidebar / description /
- *     products grid sections inside the shared `DetailLayout`.
+ *     products table sections inside the shared `DetailLayout`.
  *
- * Products grid: if `vendor.products` exceeds 20, everything past the first
- * 20 ships in an `@defer (on viewport; hydrate on viewport)` block. Under v22
- * incremental hydration the deferred rows are SSR-rendered (crawlable, no
- * hydration layout shift); the `on viewport` trigger still defers the block on
- * client-side navigations. Each product links to `/products/:slug`. See
- * AECI-130.
+ * Products table: a column-aligned `<table>` (product · category · rating ·
+ * integrations), one `VendorProductRow` per product — mirroring the
+ * integrations table on the product-detail page, and replacing the former stack
+ * of near-identical product cards which was harder to scan. Category + Rating
+ * collapse at `md` (matching `ProductCard` / the browse tables), the category
+ * folding into the product cell. If `vendor.products` exceeds 20, everything
+ * past the first 20 ships as deferred `<tr>`s in an
+ * `@defer (on viewport; hydrate on viewport)` block inside the same `<tbody>`.
+ * Under v22 incremental hydration the deferred rows are SSR-rendered (crawlable,
+ * no hydration layout shift); the `on viewport` trigger still defers the block
+ * on client-side navigations. Each row's whole surface links to `/products/:slug`
+ * via a stretched-link overlay, with the category chip linked separately on top.
+ * See AECI-130.
  *
  * Cache discipline: tags are written by the SSR runtime (the path matcher
  * emits `route:detail` + `vendor:{slug}`; the resolver pushes
@@ -52,11 +60,11 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     DetailLayout,
     ExternalLinkTracker,
     LogoOrInitial,
-    NgTemplateOutlet,
     NotFound,
     RequestDrawer,
     RequestTrigger,
     RouterLink,
+    VendorProductRow,
   ],
   template: `
     @let v = vendor();
@@ -351,65 +359,81 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
                 >.
               </p>
             } @else {
-              <ng-template #productRow let-product>
-                <li>
-                  <a
-                    [routerLink]="['/products', product.slug]"
-                    class="flex items-center gap-3 rounded-(--radius-lg)
-                      border border-(--border-default) bg-(--surface-raised) p-3
-                      text-(--text-primary) no-underline transition-colors
-                      hover:border-(--border-strong)"
+              <!-- Real table (replaces the former card stack) mirroring the
+                   integrations table on the product page, so the vendor's
+                   portfolio aligns into scannable columns. Horizontal scroll
+                   below the min width; Category + Rating collapse at md (matching
+                   ProductCard / the browse tables), the category folding into the
+                   product cell. -->
+              <div class="overflow-x-auto">
+                <table
+                  class="w-full border-collapse text-start text-sm md:min-w-[44rem]"
+                  i18n-aria-label="@@vendors.detail.body.products.table.aria"
+                  aria-label="Products"
+                >
+                  <thead
+                    class="border-b border-(--border-default) text-start text-xs
+                      font-medium tracking-wide text-(--text-secondary)"
                   >
-                    <aec-logo-or-initial
-                      [src]="product.logo_url"
-                      [name]="product.name"
-                      alt=""
-                      size="sm"
-                    />
-                    <span class="min-w-0 flex-1">
-                      <span class="block break-words text-sm font-bold">{{ product.name }}</span>
-                      @if (product.primary_category; as cat) {
-                        <span class="block break-words text-sm text-(--text-secondary)">{{
-                          cat.name
-                        }}</span>
-                      }
-                    </span>
-                    <span
-                      class="text-(--text-tertiary) inline-block rtl:-scale-x-100"
-                      aria-hidden="true"
-                      >→</span
-                    >
-                  </a>
-                </li>
-              </ng-template>
-
-              <ul class="grid gap-3">
-                @for (product of productsAbove(); track product.id) {
-                  <ng-container
-                    [ngTemplateOutlet]="productRow"
-                    [ngTemplateOutletContext]="{ $implicit: product }"
-                  ></ng-container>
-                }
-              </ul>
-
-              @if (productsDeferred().length > 0) {
-                @defer (on viewport; hydrate on viewport) {
-                  <ul class="mt-3 grid gap-3">
-                    @for (product of productsDeferred(); track product.id) {
-                      <ng-container
-                        [ngTemplateOutlet]="productRow"
-                        [ngTemplateOutletContext]="{ $implicit: product }"
-                      ></ng-container>
+                    <tr>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 text-start font-medium"
+                        i18n="@@vendors.detail.body.products.col.product"
+                      >
+                        Product
+                      </th>
+                      <th
+                        scope="col"
+                        class="hidden px-4 py-3 text-start font-medium md:table-cell"
+                        i18n="@@vendors.detail.body.products.col.category"
+                      >
+                        Category
+                      </th>
+                      <th
+                        scope="col"
+                        class="hidden px-4 py-3 text-end font-medium md:table-cell"
+                        i18n="@@vendors.detail.body.products.col.rating"
+                      >
+                        Rating
+                      </th>
+                      <th
+                        scope="col"
+                        class="px-4 py-3 text-end font-medium"
+                        i18n="@@vendors.detail.body.products.col.integrations"
+                      >
+                        Integrations
+                      </th>
+                      <th scope="col" class="px-4 py-3">
+                        <span class="sr-only" i18n="@@vendors.detail.body.products.col.details"
+                          >Details</span
+                        >
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-(--border-default)">
+                    @for (product of productsAbove(); track product.id) {
+                      <tr aec-vendor-product-row [product]="product"></tr>
                     }
-                  </ul>
-                } @placeholder (minimum 100ms) {
-                  <div
-                    class="mt-3 h-24 animate-pulse rounded-(--radius-lg)
-                      border border-(--border-default) bg-(--surface-sunken)"
-                    aria-hidden="true"
-                  ></div>
-                }
-              }
+                    @if (productsDeferred().length > 0) {
+                      @defer (on viewport; hydrate on viewport) {
+                        @for (product of productsDeferred(); track product.id) {
+                          <tr aec-vendor-product-row [product]="product"></tr>
+                        }
+                      } @placeholder (minimum 100ms) {
+                        <tr aria-hidden="true">
+                          <td colspan="5" class="px-4 py-3">
+                            <div
+                              class="h-16 animate-pulse rounded-(--radius-lg)
+                                border border-(--border-default) bg-(--surface-sunken)"
+                            ></div>
+                          </td>
+                        </tr>
+                      }
+                    }
+                  </tbody>
+                </table>
+              </div>
             }
           </section>
         </div>
