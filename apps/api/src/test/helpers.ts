@@ -11,11 +11,14 @@ import type { Env } from '../env';
 import { errorHandler } from '../errors';
 
 export function fakeExecutionContext(): ExecutionContext {
+  // `tracing` (Tracing) became a required ExecutionContext field in
+  // @cloudflare/workers-types 4.20260702 — a platform API unit tests never
+  // exercise, so this stub asserts the contract structurally.
   return {
     waitUntil: vi.fn(),
     passThroughOnException: vi.fn(),
     props: {},
-  };
+  } as unknown as ExecutionContext;
 }
 
 /** Default env for spec runs. `ENV` is `'preview'` so dev-only response

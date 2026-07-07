@@ -31,7 +31,12 @@ import { sendStuckRequestAdminAlert } from './email';
 /** The slice of Hono's `Context` the Datadog helpers need, typed structurally so
  *  a cron-synthesised context (see `lib/reconciliation-sweep.ts`) fits — same
  *  shape as `lib/linear.ts`'s `LinearContext`. */
-export type AlertContext = { env: Env; executionCtx: ExecutionContext; req: { raw: Request } };
+export type AlertContext = {
+  env: Env;
+  // Structural `waitUntil` slice — see the note on `EmailContext` (lib/email.ts).
+  executionCtx: { waitUntil(promise: Promise<unknown>): void };
+  req: { raw: Request };
+};
 
 /** One persistently-stuck request, summarised for the digest. */
 export interface StuckRequestSummary {

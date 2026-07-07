@@ -50,7 +50,8 @@ import type { Env } from '../env';
  */
 type ScoreContext = {
   env: Env;
-  executionCtx: ExecutionContext;
+  // Structural `waitUntil` slice — see the note on `EmailContext` (lib/email.ts).
+  executionCtx: { waitUntil(promise: Promise<unknown>): void };
   req: { raw: Request };
 };
 
