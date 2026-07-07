@@ -12,11 +12,13 @@ function buildApp() {
 }
 
 function fakeExecutionContext(): ExecutionContext {
+  // `tracing` became a required ExecutionContext field in workers-types
+  // 4.20260702 — a platform API this test never exercises.
   return {
     waitUntil: vi.fn(),
     passThroughOnException: vi.fn(),
     props: {},
-  };
+  } as unknown as ExecutionContext;
 }
 
 const baseEnv: Env = {};

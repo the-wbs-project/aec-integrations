@@ -6,11 +6,6 @@
         "-c",
         "cd \"${CLAUDE_PROJECT_DIR:-.}/apps/web\" && exec npx -y @angular/cli mcp -E all"
       ]
-    },
-    "linear": {
-      "command": "npx",
-      "args": ["-y", "--prefer-offline", "linear-mcp-server@0.1.0"],
-      "env": { "LINEAR_API_KEY": "${LINEAR_API_KEY}" }
     }
   }
 }

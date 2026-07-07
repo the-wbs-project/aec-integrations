@@ -28,7 +28,7 @@ An entry is **expired** when its `expiry` condition has fired (issue closed, dat
 
 ### How to check whether a Linear issue is closed
 
-If the reviewer has access to Linear (via MCP or otherwise), call `mcp__7ac19a75-…__get_issue_status` on the issue ID and check the state name. If the reviewer does not have Linear access in this session, **assume the issue is still open** (i.e. the exemption is still active) unless the PR body, commit message, or `CHANGELOG` explicitly says the issue has shipped. Better to leave the exemption silently in place than to surface a finding that's been waived.
+If the reviewer has access to Linear (via MCP or otherwise), call `mcp__claude_ai_Linear__get_issue_status` on the issue ID and check the state name. If the reviewer does not have Linear access in this session, **assume the issue is still open** (i.e. the exemption is still active) unless the PR body, commit message, or `CHANGELOG` explicitly says the issue has shipped. Better to leave the exemption silently in place than to surface a finding that's been waived.
 
 ## Entry schema
 

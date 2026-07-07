@@ -290,8 +290,14 @@ export function drizzleLinearStore(db: Db): LinearRequestStore {
 }
 
 /** The slice of Hono's `Context` this needs, typed structurally (like
- *  `toxicity.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits. */
-type LinearContext = { env: Env; executionCtx: ExecutionContext; req: { raw: Request } };
+ *  `toxicity.ts`'s `ScoreContext`) so a handler's richer `AuthContext` fits.
+ *  `executionCtx` is narrowed to the `waitUntil` slice so Hono's
+ *  `ExecutionContext` (which lacks the now-required `tracing` field) fits. */
+type LinearContext = {
+  env: Env;
+  executionCtx: { waitUntil(promise: Promise<unknown>): void };
+  req: { raw: Request };
+};
 
 export interface LinearIssueInput {
   requestId: string;

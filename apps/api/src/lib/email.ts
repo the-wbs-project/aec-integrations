@@ -47,7 +47,10 @@ import type { StuckRequestSummary } from './admin-alert';
  */
 export type EmailContext = {
   env: Env;
-  executionCtx: ExecutionContext;
+  // Only the `waitUntil` slice is needed (best-effort telemetry dispatch), typed
+  // structurally so Hono's `Context.executionCtx` fits — Hono's `ExecutionContext`
+  // lacks the `tracing` field that @cloudflare/workers-types' now requires.
+  executionCtx: { waitUntil(promise: Promise<unknown>): void };
   req: { raw: Request };
 };
 
