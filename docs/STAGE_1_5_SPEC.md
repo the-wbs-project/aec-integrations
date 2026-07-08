@@ -57,8 +57,14 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §7 | AECI-294 | Pair page (Layer A) — routing / 301 / SEO |
 | §8 | AECI-300 | Claim rendering (Layer B) |
 | §9 | AECI-298 | Search / SEO / Algolia follow-through |
+| §11 | AECI-339 | Addendum A — search-intent pair indexing (this addendum) |
+| §11.2 | AECI-340 | Dual-orientation indexable pair pages |
+| §11.3 | AECI-341 | Context-specific suggestions module |
+| §11.4 | AECI-342 | "Meaningful no" pair pages — scoring / template / tiered indexing |
+| §11.5 | AECI-343 | Per-pair "report a missing integration" CTA |
+| §11.6 | AECI-344 | GSC measurement loop — gate + quarterly tier review |
 
-Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**.
+Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**. The §11 rows are **post-launch Addendum A** work (project "Pair-Page Search Intent (pSEO)"), not part of the original 1.5 critical path.
 
 ### 1.3 Critical path
 
@@ -285,7 +291,9 @@ The pair page is **Layer A**: it ships first, needs **no** claim data, and deliv
 
 ### 7.3 SEO
 
-- **Canonical** uses the serving origin (ADR 0011) — the default-context pair URL is the canonical; the non-default orientation (viewing from the other product) is a secondary entry that canonicalises to the default. Avoid two indexable URLs for one pair.
+> **Superseded in part by §11 (Addendum A, 2026-07-08).** The single-canonical rule below was the shipped Layer-A behaviour and remains accurate until AECI-340 lands; from then on, **pairs with ≥1 mechanism carry a self-referential canonical on each orientation** (two indexable URLs per real pair, each direction-framed). Empty pairs are unchanged (render + `noindex`). See §11.2 for the replacement contract and §11.1 for why the alphabetical default survives everywhere else.
+
+- **Canonical** uses the serving origin (ADR 0011) — the default-context pair URL is the canonical; the non-default orientation (viewing from the other product) is a secondary entry that canonicalises to the default. Avoid two indexable URLs for one pair. *(Superseded by §11.2 for pairs with mechanisms — see the note above.)*
 - JSON-LD and per-pair meta describe the product pair.
 - **Cache tags** per `CACHE_STRATEGY.md` — tag the pair page by both product slugs so a promote touching either product (or its claims) purges it (§6.2).
 
@@ -311,7 +319,7 @@ Follow-through after the pair page lands.
 
 - **Defer per-pair Algolia records.** The `/search` integrations tab is already hidden (`STAGE_1_SPEC.md` §7.5). Stage 1.5 does **not** add a per-pair search record; document the deferral in `SEARCH_RANKING.md` and record the **future `{prefix}_pairs` record shape** there for Stage 2. (The existing per-integration index continues to be built/maintained by the sync; it is simply not surfaced.)
 - **No dead `/integrations/:id` links.** Ensure the still-built per-integration Algolia records and any internal links resolve **through the §7.2 301** to the pair page, never to a dead route. Audit internal link generation and the sitemap so they emit pair URLs (or 301-safe legacy URLs), not orphaned integration URLs.
-- **Sitemap.** Pair pages are the canonical integration surface; reflect them in the sitemap per the existing generator, dropping standalone `/integrations/:id` entries in favour of (canonical) pair URLs.
+- **Sitemap.** Pair pages are the canonical integration surface; reflect them in the sitemap per the existing generator, dropping standalone `/integrations/:id` entries in favour of (canonical) pair URLs. *(Extended by §11.2: from AECI-340 the sitemap emits **both** orientations per real pair; §11.4 later adds scored "meaningful no" pairs.)*
 
 ---
 
@@ -325,3 +333,62 @@ Recorded so the boundary is explicit (see §1.1). These are **placeholders in th
 - **AECI-304** — paywalled integration depth.
 
 The Stage 1.5 schema and contract are forward-compatible with all four (dormant fields, computed-not-stored agreement) — no migration is required to light them up beyond the portal itself.
+
+---
+
+## 11. Addendum A — Search-intent pair indexing (AECI-339, 2026-07-08)
+
+**Status:** Approved — post-launch growth play (Linear project *"Pair-Page Search Intent (pSEO)"*). **Supersedes** the single-alphabetical-canonical rule of §7.3 (for pairs with mechanisms) and **extends** the §9 sitemap contract. Everything else in §7–§9 stands.
+
+**Goal.** Make AECi the search result for *"does [Tool A] integrate with [Tool B]"* — in **both directions** of the question and for **both "yes" and "no"** answers — without triggering Google's thin-content / duplicate-content systems on a young domain.
+
+**Why the orientation matters.** A pair's two URL orientations answer two different questions: *"I own Revit — does Bluebeam fit us?"* is not the question the Bluebeam owner is asking in reverse. The existence answer and mechanism list are symmetric; the **framing, context-relative direction, and (future) suggestions are not**. §7.3's alphabetical canonical resolved that asymmetry by ignoring it — the searcher of the non-alphabetical direction was served a page framed for the other side. This addendum resolves it by **indexing both orientations**, gated on genuinely differentiated content.
+
+### 11.1 Decision record
+
+1. **Orientation is respected in search.** For pairs with **≥1 mechanism**, both orientations become independently indexable, each with a **self-referential canonical**. (Supersedes §7.3's "avoid two indexable URLs for one pair".)
+2. **Dual indexing is gated on differentiated content.** The direction-framed `<title>`/H1/intro (§11.2) ships in the **same change** as the canonical split. Two near-mirror pages get folded by Google as duplicates ("Google chose different canonical than user"), forfeiting control of which orientation survives — the worst outcome.
+3. **No demand-chosen canonical.** `defaultIntegrationContext` (alphabetical, `packages/shared/src/integration-context.ts`) survives as the **default orientation only**: orientation-neutral link builders (home tiles, search cards, integration cards), the §7.2 legacy 301 target, the `pair:{min}__{max}` cache tag, and sitemap dedupe keys. Its purity is load-bearing — client-side link builders construct pair URLs from two slugs alone and have no demand data; a demand-driven canonical would also churn the index whenever demand shifts. Rejected.
+4. **"No" pages are tiered, never blanket-indexed.** Every combination keeps rendering for humans (§7.1's empty-pair 200 stands). Only **"meaningful no"** pairs clearing the §11.4 scoring bar are promoted to indexable, and only carrying unique data-derived content. The combinatorial long tail (~990 pairs at today's 45 products; six figures at catalog scale) stays `noindex` **permanently**. This is the defence against a site-wide Helpful-Content penalty.
+5. **Google Search Console is the demand signal.** Pair-level, per-direction demand exists nowhere else — the review app's `compute_product_search_demand` is per-product and is a tie-breaker input only. GSC gates the §11.2 flip (folding/cannibalization check) and drives §11.4 tier promotion.
+6. **No referrer/cookie-based reframing.** One URL renders one document. Cached SSR routes are visitor-state-neutral (hard Stage-1 constraint), and per-visitor reframing drifts toward cloaking.
+
+### 11.2 Dual-orientation indexing for real pairs (AECI-340)
+
+Scope — must ship as one change:
+
+- **Direction-framed meta + hero per orientation.** `<title>` / H1 / meta description framed from the context product (not the current near-symmetric "{Context} and {Other} integrations"), plus a short **data-derived intro block**: mechanism count, kinds, context-relative sync summary (from `sync_headline` + claim lanes). Enough unique per-orientation prose that the two pages do not read as mirrors.
+- **Canonical:** self-referential on each orientation **iff `mechanisms.length > 0`**; empty pairs keep `noindex` (canonical moot).
+- **Sitemap:** both orientations per real pair (~90 pairs → ~180 URLs today — trivially within limits).
+- **Unchanged:** alphabetical default orientation everywhere per §11.1(3); empty-pair behaviour; orientation-independent cache tags (a `pair:{min}__{max}` purge already hits both cached URLs).
+- **Reversible:** rollback = restore the cross-canonicals + single sitemap entry.
+
+### 11.3 Context-specific suggestions module (AECI-341)
+
+*"Other tools that connect to {context product}"* — ranked **purely algorithmically** from taxonomy overlap (category/audience/phase) + integration presence. **No pay-for-placement, ever.** Rendered on the pair page in both yes and no states, framed from the context product — the suggestion set genuinely differs by which tool the reader owns, making it the strongest per-orientation differentiator (§11.1(2)) and the content backbone of §11.4. API shape lands in `API_CONTRACTS.md`; suggested products join the pair page's embedded cache tags.
+
+### 11.4 Tiered indexing for empty pairs — the "meaningful no" (AECI-342)
+
+The searcher whose true answer is *no* currently gets nothing from us; a good "no" page — honest answer, viable bridge, alternatives — is the trust-first positioning made concrete, and the anti-thin-content moat is that it is **data-derived and unique per pair**.
+
+- **Scoring function** (pure, `packages/shared`): an empty pair qualifies on same category cluster + `data_object` overlap + demonstrated GSC demand (§11.6). Below the bar → stays `noindex`.
+- **Content template** for qualifying pairs: existence answer → **data-object bridge** ("X and Y both handle *cost codes* — a CSV/manual bridge is viable", derived from each product's claims on its other integrations) → suggestions (§11.3) → report CTA (§11.5).
+- **Indexing flip:** qualifying pairs lose `noindex` and enter the sitemap. Dual-orientation only where scoring shows demand in both directions.
+- **Internal links (required):** a "commonly asked about" module on product-detail pages links each product to its qualifying no-pairs — indexable pages must not be sitemap-only orphans.
+- **Batched rollout:** first batch tens of pages; widen only on GSC evidence (§11.6). Gated behind the §11.2 GSC gate passing.
+
+### 11.5 Per-pair "report a missing integration" CTA (AECI-343)
+
+*"Know of an integration between {X} and {Y} we're missing?"* — a prefilled entry point into the **existing** Phase 6 requests + moderation pipeline (no new pipeline), carrying both product slugs with distinguishable type/metadata so **per-pair report counts are queryable**. Doubles as a coverage-gap demand signal feeding the §11.4 scoring. Writes obey the §26.1 audit-batch invariant.
+
+### 11.6 Measurement, gates & rollback (AECI-344)
+
+- **Phase-1 gate (4–6 weeks after AECI-340):** GSC Page-indexing report shows no systematic folding of one orientation ("Google chose different canonical than user"), and per-query results show no same-SERP cannibalization between a pair's two orientations. **§11.4's indexing flip does not proceed until this gate passes.** Fail → fix differentiation or roll back per §11.2.
+- **Steady-state loop (quarterly):** pull pair-shaped queries per direction from GSC → promote qualifying "no" pairs into §11.4 batches, review dead indexed pairs. The long tail stays `noindex` regardless.
+
+### 11.7 Out of scope
+
+- Indexing every combination (rejected — §11.1(4)).
+- Demand-chosen canonical (rejected — §11.1(3)).
+- Per-visitor reframing of one URL (rejected — §11.1(6)).
+- Per-pair Algolia records (still deferred to Stage 2 per §9).
