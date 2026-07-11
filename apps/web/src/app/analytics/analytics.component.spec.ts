@@ -66,6 +66,7 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
     analytics.claimRequested({ target_type: 'vendor', slug: 'autodesk', request_id: 'req-1' });
     analytics.correctionRequested({ target_type: 'product', slug: 'revit', request_id: 'req-2' });
     analytics.externalLinkClicked({ destination: 'https://x.com', source: 'product_detail' });
+    analytics.mailingListSignup({ source: 'home_closing_cta' });
     await flush();
 
     const dims = { locale: 'en-US', theme: 'light' };
@@ -112,6 +113,19 @@ describe('Analytics — custom events carry locale + theme (§14.1)', () => {
       'external_link_clicked',
       expect.objectContaining({ destination: 'https://x.com', source: 'product_detail', ...dims }),
     );
+    expect(client.capture).toHaveBeenCalledWith(
+      'mailing_list_signup',
+      expect.objectContaining({ source: 'home_closing_cta', ...dims }),
+    );
+  });
+
+  it('does not fire mailing_list_signup before consent is granted', async () => {
+    const { analytics, client, factory } = setup({ consent: 'unknown' });
+    TestBed.tick();
+    analytics.mailingListSignup({ source: 'home_closing_cta' });
+    await flush();
+    expect(client.capture).not.toHaveBeenCalled();
+    expect(factory).not.toHaveBeenCalled();
   });
 
   it('reads the live locale + theme from the <html> element', async () => {

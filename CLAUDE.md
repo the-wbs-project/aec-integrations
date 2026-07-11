@@ -43,6 +43,7 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Edge caching: tag vocabulary, TTLs, invalidation, SEO headers | `docs/CACHE_STRATEGY.md` |
 | Search ranking: Algolia index settings (searchable attrs, faceting), custom ranking signals, mechanism-kind priority, tie-breakers, post-launch tuning loop | `docs/SEARCH_RANKING.md` |
 | Observability: custom metric catalog, Datadog dashboard + monitors | `docs/OBSERVABILITY.md` |
+| Analytics/marketing measurement baseline (AECI-326): PostHog + Datadog-RUM instrumentation status, starting-numbers snapshot, weekly read procedure | `docs/ANALYTICS_BASELINE.md` |
 | Transactional email (Resend client, template catalogue, secrets) + the Supabase→Resend SMTP magic-link sender + deliverability (SPF/DKIM/DMARC) | `docs/email.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
 | Launch / DNS cutover runbook (go-live: apex flip off the coming-soon landing, launch-secret provisioning, waitlist broadcast, post-cutover verification, rollback) | `docs/launch-cutover-runbook.md` |

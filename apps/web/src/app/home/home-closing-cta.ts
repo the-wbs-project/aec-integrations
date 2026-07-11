@@ -3,6 +3,7 @@ import { FormField, form, submit, validateStandardSchema } from '@angular/forms/
 
 import { SubscribeSubmitSchema, type SubscribeSubmit } from '@aeci/shared';
 
+import { Analytics } from '../analytics/analytics';
 import { HomeFeedbackDialog } from './home-feedback-dialog';
 import { LandingApi, buildAttribution } from './landing-api';
 
@@ -143,6 +144,7 @@ type SubscribeStatus = 'idle' | 'subscribed' | 'exists' | 'error';
 })
 export class HomeClosingCta {
   private readonly api = inject(LandingApi);
+  private readonly analytics = inject(Analytics);
 
   private readonly model = signal<SubscribeModel>({ email: '' });
   protected readonly form = form(this.model, (p) =>
@@ -174,7 +176,13 @@ export class HomeClosingCta {
       try {
         const result = await this.api.subscribe(this.buildSubscribe(f().value()));
         this.status.set(result.created ? 'subscribed' : 'exists');
-        if (result.created) this.model.set({ email: '' });
+        if (result.created) {
+          this.model.set({ email: '' });
+          // Track the conversion (AECI-326). Consent-gated + fire-and-forget:
+          // no-ops without consent, never throws into the submit. Only a genuine
+          // new signup counts — re-submitting an existing email is not tracked.
+          this.analytics.mailingListSignup({ source: 'home_closing_cta' });
+        }
       } catch {
         // Retryable notice, not a ValidationError (which would disable submit).
         this.status.set('error');

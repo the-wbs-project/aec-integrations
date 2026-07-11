@@ -567,7 +567,7 @@ pageviews incl. SPA navigations), `autocapture: false`, and
 `disable_external_dependency_loading: true` (so the CSP `script-src` stays untouched —
 only the two `connect-src` PostHog US hosts are needed).
 
-**Dimensions on every event.** `locale` + `theme` ride every event. For the 7 custom
+**Dimensions on every event.** `locale` + `theme` ride every event. For the 8 custom
 events they're merged into the event properties (`analyticsDimensions()` reads
 `<html lang>` / `data-theme`); for autocaptured pageviews they're registered as PostHog
 super-properties in the `loaded` callback (before the first pageview). `theme` is always
@@ -585,6 +585,13 @@ is stable when dark returns.
 | `claim_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
 | `correction_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
 | `external_link_clicked` | `[aecTrackExternalLink]` directive on detail-page outbound anchors | `destination`, `source` |
+| `mailing_list_signup` | `home/home-closing-cta.ts` (subscribe success, `created` only — re-submitting an existing email is not tracked) | `source` (`home_closing_cta`) |
+
+**Consent caveat — signups (AECI-326).** `mailing_list_signup` is consent-gated like every
+other event, so PostHog records only the **consented** signup funnel. The authoritative,
+consent-independent signup count is the `mailing_list` D1 table (fed by `POST /api/subscribe`),
+mirrored to Datadog as `aeci.email.send{template:landing-signup}` (the operator notification on
+each new insert). Read the PostHog event for funnel/attribution; read the table for the true count.
 
 **Documented deviation — claim/correction identifier.** §14.1 names `vendor_id` /
 `product_id`, but the request form holds only `(target_type, slug)` by design
@@ -604,6 +611,7 @@ Switching to EU is a code change (host default + the two CSP hosts).
 | `DD_API_KEY` | Worker runtime — logs **and** metric submission | Wrangler secret (both Workers, all envs) | Already provisioned (AECI-31). Metric submission needs only this key. |
 | `DD_APP_KEY` | **Operator only** — creating/reading dashboards + monitors | Local shell / CI secret at apply time | **Never** a Worker secret; never in `wrangler.jsonc` / `.dev.vars`. |
 | `DD_SITE` | both | Wrangler `vars` | `us5.datadoghq.com`. The metrics host is `api.{DD_SITE}`. |
+| `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` | `apps/web` **browser RUM** (client-exposed) | Wrangler secret on the **web Worker only**, CI-pushed from the shared un-suffixed `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN` GH secrets | AECI-326. The single `aeci` RUM app on us5; the per-env `env` field separates envs, so one pair is reused everywhere (like `DATADOG_API_KEY`). Absent → no `window.__AECI_DD__`, so RUM — including Core Web Vitals — no-ops (fail-open). |
 | `POSTHOG_KEY` | `apps/web` browser (client-exposed project key) | Wrangler secret on the **web Worker only**, CI-pushed from `POSTHOG_KEY_{STAGING,PRODUCTION}` | AECI-239. Publishable; stored as a secret only to keep it out of git. Absent → analytics no-ops (fail-open). |
 | `POSTHOG_HOST` | `apps/web` browser | Wrangler `vars` (web Worker, per env) | `https://us.i.posthog.com`. Defaulted in code when unset. |
 
