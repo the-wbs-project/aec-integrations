@@ -1,0 +1,197 @@
+# AEC Integrations — Stage 2 Specification (Scope Outline)
+
+**Version:** 0.1 — **scope outline, not a build contract**
+**Date:** July 2026
+**Status:** Kickoff draft (AECI-282). This is the Stage 2 equivalent of an opening scope doc — the pillars, the readiness carryover, the open decisions, and the epic map. It is **not** yet decomposed into buildable issues, and every section below is expected to grow its own detail (or split into a companion doc) before that phase is built.
+**Inherits from:** Stage 1 (Phases 1–8 — `STAGE_1_SPEC.md`) and Stage 1.5 (Integration Redesign — `STAGE_1_5_SPEC.md`)
+**Supersedes:** `STAGE_1_SPEC.md` §18 (Stage 2 Forward Compatibility) — §18 is the seed; this doc is the germination. Where §18's prose and this doc disagree (see §4, stack drift), **this doc wins**.
+
+> **Data-layer note (ADR 0016 / 0017).** The application database is **Cloudflare D1 + Drizzle**; Supabase is **auth-only**. Every Stage 2 write goes through `getDb(env)` and, for multi-statement writes, a single `db.batch([...])` that includes its `audit_log` row (the §26.1 invariant of `STAGE_1_SPEC.md`). There is **no Prisma, no Postgres, no RLS on app tables** — Stage 2 authorization is the 3-layer Worker model in `docs/AUTH_AND_RLS.md`, not Postgres RLS. This is the single biggest correction to §18 (see §4).
+
+---
+
+## 1. Overview
+
+Stage 1 shipped a **public, read-only** directory: AECi curates every product, vendor, integration, and claim; the public reads. Stage 1.5 added the integration claim/attestation spine but kept it **AECi-seeded** — every claim renders **"Unverified"** because no vendor can yet attest.
+
+**Stage 2 is where the vendors log in.** The dividing line is exactly the one drawn in `STAGE_1_5_SPEC.md` §1.1: *anything that requires a vendor to authenticate and assert something about their own product is Stage 2.* That single capability — the **vendor portal** — unlocks the other two pillars (paid tiers layered on verified vendor accounts; real-time updates so vendor edits reflect live).
+
+**Primary new user:** a **vendor** (software publisher) who — through a **paid, AECi-verified account** (§8.1(3)) — wants to claim their product, correct its data, attest to its integrations, and unlock a richer profile.
+
+**The trust invariant is unchanged and non-negotiable:** **no pay-for-placement.** Paid tiers affect *profile richness and portal capability only, never ranking position* (`STAGE_1_SPEC.md` §1 principles; `CLAUDE.md` constraints). Search stays purely algorithmic.
+
+**Out of scope for Stage 2 (still later stages):** rich media profiles (Stage 4), trust scoring beyond basic anti-abuse (Stage 3), a public write API product.
+
+### 1.1 Relationship to prior specs & companion docs
+
+Stage 2 inherits every Stage 1 / 1.5 constraint. It leans on these existing companion docs (each remains the source of truth for its topic; Stage 2 adds to them rather than forking):
+
+| Topic | Source of truth (extended in Stage 2) |
+|---|---|
+| Authorization (roles, GRANT-equivalent, ban, 3-layer Worker authz) | `docs/AUTH_AND_RLS.md` — add `vendor_admin` enforcement + `/api/vendor/*` |
+| API endpoint shapes / Zod / errors | `docs/API_CONTRACTS.md` — add the `/api/vendor/*` surface |
+| D1 schema & migrations | `apps/api/src/db/schema.ts` + `docs/DATABASE_SCHEMA.md` (see §3 — the hooks already exist) |
+| Claim / attestation model | `docs/STAGE_1_5_SPEC.md` §3 — Stage 2 activates the dormant `vendor_a`/`vendor_b` sources |
+| Edge caching / invalidation | `docs/CACHE_STRATEGY.md` (mid-migration to native Workers Cache — see §6) |
+| Transactional email | `docs/email.md` (Resend — see §4) |
+| Design tokens / theming | `DESIGN.md` (dark-theme reintroduction — see §2.5) |
+
+---
+
+## 2. Scope pillars
+
+The three §18 pillars, plus the two carried-over surfaces (integration attestations, dark theme) that only Stage 2 can complete. Each maps to a Linear epic (§7).
+
+### 2.1 Vendor Portal & Self-Serve Claiming — *the anchor*
+
+The foundation everything else layers on. A vendor authenticates, proves association with a vendor record, and gains scoped write access to their own product/vendor data.
+
+- **Claim flow — concierge / manual at launch (§8.1).** A vendor requests ownership of a `vendors` row (and its products). Builds on the Stage 1 Phase 6 request pipeline (`docs/STAGE_1_PHASE_6_SPEC.md`) and the domain-match hint, but escalates it from a correction request to a **verified account grant that AECi approves by hand**: on approval, a `profiles.role = 'vendor_admin'` row is linked to the `vendors` row via `profiles.vendor_id`, and `vendors.verified` flips true. **Verification is a paid gate** (§8.1(3)) arranged by **offline invoice/PO** (§8.1(5)) — the same admin action records the payment arrangement and toggles entitlement.
+- **Admin claim-review surface — reviewer-assisted verification (§8.1(1)).** The AECi-facing review UI presents **verification signals** to the reviewer: email-domain match against the vendor's known domain(s), an email→LinkedIn/person lookup, and any other enrichment that helps confirm the claimant. No auto-grant — a human decides on the assembled evidence.
+- **Provisioning is an app-layer seam.** There is no cross-system FK between Supabase `auth.users` and D1 `profiles` (AECI-254) — the same seam the admin role uses. Vendor grants are written app-side, audited, and reversible.
+- **`/api/vendor/*` endpoint surface.** Mirrors `/api/admin/*` (§18's observation still holds), scoped by `vendor_id` in the Worker + Drizzle query, **not** by RLS (§4). Every write emits its `audit_log` row in the same `db.batch()`.
+- **Vendor dashboard UI.** Edit product/vendor content (name, description, links, taxonomy within guard-rails), see claim/correction status, manage the verified badge. **Multi-seat, flat** (§8.1(2)) — several admins per vendor; each seat is individually granted through the review above (self-serve invite/revoke deferred).
+- **Verified-badge activation.** `vendors.verified` already exists and is indexed (§3); Stage 2 lights it up in the UI and the trust surface.
+- **Moderation escalation.** `profiles.banned_at` / `ban_reason` (§3) gate vendor write access; abuse of the portal is a ban path.
+
+### 2.2 Paid Tiers & Entitlements — *no pay-for-placement*
+
+Monetization layered on verified vendor accounts. **Ranking is never for sale;** **vendors pay, always** (§8.1(4)).
+
+- **Tier model (§8.1(3)).** The free/default state is the **unclaimed, AECi-curated baseline** (renders "Unverified"). **Verified is a paid gate** — a modest entry fee unlocks claim, data correction, integration attestation, the verified badge, richer profile fields, vendor analytics, and version-diff depth. Entitlements gate **richness + capability only — never ranking, placement, or badge trust.** Any richness ladder above the entry Verified fee is **still open** (§8.2).
+- **Billing — offline invoicing / PO at launch (§8.1(5)).** No payment-provider integration in the first slice; larger vendors pay by PO/invoice, not a credit card. The system needs an **admin-toggled entitlement/verification state** + basic invoice/arrangement tracking (notices/receipts over Resend — §4). Automated billing (Stripe or similar) and self-serve card are **deferred** — start with the minimum.
+- **Entitlement enforcement.** A single entitlement gate consulted by `/api/vendor/*` and the render path; entitlements are **data, not code branches scattered across the app**, and the flag is payer-model-agnostic (§8.1(4)).
+- **Relates to** the Stage 1.5 carve-out AECI-304 (paywalled integration/version-diff depth) — the first concrete paid capability. Hard invariant: the *latest-version* view **and** the latest conflict / single-source state are always free and full-fidelity to readers; only the historical *diff depth* is gateable; one-sided (paid-vs-unpaid) states are visibly labeled (this also mitigates the §8.1(3) attestation-bias risk).
+
+### 2.3 Real-Time / Live Portal
+
+§18 says "WebSockets/SSE for the portal." On Cloudflare Workers that means **Durable Objects** (WebSocket hibernation), not a standalone socket server.
+
+- **Live vendor edits.** A vendor's change reflects without a full reload; optimistic UI + server confirmation.
+- **Notification delivery.** Real-time channel for the §2.4 conflict/attestation notifications (silent-counterparty, open-conflict, stale-version) alongside their email fallback.
+- **Transport decision is open** (§8): Durable-Object WebSockets vs SSE vs periodic revalidation. Pick the lightest transport that meets the portal's actual latency need — this is explicitly *not* a "real-time everything" mandate.
+
+### 2.4 Integration Attestations & Conflict — *activating the dormant 1.5 spine*
+
+Stage 1.5 shipped the claim spine with **dormant** `vendor_a`/`vendor_b` attestation sources and additive `introduced_at`/`deprecated_at` version stamps (§3). Stage 2 makes them live. These are **already tracked** as Stage 1.5 carve-outs and become the sub-issues of this epic:
+
+- **Vendor attestation authoring** (AECI-301) — vendors assert/deny claims, producing real `vendor_a`/`vendor_b` attestations; `computeAgreement` (already unit-tested, computed-not-stored) lights up the confirmed/conflict states with **no migration**.
+- **Agreement/conflict surfacing + notification pipeline** (AECI-302) — the red vendor-vs-vendor conflict badge the AECi baseline can never trigger, plus the detector-fed notification pipeline (delivered via §2.3 + Resend).
+- **Version-diff timeline** (AECI-303) — per-product version selectors over the dormant `introduced_at`/`deprecated_at` stamps.
+- **Paywalled integration depth** (AECI-304) — see §2.2; the diff is paywalled, the latest view is not.
+
+### 2.5 Dark Theme Reintroduction
+
+Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 vendor portal." The semantic token architecture was kept precisely so this is a token-block + toggle reintroduction, not a re-theme.
+
+- Re-introduce the `.theme-dark` token block + a theme toggle + system-preference detection.
+- The `profiles.theme_preference` column already exists (`'system' | 'light' | 'dark'`, §3) — persistence is ready.
+- Re-audit contrast (WCAG AA) and re-enable the `dark:` verification step in the design checklist (currently skipped per the "Light only (Stage 1)" constraint).
+
+---
+
+## 3. Schema readiness carried through to D1/Drizzle (AECI-282 AC #3 — verified)
+
+§18's readiness hooks were written for the **retired Supabase-Postgres** schema. Verified 2026-07-12 that **every one carried through** into the D1/Drizzle schema (`apps/api/src/db/schema.ts`) — so **no Stage 2 migration is required to stand up the vendor portal**:
+
+| §18 hook | D1/Drizzle status |
+|---|---|
+| `profiles.role` includes `vendor_admin` | ✅ `schema.ts` — `profiles_role_check` (`'reviewer' \| 'admin' \| 'vendor_admin'`) |
+| `profiles.vendor_id` FK → `vendors.id` | ✅ `schema.ts` — column + partial index `profiles_vendor_idx` |
+| `vendors.verified` boolean | ✅ `schema.ts` — column + `vendors_verified_idx` |
+| `profiles.banned_at` / `ban_reason` (moderation escalation) | ✅ `schema.ts` — columns + partial index `profiles_banned_idx` |
+| attestation `source` reserves `vendor_a` / `vendor_b` | ✅ `schema.ts` — `attestations_source_check` (`'aeci' \| 'vendor_a' \| 'vendor_b'`) |
+| attestation `introduced_at` / `deprecated_at` version stamps | ✅ `schema.ts` — additive, dormant |
+| `translations` table (localized vendor-managed content) | ✅ `schema.ts` — present |
+| `profiles.theme_preference` (dark-theme persistence) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` |
+| `computeAgreement` (computed-not-stored agreement) | ✅ `apps/api/src/lib/drizzle-helpers.ts` — unit-tested |
+
+---
+
+## 4. Stack drift since §18 (AECI-282 AC #4)
+
+§18 was written before the mid-Stage-1 platform changes. These are the points where its prose is stale and Stage 2 must plan against current reality:
+
+1. **DB & authz — D1/Drizzle replaced Prisma/Supabase-PG (ADR 0016, AECI-278).** §18 implicitly assumes **Postgres RLS** for vendor-scoped access. **There is no RLS on app tables.** Stage 2 vendor authorization is the **3-layer Worker model** (`docs/AUTH_AND_RLS.md`): verify JWT → check `role`/`vendor_id`/`banned_at` → scope every Drizzle query by `vendor_id`. Multi-statement vendor writes use `db.batch([...])` (**D1 has no interactive transactions**) and must include their `audit_log` row in the same batch (§26.1).
+
+2. **Cache invalidation — §18's `invalidateForEntity` reference is stale.** It was superseded by Cache-Tag purge (ADR 0004) and is now being re-migrated to **native Workers Cache + a cross-Worker Queue purge** (the in-flight **AECI-314** epic, ADR 0020 — see §6). Stage 2 vendor writes purge through whatever AECI-314 lands, via `Cache-Tag`, not a per-entity helper. Do not re-introduce `invalidateForEntity`.
+
+3. **Email — Resend replaced Loops (AECI-240).** Every Stage 2 notification (claim approved/denied, conflict alerts, billing receipts) sends through the Resend client `apps/api/src/lib/email.ts` (`docs/email.md`), fail-open, not Loops.
+
+4. **Auth — Supabase is Auth-only (ADR 0017).** One shared Supabase project across all environments; magic link + Google OAuth. `vendor_admin` provisioning is an **app-layer seam** (no `auth.users`↔`profiles` FK, AECI-254) — identical to how the admin role is granted. GDPR erasure remains an app-layer seam (AECI-254).
+
+5. **Real-time — Cloudflare Durable Objects, not a socket server.** §18's "WebSockets/SSE" on Workers is realized with Durable Objects (WebSocket hibernation) — see §2.3.
+
+6. **Read scaling — D1 Sessions API (AECI-250).** Read-replication is wired but inert until per-DB `read_replication: { mode: auto }` is flipped (ops action). A read-heavy vendor portal is the workload that would justify enabling it.
+
+---
+
+## 5. Stage-1 deferrals rolled into Stage 2
+
+Explicit Stage-1 punts that belong to Stage 2 (the "Deferrals & Carryover" epic, §7):
+
+- **Integration-page JSON-LD** — deferred from Phase 2 §9.2 (`STAGE_1_SPEC.md` §16). The pair page (Stage 1.5 §7) ships without structured data; Stage 2 adds it.
+- **Sitemap index / sub-sitemap split** — AECI-63; only needed beyond 50k URLs. Revisit when catalog growth crosses the threshold.
+- **RTL-safe logical properties** — the app-wide i18n hardening follow-through (AECI-153 shipped the first pass) if Stage 2 adds a locale.
+
+> **Correction to AECI-282's own text:** the issue lists the **AECI-175 per-tab sort dropdown** as a Stage-1 deferral to carry forward. It is **not** — it **shipped** (Done 2026-06-23, PR #370, Relevance / Most-integrations / Name A–Z). It is recorded here as *already done*, not deferred.
+
+---
+
+## 6. In-flight Stage 2 tracks
+
+Work already opened against the `stage-2` branch and living in the "Stage 2 Planning" Linear project before this kickoff:
+
+- **Workers Cache Migration** (AECI-314 epic, WC-1…11 / AECI-315…325; ADR 0020). Moves the SSR edge cache from hand-rolled `caches.default` match/put + HTTP purge to **native Workers Cache** with cross-Worker purge via a Cloudflare Queue. This is the concrete realization of drift point §4.2 and is a prerequisite Stage 2 platform change, independent of the vendor portal.
+
+Stage 2 feature work branches from and merges to `stage-2` (post-launch branch model, ADR 0019 / `docs/CICD_PLAN.md` §10); production hotfixes still branch from `main`.
+
+---
+
+## 7. Epic map → Linear ("Stage 2 Build" project)
+
+The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed from `Stage 2 Planning`), following the AECI-314 "(epic)" parent-issue convention. Each epic opens with `**Spec section:** docs/STAGE_2_SPEC.md §X` and `**Base branch:** stage-2`. The anchor epic (Vendor Portal, AECI-513) is decomposed into buildable sub-issues **AECI-519…525**.
+
+| Epic | Spec | Notes |
+|---|---|---|
+| Vendor Portal & Self-Serve Claiming | §2.1 | The anchor; blocks the rest |
+| Integration Attestations & Conflict | §2.4 | Re-parents AECI-301 / 302 / 303 |
+| Paid Tiers & Entitlements | §2.2 | Relates AECI-304; no pay-for-placement |
+| Real-Time / Live Portal | §2.3 | Durable Objects |
+| Dark Theme Reintroduction | §2.5 | Token-block + toggle; AECI-226 deferral |
+| Stage-1 Deferrals & Carryover | §5 | JSON-LD, sitemap split |
+| Workers Cache Migration | §6 | **Already exists** — AECI-314 |
+
+---
+
+## 8. Decisions
+
+Resolved **2026-07-12** (AECI-282 kickoff, Chris). The Stage-2-launch model is **concierge / manual onboarding** for the first vendor cohort: AECi reviews each claim by hand, arranges payment offline, and toggles verification manually. It deliberately does not scale — vendor volume at launch is low, and staffing help comes in if it grows.
+
+### 8.1 Decided
+
+1. **Verification bar — manual, reviewer-assisted.** AECi grants every `vendor_admin` by hand; **no auto-grant** at launch. The admin claim-review surface must **present verification signals** to the reviewer — email-domain match against the vendor's known domain(s), an email→LinkedIn/person lookup, and any other enrichment that helps confirm the claimant is who they say. Doesn't scale; acceptable — bring in help if volume warrants. (Gates AECI-513.)
+2. **Seat model — multi-seat, flat.** Many `profiles` → one `vendor_id` (already schema-native, **zero migration**). A large vendor (Autodesk, Deltek…) will have several admins, not one. Every seat is individually granted through the §8.1(1) review, so multi-seat stays safe. Self-serve invite/revoke + an owner/admin distinction are **deferred** (need a small schema add). (Gates AECI-513.)
+3. **Verification is a paid gate.** Becoming a **Verified** vendor carries a fee — modest, but real. The free/default state is the **unclaimed, AECi-curated baseline** that renders "Unverified" (the Stage 1.5 status quo); **Verified (paid)** unlocks claim, data correction, integration attestation, the verified badge, richer profile fields, vendor analytics, and version-diff depth. This does **not** break the reader-facing trust model — that invariant is §8.1(4), and it is about the *reader*, not the vendor's cost to participate.
+   - *Residual risk to watch:* if only paying vendors attest, attestation coverage skews toward payers. Mitigated by (a) the AECi-curated baseline staying **free to read**, and (b) AECI-304's invariant that **one-sided states are visibly labeled** — absence of a vendor attestation is never rendered as agreement. Tier structure/pricing above the entry Verified fee is **still open** (§8.2).
+4. **Payer — vendors pay, always.** AECi's customer is the vendor. Viewer-pays tooling is possible far later, out of scope now. Reader-facing invariants (AECI-304) hold: the latest-version view **and** the latest conflict / single-source state are always free and full-fidelity to readers; only the historical *diff depth* is gateable; one-sided (paid-vs-unpaid) states are labeled. Keep the entitlement flag model-agnostic so the payer model could swing later without a migration.
+5. **Billing — offline invoicing / PO at launch.** No payment-provider integration in the first slice; larger vendors pay by **PO/invoice, not a credit card**. The system needs an **admin-toggled entitlement/verification state** + basic invoice/arrangement tracking (notices over Resend, §4). Automated billing (Stripe or similar) and self-serve card payment are **deferred** — start with the minimum.
+
+### 8.2 Still open (further discussion — do not block AECI-513 on these)
+
+- **Tier ladder above the entry Verified fee** — whether there are richness sub-tiers and what they cost. *Direction is set* (there **is** a verification fee; vendors pay); the structure is TBD.
+- **Offline-invoicing mechanics** — the exact PO/invoice workflow, who toggles entitlement, renewal/expiry/dunning. Start with the minimum (admin toggle + status) and grow it.
+- **Real-time transport** (§2.3) — Durable-Object WebSockets vs SSE vs revalidation. **Deferred** — decide when the build reaches AECI-516; the portal ships without persistent sockets until a concrete latency need proves one.
+
+---
+
+## 9. Out of scope for Stage 2
+
+- Rich media profiles (Stage 4)
+- Trust scoring beyond basic anti-abuse (Stage 3)
+- A public/partner write API product ("no public API surface" boundary unchanged)
+- Anything requiring a schema change not already reserved by §3 without an explicit migration decision
+
+---
+
+*This is a living kickoff outline. As each pillar approaches build, promote its §2 subsection into a full sibling spec (as Stage 1.5 did) or grow it in place, and decompose the epic into 3–10 focused issues per `STAGE_1_SPEC.md` §24.4.*

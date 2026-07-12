@@ -1218,16 +1218,19 @@ The following decisions were made during Stage 1 design and are locked unless ex
 
 ## 18. Stage 2 Forward Compatibility
 
+> **Kicked off — see `docs/STAGE_2_SPEC.md` (AECI-282, 2026-07-12).** Stage 2 planning has started; the scope outline, the **verified** schema-readiness carryover (every hook below re-confirmed against the D1/Drizzle schema), the Linear epic map, and the **stack-drift corrections** to the notes below now live there. Two bullets below are **stale post-D1/Drizzle** and are flagged inline — `STAGE_2_SPEC.md` §4 is authoritative where they disagree.
+
 Design decisions in Stage 1 that enable Stage 2 without rework:
 
 - `profiles.role` enum already includes `vendor_admin`
 - `profiles.vendor_id` foreign key already exists
 - `vendors.verified` boolean ready for vendor-claim flow
 - Algolia sync architecture supports real-time updates when vendors edit
-- Cache invalidation helper (`invalidateForEntity`) supports vendor-scoped invalidation; same function works for vendor-portal writes
+- ~~Cache invalidation helper (`invalidateForEntity`) supports vendor-scoped invalidation~~ — **stale (ADR 0004 / 0020):** `invalidateForEntity` is superseded by `Cache-Tag` purge, now migrating to native Workers Cache + Queue purge (AECI-314). Stage 2 vendor writes purge by tag; see `STAGE_2_SPEC.md` §4.2.
 - API endpoint pattern (`/api/admin/*`) extends naturally to `/api/vendor/*`
 - `translations` table supports localized vendor-managed content
 - `profiles.banned_at` supports moderation escalation
+- ⚠️ **Not RLS (ADR 0016):** §18 predates the D1/Drizzle migration. Vendor-scoped authorization is the **3-layer Worker model** (`docs/AUTH_AND_RLS.md`), not Postgres RLS — there is no RLS on app tables. See `STAGE_2_SPEC.md` §4.1.
 
 **Stage 1.5 integration spine (claims/attestations) is Stage-2-ready** (`STAGE_1_5_SPEC.md`, ADR 0018):
 - Agreement is **computed-not-stored** (`computeAgreement`), so vendor attestations light up the confirmed/`conflict` states with no migration — the function and its branches already exist and are unit-tested.
@@ -1483,7 +1486,7 @@ The existing Airtable staging layer remains the curator workspace; Supabase is t
 - **Projects** (within the AECi team):
   - `Stage 1 Build` — issues mapped to build order phases (Section 16)
   - `Vendor Requests` — incoming claim/correction requests from the site
-  - `Stage 2 Planning` — placeholder, populated when Stage 1 nears launch
+  - `Stage 2 Build` — the Stage 2 spec + epic tree + buildable issues (renamed from the `Stage 2 Planning` placeholder; kicked off by AECI-282, see `docs/STAGE_2_SPEC.md`)
   - `Bugs` — separate from feature work
 - **Cycles:** 2-week cadences enabled at the team level, aligned to build phases
 - **Workflow states:** default Linear states (Backlog, Todo, In Progress, In Review, Done, Cancelled) used across all projects. Vendor Requests uses labels to disambiguate workflow nuances within the same state set.
