@@ -14,7 +14,8 @@
  *     total_vendors, total_reviews + total_contributing_firms (the AECI-271 +
  *     AECI-284 credibility-strip coverage counts), most_integrated_product,
  *     most_active_category, recent_integrations (≤10), trending_products (top 5
- *     by page_views, last 7d), recently_added_products (≤10, last 30d).
+ *     by page_views, last 7d, with a `TRENDING_MIN_VIEWS` floor — AECI-280),
+ *     recently_added_products (≤10, last 30d).
  *   - **Every value is validated against `statsCacheValueSchemas[key]` before the
  *     write** — the job and the read endpoint share one source of truth, so the
  *     cache can never hold a shape the reader rejects.
@@ -77,6 +78,32 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 function sinceIso(now: Date, days: number): string {
   return new Date(now.getTime() - days * DAY_MS).toISOString();
 }
+
+// ---------------------------------------------------------------------------
+// Trending tunables (AECI-280 / Phase 8.2). Extracted from inline literals so the
+// window / top-N / floor are one documented surface, mirrored in the
+// POST_LAUNCH_MONITORING §3 launch-tunable table. The 2026-07-12 prod pull
+// validated the window + top-N (7d had 646 product-page views across 124 products;
+// the top-5 sat at 17/17/17/12/12 — clear, well-separated signal). Revisit against
+// ~30d of traffic and once the PostHog join lands (AECI-239) per the follow-up.
+// ---------------------------------------------------------------------------
+
+/** "last N days" window for the trending computation (spec §10). */
+const TRENDING_WINDOW_DAYS = 7;
+
+/** How many trending products the card shows (spec §10; mirrored by the
+ *  `home.trending_products` Zod `.max(5)` cap in `@aeci/shared`). */
+const TRENDING_LIMIT = 5;
+
+/** A product must clear this many page-views in the window to be called "trending".
+ *  A low honesty floor that rejects 1–2-view noise — the only quality guard on
+ *  trending, because the CF Pro plan yields no bot score so `page_views` has no
+ *  ingest-time bot filter (`PAGE_VIEWS_MIN_BOT_SCORE` is inert in prod). Inert at
+ *  healthy traffic (the top-5 clear it many-fold); it only bites in low-traffic
+ *  windows, where `computeTrendingProducts` returns `[]` and the home UI falls back
+ *  to recently-added products. Raising it never exceeds `TRENDING_LIMIT`, so the
+ *  `.max(5)` schema cap is unaffected. */
+const TRENDING_MIN_VIEWS = 3;
 
 // ---------------------------------------------------------------------------
 // Per-key compute functions (pure; exported for unit tests). A function returns
@@ -225,18 +252,27 @@ export async function computeRecentIntegrations(db: Db): Promise<IntegrationList
 }
 
 export async function computeTrendingProducts(db: Db, now: Date): Promise<ProductListItem[]> {
-  // Top 5 product ids by page-view volume in the last 7d. `desc(count())` ranks;
-  // `productId` ascending tiebreaks for determinism (mirrors the old groupBy
-  // `orderBy`). Null `product_id` rows (non-product paths) are excluded.
+  // Top products by page-view volume in the last `TRENDING_WINDOW_DAYS`, ranked
+  // `desc(count())` with `productId` ascending as a deterministic tiebreak. Null
+  // `product_id` rows (non-product paths) are excluded, and the `HAVING` floor drops
+  // any product below `TRENDING_MIN_VIEWS` so 1–2-view noise is never called
+  // "trending" (AECI-280 / Phase 8.2). Fewer than `TRENDING_LIMIT` clearing the floor
+  // → fewer shown; none clearing it → `[]`, and the home UI falls back to recently-added.
   const groups = await db
     .select({ productId: pageViews.productId, value: count() })
     .from(pageViews)
-    .where(and(gte(pageViews.createdAt, sinceIso(now, 7)), isNotNull(pageViews.productId)))
+    .where(
+      and(
+        gte(pageViews.createdAt, sinceIso(now, TRENDING_WINDOW_DAYS)),
+        isNotNull(pageViews.productId),
+      ),
+    )
     .groupBy(pageViews.productId)
+    .having(sql`count(*) >= ${TRENDING_MIN_VIEWS}`)
     .orderBy(desc(count()), asc(pageViews.productId))
-    .limit(5);
+    .limit(TRENDING_LIMIT);
   const ids = groups.map((g) => g.productId).filter((id): id is string => id !== null);
-  if (ids.length === 0) return []; // no traffic yet — expected, not a failure
+  if (ids.length === 0) return []; // no product clears the floor — expected, not a failure
   const rows: RawProductListRow[] = await db.query.products.findMany({
     ...productListConfig,
     where: inArray(products.id, ids),

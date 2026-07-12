@@ -810,7 +810,7 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 - `home.most_integrated_product` — product with highest integration count
 - `home.most_active_category` — category with highest aggregate integration count
 - `home.recent_integrations` — last 10 integrations with linked product names
-- `home.trending_products` — top 5 by page_views in last 7 days (joined with PostHog if available, else page_views table)
+- `home.trending_products` — top 5 by page_views in last 7 days, each clearing a **min-views floor** (`TRENDING_MIN_VIEWS`, currently 3 — AECI-280) so 1–2-view noise is never called "trending" (joined with PostHog if available, else page_views table)
 - `home.recently_added_products` — last 10 products with `created_at` in last 30 days
 - `category_counts` — product count per category
 - `audience_counts` — product count per audience
@@ -819,6 +819,7 @@ A daily stats job on the **existing** scheduled API Worker (`apps/api/src/schedu
 **Phase 4 reconciliation (2026-06-10):**
 - `category_counts` / `audience_counts` / `phase_counts` are **optional/deferred** — the live taxonomy endpoints (`GET /api/taxonomy`, `/api/categories`, …) already return `product_count`, so the home "browse by" grids read those directly rather than this cache.
 - `home.trending_products` is computed from the `page_views` table **only** in Stage 1 (PostHog is not wired until Phase 7). The **client** `POST /api/page-views` capture is the canonical per-view signal; the SSR server-side write undercounts because edge-cache hits bypass the SSR Worker (§9.1, §14.2).
+- **Trending min-views floor (AECI-280 / Phase 8.2):** a product must clear `TRENDING_MIN_VIEWS` (currently **3**; `apps/api/src/lib/home-stats.ts`) page-views in the 7-day window to be called "trending" — otherwise it is dropped, and when nothing clears the floor the home UI falls back to recently-added products. This is the **only** quality guard on trending, because the Cloudflare **Pro** plan provides no bot score (`request.cf.botManagement` is Enterprise-only, so the ingest-time `PAGE_VIEWS_MIN_BOT_SCORE` filter is inert in prod — `cf_bot_score` is null on every row). The floor is a documented launch tunable (`POST_LAUNCH_MONITORING.md` §3). The 7-day window + top-5 were validated against the 2026-07-12 prod traffic pull (646 product-page views across 124 products; top-5 at 17/17/17/12/12) and left unchanged; a ~30-day re-evaluation and the PostHog join are deferred to the AECI-280 follow-up.
 
 Page reads from `stats_cache` via API endpoint `/api/stats/home`. No live aggregation on page load.
 

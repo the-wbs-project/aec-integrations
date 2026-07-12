@@ -348,16 +348,43 @@ describe('computeRecentIntegrations', () => {
 });
 
 describe('computeTrendingProducts', () => {
-  it('ranks the top products by page views (last 7d), reordered to the ranking', async () => {
+  it('ranks products clearing the min-views floor by page views (last 7d), reordered to the ranking', async () => {
     await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
     await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // p-2 has 4 views, p-1 has 3 — both clear the TRENDING_MIN_VIEWS (3) floor.
+    await seedPageView(U.p1, within7d);
+    await seedPageView(U.p1, within7d);
     await seedPageView(U.p1, within7d);
     await seedPageView(U.p2, within7d);
-    await seedPageView(U.p2, within7d); // p-2 has 2 views, p-1 has 1
+    await seedPageView(U.p2, within7d);
+    await seedPageView(U.p2, within7d);
+    await seedPageView(U.p2, within7d);
     await seedPageView(U.p1, old); // outside the 7d window — ignored
     await seedPageView(null, within7d); // no product — excluded by the null filter
     const result = await computeTrendingProducts(t.db, NOW);
     expect(result.map((r) => r.id)).toEqual([U.p2, U.p1]);
+  });
+
+  it('excludes products below the min-views floor — 1–2 views never trend (AECI-280)', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    // p-1 clears the floor (3 views); p-2 sits just below it (2 views) → only p-1 ranks.
+    await seedPageView(U.p1, within7d);
+    await seedPageView(U.p1, within7d);
+    await seedPageView(U.p1, within7d);
+    await seedPageView(U.p2, within7d);
+    await seedPageView(U.p2, within7d);
+    const result = await computeTrendingProducts(t.db, NOW);
+    expect(result.map((r) => r.id)).toEqual([U.p1]);
+  });
+
+  it('returns [] when no product clears the floor (all 1–2 views → recently-added fallback territory)', async () => {
+    await seedProduct({ id: U.p1, slug: 'a', name: 'A' });
+    await seedProduct({ id: U.p2, slug: 'b', name: 'B' });
+    await seedPageView(U.p1, within7d);
+    await seedPageView(U.p1, within7d); // 2 views — below the floor
+    await seedPageView(U.p2, within7d); // 1 view — below the floor
+    await expect(computeTrendingProducts(t.db, NOW)).resolves.toEqual([]);
   });
 
   it('returns [] when there are no page views (does not throw)', async () => {

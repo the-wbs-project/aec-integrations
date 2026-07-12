@@ -799,7 +799,7 @@ Keys used (see `STAGE_1_SPEC.md` §10):
 - `home.most_integrated_product`
 - `home.most_active_category`
 - `home.recent_integrations`
-- `home.trending_products`
+- `home.trending_products` — top 5 by page_views (last 7 days), each clearing the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280)
 - `home.recently_added_products`
 - `category_counts`
 - `audience_counts`

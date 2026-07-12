@@ -687,7 +687,7 @@ export type HomeStatsResponse = {
     integration_count: number;
   } | null;                              // null when the cache key is absent
   recent_integrations: Integration[];   // last 10
-  trending_products: Product[];          // top 5
+  trending_products: Product[];          // top 5, each ≥ TRENDING_MIN_VIEWS (3) page-views in 7d (AECI-280 floor)
   recently_added_products: Product[];   // last 10
 };
 ```

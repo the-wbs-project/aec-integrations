@@ -57,11 +57,11 @@ _This checkpoint changes **only docs + monitor JSON** — no application logic �
 | §16 Phase 8 item | Status | Evidence / note |
 |-----------|--------|----------|
 | Monitor errors, performance, search quality | ⚠️ in-progress | AECI-279 ships the *procedure + tooling* (`POST_LAUNCH_MONITORING.md`, the alert fixes). Ongoing monitoring is operational; performance (CWV) is gated on §F1. |
-| Iterate on stats card content based on real traffic | ❌ not started | Needs real traffic + PostHog un-darkened. Later Phase-8 slice → **§F4**. |
+| Iterate on stats card content based on real traffic | ⚠️ in-progress (Phase 8.2) | **AECI-280**: the 2026-07-12 prod traffic pull validated the trending 7d-window + top-5 (left unchanged) and added a `TRENDING_MIN_VIEWS = 3` honesty floor; window/top-N re-eval + PostHog-join weighting + card-resonance review deferred to a ~30d follow-up → **§F4**. |
 | Refine moderation workflow based on first reviews | ❌ not started | Needs the first real user reviews. Later Phase-8 slice → **§F4**. |
 | Start Stage 2 planning | ❌ not started | Separate track; the `stage-2` integration branch exists (ADR 0019). → **§F4**. |
 
-**Score: AC — 2 ✅ / 1 ⚠️ / 1 ❌ (blocked) · §16 Phase 8 — 0 done / 1 ⚠️ in-progress / 3 not-started.** Phase 8 is **ongoing** — this is the 8.1 slice, not the whole phase. Every non-green item is an ops flip (§F1), a traffic-gated retune (§F3), or a later Phase-8 slice (§F4) — not a build defect.
+**Score: AC — 2 ✅ / 1 ⚠️ / 1 ❌ (blocked) · §16 Phase 8 — 0 done / 2 ⚠️ in-progress / 2 not-started** (AECI-280 / Phase 8.2 moved "iterate stats-card content" to in-progress). Phase 8 is **ongoing** — 8.1 + 8.2 are slices, not the whole phase. Every non-green item is an ops flip (§F1), a traffic-gated retune (§F3), or a later Phase-8 slice (§F4) — not a build defect.
 
 ---
 
@@ -83,7 +83,7 @@ The launch-placeholder thresholds (`POST_LAUNCH_MONITORING.md` §3: error-rate 1
 
 ### F4 — Later Phase-8 slices (8.2+)
 
-The remaining §16 Phase 8 bullets are separate slices needing real traffic/reviews: iterate home stats-card content on real traffic; refine the moderation workflow after the first real reviews; start Stage 2 planning (`stage-2` branch). File as their own issues when the traffic/inputs exist.
+The remaining §16 Phase 8 bullets are separate slices needing real traffic/reviews. **Iterate home stats-card content** is now under way as **Phase 8.2 / AECI-280** — the first pass (2026-07-12) tuned the trending card on real `page_views` (added the `TRENDING_MIN_VIEWS` floor; window/top-N validated and left unchanged) and documented the trending tunables (`POST_LAUNCH_MONITORING.md` §3). Its own **~30d follow-up** is still to be filed: window/top-N re-evaluation, PostHog-join weighting + recency decay, and the card-resonance/swap review once PostHog + RUM have volume. The other two — refine the moderation workflow after the first real reviews; start Stage 2 planning (`stage-2` branch) — remain to be filed as their own issues when the traffic/inputs exist.
 
 ### Not a defect — flagged, not fixed here
 
