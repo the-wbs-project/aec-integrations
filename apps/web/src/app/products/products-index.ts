@@ -7,6 +7,7 @@ import type { ProductsListResponse } from '@aeci/shared';
 import { canonicalUrl } from '../core/canonical';
 import { BrowseLayout } from '../layouts/browse-layout';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
+import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
@@ -52,7 +53,15 @@ type ViewKey = 'cards' | 'table';
  */
 @Component({
   selector: 'app-products-index',
-  imports: [RouterLink, BrowseLayout, FacetSidebar, ProductCard, ProductCardGrid, PaginationFooter],
+  imports: [
+    RouterLink,
+    BrowseLayout,
+    FacetSidebar,
+    ProductCard,
+    ProductCardGrid,
+    PaginationFooter,
+    MailingListSignup,
+  ],
   template: `
     <aec-browse-layout>
       <div slot="header" class="space-y-3">
@@ -295,6 +304,8 @@ type ViewKey = 'cards' | 'table';
         </div>
       </div>
     </aec-browse-layout>
+
+    <aec-mailing-list-signup />
   `,
 })
 export class ProductsIndex {

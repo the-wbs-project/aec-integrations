@@ -12,6 +12,7 @@ import { BrowseLayout } from '../layouts/browse-layout';
 import { NotFound } from '../not-found/not-found';
 import { ProductCard } from '../products/product-card';
 import { FacetSidebar } from '../shared/facets/facet-sidebar';
+import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { createPaginatedIndex } from '../shared/paginated-index/paginated-index-controller';
 import { PaginationFooter } from '../shared/pagination/pagination-footer';
 
@@ -45,7 +46,15 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
  */
 @Component({
   selector: 'aec-taxonomy-browse',
-  imports: [BrowseLayout, FacetSidebar, NotFound, PaginationFooter, ProductCard, RouterLink],
+  imports: [
+    BrowseLayout,
+    FacetSidebar,
+    MailingListSignup,
+    NotFound,
+    PaginationFooter,
+    ProductCard,
+    RouterLink,
+  ],
   template: `
     @let t = term();
     @if (t === null) {
@@ -204,6 +213,8 @@ import { PaginationFooter } from '../shared/pagination/pagination-footer';
           }
         </div>
       </aec-browse-layout>
+
+      <aec-mailing-list-signup />
     }
   `,
 })

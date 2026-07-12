@@ -50,6 +50,7 @@ decision record; no separate ADR.
 | `review-approved` | `PATCH /api/admin/reviews/:id` approve (`routes/admin-reviews.ts`) | reviewer | links to `/products/{slug}` when `PUBLIC_SITE_URL` set |
 | `review-rejected` | `PATCH /api/admin/reviews/:id` reject | reviewer | includes the moderator's reason + a guidelines link |
 | `account-deleted` | `DELETE /api/account` (`routes/account.ts`) | the deleted user (captured pre-erasure) | GDPR confirmation |
+| `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the idempotent already-listed no-op. Sibling of the operator `landing-signup` alert. Carries a `List-Unsubscribe` mailto header (`unsubscribe@<EMAIL_FROM domain>`) + a matching in-body opt-out line for deliverability. |
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
 | `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. |
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). |
@@ -100,14 +101,17 @@ configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
 
 ## Deliverability
 
-The sending domain (`aecintegrations.com`) must have, in DNS:
+The sending domain (`aecintegrations.com`) must have, in DNS (Resend sends via Amazon SES):
 
-- **SPF** — include Resend's sending hosts.
-- **DKIM** — the CNAME records Resend issues when you verify the domain.
-- **DMARC** — a `_dmarc` policy record (start `p=none`, tighten later).
+- **SPF** — on the `send.aecintegrations.com` return-path subdomain: `v=spf1 include:amazonses.com ~all` (aligns to the org domain under relaxed DMARC).
+- **DKIM** — the `resend._domainkey` record Resend issues; it signs as `d=aecintegrations.com` (DMARC-aligned).
+- **DMARC** — a `_dmarc` policy record. Currently `p=quarantine` with a `rua` for aggregate reports. `quarantine` means receivers **junk** on any DMARC doubt.
 
-Verify the domain in the Resend dashboard before provisioning prod keys, or sends
-will bounce / land in spam.
+**Verify the domain in the Resend dashboard before provisioning prod keys**, or every send returns `403 domain not verified` (the app fail-opens, so nothing bounces to the user, but nothing arrives either — the AECI-327 welcome-email symptom).
+
+**Gmail vs. Microsoft 365 placement.** With `p=quarantine` and a brand-new sending domain (no reputation), Gmail will often route mail to **spam** while M365 tenants inbox it — even when SPF/DKIM/DMARC all pass. This is reputation/warm-up, not an auth failure. Levers: consistent low volume + recipient engagement (mark "not spam"), a `List-Unsubscribe` header (below), and DMARC `rua` reports to watch pass/fail per receiver.
+
+**List-Unsubscribe.** The `mailing-list-welcome` template sets `List-Unsubscribe: <mailto:unsubscribe@<sender-domain>?subject=unsubscribe>` (RFC 2369), derived from the `EMAIL_FROM` domain. For it to be actionable, route `unsubscribe@aecintegrations.com` (Cloudflare Email Routing) to an inbox that processes opt-outs. One-click POST (RFC 8058 `List-Unsubscribe-Post`) is intentionally **not** set: it needs a public unsubscribe endpoint + token and is only required of bulk senders (5000+/day). Add it if/when volume warrants.
 
 ## Testing
 

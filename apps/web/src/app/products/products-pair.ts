@@ -14,6 +14,7 @@ import { ExternalLinkTracker } from '../analytics/external-link-tracker';
 import { NotFound } from '../not-found/not-found';
 import { mechanismKindLabel } from '../search/mechanism-labels';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 
 import { AgreementBadge } from './agreement-badge';
 import { ClaimProvenance } from './claim-provenance';
@@ -195,6 +196,7 @@ function writePairViewCookie(mode: PairViewMode): void {
     ClaimProvenance,
     ExternalLinkTracker,
     LogoOrInitial,
+    MailingListSignup,
     NotFound,
     RouterLink,
   ],
@@ -480,6 +482,8 @@ function writePairViewCookie(mode: PairViewMode): void {
           </div>
         </div>
       </div>
+
+      <aec-mailing-list-signup />
     }
   `,
 })

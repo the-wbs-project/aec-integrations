@@ -1,7 +1,9 @@
 /**
- * Client for the landing lead-capture endpoints (AECI-275) — the unified home's
- * closing-CTA island. The third browser-side mutation surface in `apps/web`
- * after the vendor request forms (`requests/requests-api.ts`) and the review form
+ * Client for the landing lead-capture endpoints (AECI-275) — backs the shared
+ * mailing-list signup band (`shared/mailing-list-signup`, mounted on the home
+ * closing-CTA plus the directory + detail pages, AECI-327) and the home feedback
+ * form. The third browser-side mutation surface in `apps/web` after the vendor
+ * request forms (`requests/requests-api.ts`) and the review form
  * (`reviews/reviews-api.ts`), and it follows the same shape.
  *
  * The SSR Worker proxies `/api/*` to the private API Worker over the service

@@ -262,11 +262,12 @@ describe('AECI-275 trusted geo headers + app-origin', () => {
 
 // AECI-247/277 — retiring `apps/landing` moves its operator "new signup / new
 // feedback" Resend send into these handlers (to `ADMIN_ALERT_EMAIL`, fail-open).
-// It's fired fire-and-forget via `ctx.waitUntil` AFTER the DB write, so the send
-// (skipped in tests — TEST_ENV has no RESEND_API_KEY) never affects the response.
-// These assert the scheduling contract: notify on a real insert, never on the
-// idempotent already-listed no-op.
-describe('operator lead-capture notifications (AECI-247/277)', () => {
+// AECI-327 adds a second subscribe-side send: the subscriber's welcome email. Both
+// are fired fire-and-forget via `ctx.waitUntil` AFTER the DB write, so the sends
+// (skipped in tests — TEST_ENV has no RESEND_API_KEY) never affect the response.
+// These assert the scheduling contract: notify on a real insert (subscribe → two
+// sends, feedback → one), never on the idempotent already-listed no-op.
+describe('lead-capture notifications (AECI-247/277, AECI-327)', () => {
   function subscribeApp() {
     return buildAppWithHandler({
       method: 'post',
@@ -292,12 +293,12 @@ describe('operator lead-capture notifications (AECI-247/277)', () => {
     );
   }
 
-  it('subscribe: schedules a background send on a fresh insert', async () => {
+  it('subscribe: schedules both background sends (operator alert + subscriber welcome) on a fresh insert', async () => {
     const app = subscribeApp();
     const ctx = fakeExecutionContext();
     const res = await request(app, '/api/subscribe', { email: 'notify@example.com' }, ctx);
     expect(res.status).toBe(201);
-    expect(ctx.waitUntil).toHaveBeenCalledTimes(1);
+    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
   });
 
   it('subscribe: schedules NO send on the idempotent already-listed no-op', async () => {

@@ -846,7 +846,7 @@ via `ctx.waitUntil`, fail-open):
 
 ### 11.2 Waitlist transition
 
-Pre-launch, the static coming-soon landing page (`apps/landing`) captured emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). The unified home's closing CTA (§4.1, section 9) carries the same capture forward, so signup survives the apex flip. The apex cutover (AECI-247/277) **retires `apps/landing`** — its lead-capture forms and its operator "new signup / feedback" email move to the API Worker (`routes/landing-forms.ts`, to `ADMIN_ALERT_EMAIL`), and the closing-CTA island becomes the sole caller.
+Pre-launch, the static coming-soon landing page (`apps/landing`) captured emails; post the AECI-257 cut-over these persist to the D1 `mailing_list` table via `POST /api/subscribe` (the legacy Supabase `marketing.waitlist` table is retired). The unified home's closing CTA (§4.1, section 9) carries the same capture forward, so signup survives the apex flip. The apex cutover (AECI-247/277) **retires `apps/landing`** — its lead-capture forms and its operator "new signup / feedback" email move to the API Worker (`routes/landing-forms.ts`, to `ADMIN_ALERT_EMAIL`), and the closing-CTA island becomes the caller — extracted in AECI-327 into a shared mailing-list signup band (`apps/web/.../shared/mailing-list-signup`) that also rides the directory + detail pages, and which on a fresh signup adds the subscriber's `mailing-list-welcome` first-touch email.
 
 **On launch (the ordered ceremony + rollback live in `docs/launch-cutover-runbook.md`):**
 - One-time Resend broadcast sends to entire waitlist: "We're live — explore the directory"

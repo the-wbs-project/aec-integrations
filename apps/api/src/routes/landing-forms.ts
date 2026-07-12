@@ -40,7 +40,11 @@ import { feedback, mailingList } from '../db/schema';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { json } from '../http';
-import { sendLandingFeedbackNotification, sendLandingSignupNotification } from '../lib/email';
+import {
+  sendLandingFeedbackNotification,
+  sendLandingSignupNotification,
+  sendMailingListWelcomeEmail,
+} from '../lib/email';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 
 async function parseJsonBody<T>(c: Context<{ Bindings: Env }>, schema: ZodType<T>): Promise<T> {
@@ -189,10 +193,13 @@ export function createSubscribeHandler(
 
     const created = inserted.length > 0;
 
-    // Operator "new signup" notification — retires the `apps/landing` Worker's own
-    // Resend send (AECI-247/277). Only on a real insert, never on the idempotent
+    // Two fire-and-forget sends on a real insert only, never on the idempotent
     // already-listed no-op (matches the landing Worker, which 409'd a dup before
-    // sending). Fire-and-forget; fail-open on absent secrets.
+    // sending) so a re-subscribe neither re-alerts nor re-welcomes. Both fail-open
+    // on absent secrets (RESEND_API_KEY / recipient) and never affect the response:
+    //   1. the operator "new signup" alert to ADMIN_ALERT_EMAIL (retires the
+    //      `apps/landing` Worker's own Resend send, AECI-247/277);
+    //   2. the subscriber's welcome email — their first touch (AECI-327).
     if (created) {
       c.executionCtx.waitUntil(
         sendLandingSignupNotification(c, {
@@ -206,6 +213,7 @@ export function createSubscribeHandler(
           referrer,
         }),
       );
+      c.executionCtx.waitUntil(sendMailingListWelcomeEmail(c, { to: payload.email }));
     }
 
     return json({ created } satisfies LandingSubmitResult, { status: created ? 201 : 200 });

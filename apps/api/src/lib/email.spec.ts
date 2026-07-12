@@ -21,6 +21,7 @@ import {
   parseRecipients,
   sendAccountDeletionEmail,
   sendEmail,
+  sendMailingListWelcomeEmail,
   sendReviewApprovedEmail,
   sendReviewRejectedEmail,
   sendReviewSubmittedEmail,
@@ -236,6 +237,47 @@ describe('sendAccountDeletionEmail', () => {
     expect(body.to).toBe('gone@example.com');
     expect(body.subject).toBe('Your AEC Integrations account has been deleted');
     expect(String(body.text)).toContain('deleted');
+  });
+});
+
+describe('sendMailingListWelcomeEmail', () => {
+  it('welcomes the subscriber and links to the directory when PUBLIC_SITE_URL is set', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendMailingListWelcomeEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      { to: 'sub@example.com' },
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('sub@example.com');
+    expect(body.subject).toBe('Welcome to AEC Integrations');
+    expect(String(body.text)).toContain('directory and review platform');
+    expect(String(body.text)).toContain('https://aecintegrations.com/products');
+    expect(String(body.html)).toContain('https://aecintegrations.com/products');
+    // List-Unsubscribe header (deliverability) derived from the EMAIL_FROM domain,
+    // plus a matching in-body opt-out line.
+    expect((body.headers as Record<string, string>)['List-Unsubscribe']).toBe(
+      '<mailto:unsubscribe@aecintegrations.com?subject=unsubscribe>',
+    );
+    expect(String(body.text)).toContain('unsubscribe@aecintegrations.com');
+    // Voice guard: the authored copy is em-dash-free (the only em dash in the body
+    // is the shared house signature `— The AEC Integrations team`, appended by
+    // `toText`/`toHtml` for every template).
+    const authoredCopy = String(body.text).replace('— The AEC Integrations team', '');
+    expect(authoredCopy).not.toContain('—');
+  });
+
+  it('omits the link (no dead host) when PUBLIC_SITE_URL is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendMailingListWelcomeEmail(fakeContext(), { to: 'sub@example.com' });
+    expect(String(lastBody(fetchSpy).text)).not.toContain('/products');
+  });
+
+  it('skips when the subscriber email is undefined', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(await sendMailingListWelcomeEmail(fakeContext(), { to: undefined })).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 
