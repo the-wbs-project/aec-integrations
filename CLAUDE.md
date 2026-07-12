@@ -46,8 +46,10 @@ The site is currently in pre-launch. Production data lives in Airtable; Supabase
 | Analytics/marketing measurement baseline (AECI-326): PostHog + Datadog-RUM instrumentation status, starting-numbers snapshot, weekly read procedure | `docs/ANALYTICS_BASELINE.md` |
 | Transactional email (Resend client, template catalogue, secrets) + the Supabase→Resend SMTP magic-link sender + deliverability (SPF/DKIM/DMARC) | `docs/email.md` |
 | Incident runbooks for Datadog alerts | `docs/RUNBOOKS.md` |
+| Post-launch monitoring (AECI-279 / Phase 8.1): the daily/weekly operate-and-tune procedure over the shipped dashboards, monitors, and crons; the launch-tunable-threshold table; the triage→ticket loop | `docs/POST_LAUNCH_MONITORING.md` |
+| Post-launch health-report log (AECI-279 / Phase 8.1): dated first-week/first-month snapshots fed by the monitoring runbook | `docs/POST_LAUNCH_HEALTH_REPORT.md` |
 | Launch / DNS cutover runbook (go-live: apex flip off the coming-soon landing, launch-secret provisioning, waitlist broadcast, post-cutover verification, rollback) | `docs/launch-cutover-runbook.md` |
-| Phase completion checkpoints (per-phase launch-readiness gates: AC + build-order mapping, punts) | `docs/PHASE_{2..7}_COMPLETION.md` |
+| Phase completion checkpoints (per-phase launch-readiness gates: AC + build-order mapping, punts) | `docs/PHASE_{2..8}_COMPLETION.md` (Phase 8 = the living post-launch checkpoint) |
 | Auth model, GRANTs & RLS policies (3-layer authz: Worker JWT/role/ban, PostgREST GRANTs, RLS; GDPR erasure) | `docs/AUTH_AND_RLS.md` (complete — the authorization source of truth) |
 | Strategic product / brand context (audiences, voice, anti-references, principles) | `PRODUCT.md` (repo root) |
 | Visual design system (colors, typography, components, do's/don'ts) | `DESIGN.md` (repo root) — Stitch format, source of truth for tokens |
