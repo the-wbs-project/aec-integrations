@@ -11,6 +11,9 @@ ENV=preview
 # into HTML so they reach the browser at hydration time.
 # DD_API_KEY is server-only (Datadog Logs HTTP intake).
 # All three no-op when empty, so dev boots cleanly without a Datadog account.
+# In deployed envs the two RUM creds (DD_APPLICATION_ID + DD_CLIENT_TOKEN) are
+# CI-pushed per env from the shared un-suffixed GH secrets of the same name
+# (AECI-326) — single "aeci" RUM app on us5, separated by the per-env ENV field.
 DD_APPLICATION_ID=
 DD_CLIENT_TOKEN=
 DD_API_KEY=

@@ -30,7 +30,10 @@ This directory holds the planning, architecture, and operational documentation f
 | [`access.md`](./access.md) | Active | Cloudflare Access runbook for non-prod environments — allowlist management, service-token rotation, lockout recovery. |
 | [`CACHE_STRATEGY.md`](./CACHE_STRATEGY.md) | Active | Edge caching: tag vocabulary, TTLs, `POST /admin/purge` invalidation, SEO header set. |
 | [`OBSERVABILITY.md`](./OBSERVABILITY.md) | Active | Datadog custom-metric catalog, dashboard, and monitors. |
+| [`ANALYTICS_BASELINE.md`](./ANALYTICS_BASELINE.md) | Active | Pre-marketing measurement baseline (AECI-326): what PostHog/Datadog-RUM instrument, the starting numbers snapshot, and the weekly read procedure. |
 | [`RUNBOOKS.md`](./RUNBOOKS.md) | Active | Incident runbooks for Datadog alerts. (Realizes the formerly-planned `OPERATIONAL_RUNBOOKS.md`.) |
+| [`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md) | Active | Post-launch daily/weekly monitoring runbook (AECI-279 / Phase 8.1): the operate-and-tune procedure over the shipped dashboards, monitors, and scheduled crons. |
+| [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md) | Log | Dated first-week/first-month health-report log fed by the monitoring runbook (AECI-279 / Phase 8.1). |
 | [`TESTING_STRATEGY.md`](./TESTING_STRATEGY.md) | Active | Testing tools (Vitest, Playwright, axe-core, Lighthouse CI), coverage targets, flaky test policy. |
 | [`UNIT_TESTING_GUIDE.md`](./UNIT_TESTING_GUIDE.md) | Active | Practitioner manual for writing unit tests. Scope, workflow, what to test, anti-patterns. |
 | [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) | Active | Pre-merge review checklist for LLM and human reviewers. Severity model, output format. |

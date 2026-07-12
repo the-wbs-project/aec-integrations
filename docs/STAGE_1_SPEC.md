@@ -924,6 +924,7 @@ Client-side initialization in Angular app:
   - `claim_requested` — vendor_id
   - `correction_requested` — product_id or vendor_id
   - `external_link_clicked` — destination, source
+  - `mailing_list_signup` — source (home closing CTA; fired on a genuine new subscribe only — consented funnel, see OBSERVABILITY.md)
 - All events include `locale` and `theme` dimensions
 
 **PostHog gap:** does not see Cloudflare-specific data (CF country, colocation, bot score) or server-only context. The `page_views` table fills this gap (Section 14.2).

@@ -106,6 +106,19 @@ export class Analytics {
     this.capture('external_link_clicked', { ...input });
   }
 
+  /**
+   * A successful mailing-list signup (`POST /api/subscribe` → `created`), fired
+   * from the shared mailing-list signup band (AECI-326, extracted in AECI-327).
+   * Consent-gated like every other event, so it records the *consented* funnel
+   * only — the `mailing_list` D1 table and `aeci.email.send{template:landing-signup}`
+   * remain the authoritative, consent-independent signup count. `source` identifies
+   * the capture surface: `'home_closing_cta'` for the home band, `'mailing_list_band'`
+   * for the directory + detail mounts.
+   */
+  mailingListSignup(input: { source: string }): void {
+    this.capture('mailing_list_signup', { source: input.source });
+  }
+
   // ─── Internals ─────────────────────────────────────────────────────────────
 
   /** Gate on browser + consent, merge the required dimensions, fire-and-forget. */

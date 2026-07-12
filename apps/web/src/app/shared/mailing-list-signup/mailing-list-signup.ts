@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { FormField, form, submit, validateStandardSchema } from '@angular/forms/signals';
 
 import { SubscribeSubmitSchema, type SubscribeSubmit } from '@aeci/shared';
 
+import { Analytics } from '../../analytics/analytics';
 import { LandingApi, buildAttribution } from '../landing/landing-api';
 
 interface SubscribeModel {
@@ -158,6 +159,12 @@ const BTN_BASE =
 })
 export class MailingListSignup {
   private readonly api = inject(LandingApi);
+  private readonly analytics = inject(Analytics);
+
+  /** Capture surface for the AECI-326 `mailing_list_signup` conversion event —
+   *  the home closing-CTA passes `'home_closing_cta'`; the directory + detail
+   *  mounts keep the default so their signups are still tracked, distinctly. */
+  readonly source = input('mailing_list_band');
 
   private readonly model = signal<SubscribeModel>({ email: '' });
   protected readonly form = form(this.model, (p) =>
@@ -195,6 +202,12 @@ export class MailingListSignup {
         // right next to the success message. The confirmed button + live region
         // carry the result; onEmailEdit resets the state if the address changes.
         this.status.set(result.created ? 'subscribed' : 'exists');
+        if (result.created) {
+          // Track the conversion (AECI-326). Consent-gated + fire-and-forget: it
+          // no-ops without consent and never throws into the submit. Only a genuine
+          // new signup counts — an already-listed email (created:false) is not.
+          this.analytics.mailingListSignup({ source: this.source() });
+        }
       } catch {
         // Retryable notice, not a ValidationError (which would disable submit).
         this.status.set('error');

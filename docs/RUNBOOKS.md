@@ -602,7 +602,8 @@ see `docs/OBSERVABILITY.md` and the constants in `lib/reconciliation-sweep.ts`.)
 ## Data quality job failed or not running
 
 **Alerts:**
-- `AECi — Data quality check found issues (by check)` — a §23.1 check found one or more defects.
+- `AECi — Data quality check found ERROR-severity issues (by check)` — an integrity check (`broken_integration_refs`, `reviews_missing_anonymized_at`) found defects. **Pages.**
+- `AECi — Data quality check found WARN-severity issues (by check)` — a hygiene check found issues. **Informational / non-paging** (AECI-279 severity split; the digest carries the rows).
 - `AECi — Data quality job failed (daily cron)` — a check threw or a pre-run crash.
 - `AECi — Data quality job not running (no daily run)` — the cron stopped firing.
 
@@ -620,8 +621,9 @@ vendor/product candidates, a Brandfetch logo-404 sample, and the reused AECI-140
 
 **First checks**
 
-1. **Which check?** The "found issues" alert is split `by {check}`. Pivot on the `check:` tag (or read
-   the digest) to see the specific check and its count. The full offending rows are in the email and in
+1. **Which check?** The "found issues" alerts are split `by {check}` **and by `severity:`** — the
+   **error** monitor pages, the **warn** monitor is informational (AECI-279). Pivot on the `check:` tag
+   (or read the digest) to see the specific check and its count. The full offending rows are in the email and in
    the `source:data-quality-cron` logs (`aeci.data_quality.check <id> count=…`).
 2. **A check errored (-1 / job failed)?** Read the `source:data-quality-cron` error logs
    (`aeci.data_quality.check <id>` with `reason`, or `aeci.data_quality.crashed` for a pre-run crash).
@@ -641,8 +643,9 @@ whoever owns the API Worker's crons.
 
 ## WAF rate-limit / challenge spike
 
-**Alert:** `AECi — WAF rate-limit / challenge spike (15m)` — `sum:aeci.waf.ratelimit.blocked` (`.as_count()`)
-> 500 over 15m on `env:production`.
+**Alerts:**
+- `AECi — WAF rate-limit / challenge spike (15m)` — `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m on `env:production`.
+- `AECi — WAF poll not running` — no successful hourly `aeci.waf.poll{outcome:ok}` for ~3h (cron liveness; AECI-279).
 
 **Metrics:**
 - `aeci.waf.ratelimit.blocked{rule,action,host,source}` — Cloudflare WAF mitigations (blocks + challenges),
@@ -666,8 +669,9 @@ flood tripping the rate-limit rules or a scraper run hitting the UA challenge �
    needed — the rules are doing their job; consider whether the volume warrants a Cloudflare IP block. If a
    **legitimate** user or integration is being blocked/challenged, re-tune the rule in
    `docs/waf-rate-limits.md` (update the doc in the same change — it is the source of truth) and verify per §4.
-3. **No data / heartbeat gaps?** This monitor has **no** `notify_no_data` (silence = no attacks). Poll health
-   is the separate `aeci.waf.poll{outcome:ok}` series — if it stopped, the cron isn't running; if it shows
+3. **No data / heartbeat gaps?** The spike monitor has **no** `notify_no_data` (silence = no attacks). Poll
+   health is the separate `aeci.waf.poll{outcome:ok}` series, now watched by the `AECi — WAF poll not running`
+   liveness monitor (AECI-279, no-data over ~3h) — if it stopped, the cron isn't running; if it shows
    `outcome:skipped_no_creds`, `CF_ANALYTICS_API_TOKEN` is unset on that env's Worker (the metric is then
    absent by design until the token is provisioned). `outcome:failed` → read the `source:waf-metrics-cron`
    error log for the Cloudflare GraphQL `reason` (e.g. an expired/under-scoped token — it needs

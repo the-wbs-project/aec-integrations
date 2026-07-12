@@ -411,8 +411,13 @@ email seam by `outcome`. **No ban-action widget** — `aeci.moderation.ban` is d
 Each monitor's `message` links the matching runbook in `docs/RUNBOOKS.md` and routes to
 the team notification channel. The committed JSON keeps the `@NOTIFICATION_CHANNEL_TBD`
 placeholder (env-agnostic for record); substitute the real handle **at apply time**. The
-resolved handle is `@chrisw@thewbsproject.com` (Datadog email notification; AECI-222) — all
-nine monitors were applied 2026-06-12 with that substitution.
+resolved handle is `@chrisw@thewbsproject.com` (Datadog email notification; AECI-222) — the
+then-nine monitors were applied 2026-06-12 with that substitution; the Phase 3–7 monitors were
+applied in their own phase passes, and AECI-279 (Phase 8.1) added two more, bringing the committed
+set to **23**. One exception to the handle rule: the informational
+`monitor-data-quality-check-warn.json` (AECI-279) uses a distinct `@NOTIFICATION_CHANNEL_LOW_TBD`
+placeholder — substitute a low-urgency handle, or leave it literal to keep that warn monitor
+**UI-only / non-paging** (the daily digest already carries its rows).
 
 | Monitor | Condition | Definition |
 |---|---|---|
@@ -433,7 +438,12 @@ nine monitors were applied 2026-06-12 with that substitution.
 | Linear webhook HMAC failures | `aeci.webhooks.linear.hmac_failure` > 3 over 1h | `observability/datadog/monitor-webhook-hmac-failure.json` |
 | Linear reconciliation: persistent stuck requests | any `aeci.linear.reconcile.persistent_failure` in the last 1h | `observability/datadog/monitor-linear-reconcile-stuck.json` |
 | Linear reconciliation sweep not running | no `aeci.linear.reconcile.stuck` gauge for ~1h (no-data liveness) | `observability/datadog/monitor-linear-reconcile-no-data.json` |
+| Data quality check — error severity | any `severity:error` check (`broken_integration_refs`, `reviews_missing_anonymized_at`) reports issues > 0 (daily) | `observability/datadog/monitor-data-quality-check.json` |
+| Data quality check — warn severity (informational) | any `severity:warn` check reports issues > 0 (daily); **non-paging** (AECI-279 split) | `observability/datadog/monitor-data-quality-check-warn.json` |
+| Data quality job failed | job-level `aeci.data_quality.job{outcome:failed}` > 0 in the last 1d | `observability/datadog/monitor-data-quality-failed.json` |
+| Data quality job not running | no `aeci.data_quality.job{trigger:cron}` heartbeat for ~26h | `observability/datadog/monitor-data-quality-no-data.json` |
 | WAF rate-limit / challenge spike | `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m (`env:production`) | `observability/datadog/monitor-waf-ratelimit-spike.json` |
+| WAF poll not running | no successful `aeci.waf.poll{outcome:ok,trigger:cron}` for ~3h (no-data liveness) | `observability/datadog/monitor-waf-poll-no-data.json` |
 
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
 from the edge and would mask a genuinely slow render.
@@ -509,9 +519,23 @@ a quiet hour emits nothing (no attacks = healthy), so a no-data alert would be c
 the metric is value-bearing so it uses `sum:` + `.as_count()` (gotcha 3). Detection lags up to ~1h
 because the source is an hourly poll. Cron-liveness is intentionally **not** folded in here — it
 rides the separate always-emitted `aeci.waf.poll{outcome:ok}` heartbeat (same failure + liveness
-split as Algolia/stats), so a liveness no-data monitor on that series is an easy add if the poll
-ever needs one. The 500/15m threshold is a launch-tunable placeholder — set it once baseline
-mitigation volume is known.
+split as Algolia/stats). **AECI-279 (Phase 8.1) added that liveness monitor** —
+`monitor-waf-poll-no-data.json`, `notify_no_data` on `aeci.waf.poll{outcome:ok,trigger:cron}` over a
+3h window (~2 missed hourly polls) — so a silently-dead poll now pages instead of going unnoticed. The
+500/15m threshold is a launch-tunable placeholder — set it once baseline mitigation volume is known.
+
+The **data-quality monitors** (AECI-241, Phase 7.6) follow the same failure + liveness split, plus a
+**severity split added by AECI-279** (Phase 8.1). The daily 04:00 UTC job emits `aeci.data_quality.check`
+per check (0 = clean, **-1** = the check threw) tagged with both `check:` and `severity:`
+(`error` | `warn`). **"Data quality check — error severity"** pages on the two integrity checks
+(`broken_integration_refs`, `reviews_missing_anonymized_at`); **"Data quality check — warn severity"** is
+the informational, non-paging companion for the eight hygiene checks (it carries the
+`@NOTIFICATION_CHANNEL_LOW_TBD` placeholder, and the daily email digest already delivers the rows). Before
+the split, a warn finding (e.g. a known duplicate candidate) paged identically to a broken-integration
+ref; the split lets warn checks be muted or tuned independently — the AECI-279 "tighten warn-level alerts"
+tuning. **"Data quality job failed"** (`outcome:failed`, no `notify_no_data`) catches a thrown check or a
+pre-run crash; **"Data quality job not running"** is the `{trigger:cron}` no-data liveness (~26h). None
+auto-repairs — the job is report-only.
 
 ## Browser search RUM (`aeci.search.query`, AECI-174)
 
@@ -567,7 +591,7 @@ pageviews incl. SPA navigations), `autocapture: false`, and
 `disable_external_dependency_loading: true` (so the CSP `script-src` stays untouched —
 only the two `connect-src` PostHog US hosts are needed).
 
-**Dimensions on every event.** `locale` + `theme` ride every event. For the 7 custom
+**Dimensions on every event.** `locale` + `theme` ride every event. For the 8 custom
 events they're merged into the event properties (`analyticsDimensions()` reads
 `<html lang>` / `data-theme`); for autocaptured pageviews they're registered as PostHog
 super-properties in the `loaded` callback (before the first pageview). `theme` is always
@@ -585,6 +609,13 @@ is stable when dark returns.
 | `claim_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
 | `correction_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
 | `external_link_clicked` | `[aecTrackExternalLink]` directive on detail-page outbound anchors | `destination`, `source` |
+| `mailing_list_signup` | `home/home-closing-cta.ts` (subscribe success, `created` only — re-submitting an existing email is not tracked) | `source` (`home_closing_cta`) |
+
+**Consent caveat — signups (AECI-326).** `mailing_list_signup` is consent-gated like every
+other event, so PostHog records only the **consented** signup funnel. The authoritative,
+consent-independent signup count is the `mailing_list` D1 table (fed by `POST /api/subscribe`),
+mirrored to Datadog as `aeci.email.send{template:landing-signup}` (the operator notification on
+each new insert). Read the PostHog event for funnel/attribution; read the table for the true count.
 
 **Documented deviation — claim/correction identifier.** §14.1 names `vendor_id` /
 `product_id`, but the request form holds only `(target_type, slug)` by design
@@ -604,6 +635,7 @@ Switching to EU is a code change (host default + the two CSP hosts).
 | `DD_API_KEY` | Worker runtime — logs **and** metric submission | Wrangler secret (both Workers, all envs) | Already provisioned (AECI-31). Metric submission needs only this key. |
 | `DD_APP_KEY` | **Operator only** — creating/reading dashboards + monitors | Local shell / CI secret at apply time | **Never** a Worker secret; never in `wrangler.jsonc` / `.dev.vars`. |
 | `DD_SITE` | both | Wrangler `vars` | `us5.datadoghq.com`. The metrics host is `api.{DD_SITE}`. |
+| `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` | `apps/web` **browser RUM** (client-exposed) | Wrangler secret on the **web Worker only**, CI-pushed from the shared un-suffixed `DD_APPLICATION_ID` / `DD_CLIENT_TOKEN` GH secrets | AECI-326. The single `aeci` RUM app on us5; the per-env `env` field separates envs, so one pair is reused everywhere (like `DATADOG_API_KEY`). Absent → no `window.__AECI_DD__`, so RUM — including Core Web Vitals — no-ops (fail-open). |
 | `POSTHOG_KEY` | `apps/web` browser (client-exposed project key) | Wrangler secret on the **web Worker only**, CI-pushed from `POSTHOG_KEY_{STAGING,PRODUCTION}` | AECI-239. Publishable; stored as a secret only to keep it out of git. Absent → analytics no-ops (fail-open). |
 | `POSTHOG_HOST` | `apps/web` browser | Wrangler `vars` (web Worker, per env) | `https://us.i.posthog.com`. Defaulted in code when unset. |
 

@@ -2,10 +2,11 @@ import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SubscribeSubmit } from '@aeci/shared';
 
+import { Analytics } from '../../analytics/analytics';
 import { MailingListSignup } from './mailing-list-signup';
 
 /** Macrotask boundary — drains the async `validateStandardSchema` validation
@@ -15,13 +16,21 @@ function settle(): Promise<void> {
 }
 
 function setup() {
+  // Fake Analytics: spy on the AECI-326 signup event and avoid the real service's
+  // Router/consent dependencies (it's `providedIn: 'root'`).
+  const analytics = { mailingListSignup: vi.fn() };
   TestBed.configureTestingModule({
-    providers: [provideZonelessChangeDetection(), provideHttpClient(), provideHttpClientTesting()],
+    providers: [
+      provideZonelessChangeDetection(),
+      provideHttpClient(),
+      provideHttpClientTesting(),
+      { provide: Analytics, useValue: analytics },
+    ],
   });
   const fixture = TestBed.createComponent(MailingListSignup);
   fixture.detectChanges();
   const httpMock = TestBed.inject(HttpTestingController);
-  return { fixture, httpMock, el: fixture.nativeElement as HTMLElement };
+  return { fixture, httpMock, analytics, el: fixture.nativeElement as HTMLElement };
 }
 
 function typeEmail(fixture: ComponentFixture<unknown>, value: string) {
@@ -88,7 +97,7 @@ describe('MailingListSignup', () => {
       configurable: true,
     });
 
-    const { fixture, el, httpMock } = setup();
+    const { fixture, el, httpMock, analytics } = setup();
     typeEmail(fixture, 'pm@example.com');
     await settle();
     fixture.detectChanges();
@@ -107,6 +116,9 @@ describe('MailingListSignup', () => {
     await settle();
     fixture.detectChanges();
     expect(el.querySelector('[role="status"]')?.textContent).toContain("You're on the list");
+    // AECI-326: a genuine new signup fires the tracked PostHog event with the
+    // default band source (the home wrapper overrides it to `home_closing_cta`).
+    expect(analytics.mailingListSignup).toHaveBeenCalledWith({ source: 'mailing_list_band' });
 
     // Confirmed state: the button flips to "Subscribed" and is disabled, and the
     // inline "enter a valid email" error must NOT reappear. Regression guard:
@@ -142,8 +154,8 @@ describe('MailingListSignup', () => {
     expect(el.querySelector('[role="status"]')?.textContent?.trim()).toBe('');
   });
 
-  it('reports an already-listed email (created: false) distinctly', async () => {
-    const { fixture, el, httpMock } = setup();
+  it('reports an already-listed email (created: false) distinctly and fires no signup event', async () => {
+    const { fixture, el, httpMock, analytics } = setup();
     typeEmail(fixture, 'dupe@example.com');
     await settle();
     fixture.detectChanges();
@@ -155,6 +167,8 @@ describe('MailingListSignup', () => {
     await settle();
     fixture.detectChanges();
     expect(el.querySelector('[role="status"]')?.textContent).toContain('already on the list');
+    // AECI-326: re-submitting an existing email is not a new signup.
+    expect(analytics.mailingListSignup).not.toHaveBeenCalled();
   });
 
   it('shows a retryable error notice and keeps submit enabled when the POST fails', async () => {

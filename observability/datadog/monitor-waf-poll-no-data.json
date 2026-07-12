@@ -1,0 +1,15 @@
+{
+  "name": "AECi — WAF poll not running (no successful hourly poll)",
+  "type": "query alert",
+  "query": "sum(last_3h):sum:aeci.waf.poll{outcome:ok,trigger:cron,env:production}.as_count() < 1",
+  "message": "The hourly WAF firewall-event poll has produced no successful run in 3h (AECI-262 / §15.1, `apps/api/src/scheduled.ts` `runWafMetricsJob`, `WAF_CRON='0 * * * *'`). A healthy poll emits `aeci.waf.poll{outcome:ok,trigger:cron}` every hour even when the hour was quiet (no mitigations) — so a silent `outcome:ok` series means the cron is not running and the zone's WAF blocks/challenges are going unmeasured, with no page-level symptom. This is the liveness companion to 'AECi — WAF rate-limit / challenge spike' (which catches attack spikes but deliberately has NO no-data, since a quiet hour legitimately emits no `aeci.waf.ratelimit.blocked`). It relies on notify_no_data, so the `outcome:ok` scope is load-bearing — do NOT point it at `outcome:failed` or `outcome:skipped_no_creds`.\n\nFirst checks: (1) confirm `CF_ANALYTICS_API_TOKEN` is still set for the env (a rotated/expired token flips the poll to `outcome:skipped_no_creds` or `outcome:failed` — check the `aeci.waf.poll` breakdown by `outcome`); (2) confirm the Worker's cron triggers are deployed (`apps/api/wrangler.jsonc` production `triggers`); (3) check Datadog logs `service:aeci-api source:waf-metrics-cron` for the last run. The 3h window tolerates ~2 missed hours before firing.\n\nRunbook: https://github.com/the-wbs-project/aec-integrations/blob/main/docs/RUNBOOKS.md#waf-rate-limit--challenge-spike\n\n@NOTIFICATION_CHANNEL_TBD",
+  "tags": ["app:aeci", "service:aeci-api", "phase:8", "managed-by:aeci-279"],
+  "options": {
+    "thresholds": { "critical": 1 },
+    "notify_no_data": true,
+    "no_data_timeframe": 180,
+    "renotify_interval": 0,
+    "include_tags": true,
+    "evaluation_delay": 300
+  }
+}

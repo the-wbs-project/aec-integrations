@@ -11,7 +11,8 @@ import { HomeFeedbackDialog } from './home-feedback-dialog';
  * directory + detail pages): it projects the home-only "suggest a tool / share
  * feedback" entry (`HomeFeedbackDialog` → `POST /api/feedback`) into the band's
  * trailing content slot. The email signup itself (`POST /api/subscribe`, the Signal
- * Form, the cache-neutral contract) now lives in the shared band.
+ * Form, the cache-neutral contract, and the AECI-326 conversion event) now lives in
+ * the shared band; the home instance tags its signups `source: 'home_closing_cta'`.
  *
  * The feedback dialog is `@defer`-loaded on the first "Suggest a tool" click, so
  * BrnDialog + the CDK overlay + the feedback form stay out of the home's initial
@@ -23,7 +24,7 @@ import { HomeFeedbackDialog } from './home-feedback-dialog';
   host: { class: 'block' },
   imports: [MailingListSignup, HomeFeedbackDialog],
   template: `
-    <aec-mailing-list-signup>
+    <aec-mailing-list-signup source="home_closing_cta">
       <p class="mt-4 text-sm text-(--text-secondary)">
         <span i18n="@@home.cta.feedback.lead">Think we're missing a tool?</span>
         <button
