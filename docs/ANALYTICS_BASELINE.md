@@ -15,7 +15,7 @@ marketing produces **before** we produce it.
 | **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired from `home/home-closing-cta.ts` on a genuine new subscribe (AECI-326) | Built (this change); live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source: home_closing_cta`. |
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. Read this for the number; read PostHog for funnel/attribution. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
-| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Write-only today (no reporting endpoint); query D1 directly for entry-page counts. |
+| **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Write-only today (no reporting endpoint); query D1 directly for entry-page counts. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. |
 
 ### Provisioning dependency (why prod was dark)
 
@@ -43,6 +43,16 @@ live once the GitHub secret *values* are set** (see [`OBSERVABILITY.md` → Cred
 
 Re-read and update this snapshot ~1 week after the analytics secrets are provisioned (first real
 numbers), and again at launch.
+
+> **AECI-280 addendum (2026-07-12).** The server-side `page_views` D1 table is **not** nil — it holds
+> 4,917 rows (3,237 in the last 7 days; 646 product-page views across 124 products) since 2026-06-23.
+> But `cf_bot_score` is **null on every row** (Cloudflare **Pro** exposes no bot score), so this volume
+> is *unclassified*: an unknown — pre-marketing, likely large — share is bots / crawlers / synthetic
+> monitoring, not human demand. **PostHog** (still dark until `POSTHOG_KEY_PRODUCTION` is set) therefore
+> remains the signal for real human traffic + funnel; AECI-280 added a prod preflight nudge for that
+> secret in `promote-to-prod.yml` and it also feeds the deferred trending PostHog join. The pull was
+> taken to tune the home **trending** card — see [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
+> (2026-07-12 entry) and the `TRENDING_MIN_VIEWS` floor (`POST_LAUNCH_MONITORING.md` §3).
 
 ## How to read the numbers (weekly, going forward)
 

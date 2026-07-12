@@ -258,9 +258,16 @@ log carries the `reason`.
 inserts one `page_views` row via `ctx.waitUntil()`. A failing insert is **user-invisible** (the 204
 already went out) — but `page_views` is the **only** source for `home.trending_products`, so a
 sustained insert regression silently **zeroes trending** at the next 07:00 UTC daily compute. This
-monitor exists to surface the regression *before* the home page goes blank. (Distinct from "Home
+monitor exists to surface the regression *before* the home page changes. (Distinct from "Home
 stats compute failed": there the compute job breaks; here the upstream data the compute reads stops
 arriving.)
+
+Since AECI-280 the home never goes truly *blank*: an empty `home.trending_products` (whether from a
+write regression **or** simply because no product cleared the `TRENDING_MIN_VIEWS` floor — currently 3 —
+in a low-traffic window) falls back to the "Recently added products" grid. That fallback is by design,
+but it also **masks a write regression visually** — which is exactly why this write-rate metric, not the
+home's appearance, is the alerting signal. Corollary when triaging: a short or empty trending card is
+**not** on its own evidence of a page-views regression; confirm against `aeci.pageviews.write{outcome:failed}`.
 
 **First checks**
 

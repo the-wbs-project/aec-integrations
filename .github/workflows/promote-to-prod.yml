@@ -180,6 +180,11 @@ jobs:
           ALGOLIA_SEARCH_KEY: ${{ secrets.ALGOLIA_SEARCH_KEY }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           ANTHROPIC_API_KEY_PRODUCTION: ${{ secrets.ANTHROPIC_API_KEY_PRODUCTION }}
+          # AECI-280: POSTHOG_KEY_PRODUCTION (per-env suffixed) is pushed to the web
+          # Worker as POSTHOG_KEY by the step below — recommended/fail-open (absent →
+          # client analytics no-ops, no window.__AECI_POSTHOG__). Mapped here so the
+          # preflight VALUE check is real (parity with promote-to-demo.yml).
+          POSTHOG_KEY_PRODUCTION: ${{ secrets.POSTHOG_KEY_PRODUCTION }}
           # These four are launch-only recommended secrets. They MUST be mapped
           # here (not just named in RECOMMENDED_SECRETS) — require-secrets.sh checks
           # the VALUE of each env var, so an unmapped name always reads empty and
@@ -212,8 +217,12 @@ jobs:
           # ping is a fail-open no-op without both creds, never blocking a promote.
           # AECI-262: CF_ANALYTICS_API_TOKEN (single shared, un-suffixed) backs the hourly WAF
           # firewall-event poll — recommended/fail-safe (absent → the poll no-ops
-          # outcome:skipped_no_creds), never a launch-critical surface.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN'
+          # outcome:skipped_no_creds), never a launch-critical surface. AECI-280:
+          # POSTHOG_KEY_PRODUCTION backs the web Worker's client analytics — recommended
+          # (warn-and-skip; absent → PostHog no-ops/fail-open), never blocking a promote.
+          # It also feeds the deferred trending PostHog join, so it is the one secret to
+          # set for the AECI-280 ~30d follow-up to have data.
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------

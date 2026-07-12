@@ -8,13 +8,16 @@ type TrendingMode = 'trending' | 'recently-added' | 'empty';
 
 /**
  * AECI-185 (Phase 4.10) — the home "Trending products this week" module: the top
- * 5 by `page_views` (`trending_products` from `HomeStatsResponse`), rendered on
- * the shipped `ProductCardGrid` broken grid (the home's single reuse of the
- * catalog's signature grid, per `docs/design/home-direction.md`). Presentational
- * only — the 4.11 assembly issue (AECI-186) wires the resolver.
+ * 5 by `page_views` (`trending_products` from `HomeStatsResponse`; each with at
+ * least `TRENDING_MIN_VIEWS` views in the window — the AECI-280 floor that keeps
+ * 1–2-view noise from being called "trending"), rendered on the shipped
+ * `ProductCardGrid` broken grid (the home's single reuse of the catalog's signature
+ * grid, per `docs/design/home-direction.md`). Presentational only — the 4.11
+ * assembly issue (AECI-186) wires the resolver.
  *
  * Trending is `page_views`-based in Stage 1 (PostHog deferred to Phase 7), so
- * pre-launch it is expected-empty. Rather than show a dead module, an empty
+ * pre-launch it is expected-empty — and post-launch it is empty whenever no product
+ * clears the min-views floor in the window. Rather than show a dead module, an empty
  * `trending_products` **falls back to `recently_added_products`** (Chris's call on
  * AECI-185) with a truthful "Recently added products" heading + the grid's default
  * "Recently added" eyebrow — we never label recently-added products "trending".

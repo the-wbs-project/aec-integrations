@@ -113,6 +113,24 @@ in [`OBSERVABILITY.md`](./OBSERVABILITY.md#monitors).
 | WAF rate-limit spike | > 500 / 15m | set once baseline mitigation volume is known |
 | Data-quality check (warn) | any > 0, **non-paging** (AECI-279) | mute/relax individual warn checks that prove noisy (e.g. known duplicate candidates) |
 
+### Home stats-card content tunables (AECI-280 / Phase 8.2)
+
+Unlike the monitors above, these are **compute constants** in `apps/api/src/lib/home-stats.ts` — the
+source/weighting knobs for the home "Trending products this week" card. Change the constant and ship via a
+normal deploy/promote; the daily `0 7 * * *` cron **and** every successful `POST /api/promote` recompute
+`home.trending_products`. Values were set from the **2026-07-12 prod traffic pull** (see
+[`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)); revisit against ~30 days of traffic and
+once the PostHog join lands.
+
+| Constant | Current | Retune signal |
+|---|---|---|
+| `TRENDING_WINDOW_DAYS` | 7 | validated (7d had 646 product-page views across 124 products); widen only if trending routinely under-fills at steady state |
+| `TRENDING_LIMIT` | 5 | validated (top-5 well-separated: 17/17/17/12/12); raising it also requires bumping the `home.trending_products` Zod `.max(5)` cap in `@aeci/shared` **and** the web fallback `.slice(0, 5)` |
+| `TRENDING_MIN_VIEWS` | 3 | the honesty floor + the **only** bot guard (CF Pro has no bot score, so `PAGE_VIEWS_MIN_BOT_SCORE` is inert). Inert at healthy traffic; raise if bots/self-views inflate low-traffic windows, lower if legit low-traffic products get over-suppressed |
+
+Deferred to the AECI-280 ~30d follow-up: the PostHog-join weighting + recency decay, and the
+card-resonance/swap review once PostHog + RUM have real volume.
+
 ---
 
 ## 4. Triage → ticket loop

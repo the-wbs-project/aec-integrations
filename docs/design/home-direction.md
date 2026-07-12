@@ -156,7 +156,10 @@ Avoid three identical card matrices stacked (DESIGN.md "no identical card grids"
 - **Trending products this week:** the shipped **`ProductCardGrid` broken grid** — a wide featured
   lead on a Bone (`--accent-warm`) band (eyebrow "Most viewed this week") + uniform tiles for the
   rest. This is the home's single reuse of the catalog's signature broken grid, which is what ties
-  the home to `/products` visually.
+  the home to `/products` visually. Source is `home.trending_products` — the top ≤5 products by
+  `page_views` in the last 7 days that clear the `TRENDING_MIN_VIEWS` floor (currently 3; AECI-280),
+  so a 1–2-view product never appears here; when nothing clears the floor the section falls back to
+  recently-added (see Empty state).
 
 ## Both themes
 
@@ -173,7 +176,8 @@ At launch the cache is sparse, so the populated case may not exist. Required emp
 - **Most-active-category** null: a non-link card reading "No category data yet".
 - **Recently added** empty: a bordered note, "No integrations added yet. The first integrations land
   at launch." (No "vendor-verified" — nothing is dual-vendor-verified at Stage 1; §4.2.)
-- **Trending** empty: **fall back to `recently_added_products`** (AECI-185 decision) — render the
+- **Trending** empty (pre-launch, or post-launch when no product clears the `TRENDING_MIN_VIEWS`
+  floor): **fall back to `recently_added_products`** (AECI-185 decision) — render the
   same broken grid under a truthful "Recently added products" heading + the grid's default
   "Recently added" eyebrow (capped at 5), never labelling recently-added products "trending". Only
   when *both* `trending_products` and `recently_added_products` are empty does the section show the

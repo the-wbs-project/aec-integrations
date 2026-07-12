@@ -59,6 +59,45 @@ nil-to-negligible. The value is a known zero to accrue against.
 
 ## Entries
 
+## 2026-07-12 — AECI-280 trending data pull (week 1, stats-pipeline slice)
+
+Scope: a **targeted read of the `stats_cache` + `page_views` pipeline** for AECI-280 (Phase 8.2 — tune
+the home trending card on real traffic), not a full weekly monitoring sweep. Read-only prod-D1 SELECTs
+(`wrangler d1 execute aeci-app-production --env production --remote`).
+
+**Prod SHA / deploy:** unchanged from the launch cutover (`8348297…`, 2026-07-05); measurement only.
+
+**Traffic / signups (server `page_views`, consent-independent):**
+- **4,917** total rows since 2026-06-23; **3,237** in the last 7 days; **646** product-page views in 7d.
+- **124** distinct products viewed in 7d — essentially the whole catalog (`total_products` = 124).
+- ⚠️ **`cf_bot_score` is null on 100% of rows** — Cloudflare **Pro** provides no bot score, so
+  `PAGE_VIEWS_MIN_BOT_SCORE` is inert and the volume is **unclassified** (bot / crawler / synthetic vs
+  human). Treat these as *pipeline-health* numbers, not human-demand numbers; PostHog (dark) is still the
+  human-traffic signal. See `ANALYTICS_BASELINE.md` (AECI-280 addendum).
+
+**`stats_cache` freshness / values** (computed `2026-07-12T07:00:52Z` — today's `0 7 * * *` cron, fresh):
+- `total_integrations` **385** · `integrations_added_30d` **296** · `total_products` **124**
+- `most_integrated_product` **Procore Project Management** · `most_active_category` **Construction Management**
+- `trending_products` populated (top: **ServiceTitan**, 17 views) · `recently_added_products` populated.
+  Pipeline healthy end-to-end (cron → `stats_cache` → `/api/stats/home`).
+
+**Trending validation (AECI-280 AC):**
+- 7-day per-product distribution: top-5 = **17 / 17 / 17 / 12 / 12** views (clear, well-separated).
+- ≥2 views: 115 of 124 products · ≥3: 92 · ≥5: 66 · exactly 1 view: only 9.
+- **Window (7d) and top-N (5) are validated — left unchanged.** Added a `TRENDING_MIN_VIEWS = 3`
+  honesty floor (the only bot guard, given no CF bot score). **Inert at current traffic** (top-5 clear it
+  4–5×); it exists to keep "trending" honest in low-traffic windows / after a page-views regression, where
+  trending falls back to recently-added.
+
+**Regressions / tickets filed:** none. Follow-up proposed (not filed): ~30d re-evaluation of window/top-N +
+PostHog-join weighting + card-resonance review.
+
+**Threshold tuning:** documented the three trending constants as launch tunables in
+`POST_LAUNCH_MONITORING.md` §3 (new "Home stats-card content tunables" table).
+
+**Actions / follow-ups:** set `POSTHOG_KEY_PRODUCTION` (still the blocker for human analytics **and** the
+deferred trending PostHog join); re-read this pull at the ~30-day mark.
+
 ## 2026-07-11 — pre-launch baseline (week 0)
 
 **Prod SHA / deploy:** `8348297d1b549393bd8f75d85974b2c23ab01003` · `2026-07-05T18:10:27Z` (the apex/www
