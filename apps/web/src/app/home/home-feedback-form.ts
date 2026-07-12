@@ -10,7 +10,7 @@ import { FormField, form, submit, validateStandardSchema } from '@angular/forms/
 
 import { FeedbackSubmitSchema, type FeedbackSubmit, type SubscribeSubmit } from '@aeci/shared';
 
-import { LandingApi, buildAttribution } from './landing-api';
+import { LandingApi, buildAttribution } from '../shared/landing/landing-api';
 
 /** Standard-schema-validated subset of the feedback form. Only `features` /
  *  `tools` live in the Signal Forms model so `FeedbackSubmitSchema`'s `.refine`

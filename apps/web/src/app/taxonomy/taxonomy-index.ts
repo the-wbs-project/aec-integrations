@@ -6,6 +6,7 @@ import { map } from 'rxjs';
 import type { CategoriesListResponse, TaxonomyTermWithCount } from '@aeci/shared';
 
 import { KIND_PATH_SEGMENT } from '../core/api/taxonomy';
+import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
 
 /**
@@ -25,7 +26,7 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
  */
 @Component({
   selector: 'aec-taxonomy-index',
-  imports: [RouterLink],
+  imports: [RouterLink, MailingListSignup],
   template: `
     <div class="bg-(--surface-base) text-(--text-primary)">
       <div class="mx-auto w-full max-w-7xl px-6 py-8 md:px-8 md:py-12">
@@ -89,6 +90,8 @@ import type { TaxonomyKind } from '../shared/taxonomy-badge/taxonomy-badge';
         }
       </div>
     </div>
+
+    <aec-mailing-list-signup />
   `,
 })
 export class TaxonomyIndexPage {

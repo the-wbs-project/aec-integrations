@@ -14,6 +14,7 @@ import { RequestTrigger } from '../requests/request-trigger';
 import { ReviewCta } from '../reviews/review-cta';
 import { ReviewStars } from '../reviews/review-stars';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
@@ -60,6 +61,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     DetailLayout,
     ExternalLinkTracker,
     LogoOrInitial,
+    MailingListSignup,
     NotFound,
     ProductIntegrationRow,
     ProductReviews,
@@ -503,6 +505,8 @@ import { ProductUsefulnessSection } from './product-usefulness';
           </section>
         </div>
       </aec-detail-layout>
+
+      <aec-mailing-list-signup />
 
       <!-- In-place claim/correction drawer (AECI-128); opened by the
            aecRequestTrigger anchors above. Renders nothing until opened. -->

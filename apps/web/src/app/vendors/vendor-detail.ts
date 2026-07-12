@@ -11,6 +11,7 @@ import { NotFound } from '../not-found/not-found';
 import { RequestDrawer } from '../requests/request-drawer';
 import { RequestTrigger } from '../requests/request-trigger';
 import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
+import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 
 import { VendorProductRow } from './vendor-product-row';
 
@@ -60,6 +61,7 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
     DetailLayout,
     ExternalLinkTracker,
     LogoOrInitial,
+    MailingListSignup,
     NotFound,
     RequestDrawer,
     RequestTrigger,
@@ -438,6 +440,8 @@ type SocialKey = 'linkedin' | 'x' | 'youtube' | 'facebook' | 'instagram';
           </section>
         </div>
       </aec-detail-layout>
+
+      <aec-mailing-list-signup />
 
       <!-- In-place claim/correction drawer (AECI-128); opened by the
            aecRequestTrigger anchors above. Renders nothing until opened. -->

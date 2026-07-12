@@ -62,6 +62,9 @@ export type EmailTemplate =
   | 'review-approved'
   | 'review-rejected'
   | 'account-deleted'
+  // Mailing-list welcome — the subscriber's first touch (AECI-327). Recipient is
+  // the new subscriber; sent by `POST /api/subscribe` on a real insert.
+  | 'mailing-list-welcome'
   | 'stuck-request-alert'
   // Operator lead-capture notifications — retire the `apps/landing` Worker's own
   // Resend send (AECI-247/277). Recipient is `ADMIN_ALERT_EMAIL`.
@@ -79,6 +82,8 @@ interface SendInput {
   text: string;
   html?: string;
   template: EmailTemplate;
+  /** Extra MIME headers (e.g. `List-Unsubscribe`) forwarded to Resend verbatim. */
+  headers?: Record<string, string>;
 }
 
 /**
@@ -111,6 +116,7 @@ export async function sendTransactionalEmail(
         subject: input.subject,
         text: input.text,
         ...(input.html ? { html: input.html } : {}),
+        ...(input.headers ? { headers: input.headers } : {}),
       }),
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
@@ -230,6 +236,70 @@ export function sendAccountDeletionEmail(
     subject: 'Your AEC Integrations account has been deleted',
     text: toText(paragraphs),
     html: toHtml(paragraphs),
+  });
+}
+
+/** Derive the `unsubscribe@<sender-domain>` mailbox from `EMAIL_FROM` (e.g.
+ *  `AEC Integrations <notifications@aecintegrations.com>` → `unsubscribe@aecintegrations.com`).
+ *  Null when the sender has no parseable domain, so the header is simply omitted.
+ *  The address must be routed (Cloudflare Email Routing) for opt-outs to be actioned. */
+function unsubscribeMailto(env: Env): string | null {
+  const domain = env.EMAIL_FROM?.match(/@([A-Za-z0-9.-]+)/)?.[1];
+  return domain ? `unsubscribe@${domain}` : null;
+}
+
+/** Mailing-list welcome (AECI-327) — the subscriber's first touch, sent by
+ *  `POST /api/subscribe` on a real insert (not the idempotent already-listed
+ *  no-op). Recipient is the new subscriber. Links to the directory when
+ *  `PUBLIC_SITE_URL` is configured, otherwise the link is omitted (never a dead
+ *  host). Carries a `List-Unsubscribe` mailto header (deliverability + one-click
+ *  opt-out UI in Gmail/Apple Mail; keeps this "updates" list off the spam path).
+ *  Voice per PRODUCT.md: sentence case, no em dashes, no "verification is live"
+ *  claim, no pricing. Draft copy — marketing owns final wording. */
+export function sendMailingListWelcomeEmail(
+  c: EmailContext,
+  opts: { to: string | undefined },
+): Promise<EmailOutcome> {
+  const base = siteUrl(c.env);
+  const browseUrl = base ? `${base}/products` : null;
+  const intro =
+    'Thanks for signing up. AEC Integrations is an independent directory and review platform for the software used across architecture, engineering, and construction. No vendor marketing, no pay-for-placement.';
+  const what =
+    'We organize tools by workflow stage and discipline, the way AEC actually works, not by generic software categories. And we keep product quality separate from onboarding experience, so you can judge software on what matters to your projects.';
+  const browseLead =
+    "The best next step is to browse the directory: see how tools connect, and where they don't, before you commit.";
+  const fallback = "We'll also email you as new tools and reviews land in the directory.";
+  const unsub = unsubscribeMailto(c.env);
+  const unsubText = unsub
+    ? `To stop these updates, email ${unsub} with the subject unsubscribe.`
+    : null;
+  const unsubHtml = unsub
+    ? `To stop these updates, <a href="mailto:${escapeHtml(unsub)}?subject=unsubscribe">unsubscribe</a>.`
+    : null;
+  const textParagraphs = [
+    intro,
+    what,
+    browseUrl ? `${browseLead} Browse the directory: ${browseUrl}` : fallback,
+    ...(unsubText ? [unsubText] : []),
+  ];
+  const htmlParagraphs = [
+    intro,
+    what,
+    browseUrl
+      ? `${browseLead} <a href="${escapeHtml(browseUrl)}">Browse the directory</a>`
+      : fallback,
+    ...(unsubHtml ? [unsubHtml] : []),
+  ];
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'mailing-list-welcome',
+    subject: 'Welcome to AEC Integrations',
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+    // RFC 2369 List-Unsubscribe (mailto). One-click POST (RFC 8058) is intentionally
+    // omitted: it needs a public unsubscribe endpoint + token and is only required
+    // of bulk senders (5000+/day), which this pre-launch list is not.
+    ...(unsub ? { headers: { 'List-Unsubscribe': `<mailto:${unsub}?subject=unsubscribe>` } } : {}),
   });
 }
 
