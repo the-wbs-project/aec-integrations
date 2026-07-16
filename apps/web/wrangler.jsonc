@@ -32,11 +32,13 @@
  *   DD_API_KEY          server-only; Datadog Logs HTTP intake
  *   DD_SITE             public; defaults to datadoghq.com when unset
  *
- * Cache-tag purge (AECI-56 / Phase 2.10):
+ * Cache purge (AECI-56 / Phase 2.10; native Workers Cache since WC-6 / AECI-320):
  *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents
- *   CF_PURGE_API_TOKEN  secret; CF API token, scoped to Zone.Cache Purge on
- *                       aecintegrations.com ONLY (docs/CACHE_STRATEGY.md §5)
- *   CF_ZONE_ID          public var; CF zone the purge call targets
+ *   CF_PURGE_API_TOKEN  secret; legacy CF API token (Zone.Cache Purge on
+ *                       aecintegrations.com ONLY). No longer read by /admin/purge
+ *                       after WC-6; pruned in WC-10 (AECI-324)
+ *   CF_ZONE_ID          public var; formerly the purge target zone. Unused on
+ *                       this Worker after WC-6; pruned in WC-10 (AECI-324)
  *
  * Algolia search (AECI-134) — secrets, NOT vars (values stay out of git). Both
  * are client-exposed (rendered into HTML by injectAlgoliaBootstrap), but the
@@ -60,8 +62,8 @@
  *                       with `Invalid API key`. The service-role key is NEVER set
  *                       on any Worker (AUTH_AND_RLS.md §3).
  *
- * Push secrets per env (`wrangler secret put`); set `CF_ZONE_ID` under the
- * per-env `vars` block once the production / preview zone IDs are known.
+ * Push secrets per env (`wrangler secret put`). (`CF_ZONE_ID` / `CF_PURGE_API_TOKEN`
+ * are unused on this Worker after WC-6 and are pruned in WC-10 (AECI-324).)
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -91,8 +93,9 @@
       // `caches.default` match/put pipeline in `server-runtime.ts`. Set per-env,
       // NEVER at top level (so a bare `wrangler dev` stays uncached). Enabled on
       // preview + staging only; `demo`/`production` stay gated until WC-4 (key
-      // normalization), WC-5 (queue purge), WC-6 (native /admin/purge), and WC-8
-      // (noindex-on-HIT) land (ADR 0020 §1). `cross_version_cache` left at the
+      // normalization), WC-5 (queue purge), and WC-8 (noindex-on-HIT) land —
+      // WC-6 (native /admin/purge) landed in AECI-320 (ADR 0020 §1).
+      // `cross_version_cache` left at the
       // default (per-version isolation ⇒ each deploy cold-starts the cache, so a
       // template change is live on the first post-deploy request — ADR 0020 §5).
       "cache": { "enabled": true },
@@ -139,7 +142,8 @@
       "observability": { "enabled": true },
       // WC-3 (AECI-317) — native Workers Cache. See the preview env note above;
       // staging is the pre-prod validation tier for the "preview → staging first"
-      // rollout (ADR 0020 §1). demo/production remain uncached until WC-4/5/6/8.
+      // rollout (ADR 0020 §1). demo/production remain uncached until WC-4/5/8
+      // (WC-6 native /admin/purge landed in AECI-320).
       "cache": { "enabled": true },
       "routes": [
         {
