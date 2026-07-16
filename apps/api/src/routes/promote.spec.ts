@@ -5,12 +5,13 @@
  * integration/join/audit rows + the post-batch count recompute.
  *
  * The post-commit Algolia upsert is injected as a seam (its transport is
- * `algolia-sync.spec`'s job); the cache purge + `cacheTagsForPromote` are
- * unchanged (DB-independent). The 409/500 unique-violation paths inject a
+ * `algolia-sync.spec`'s job); the cache-purge enqueue (WC-5: onto a mock
+ * `CACHE_PURGE_QUEUE`) + `cacheTagsForPromote` are DB-independent. The 409/500
+ * unique-violation paths inject a
  * `db.batch` that throws the SQLite error the DB would raise.
  */
 
-import type { PromoteResponse } from '@aeci/shared';
+import type { CachePurgeMessage, PromoteResponse } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -826,38 +827,35 @@ describe('createPromoteHandler — claims ingest (AECI-297)', () => {
   });
 });
 
-describe('cache purge after promote (AECI-105)', () => {
-  const CF_PURGE_URL = 'https://api.cloudflare.com/client/v4/zones/zone-1/purge_cache';
-  const purgeEnv: Env = { ...baseEnv, CF_PURGE_API_TOKEN: 'cf-token', CF_ZONE_ID: 'zone-1' };
-
-  async function promoteWithPurge(body: unknown, fetchMock: ReturnType<typeof vi.fn>) {
-    vi.stubGlobal('fetch', fetchMock);
+describe('cache purge after promote (AECI-105 → WC-5 / AECI-319)', () => {
+  /** Run a promote with a mock `CACHE_PURGE_QUEUE` producer binding; drain the
+   *  post-commit `waitUntil` tasks so the enqueue is observable. Returns the `send`
+   *  spy (the enqueued `CachePurgeMessage`s). */
+  async function promoteWithPurge(body: unknown, send = vi.fn().mockResolvedValue(undefined)) {
+    const env: Env = {
+      ...baseEnv,
+      CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
+    };
     const execCtx = fakeExecutionContext();
-    const res = await buildApp().request('/api/promote', post(body), purgeEnv, execCtx);
+    const res = await buildApp().request('/api/promote', post(body), env, execCtx);
     await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
-    return { res, execCtx };
+    return { res, execCtx, send };
   }
 
-  it('purges the expected tag set for a representative create', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
-    const { res, execCtx } = await promoteWithPurge(
-      {
-        vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
-        product: { ref: 'p1', name: 'Revit', categories: ['BIM'], audiences: ['Architecture'] },
-      },
-      fetchMock,
-    );
+  it('enqueues the expected tag set (source:promote) for a representative create', async () => {
+    const { res, execCtx, send } = await promoteWithPurge({
+      vendors: [{ ref: 'v1', companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit', categories: ['BIM'], audiences: ['Architecture'] },
+    });
 
     expect(res.status).toBe(200);
-    // Two post-commit tasks on a write: the cache purge + the AECI-305 home-stats
-    // refresh (a no-op seam here). Only the purge fetches, so `fetchMock` sees one call.
+    // Two post-commit tasks on a write: the purge enqueue + the AECI-305 home-stats
+    // refresh (a no-op seam here). Only the purge enqueues, so `send` sees one call.
     expect(execCtx.waitUntil).toHaveBeenCalledTimes(2);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(CF_PURGE_URL);
-    expect((init.headers as Record<string, string>).authorization).toBe('Bearer cf-token');
-    const sent = JSON.parse(init.body as string) as { tags: string[] };
-    expect(new Set(sent.tags)).toEqual(
+    expect(send).toHaveBeenCalledTimes(1);
+    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    expect(msg.source).toBe('promote');
+    expect(new Set(msg.tags)).toEqual(
       new Set([
         'product:revit',
         'index:products',
@@ -868,46 +866,39 @@ describe('cache purge after promote (AECI-105)', () => {
         'sitemap',
       ]),
     );
-    expect(sent.tags.some((tag) => tag.startsWith('route:'))).toBe(false);
+    expect(msg.tags?.some((tag) => tag.startsWith('route:'))).toBe(false);
   });
 
-  it('purges the pair tag for an integration carrying claims (AECI-297)', async () => {
+  it('enqueues the pair tag for an integration carrying claims (AECI-297)', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
     await seedDataObject(uuid(20), 'rfis', 'RFIs');
 
-    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
-    const { res } = await promoteWithPurge(
-      {
-        product: { ref: 'p1', name: 'Revit' },
-        integrations: [
-          {
-            ref: 'i1',
-            sourceProduct: { ref: 'p1' },
-            targetProduct: { supabaseId: target },
-            claims: [
-              {
-                dataObject: 'rfis',
-                direction: 'a_to_b',
-                attestations: [{ source: 'aeci', asserted: true }],
-              },
-            ],
-          },
-        ],
-      },
-      fetchMock,
-    );
+    const { res, send } = await promoteWithPurge({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [
+            {
+              dataObject: 'rfis',
+              direction: 'a_to_b',
+              attestations: [{ source: 'aeci', asserted: true }],
+            },
+          ],
+        },
+      ],
+    });
 
     expect(res.status).toBe(200);
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    const sent = JSON.parse(init.body as string) as { tags: string[] };
+    const msg = send.mock.calls[0][0] as CachePurgeMessage;
     // Alphabetically-first slug is the pair context: navisworks < revit.
-    expect(sent.tags).toContain('pair:navisworks__revit');
+    expect(msg.tags).toContain('pair:navisworks__revit');
   });
 
-  it('does not purge when CF credentials are absent (graceful no-op)', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+  it('does not enqueue when the queue binding is absent (graceful no-op)', async () => {
     const execCtx = fakeExecutionContext();
     const res = await buildApp().request(
       '/api/promote',
@@ -917,25 +908,15 @@ describe('cache purge after promote (AECI-105)', () => {
     );
     expect(res.status).toBe(200);
     // The AECI-305 home-stats refresh still schedules its waitUntil on a write, but
-    // with no CF creds the cache purge is skipped — so no fetch fires.
+    // with no queue binding the purge is skipped — only the one waitUntil fires.
     expect(execCtx.waitUntil).toHaveBeenCalledTimes(1);
-    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('still returns 200 when the purge call fails (never fails the promote)', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(new Response('{"errors":[{"message":"x"}]}', { status: 502 }));
-    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, fetchMock);
+  it('still returns 200 when the enqueue rejects (never fails the promote)', async () => {
+    const send = vi.fn().mockRejectedValue(new Error('queue unavailable'));
+    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, send);
     expect(res.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('still returns 200 when the purge fetch throws', async () => {
-    const fetchMock = vi.fn().mockRejectedValue(new Error('cf unreachable'));
-    const { res } = await promoteWithPurge({ product: { ref: 'p1', name: 'Revit' } }, fetchMock);
-    expect(res.status).toBe(200);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -1127,9 +1108,11 @@ describe('Google Indexing submission after promote (AECI-263)', () => {
   });
 });
 
-describe('home-stats refresh after promote (AECI-305)', () => {
-  const CF_PURGE_URL = 'https://api.cloudflare.com/client/v4/zones/zone-1/purge_cache';
-  const purgeEnv: Env = { ...baseEnv, CF_PURGE_API_TOKEN: 'cf-token', CF_ZONE_ID: 'zone-1' };
+describe('home-stats refresh after promote (AECI-305 → WC-5 / AECI-319)', () => {
+  /** An env carrying a mock `CACHE_PURGE_QUEUE` producer binding + its `send` spy. */
+  function purgeEnvWith(send: ReturnType<typeof vi.fn>): Env {
+    return { ...baseEnv, CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'] };
+  }
 
   // ── Seam wiring: scheduled iff the promote actually wrote rows ──────────────
   async function promoteWithSeam(body: unknown, refreshHomeStats: PromoteHomeStatsRefresh) {
@@ -1195,12 +1178,16 @@ describe('home-stats refresh after promote (AECI-305)', () => {
     } as unknown as Parameters<typeof refreshHomeStatsAfterPromote>[0];
   }
 
-  it('recomputes the home.* stats_cache keys and purges index:home when CF creds are present', async () => {
+  it('recomputes the home.* stats_cache keys, THEN enqueues the index:home purge', async () => {
     await seedProduct(uuid(1), 'revit', 'Revit', { integrationCount: 2 });
-    const fetchSpy = vi.fn().mockResolvedValue(new Response('{"success":true}', { status: 200 }));
-    vi.stubGlobal('fetch', fetchSpy);
+    // Capture the stats_cache row count at enqueue time to prove the load-bearing
+    // ordering: the recompute must have already landed when the purge is enqueued.
+    let statsRowsAtEnqueue = -1;
+    const send = vi.fn(async (_msg: CachePurgeMessage) => {
+      statsRowsAtEnqueue = (await t.db.select().from(statsCache)).length;
+    });
 
-    await refreshHomeStatsAfterPromote(fakeContext(purgeEnv), t.db);
+    await refreshHomeStatsAfterPromote(fakeContext(purgeEnvWith(send)), t.db);
 
     const cached = await t.db.select().from(statsCache);
     const byKey = new Map(cached.map((r) => [r.key, r.value]));
@@ -1209,37 +1196,30 @@ describe('home-stats refresh after promote (AECI-305)', () => {
     expect(byKey.has('home.total_integrations')).toBe(true);
 
     // …and only then is the home page purged, by exactly the tag the SSR route emits.
-    const purgeCalls = fetchSpy.mock.calls.filter(([url]) => url === CF_PURGE_URL);
-    expect(purgeCalls).toHaveLength(1);
-    const body = JSON.parse((purgeCalls[0]![1] as RequestInit).body as string) as {
-      tags: string[];
-    };
-    expect(body.tags).toEqual(['index:home']);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(statsRowsAtEnqueue).toBeGreaterThan(0);
+    expect(send.mock.calls[0][0]).toEqual({ tags: ['index:home'], source: 'promote' });
   });
 
-  it('recomputes the stats_cache but skips the purge when CF creds are absent', async () => {
+  it('recomputes the stats_cache but skips the enqueue when the queue is absent', async () => {
     await seedProduct(uuid(1), 'revit', 'Revit');
-    const fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
-    vi.stubGlobal('fetch', fetchSpy);
 
     await refreshHomeStatsAfterPromote(fakeContext(baseEnv), t.db);
 
     expect((await t.db.select().from(statsCache)).length).toBeGreaterThan(0);
-    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it('recomputes the stats_cache and never throws when the purge fetch rejects', async () => {
+  it('recomputes the stats_cache and never throws when the enqueue rejects', async () => {
     await seedProduct(uuid(1), 'revit', 'Revit');
-    const fetchSpy = vi.fn().mockRejectedValue(new Error('cf unreachable'));
-    vi.stubGlobal('fetch', fetchSpy);
+    const send = vi.fn().mockRejectedValue(new Error('queue unavailable'));
 
     // Must resolve (never reject) so the post-commit waitUntil can't turn into an
     // unhandled rejection — the recompute still lands.
     await expect(
-      refreshHomeStatsAfterPromote(fakeContext(purgeEnv), t.db),
+      refreshHomeStatsAfterPromote(fakeContext(purgeEnvWith(send)), t.db),
     ).resolves.toBeUndefined();
     expect((await t.db.select().from(statsCache)).length).toBeGreaterThan(0);
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 

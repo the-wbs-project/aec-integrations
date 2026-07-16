@@ -90,14 +90,19 @@
   // Workers Paid plan, and the CI CLOUDFLARE_API_TOKEN must carry the Queues edit
   // permission. See ADR 0013 and docs/environments.md.
   //
-  // AECI-105 / Option B: the promote handler purges edge-cache tags by calling
-  // Cloudflare DIRECTLY over HTTPS — there is NO `WEB` service binding back to the
-  // SSR Worker. The earlier web↔api cycle (api → web `POST /admin/purge`) was
-  // removed because the purge is just a stateless Cloudflare REST call; the API now
-  // holds its own scoped token. The SSR Worker's `POST /admin/purge` remains as the
-  // manual/incident + CI surface. See docs/adr/0010-promote-purges-cloudflare-directly.md.
-  // When CF_PURGE_API_TOKEN / CF_ZONE_ID are unset (local `pnpm dev:bound`, PR
-  // previews) promote no-ops the purge — expected, not a bug.
+  // AECI-105 → WC-5 (AECI-319): the promote handler and review moderation invalidate
+  // the SSR edge cache by ENQUEUEING onto the `aeci-cache-purge-{env}` queue (producer
+  // binding CACHE_PURGE_QUEUE, added to each env's `queues.producers` below); the SSR
+  // Worker consumes it and issues `ctx.cache.purge()`. This replaced the ADR 0010
+  // direct HTTPS `callCloudflarePurge` — that zone-level purge is INERT against native
+  // Workers Cache (`ctx.cache.purge()` is entrypoint-scoped, in a different Worker).
+  // There is still NO `WEB` service binding back to the SSR Worker; the coupling is
+  // async, via the queue (ADR 0020 §3). The SSR Worker's `POST /admin/purge` remains
+  // the manual/incident + CI surface (still on the HTTP transport until WC-6). When
+  // CACHE_PURGE_QUEUE is unbound (local `pnpm dev:bound`, PR previews) the producers
+  // no-op — expected, not a bug (no edge cache there). CF_ZONE_ID is KEPT (the AECI-262
+  // WAF poll still uses it); CF_PURGE_API_TOKEN is retired later in WC-10.
+  // See docs/adr/0020-workers-cache-and-queue-purge.md and docs/CACHE_STRATEGY.md §5.
   "workers_dev": false,
   // Smart Placement is intentionally NOT enabled. The app DB is Cloudflare D1,
   // reached through the native `DB` binding — D1 already routes to the Worker's
@@ -287,6 +292,9 @@
           { "queue": "aeci-stats-staging", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-staging", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-staging", "binding": "DATA_QUALITY_QUEUE" },
+          // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
+          // consumes `aeci-cache-purge-staging` (apps/web/wrangler.jsonc).
+          { "queue": "aeci-cache-purge-staging", "binding": "CACHE_PURGE_QUEUE" },
         ],
         "consumers": [
           {
@@ -390,6 +398,9 @@
           { "queue": "aeci-stats-demo", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-demo", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-demo", "binding": "DATA_QUALITY_QUEUE" },
+          // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
+          // consumes `aeci-cache-purge-demo` (apps/web/wrangler.jsonc).
+          { "queue": "aeci-cache-purge-demo", "binding": "CACHE_PURGE_QUEUE" },
         ],
         "consumers": [
           {
@@ -516,6 +527,9 @@
           { "queue": "aeci-stats-production", "binding": "STATS_QUEUE" },
           { "queue": "aeci-reconcile-production", "binding": "RECONCILE_QUEUE" },
           { "queue": "aeci-data-quality-production", "binding": "DATA_QUALITY_QUEUE" },
+          // WC-5 (AECI-319): cross-Worker cache-purge. Producer only — the SSR Worker
+          // consumes `aeci-cache-purge-production` (apps/web/wrangler.jsonc).
+          { "queue": "aeci-cache-purge-production", "binding": "CACHE_PURGE_QUEUE" },
         ],
         "consumers": [
           {

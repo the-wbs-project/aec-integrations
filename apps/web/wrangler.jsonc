@@ -91,8 +91,11 @@
       // `caches.default` match/put pipeline in `server-runtime.ts`. Set per-env,
       // NEVER at top level (so a bare `wrangler dev` stays uncached). Enabled on
       // preview + staging only; `demo`/`production` stay gated until WC-4 (key
-      // normalization), WC-5 (queue purge), WC-6 (native /admin/purge), and WC-8
-      // (noindex-on-HIT) land (ADR 0020 §1). `cross_version_cache` left at the
+      // normalization), WC-6 (native /admin/purge), and WC-8 (noindex-on-HIT) land —
+      // WC-5 (queue purge, AECI-319) is DONE: the cross-Worker purge queue consumer is
+      // wired per-env below (`queues.consumers`), and demo/production carry it ahead of
+      // the cache (it no-ops until `cache.enabled` flips). ADR 0020 §1/§3.
+      // `cross_version_cache` left at the
       // default (per-version isolation ⇒ each deploy cold-starts the cache, so a
       // template change is live on the first post-deploy request — ADR 0020 §5).
       "cache": { "enabled": true },
@@ -148,6 +151,20 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-staging" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue. The API Worker
+      // (producer) enqueues on promote/moderation; this Worker issues `ctx.cache.purge()`
+      // (ADR 0020 §3). Consumer only — no producer here. The queue is provisioned before
+      // this deploy by the idempotent `create_queue` step in deploy.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
     "demo": {
       "name": "aeci-web-demo",
@@ -175,6 +192,20 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-demo" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
+      // note). Registered here ahead of `cache.enabled` (still gated on WC-4/6/8): with
+      // no cache yet, the consumer no-ops each message (`outcome:no_cache`) and acks —
+      // fully wired for when WC-6/8 flip the cache on. Provisioned by promote-to-demo.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
     "production": {
       "name": "aeci-web-production",
@@ -219,6 +250,20 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-production" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
+      // note). Registered ahead of `cache.enabled` (still gated on WC-4/6/8): with no
+      // cache yet, the consumer no-ops each message (`outcome:no_cache`) and acks.
+      // Provisioned by promote-to-prod.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
   },
 }

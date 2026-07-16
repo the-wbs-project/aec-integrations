@@ -324,6 +324,9 @@ jobs:
           create_queue aeci-stats-production
           create_queue aeci-reconcile-production
           create_queue aeci-data-quality-production
+          # WC-5 (AECI-319): cross-Worker cache-purge queue. Producer = API Worker;
+          # consumer = SSR Worker (both deploy below), so it must exist first.
+          create_queue aeci-cache-purge-production
 
       # ADR 0016 / AECI-256: apply the app database's D1 schema to the production D1
       # (aeci-app-production) and reconcile the taxonomy reference data BEFORE the API

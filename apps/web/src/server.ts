@@ -20,7 +20,8 @@ import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
 import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
 import { injectHtmlLangDir } from './server-html-dir-inject';
-import { createApp, type SsrRenderer } from './server-runtime';
+import { createCachePurgeQueueHandler } from './server/cache-purge-queue';
+import { createApp, type SsrRenderer, type Bindings } from './server-runtime';
 import { injectSupabaseBootstrap } from './supabase-bootstrap-inject';
 
 // Re-exported until SSR data loaders begin parsing API responses against the
@@ -89,4 +90,14 @@ const app = createApp({
     return injected;
   },
 });
-export default app;
+
+// The SSR Worker gains a `queue()` handler alongside its Hono `fetch` (WC-5 / AECI-319).
+// The explicit arrow wrapper (not a bare `app.fetch` reference) keeps Hono's request
+// handling intact — mirrors the API Worker's export (`apps/api/src/index.ts`). The queue
+// consumer binding is registered per-env in `wrangler.jsonc` (staging/demo/production
+// only); a promote in the API Worker enqueues a purge and this consumer issues
+// `ctx.cache.purge()` (ADR 0020 §3). See `./server/cache-purge-queue`.
+export default {
+  fetch: (request: Request, env: Bindings, ctx: ExecutionContext) => app.fetch(request, env, ctx),
+  queue: createCachePurgeQueueHandler(),
+};
