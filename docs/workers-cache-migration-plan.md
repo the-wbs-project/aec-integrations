@@ -59,7 +59,7 @@ Today (Phase 2 design, `docs/CACHE_STRATEGY.md`) the SSR Worker **runs on every 
 - **Debug:** `Cf-Cache-Status` header (`HIT`/`MISS`/`EXPIRED`/`BYPASS`/`DYNAMIC`/`REVALIDATED`/`UPDATING`/`STALE`) + per-invocation cache-hit info in the Workers observability dashboard.
 - **Billing:** cache HITs consume no CPU, but static-asset requests and worker-to-worker invocations become billable when caching is enabled.
 
-**Current versions in-repo (already meet the floors):** `wrangler ^4.107.0`, `@cloudflare/workers-types ^4.20260702.1`, `miniflare ^4.20260702.0`. Compat dates: web `2026-05-14`, api `2026-04-07`, datatool `2026-04-07`.
+**Current versions in-repo** (post-WC-2 / AECI-316, 2026-07-16): `wrangler ^4.111.0`, `@cloudflare/workers-types ^5.20260716.1`, `miniflare ^4.20260710.0` — all still clear the floors. Compat dates: **all three Workers on `2026-07-10`** (web, api, datatool — matched to the `workerd@1.20260710.1` the toolchain bundles). WC-2 also took `@cloudflare/workers-types` to the new **5.x** major (the 4.x line stopped at `4.20260702.1`; `wrangler 4.111` peer-wants `^5.x`), clearing the peer warning with typecheck green. `wrangler types` still nudges dropping the package entirely for generated runtime types — a further follow-up (`apps/api` / `apps/datatool` would move their `tsconfig` to the generated `worker-configuration.d.ts`, as `apps/web` already does).
 
 **Current code touch-points (for the ACs):**
 - Manual pipeline: `apps/web/src/server-runtime.ts` → `handleSsr` (`getEdgeCache`, `cacheKeyUrl`, `cache.match`, `cache.put`), plus `ROUTE_CACHE_PATTERNS` / `cacheControlForRoute` / `buildCacheControl`.
