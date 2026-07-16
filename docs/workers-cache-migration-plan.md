@@ -68,7 +68,7 @@ Today (Phase 2 design, `docs/CACHE_STRATEGY.md`) the SSR Worker **runs on every 
 - Promote purge: `apps/api/src/routes/promote.ts` (`purgeAfterPromote`, `refreshHomeStatsAfterPromote`, fired via `ctx.waitUntil`) + tags from `apps/api/src/routes/promote-cache-tags.ts` (`cacheTagsForPromote`).
 - Manual/incident purge: `apps/web/src/server/routes/admin-purge.ts` (`createAdminPurgeHandler`; auth `ADMIN_PURGE_TOKEN`; CF creds `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`).
 - datatool bulk purge: `apps/datatool/src/cache-purge.ts` (`purgeEnvCache`, `BROAD_CACHE_TAGS`).
-- Egress `X-Robots-Tag` stamp: `createApp` middleware in `server-runtime.ts` (runs *after* the cache write today).
+- Egress `X-Robots-Tag` stamp: `createApp` middleware in `server-runtime.ts`. _(Pre-WC-3 this ran after the hand-rolled `caches.default` put and re-ran on each HIT; WC-3 removed that manual pipeline, so it now stamps pre-store on the cached default entrypoint, and **WC-8 (AECI-322) verified the noindex decision is baked into the cached payload** — served on every HIT without the Worker running. See `docs/CACHE_STRATEGY.md` §7.1.)_
 - Observability: `aeci.ssr.render`, `aeci.page.render.duration_ms`, `aeci.cache.purge` → `docs/OBSERVABILITY.md`.
 - `CF_ZONE_ID` is **also** consumed by the AECI-262 WAF analytics poll — do **not** delete it wholesale.
 

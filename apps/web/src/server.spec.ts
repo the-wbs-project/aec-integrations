@@ -340,6 +340,29 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
   });
 
+  it('bakes noindex + the SEO/CSP header set together onto a cacheable 200 — the stored payload (WC-8/AECI-322)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    // A product-detail render is cacheable, so this 200 is the exact response the
+    // native Workers Cache (WC-3) stores and replays on every HIT — the Worker does
+    // NOT run on a HIT. Every egress-time SEO/robots header must therefore already be
+    // baked onto the MISS render; assert the whole set is present together (the
+    // front-of-Worker "noindex + CSP/Vary baked pre-cache" guarantee, AECI-322 AC).
+    const req = new Request('https://demo.aecintegrations.com/products/acme');
+    const res = await app.fetch(
+      req,
+      { ...binding, ENV: 'production' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toContain('public'); // cacheable ⇒ the platform stores it
+    expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    expect(res.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+    expect(res.headers.get('Vary')).toBe('Accept-Language');
+  });
+
   it('does NOT stamp when ALLOW_INDEXING is "true" (post-launch indexable env)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: htmlRenderer() });

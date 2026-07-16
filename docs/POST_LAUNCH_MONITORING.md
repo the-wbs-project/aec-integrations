@@ -44,7 +44,7 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 | # | Signal | Where to look | Healthy | Fires as |
 |---|---|---|---|---|
 | 1 | **Errors / APM** | Phase 2 — Traffic dashboard (4xx/5xx widget); `aeci.api.query.duration_ms` by `endpoint`/`status_class`; SSR logs `service:aeci-web status:error` | 5xx rate < 1% | `AECi — Worker error rate high` (>1%/5m) |
-| 2 | **Edge cache hit rate** | Phase 2 — Traffic (cache-hit per `route_class`); `aeci.page.render.duration_ms{cache_status}` | HIT majority on cacheable route classes (detail/browse/taxonomy/static) | `AECi — Cache hit rate low` (<70%/15m) |
+| 2 | **Edge cache hit rate** | Cloudflare Workers observability dashboard (Workers & Pages → `aeci-web` → Observability) + `Cf-Cache-Status` — **not Datadog** (a native-cache HIT skips the Worker; WC-3/WC-8) | HIT majority on cacheable route classes (detail/browse/taxonomy/static) | *(no monitor — `AECi — Cache hit rate low` was retired in WC-8/AECI-322; read the Cloudflare dashboard)* |
 | 3 | **Render latency** | Phase 2 — Traffic (p95 render per `route_class`) | p95 detail (MISS) < 1.5s | `AECi — Detail render slow` (>1.5s/10m, `cache_status:miss`) |
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no monitor — dashboard-only; add if noisy)* |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift` | drift 0; daily sync `outcome:ok` | drift/sync-failed/sync-not-running/orphan-cap monitors |
@@ -102,7 +102,6 @@ in [`OBSERVABILITY.md`](./OBSERVABILITY.md#monitors).
 | Monitor | Current threshold | Retune signal |
 |---|---|---|
 | Worker error rate high | > 1% / 5m | raise the floor only if single failures dominate at low volume |
-| Cache hit rate low | < 70% / 15m | set to observed steady-state hit rate once known |
 | Detail render slow | > 1.5s / 10m (MISS) | tighten if p95 settles well below |
 | page_views write errors | > 10% / 10m | lower toward 1% as volume grows |
 | Auth sign-in error rate | > 30% / 15m | lower once sign-in volume is non-trivial |

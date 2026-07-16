@@ -37,6 +37,8 @@ Adopt **native Workers Cache on the SSR Worker**, and solve the two hard parts a
 
 **Prod-enable gate:** do **not** set `cache.enabled` on the `demo` or `production` web envs (the two public tiers) until **WC-4 (normalization), WC-5 (queue purge), WC-6 (`/admin/purge` native), and WC-8 (observability + `noindex`)** are merged and validated on staging. Enabling prod early would lose utm de-fragmentation, promote-driven invalidation, and — critically — the `noindex`-on-HIT guarantee.
 
+> **Update — WC-8 done (AECI-322, 2026-07-16).** Observability + `noindex` under the front-of-Worker cache landed. WC-3 had already removed the manual `caches.default` pipeline, so the egress `X-Robots-Tag` stamp (and `applySeoHeaders`) run on the cached default entrypoint **before** the platform stores the response — the `noindex` decision is **baked into the cached payload** on the MISS render and served on every HIT (a HIT never runs the Worker to re-stamp; verified by a `server.spec.ts` regression test + a deployed MISS-vs-HIT `e2e/smoke.spec.ts` check). Observability: the two SSR render metrics only emit `cache_status:MISS`/`non_cacheable` (no `hit` series), edge HIT-rate moved to `Cf-Cache-Status` + the Cloudflare Workers observability dashboard, and the Datadog `cache hit rate < 70%` monitor + its dashboard widget were retired. This clears the **WC-8 prong** of this gate — **WC-4 + WC-5 are still pending**, so prod stays uncached. See `docs/OBSERVABILITY.md` and `docs/CACHE_STRATEGY.md` §7.1.
+
 ### 2. Cache-key normalization (WC-4) — gateway + cached named entrypoint
 
 Use Cloudflare's documented **gateway pattern**. The SSR Worker exposes two entrypoints in one Worker:

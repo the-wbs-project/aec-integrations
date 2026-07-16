@@ -831,9 +831,18 @@ export function createApp(options: {
   // untouched. The response is rebuilt rather than mutated in place because a
   // response's headers may be immutable. Under native Workers Cache (WC-3) a HIT
   // skips the Worker, so this egress stamp runs only on the render that populates
-  // the cache — the `noindex` decision is baked into the stored payload and served
-  // on every subsequent HIT (no per-HIT re-stamp is possible). WC-8 (AECI-322)
-  // hardens this so a front-of-Worker HIT can never leak an indexable non-prod page.
+  // the cache. Because the middleware is registered on the default entrypoint the
+  // cache wraps, the stamp lands BEFORE the platform stores the response — the
+  // `noindex` decision is baked into the stored payload and served verbatim on
+  // every subsequent HIT (no per-HIT re-stamp is possible, and none is needed).
+  // The env-specific bake is safe: each env is its own Worker + cache with its own
+  // `ALLOW_INDEXING`. This is the single stamp site on purpose — an egress wrapper
+  // over EVERY response covers redirects, /robots.txt, /sitemap.xml, and 404s that
+  // `withCacheHeaders` (2xx/404 only) would miss. WC-8 (AECI-322) verified this
+  // bake (see the "cacheable 200 bakes noindex + CSP + Vary" test in server.spec.ts)
+  // so a front-of-Worker HIT can never leak an indexable non-prod page, and moved
+  // HIT-rate observability off the (now HIT-blind) Worker to `Cf-Cache-Status` +
+  // the Cloudflare Workers dashboard (docs/OBSERVABILITY.md, docs/CACHE_STRATEGY.md §7.1).
   app.use('*', async (c, next) => {
     await next();
     if (indexingAllowed(c.env)) return;

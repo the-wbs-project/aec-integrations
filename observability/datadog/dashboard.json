@@ -1,6 +1,6 @@
 {
   "title": "AECi Phase 2 — Traffic",
-  "description": "Phase 2 traffic observability (AECI-66). Custom metrics emitted by the SSR Worker (aeci-web) and API Worker (aeci-api): aeci.page.render.duration_ms, aeci.api.query.duration_ms, aeci.cache.purge. NOTE: Datadog lowercases tag values, so cache_status is queried as hit/miss. Distribution metrics require percentile aggregations enabled under Metrics > Summary. Committed for record (AECI-66); the live dashboard is the source of truth — re-export after edits.",
+  "description": "Phase 2 traffic observability (AECI-66). Custom metrics emitted by the SSR Worker (aeci-web) and API Worker (aeci-api): aeci.page.render.duration_ms, aeci.api.query.duration_ms, aeci.cache.purge. NOTE (WC-8 / AECI-322): under native Workers Cache a HIT skips the SSR Worker, so cache_status is MISS / non_cacheable only — there is no cache_status:hit series. Edge HIT-rate lives on the Cloudflare Workers observability dashboard (Cf-Cache-Status), not here; the render metrics below are MISS / Worker-run volume. Distribution metrics require percentile aggregations enabled under Metrics > Summary. Committed for record (AECI-66); the live dashboard is the source of truth — re-export after edits.",
   "layout_type": "ordered",
   "reflow_type": "auto",
   "template_variables": [
@@ -34,31 +34,16 @@
     },
     {
       "definition": {
-        "title": "Cache hit rate per route_class (HIT / total)",
-        "type": "timeseries",
-        "requests": [
-          {
-            "response_format": "timeseries",
-            "display_type": "line",
-            "queries": [
-              {
-                "name": "hits",
-                "data_source": "metrics",
-                "query": "count:aeci.page.render.duration_ms{$env,cache_status:hit} by {route_class}"
-              },
-              {
-                "name": "total",
-                "data_source": "metrics",
-                "query": "count:aeci.page.render.duration_ms{$env} by {route_class}"
-              }
-            ],
-            "formulas": [{ "formula": "hits / total * 100", "alias": "hit rate %" }]
-          }
-        ],
-        "yaxis": { "min": "0", "max": "100" },
-        "markers": [
-          { "value": "y = 70", "display_type": "error dashed", "label": "alert threshold" }
-        ]
+        "type": "note",
+        "content": "**Edge cache HIT-rate → Cloudflare Workers observability.** Under native Workers Cache (WC-3 / WC-8 · AECI-322) a HIT is served from the edge **without running the SSR Worker**, so `cache_status:hit` is never emitted to Datadog. The render widgets on this dashboard are **MISS / Worker-run volume only** (`cache_status:MISS`/`miss`/`non_cacheable`). Read HIT-rate from **`Cf-Cache-Status`** on the Cloudflare Workers observability dashboard: Workers & Pages → `aeci-web` → Observability. The old `cache_status:hit` widget + the `cache hit rate < 70%` monitor were **retired** in WC-8 (they would flatline at 0 / alert forever). See `docs/OBSERVABILITY.md` and `docs/CACHE_STRATEGY.md` §7.1.",
+        "background_color": "yellow",
+        "font_size": "14",
+        "text_align": "left",
+        "vertical_align": "top",
+        "show_tick": false,
+        "tick_pos": "50%",
+        "tick_edge": "left",
+        "has_padding": true
       }
     },
     {

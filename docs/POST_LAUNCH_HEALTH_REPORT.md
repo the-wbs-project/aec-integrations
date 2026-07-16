@@ -21,7 +21,7 @@ nil-to-negligible. The value is a known zero to accrue against.
 | Signal | Status | Source |
 |---|---|---|
 | Worker error rate / APM | ✅ live | `aeci.api.query.duration_ms`, SSR error logs |
-| Edge cache hit rate + render latency | ✅ live | `aeci.page.render.duration_ms{cache_status}` |
+| Edge cache hit rate + render latency | ⚠️ split (WC-8) | render latency (MISS) `aeci.page.render.duration_ms{cache_status:miss}`; **edge hit-rate moved off Datadog** to the Cloudflare Workers observability dashboard + `Cf-Cache-Status` (a native-cache HIT skips the Worker; AECI-322) |
 | 7 scheduled crons (health/liveness) | ✅ live | per-cron heartbeat + no-data monitors |
 | Moderation queue depth / age | ✅ live | `aeci.moderation.queue_*`, `/api/admin/*` |
 | Request → Linear pipeline | ✅ live | `aeci.linear.*`, `aeci.webhooks.linear.*` |
