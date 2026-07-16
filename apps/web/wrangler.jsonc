@@ -85,6 +85,17 @@
       "name": "aeci-web",
       "workers_dev": true,
       "observability": { "enabled": true },
+      // WC-3 (AECI-317) — native Cloudflare Workers Cache. The platform caches
+      // SSR HTML *in front of* the Worker from the response's `Cache-Control`
+      // (a HIT skips the Worker), replacing the removed hand-rolled
+      // `caches.default` match/put pipeline in `server-runtime.ts`. Set per-env,
+      // NEVER at top level (so a bare `wrangler dev` stays uncached). Enabled on
+      // preview + staging only; `demo`/`production` stay gated until WC-4 (key
+      // normalization), WC-5 (queue purge), WC-6 (native /admin/purge), and WC-8
+      // (noindex-on-HIT) land (ADR 0020 §1). `cross_version_cache` left at the
+      // default (per-version isolation ⇒ each deploy cold-starts the cache, so a
+      // template change is live on the first post-deploy request — ADR 0020 §5).
+      "cache": { "enabled": true },
       // COMMIT_SHA / DEPLOYED_AT are sentinels overridden by `wrangler deploy
       // --var` in CI (AECI-92 /_version, AECI-74 parity with apps/api).
       "vars": {
@@ -126,6 +137,10 @@
         "POSTHOG_HOST": "https://us.i.posthog.com",
       },
       "observability": { "enabled": true },
+      // WC-3 (AECI-317) — native Workers Cache. See the preview env note above;
+      // staging is the pre-prod validation tier for the "preview → staging first"
+      // rollout (ADR 0020 §1). demo/production remain uncached until WC-4/5/6/8.
+      "cache": { "enabled": true },
       "routes": [
         {
           "pattern": "staging.aecintegrations.com",

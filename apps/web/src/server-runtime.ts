@@ -5,20 +5,26 @@
  * Angular. The Worker entry (`server.ts`) imports `createApp` from here and
  * supplies the Angular renderer.
  *
- * Two contracts pinned in `CLAUDE.md` and `docs/STAGE_1_SPEC.md` (§9.1, §9.1a,
- * §9.1b, §7a.3, §7a.3a) govern this module. Get either wrong and the
- * production edge cache breaks in ways that are hard to detect from staging:
+ * Two contracts pinned in `CLAUDE.md` and `docs/CACHE_STRATEGY.md` govern this
+ * module. Get either wrong and the production edge cache breaks in ways that are
+ * hard to detect from staging:
  *
- *   1. The edge cache is keyed by URL only — Cloudflare Pro does not fold the
- *      `Vary` or `Cache-Tag` headers into the cache key. We emit both (a
- *      `Vary: Accept-Language` advertisement and per-route tags), but the key
- *      stays URL-only, so the locale Vary can't fragment it (see §7 and
- *      `server/seo-headers.ts`). If SSR were to read a per-visitor cookie and
- *      bake the result into HTML, the first visitor's render would be served to
- *      everyone. So: on the cacheable branch, strip visitor-state cookies
- *      *before* invoking SSR. `VISITOR_STATE_COOKIES` is empty as of AECI-226
+ *   1. Native Cloudflare Workers Cache (WC-3 / AECI-317) sits *in front of* this
+ *      Worker: the platform stores each cacheable response from its
+ *      `Cache-Control` (`public, s-maxage=…`) and serves future HITs without ever
+ *      running the Worker (there is no hand-rolled `caches.default` match/put).
+ *      The cache key is URL-based (path + query string + Worker version), NOT
+ *      cookies — so if SSR read a per-visitor cookie and baked it into HTML, the
+ *      first visitor's render would be served to everyone. So: on the cacheable
+ *      branch, strip visitor-state cookies *before* invoking SSR and keep the API
+ *      client cookie-free. `VISITOR_STATE_COOKIES` is empty as of AECI-226
  *      (`theme` — the original entry — was removed with the dark theme), but the
  *      stripping mechanism is retained as general cache-pollution infrastructure.
+ *      We still emit `Cache-Tag` (per-route, for queue purge — WC-5) and a
+ *      `Vary: Accept-Language` advertisement; locale variance is already
+ *      segmented by URL prefix (see §7 and `server/seo-headers.ts`). (Enabled on
+ *      preview + staging first; demo/production stay gated on WC-4/5/6/8 —
+ *      ADR 0020.)
  *
  *   2. Returning HTTP 200 with a "not found" body and a normal TTL causes the
  *      edge to pin the not-found response. New entities stay invisible until
@@ -260,7 +266,17 @@ function escapeRegExp(input: string): string {
 
 // ─── Cache classification ──────────────────────────────────────────────────
 
-export type CacheTtl = { edge: number; browser: number };
+export type CacheTtl = {
+  edge: number;
+  browser: number;
+  // WC-3 (AECI-317) — optional resilience directives. When set, `buildCacheControl`
+  // emits `stale-while-revalidate` / `stale-if-error` so the native Workers Cache
+  // can serve a just-expired copy while it revalidates in the background (swr) or
+  // when the origin errors during revalidation (sie). Applied to the data-backed
+  // detail + index/browse routes only (see `RESILIENCE`).
+  staleWhileRevalidate?: number;
+  staleIfError?: number;
+};
 
 /**
  * §9.1b / AECI-62 AC — 404 responses on cacheable routes get a short edge
@@ -284,45 +300,21 @@ export const CACHE_TAG_NOT_FOUND = 'route:404';
 type RoutePattern = {
   match: (path: string) => boolean;
   ttl: CacheTtl;
-  // AECI-100 — query params that genuinely affect this route's rendered HTML.
-  // The edge cache key keeps only these (canonically ordered) and drops
-  // everything else (utm_*, fbclid, …). Omitted ⇒ the route is
-  // query-independent and the cache key strips the query string entirely.
-  // This list MUST be a superset of every param the page component reads from
-  // the URL — under-including collapses distinct renders onto one key and
-  // serves wrong HTML. See docs/CACHE_STRATEGY.md §"Cache key normalization".
-  cacheKeyParams?: readonly string[];
 };
 
 /**
- * AECI-143 — the listing/browse routes (`/products` + the three taxonomy
- * browse pages) all read the same content-affecting query params: pagination
- * (`page`/`perPage`), `sort`, and the faceted-filter ids (`category_id` /
- * `audience_id` / `phase_id`) the `aec-facet-sidebar` writes to the URL. One
- * shared allowlist keeps the four routes in sync and forward-safe. Per
- * CACHE_STRATEGY.md §4a this MUST be a superset of every URL param each
- * component reads; over-including is explicitly harmless (e.g. a browse page
- * carries its own `{kind}_id` on the path, not the query, but listing it here
- * costs nothing), so the union is applied uniformly.
- *
- * AECI-190 — `/products` SSR-renders a different layout for `?view=table`
- * (the dense table) vs. the card-grid default, so `view` is content-affecting
- * and MUST be in the key or the two renders collapse onto one entry and serve
- * wrong HTML. Only `/products` reads it; on the browse routes it's a harmless
- * over-include per the §4a rule above.
+ * WC-3 (AECI-317) — resilience directives spread into the data-backed detail
+ * and index/browse route TTLs. `stale-while-revalidate` lets the native cache
+ * serve a just-expired copy for a short window while it revalidates in the
+ * background (smooths the TTL-boundary latency spike); `stale-if-error` lets it
+ * serve a day-old copy if the origin 5xxs during revalidation. Static pages
+ * (`/about`, `/legal`), redirects, sitemap, robots and 404s deliberately omit
+ * these. Values are tunable — see docs/CACHE_STRATEGY.md §4.
  */
-const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
-  'page',
-  'perPage',
-  'sort',
-  'view',
-  'category_id',
-  'audience_id',
-  'phase_id',
-];
+const RESILIENCE = { staleWhileRevalidate: 60, staleIfError: 86_400 } as const;
 
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
-  { match: (p) => p === '/', ttl: { edge: 900, browser: 300 } },
+  { match: (p) => p === '/', ttl: { edge: 900, browser: 300, ...RESILIENCE } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
   {
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
@@ -331,69 +323,40 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // Phase 2 §8.3: detail pages are `s-maxage=900, max-age=0`. AECI-294 retired
   // the standalone /integrations/:id detail (now a 301 to the pair page) and
   // added the product-PAIR page /products/:contextSlug/integrations/:otherSlug —
-  // a detail-class route on the same TTL. It is listed BEFORE the plain
-  // /products/:slug matcher for clarity (a three-segment path can't match the
-  // single-segment product pattern, so ordering here isn't load-bearing).
-  //
-  // The pair page SSR-renders a different layout for `?view=basic` (the Overview:
-  // sync headline + mechanism descriptions, no claim lanes) vs. the `detailed`
-  // default, so `view` is content-affecting and MUST be in the key — otherwise the
-  // two renders collapse onto one entry and serve wrong HTML. Same rationale as
-  // AECI-190's `/products ?view=table`; the pair route reads only `view`, so the
-  // listing union isn't reused here.
+  // a detail-class route on the same TTL. Listed BEFORE the plain /products/:slug
+  // matcher for clarity (a three-segment path can't match the single-segment
+  // product pattern, so ordering here isn't load-bearing). The `?view=` variants
+  // (pair basic/detailed, product card/table) key naturally under native cache,
+  // which keys on the full query string (WC-4 restores the utm-strip + per-route
+  // allowlist normalization the removed `cacheKeyUrl` used to apply).
   {
     match: (p) => /^\/products\/[^/]+\/integrations\/[^/]+$/.test(p),
-    ttl: { edge: 900, browser: 0 },
-    cacheKeyParams: ['view'],
+    ttl: { edge: 900, browser: 0, ...RESILIENCE },
   },
-  { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
-  { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0 } },
+  { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
+  { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
   // Phase 2 Spec §8.3 — the `/products` index: edge 5 min, browser 0. The
   // shorter edge TTL is fine because the route also carries the `index:products`
-  // tag that the /admin/purge endpoint can invalidate on writes; the browser is
-  // told to refetch on every navigation so users always see fresh server HTML.
-  //
-  // AECI-100 — the products index reads `page` + `sort` from the URL. AECI-143
-  // added the facet sidebar, so it now also reads `category_id` / `audience_id`
-  // / `phase_id`; all share `LISTING_CACHE_KEY_PARAMS`. `perPage` is the
-  // canonical pagination param (packages/shared PageQuerySchema) — listed for
-  // forward-safety even though the component currently hardcodes the default.
-  //
-  // AECI-165 removed the `/vendors` and `/integrations` index pages (they now
-  // 301-redirect to `/products` — registered before the SSR catch-all in
-  // `createApp`), so they are no longer matched here. Their `:slug` / `:id`
-  // detail routes are still matched by the detail patterns above.
-  {
-    match: (p) => p === '/products',
-    ttl: { edge: 300, browser: 0 },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
-  },
-  // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index
-  // are `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav),
-  // same as the other index/browse routes. The earlier 30-min edge here
-  // predated AECI-61 and contradicted the canonical doc (spec §3.1's "30 min" is
-  // stale — CACHE_STRATEGY.md supersedes it for caching). Per-slug pages also
-  // carry `{type}:{slug}` + embedded `product:{slug}` tags for targeted purge.
-  //
-  // AECI-143 — the `:slug` browse pages gained the facet sidebar + a filtered
-  // products grid, so they now read the listing query params; they share
-  // `LISTING_CACHE_KEY_PARAMS` with `/products`. The flat index pages
-  // (`/categories` etc.) don't read those params, but the combined match means
-  // they inherit the allowlist — a harmless over-include per §4a.
+  // tag the purge path can invalidate on writes; the browser is told to refetch
+  // on every navigation so users always see fresh server HTML. AECI-165 removed
+  // the `/vendors` and `/integrations` index pages (they now 301-redirect to
+  // `/products`, registered before the SSR catch-all in `createApp`).
+  { match: (p) => p === '/products', ttl: { edge: 300, browser: 0, ...RESILIENCE } },
+  // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index are
+  // `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav), same
+  // as the other index/browse routes. Per-slug pages also carry `{type}:{slug}`
+  // + embedded `product:{slug}` tags for targeted purge.
   {
     match: (p) => p === '/categories' || p.startsWith('/categories/'),
-    ttl: { edge: 300, browser: 0 },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
+    ttl: { edge: 300, browser: 0, ...RESILIENCE },
   },
   {
     match: (p) => p === '/audiences' || p.startsWith('/audiences/'),
-    ttl: { edge: 300, browser: 0 },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
+    ttl: { edge: 300, browser: 0, ...RESILIENCE },
   },
   {
     match: (p) => p === '/phases' || p.startsWith('/phases/'),
-    ttl: { edge: 300, browser: 0 },
-    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
+    ttl: { edge: 300, browser: 0, ...RESILIENCE },
   },
 ];
 
@@ -420,30 +383,22 @@ export function isCacheableRoute(url: URL): boolean {
 }
 
 /**
- * Canonical edge-cache key for a request (AECI-100). Drops marketing/tracking
- * query params (`utm_*`, `fbclid`, …) so query-independent pages share one
- * cache entry, and keeps only the content-affecting params declared per route
- * in `ROUTE_CACHE_PATTERNS`, in a canonical order so param ordering doesn't
- * fork the key. Origin and pathname (including any locale prefix) are preserved
- * verbatim — locale variance is already segmented by URL prefix, so the key
- * must keep it. A path with no matching pattern (or no `cacheKeyParams`) yields
- * the bare `origin + pathname`, the safe "strip everything" default.
+ * Build the `Cache-Control` for a cacheable route. Always `public` so the native
+ * Workers Cache stores it (WC-3 / AECI-317 — the platform caches from this header
+ * in front of the Worker), with `max-age` (browser) + `s-maxage` (edge). When the
+ * route opts into resilience (see `RESILIENCE`), also emit `stale-while-revalidate`
+ * / `stale-if-error` so the edge can serve a slightly-stale copy while revalidating
+ * or when the origin errors.
  */
-export function cacheKeyUrl(url: URL): string {
-  const { path } = stripLocalePrefix(url.pathname);
-  const allowed = ROUTE_CACHE_PATTERNS.find((pattern) => pattern.match(path))?.cacheKeyParams ?? [];
-  const key = new URL(url.origin + url.pathname);
-  for (const name of allowed) {
-    for (const value of url.searchParams.getAll(name)) {
-      key.searchParams.append(name, value);
-    }
-  }
-  key.searchParams.sort(); // ?sort=name&page=2 and ?page=2&sort=name → one key
-  return key.toString();
-}
-
 export function buildCacheControl(ttl: CacheTtl): string {
-  return `public, max-age=${ttl.browser}, s-maxage=${ttl.edge}`;
+  const parts = ['public', `max-age=${ttl.browser}`, `s-maxage=${ttl.edge}`];
+  if (ttl.staleWhileRevalidate != null) {
+    parts.push(`stale-while-revalidate=${ttl.staleWhileRevalidate}`);
+  }
+  if (ttl.staleIfError != null) {
+    parts.push(`stale-if-error=${ttl.staleIfError}`);
+  }
+  return parts.join(', ');
 }
 
 // ─── SSR pipeline ──────────────────────────────────────────────────────────
@@ -457,15 +412,6 @@ export function buildCacheControl(ttl: CacheTtl): string {
  * payload. See `server/request-context.ts` for the contract.
  */
 export type SsrRenderer = (request: Request, ctx: AeciRequestContext) => Promise<Response>;
-
-/**
- * Returns Cloudflare's default edge cache, or `null` when running outside the
- * Worker runtime (e.g. unit tests in Node). Callers must guard.
- */
-function getEdgeCache(): Cache | null {
-  const cachesGlobal = (globalThis as { caches?: { default?: Cache } }).caches;
-  return cachesGlobal?.default ?? null;
-}
 
 /**
  * Ensures a response carries an explicit non-cacheable directive when none is
@@ -490,10 +436,9 @@ function ensureNoStore(response: Response): Response {
  * On 2xx, also writes `Cache-Tag` from the provided inputs (AECI-56 /
  * `docs/CACHE_STRATEGY.md` §2–3). On 404, writes the single `route:404`
  * sentinel tag (AECI-62) so the admin purge endpoint can bulk-invalidate
- * negative responses after a config fix — 404s still aren't stored in
- * `caches.default` (see `handleSsr`), but Cloudflare's edge does cache them
- * per the response's `Cache-Control`, and a tag is the only way to evict
- * those without waiting for TTL expiry.
+ * negative responses after a config fix — the native Workers Cache stores the
+ * 404 from its `NOT_FOUND_TTL` `Cache-Control` (short edge TTL), and the tag is
+ * the only way to evict it early without waiting for TTL expiry.
  */
 function withCacheHeaders(
   response: Response,
@@ -668,11 +613,13 @@ export function withForwardedLandingCf(request: Request): Request {
  * `user-agent` are forwarded so the API Worker enriches this write the same way
  * it enriches the browser's proxied POST.
  *
- * Cacheable routes fire on BOTH cache HIT and MISS so the SSR-side signal counts
- * visitor arrivals rather than SSR misses. On HIT the resolver never runs, so
- * the runtime synthesizes a minimal `{ route }` payload from the locale-stripped
- * path; on MISS the resolver may attach a richer payload (with entity_type /
- * entity_id) via `AeciRequestContext.pageView`.
+ * Under native Workers Cache (WC-3 / AECI-317) an edge HIT never runs the SSR
+ * Worker, so this fires only when the Worker actually renders — a native-cache
+ * MISS on a cacheable route, or a non-cacheable render. Edge HITs are therefore
+ * not counted server-side; the browser `PageViewTracker` (canonical, above)
+ * covers them. On a MISS the resolver may attach a richer payload (entity_type /
+ * entity_id) via `AeciRequestContext.pageView`; otherwise the runtime falls back
+ * to the path-derived `{ route }`.
  */
 function firePageView(
   execCtx: WaitUntilContext,
@@ -731,18 +678,16 @@ async function handleSsr(
   // non-cacheable branch and can never reach the response written to the shared
   // edge cache. The cacheable branch keeps the cookie-free client.
 
-  // AECI-103 — bounded per-render *count* covering EVERY branch: cache HIT
-  // (which `transformResponse` / the `ssr.render` log never see, since the HIT
-  // path returns before transform) and the non-cacheable branch (which
-  // `aeci.page.render.duration_ms` excludes — see the comment below). This is
-  // the cost-bounded pipe-health signal that replaces the per-render log
+  // AECI-103 — bounded per-render *count* covering every branch the Worker runs:
+  // the non-cacheable branch (which `aeci.page.render.duration_ms` excludes — see
+  // the comment below) and the cacheable render (a native-cache MISS). Edge HITs
+  // skip the Worker under WC-3, so there is no `hit` count here — HIT visibility
+  // moves to `Cf-Cache-Status` + the Workers observability dashboard (WC-8). This
+  // is the cost-bounded pipe-health signal that replaces the per-render log
   // firehose. Tags are deliberately low-cardinality (`cache_status` +
   // `status_class`) — no path/slug tags — so metric cost can't blow up.
   // Documented in docs/OBSERVABILITY.md.
-  const emitRenderCount = (
-    cacheStatus: 'hit' | 'miss' | 'non_cacheable',
-    statusCode: number,
-  ): void => {
+  const emitRenderCount = (cacheStatus: 'miss' | 'non_cacheable', statusCode: number): void => {
     submitCount(execCtx, env, request, 'aeci.ssr.render', 1, [
       `cache_status:${cacheStatus}`,
       `status_class:${Math.floor(statusCode / 100)}xx`,
@@ -778,69 +723,47 @@ async function handleSsr(
   const { path: localePath } = stripLocalePrefix(url.pathname);
 
   // AECI-66 / Phase 2 §14 — emit `aeci.page.render.duration_ms` for cacheable
-  // routes, tagged by `route_class` (detail/index/browse) + `cache_status`
-  // (HIT/MISS), plus `status_code` so the dashboard's 4xx/5xx widget can split
-  // on it. Non-cacheable paths (the 404 wildcard, non-GET) have no route_class
-  // and are intentionally excluded from this histogram — they are covered
-  // instead by the `aeci.ssr.render` count metric (AECI-103, emitted on every
-  // branch above). Documented in docs/OBSERVABILITY.md.
+  // routes, tagged by `route_class` (detail/index/browse) + `cache_status` +
+  // `status_code` so the dashboard's 4xx/5xx widget can split on it. Under WC-3
+  // the Worker only runs on a native-cache MISS (edge HITs skip it), so the sole
+  // `cache_status` value here is `MISS`; HIT-rate visibility moves to
+  // `Cf-Cache-Status` + the Workers observability dashboard (WC-8). Non-cacheable
+  // paths (the 404 wildcard, non-GET) have no route_class and are intentionally
+  // excluded from this histogram — they're covered by the `aeci.ssr.render` count
+  // metric (AECI-103, emitted on every branch). Documented in docs/OBSERVABILITY.md.
   const routeClass = cacheTagInputsForPath(localePath)?.route;
-  const emitRenderMetric = (cacheStatus: 'HIT' | 'MISS', statusCode: number): void => {
+  const emitRenderMetric = (statusCode: number): void => {
     if (!routeClass) return;
     // `status_class` (2xx/4xx/5xx) is what the error-rate widget + monitor split
-    // on — Datadog tag filters can't do numeric `>= 400` on `status_code`. Note
-    // Datadog lowercases tag values, so `cache_status:HIT` is queried as `hit`.
+    // on — Datadog tag filters can't do numeric `>= 400` on `status_code`.
     submitDistribution(execCtx, env, request, 'aeci.page.render.duration_ms', Date.now() - start, [
       `route_class:${routeClass}`,
-      `cache_status:${cacheStatus}`,
+      'cache_status:MISS',
       `status_code:${statusCode}`,
       `status_class:${Math.floor(statusCode / 100)}xx`,
     ]);
   };
 
-  // Cacheable branch: edge-cache lookup, then cookie-stripped render on miss.
-  // page-view capture fires on BOTH branches so cached hits are also counted
-  // (the metric reflects visitor arrivals, not SSR misses). On HIT the
-  // resolver never runs, so we synthesize a minimal `{ route }` payload; on
-  // MISS a resolver may attach a richer payload via `reqCtx.pageView`.
-  const cache = getEdgeCache();
-  // AECI-100 — normalize the key so `?utm_*`/`?fbclid` don't fragment the cache
-  // for query-independent pages. Built once and reused for match + put below.
-  const cacheKey = new Request(cacheKeyUrl(url), { method: 'GET' });
-  if (cache) {
-    const hit = await cache.match(cacheKey);
-    if (hit) {
-      emitRenderMetric('HIT', hit.status);
-      emitRenderCount('hit', hit.status);
-      firePageView(execCtx, env, { route: localePath }, request);
-      return hit;
-    }
-  }
-
+  // Cacheable branch: cookie-stripped render. The native Workers Cache (WC-3)
+  // stores the response from its `Cache-Control` and serves future HITs in front
+  // of the Worker, so there is no `caches.default` match/put here — reaching this
+  // code at all means the platform cache missed (or is revalidating).
   const sanitized = stripVisitorStateCookies(request);
-  // Cookie-FREE API client on the cacheable branch: this render can be written to
+  // Cookie-FREE API client on the cacheable branch: this render can be stored by
   // the shared edge cache, so it must never forward a visitor's session cookie
   // (cache-neutrality). The cookie-stripped `sanitized` request goes to SSR; the
   // client below carries no inbound auth.
   const reqCtx = createRequestContext(createServerApiClient(env));
   const rendered = await renderer(sanitized, reqCtx);
-  // Transform BEFORE cache write so the cached payload carries any
+  // Transform BEFORE the response is returned so the cached payload carries any
   // deployment-scoped inserts (e.g. Datadog public tokens).
   const transformed = transformResponse
     ? await transformResponse(rendered, env, request, execCtx)
     : rendered;
   const tagInputs = mergeEmbeddedTags(cacheTagInputsForPath(localePath), reqCtx.embedded);
   const response = withCacheHeaders(transformed, ttl, tagInputs);
-  emitRenderMetric('MISS', response.status);
+  emitRenderMetric(response.status);
   emitRenderCount('miss', response.status);
-
-  // Per §9.1: only 2xx is stored. 404s are *returned* with NOT_FOUND_TTL via
-  // the response's Cache-Control header (so Cloudflare honors it edge-side),
-  // but we don't put them into the Worker's `caches.default` — keeps the
-  // recovery story simple when an entity is created moments later.
-  if (cache && response.status >= 200 && response.status < 300) {
-    execCtx.waitUntil(cache.put(cacheKey, response.clone()));
-  }
 
   // Phase 2 §3.1 + AC: SSR fires `POST /api/page-views` after the response is
   // built. Only on 2xx — 404 / 5xx renders don't pollute view counts. Prefer
@@ -905,10 +828,12 @@ export function createApp(options: {
   //
   // `/api/*` is skipped: those are byte-for-byte proxied to the private API
   // Worker (JSON, never indexable) and the passthrough contract keeps them
-  // untouched. The response is rebuilt rather than mutated in place because
-  // edge cache-HIT responses (returned by `handleSsr`) carry immutable headers.
-  // The stamp happens at egress, AFTER `handleSsr` stores the cache entry, so
-  // the cached payload stays visitor/-env-neutral and is re-stamped on each HIT.
+  // untouched. The response is rebuilt rather than mutated in place because a
+  // response's headers may be immutable. Under native Workers Cache (WC-3) a HIT
+  // skips the Worker, so this egress stamp runs only on the render that populates
+  // the cache — the `noindex` decision is baked into the stored payload and served
+  // on every subsequent HIT (no per-HIT re-stamp is possible). WC-8 (AECI-322)
+  // hardens this so a front-of-Worker HIT can never leak an indexable non-prod page.
   app.use('*', async (c, next) => {
     await next();
     if (indexingAllowed(c.env)) return;

@@ -25,10 +25,12 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 
 ## Custom metric catalog (Phase 2 §14)
 
+> **⚠️ WC-3 (AECI-317) — front-of-Worker cache.** Native Cloudflare Workers Cache now serves cacheable HITs **without running the SSR Worker** (preview + staging). So the SSR-side `cache_status:HIT`/`cache_status:hit` series below go **~0** — the two render metrics only ever record a `MISS`/`miss` (the Worker only runs on a native-cache miss) or `non_cacheable`. HIT-rate visibility moves to `Cf-Cache-Status` + the Cloudflare Workers observability dashboard. The full observability rework (including retiring/rescoping the cache-hit-rate monitor below) is **WC-8 (AECI-322)**.
+
 | Metric | Type | Emitted from | Tags |
 |---|---|---|---|
-| `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, HIT + MISS branches) | `route_class` (detail/index/browse), `cache_status` (HIT/MISS), `status_code`, `status_class` (2xx/4xx/5xx) |
-| `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, **all** branches) | `cache_status` (hit/miss/non_cacheable), `status_class` (2xx/4xx/5xx) |
+| `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, cacheable render = native-cache MISS) | `route_class` (detail/index/browse), `cache_status` (`MISS` only post-WC-3), `status_code`, `status_class` (2xx/4xx/5xx) |
+| `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, every branch the Worker runs) | `cache_status` (`miss`/`non_cacheable` post-WC-3), `status_class` (2xx/4xx/5xx) |
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
@@ -71,13 +73,14 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
 | `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 
-`aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch
-of `handleSsr` — including the edge-cache HIT path and the non-cacheable branch, both of
-which the `aeci.page.render.duration_ms` distribution skips. It is the bounded pipe-health /
-render-volume signal that replaced the per-render `ssr.render` *log* firehose. Tags are kept
-deliberately low-cardinality (`cache_status` + `status_class`, no path/slug) so cost can't
-balloon. `cache_status:non_cacheable` is the slice for the `**` 404 wildcard and non-GET
-requests.
+`aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch the
+Worker runs — the cacheable render (a native-cache MISS) and the non-cacheable branch, which
+the `aeci.page.render.duration_ms` distribution skips. Post-WC-3 (AECI-317) edge HITs skip the
+Worker under native Workers Cache, so there is **no `cache_status:hit` slice** here (HIT-rate
+moves to `Cf-Cache-Status`; WC-8). It is the bounded pipe-health / render-volume signal that
+replaced the per-render `ssr.render` *log* firehose. Tags are kept deliberately low-cardinality
+(`cache_status` + `status_class`, no path/slug) so cost can't balloon. `cache_status:non_cacheable`
+is the slice for the `**` 404 wildcard and non-GET requests.
 
 Every metric also carries the base tags `env`, `app:aeci`, `service` (`aeci-web` /
 `aeci-api`), `worker`, `locale` — the same vocabulary as the log `ddtags` string.

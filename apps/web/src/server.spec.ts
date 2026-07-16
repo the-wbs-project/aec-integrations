@@ -9,7 +9,6 @@ import {
   applyCfContextHeaders,
   buildCacheControl,
   cacheControlForRoute,
-  cacheKeyUrl,
   createApp,
   hasSessionCookie,
   isAdminPath,
@@ -155,22 +154,25 @@ describe('isPreviewPath', () => {
 });
 
 describe('cacheControlForRoute', () => {
+  // WC-3 (AECI-317) — data-backed detail + index/browse routes carry the stale
+  // resilience directives; static (`/about`, `/legal`) do not.
+  const R = { staleWhileRevalidate: 60, staleIfError: 86_400 };
   it.each([
-    ['/', { edge: 900, browser: 300 }],
+    ['/', { edge: 900, browser: 300, ...R }],
     ['/about', { edge: 86_400, browser: 3_600 }],
     ['/legal/privacy', { edge: 86_400, browser: 3_600 }],
-    ['/products/procore', { edge: 900, browser: 0 }],
-    ['/vendors/autodesk', { edge: 900, browser: 0 }],
+    ['/products/procore', { edge: 900, browser: 0, ...R }],
+    ['/vendors/autodesk', { edge: 900, browser: 0, ...R }],
     // AECI-294 — the product-PAIR page is a detail-class route (900/0).
-    ['/products/procore/integrations/revit', { edge: 900, browser: 0 }],
+    ['/products/procore/integrations/revit', { edge: 900, browser: 0, ...R }],
     // CACHE_STRATEGY.md §4 — index pages AND taxonomy browse pages (category /
     // audience / phase) are 5 min edge / 0 browser. (AECI-61 corrected the
     // taxonomy rows from a stale 30 min edge.)
-    ['/products', { edge: 300, browser: 0 }],
-    ['/categories', { edge: 300, browser: 0 }],
-    ['/categories/design', { edge: 300, browser: 0 }],
-    ['/audiences/structural', { edge: 300, browser: 0 }],
-    ['/phases/preconstruction', { edge: 300, browser: 0 }],
+    ['/products', { edge: 300, browser: 0, ...R }],
+    ['/categories', { edge: 300, browser: 0, ...R }],
+    ['/categories/design', { edge: 300, browser: 0, ...R }],
+    ['/audiences/structural', { edge: 300, browser: 0, ...R }],
+    ['/phases/preconstruction', { edge: 300, browser: 0, ...R }],
   ])('returns the §9.2 TTL for %s', (path, expected) => {
     expect(cacheControlForRoute(new URL(`https://x${path}`))).toEqual(expected);
   });
@@ -215,85 +217,11 @@ describe('isCacheableRoute', () => {
   });
 });
 
-describe('cacheKeyUrl (AECI-100 — edge cache key normalization)', () => {
-  const key = (path: string): string => cacheKeyUrl(new URL(`https://x${path}`));
-
-  describe('detail / query-independent routes strip the whole query string', () => {
-    it('collapses utm_*/fbclid variants of a detail route to one key', () => {
-      // AC #1 — these three must resolve to the same cache entry.
-      const canonical = 'https://x/products/foo';
-      expect(key('/products/foo')).toBe(canonical);
-      expect(key('/products/foo?utm_source=x')).toBe(canonical);
-      expect(key('/products/foo?fbclid=y')).toBe(canonical);
-      expect(key('/products/foo?utm_source=x&utm_medium=email&fbclid=y&gclid=z')).toBe(canonical);
-    });
-
-    it('strips the query string on home, browse, and static routes (no content params)', () => {
-      expect(key('/?utm_campaign=launch')).toBe('https://x/');
-      expect(key('/categories/structural?fbclid=y')).toBe('https://x/categories/structural');
-      expect(key('/audiences/architecture?utm_source=x')).toBe('https://x/audiences/architecture');
-      expect(key('/categories?ref=newsletter')).toBe('https://x/categories');
-      expect(key('/about?utm_source=x')).toBe('https://x/about');
-    });
-  });
-
-  describe('index / browse routes keep only content-affecting params', () => {
-    it('keeps page/sort/perPage and drops tracking params on /products', () => {
-      // AC #2 — distinct content keyed; tracking noise dropped.
-      expect(key('/products?page=2&utm_source=x&fbclid=y')).toBe('https://x/products?page=2');
-      expect(key('/products?perPage=50')).toBe('https://x/products?perPage=50');
-    });
-
-    it('produces the same key regardless of param ordering (canonical sort)', () => {
-      expect(key('/products?sort=name&page=2')).toBe(key('/products?page=2&sort=name'));
-      expect(key('/products?page=2&sort=name')).toBe('https://x/products?page=2&sort=name');
-    });
-
-    it('keys distinct pages of an index as distinct entries', () => {
-      expect(key('/products?page=1')).not.toBe(key('/products?page=2'));
-    });
-
-    it('treats stray filter params on /products as noise (not content params)', () => {
-      // `sourceProductId` is not in the products index `cacheKeyParams`, so it is
-      // dropped — only `page` / `perPage` / `sort` survive there. (AECI-165 removed
-      // the `/integrations` index that once declared those filter params.)
-      expect(key('/products?sourceProductId=abc')).toBe('https://x/products');
-    });
-
-    it('keeps the AECI-143 taxonomy filter ids on /products and drops tracking noise', () => {
-      // The facet sidebar writes `category_id`/`audience_id`/`phase_id` to the URL,
-      // so each filter combination must key to its own edge entry.
-      expect(key('/products?category_id=abc&utm_source=x')).toBe(
-        'https://x/products?category_id=abc',
-      );
-      expect(key('/products?audience_id=a&phase_id=p')).toBe(
-        'https://x/products?audience_id=a&phase_id=p',
-      );
-    });
-
-    it('keeps the cross-filter ids on a taxonomy browse page (AECI-143)', () => {
-      // A browse page's own dimension rides the path; the other two ride the query
-      // and must survive into the key (tracking params still stripped).
-      expect(key('/categories/structural?audience_id=a&fbclid=y')).toBe(
-        'https://x/categories/structural?audience_id=a',
-      );
-      expect(key('/phases/preconstruction?category_id=c')).toBe(
-        'https://x/phases/preconstruction?category_id=c',
-      );
-    });
-
-    it('keys distinct filter combinations as distinct entries (AECI-143)', () => {
-      expect(key('/products?category_id=a')).not.toBe(key('/products?category_id=b'));
-      expect(key('/products')).not.toBe(key('/products?category_id=a'));
-    });
-  });
-
-  it('preserves origin (host + port) so the key never crosses environments', () => {
-    expect(cacheKeyUrl(new URL('http://localhost:8788/products/foo?utm_source=x'))).toBe(
-      'http://localhost:8788/products/foo',
-    );
-  });
-});
+// Cache-key normalization (utm strip / per-route allowlist / canonical order)
+// moved out with the manual `caches.default` pipeline (WC-3 / AECI-317): native
+// Workers Cache keys on the full query string. WC-4 restores normalization via a
+// gateway entrypoint; its unit tests return then. Front-of-Worker HIT/MISS is
+// verified on a deployed preview via `Cf-Cache-Status` (WC-9), not miniflare.
 
 describe('buildCacheControl', () => {
   it('formats edge and browser TTLs as a Cache-Control header value', () => {
@@ -303,6 +231,12 @@ describe('buildCacheControl', () => {
     // AECI-62 — 404s revalidate on every navigation (max-age=0); edge still
     // holds them for 60s so a flood of 404s doesn't melt the SSR Worker.
     expect(buildCacheControl(NOT_FOUND_TTL)).toBe('public, max-age=0, s-maxage=60');
+  });
+
+  it('appends the WC-3 stale directives when the TTL opts into resilience', () => {
+    expect(
+      buildCacheControl({ edge: 900, browser: 0, staleWhileRevalidate: 60, staleIfError: 86_400 }),
+    ).toBe('public, max-age=0, s-maxage=900, stale-while-revalidate=60, stale-if-error=86400');
   });
 });
 
@@ -618,7 +552,11 @@ describe('createApp cookie-stripping on cacheable routes (AC: §9.1a)', () => {
     );
 
     expect(res.status).toBe(200);
-    expect(res.headers.get('cache-control')).toBe('public, max-age=300, s-maxage=900');
+    // WC-3 (AECI-317) — home is an index-class route, so the TTL opts into the
+    // `stale-while-revalidate` / `stale-if-error` resilience directives.
+    expect(res.headers.get('cache-control')).toBe(
+      'public, max-age=300, s-maxage=900, stale-while-revalidate=60, stale-if-error=86400',
+    );
 
     // AC #1: the three headers are present on a representative cacheable route.
     const vary = res.headers.get('vary') ?? '';
@@ -1008,178 +946,20 @@ describe('createApp 404 handling (AC: §9.1b, not the pinned-404 trap)', () => {
   });
 });
 
-describe('createApp edge-cache integration (only 2xx is stored)', () => {
-  let originalCaches: unknown;
-  let cacheStub: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
-
-  beforeEach(() => {
-    originalCaches = (globalThis as { caches?: unknown }).caches;
-    cacheStub = {
-      match: vi.fn().mockResolvedValue(undefined),
-      put: vi.fn().mockResolvedValue(undefined),
-    };
-    (globalThis as { caches: unknown }).caches = { default: cacheStub };
-  });
-
-  afterEach(() => {
-    if (originalCaches === undefined) {
-      delete (globalThis as { caches?: unknown }).caches;
-    } else {
-      (globalThis as { caches: unknown }).caches = originalCaches;
-    }
-  });
-
-  it('stores 2xx responses in the edge cache via ctx.waitUntil', async () => {
-    const { binding } = recordingApiBinding();
-    const ctx = fakeExecutionContext();
-    const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('<html>home</html>', { status: 200 })),
-    });
-
-    await app.fetch(
-      new Request('https://www.aecintegrations.com/'),
-      binding as unknown as Bindings,
-      ctx,
-    );
-
-    // ctx.waitUntil is called twice on a cacheable miss: once to put the
-    // response into caches.default, once to fire the AECI-58 page-view hook.
-    expect(ctx.waitUntil).toHaveBeenCalledTimes(2);
-    expect(cacheStub.put).toHaveBeenCalledOnce();
-  });
-
-  it('does NOT store 404 responses in the edge cache', async () => {
-    const { binding } = recordingApiBinding();
-    const ctx = fakeExecutionContext();
-    const app = createApp({
-      ssrRenderer: fixedRenderer(new Response('Not found', { status: 404 })),
-    });
-
-    await app.fetch(
-      new Request('https://www.aecintegrations.com/products/missing'),
-      binding as unknown as Bindings,
-      ctx,
-    );
-
-    expect(cacheStub.put).not.toHaveBeenCalled();
-  });
-
-  it('returns the cached response on a cache HIT without invoking SSR', async () => {
-    const cachedBody = '<html>cached home</html>';
-    cacheStub.match.mockResolvedValueOnce(
-      new Response(cachedBody, {
-        status: 200,
-        headers: {
-          'cache-control': 'public, max-age=300, s-maxage=900',
-          'content-type': 'text/html',
-        },
-      }),
-    );
-    const { binding } = recordingApiBinding();
-    const renderer = vi.fn();
-    const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
-
-    const res = await app.fetch(
-      new Request('https://www.aecintegrations.com/'),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(await res.text()).toBe(cachedBody);
-    expect(renderer).not.toHaveBeenCalled();
-  });
-});
-
-describe('createApp edge-cache key normalization end-to-end (AECI-100)', () => {
-  let originalCaches: unknown;
-  // In-memory cache keyed by the Request URL the runtime computes — this is how
-  // Cloudflare's caches.default keys entries, so it faithfully proves that two
-  // URLs which normalize to the same key collide (HIT) and distinct ones don't.
-  let store: Map<string, Response>;
-
-  beforeEach(() => {
-    originalCaches = (globalThis as { caches?: unknown }).caches;
-    store = new Map<string, Response>();
-    const cache = {
-      match: vi.fn(async (req: Request) => store.get(req.url)?.clone()),
-      put: vi.fn(async (req: Request, res: Response) => {
-        store.set(req.url, res.clone());
-      }),
-    };
-    (globalThis as { caches: unknown }).caches = { default: cache };
-  });
-
-  afterEach(() => {
-    if (originalCaches === undefined) {
-      delete (globalThis as { caches?: unknown }).caches;
-    } else {
-      (globalThis as { caches: unknown }).caches = originalCaches;
-    }
-  });
-
-  async function fetchPath(app: ReturnType<typeof createApp>, url: string): Promise<Response> {
-    const { binding } = recordingApiBinding();
-    return app.fetch(new Request(url), binding as unknown as Bindings, fakeExecutionContext());
-  }
-
-  it('serves a HIT for ?fbclid after ?utm_source primed the cache (AC #1: one detail entry)', async () => {
-    const renderer = vi.fn<SsrRenderer>(
-      async () =>
-        new Response('<html>detail</html>', {
-          status: 200,
-          headers: { 'content-type': 'text/html' },
-        }),
-    );
-    const app = createApp({ ssrRenderer: renderer });
-
-    // First request primes the cache: MISS → render → store one entry.
-    const first = await fetchPath(app, 'https://www.aecintegrations.com/products/foo?utm_source=x');
-    expect(first.status).toBe(200);
-    expect(renderer).toHaveBeenCalledTimes(1);
-    expect(store.size).toBe(1);
-
-    // A different tracking param on the same page must HIT — no second render.
-    const second = await fetchPath(app, 'https://www.aecintegrations.com/products/foo?fbclid=y');
-    expect(await second.text()).toBe('<html>detail</html>');
-    expect(renderer).toHaveBeenCalledTimes(1);
-    expect(store.size).toBe(1);
-  });
-
-  it('keeps distinct index pages as separate entries but collapses tracking noise (AC #2)', async () => {
-    const renderer = vi.fn<SsrRenderer>(async (req) => {
-      const search = new URL(req.url).search;
-      return new Response(`<html>${search}</html>`, {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      });
-    });
-    const app = createApp({ ssrRenderer: renderer });
-
-    await fetchPath(app, 'https://www.aecintegrations.com/products?page=1');
-    await fetchPath(app, 'https://www.aecintegrations.com/products?page=2');
-    // page=1 and page=2 are distinct content → two renders, two entries.
-    expect(renderer).toHaveBeenCalledTimes(2);
-    expect(store.size).toBe(2);
-
-    // A tracking-only variant of page=1 normalizes to the page=1 key → HIT.
-    await fetchPath(app, 'https://www.aecintegrations.com/products?page=1&utm_source=x');
-    expect(renderer).toHaveBeenCalledTimes(2);
-    expect(store.size).toBe(2);
-  });
-});
+// WC-3 (AECI-317) removed the hand-rolled `caches.default` match/put pipeline,
+// so the former "edge-cache integration (only 2xx is stored)" and "edge-cache key
+// normalization end-to-end" describe blocks (which stubbed `globalThis.caches`
+// and asserted on `cache.match`/`cache.put`) no longer have a Worker-level seam to
+// exercise: under native Workers Cache a HIT never runs the Worker, and the
+// platform stores from `Cache-Control`. Front-of-Worker HIT/MISS is now verified
+// on a deployed preview via `Cf-Cache-Status` (WC-9). The response-header contract
+// the native cache consumes is still covered here — Cache-Control (buildCacheControl,
+// cacheControlForRoute), Cache-Tag emission, cookie-strip, and the 404 short-TTL.
 
 describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
-  let originalCaches: unknown;
-  let cacheStub: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    originalCaches = (globalThis as { caches?: unknown }).caches;
-    cacheStub = {
-      match: vi.fn().mockResolvedValue(undefined),
-      put: vi.fn().mockResolvedValue(undefined),
-    };
-    (globalThis as { caches: unknown }).caches = { default: cacheStub };
     // Only metric submission uses global fetch here; the API binding is a
     // separate mock, so any distribution_points POST is unambiguously a metric.
     fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
@@ -1187,11 +967,6 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
   });
 
   afterEach(() => {
-    if (originalCaches === undefined) {
-      delete (globalThis as { caches?: unknown }).caches;
-    } else {
-      (globalThis as { caches: unknown }).caches = originalCaches;
-    }
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -1231,27 +1006,6 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
     );
   });
 
-  it('emits cache_status:HIT (without invoking SSR) on a cache hit', async () => {
-    cacheStub.match.mockResolvedValueOnce(
-      new Response('<html>cached</html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }),
-    );
-    const renderer = vi.fn();
-    const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
-    await app.fetch(
-      new Request('https://www.aecintegrations.com/'),
-      envWithDatadog(),
-      fakeExecutionContext(),
-    );
-    expect(renderer).not.toHaveBeenCalled();
-    const series = renderMetricSeries();
-    expect(series!.tags).toEqual(
-      expect.arrayContaining(['route_class:index', 'cache_status:HIT', 'status_code:200']),
-    );
-  });
-
   it('does not emit a render metric on non-cacheable routes (no route_class)', async () => {
     const app = createApp({
       ssrRenderer: fixedRenderer(
@@ -1271,30 +1025,18 @@ describe('createApp render-duration metric (AECI-66, Phase 2 §14)', () => {
 });
 
 describe('createApp ssr.render count metric (AECI-103)', () => {
-  // The bounded per-render count fires on EVERY branch — including the
-  // edge-cache HIT and the non-cacheable branch, which the render-duration
-  // distribution (and the old ssr.render log) never covered.
-  let originalCaches: unknown;
-  let cacheStub: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
+  // The bounded per-render count fires on every branch the Worker runs — the
+  // cacheable render (a native-cache MISS) and the non-cacheable branch, which
+  // the render-duration distribution (and the old ssr.render log) never covered.
+  // Edge HITs skip the Worker under WC-3, so there is no `hit` count here.
   let fetchSpy: ReturnType<typeof vi.fn>;
 
   beforeEach(() => {
-    originalCaches = (globalThis as { caches?: unknown }).caches;
-    cacheStub = {
-      match: vi.fn().mockResolvedValue(undefined),
-      put: vi.fn().mockResolvedValue(undefined),
-    };
-    (globalThis as { caches: unknown }).caches = { default: cacheStub };
     fetchSpy = vi.fn().mockResolvedValue(new Response('{}', { status: 202 }));
     vi.stubGlobal('fetch', fetchSpy);
   });
 
   afterEach(() => {
-    if (originalCaches === undefined) {
-      delete (globalThis as { caches?: unknown }).caches;
-    } else {
-      (globalThis as { caches: unknown }).caches = originalCaches;
-    }
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -1336,26 +1078,6 @@ describe('createApp ssr.render count metric (AECI-103)', () => {
     expect(series?.metric).toBe('aeci.ssr.render');
     expect(series?.type).toBe(1); // count
     expect(series!.tags).toEqual(expect.arrayContaining(['cache_status:miss', 'status_class:2xx']));
-  });
-
-  it('emits cache_status:hit on a cache hit without invoking SSR', async () => {
-    cacheStub.match.mockResolvedValueOnce(
-      new Response('<html>cached</html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }),
-    );
-    const renderer = vi.fn();
-    const app = createApp({ ssrRenderer: renderer as unknown as SsrRenderer });
-    await app.fetch(
-      new Request('https://www.aecintegrations.com/'),
-      envWithDatadog(),
-      fakeExecutionContext(),
-    );
-    expect(renderer).not.toHaveBeenCalled();
-    expect(ssrRenderCountSeries()!.tags).toEqual(
-      expect.arrayContaining(['cache_status:hit', 'status_class:2xx']),
-    );
   });
 
   it('emits cache_status:non_cacheable on a non-cacheable route (where the distribution is silent)', async () => {
@@ -1532,26 +1254,11 @@ describe('createApp resolver-supplied embedded Cache-Tag merge (AECI-57)', () =>
 // entity_id) and the 404 status gate.
 
 describe('createApp page-view capture (AECI-58)', () => {
-  let originalCaches: unknown;
-  let cacheStub: { match: ReturnType<typeof vi.fn>; put: ReturnType<typeof vi.fn> };
-
-  beforeEach(() => {
-    originalCaches = (globalThis as { caches?: unknown }).caches;
-    cacheStub = {
-      match: vi.fn().mockResolvedValue(undefined),
-      put: vi.fn().mockResolvedValue(undefined),
-    };
-    (globalThis as { caches: unknown }).caches = { default: cacheStub };
-  });
-
-  afterEach(() => {
-    if (originalCaches === undefined) {
-      delete (globalThis as { caches?: unknown }).caches;
-    } else {
-      (globalThis as { caches: unknown }).caches = originalCaches;
-    }
-  });
-
+  // WC-3 (AECI-317): edge HITs skip the Worker under native Workers Cache, so
+  // there is no `caches.default` stub / cache-HIT case here — the SSR-side
+  // page-view fires only when the Worker renders (a native-cache MISS or a
+  // non-cacheable route). The browser `PageViewTracker` remains the canonical
+  // per-view counter (see the `firePageView` doc comment in server-runtime.ts).
   function pageViewCalls(calls: Request[]): Request[] {
     return calls.filter((r) => new URL(r.url).pathname === '/api/page-views');
   }
@@ -1575,25 +1282,6 @@ describe('createApp page-view capture (AECI-58)', () => {
     // Query string is not part of the captured route — `cacheControlForRoute`
     // matches by pathname only and the body mirrors that.
     expect(await pv[0]!.clone().json()).toEqual({ route: '/products' });
-  });
-
-  it('fires page-views again on a cache HIT (visitor arrivals, not just SSR misses)', async () => {
-    cacheStub.match.mockResolvedValueOnce(
-      new Response('<html>cached</html>', {
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-      }),
-    );
-    const { binding, calls } = recordingApiBinding();
-    const app = createApp({ ssrRenderer: vi.fn() as unknown as SsrRenderer });
-
-    await app.fetch(
-      new Request('https://www.aecintegrations.com/products'),
-      binding as unknown as Bindings,
-      fakeExecutionContext(),
-    );
-
-    expect(pageViewCalls(calls)).toHaveLength(1);
   });
 
   it('does NOT fire page-views on non-cacheable routes', async () => {

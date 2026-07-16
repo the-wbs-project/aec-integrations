@@ -22,9 +22,9 @@ type ViewKey = 'cards' | 'table';
  * - AECI-143 — `BrowseLayout` with the API-backed `aec-facet-sidebar` in the
  *   `filters` slot. Taxonomy cross-filters (`category_id` / `audience_id` /
  *   `phase_id`) ride the URL via `passthroughParams`, so the grid re-fetches the
- *   filtered list when the sidebar navigates; those params are in `/products`'
- *   `cacheKeyParams` allowlist so each filter combination caches under its own
- *   edge key.
+ *   filtered list when the sidebar navigates; each filter combination is a
+ *   distinct query string, so the native Workers Cache keys each under its own
+ *   edge entry.
  * - AECI-190 — inside the `grid` slot, the catalog renders in one of two views,
  *   a buyer-facing card grid (default) or a dense table, switched by a toolbar
  *   toggle, with sort moved from clickable column headers to a `<select>`.

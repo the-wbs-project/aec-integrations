@@ -6,10 +6,11 @@
  * verbatim from `apps/web/src/index.html` — Angular renders into `<app-root>`,
  * so no component can author the document element. The cache-safe injection
  * point is the `transformResponse` chain in `server.ts`, which runs inside
- * `handleSsr` BEFORE the edge-cache write. Unlike theme (per-visitor,
- * cookie-stripped), `dir`/`lang` derive purely from the URL's locale prefix,
- * and the edge cache key (`cacheKeyUrl`) already segments by URL including that
- * prefix — so baking them into the cached HTML is cache-safe (§9.1a / §7a.3a).
+ * `handleSsr` BEFORE the response is returned (and stored by the native Workers
+ * Cache). Unlike theme (per-visitor, cookie-stripped), `dir`/`lang` derive purely
+ * from the URL's locale prefix, and the native cache key already segments by URL
+ * (including that prefix) — so baking them into the cached HTML is cache-safe
+ * (§9.1a / §7a.3a).
  *
  * Modeled on `injectDatadogBootstrap`, with three deliberate differences:
  *   - Gated on `content-type: text/html` ONLY, not on status — so Angular's
