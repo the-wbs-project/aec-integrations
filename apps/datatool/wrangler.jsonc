@@ -3,7 +3,7 @@
   "name": "aeci-datatool",
   "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
   "main": "src/index.ts",
-  "compatibility_date": "2026-04-07",
+  "compatibility_date": "2026-07-10",
   // INTERNAL ADMIN TOOL. Publishes to `aeci-datatool.aec-integrations.workers.dev`,
   // which is already inside the single `AECi Non-Prod` Cloudflare Access app's
   // `*.aec-integrations.workers.dev` destination (docs/access.md §1) — so it is

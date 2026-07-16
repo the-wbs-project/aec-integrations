@@ -25,6 +25,8 @@ Cloudflare shipped **[Workers Cache](https://developers.cloudflare.com/workers/c
 
 **Toolchain is already ready** (verified 2026-07-12): `wrangler 4.107.1`, `miniflare 4.20260702.0`, `@cloudflare/workers-types ^4.20260702.1` — meeting both the `cache.enabled` floor (≥ 4.69.0) and the per-entrypoint / `cross_version_cache` floor (≥ 4.107.0). WC-2 only bumps compatibility dates.
 
+> **Update — WC-2 done (AECI-316, 2026-07-16).** Bumped `wrangler ^4.107.0 → ^4.111.0` (all three Workers) and `miniflare ^4.20260702.0 → ^4.20260710.0` (web); both bundle `workerd@1.20260710.1`. `compatibility_date` set to **`2026-07-10`** on all three Workers (`apps/web`, `apps/api`, `apps/datatool`) — matched to the bundled workerd so local `wrangler dev` emits no "compat date ahead of runtime" warning; the date bump enabled **no new default compat flag** (web keeps `nodejs_compat`; api/datatool stay flag-free). `@cloudflare/workers-types` was bumped **past the WC-2 AC's "4.x" ceiling to the new 5.x major** (`^5.20260716.1`) on `apps/api` + `apps/datatool` — the 4.x line stopped at `4.20260702.1`, `wrangler 4.111` peer-wants `^5.x`, and the bump clears the peer warning with typecheck/tests green (drizzle-orm's `>=4` optional peer is satisfied). `wrangler types` still nudges dropping the package altogether in favour of generated runtime types. **Remaining follow-up (not WC-2):** drop `@cloudflare/workers-types` and point `apps/api` / `apps/datatool` `tsconfig` at the generated `worker-configuration.d.ts` (as `apps/web` already does). Toolchain still clears all cache floors.
+
 ## Decision
 
 Adopt **native Workers Cache on the SSR Worker**, and solve the two hard parts as follows.

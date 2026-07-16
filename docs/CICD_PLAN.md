@@ -244,7 +244,7 @@ Wrangler is the only deployment tool. Single source of truth for Worker configur
 {
   "name": "aeci-ssr",
   "main": "dist/server/server.mjs",
-  "compatibility_date": "2026-05-13",
+  "compatibility_date": "2026-07-10",
   "compatibility_flags": ["nodejs_compat"],
   "assets": { "binding": "ASSETS", "directory": "./dist/browser" },
   "observability": { "enabled": true },
