@@ -5,6 +5,8 @@
 **Established by:** Phase 2 (`STAGE_1_PHASE_2_SPEC.md` §8); extended in Phase 4 / 5 / 6 as new entity types and write paths come online
 **Companion docs:** `STAGE_1_SPEC.md`, `STAGE_1_PHASE_2_SPEC.md`, `API_CONTRACTS.md`, `CICD_PLAN.md`
 
+> **⚠️ Migration in progress — AECI-314 (Workers Cache Migration), design in [ADR 0020](adr/0020-workers-cache-and-queue-purge.md).** §1–§8 below describe the **current** hand-rolled design: the SSR Worker's `caches.default` match/put (`cacheKeyUrl` normalization) plus the HTTP `callCloudflarePurge` purge-by-tag transport. That is being replaced by **native Cloudflare Workers Cache** (`cache.enabled`; a HIT skips the Worker) with cross-Worker purge via a Cloudflare **Queue** and key-normalization via a **gateway entrypoint**. Until the migration lands, everything below remains accurate and in force. The **full rewrite of this doc is tracked in WC-11 (AECI-325)**; §9 sketches the target shape.
+
 ---
 
 ## 1. Plan availability note
@@ -222,3 +224,22 @@ Indexing is **fail-closed and environment-gated**, independent of the SEO header
 - [AECI-41](https://linear.app/aec-integrations/issue/AECI-41) — theme service tests and SSR-side theme handling.
 - [AECI-43](https://linear.app/aec-integrations/issue/AECI-43) — API responses are `private, no-store`; only SSR HTML is edge-cached.
 - [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) — Cache-Tag write helper + `POST /admin/purge` endpoint implementation.
+
+---
+
+## 9. Target model (post-migration, AECI-314) — outline
+
+> **Not yet in force.** This is a forward-looking sketch of the shape the WC-11 (AECI-325) rewrite will fill in once native Workers Cache ships. The authoritative decision is [ADR 0020](adr/0020-workers-cache-and-queue-purge.md); the per-issue detail is WC-2…WC-11. §1–§8 above stay authoritative until the migration lands.
+
+When native Workers Cache is enabled, the section-by-section shape becomes:
+
+- **§1 Plan availability** → unchanged in substance (Cache-Tag purge on all plans), but Workers Cache is **zoneless**: no zone-level cache config, Cache Rules, or dashboard/API/Terraform purge affect it. The relevant limits become Workers Cache's (`≤1000 Cache-Tag values/response`, `≤1024 chars/tag`), replacing the HTTP purge's `≤30 tags/call`.
+- **§2 Tag vocabulary** → **unchanged.** The same `product:{slug}` / `vendor:{slug}` / `pair:{…}` / `taxonomy` / `index:{…}` / `route:{…}` tags are emitted; only the emit **surface** moves (the cached `Renderer` entrypoint sets `Cache-Tag`).
+- **§3 Tag composition** → **unchanged** (`buildCacheTags` / `cacheTagInputsForPath` in `apps/web/src/server/cache-tags.ts` keep emitting; they now feed the response the `Renderer` returns).
+- **§4 TTLs per route class** → **unchanged** `Cache-Control` values (`s-maxage`/`max-age`); the platform stores from `Cache-Control` instead of an explicit `cache.put()`. Candidate additive knob (deferred, ADR 0020 Q4): `stale-while-revalidate` / `stale-if-error`.
+- **§4a Cache-key normalization** → **preserved via a gateway entrypoint.** A `cache.enabled:false` **gateway** (default entrypoint) normalizes the URL exactly as `cacheKeyUrl()` does (strip `utm_*`/non-allowlisted params, per-route allowlist, `searchParams.sort()`), then forwards `ctx.exports.Renderer.fetch(request, { cf: { cacheKey } })`; `cf.cacheKey` replaces path+query in the native key. Trailing-slash / order sensitivity is absorbed by the gateway.
+- **§5 Invalidation** → **Queue-based.** `ctx.cache.purge({ tags })` (entrypoint-scoped to `Renderer`) replaces the HTTP `callCloudflarePurge`. Producers (`POST /api/promote`, `/admin/reviews`, datatool, `/admin/purge`) enqueue onto `aeci-cache-purge-{env}`; a `queue()` consumer on the SSR Worker issues the purge from the `Renderer` entrypoint. The ordered **refresh-stats-then-purge** home flow is preserved (recompute `home.*` stats, then enqueue the `index:home` purge). `CF_PURGE_API_TOKEN` is retired (WC-10); **`CF_ZONE_ID` is kept** (AECI-262 WAF poll).
+- **§6 Cookie / cache hygiene** → **unchanged in intent.** `Set-Cookie` responses BYPASS the native cache automatically; the cookie-strip stays on the miss/uncacheable path; the pinned-404 trap is re-expressed against the native model (404s carry a short TTL and the `route:404` tag).
+- **§7 SEO header set** → the crawler-indexing gate (§7.1 `X-Robots-Tag`) is the **highest-risk item** under a front-of-Worker cache: a HIT skips the Worker, so the egress `noindex` stamp can no longer run per-response. WC-8 bakes the `noindex` decision into the **cached payload** (or an always-run gateway stamp) so a cache HIT can never leak an indexable non-prod page. `Vary: Accept-Language` + `Link`/CSP header discipline carry over.
+- **§8 Cross-references** → add ADR 0020 and the WC-* issues; retire references to the HTTP purge transport once WC-10 lands.
+- **New: Observability & local-dev** → `Cf-Cache-Status` (`HIT`/`MISS`/`EXPIRED`/`BYPASS`/…) becomes the primary debug signal (WC-8); front-of-Worker HIT/MISS is **verified on a deployed preview**, not local miniflare (WC-9, ADR 0020 Q3).
