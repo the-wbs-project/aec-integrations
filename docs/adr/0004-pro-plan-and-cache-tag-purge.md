@@ -1,5 +1,7 @@
 # ADR 0004: Cloudflare Pro plan + purge-by-Cache-Tag (not purge-by-URL)
 
+> **⚠️ Amended by [ADR 0020](0020-workers-cache-and-queue-purge.md) (2026-07-12, AECI-314).** Purge-by-**Cache-Tag** is **retained**, but the *transport* moves from the zone HTTP purge API (`POST /zones/{zone}/purge_cache`, ≤30 tags/call) to native Workers Cache `ctx.cache.purge({ tags })` (≤1000 tags/response), issued from inside the SSR Worker via a Cloudflare Queue. `Cache-Tag` emission and the tag vocabulary are unchanged. The zone HTTP purge is **inert** against Workers Cache — see ADR 0020.
+
 > _Renamed from the placeholder `0004-pro-plan-purge-by-url` — purge is by **Cache-Tag**, not by URL. The URL-invalidation approach (`STAGE_1_SPEC.md §9.3` `invalidateForEntity()`) is superseded._
 
 **Status:** Accepted (a CLAUDE.md non-negotiable)
