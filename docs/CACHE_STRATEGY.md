@@ -137,25 +137,28 @@ The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-ru
 
 ## 5. Invalidation mechanism
 
-The one outbound call that actually invalidates the edge cache is a stateless `POST https://api.cloudflare.com/.../zones/{zone}/purge_cache` with a `{ tags }` body (≤ `CF_PURGE_MAX_TAGS` = 30 tags/call, Pro plan). That transport lives **once** in `@aeci/shared` (`callCloudflarePurge`, `packages/shared/src/cache-purge.ts`) and has **two call sites**:
+Invalidation is **mid-migration** to native Workers Cache (ADR 0020 / epic AECI-314). The two purge surfaces are on **different transports** today:
 
-**(a) `POST /admin/purge` on the SSR Worker** — the manual / incident-response + CI surface:
+**(a) `POST /admin/purge` on the SSR Worker** — the manual / incident-response + CI surface. **Migrated to native Workers Cache in WC-6 ([AECI-320](https://linear.app/aec-integrations/issue/AECI-320)):** because this endpoint runs on the same SSR Worker that owns the cache, it invalidates **in-process** via `ctx.cache.purge(...)` — no outbound Cloudflare REST call, no `@aeci/shared` `callCloudflarePurge`, no queue hop.
 
-- Authenticates the *caller* via a long-lived admin token (Wrangler secret named `ADMIN_PURGE_TOKEN`)
-- Body: `{ tags: string[] }`
-- Delegates to the shared transport (CF purge-by-tag for the zone)
-- Respects Pro plan rate limits (token bucket per account); CF 429s surface in `failed[]`
-- Logs to Datadog and emits `aeci.cache.purge{source,outcome}`
+- Authenticates the *caller* via a long-lived admin token (Wrangler secret named `ADMIN_PURGE_TOKEN`) — **unchanged** by the migration.
+- Body: one or both of `{ tags: string[] }` / `{ pathPrefixes: string[] }`, or `{ purgeEverything: true }` on its own — the three native purge modes (`purgeEverything` is exclusive; `tags`+`pathPrefixes` union). The legacy `{ tags: [...] }` body stays valid.
+- Delegates to `ctx.cache.purge(...)`; the result `{ success, errors }` is surfaced in the response body. The tag cap is the native ceiling (≤ 1000 `Cache-Tag` values/response), **not** the old HTTP `CF_PURGE_MAX_TAGS` = 30.
+- Purge shares Cloudflare's zone-purge rate limiter; a rejection resolves to `{ success: false, errors }` → HTTP 502.
+- **No longer reads `CF_PURGE_API_TOKEN` / `CF_ZONE_ID`** (native purge needs neither). Their secret pruning is deferred to WC-10 ([AECI-324](https://linear.app/aec-integrations/issue/AECI-324)).
+- **Entrypoint scoping (load-bearing):** `ctx.cache.purge()` only evicts the *calling entrypoint's* cache. Today the SSR Worker is a single default entrypoint, so this handler and the cached SSR responses share one cache — correctly scoped. When WC-4 ([AECI-318](https://linear.app/aec-integrations/issue/AECI-318)) moves SSR caching into a named `Renderer` entrypoint, `/admin/purge` MUST issue its purge from `Renderer` (or via the WC-5 queue) or it silently no-ops — see §9.
+- **Cache-disabled tiers:** `ExecutionContext.cache` is absent when Workers Cache is not enabled on the entrypoint (local/miniflare + the demo/production tiers gated until WC-4/5/6/8). There the handler returns a graceful no-op (`200 { success: true, skipped: 'cache_disabled' }`) so CI's post-promote purge and manual callers stay green until native cache is enabled on the tier.
+- Logs to Datadog and emits `aeci.cache.purge{source,outcome,mode}` (outcomes: `ok` / `failed` / `skipped`).
 
 Auth: Wrangler secret in Phase 2. **Migrate to Cloudflare Access in Phase 6** when admin tooling expands and there are multiple admin endpoints behind the same auth boundary.
 
 Callers of `/admin/purge`:
 
 - Manual incident response (curl)
-- CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed)
+- CI (`promote-to-prod.yml` purges `taxonomy` + `route:browse` after the reference-data seed) — inherits the native backend automatically (it only checks the HTTP status)
 - Future admin tooling (Phase 6) — direct call from admin Workers, not n8n
 
-**(b) `POST /api/promote` on the API Worker** — purges **directly** (no `/admin/purge` hop) after a promote commits, using the same shared transport and its **own** `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`. This replaced the original api→web `WEB` service binding; see **ADR 0010** (`docs/adr/0010-promote-purges-cloudflare-directly.md`). The purge is best-effort, post-commit (`ctx.waitUntil`), and a graceful no-op when the API Worker's CF credentials are unset (local dev, PR previews). The entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`) and fired in one concurrent task.
+**(b) `POST /api/promote` on the API Worker** — purges **directly** (no `/admin/purge` hop) after a promote commits, using the shared HTTP transport `callCloudflarePurge` (`@aeci/shared`, `packages/shared/src/cache-purge.ts`, ≤ `CF_PURGE_MAX_TAGS` = 30 tags/call, Pro plan) and its **own** `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`. This is the **remaining** HTTP-transport purge site (the shared transport also backs `/admin/reviews` and datatool) until WC-5 ([AECI-319](https://linear.app/aec-integrations/issue/AECI-319)) moves cross-Worker purge onto a Cloudflare Queue. This replaced the original api→web `WEB` service binding; see **ADR 0010** (`docs/adr/0010-promote-purges-cloudflare-directly.md`). The purge is best-effort, post-commit (`ctx.waitUntil`), and a graceful no-op when the API Worker's CF credentials are unset (local dev, PR previews). The entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`) and fired in one concurrent task.
 
 The home page's `index:home` tag is the one deliberate exception: it is **not** in `cacheTagsForPromote`, because the home banner reads `home.*` `stats_cache` counts that the promote must **recompute first** (via `runHomeStats`). So the home refresh+purge is its own ordered post-commit task (`refreshHomeStatsAfterPromote` in `promote.ts`, AECI-305): recompute `stats_cache`, **then** purge `index:home`. Adding `index:home` to the concurrent set would let the purge race ahead of the recompute and re-cache stale HTML for another edge TTL. The `stats_cache` recompute runs in every environment; only the `index:home` purge is CF-credential-gated.
 
@@ -163,7 +166,7 @@ Automated callers beyond promote (e.g. a Supabase webhook on row update) are Pha
 
 Implementation of the endpoint shape, rate-limit handling, and Datadog wiring landed in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10); the promote→purge wiring in [AECI-105](https://linear.app/aec-integrations/issue/AECI-105).
 
-**Cloudflare API token scoping:** every `CF_PURGE_API_TOKEN` (the SSR Worker's **and** the API Worker's) must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only — the narrowest possible scope. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope (rotate both Workers together).
+**Cloudflare API token scoping:** the **API Worker's** `CF_PURGE_API_TOKEN` (the only remaining CF purge token after WC-6 — the SSR Worker's `/admin/purge` now uses native `ctx.cache.purge()` and presents no CF token) must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only — the narrowest possible scope. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope. The SSR Worker's now-unused `CF_PURGE_API_TOKEN` secret is pruned in WC-10 ([AECI-324](https://linear.app/aec-integrations/issue/AECI-324)).
 
 ---
 
@@ -244,7 +247,7 @@ When native Workers Cache is enabled, the section-by-section shape becomes:
 - **§3 Tag composition** → **unchanged** (`buildCacheTags` / `cacheTagInputsForPath` in `apps/web/src/server/cache-tags.ts` keep emitting; they now feed the response the `Renderer` returns).
 - **§4 TTLs per route class** → **unchanged** `Cache-Control` values (`s-maxage`/`max-age`); the platform stores from `Cache-Control` instead of an explicit `cache.put()`. Additive knob **adopted in WC-3** (ADR 0020 Q4): `stale-while-revalidate=60` / `stale-if-error=86400` on the detail + index/browse routes.
 - **§4a Cache-key normalization** → **removed in WC-3, re-added via a gateway entrypoint in WC-4.** A `cache.enabled:false` **gateway** (default entrypoint) normalizes the URL exactly as `cacheKeyUrl()` did (strip `utm_*`/non-allowlisted params, per-route allowlist, `searchParams.sort()`), then forwards `ctx.exports.Renderer.fetch(request, { cf: { cacheKey } })`; `cf.cacheKey` replaces path+query in the native key. Trailing-slash / order sensitivity is absorbed by the gateway. Between WC-3 and WC-4 the native key is the full order-sensitive query string.
-- **§5 Invalidation** → **Queue-based.** `ctx.cache.purge({ tags })` (entrypoint-scoped to `Renderer`) replaces the HTTP `callCloudflarePurge`. Producers (`POST /api/promote`, `/admin/reviews`, datatool, `/admin/purge`) enqueue onto `aeci-cache-purge-{env}`; a `queue()` consumer on the SSR Worker issues the purge from the `Renderer` entrypoint. The ordered **refresh-stats-then-purge** home flow is preserved (recompute `home.*` stats, then enqueue the `index:home` purge). `CF_PURGE_API_TOKEN` is retired (WC-10); **`CF_ZONE_ID` is kept** (AECI-262 WAF poll).
+- **§5 Invalidation** → **Queue-based.** `ctx.cache.purge({ tags })` (entrypoint-scoped to `Renderer`) replaces the HTTP `callCloudflarePurge`. The **cross-Worker** producers (`POST /api/promote`, `/admin/reviews`, datatool) enqueue onto `aeci-cache-purge-{env}`; a `queue()` consumer on the SSR Worker issues the purge from the `Renderer` entrypoint. **`/admin/purge` is the exception:** it already runs on the SSR Worker, so **WC-6 (AECI-320) migrated it to call `ctx.cache.purge()` directly** — no queue hop (it must issue from `Renderer` once WC-4 lands). The ordered **refresh-stats-then-purge** home flow is preserved (recompute `home.*` stats, then enqueue the `index:home` purge). `CF_PURGE_API_TOKEN` is retired (WC-10); **`CF_ZONE_ID` is kept** (AECI-262 WAF poll).
 - **§6 Cookie / cache hygiene** → **unchanged in intent.** `Set-Cookie` responses BYPASS the native cache automatically; the cookie-strip stays on the miss/uncacheable path; the pinned-404 trap is re-expressed against the native model (404s carry a short TTL and the `route:404` tag).
 - **§7 SEO header set** → the crawler-indexing gate (§7.1 `X-Robots-Tag`) is the **highest-risk item** under a front-of-Worker cache: a HIT skips the Worker, so the egress `noindex` stamp can no longer run per-response. WC-8 bakes the `noindex` decision into the **cached payload** (or an always-run gateway stamp) so a cache HIT can never leak an indexable non-prod page. `Vary: Accept-Language` + `Link`/CSP header discipline carry over.
 - **§8 Cross-references** → add ADR 0020 and the WC-* issues; retire references to the HTTP purge transport once WC-10 lands.
