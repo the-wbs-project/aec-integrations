@@ -74,7 +74,7 @@
             // be external. Safe: the chunk is dynamically imported only inside
             // `afterNextRender` (browser), so the SSR Worker never loads it — and
             // even if it did, `nodejs_compat` provides `util` at runtime.
-            "externalDependencies": ["cloudflare:workers", "util"],
+            "externalDependencies": ["#cloudflare-workers", "cloudflare:workers", "util"],
             // AECI-237 — inline `*.md` imports as raw strings via esbuild's
             // `text` loader, so the legal-page content registry
             // (`src/app/legal/legal-content.ts`) can `import` the Markdown

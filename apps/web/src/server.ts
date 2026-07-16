@@ -12,6 +12,11 @@
  */
 
 import { AngularAppEngine } from '@angular/ssr';
+// `#cloudflare-workers` (this package's `imports` map) resolves to the real
+// `cloudflare:workers` for wrangler/workerd but to a Node stub during Angular's
+// route extraction, which runs this bundle in plain Node (the `cloudflare:`
+// scheme is unloadable there). See `cloudflare-workers.stub.mjs` / ADR 0020 §2.
+import { WorkerEntrypoint } from '#cloudflare-workers';
 
 import type { ApiError } from '@aeci/shared';
 
@@ -20,7 +25,7 @@ import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
 import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
 import { injectHtmlLangDir } from './server-html-dir-inject';
-import { createApp, type SsrRenderer } from './server-runtime';
+import { cacheGateway, createApp, type Bindings, type SsrRenderer } from './server-runtime';
 import { injectSupabaseBootstrap } from './supabase-bootstrap-inject';
 
 // Re-exported until SSR data loaders begin parsing API responses against the
@@ -89,4 +94,25 @@ const app = createApp({
     return injected;
   },
 });
-export default app;
+
+/**
+ * Cached SSR entrypoint (WC-4 / AECI-318). Native Workers Cache sits *in front
+ * of* this entrypoint (`exports.Renderer.cache.enabled: true`, per env in
+ * `apps/web/wrangler.jsonc`), so a HIT skips the render. It simply delegates to
+ * the Hono `app` — all routing, `/api/*` passthrough, auth gates, cookie
+ * hygiene, SSR render, and `Cache-Control`/`Cache-Tag` emission are unchanged.
+ * The gateway (`cacheGateway`, the default export) reaches it through the
+ * `ctx.exports` loopback with a normalized `cf.cacheKey`. Forwarding
+ * `this.env`/`this.ctx` keeps Hono's `waitUntil` (Datadog forwards, page-views)
+ * working within this entrypoint's lifetime.
+ */
+export class Renderer extends WorkerEntrypoint<Bindings> {
+  override fetch(request: Request): Response | Promise<Response> {
+    return app.fetch(request, this.env, this.ctx);
+  }
+}
+
+// The default export is the cache-key-normalizing gateway (its own cache is
+// disabled so it runs on every request); it forwards to `Renderer` above. See
+// `cacheGateway` in `server-runtime.ts` and ADR 0020 §2.
+export default cacheGateway;
