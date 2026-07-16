@@ -52,9 +52,11 @@ const EMPTY_ATTRIBUTION: LeadAttribution = {
  * `document.referrer`. Browser-only — returns all-null under SSR (no `document`),
  * which is correct because the form only POSTs from a user action in the browser.
  *
- * The `utm_*` params survive in the real URL even though `cacheKeyUrl`
- * (`server-runtime.ts`) strips them from the edge-cache key: the SSR HTML is
- * intentionally UTM-independent, and the island reads the actual URL here.
+ * The `utm_*` params survive in the real URL even though the SSR HTML is
+ * intentionally UTM-independent (they don't change the render): the island reads
+ * the actual browser URL here, not the server render. (WC-4 restores utm-strip in
+ * the edge-cache key; native Workers Cache keys on the full query string until
+ * then — see `server-runtime.ts`.)
  */
 export function buildAttribution(): LeadAttribution {
   if (typeof document === 'undefined' || typeof globalThis.location === 'undefined') {

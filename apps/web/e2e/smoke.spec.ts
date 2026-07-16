@@ -87,12 +87,13 @@ test.describe('home page (smoke)', () => {
   test('second request to / hits the edge cache (AECI-36 AC #3, deployed only)', async ({
     request,
   }) => {
-    // Miniflare's caches.default doesn't model real edge cache behavior
-    // (same skip pattern as run-extra-tests.sh T7). Validated against a
-    // deployed Worker via `PLAYWRIGHT_BASE_URL=https://<preview>...`.
+    // Native Workers Cache (WC-3) is a front-of-Worker platform cache; miniflare
+    // doesn't model it (same skip pattern as run-extra-tests.sh T7). This is the
+    // primary WC-3 verification and only holds against a deployed Worker via
+    // `PLAYWRIGHT_BASE_URL=https://<preview>...`.
     test.skip(!IS_DEPLOYED, 'requires a deployed preview Worker (set PLAYWRIGHT_BASE_URL)');
 
-    // Prime the edge cache, then sleep so cache.put has landed.
+    // Prime the edge cache, then sleep so the platform store has landed.
     const primer = await request.get('/');
     expect(primer.status()).toBe(200);
     await new Promise((r) => setTimeout(r, 800));
