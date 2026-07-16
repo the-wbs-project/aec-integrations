@@ -525,6 +525,8 @@ The two daily Algolia jobs run as cron → enqueue → consume (ADR 0013). The f
   done
   ```
 
+**Cross-Worker cache-purge queue (WC-5 / AECI-319 / ADR 0020 §3).** `aeci-cache-purge-{staging,demo,production}` is provisioned by the **same** idempotent `create_queue` step (in `deploy.yml` / `promote-to-demo.yml` / `promote-to-prod.yml`, before the SSR deploy) and needs the same two prerequisites above. It differs from the ADR-0013 job queues in that its **producer** is the API Worker (`CACHE_PURGE_QUEUE`, enqueued on promote/moderation) while its **consumer** is the **SSR Worker** (`apps/web/wrangler.jsonc` `queues.consumers`, which issues `ctx.cache.purge()`) — so the queue must exist before the SSR deploy, not only the API deploy. No queue on preview/local (the producers no-op gracefully). Retire it, like the job queues, only after removing both bindings.
+
 ### 3. Cloudflare Access
 
 Already provisioned per `docs/access.md` §1. Re-verify after bootstrapping the staging hostname:

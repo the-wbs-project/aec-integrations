@@ -36,16 +36,16 @@
  *     rather than failing the request (the product-driven "both endpoints
  *     promoted" rule, AECI-83).
  *
- * Cache purge (AECI-105) is best-effort + post-commit (`ctx.waitUntil` →
- * `callCloudflarePurge` directly, ADR 0010); no-op without
- * `CF_PURGE_API_TOKEN`/`CF_ZONE_ID`. Algolia sync (AECI-139) is an injectable
- * post-commit seam over the Drizzle `algolia-sync` core, no-op without the
- * Algolia secrets.
+ * Cache purge (AECI-105 → WC-5 / AECI-319) is best-effort + post-commit
+ * (`ctx.waitUntil` → enqueue onto `CACHE_PURGE_QUEUE`; the SSR Worker's queue
+ * consumer issues the `ctx.cache.purge()` — ADR 0020 §3, since the API Worker's own
+ * zone-HTTP purge is inert against native Workers Cache); no-op without the queue
+ * binding (local/preview). Algolia sync (AECI-139) is an injectable post-commit seam
+ * over the Drizzle `algolia-sync` core, no-op without the Algolia secrets.
  */
 
 import {
-  callCloudflarePurge,
-  CF_PURGE_MAX_TAGS,
+  CACHE_PURGE_QUEUE_MAX_TAGS,
   PromotePayloadSchema,
   type EntityRef,
   type PromoteEntityResult,
@@ -261,45 +261,50 @@ const AUDIT_META = { source: 'review-app-promote' } as const;
 // ─── Cache purge (AECI-105) ──────────────────────────────────────────────────
 
 /**
- * Best-effort, post-commit edge-cache purge for a promote. No-ops when
- * `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` is absent, or when nothing cacheable
- * changed. Batches are fired concurrently; each batch's outcome is recorded as
- * `aeci.cache.purge{source:promote,outcome:ok|cf_failed}` and a failed batch is
- * logged (Datadog `warn`) and swallowed so it never affects the committed promote.
+ * Best-effort, post-commit cache-purge *enqueue* for a promote (WC-5 / ADR 0020 §3).
+ * Enqueues the invalidated `Cache-Tag`s onto `CACHE_PURGE_QUEUE`; the SSR Worker's
+ * queue consumer issues the actual `ctx.cache.purge()` and emits the
+ * `aeci.cache.purge` metric — the API Worker's own zone-HTTP purge is inert against
+ * native Workers Cache. No-ops when the queue binding is absent (local/preview) or
+ * nothing cacheable changed. One message per ≤`CACHE_PURGE_QUEUE_MAX_TAGS` (1000, the
+ * `ctx.cache.purge` tag cap) batch — a promote's tag set virtually always fits one; a
+ * `queue.send` rejection is logged (Datadog `warn`) and swallowed so it never affects
+ * the committed promote.
  */
 async function purgeAfterPromote(
   c: Context<{ Bindings: Env }>,
   response: PromoteResponse,
 ): Promise<void> {
-  const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
-  if (!creds.apiToken || !creds.zoneId) return;
+  const queue = c.env.CACHE_PURGE_QUEUE;
+  if (!queue) return;
 
   const tags = cacheTagsForPromote(response);
   if (tags.length === 0) return;
 
   const batches: string[][] = [];
-  for (let i = 0; i < tags.length; i += CF_PURGE_MAX_TAGS) {
-    batches.push(tags.slice(i, i + CF_PURGE_MAX_TAGS));
+  for (let i = 0; i < tags.length; i += CACHE_PURGE_QUEUE_MAX_TAGS) {
+    batches.push(tags.slice(i, i + CACHE_PURGE_QUEUE_MAX_TAGS));
   }
 
   await Promise.allSettled(
     batches.map(async (batch) => {
-      const outcome = await callCloudflarePurge(fetch, creds, batch);
-      submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
-        'source:promote',
-        `outcome:${outcome.ok ? 'ok' : 'cf_failed'}`,
-      ]);
-      if (!outcome.ok) {
-        logPurgeFailure(c, batch, `cf_${outcome.status}: ${outcome.message}`);
+      try {
+        await queue.send({ tags: batch, source: 'promote' });
+      } catch (error) {
+        logPurgeEnqueueFailure(c, batch, error instanceof Error ? error.message : String(error));
       }
     }),
   );
 }
 
-function logPurgeFailure(c: Context<{ Bindings: Env }>, batch: string[], reason: string): void {
+function logPurgeEnqueueFailure(
+  c: Context<{ Bindings: Env }>,
+  batch: string[],
+  reason: string,
+): void {
   logToDatadog(c.executionCtx, c.env, c.req.raw, {
     level: 'warn',
-    message: 'aeci.api.promote.cache_purge_failed',
+    message: 'aeci.api.promote.cache_purge_enqueue_failed',
     source: 'review-app-promote',
     reason,
     tags: batch.join(','),
@@ -591,28 +596,23 @@ export async function refreshHomeStatsAfterPromote(
     });
   }
 
-  // Purge the home page's edge cache now that `stats_cache` is fresh, so the next
-  // render repaints with the new counts. Best-effort, post-refresh; no-ops without
-  // CF creds (local/preview don't edge-cache, so the refresh above already suffices).
-  // Wrapped so a network-level `fetch` throw can't reject this post-commit task —
-  // the CF error is recorded, never rethrown.
-  const creds = { apiToken: c.env.CF_PURGE_API_TOKEN, zoneId: c.env.CF_ZONE_ID };
-  if (!creds.apiToken || !creds.zoneId) return;
+  // Enqueue the home page's purge now that `stats_cache` is fresh, so the next render
+  // repaints with the new counts. Ordering is load-bearing: the `stats_cache`
+  // recompute above ran FIRST, so the SSR consumer's purge can't race ahead of it
+  // (WC-5 / ADR 0020 §3). Best-effort, post-refresh; no-ops without the queue binding
+  // (local/preview don't edge-cache, so the refresh above already suffices). Wrapped so
+  // a `queue.send` rejection can't reject this post-commit task — logged, never
+  // rethrown. The SSR consumer issues the purge + emits `aeci.cache.purge`.
+  const queue = c.env.CACHE_PURGE_QUEUE;
+  if (!queue) return;
   try {
-    const outcome = await callCloudflarePurge(fetch, creds, [HOME_CACHE_TAG]);
-    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
-      'source:promote',
-      `outcome:${outcome.ok ? 'ok' : 'cf_failed'}`,
-    ]);
-    if (!outcome.ok) {
-      logPurgeFailure(c, [HOME_CACHE_TAG], `cf_${outcome.status}: ${outcome.message}`);
-    }
+    await queue.send({ tags: [HOME_CACHE_TAG], source: 'promote' });
   } catch (error) {
-    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.cache.purge', 1, [
-      'source:promote',
-      'outcome:cf_failed',
-    ]);
-    logPurgeFailure(c, [HOME_CACHE_TAG], error instanceof Error ? error.message : String(error));
+    logPurgeEnqueueFailure(
+      c,
+      [HOME_CACHE_TAG],
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 
@@ -1279,9 +1279,10 @@ export function createPromoteHandler(
       );
     }
 
-    // AECI-105: purge the edge-cache tags this promote invalidated. Best-effort,
-    // post-commit; no-ops without CF creds.
-    if (c.env.CF_PURGE_API_TOKEN && c.env.CF_ZONE_ID) {
+    // AECI-105 → WC-5: enqueue a purge of the edge-cache tags this promote
+    // invalidated; the SSR queue consumer does the `ctx.cache.purge()`. Best-effort,
+    // post-commit; no-ops without the queue binding (local/preview).
+    if (c.env.CACHE_PURGE_QUEUE) {
       c.executionCtx.waitUntil(purgeAfterPromote(c, response));
     }
 

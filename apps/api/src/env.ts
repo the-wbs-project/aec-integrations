@@ -1,3 +1,5 @@
+import type { CachePurgeMessage } from '@aeci/shared';
+
 /**
  * Which scheduled job a queue message asks the consumer to run. `sync` / `drift`
  * are the Algolia jobs (AECI-139 / AECI-140); `stats` is the home-stats compute
@@ -249,6 +251,17 @@ export type Env = {
    * cron runs the job inline (`enqueueOrRun`).
    */
   DATA_QUALITY_QUEUE?: Queue<ScheduledJobMessage>;
+  /**
+   * Cloudflare Queue **producer** binding for cross-Worker cache-purge (WC-5 /
+   * AECI-319 / ADR 0020 §3). The post-promote purge (`purgeAfterPromote`, the ordered
+   * home-stats flow) and review moderation (`admin-reviews.ts`) enqueue a
+   * {@link CachePurgeMessage} here; the **SSR Worker** consumes `aeci-cache-purge-{env}`
+   * and issues `ctx.cache.purge()` from its own cache (the API Worker's zone-HTTP purge
+   * is inert against native Workers Cache). Bound on staging + demo + production only
+   * (the consumer binding lives in `apps/web/wrangler.jsonc`). Absent on local
+   * `wrangler dev` / preview → the producers no-op gracefully (no edge cache there).
+   */
+  CACHE_PURGE_QUEUE?: Queue<CachePurgeMessage>;
   /**
    * Supabase project base URL (AECI-193 / Phase 5.2), e.g.
    * `https://<ref>.supabase.co`. Public value, set as a plain wrangler var per
