@@ -6,29 +6,36 @@ Operational response guides for AECi Datadog alerts.
 > Full incident procedures (severity matrix, comms, post-mortem template) land in
 > Phase 6. Linked from the Datadog monitor messages — keep the heading anchors stable.
 
-Dashboard for all three: **AECi Phase 2 — Traffic** (URL in `docs/OBSERVABILITY.md`).
+Dashboard for the render / error-rate runbooks below: **AECi Phase 2 — Traffic** (URL in
+`docs/OBSERVABILITY.md`). Edge cache HIT-rate is **not** in Datadog — it lives on the Cloudflare
+Workers observability dashboard (WC-8; see below).
 
 ---
 
 ## Low cache hit rate
 
-**Alert:** `AECi — cache hit rate < 70% (15m)`
-**Metric:** `aeci.page.render.duration_ms` — `count{cache_status:hit} / count{*}`.
+> **Retired as a Datadog alert (WC-8 / AECI-322).** There is no longer a `cache hit rate < 70%`
+> monitor. Under native Workers Cache (WC-3) a HIT is served from the edge **without running the
+> SSR Worker**, so Datadog can't observe HITs — the `aeci.page.render.duration_ms{cache_status:hit}`
+> numerator this alert used is permanently ~0. This section is kept for link stability and
+> re-points you at the current HIT surface.
 
-**What it means:** Too many SSR requests are missing the edge cache and re-rendering.
-At scale this raises render latency and API/Supabase load.
+**Where HIT-rate lives now:** the **Cloudflare Workers observability dashboard** (Workers & Pages →
+`aeci-web` → Observability) and the **`Cf-Cache-Status`** response header
+(`HIT`/`MISS`/`EXPIRED`/`BYPASS`). Read edge HIT-rate there, not in Datadog.
 
-**First checks**
+**If HIT-rate looks low on the Cloudflare dashboard**
 
-1. Did someone just run `POST /admin/purge`? Check the "purge events by source" widget
-   and the `aeci.cache.purge` metric. A broad/accidental purge causes a temporary, self-
-   healing dip — confirm it recovers within a TTL window.
-2. Recent deploy? A new deploy invalidates the edge cache; expect a short dip as it
-   refills. Correlate with `GET /api/version`.
-3. Is the dip isolated to one `route_class`? Pivot the hit-rate widget. A single class
-   suggests a TTL or cache-key regression for those routes (see `docs/CACHE_STRATEGY.md`).
-4. Cache-key poisoning: verify cacheable responses are visitor-state-neutral (no
-   `Vary: Cookie`, theme cookie stripped) per `docs/CACHE_STRATEGY.md` §6.
+1. Did someone just run `POST /admin/purge` (or trigger a `POST /api/promote` purge cascade)? A
+   broad/accidental purge causes a temporary, self-healing dip — check the "purge events by source"
+   widget / `aeci.cache.purge`; confirm it recovers within a TTL window.
+2. Recent deploy? Workers Cache is per-version (`cross_version_cache` off), so every deploy
+   cold-starts the cache — expect a short dip as it refills. Correlate with `GET /api/version`.
+3. Isolated to one `route_class`? A single class suggests a TTL or cache-key regression for those
+   routes (see `docs/CACHE_STRATEGY.md` §4 / §4a).
+4. Cache-key poisoning / `BYPASS`: verify cacheable responses are visitor-state-neutral (no
+   `Set-Cookie`, no `Vary: Cookie`, theme cookie stripped) per `docs/CACHE_STRATEGY.md` §6 — a
+   `Set-Cookie` on a cacheable route forces the native cache to `BYPASS`.
 
 **Escalation:** If not explained by a purge/deploy and not recovering, treat as a
 caching regression — page the on-call engineer (Phase 6 rotation TBD).
@@ -41,7 +48,9 @@ caching regression — page the on-call engineer (Phase 6 rotation TBD).
 **Metric:** `aeci.page.render.duration_ms{route_class:detail,cache_status:miss}` p95.
 
 **What it means:** Server render of detail pages on a cache MISS is slow. Scoped to
-MISS because HITs are edge-served and don't reflect render cost.
+MISS because HITs are edge-served and don't reflect render cost. Under native Workers Cache a MISS
+is exactly "the Worker ran", so this alert is **unaffected** by the front-of-Worker migration
+(WC-3/WC-8) — it keeps measuring real render cost.
 
 **First checks**
 
