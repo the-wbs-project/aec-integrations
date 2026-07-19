@@ -25,6 +25,7 @@ import { injectPostHogBootstrap } from './posthog-bootstrap-inject';
 import { injectDatadogBootstrap } from './server-bootstrap-inject';
 import { logToDatadog, shouldEmitRenderLog } from './server-datadog';
 import { injectHtmlLangDir } from './server-html-dir-inject';
+import { createCachePurgeQueueHandler } from './server/cache-purge-queue';
 import { cacheGateway, createApp, type Bindings, type SsrRenderer } from './server-runtime';
 import { injectSupabaseBootstrap } from './supabase-bootstrap-inject';
 
@@ -96,23 +97,46 @@ const app = createApp({
 });
 
 /**
- * Cached SSR entrypoint (WC-4 / AECI-318). Native Workers Cache sits *in front
- * of* this entrypoint (`exports.Renderer.cache.enabled: true`, per env in
- * `apps/web/wrangler.jsonc`), so a HIT skips the render. It simply delegates to
- * the Hono `app` — all routing, `/api/*` passthrough, auth gates, cookie
- * hygiene, SSR render, and `Cache-Control`/`Cache-Tag` emission are unchanged.
- * The gateway (`cacheGateway`, the default export) reaches it through the
- * `ctx.exports` loopback with a normalized `cf.cacheKey`. Forwarding
- * `this.env`/`this.ctx` keeps Hono's `waitUntil` (Datadog forwards, page-views)
- * working within this entrypoint's lifetime.
+ * Cached SSR entrypoint (WC-4 / AECI-318) and cross-Worker purge target (WC-5 /
+ * AECI-319). Native Workers Cache sits *in front of* this entrypoint
+ * (`exports.Renderer.cache.enabled: true`, per env in `apps/web/wrangler.jsonc`),
+ * so a HIT skips the render. `fetch` delegates to the Hono `app` — all routing,
+ * `/api/*` passthrough, auth gates, cookie hygiene, SSR render, and
+ * `Cache-Control`/`Cache-Tag` emission are unchanged. The gateway (`cacheGateway`,
+ * the default export) reaches it through the `ctx.exports` loopback with a
+ * normalized `cf.cacheKey`. Forwarding `this.env`/`this.ctx` keeps Hono's
+ * `waitUntil` (Datadog forwards, page-views) working within this entrypoint's
+ * lifetime.
  */
 export class Renderer extends WorkerEntrypoint<Bindings> {
   override fetch(request: Request): Response | Promise<Response> {
     return app.fetch(request, this.env, this.ctx);
   }
+
+  /**
+   * Cross-Worker cache purge (WC-5 / ADR 0020 §3), issued from THIS entrypoint
+   * because `ctx.cache.purge()` is entrypoint-scoped and the native cache lives in
+   * *this* (`Renderer`) namespace — the default gateway's own cache is disabled. The
+   * default-export `queue()` consumer delegates each purge here over the `ctx.exports`
+   * loopback (the queue routes to the default export; wrangler `queues.consumers` has
+   * no entrypoint field). Returns `null` when this env has no cache (`this.ctx.cache`
+   * absent — demo/production until WC-8) so the consumer acks `no_cache` instead of
+   * retrying forever.
+   */
+  purgeCache(options: CachePurgeOptions): Promise<CachePurgeResult | null> {
+    if (!this.ctx.cache) return Promise.resolve(null);
+    return this.ctx.cache.purge(options);
+  }
 }
 
-// The default export is the cache-key-normalizing gateway (its own cache is
-// disabled so it runs on every request); it forwards to `Renderer` above. See
-// `cacheGateway` in `server-runtime.ts` and ADR 0020 §2.
-export default cacheGateway;
+// Default export: the cache-key-normalizing gateway (`fetch` — its own cache is
+// disabled so it runs on every request and forwards a normalized `cf.cacheKey` to
+// `Renderer` above) paired with the cross-Worker cache-purge queue consumer (`queue`,
+// WC-5 / AECI-319). The queue routes to the default export and the SSR cache lives on
+// `Renderer`, so the consumer delegates the actual `ctx.cache.purge()` into
+// `Renderer.purgeCache()` via `ctx.exports` (ADR 0020 §2/§3). See `cacheGateway` in
+// `server-runtime.ts`.
+export default {
+  fetch: cacheGateway.fetch,
+  queue: createCachePurgeQueueHandler(),
+};

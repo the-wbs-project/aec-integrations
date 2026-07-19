@@ -32,11 +32,13 @@
  *   DD_API_KEY          server-only; Datadog Logs HTTP intake
  *   DD_SITE             public; defaults to datadoghq.com when unset
  *
- * Cache-tag purge (AECI-56 / Phase 2.10):
+ * Cache purge (AECI-56 / Phase 2.10; native Workers Cache since WC-6 / AECI-320):
  *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents
- *   CF_PURGE_API_TOKEN  secret; CF API token, scoped to Zone.Cache Purge on
- *                       aecintegrations.com ONLY (docs/CACHE_STRATEGY.md §5)
- *   CF_ZONE_ID          public var; CF zone the purge call targets
+ *   CF_PURGE_API_TOKEN  secret; legacy CF API token (Zone.Cache Purge on
+ *                       aecintegrations.com ONLY). No longer read by /admin/purge
+ *                       after WC-6; pruned in WC-10 (AECI-324)
+ *   CF_ZONE_ID          public var; formerly the purge target zone. Unused on
+ *                       this Worker after WC-6; pruned in WC-10 (AECI-324)
  *
  * Algolia search (AECI-134) — secrets, NOT vars (values stay out of git). Both
  * are client-exposed (rendered into HTML by injectAlgoliaBootstrap), but the
@@ -60,8 +62,8 @@
  *                       with `Invalid API key`. The service-role key is NEVER set
  *                       on any Worker (AUTH_AND_RLS.md §3).
  *
- * Push secrets per env (`wrangler secret put`); set `CF_ZONE_ID` under the
- * per-env `vars` block once the production / preview zone IDs are known.
+ * Push secrets per env (`wrangler secret put`). (`CF_ZONE_ID` / `CF_PURGE_API_TOKEN`
+ * are unused on this Worker after WC-6 and are pruned in WC-10 (AECI-324).)
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
@@ -69,7 +71,14 @@
   "account_id": "e62ec9d8012c3e0c225f8e4dbab76b79",
   "main": "./dist/server/server.mjs",
   "compatibility_date": "2026-07-10",
-  "compatibility_flags": ["nodejs_compat"],
+  // `nodejs_compat` — @angular/ssr Node polyfills (see the header note).
+  // `enable_ctx_exports` — the WC-4 gateway (`default` export) forwards to the cached
+  // `Renderer` entrypoint via the `ctx.exports` loopback, and the WC-5 queue consumer
+  // delegates `ctx.cache.purge()` into `Renderer` the same way (ADR 0020 §2/§3). That
+  // loopback is gated behind this flag until it becomes default-on (CF changelog
+  // 2025-09-26); set it explicitly so the gateway resolves `ctx.exports.Renderer` on
+  // every env (it ships the two-entrypoint code even where the cache is off).
+  "compatibility_flags": ["nodejs_compat", "enable_ctx_exports"],
   "observability": {
     "enabled": true,
   },
@@ -95,8 +104,12 @@
       // per-env, NEVER at top level (so a bare `wrangler dev` stays uncached).
       // Caching is live on preview + staging only; `demo`/`production` ship the
       // same two-entrypoint code but stay UNCACHED (no `cache`/`exports` block)
-      // until WC-5 (queue purge), WC-6 (native /admin/purge), and WC-8
-      // (noindex-on-HIT) land (ADR 0020 §1). `cross_version_cache` left at the
+      // until WC-8 (noindex-on-HIT) lands (ADR 0020 §1). WC-5 (queue purge, AECI-319)
+      // + WC-6 (native /admin/purge, AECI-320) are DONE: the cross-Worker purge queue
+      // consumer is wired per-env on staging/demo/production below (`queues.consumers`;
+      // none on preview) and, because the cache lives on `Renderer`, delegates the
+      // `ctx.cache.purge()` into that entrypoint via the `ctx.exports` loopback
+      // (ADR 0020 §2/§3). `cross_version_cache` left at the
       // default (per-version isolation ⇒ each deploy cold-starts the cache, so a
       // template change is live on the first post-deploy request — ADR 0020 §5).
       "exports": {
@@ -148,7 +161,7 @@
       // (`default`, cache off) + cached `Renderer` entrypoint pair. See the preview
       // env note above; staging is the pre-prod validation tier for the "preview →
       // staging first" rollout (ADR 0020 §1). demo/production remain uncached until
-      // WC-5/6/8.
+      // WC-8. The WC-5 purge queue consumer is wired just below (`queues.consumers`).
       "exports": {
         "default": { "type": "worker", "cache": { "enabled": false } },
         "Renderer": { "type": "worker", "cache": { "enabled": true } },
@@ -160,6 +173,20 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-staging" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue. The API Worker
+      // (producer) enqueues on promote/moderation; this Worker issues `ctx.cache.purge()`
+      // (ADR 0020 §3). Consumer only — no producer here. The queue is provisioned before
+      // this deploy by the idempotent `create_queue` step in deploy.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-staging",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
     "demo": {
       "name": "aeci-web-demo",
@@ -178,8 +205,9 @@
       "observability": { "enabled": true },
       // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code like
       // every env, but caching stays OFF here (no `cache`/`exports` block) — the
-      // gateway still forwards to `Renderer`, just uncached. Enable (add the
-      // preview-style `exports` block) only once WC-5/6/8 land (ADR 0020 §1).
+      // gateway still forwards to `Renderer`, just uncached. WC-4/5/6 are in; enable
+      // (add the preview-style `exports` block) only once WC-8 (noindex-on-HIT) lands
+      // (ADR 0020 §1).
       // The public showcase tier. `custom_domain: true` makes wrangler reconcile
       // the demo.aecintegrations.com DNS record + cert on deploy — on the first
       // demo deploy it REASSIGNS that hostname off the old production Worker, so
@@ -191,6 +219,21 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-demo" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
+      // note). Registered here ahead of `cache.enabled` (still gated on WC-8): with
+      // no cache yet, the `Renderer.purgeCache()` delegate returns null so the consumer
+      // no-ops each message (`outcome:no_cache`) and acks — fully wired for when WC-8
+      // flips the cache on. Provisioned by promote-to-demo.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-demo",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
     "production": {
       "name": "aeci-web-production",
@@ -212,8 +255,8 @@
       },
       "observability": { "enabled": true },
       // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code, but
-      // caching stays OFF here (no `cache`/`exports` block) until WC-5/6/8 land
-      // (ADR 0020 §1) — see the preview env note.
+      // caching stays OFF here (no `cache`/`exports` block) until WC-8 lands (WC-4/5/6
+      // are in) (ADR 0020 §1) — see the preview env note.
       // AECI-247/277 apex cutover. Web prod now serves the public apex
       // `aecintegrations.com` + `www.` AND the Access-gated internal
       // `prod.aecintegrations.com`. `custom_domain: true` makes wrangler reconcile
@@ -238,6 +281,20 @@
         },
       ],
       "services": [{ "binding": "API", "service": "aeci-api-production" }],
+      // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
+      // note). Registered ahead of `cache.enabled` (still gated on WC-8): with no
+      // cache yet, the `Renderer.purgeCache()` delegate returns null so the consumer
+      // no-ops each message (`outcome:no_cache`) and acks. Provisioned by promote-to-prod.yml.
+      "queues": {
+        "consumers": [
+          {
+            "queue": "aeci-cache-purge-production",
+            "max_batch_size": 1,
+            "max_retries": 3,
+            "max_concurrency": 1,
+          },
+        ],
+      },
     },
   },
 }

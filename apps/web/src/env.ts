@@ -20,11 +20,14 @@
  *
  *   - ADMIN_PURGE_TOKEN — caller-facing bearer for `POST /admin/purge`.
  *     Wrangler secret. Phase 6 replaces this with Cloudflare Access.
- *   - CF_PURGE_API_TOKEN — Cloudflare API token used by the purge handler to
- *     call CF's purge-by-tag API. Must be scoped to `Zone.Cache Purge` on
- *     `aecintegrations.com` only (`docs/CACHE_STRATEGY.md` §5 line 109).
- *   - CF_ZONE_ID — public `vars` entry; the Cloudflare zone ID the purge call
- *     targets.
+ *   - CF_PURGE_API_TOKEN — legacy Cloudflare API token for the HTTP
+ *     purge-by-tag API. No longer read by `POST /admin/purge` since it migrated
+ *     to native `ctx.cache.purge()` (WC-6 / AECI-320); its secret is pruned in
+ *     WC-10 (AECI-324). When used it must be scoped to `Zone.Cache Purge` on
+ *     `aecintegrations.com` only (`docs/CACHE_STRATEGY.md` §5).
+ *   - CF_ZONE_ID — public `vars` entry; formerly the Cloudflare zone the purge
+ *     call targeted. Unused on this Worker after WC-6 (AECI-320); pruned in
+ *     WC-10 (AECI-324).
  *
  * Algolia search surface (AECI-134 / Phase 3.1):
  *
@@ -39,9 +42,10 @@
  *
  * All Datadog, purge, and Algolia fields are optional so the Worker boots
  * cleanly in local dev before secrets have been provisioned — the RUM provider
- * and `logToDatadog` helper no-op when missing; the purge endpoint returns
- * `cf_credentials_missing` in its `failed[]` payload; the Algolia bootstrap
- * injects nothing (no `window.__AECI_ALGOLIA__`).
+ * and `logToDatadog` helper no-op when missing; the purge endpoint reports a
+ * `skipped: 'cache_disabled'` no-op when native Workers Cache is off on the
+ * entrypoint (local / miniflare); the Algolia bootstrap injects nothing (no
+ * `window.__AECI_ALGOLIA__`).
  */
 
 import type { AlgoliaIndexNames } from '@aeci/shared/algolia';

@@ -1010,9 +1010,10 @@ export function createApp(options: {
     return c.env.API.fetch(req);
   });
 
-  // POST /admin/purge — manual cache-tag invalidation (AECI-56, Phase 2.10).
-  // Non-cacheable; the handler authenticates with `ADMIN_PURGE_TOKEN` and
-  // proxies to Cloudflare's purge-by-tag API.
+  // POST /admin/purge — manual cache invalidation (AECI-56, Phase 2.10; migrated
+  // to native Workers Cache in WC-6 / AECI-320). Non-cacheable; the handler
+  // authenticates with `ADMIN_PURGE_TOKEN` and evicts this SSR Worker's own
+  // native cache in-process via `ctx.cache.purge()` (no CF REST call).
   app.post('/admin/purge', createAdminPurgeHandler());
 
   // GET /sitemap.xml — SEO discovery surface (AECI-63 / Phase 2.17). Handled
