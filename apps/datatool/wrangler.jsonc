@@ -20,16 +20,19 @@
   // No `migrations_dir`: this Worker must NEVER run migrations — apps/api owns the
   // schema. No `nodejs_compat`: D1 is reached via the native bindings.
   //
-  // Secrets (set via `wrangler secret put`; all graceful-skip if absent). These are
-  // SINGLE shared values — NOT per-env: one Algolia app (its admin key reaches every
-  // `{env}_*` index) and one `aecintegrations.com` Cloudflare zone (staging/demo/
-  // prod). Same values the apps/api + apps/web Workers get from the un-suffixed
-  // ALGOLIA_* / CF_* GitHub secrets.
+  // The post-write cache purge is a Queue producer (WC-7 / AECI-321 — see the
+  // `queues.producers` block below), NOT a zone HTTP purge: it enqueues onto the
+  // target tier's `aeci-cache-purge-{env}` for that tier's SSR Worker to apply.
+  //
+  // Secrets (set via `wrangler secret put`; all graceful-skip if absent). The Algolia
+  // pair is a SINGLE shared value — NOT per-env: one Algolia app whose admin key
+  // reaches every `{env}_*` index (same value the apps/api + apps/web Workers get from
+  // the un-suffixed ALGOLIA_* GitHub secret).
   //   ALGOLIA_APP_ID      — Algolia app id (post-write reindex)
   //   ALGOLIA_ADMIN_KEY   — Algolia management key (addObject/deleteObject)
-  //   CF_PURGE_API_TOKEN  — Zone.Cache-Purge token
-  //   CF_ZONE_ID          — zone id the purge targets
   //   TOOL_TOKEN          — optional bearer fallback for curl/CI auth
+  //   CF_PURGE_API_TOKEN  — UNUSED since WC-7 (was the zone HTTP purge token); retired WC-10
+  //   CF_ZONE_ID          — UNUSED since WC-7 (was the purge target zone); retired WC-10
   "workers_dev": true,
   "observability": {
     "logs": {
@@ -76,4 +79,22 @@
       "database_id": "74dedcd8-99ff-4033-b28d-4d918e4ecd00",
     },
   ],
+  // WC-7 (AECI-321): cross-Worker cache-purge producers. Producer-only — after a
+  // copy/seed/reindex the datatool enqueues a `{ purgeEverything: true, source:
+  // 'datatool' }` message onto the TARGET tier's queue; the SSR Worker for that tier
+  // consumes `aeci-cache-purge-{env}` (apps/web/wrangler.jsonc) and applies
+  // `ctx.cache.purge()`. Unlike apps/api/apps/web, this Worker has no `env.*` blocks,
+  // so it binds all three cacheable tiers at once (one distinct binding each, mirroring
+  // the four D1 bindings) and `targets.ts` picks the right one per request. There is
+  // deliberately NO preview producer: preview is `*.workers.dev` with no edge cache and
+  // no `aeci-cache-purge-preview` queue, so a preview target is a graceful no-op.
+  // The queues are provisioned by the WC-5 deploy workflows (deploy.yml /
+  // promote-to-demo.yml / promote-to-prod.yml); they must exist before this manual deploy.
+  "queues": {
+    "producers": [
+      { "queue": "aeci-cache-purge-staging", "binding": "CACHE_PURGE_QUEUE_STAGING" },
+      { "queue": "aeci-cache-purge-demo", "binding": "CACHE_PURGE_QUEUE_DEMO" },
+      { "queue": "aeci-cache-purge-production", "binding": "CACHE_PURGE_QUEUE_PRODUCTION" },
+    ],
+  },
 }

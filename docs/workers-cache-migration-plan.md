@@ -67,7 +67,7 @@ Today (Phase 2 design, `docs/CACHE_STRATEGY.md`) the SSR Worker **runs on every 
 - HTTP purge transport: `packages/shared/src/cache-purge.ts` (`callCloudflarePurge`, `CF_PURGE_MAX_TAGS = 30`).
 - Promote purge: `apps/api/src/routes/promote.ts` (`purgeAfterPromote`, `refreshHomeStatsAfterPromote`, fired via `ctx.waitUntil`) + tags from `apps/api/src/routes/promote-cache-tags.ts` (`cacheTagsForPromote`).
 - Manual/incident purge: `apps/web/src/server/routes/admin-purge.ts` (`createAdminPurgeHandler`; auth `ADMIN_PURGE_TOKEN`; CF creds `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`).
-- datatool bulk purge: `apps/datatool/src/cache-purge.ts` (`purgeEnvCache`, `BROAD_CACHE_TAGS`).
+- datatool bulk purge: `apps/datatool/src/cache-purge.ts` (`purgeEnvCache`) — **WC-7 (AECI-321) landed**: enqueues `{ purgeEverything: true, source: 'datatool' }` onto the target tier's `aeci-cache-purge-{env}` (per-tier producer bindings `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}`, resolved in `targets.ts`); no longer uses `BROAD_CACHE_TAGS` / `callCloudflarePurge`.
 - Egress `X-Robots-Tag` stamp: `createApp` middleware in `server-runtime.ts` (runs *after* the cache write today).
 - Observability: `aeci.ssr.render`, `aeci.page.render.duration_ms`, `aeci.cache.purge` → `docs/OBSERVABILITY.md`.
 - `CF_ZONE_ID` is **also** consumed by the AECI-262 WAF analytics poll — do **not** delete it wholesale.
