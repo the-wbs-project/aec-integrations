@@ -137,11 +137,13 @@ export function createAdminPurgeHandler(): (c: HonoContext) => Promise<Response>
       ...(purgeEverything ? { purgeEverything } : {}),
     };
 
-    // 3. Native Workers Cache purge. `ExecutionContext.cache` is optional —
-    //    Hono types `c.executionCtx` without it, so narrow to the ambient
-    //    `CacheContext`. Absent ⇒ caching disabled on this entrypoint
-    //    (local/miniflare, or a tier gated until WC-4/5/6/8): report a no-op.
-    const cache = (ctx as { cache?: CacheContext }).cache;
+    // 3. Native Workers Cache purge. `cache` exists at runtime and in the generated
+    //    `worker-configuration.d.ts` `ExecutionContext`, but Hono's own bundled
+    //    `ExecutionContext` type (what `c.executionCtx` resolves to) omits it — so cast
+    //    to the real runtime type to read `cache?: CacheContext`. Absent ⇒ caching
+    //    disabled on this entrypoint (local/miniflare, or a tier gated until WC-8):
+    //    report a no-op.
+    const cache = (ctx as unknown as ExecutionContext).cache;
     if (!cache) {
       emitPurgeTelemetry(ctx, env, request, {
         source,
