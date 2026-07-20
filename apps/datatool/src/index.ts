@@ -19,7 +19,7 @@ import {
   type ReindexEntity,
   type ReindexResult,
 } from './algolia-reindex';
-import { purgeEnvCache } from './cache-purge';
+import { purgeEnvCache, type PurgeEnqueueOutcome } from './cache-purge';
 import { copyDryRun, copyExecute } from './copy';
 import type { Env } from './env';
 import {
@@ -60,7 +60,7 @@ function logOperation(operator: string, fields: Record<string, unknown>): void {
 
 interface RefreshOutcome {
   reindex: ReindexResult;
-  purge: { ok: boolean; status: number; message?: string };
+  purge: PurgeEnqueueOutcome;
 }
 
 /** Post-write refresh: clean reindex of the target's search indexes + cache purge. */
@@ -69,7 +69,7 @@ async function refreshTarget(
   entities: readonly ReindexEntity[],
 ): Promise<RefreshOutcome> {
   const reindex = await reindexEnv(target.db, fetch, target.algolia, target.algoliaEnv, entities);
-  const purge = await purgeEnvCache(fetch, target.purge);
+  const purge = await purgeEnvCache(target.queue);
   return { reindex, purge };
 }
 
@@ -283,7 +283,7 @@ app.post('/api/reindex', requireAccess(), async (c) => {
     : [];
   const entities = requested.length ? requested : REINDEX_ENTITIES;
   const reindex = await reindexEnv(t.db, fetch, t.algolia, t.algoliaEnv, entities);
-  const purge = body.purge === false ? null : await purgeEnvCache(fetch, t.purge);
+  const purge = body.purge === false ? null : await purgeEnvCache(t.queue);
   logOperation(c.get('operator'), { op: 'reindex', target, entities });
   return c.json({ ok: true, target, reindex, purge });
 });
