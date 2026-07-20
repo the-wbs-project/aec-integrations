@@ -5,28 +5,43 @@
  * Producers in the **API Worker** (`POST /api/promote`, review moderation) enqueue a
  * {@link CachePurgeMessage} onto `aeci-cache-purge-{env}` because their own zone-HTTP
  * purge is INERT against native Workers Cache (`ctx.cache.purge()` is entrypoint-scoped,
- * and the writer lives in a different Worker). This consumer runs on the SSR Worker and
- * issues `ctx.cache.purge()` against ITS OWN cache — the only entrypoint that can evict
- * the SSR HTML cached in front of it. It emits `aeci.cache.purge{source,outcome}` (the
- * metric moved here off the producers in WC-5) and retries on `!success`.
+ * and the writer lives in a different Worker). This consumer runs on the SSR Worker's
+ * **default export** (the queue routes there — wrangler `queues.consumers` has no
+ * entrypoint field) and evicts the SSR HTML from the cached `Renderer` entrypoint. It
+ * emits `aeci.cache.purge{source,outcome}` (the metric moved here off the producers in
+ * WC-5) and retries on `!success`.
  *
- * **Failure / retry**: `ctx.cache.purge()` returns `{ success, errors }`. On `!success`
- * (or a thrown error) the message is `retry()`-ed — redelivered up to the queue's
- * `max_retries` (`apps/web/wrangler.jsonc`), then dropped. A successful purge (or an env
- * with no cache to purge) is `ack()`-ed so it never redelivers.
+ * **Purge from `Renderer` (WC-4 / ADR 0020 §2, load-bearing)**: `ctx.cache.purge()` is
+ * entrypoint-scoped, and WC-4 moved `cache.enabled` onto the named `Renderer` entrypoint
+ * (the default export is a cache-OFF gateway). So this handler does NOT call
+ * `ctx.cache.purge()` on its own (gateway) ctx — that cache is disabled and the purge
+ * would silently no-op. It delegates to `Renderer.purgeCache()` over the `ctx.exports`
+ * loopback, which runs the purge in `Renderer`'s cache namespace and returns `null` on
+ * an env with no cache (demo/production until WC-8).
  *
- * **WC-4 follow-up (load-bearing)**: `ctx.cache.purge()` is entrypoint-scoped. Today the
- * SSR cache lives on the Worker's single **default** entrypoint (WC-3 enabled
- * `cache.enabled` at the env level), so purging from this default-export `queue()` handler
- * hits the right namespace. When WC-4 splits the Worker into a gateway + a named
- * `Renderer` `WorkerEntrypoint` (cache moves to `Renderer`), this purge MUST be relocated
- * into the `Renderer` entrypoint or it will silently no-op. See ADR 0020 §2.
+ * **Failure / retry**: `purgeCache()` returns `{ success, errors }` (or `null` for "no
+ * cache on this env"). On `!success` (or a thrown error) the message is `retry()`-ed —
+ * redelivered up to the queue's `max_retries` (`apps/web/wrangler.jsonc`), then dropped.
+ * A successful purge (or an env with no cache to purge) is `ack()`-ed so it never
+ * redelivers.
  */
 
 import type { CachePurgeMessage } from '@aeci/shared';
 
 import type { WebEnv } from '../env';
 import { logToDatadog, submitCount } from '../server-datadog';
+
+/**
+ * The cached `Renderer` entrypoint reached over the `ctx.exports` loopback. WC-4 put
+ * `cache.enabled` on `Renderer` (the default export is a cache-OFF gateway), so the
+ * purge MUST originate there — `Renderer.purgeCache()` calls `ctx.cache.purge()` in the
+ * right namespace and returns `null` when the env has no cache. Kept as a minimal local
+ * shape (rather than importing the `Renderer` class from `server.ts`) to avoid an import
+ * cycle. See ADR 0020 §2/§3.
+ */
+type CachePurgeLoopback = {
+  Renderer: { purgeCache(options: CachePurgeOptions): Promise<CachePurgeResult | null> };
+};
 
 /** Queue handlers have no inbound `Request`, but `submitCount` derives its host tag
  *  from one. Synthesize a minimal request so the metric resolves a stable host — mirrors
@@ -65,17 +80,19 @@ async function handleMessage(
     return;
   }
 
-  // No cache on this entrypoint/env — e.g. demo/production before WC-6/WC-8 flip
-  // `cache.enabled` on (the queue + consumer are provisioned there ahead of the cache),
-  // or a misconfig. There is nothing to purge, so ack; do not retry forever.
-  if (!ctx.cache) {
-    submitCount(ctx, env, request, 'aeci.cache.purge', 1, [sourceTag, 'outcome:no_cache']);
-    message.ack();
-    return;
-  }
-
+  // Delegate into the cached `Renderer` entrypoint (WC-4): `ctx.cache.purge()` is
+  // entrypoint-scoped and the cache lives on `Renderer`, not this default-export gateway
+  // ctx. `purgeCache()` returns `null` when the env has no cache — e.g. demo/production
+  // before WC-8 flips `cache.enabled` on (the queue + consumer are provisioned ahead of
+  // the cache). Nothing to purge then, so ack; do not retry forever.
+  const { Renderer } = ctx.exports as unknown as CachePurgeLoopback;
   try {
-    const result = await ctx.cache.purge(options);
+    const result = await Renderer.purgeCache(options);
+    if (result === null) {
+      submitCount(ctx, env, request, 'aeci.cache.purge', 1, [sourceTag, 'outcome:no_cache']);
+      message.ack();
+      return;
+    }
     if (result.success) {
       submitCount(ctx, env, request, 'aeci.cache.purge', 1, [sourceTag, 'outcome:ok']);
       message.ack();

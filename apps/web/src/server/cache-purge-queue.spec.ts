@@ -36,13 +36,17 @@ function makeBatch(messages: ReturnType<typeof makeMessage>[]): MessageBatch<Cac
   } as unknown as MessageBatch<CachePurgeMessage>;
 }
 
-function makeCtx(cache?: { purge: ReturnType<typeof vi.fn> }): ExecutionContext {
+// WC-4: the purge is delegated into the cached `Renderer` entrypoint over the
+// `ctx.exports` loopback (the default-export consumer's own ctx.cache is the disabled
+// gateway cache). So the stub exposes `ctx.exports.Renderer.purgeCache`, which resolves
+// a `CachePurgeResult` when the env has a cache, or `null` when it doesn't.
+function makeCtx(purgeCache: ReturnType<typeof vi.fn>): ExecutionContext {
   return {
     waitUntil: vi.fn(),
     passThroughOnException: vi.fn(),
     props: {},
-    exports: {},
-    cache,
+    exports: { Renderer: { purgeCache } },
+    cache: undefined,
   } as unknown as ExecutionContext;
 }
 
@@ -53,13 +57,13 @@ beforeEach(() => {
 
 describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
   it('purges the message tags, acks, and emits outcome:ok on success', async () => {
-    const purge = vi.fn().mockResolvedValue({ success: true, errors: [] });
-    const ctx = makeCtx({ purge });
+    const purgeCache = vi.fn().mockResolvedValue({ success: true, errors: [] });
+    const ctx = makeCtx(purgeCache);
     const msg = makeMessage({ tags: ['product:revit', 'index:products'], source: 'promote' });
 
     await handler(makeBatch([msg]), env, ctx);
 
-    expect(purge).toHaveBeenCalledWith({ tags: ['product:revit', 'index:products'] });
+    expect(purgeCache).toHaveBeenCalledWith({ tags: ['product:revit', 'index:products'] });
     expect(msg.ack).toHaveBeenCalledTimes(1);
     expect(msg.retry).not.toHaveBeenCalled();
     expect(submitCount).toHaveBeenCalledWith(ctx, env, expect.any(Request), 'aeci.cache.purge', 1, [
@@ -69,8 +73,8 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
   });
 
   it('carries the message source into the metric tag (moderation)', async () => {
-    const purge = vi.fn().mockResolvedValue({ success: true, errors: [] });
-    const ctx = makeCtx({ purge });
+    const purgeCache = vi.fn().mockResolvedValue({ success: true, errors: [] });
+    const ctx = makeCtx(purgeCache);
 
     await handler(
       makeBatch([makeMessage({ tags: ['product:revit'], source: 'moderation' })]),
@@ -85,10 +89,10 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
   });
 
   it('retries + emits outcome:purge_failed + warns when purge reports !success', async () => {
-    const purge = vi
+    const purgeCache = vi
       .fn()
       .mockResolvedValue({ success: false, errors: [{ code: 10, message: 'boom' }] });
-    const ctx = makeCtx({ purge });
+    const ctx = makeCtx(purgeCache);
     const msg = makeMessage({ tags: ['product:revit'], source: 'promote' });
 
     await handler(makeBatch([msg]), env, ctx);
@@ -108,8 +112,8 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
   });
 
   it('retries + emits outcome:purge_failed + errors when purge throws', async () => {
-    const purge = vi.fn().mockRejectedValue(new Error('cache down'));
-    const ctx = makeCtx({ purge });
+    const purgeCache = vi.fn().mockRejectedValue(new Error('cache down'));
+    const ctx = makeCtx(purgeCache);
     const msg = makeMessage({ tags: ['product:revit'], source: 'promote' });
 
     await handler(makeBatch([msg]), env, ctx);
@@ -127,8 +131,10 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
     );
   });
 
-  it('acks + emits outcome:no_cache when the entrypoint has no cache (demo/prod pre-WC-6/8)', async () => {
-    const ctx = makeCtx(undefined); // ctx.cache is undefined
+  it('acks + emits outcome:no_cache when Renderer has no cache (demo/prod pre-WC-8)', async () => {
+    // `Renderer.purgeCache()` returns null when the entrypoint has no cache namespace.
+    const purgeCache = vi.fn().mockResolvedValue(null);
+    const ctx = makeCtx(purgeCache);
     const msg = makeMessage({ tags: ['product:revit'], source: 'promote' });
 
     await handler(makeBatch([msg]), env, ctx);
@@ -142,13 +148,13 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
   });
 
   it('acks a message with no purge directive as outcome:noop (never calls purge)', async () => {
-    const purge = vi.fn();
-    const ctx = makeCtx({ purge });
+    const purgeCache = vi.fn();
+    const ctx = makeCtx(purgeCache);
     const msg = makeMessage({ source: 'promote' });
 
     await handler(makeBatch([msg]), env, ctx);
 
-    expect(purge).not.toHaveBeenCalled();
+    expect(purgeCache).not.toHaveBeenCalled();
     expect(msg.ack).toHaveBeenCalledTimes(1);
     expect(submitCount).toHaveBeenCalledWith(ctx, env, expect.any(Request), 'aeci.cache.purge', 1, [
       'source:promote',
@@ -156,9 +162,9 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
     ]);
   });
 
-  it('forwards purgeEverything / pathPrefixes to ctx.cache.purge', async () => {
-    const purge = vi.fn().mockResolvedValue({ success: true, errors: [] });
-    const ctx = makeCtx({ purge });
+  it('forwards purgeEverything / pathPrefixes to Renderer.purgeCache', async () => {
+    const purgeCache = vi.fn().mockResolvedValue({ success: true, errors: [] });
+    const ctx = makeCtx(purgeCache);
 
     await handler(
       makeBatch([makeMessage({ purgeEverything: true, source: 'datatool' })]),
@@ -166,15 +172,15 @@ describe('createCachePurgeQueueHandler (WC-5 / AECI-319)', () => {
       ctx,
     );
 
-    expect(purge).toHaveBeenCalledWith({ purgeEverything: true });
+    expect(purgeCache).toHaveBeenCalledWith({ purgeEverything: true });
   });
 
   it('processes each message in a batch independently', async () => {
-    const purge = vi
+    const purgeCache = vi
       .fn()
       .mockResolvedValueOnce({ success: true, errors: [] })
       .mockResolvedValueOnce({ success: false, errors: [{ code: 1, message: 'x' }] });
-    const ctx = makeCtx({ purge });
+    const ctx = makeCtx(purgeCache);
     const good = makeMessage({ tags: ['product:a'], source: 'promote' });
     const bad = makeMessage({ tags: ['product:b'], source: 'promote' });
 

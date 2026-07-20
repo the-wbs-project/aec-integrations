@@ -218,10 +218,11 @@ describe('isCacheableRoute', () => {
 });
 
 // Cache-key normalization (utm strip / per-route allowlist / canonical order)
-// moved out with the manual `caches.default` pipeline (WC-3 / AECI-317): native
-// Workers Cache keys on the full query string. WC-4 restores normalization via a
-// gateway entrypoint; its unit tests return then. Front-of-Worker HIT/MISS is
-// verified on a deployed preview via `Cf-Cache-Status` (WC-9), not miniflare.
+// moved out with the manual `caches.default` pipeline (WC-3 / AECI-317); WC-4
+// (AECI-318) restored it via the gateway entrypoint (`cacheGateway` →
+// `cacheKeyFor`), whose unit tests now live in `cache-key-url.spec.ts`.
+// Front-of-Worker HIT/MISS is verified on a deployed preview via
+// `Cf-Cache-Status` (WC-9), not miniflare.
 
 describe('buildCacheControl', () => {
   it('formats edge and browser TTLs as a Cache-Control header value', () => {
@@ -340,6 +341,29 @@ describe('createApp X-Robots-Tag egress block (pre-launch crawler gate)', () => 
     expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
   });
 
+  it('bakes noindex + the SEO/CSP header set together onto a cacheable 200 — the stored payload (WC-8/AECI-322)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: htmlRenderer() });
+
+    // A product-detail render is cacheable, so this 200 is the exact response the
+    // native Workers Cache (WC-3) stores and replays on every HIT — the Worker does
+    // NOT run on a HIT. Every egress-time SEO/robots header must therefore already be
+    // baked onto the MISS render; assert the whole set is present together (the
+    // front-of-Worker "noindex + CSP/Vary baked pre-cache" guarantee, AECI-322 AC).
+    const req = new Request('https://demo.aecintegrations.com/products/acme');
+    const res = await app.fetch(
+      req,
+      { ...binding, ENV: 'production' } as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('Cache-Control')).toContain('public'); // cacheable ⇒ the platform stores it
+    expect(res.headers.get('X-Robots-Tag')).toBe('noindex, nofollow');
+    expect(res.headers.get('Content-Security-Policy')).toContain("default-src 'self'");
+    expect(res.headers.get('Vary')).toBe('Accept-Language');
+  });
+
   it('does NOT stamp when ALLOW_INDEXING is "true" (post-launch indexable env)', async () => {
     const { binding } = recordingApiBinding();
     const app = createApp({ ssrRenderer: htmlRenderer() });
@@ -429,8 +453,10 @@ describe('createApp apex → www 301 (canonical host = www; ADR 0011 amendment)'
     expect(res.headers.get('Location')).toBe(
       'https://www.aecintegrations.com/products/acme?ref=waitlist&token=xyz',
     );
-    // The permanent host mapping is edge-cacheable.
-    expect(res.headers.get('Cache-Control')).toContain('s-maxage=');
+    // Browser-cacheable but edge-excluded (`private`, no s-maxage): the Location
+    // embeds the query, but the WC-4 gateway normalizes the shared-edge key
+    // (AECI-318), so an edge entry would collapse distinct-query apex hits.
+    expect(res.headers.get('Cache-Control')).toBe('private, max-age=3600');
   });
 
   it('does NOT redirect www (falls through to SSR — the canonical served host)', async () => {
@@ -686,7 +712,7 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     return { app: createApp({ ssrRenderer }), ssrRenderer };
   }
 
-  it('redirects /disciplines/:slug → /audiences/:slug (301, edge-cacheable, audience tag) without invoking SSR', async () => {
+  it('redirects /disciplines/:slug → /audiences/:slug (301, browser-cached, edge-excluded) without invoking SSR', async () => {
     const { binding } = recordingApiBinding();
     const { app, ssrRenderer } = appWithSpyRenderer();
     const res = await app.fetch(
@@ -698,16 +724,17 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     expect(res.headers.get('location')).toBe(
       'https://www.aecintegrations.com/audiences/architecture',
     );
-    // Permanent mapping → long edge TTL (NOT no-store), tagged with the canonical
-    // `audience:<slug>` so /admin/purge can evict it. Same vocabulary the browse
-    // route + promote purge emit (lockstep).
-    expect(res.headers.get('cache-control')).toBe('public, max-age=3600, s-maxage=86400');
-    expect(res.headers.get('cache-tag')).toBe('audience:architecture');
+    // Browser-cacheable but `private` (edge-EXCLUDED, no s-maxage): the Location
+    // embeds the query, but the WC-4 gateway strips the query from the shared-edge
+    // key (AECI-318), so an edge entry would collapse distinct-query links onto one
+    // Location. No `Cache-Tag` — nothing is edge-stored to purge.
+    expect(res.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(res.headers.get('cache-tag')).toBeNull();
     // The redirect is emitted standalone — it never reaches the SSR pipeline.
     expect(ssrRenderer).not.toHaveBeenCalled();
   });
 
-  it('redirects the bare /disciplines index → /audiences with the wildcard tag', async () => {
+  it('redirects the bare /disciplines index → /audiences (browser-cached, no tag)', async () => {
     const { binding } = recordingApiBinding();
     const { app } = appWithSpyRenderer();
     const res = await app.fetch(
@@ -717,10 +744,11 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     );
     expect(res.status).toBe(301);
     expect(res.headers.get('location')).toBe('https://www.aecintegrations.com/audiences');
-    expect(res.headers.get('cache-tag')).toBe('audience:*');
+    expect(res.headers.get('cache-control')).toBe('private, max-age=3600');
+    expect(res.headers.get('cache-tag')).toBeNull();
   });
 
-  it('preserves the query string across the redirect', async () => {
+  it('preserves the query string across the redirect (edge-excluded so it is safe)', async () => {
     const { binding } = recordingApiBinding();
     const { app } = appWithSpyRenderer();
     const res = await app.fetch(
@@ -732,6 +760,10 @@ describe('createApp /disciplines → /audiences 301 redirects (AECI-121)', () =>
     expect(res.headers.get('location')).toBe(
       'https://www.aecintegrations.com/audiences/structural?utm_source=x',
     );
+    // Query preservation is only correct because the redirect is edge-excluded
+    // (`private`) — the WC-4 gateway would otherwise collapse distinct queries
+    // onto one edge entry (AECI-318).
+    expect(res.headers.get('cache-control')).toBe('private, max-age=3600');
   });
 });
 

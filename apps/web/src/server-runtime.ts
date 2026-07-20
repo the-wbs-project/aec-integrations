@@ -300,6 +300,14 @@ export const CACHE_TAG_NOT_FOUND = 'route:404';
 type RoutePattern = {
   match: (path: string) => boolean;
   ttl: CacheTtl;
+  // AECI-100 / WC-4 (AECI-318) — query params that genuinely affect this route's
+  // rendered HTML. The gateway entrypoint's normalized cache key (`cacheKeyFor`)
+  // keeps only these (canonically ordered) and drops everything else (utm_*,
+  // fbclid, …). Omitted ⇒ the route is query-independent and the key strips the
+  // query string entirely. This list MUST be a superset of every param the page
+  // component reads from the URL — under-including collapses distinct renders
+  // onto one key and serves wrong HTML. See docs/CACHE_STRATEGY.md §4a.
+  cacheKeyParams?: readonly string[];
 };
 
 /**
@@ -313,6 +321,38 @@ type RoutePattern = {
  */
 const RESILIENCE = { staleWhileRevalidate: 60, staleIfError: 86_400 } as const;
 
+/**
+ * AECI-143 — the listing/browse routes (`/products` + the three taxonomy browse
+ * pages) all read the same content-affecting query params: pagination
+ * (`page`/`perPage`), `sort`, the `view` layout toggle (AECI-190), and the
+ * faceted-filter ids (`category_id`/`audience_id`/`phase_id`). Shared so the four
+ * routes stay in sync; a browse page's own dimension rides the path, so it only
+ * ever sees the other two facet ids in its query — over-including all three is
+ * harmless per the §4a rule.
+ */
+const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
+  'page',
+  'perPage',
+  'sort',
+  'view',
+  'category_id',
+  'audience_id',
+  'phase_id',
+];
+
+/**
+ * Cache-key params whose value is a comma-separated *set* (multi-select taxonomy
+ * facets, AECI-223). The producer (`aec-facet-sidebar` `onRefine`) already emits
+ * these sorted, but WC-4 (AECI-318) also sorts them inside `cacheKeyFor` so a
+ * raw/hand-typed/bot `?category_id=b,a` collapses onto the same key as `a,b` —
+ * the cache-key layer no longer depends solely on the producer for the invariant.
+ */
+const MULTI_VALUE_CACHE_KEY_PARAMS: ReadonlySet<string> = new Set([
+  'category_id',
+  'audience_id',
+  'phase_id',
+]);
+
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/', ttl: { edge: 900, browser: 300, ...RESILIENCE } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
@@ -325,13 +365,19 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // added the product-PAIR page /products/:contextSlug/integrations/:otherSlug —
   // a detail-class route on the same TTL. Listed BEFORE the plain /products/:slug
   // matcher for clarity (a three-segment path can't match the single-segment
-  // product pattern, so ordering here isn't load-bearing). The `?view=` variants
-  // (pair basic/detailed, product card/table) key naturally under native cache,
-  // which keys on the full query string (WC-4 restores the utm-strip + per-route
-  // allowlist normalization the removed `cacheKeyUrl` used to apply).
+  // product pattern, so ordering here isn't load-bearing). The pair page
+  // SSR-renders a different layout for `?view=basic` (the Overview: sync headline
+  // + descriptions, no claim lanes) vs. the `detailed` default, so `view` is
+  // content-affecting and MUST stay in the key — hence `cacheKeyParams: ['view']`
+  // (same rationale as AECI-190's `/products ?view=table`). WC-4 (AECI-318)
+  // restored the utm-strip + per-route allowlist normalization the pre-WC-3
+  // `cacheKeyUrl` applied; it now feeds `cf.cacheKey` on the gateway's loopback
+  // to `Renderer` (see `cacheKeyFor`). The pair route reads only `view`, so the
+  // listing union isn't reused here.
   {
     match: (p) => /^\/products\/[^/]+\/integrations\/[^/]+$/.test(p),
     ttl: { edge: 900, browser: 0, ...RESILIENCE },
+    cacheKeyParams: ['view'],
   },
   { match: (p) => /^\/products\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
   { match: (p) => /^\/vendors\/[^/]+$/.test(p), ttl: { edge: 900, browser: 0, ...RESILIENCE } },
@@ -341,7 +387,11 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   // on every navigation so users always see fresh server HTML. AECI-165 removed
   // the `/vendors` and `/integrations` index pages (they now 301-redirect to
   // `/products`, registered before the SSR catch-all in `createApp`).
-  { match: (p) => p === '/products', ttl: { edge: 300, browser: 0, ...RESILIENCE } },
+  {
+    match: (p) => p === '/products',
+    ttl: { edge: 300, browser: 0, ...RESILIENCE },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
+  },
   // CACHE_STRATEGY.md §4 — taxonomy browse pages AND the `/categories` index are
   // `s-maxage=300, max-age=0` (5 min edge, browser revalidates every nav), same
   // as the other index/browse routes. Per-slug pages also carry `{type}:{slug}`
@@ -349,14 +399,17 @@ const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   {
     match: (p) => p === '/categories' || p.startsWith('/categories/'),
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   {
     match: (p) => p === '/audiences' || p.startsWith('/audiences/'),
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
   {
     match: (p) => p === '/phases' || p.startsWith('/phases/'),
     ttl: { edge: 300, browser: 0, ...RESILIENCE },
+    cacheKeyParams: LISTING_CACHE_KEY_PARAMS,
   },
 ];
 
@@ -400,6 +453,81 @@ export function buildCacheControl(ttl: CacheTtl): string {
   }
   return parts.join(', ');
 }
+
+// ─── Cache-key normalization + gateway entrypoint (WC-4 / AECI-318) ──────────
+
+/** Sort a comma-separated set canonically (the AECI-223 multi-select CSV invariant). */
+function sortCsv(value: string): string {
+  return value
+    .split(',')
+    .filter((v) => v.length > 0)
+    .sort()
+    .join(',');
+}
+
+/**
+ * Normalized cache key for a request. Restored in WC-4 (AECI-318) after WC-3
+ * moved the SSR Worker onto native Cloudflare Workers Cache (which keys on the
+ * full, order-sensitive query string). The gateway entrypoint forwards this
+ * string as `cf.cacheKey` on the `ctx.exports` loopback to the cached `Renderer`
+ * entrypoint; a custom `cf.cacheKey` *replaces the path + query string* in the
+ * native key, so the value is PATH-RELATIVE — NOT a full-origin URL like the
+ * pre-WC-3 `cacheKeyUrl` that keyed the removed `caches.default` match/put.
+ * Origin isn't part of a custom key, and each env / Worker version is already an
+ * isolated cache namespace, so no cross-env leakage.
+ *
+ * Drops marketing/tracking params (`utm_*`, `fbclid`, `gclid`, `ref`, …) so
+ * query-independent pages share one entry, keeps only the content-affecting
+ * params declared per route in `ROUTE_CACHE_PATTERNS`, and canonicalizes order —
+ * `URLSearchParams.sort()` on names (`?sort=name&page=2` == `?page=2&sort=name`)
+ * plus a value sort on multi-select facet CSVs (`category_id=a,b` == `b,a`). A
+ * path with no matching pattern (or no `cacheKeyParams`) yields the bare
+ * `pathname` — the safe "strip everything" default. The pathname (incl. any
+ * locale prefix) is preserved verbatim; locale variance is segmented by URL
+ * prefix, so the key must keep it.
+ */
+export function cacheKeyFor(url: URL): string {
+  const { path } = stripLocalePrefix(url.pathname);
+  const allowed = ROUTE_CACHE_PATTERNS.find((pattern) => pattern.match(path))?.cacheKeyParams ?? [];
+  const params = new URLSearchParams();
+  for (const name of allowed) {
+    for (const value of url.searchParams.getAll(name)) {
+      params.append(name, MULTI_VALUE_CACHE_KEY_PARAMS.has(name) ? sortCsv(value) : value);
+    }
+  }
+  params.sort(); // canonical param order — ?sort=name&page=2 and ?page=2&sort=name → one key
+  const query = params.toString();
+  return query ? `${url.pathname}?${query}` : url.pathname;
+}
+
+/** The subset of the Worker's own entrypoints the gateway reaches via `ctx.exports`. */
+type GatewayExports = { Renderer: Fetcher };
+
+/**
+ * Gateway entrypoint — the SSR Worker's `default` export (WC-4 / AECI-318). Its
+ * own cache is DISABLED in `apps/web/wrangler.jsonc` (`exports.default`), so it
+ * runs on every request: it computes the normalized cache key and forwards the
+ * *original, unmodified* request to the cached `Renderer` entrypoint through the
+ * `ctx.exports` loopback. Passing `cf.cacheKey` there replaces the path+query in
+ * the native cache key, restoring the utm-strip / per-route allowlist /
+ * canonical-order normalization WC-3 removed with the hand-rolled `caches.default`
+ * pipeline. The request itself is untouched (utm_* etc. survive for the render +
+ * client analytics); only the cache *lookup key* is normalized. Non-GET/HEAD
+ * requests forward with no custom key — they aren't cached. `Renderer` (declared
+ * in `server.ts`) wraps the Hono `app`, so all routing / SSR / `Cache-Control`
+ * emission is unchanged and sits behind the cache.
+ */
+export const cacheGateway = {
+  async fetch(request: Request, _env: Bindings, ctx: ExecutionContext): Promise<Response> {
+    // `ctx.exports` is typed `Cloudflare.Exports`; cast to the one entrypoint we
+    // call so this compiles independently of the generated loopback typings.
+    const { Renderer } = ctx.exports as unknown as GatewayExports;
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      return Renderer.fetch(request, { cf: { cacheKey: cacheKeyFor(new URL(request.url)) } });
+    }
+    return Renderer.fetch(request);
+  },
+};
 
 // ─── SSR pipeline ──────────────────────────────────────────────────────────
 
@@ -799,7 +927,13 @@ export function createApp(options: {
   // canonical host is now `www.` (self-referential canonicals + `PUBLIC_SITE_URL`,
   // ADR 0011), so the bare apex is folded to `www.` with a permanent redirect.
   // Registered first so it short-circuits before SSR and the X-Robots stamp; path
-  // + query are preserved and the mapping never changes, so the 301 is edge-cacheable.
+  // + query are preserved in the Location. Cache-Control is `private, max-age=3600`
+  // — browser-cacheable but NOT edge-cacheable (AECI-318 / WC-4): the Location embeds
+  // the query, but the WC-4 gateway normalizes the shared-edge cache key (strips the
+  // query for the bare-apex path), so a shared edge entry would collapse distinct-query
+  // apex hits onto whichever Location warmed it first. `private` keeps the flip off the
+  // edge — the browser keys on the full URL and stays correct — so enabling prod
+  // caching in WC-5/6/8 can't silently mis-route the naked domain.
   // Only the EXACT bare apex matches — `www.` itself (which serves), the `prod.`/
   // `demo.`/`staging.` tiers, `localhost`, and `*.workers.dev` never carry it, so no
   // other host is touched. `www.` never redirects, so a fresh client does at most one
@@ -813,7 +947,7 @@ export function createApp(options: {
         status: 301,
         headers: {
           Location: `${url.protocol}//www.${url.hostname}${url.pathname}${url.search}`,
-          'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
+          'Cache-Control': 'private, max-age=3600',
         },
       });
     }
@@ -831,9 +965,18 @@ export function createApp(options: {
   // untouched. The response is rebuilt rather than mutated in place because a
   // response's headers may be immutable. Under native Workers Cache (WC-3) a HIT
   // skips the Worker, so this egress stamp runs only on the render that populates
-  // the cache — the `noindex` decision is baked into the stored payload and served
-  // on every subsequent HIT (no per-HIT re-stamp is possible). WC-8 (AECI-322)
-  // hardens this so a front-of-Worker HIT can never leak an indexable non-prod page.
+  // the cache. Because the middleware is registered on the default entrypoint the
+  // cache wraps, the stamp lands BEFORE the platform stores the response — the
+  // `noindex` decision is baked into the stored payload and served verbatim on
+  // every subsequent HIT (no per-HIT re-stamp is possible, and none is needed).
+  // The env-specific bake is safe: each env is its own Worker + cache with its own
+  // `ALLOW_INDEXING`. This is the single stamp site on purpose — an egress wrapper
+  // over EVERY response covers redirects, /robots.txt, /sitemap.xml, and 404s that
+  // `withCacheHeaders` (2xx/404 only) would miss. WC-8 (AECI-322) verified this
+  // bake (see the "cacheable 200 bakes noindex + CSP + Vary" test in server.spec.ts)
+  // so a front-of-Worker HIT can never leak an indexable non-prod page, and moved
+  // HIT-rate observability off the (now HIT-blind) Worker to `Cf-Cache-Status` +
+  // the Cloudflare Workers dashboard (docs/OBSERVABILITY.md, docs/CACHE_STRATEGY.md §7.1).
   app.use('*', async (c, next) => {
     await next();
     if (indexingAllowed(c.env)) return;
@@ -962,23 +1105,28 @@ export function createApp(options: {
   // (Discipline → Audience). Registered BEFORE the SSR catch-all so they win;
   // `/disciplines/*` no longer SSRs (the Angular route is `/audiences/:slug` and
   // `ROUTE_CACHE_PATTERNS` lists `/audiences`). 301 (permanent) so search engines
-  // transfer link equity to the canonical `/audiences/*` URLs. The redirect is
-  // emitted as a standalone Response (NOT through `handleSsr`, which forces 3xx
-  // to `no-store`) so it stays edge-cacheable — the mapping never changes. Tagged
-  // `audience:<slug>` (the same vocabulary the browse route + promote purge use)
-  // so /admin/purge can evict it if a mapping is ever corrected. Query string is
-  // preserved. Locale-prefixed `/es/disciplines/...` (no locales ship yet) would
-  // fall through to the SSR 404, which is acceptable until a locale is added.
+  // transfer link equity to the canonical `/audiences/*` URLs, with the query
+  // string preserved in the Location so a filtered legacy link keeps its facets.
+  //
+  // Cache-Control is `private, max-age=3600` — browser-cacheable but NOT
+  // edge-cacheable (AECI-318 / WC-4). The Location embeds the query, but the WC-4
+  // gateway normalizes the shared-edge cache key and strips the query for
+  // non-listing paths like `/disciplines/*` (not in `ROUTE_CACHE_PATTERNS`); a
+  // shared edge entry would therefore collapse distinct-query links onto whichever
+  // Location warmed it first, serving the wrong redirect target. `private` keeps
+  // this off the edge; the browser keys on the full URL, so per-URL client caching
+  // stays correct. No `Cache-Tag` — nothing is edge-stored to purge, and the
+  // slug→audience mapping is immutable. Locale-prefixed `/es/disciplines/...` (no
+  // locales ship yet) would fall through to the SSR 404, acceptable until a locale
+  // is added.
   const audienceRedirect = (c: Context<{ Bindings: Bindings }>): Response => {
     const url = new URL(c.req.url);
     const targetPath = url.pathname.replace(/^\/disciplines/, '/audiences');
-    const slug = targetPath.slice('/audiences/'.length); // '' for the bare index
     return new Response(null, {
       status: 301,
       headers: {
         Location: `${url.origin}${targetPath}${url.search}`,
-        'Cache-Control': buildCacheControl({ edge: 86_400, browser: 3_600 }),
-        'Cache-Tag': slug ? `audience:${slug}` : 'audience:*',
+        'Cache-Control': 'private, max-age=3600',
       },
     });
   };

@@ -34,7 +34,7 @@ Today (Phase 2 design, `docs/CACHE_STRATEGY.md`) the SSR Worker **runs on every 
 |---|---|---|
 | Cache lookup | Worker runs, calls `caches.default.match()` | Platform checks cache **before** the Worker runs — HIT ⇒ zero Worker CPU |
 | Cache write | `ctx.waitUntil(cache.put(key, res.clone()))` | Platform stores from the response's `Cache-Control` |
-| Key normalization | `cacheKeyUrl()` strips `utm_*`, applies per-route allowlist, sorts params | Full **order-sensitive** query string by default (⚠️ see WC-4) |
+| Key normalization | `cacheKeyUrl()` strips `utm_*`, applies per-route allowlist, sorts params | Full **order-sensitive** query string by default → **WC-4 restored** utm-strip / allowlist / sort as `cacheKeyFor()` behind the gateway (`cf.cacheKey`) |
 | Tag purge | HTTP `callCloudflarePurge()` + scoped CF token + zone id | `ctx.cache.purge({ tags })` — Instant Purge, no token, but **same-Worker only** (⚠️ see WC-5) |
 | Request collapsing / tiered cache | none | on by default |
 | Stale-while-revalidate / stale-if-error | none | available via `Cache-Control` |
@@ -45,7 +45,7 @@ Today (Phase 2 design, `docs/CACHE_STRATEGY.md`) the SSR Worker **runs on every 
 
 1. **Cross-Worker purge (WC-5).** `ctx.cache.purge()` only purges the **calling entrypoint's own** cache, and "no zone configuration for caching applies to Workers Caching" — so the zone-level HTTP purge (`callCloudflarePurge`) will **not** evict Workers Cache. But our writer (`POST /api/promote`) lives in the **API Worker** and must invalidate **SSR HTML** cached in front of the **SSR Worker**. Resolution: the API Worker (and datatool) enqueue purge messages onto a **Cloudflare Queue**; a **consumer on the SSR Worker** calls its own `ctx.cache.purge()`. This is the "Should the API call a queue to purge?" question from the transcript — **approved**. It **reverses ADR 0010** (which had removed the web↔api coupling), so it needs a new ADR.
 
-2. **Cache-key normalization (WC-4).** `cf.cacheKey` can only be set on the **calling side** of a service-binding/`ctx.exports` call, not on a direct eyeball request. To keep AECI-100/143/223 (strip `utm_*`, per-route param allowlist, canonical param order, multi-select facet CSV sorting) we either (a) add a thin **gateway entrypoint** that normalizes the URL and forwards to a named `Renderer` entrypoint with `cf.cacheKey`, or (b) accept query-string fragmentation and enforce producer-side param ordering. Decision needed.
+2. **Cache-key normalization (WC-4).** `cf.cacheKey` can only be set on the **calling side** of a service-binding/`ctx.exports` call, not on a direct eyeball request. To keep AECI-100/143/223 (strip `utm_*`, per-route param allowlist, canonical param order, multi-select facet CSV sorting) we either (a) add a thin **gateway entrypoint** that normalizes the URL and forwards to a named `Renderer` entrypoint with `cf.cacheKey`, or (b) accept query-string fragmentation and enforce producer-side param ordering. **Resolved (ADR 0020 §2, Option A); shipped in WC-4** — the `default` gateway (`cacheGateway`) computes `cacheKeyFor(url)` and forwards `cf.cacheKey` to the cached `Renderer` entrypoint.
 
 ---
 
@@ -68,7 +68,7 @@ Today (Phase 2 design, `docs/CACHE_STRATEGY.md`) the SSR Worker **runs on every 
 - Promote purge: `apps/api/src/routes/promote.ts` (`purgeAfterPromote`, `refreshHomeStatsAfterPromote`, fired via `ctx.waitUntil`) + tags from `apps/api/src/routes/promote-cache-tags.ts` (`cacheTagsForPromote`).
 - Manual/incident purge: `apps/web/src/server/routes/admin-purge.ts` (`createAdminPurgeHandler`; auth `ADMIN_PURGE_TOKEN`; CF creds `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`).
 - datatool bulk purge: `apps/datatool/src/cache-purge.ts` (`purgeEnvCache`) — **WC-7 (AECI-321) landed**: enqueues `{ purgeEverything: true, source: 'datatool' }` onto the target tier's `aeci-cache-purge-{env}` (per-tier producer bindings `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}`, resolved in `targets.ts`); no longer uses `BROAD_CACHE_TAGS` / `callCloudflarePurge`.
-- Egress `X-Robots-Tag` stamp: `createApp` middleware in `server-runtime.ts` (runs *after* the cache write today).
+- Egress `X-Robots-Tag` stamp: `createApp` middleware in `server-runtime.ts`. _(Pre-WC-3 this ran after the hand-rolled `caches.default` put and re-ran on each HIT; WC-3 removed that manual pipeline, so it now stamps pre-store on the cached default entrypoint, and **WC-8 (AECI-322) verified the noindex decision is baked into the cached payload** — served on every HIT without the Worker running. See `docs/CACHE_STRATEGY.md` §7.1.)_
 - Observability: `aeci.ssr.render`, `aeci.page.render.duration_ms`, `aeci.cache.purge` → `docs/OBSERVABILITY.md`.
 - `CF_ZONE_ID` is **also** consumed by the AECI-262 WAF analytics poll — do **not** delete it wholesale.
 
@@ -99,7 +99,7 @@ WC-1..WC-10 ─> WC-11 (docs sweep)
 ## 4. Open questions (resolve in WC-1)
 
 1. **`cross_version_cache`** — `true` (survive deploys, but must purge on content-shape changes) vs `false` (every deploy cold-starts the cache, auto-correct but cold). Recommend `true` + rely on tag purge; confirm in spike.
-2. **Cache-key normalization** — gateway entrypoint (WC-4 option A, preserves invariants) vs accept fragmentation (option B). Recommend A.
+2. **Cache-key normalization** — gateway entrypoint (WC-4 option A, preserves invariants) vs accept fragmentation (option B). **Decided: A** (ADR 0020 §2); shipped in WC-4.
 3. **Local-dev** — does `wrangler dev`/miniflare exercise Workers Cache or no-op it? Determines how much we can test locally vs only on deployed previews.
 4. **`stale-if-error` / `stale-while-revalidate`** — adopt for detail/index routes now (resilience) or defer?
 5. **API Worker cache** — confirm leaving it disabled (recommended) vs enabling per-entrypoint for any future GET API that's cache-worthy.

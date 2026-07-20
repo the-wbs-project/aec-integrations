@@ -106,6 +106,18 @@ test.describe('home page (smoke)', () => {
       cfStatus === 'HIT' || age > 0,
       `expected cache HIT; got cf-cache-status=${cfStatus ?? 'absent'} age=${age}`,
     ).toBe(true);
+
+    // AECI-322/WC-8: the crawler-indexing decision is baked into the stored
+    // payload, so whatever `X-Robots-Tag` the MISS render carried must survive on
+    // the HIT — the Worker doesn't run on a HIT to re-stamp it. Comparing MISS vs
+    // HIT is self-guarding: it holds on a non-indexable env (noindex on both) and
+    // on an indexable one (absent on both), which is exactly the AC ("both MISS and
+    // HIT"). The primer is the MISS render (or a prior HIT — either way the stored
+    // header is what the HIT serves, so the equality still holds).
+    expect(
+      second.headers()['x-robots-tag'] ?? null,
+      'X-Robots-Tag must be identical on the cache HIT and the render that populated it',
+    ).toBe(primer.headers()['x-robots-tag'] ?? null);
   });
 });
 

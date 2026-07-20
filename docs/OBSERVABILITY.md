@@ -25,12 +25,12 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 
 ## Custom metric catalog (Phase 2 §14)
 
-> **⚠️ WC-3 (AECI-317) — front-of-Worker cache.** Native Cloudflare Workers Cache now serves cacheable HITs **without running the SSR Worker** (preview + staging). So the SSR-side `cache_status:HIT`/`cache_status:hit` series below go **~0** — the two render metrics only ever record a `MISS`/`miss` (the Worker only runs on a native-cache miss) or `non_cacheable`. HIT-rate visibility moves to `Cf-Cache-Status` + the Cloudflare Workers observability dashboard. The full observability rework (including retiring/rescoping the cache-hit-rate monitor below) is **WC-8 (AECI-322)**.
+> **⚠️ Front-of-Worker cache (WC-3 AECI-317 · WC-8 AECI-322).** Native Cloudflare Workers Cache serves cacheable HITs **without running the SSR Worker** (preview + staging; demo/production still gated). So the two SSR render metrics only ever record `cache_status:MISS`/`miss` (the Worker runs only on a native-cache miss) or `non_cacheable` — **there is no `cache_status:hit` series.** HIT-rate visibility lives on `Cf-Cache-Status` + the Cloudflare Workers observability dashboard (see "Front-of-Worker cache: HIT observability" below). **WC-8 (AECI-322) completed the rework:** the `cache hit rate < 70%` monitor + its dashboard widget were **retired** (their `cache_status:hit` numerator is now permanently ~0 — they would flatline / alert forever), and the crawler-`noindex` decision is now baked into the cached payload so a HIT can't leak an indexable non-prod page (`docs/CACHE_STRATEGY.md` §7.1).
 
 | Metric | Type | Emitted from | Tags |
 |---|---|---|---|
-| `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, cacheable render = native-cache MISS) | `route_class` (detail/index/browse), `cache_status` (`MISS` only post-WC-3), `status_code`, `status_class` (2xx/4xx/5xx) |
-| `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, every branch the Worker runs) | `cache_status` (`miss`/`non_cacheable` post-WC-3), `status_class` (2xx/4xx/5xx) |
+| `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, cacheable render = native-cache MISS) | `route_class` (detail/index/browse), `cache_status` (`MISS` only — no `hit` series; WC-3/WC-8), `status_code`, `status_class` (2xx/4xx/5xx) |
+| `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, every branch the Worker runs) | `cache_status` (`miss`/`non_cacheable` only — no `hit` series; WC-3/WC-8), `status_class` (2xx/4xx/5xx) |
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
 | `aeci.cache.purge` | count | `apps/web/src/server/cache-purge-queue.ts` (WC-5 queue consumer — `promote`/`moderation`); `apps/web/src/server/routes/admin-purge.ts` (native `ctx.cache.purge()` since WC-6 / AECI-320 — `manual`/`ci-taxonomy-seed`) | `source` (promote / moderation / manual / ci-taxonomy-seed / future webhook), `outcome` (consumer: `ok` / `purge_failed` / `no_cache` / `noop`; `/admin/purge`: `ok` / `failed` / `skipped`, where `skipped` = native cache disabled on the tier), `mode` (`tags` / `path_prefixes` / `combined` / `everything`; `/admin/purge` only) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
@@ -348,6 +348,32 @@ prod heartbeat. No committed dashboard widget or monitor queries the `ssr.render
 change skews nothing — the only log-shaped monitor query targets `status:error` logs, which the
 gate keeps at full fidelity.
 
+## Front-of-Worker cache: HIT observability (WC-8 / AECI-322)
+
+Native Workers Cache (WC-3) serves cacheable HITs **without running the SSR Worker**, so
+egress-time signals that used to re-run on every response don't fire on a HIT. This is by
+design. Where each signal lives now:
+
+- **HIT/MISS + edge HIT-rate** → the **`Cf-Cache-Status`** response header
+  (`HIT`/`MISS`/`EXPIRED`/`BYPASS`/`DYNAMIC`) and the **Cloudflare Workers observability
+  dashboard** (Workers & Pages → `aeci-web` → Observability). Datadog has **no** HIT-rate series
+  anymore: the `cache_status:hit` numerator went to ~0 when the Worker stopped running on HITs, so
+  the `cache hit rate < 70%` monitor **and** its Traffic-dashboard widget were **retired** in WC-8
+  (they would otherwise alert / flatline forever). Front-of-Worker HIT/MISS is verified on a
+  **deployed preview**, not local miniflare (ADR 0020 Q3 / WC-9).
+- **SSR render metrics** (`aeci.ssr.render`, `aeci.page.render.duration_ms`) → still emitted, but
+  only on the branch where **the Worker actually runs** (a native-cache MISS / non-cacheable) —
+  `cache_status:MISS`/`miss`/`non_cacheable`, never `hit`. A fall in MISS volume as HIT-rate climbs
+  is **expected** and is **not** "SSR render dropped" / "traffic dropped"; read absolute request
+  volume from Cloudflare, not these Worker-side counts.
+- **Page views** → the browser `PageViewTracker` (AECI-151,
+  `apps/web/src/app/core/page-view-tracker.ts`) is the **canonical** counter. The SSR-side
+  `firePageView` (`POST /api/page-views`) fires only on a MISS / non-cacheable render and always
+  undercounted; a HIT never reaches the Worker, so it is deliberately **not** reconstructed from
+  HITs. Do not add HIT-counting to the Worker.
+- **`noindex` on HIT** → the crawler-indexing header is baked into the cached payload on the MISS
+  render (`docs/CACHE_STRATEGY.md` §7.1), so every HIT serves it without the Worker running.
+
 ## Dashboards
 
 ### `AECi Phase 2 — Traffic`
@@ -355,9 +381,10 @@ gate keeps at full fidelity.
 - **Definition (for record):** `observability/datadog/dashboard.json`
 - **Live URL:** https://us5.datadoghq.com/dashboard/b5b-edd-gva/aeci-phase-2--traffic _(applied 2026-06-12 — AECI-222, the AECI-66/AECI-161 live-apply)._
 
-Widgets: top routes by request count · cache hit rate per `route_class` · p50/p95/p99
-render per `route_class` · p95 API query per endpoint · 4xx/5xx error rate over time ·
-purge events by source.
+Widgets: top routes by request count · **HIT-rate note** (edge HIT-rate → Cloudflare Workers
+observability / `Cf-Cache-Status`; the old `cache_status:hit` widget was retired in WC-8) ·
+p50/p95/p99 render per `route_class` · p95 API query per endpoint · 4xx/5xx error rate over
+time · purge events by source.
 
 ### `AECi Phase 3 — Search`
 
@@ -416,15 +443,14 @@ the team notification channel. The committed JSON keeps the `@NOTIFICATION_CHANN
 placeholder (env-agnostic for record); substitute the real handle **at apply time**. The
 resolved handle is `@chrisw@thewbsproject.com` (Datadog email notification; AECI-222) — the
 then-nine monitors were applied 2026-06-12 with that substitution; the Phase 3–7 monitors were
-applied in their own phase passes, and AECI-279 (Phase 8.1) added two more, bringing the committed
-set to **23**. One exception to the handle rule: the informational
+applied in their own phase passes, and AECI-279 (Phase 8.1) added two more (bringing the set to 23);
+**WC-8 (AECI-322) then retired the cache-hit-rate monitor, leaving the committed set at 22.** One exception to the handle rule: the informational
 `monitor-data-quality-check-warn.json` (AECI-279) uses a distinct `@NOTIFICATION_CHANNEL_LOW_TBD`
 placeholder — substitute a low-urgency handle, or leave it literal to keep that warn monitor
 **UI-only / non-paging** (the daily digest already carries its rows).
 
 | Monitor | Condition | Definition |
 |---|---|---|
-| Cache hit rate low | hit rate < 70% sustained 15m | `observability/datadog/monitor-cache-hit-rate.json` |
 | Detail render slow | p95 detail render (cache MISS) > 1.5s sustained 10m | `observability/datadog/monitor-detail-render-p95.json` |
 | Worker error rate high | combined SSR+API 5xx rate > 1% over 5m | `observability/datadog/monitor-error-rate.json` |
 | Algolia index drift | any index's \|drift\| > 0 (daily); or no data for 48h | `observability/datadog/monitor-algolia-index-drift.json` |
@@ -448,8 +474,16 @@ placeholder — substitute a low-urgency handle, or leave it literal to keep tha
 | WAF rate-limit / challenge spike | `sum:aeci.waf.ratelimit.blocked` (`.as_count()`) > 500 over 15m (`env:production`) | `observability/datadog/monitor-waf-ratelimit-spike.json` |
 | WAF poll not running | no successful `aeci.waf.poll{outcome:ok,trigger:cron}` for ~3h (no-data liveness) | `observability/datadog/monitor-waf-poll-no-data.json` |
 
+The **cache-hit-rate monitor was retired in WC-8 (AECI-322).** Under native Workers Cache a HIT
+skips the Worker, so its `cache_status:hit` numerator is permanently ~0 — it would fire "cache hit
+rate low" forever. Its JSON was deleted from `observability/datadog/`; **the live Datadog monitor
+must also be deleted in the UI** (the committed JSON is for-record; the live monitor is source of
+truth). Edge HIT-rate now lives on the Cloudflare Workers observability dashboard — see
+"Front-of-Worker cache: HIT observability" above.
+
 The p95-detail monitor is scoped to `cache_status:miss` on purpose: HITs are served
-from the edge and would mask a genuinely slow render.
+from the edge and would mask a genuinely slow render (and under native Workers Cache a MISS is
+exactly "the Worker ran", so this monitor is unaffected by the front-of-Worker migration).
 
 Algolia sync health is intentionally **two** monitors. "Sync failed" alerts on `outcome:failed`
 and must **not** use `notify_no_data` — that series is empty on a healthy run, so a no-data
@@ -680,10 +714,13 @@ DATADOG_TRAFFIC_GEN=1 PLAYWRIGHT_BASE_URL=https://<staging-url> \
   pnpm --filter @aeci/web exec playwright test e2e/traffic-gen.spec.ts
 ```
 
-The generator visits ~20 representative pages (static / index / browse / detail) twice
-— the first pass is a cache MISS, the second a HIT — so both `cache_status` values and
-all three `route_class` values appear. Then check Datadog:
+The generator visits ~20 representative pages (static / index / browse / detail) twice.
+Under native Workers Cache the **first pass is a MISS (the Worker runs → a Datadog datapoint)** and
+the **second pass is a front-of-Worker HIT that skips the Worker** — so pass 2 does **not** add a
+second Datadog datapoint; confirm the HIT via the **`Cf-Cache-Status: HIT`** response header instead
+(on preview/staging, where `cache.enabled` is on). Then check Datadog:
 
-- Metrics Explorer: `aeci.page.render.duration_ms` (split by `cache_status`, `route_class`),
-  `aeci.api.query.duration_ms` (split by `endpoint`), `aeci.cache.purge`.
-- The dashboard should show data on all six widgets.
+- Metrics Explorer: `aeci.page.render.duration_ms` (split by `cache_status` — expect `MISS` only —
+  and `route_class`), `aeci.api.query.duration_ms` (split by `endpoint`), `aeci.cache.purge`.
+- The dashboard should show data on the render / API / error-rate / purge widgets; the HIT-rate
+  slot is now a note pointing to the Cloudflare Workers observability dashboard (WC-8).
