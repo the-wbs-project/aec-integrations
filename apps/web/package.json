@@ -2,6 +2,14 @@
   "name": "@aeci/web",
   "version": "0.0.0",
   "private": true,
+  "imports": {
+    "#cloudflare-workers": {
+      "types": "./cloudflare-workers.d.ts",
+      "workerd": "./cloudflare-workers.real.mjs",
+      "worker": "./cloudflare-workers.real.mjs",
+      "node": "./cloudflare-workers.stub.mjs"
+    }
+  },
   "engines": {
     "node": "^22.22.3 || ^24.15.0 || >=26.0.0"
   },

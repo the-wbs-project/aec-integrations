@@ -21,16 +21,18 @@
  * secret pruning is deferred to WC-10 (AECI-324).
  *
  * ENTRYPOINT SCOPING (load-bearing): `ctx.cache.purge()` only evicts the
- * *calling entrypoint's* cache. Today the SSR Worker is a single default
- * entrypoint (`export default app`), so this handler and the cached SSR
- * responses share one cache and the purge is correctly scoped. When WC-4
- * (AECI-318) moves SSR caching into a named `Renderer` entrypoint, this purge
- * MUST be issued from that entrypoint (or routed via the WC-5 queue) or it will
- * silently no-op. See `docs/CACHE_STRATEGY.md` §9.
+ * *calling entrypoint's* cache, and WC-4 (AECI-318) moved SSR caching onto the
+ * named `Renderer` entrypoint (the default export is a cache-OFF gateway). This
+ * purge stays correctly scoped for free: the gateway forwards every request to
+ * `Renderer.fetch`, which runs this whole Hono `app`, so `c.executionCtx` here
+ * IS `Renderer`'s context and `c.executionCtx.cache` is `Renderer`'s namespace —
+ * no relocation needed (unlike the WC-5 queue consumer, which delegates into
+ * `Renderer.purgeCache()` because the queue routes to the default export). See
+ * `docs/CACHE_STRATEGY.md` §5 and ADR 0020 §2.
  *
  * CACHE DISABLED: `ExecutionContext.cache` is optional — it is absent when
  * Workers Cache is not enabled on the entrypoint (bare `wrangler dev` / local
- * miniflare, and the demo/production tiers gated until WC-4/5/6/8 land). In
+ * miniflare, and the demo/production tiers gated until WC-8 lands). In
  * that case the handler reports a graceful no-op (`200 { success: true,
  * skipped: 'cache_disabled' }`) so CI's post-promote purge and manual callers
  * stay green until native cache is enabled on the tier.
@@ -135,11 +137,13 @@ export function createAdminPurgeHandler(): (c: HonoContext) => Promise<Response>
       ...(purgeEverything ? { purgeEverything } : {}),
     };
 
-    // 3. Native Workers Cache purge. `ExecutionContext.cache` is optional —
-    //    Hono types `c.executionCtx` without it, so narrow to the ambient
-    //    `CacheContext`. Absent ⇒ caching disabled on this entrypoint
-    //    (local/miniflare, or a tier gated until WC-4/5/6/8): report a no-op.
-    const cache = (ctx as { cache?: CacheContext }).cache;
+    // 3. Native Workers Cache purge. `cache` exists at runtime and in the generated
+    //    `worker-configuration.d.ts` `ExecutionContext`, but Hono's own bundled
+    //    `ExecutionContext` type (what `c.executionCtx` resolves to) omits it — so cast
+    //    to the real runtime type to read `cache?: CacheContext`. Absent ⇒ caching
+    //    disabled on this entrypoint (local/miniflare, or a tier gated until WC-8):
+    //    report a no-op.
+    const cache = (ctx as unknown as ExecutionContext).cache;
     if (!cache) {
       emitPurgeTelemetry(ctx, env, request, {
         source,
