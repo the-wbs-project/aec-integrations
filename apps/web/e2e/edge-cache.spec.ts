@@ -35,8 +35,11 @@ test.describe('native Workers Cache (AECI-323 / WC-9)', () => {
     expect(miss.headers()['cf-cache-status']).toBe('MISS');
     expect(miss.headers()['cache-control']).toContain('public');
     expect(miss.headers()['cache-control']).toContain('s-maxage=300');
-    expect(miss.headers()['cache-tag']).toContain('route:index');
-    expect(miss.headers()['cache-tag']).toContain('index:products');
+    // `Cache-Tag` is deliberately NOT asserted here: Cloudflare consumes it for
+    // purge-by-tag and strips it before the response reaches the client, so it is
+    // never observable at the deployed edge. The per-route tag set is covered by
+    // `server.spec.ts` and the local `run-extra-tests.sh` probe (which sees the
+    // unstripped Worker response) instead.
     expect(miss.headers()['x-robots-tag']).toBe('noindex, nofollow');
 
     let hit: APIResponse | undefined;
@@ -56,8 +59,9 @@ test.describe('native Workers Cache (AECI-323 / WC-9)', () => {
       .toBe('HIT');
 
     expect(hit).toBeDefined();
+    // A HIT never runs the Worker, so the client-visible headers it serves must
+    // match those baked on the MISS render that populated the cache.
     expect(hit!.headers()['cache-control']).toBe(miss.headers()['cache-control']);
-    expect(hit!.headers()['cache-tag']).toBe(miss.headers()['cache-tag']);
     expect(hit!.headers()['x-robots-tag']).toBe(miss.headers()['x-robots-tag']);
   });
 });

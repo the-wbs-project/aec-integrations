@@ -362,7 +362,8 @@ jobs:
       # Step 10: Verify native Workers Cache on the deployed PR preview
       #   Request-only Playwright spec: no browser install/download. It uses a
       #   unique allowlisted /products?view= key and requires exact MISS → HIT,
-      #   plus the Cache-Control/Cache-Tag/noindex headers baked into the HIT.
+      #   plus the client-visible Cache-Control/noindex headers baked into the HIT
+      #   (Cache-Tag is edge-stripped by Cloudflare, so it is not asserted here).
       #   The full preview E2E jobs in deploy.yml remain parked.
       # ---------------------------------------------------------------------
       - name: Verify native Workers Cache (MISS → HIT)
