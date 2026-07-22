@@ -27,7 +27,9 @@
 #      the service binding so this implicitly validates both the SSR Worker
 #      and the per-PR API Worker are wired up. Mirrors the polling loop in
 #      refresh-staging.yml.
-#   7. Sticky PR comment with the preview URL and a copy-paste curl snippet.
+#   7. Run the request-only native-cache probe against a unique cache key and
+#      require `Cf-Cache-Status: MISS → HIT` with the baked response headers.
+#   8. Sticky PR comment with the preview URL and a copy-paste curl snippet.
 #
 # `cleanup` job (closed, merged or not):
 #   1. `wrangler delete` both per-PR Workers (API + SSR). Idempotent — the
@@ -357,7 +359,21 @@ jobs:
           exit 1
 
       # ---------------------------------------------------------------------
-      # Step 10: Sticky PR comment with the preview URL + curl snippet
+      # Step 10: Verify native Workers Cache on the deployed PR preview
+      #   Request-only Playwright spec: no browser install/download. It uses a
+      #   unique allowlisted /products?page= key and requires exact MISS → HIT,
+      #   plus the Cache-Control/Cache-Tag/noindex headers baked into the HIT.
+      #   The full preview E2E jobs in deploy.yml remain parked.
+      # ---------------------------------------------------------------------
+      - name: Verify native Workers Cache (MISS → HIT)
+        env:
+          PLAYWRIGHT_BASE_URL: ${{ env.PREVIEW_URL }}
+          CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+          CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+        run: pnpm --filter @aeci/web exec playwright test e2e/edge-cache.spec.ts
+
+      # ---------------------------------------------------------------------
+      # Step 11: Sticky PR comment with the preview URL + curl snippet
       #   `header` keeps subsequent runs editing the same comment instead of
       #   stacking. The Access curl snippet mirrors docs/access.md :139-146.
       # ---------------------------------------------------------------------
@@ -386,7 +402,7 @@ jobs:
             Preview Worker tears down automatically when this PR is closed.
 
       # ---------------------------------------------------------------------
-      # Step 11: Run summary
+      # Step 12: Run summary
       # ---------------------------------------------------------------------
       - name: Summary
         if: always()
