@@ -278,7 +278,7 @@ Keep a small bash- or Playwright-driven suite for these multi-request, edge-stat
 - **Cookie × cache pollution** — verify the visitor-state cookie-strip runs before SSR for cacheable routes, so a per-visitor cookie can't poison the shared edge cache. The strip list (`VISITOR_STATE_COOKIES`) is empty as of AECI-226 — `theme` was removed with the dark theme — but the mechanism is retained as infrastructure and `server.spec.ts` still exercises it.
 - **`Vary` audit** — confirm cached SSR responses emit only `Vary: Accept-Language`; forbidden values such as `Cookie`, `User-Agent`, and `Accept-Encoding` must be absent.
 - **404 / KV-miss path** — assert HTTP 404 with TTL ≤60s, not 200 with a long TTL (the "pinned 404" trap).
-- **MISS → HIT progression** — `e2e/edge-cache.spec.ts` uses a unique allowlisted `/products?page=…` key and requires exact `Cf-Cache-Status: MISS → HIT`, with identical `Cache-Control`, `Cache-Tag`, and baked `X-Robots-Tag` on the HIT.
+- **MISS → HIT progression** — `e2e/edge-cache.spec.ts` uses a unique allowlisted `/products?view=…` key (a display-only param, so an arbitrary value forks the cache key but still renders a normal 200 grid — unlike `page=`, which 404s out of range) and requires exact `Cf-Cache-Status: MISS → HIT`, with identical `Cache-Control`, `Cache-Tag`, and baked `X-Robots-Tag` on the HIT.
 - **Concurrent PUT/purge storm** — confirm rate-limit resilience.
 - **Per-locale cache isolation** — `/products/x` and `/es/products/x` cache independently; per-locale purge doesn't cascade across locales; canonical purge does cascade across all locales.
 - **Per-field translation fallback** — entity with partial overlay renders translated fields + canonical fallback for missing fields.

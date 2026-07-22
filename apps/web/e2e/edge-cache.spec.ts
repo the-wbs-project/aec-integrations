@@ -20,9 +20,14 @@ test.describe('native Workers Cache (AECI-323 / WC-9)', () => {
   }) => {
     test.skip(IS_LOCAL, 'native Workers Cache is not emulated by local Wrangler/Miniflare');
 
-    // `page` is an allowlisted /products cache-key parameter. A timestamp gives
-    // every run a cold key without changing the route's public/cacheable contract.
-    const path = `/products?page=${Date.now()}`;
+    // `view` is a display-only /products cache-key parameter (AECI-190): it is on
+    // the route's cacheKeyParams allowlist, so a unique value forks the native
+    // cache key (guaranteeing a cold MISS regardless of prior preview traffic),
+    // yet the index maps any non-`table` value to the default card grid — so the
+    // response is a normal 200 carrying the standard /products cache headers, and
+    // `view` is never forwarded to the API. (A unique `page=` was unusable: `page`
+    // has no upper bound, so a timestamp is an out-of-range page that renders 404.)
+    const path = `/products?view=${Date.now()}`;
     const headers = accessHeaders();
     const miss = await request.get(path, { headers });
 
