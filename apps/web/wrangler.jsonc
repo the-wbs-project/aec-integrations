@@ -72,13 +72,9 @@
   "main": "./dist/server/server.mjs",
   "compatibility_date": "2026-07-10",
   // `nodejs_compat` — @angular/ssr Node polyfills (see the header note).
-  // `enable_ctx_exports` — the WC-4 gateway (`default` export) forwards to the cached
-  // `Renderer` entrypoint via the `ctx.exports` loopback, and the WC-5 queue consumer
-  // delegates `ctx.cache.purge()` into `Renderer` the same way (ADR 0020 §2/§3). That
-  // loopback is gated behind this flag until it becomes default-on (CF changelog
-  // 2025-09-26); set it explicitly so the gateway resolves `ctx.exports.Renderer` on
-  // every env (it ships the two-entrypoint code even where the cache is off).
-  "compatibility_flags": ["nodejs_compat", "enable_ctx_exports"],
+  // `ctx.exports` is default-on for this compatibility date. Do not add the retired
+  // `enable_ctx_exports` flag: current workerd rejects that redundant opt-in at startup.
+  "compatibility_flags": ["nodejs_compat"],
   "observability": {
     "enabled": true,
   },

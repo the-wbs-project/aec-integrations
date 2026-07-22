@@ -49,7 +49,7 @@ Priorities in order:
 **Always:**
 - Pure utility functions (slug generation, URL building, date formatting)
 - Validation logic (Zod schemas — verify they accept valid input and reject invalid)
-- Helper functions (`computeCacheTags`, `invalidateForEntity`, `appendAuditLog`)
+- Helper functions (`buildCacheTags`, `cacheKeyFor`, audit-log row builders)
 - Score calculations and aggregations
 - Business rules (review duplicate detection, ban enforcement)
 
@@ -224,7 +224,7 @@ Miniflare is Cloudflare's local Workers runtime emulator. It runs Worker code wi
 
 - Worker request handlers end-to-end with mocked external dependencies
 - Service binding interactions between SSR Worker and API Worker
-- Cache behavior (set, get, purge)
+- Cache-facing handler behavior (headers, gateway normalization, queue/native purge delegation)
 - Error propagation through middleware
 
 ### 6.2 Pattern
@@ -267,24 +267,24 @@ API Worker handlers are factories that take the Drizzle client through a `getDb`
 
 **Atomicity constraint:** D1 has **no interactive transactions** — atomic multi-statement writes are `db.batch([...])`. So the "open a transaction, run the test, rollback" isolation pattern does not apply; reset/reseed the local D1 between suites instead.
 
-**Audit + cache assertions.** Tests that exercise a write path should assert both the `db.batch([...])` call shape (mutation + the `auditInsert(...)` row in the same batch) and the `ctx.waitUntil(invalidateForEntity(...))` call. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
+**Audit + cache assertions.** Tests that exercise a write path should assert both the `db.batch([...])` call shape (mutation + the `auditInsert(...)` row in the same batch) and the typed cache-purge message sent after commit. Queue-consumer tests separately assert delegation into the cached `Renderer` entrypoint, including ack on success/no-cache/noop and retry on purge failure. See `CODE_REVIEW_CHECKLIST.md` "Tests" — these assertions are a documented review requirement.
 
 ### 6.4 Edge-cache integration layer (complementary to Miniflare)
 
-Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise the actual Cloudflare CDN cache, real cookie/cache interactions, or real purge propagation. Some behaviors only manifest against `wrangler dev` (or a deployed preview) where multiple requests share edge-cache state.
+Vitest + Miniflare exercises Worker *handler logic* but does **not** exercise native Workers Cache in front of the Worker. Verified for AECI-323 with Wrangler 4.111.0 / Miniflare 4.20260710.0: `wrangler dev --env preview` accepts the per-entrypoint cache config, but every localhost request executes the Worker and responses carry neither `Cf-Cache-Status` nor `Age`. Local tests therefore own the response-header contract, gateway normalization, queue consumer, native purge call shape, noindex bake, and stable cache/robots semantics across repeat requests; only a deployed Worker can prove front-cache state and HIT behavior. Do not require byte-identical local SSR documents—Angular may emit request-specific element ids on each uncached render.
 
 Keep a small bash- or Playwright-driven suite for these multi-request, edge-stateful scenarios — modeled on `apps/web/scripts/run-extra-tests.sh` (T1–T12). The scenarios that earned their keep there:
 
 - **Cookie × cache pollution** — verify the visitor-state cookie-strip runs before SSR for cacheable routes, so a per-visitor cookie can't poison the shared edge cache. The strip list (`VISITOR_STATE_COOKIES`) is empty as of AECI-226 — `theme` was removed with the dark theme — but the mechanism is retained as infrastructure and `server.spec.ts` still exercises it.
-- **`Vary` audit** — confirm no cached SSR response emits `Vary`; one variant per URL.
+- **`Vary` audit** — confirm cached SSR responses emit only `Vary: Accept-Language`; forbidden values such as `Cookie`, `User-Agent`, and `Accept-Encoding` must be absent.
 - **404 / KV-miss path** — assert HTTP 404 with TTL ≤60s, not 200 with a long TTL (the "pinned 404" trap).
-- **MISS → HIT progression** — assert `X-*-Cache: MISS` then `HIT` for the same URL.
+- **MISS → HIT progression** — `e2e/edge-cache.spec.ts` uses a unique allowlisted `/products?view=…` key (a display-only param, so an arbitrary value forks the cache key but still renders a normal 200 grid — unlike `page=`, which 404s out of range) and requires exact `Cf-Cache-Status: MISS → HIT`, with identical `Cache-Control` and baked `X-Robots-Tag` on the HIT. It does **not** assert `Cache-Tag`: Cloudflare consumes that header for purge-by-tag and strips it before the response reaches the client, so it is unobservable at the deployed edge — the per-route tag set is verified in `server.spec.ts` and the local `run-extra-tests.sh` probe (which see the unstripped Worker response).
 - **Concurrent PUT/purge storm** — confirm rate-limit resilience.
 - **Per-locale cache isolation** — `/products/x` and `/es/products/x` cache independently; per-locale purge doesn't cascade across locales; canonical purge does cascade across all locales.
 - **Per-field translation fallback** — entity with partial overlay renders translated fields + canonical fallback for missing fields.
 - **`ng extract-i18n` discipline** — every chrome string in templates appears in the extracted XLIFF.
 
-Run this suite in CI against the preview deploy for the PR. It's slow relative to Miniflare (each test is a real HTTP round-trip) but covers gaps Miniflare cannot.
+The local HTTP checks run in `deploy.yml` against `dev:bound`; their T7 assertion pins the absence of native-cache headers. The request-only deployed cache spec runs after deployment in `pr-preview.yml` for every first-party PR, using the existing Cloudflare Access service-token headers and no browser download. The full preview-URL E2E jobs in `deploy.yml` remain parked.
 
 ### 6.5 Live-auth integration suite in CI (AECI-90; pruned AECI-265)
 

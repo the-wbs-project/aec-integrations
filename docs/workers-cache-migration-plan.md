@@ -100,7 +100,7 @@ WC-1..WC-10 ─> WC-11 (docs sweep)
 
 1. **`cross_version_cache`** — `true` (survive deploys, but must purge on content-shape changes) vs `false` (every deploy cold-starts the cache, auto-correct but cold). Recommend `true` + rely on tag purge; confirm in spike.
 2. **Cache-key normalization** — gateway entrypoint (WC-4 option A, preserves invariants) vs accept fragmentation (option B). **Decided: A** (ADR 0020 §2); shipped in WC-4.
-3. **Local-dev** — does `wrangler dev`/miniflare exercise Workers Cache or no-op it? Determines how much we can test locally vs only on deployed previews.
+3. **Local-dev — resolved by WC-9 / AECI-323:** Wrangler 4.111.0 / Miniflare 4.20260710.0 accepts the native cache config but does not emulate the front cache. Repeated localhost requests execute the Worker and carry no `Cf-Cache-Status`/`Age`; exact `MISS → HIT` is verified by a request-only Playwright spec in the PR-preview workflow.
 4. **`stale-if-error` / `stale-while-revalidate`** — adopt for detail/index routes now (resilience) or defer?
 5. **API Worker cache** — confirm leaving it disabled (recommended) vs enabling per-entrypoint for any future GET API that's cache-worthy.
 6. **Queue vs service-binding for cross-Worker purge** — the transcript approved the queue; confirm the ADR rejects a direct SSR service-binding call (re-introducing the ADR-0010 cycle, but synchronous) with reasons (decoupling, retries, back-pressure).

@@ -133,7 +133,9 @@ Use Miniflare for integration tests. For pure handler logic, extract and test as
 - Authorization: send authenticated-but-not-authorized request, assert 403
 - Happy path: send valid request, assert correct response shape (validate against the Zod schema, not against a hand-written object)
 - Error paths: mock the dependency to throw, assert the right error code surfaces
-- Cache headers: assert correct `Cache-Control` on cacheable responses
+- Cache headers: assert exact `Cache-Control` and `Cache-Tag` for each route class; assert non-cacheable responses are `private, no-store`
+- Gateway normalization: assert `cacheKeyFor()` strips tracking noise, retains only content-affecting parameters, canonicalizes order, and is passed to `ctx.exports.Renderer.fetch()` as `cf.cacheKey`
+- Native cache boundaries: do not mock `caches.default`; front-of-Worker HIT/MISS is deployed-only
 
 ### Async operations
 
@@ -169,10 +171,16 @@ This is non-negotiable. Audit logging silently failing is one of the worst possi
 
 ### Cache invalidation
 
-Any change that triggers `invalidateForEntity()` must include a test asserting:
+Any write that invalidates cached SSR content must include a producer test asserting:
 
-- The helper was called with the correct entity reference
-- The expected URL list was computed (or mock the helper and assert the call)
+- The correct `CachePurgeMessage` directive (`tags`, `pathPrefixes`, or exclusive `purgeEverything`) was sent after the write committed
+- The message carries the correct `source`, and local/unbound queues preserve the documented graceful fallback
+
+Changes to the SSR consumer or `/admin/purge` must also assert the native boundary:
+
+- The purge is delegated into the cached `Renderer` entrypoint, never the uncached gateway
+- Success/no-cache/noop messages ack; failed or thrown purges retry
+- `/admin/purge` validates auth and exclusive purge modes before calling `ctx.cache.purge()`
 
 ---
 

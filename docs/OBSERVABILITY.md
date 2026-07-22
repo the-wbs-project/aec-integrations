@@ -359,8 +359,9 @@ design. Where each signal lives now:
   dashboard** (Workers & Pages → `aeci-web` → Observability). Datadog has **no** HIT-rate series
   anymore: the `cache_status:hit` numerator went to ~0 when the Worker stopped running on HITs, so
   the `cache hit rate < 70%` monitor **and** its Traffic-dashboard widget were **retired** in WC-8
-  (they would otherwise alert / flatline forever). Front-of-Worker HIT/MISS is verified on a
-  **deployed preview**, not local miniflare (ADR 0020 Q3 / WC-9).
+  (they would otherwise alert / flatline forever). Wrangler/Miniflare is a confirmed local no-op
+  for this front cache (no `Cf-Cache-Status`/`Age`); `e2e/edge-cache.spec.ts` verifies exact
+  `MISS → HIT` after each first-party PR-preview deploy (ADR 0020 Q3 / WC-9).
 - **SSR render metrics** (`aeci.ssr.render`, `aeci.page.render.duration_ms`) → still emitted, but
   only on the branch where **the Worker actually runs** (a native-cache MISS / non-cacheable) —
   `cache_status:MISS`/`miss`/`non_cacheable`, never `hit`. A fall in MISS volume as HIT-rate climbs
