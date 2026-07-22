@@ -64,9 +64,9 @@ Today (Phase 2 design, `docs/CACHE_STRATEGY.md`) the SSR Worker **runs on every 
 **Current code touch-points (for the ACs):**
 - Manual pipeline: `apps/web/src/server-runtime.ts` → `handleSsr` (`getEdgeCache`, `cacheKeyUrl`, `cache.match`, `cache.put`), plus `ROUTE_CACHE_PATTERNS` / `cacheControlForRoute` / `buildCacheControl`.
 - Tag emission: `apps/web/src/server/cache-tags.ts` (`buildCacheTags`, `cacheTagInputsForPath`).
-- HTTP purge transport: `packages/shared/src/cache-purge.ts` (`callCloudflarePurge`, `CF_PURGE_MAX_TAGS = 30`).
+- HTTP purge transport: `packages/shared/src/cache-purge.ts` (`callCloudflarePurge`, `CF_PURGE_MAX_TAGS = 30`) — **WC-10 (AECI-324) removed it**; the shared module now holds only the queue contract (`CachePurgeMessage`, `CACHE_PURGE_QUEUE_MAX_TAGS = 1000`).
 - Promote purge: `apps/api/src/routes/promote.ts` (`purgeAfterPromote`, `refreshHomeStatsAfterPromote`, fired via `ctx.waitUntil`) + tags from `apps/api/src/routes/promote-cache-tags.ts` (`cacheTagsForPromote`).
-- Manual/incident purge: `apps/web/src/server/routes/admin-purge.ts` (`createAdminPurgeHandler`; auth `ADMIN_PURGE_TOKEN`; CF creds `CF_PURGE_API_TOKEN` + `CF_ZONE_ID`).
+- Manual/incident purge: `apps/web/src/server/routes/admin-purge.ts` (`createAdminPurgeHandler`; auth `ADMIN_PURGE_TOKEN`) — **WC-6 (AECI-320) made it native `ctx.cache.purge()`**; it no longer reads `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` (both retired in WC-10).
 - datatool bulk purge: `apps/datatool/src/cache-purge.ts` (`purgeEnvCache`) — **WC-7 (AECI-321) landed**: enqueues `{ purgeEverything: true, source: 'datatool' }` onto the target tier's `aeci-cache-purge-{env}` (per-tier producer bindings `CACHE_PURGE_QUEUE_{STAGING,DEMO,PRODUCTION}`, resolved in `targets.ts`); no longer uses `BROAD_CACHE_TAGS` / `callCloudflarePurge`.
 - Egress `X-Robots-Tag` stamp: `createApp` middleware in `server-runtime.ts`. _(Pre-WC-3 this ran after the hand-rolled `caches.default` put and re-ran on each HIT; WC-3 removed that manual pipeline, so it now stamps pre-store on the cached default entrypoint, and **WC-8 (AECI-322) verified the noindex decision is baked into the cached payload** — served on every HIT without the Worker running. See `docs/CACHE_STRATEGY.md` §7.1.)_
 - Observability: `aeci.ssr.render`, `aeci.page.render.duration_ms`, `aeci.cache.purge` → `docs/OBSERVABILITY.md`.

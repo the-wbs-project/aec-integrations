@@ -31,8 +31,9 @@
   //   ALGOLIA_APP_ID      — Algolia app id (post-write reindex)
   //   ALGOLIA_ADMIN_KEY   — Algolia management key (addObject/deleteObject)
   //   TOOL_TOKEN          — optional bearer fallback for curl/CI auth
-  //   CF_PURGE_API_TOKEN  — UNUSED since WC-7 (was the zone HTTP purge token); retired WC-10
-  //   CF_ZONE_ID          — UNUSED since WC-7 (was the purge target zone); retired WC-10
+  // (The datatool reads no CF purge token/zone: post-write purge enqueues onto the
+  //  per-tier aeci-cache-purge-{env} queue since WC-7; CF_PURGE_API_TOKEN / CF_ZONE_ID
+  //  were retired in WC-10.)
   "workers_dev": true,
   "observability": {
     "logs": {

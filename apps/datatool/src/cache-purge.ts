@@ -4,8 +4,8 @@
  * the destination's cached SSR HTML is stale site-wide — we evict it all.
  *
  * WC-7 (AECI-321): the datatool can't reach the SSR Worker's native Workers Cache
- * directly (it's a different Worker), and the old zone-level HTTP purge
- * (`callCloudflarePurge`) is inert against Workers Cache (ADR 0020 §1). So instead we
+ * directly (it's a different Worker), and the old zone-level HTTP purge is inert
+ * against Workers Cache (ADR 0020 §1; the transport was retired in WC-10). So instead we
  * enqueue a `{ purgeEverything: true, source: 'datatool' }` message onto the target
  * tier's `aeci-cache-purge-{env}` Queue (WC-5); that tier's own SSR Worker consumes
  * it and calls `ctx.cache.purge({ purgeEverything: true })`. `purgeEverything` — not a

@@ -127,22 +127,13 @@ export type Env = {
    */
   TAXONOMY_KV?: KVNamespace;
   /**
-   * Cloudflare API token used by `POST /api/promote` to purge the edge-cache
-   * tags a promote invalidated (AECI-105). The promote handler calls
-   * Cloudflare's purge-by-tag API **directly** over HTTPS — there is no longer a
-   * `WEB` service binding back to the SSR Worker (that web↔api cycle was removed
-   * in Option B; see `docs/adr/0010-promote-purges-cloudflare-directly.md`).
-   * Must be scoped to `Zone.Cache Purge` on `aecintegrations.com` only
-   * (`docs/CACHE_STRATEGY.md` §5) — the same scope the web Worker's token uses.
-   * Set as a Wrangler secret per environment. Optional: absent (with `CF_ZONE_ID`)
-   * → cache purge is a graceful no-op (e.g. local `pnpm dev:bound`, PR previews).
-   */
-  CF_PURGE_API_TOKEN?: string;
-  /**
-   * Cloudflare zone ID the promote purge targets (AECI-105). Public value, set
-   * per environment alongside `CF_PURGE_API_TOKEN`. Optional: absent → cache
-   * purge is a graceful no-op. Also reused (as the GraphQL `zoneTag`) by the
-   * AECI-262 WAF firewall-event poll.
+   * Cloudflare zone ID for `aecintegrations.com`. Public value, set per
+   * environment as a Wrangler secret. Consumed (as the GraphQL `zoneTag`) by the
+   * hourly AECI-262 WAF firewall-event poll (`scheduled.ts` `runWafMetricsJob`,
+   * paired with `CF_ANALYTICS_API_TOKEN`). Optional: absent → the poll logs
+   * `outcome:skipped_no_creds` and no-ops. (The promote's cache purge no longer
+   * reads this — it enqueues onto the `aeci-cache-purge-{env}` Queue since WC-5;
+   * the old zone HTTP purge + `CF_PURGE_API_TOKEN` were retired in WC-10.)
    */
   CF_ZONE_ID?: string;
   /**
@@ -150,8 +141,8 @@ export type Env = {
    * (`scheduled.ts` `runWafMetricsJob`, AECI-262 / §15.1) to read the zone's
    * `firewallEventsAdaptiveGroups` over the GraphQL Analytics API and emit the
    * `aeci.waf.ratelimit.blocked` count. Scope: `Zone Analytics: Read` on
-   * `aecintegrations.com` — a DIFFERENT scope than `CF_PURGE_API_TOKEN`
-   * (`Zone.Cache Purge`), so it is its own secret. One un-suffixed GH secret
+   * `aecintegrations.com` — a narrow, read-only scope (distinct from the retired
+   * `Zone.Cache Purge` purge token), so it is its own secret. One un-suffixed GH secret
    * covers the shared zone across all envs; CI pushes it per env (deploy.yml /
    * promote-to-demo.yml / promote-to-prod.yml — graceful warn-skip, no hard gate).
    * Optional + fail-safe: absent (with `CF_ZONE_ID`) → the poll logs

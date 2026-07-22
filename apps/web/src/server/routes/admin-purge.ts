@@ -17,8 +17,8 @@
  * timing doesn't leak. MIGRATION (Phase 6): replace `ADMIN_PURGE_TOKEN` with
  * Cloudflare Access (`docs/CACHE_STRATEGY.md` §5). Until then, the bearer
  * secret is the single auth boundary for this endpoint. `CF_PURGE_API_TOKEN` /
- * `CF_ZONE_ID` are no longer read here (native purge needs neither); their
- * secret pruning is deferred to WC-10 (AECI-324).
+ * `CF_ZONE_ID` are no longer read here (native purge needs neither); those purge
+ * secrets were retired in WC-10 (AECI-324).
  *
  * ENTRYPOINT SCOPING (load-bearing): `ctx.cache.purge()` only evicts the
  * *calling entrypoint's* cache, and WC-4 (AECI-318) moved SSR caching onto the
@@ -61,8 +61,8 @@ import { logToDatadog, submitCount } from '../../server-datadog';
  * option shape: one or both of `tags` / `pathPrefixes`, OR `purgeEverything`
  * on its own (the platform treats `purgeEverything` as exclusive). Native
  * Workers Cache allows up to 1000 `Cache-Tag` values per response — far above
- * the retired HTTP purge-by-tag cap (`CF_PURGE_MAX_TAGS` = 30) — so the schema
- * caps generously; the real guard is the platform's purge rate limit.
+ * the retired HTTP purge-by-tag cap (30 tags/call) — so the schema caps
+ * generously; the real guard is the platform's purge rate limit.
  */
 export const MAX_PURGE_TAGS = 1000;
 export const MAX_PURGE_PATH_PREFIXES = 100;

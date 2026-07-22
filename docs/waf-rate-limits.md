@@ -284,8 +284,8 @@ rules are live there.
   `docs/RUNBOOKS.md` for triage.
 
   **Token:** the poll needs `CF_ANALYTICS_API_TOKEN` — a Cloudflare token scoped to
-  **`Zone Analytics: Read`** on `aecintegrations.com` (a *different* scope than the
-  `Zone.Cache Purge` `CF_PURGE_API_TOKEN`, so it is its own secret). It reuses the
+  **`Zone Analytics: Read`** on `aecintegrations.com` (a narrow, read-only scope,
+  distinct from the retired `Zone.Cache Purge` purge token, so it is its own secret). It reuses the
   existing `CF_ZONE_ID`. Because the analytics token is zone-scoped and the zone is
   shared across envs, it is a **single un-suffixed GitHub secret** (like
   `SUPABASE_ANON_KEY` / `ALGOLIA_APP_ID`): `gh secret set CF_ANALYTICS_API_TOKEN`.

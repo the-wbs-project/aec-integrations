@@ -7,8 +7,8 @@
  * the submission out to every participating engine (Bing, Yandex, Seznam, Naver),
  * so a single call covers them all.
  *
- * Shaped like `callCloudflarePurge` (`@aeci/shared/cache-purge`): *pure
- * transport*, never throws — a network error or non-2xx upstream is returned as a
+ * A *pure transport* (same shape as the shared Algolia batch client): never
+ * throws — a network error or non-2xx upstream is returned as a
  * structured `{ ok: false }` outcome so the post-promote caller can log it without
  * a try/catch and the write is never blocked (§20.2 acceptance criterion). It
  * lives in the API Worker (not `@aeci/shared`) because there is exactly one call

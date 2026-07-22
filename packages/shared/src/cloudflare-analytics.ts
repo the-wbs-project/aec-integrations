@@ -7,17 +7,17 @@
  * API and emits the grouped counts via the existing `submitCount` intake
  * (`./datadog`). See `docs/waf-rate-limits.md` §5 and `docs/OBSERVABILITY.md`.
  *
- * Like `./cache-purge` this is *pure transport*: it authenticates with the token
- * the caller hands it and never throws — a network error, non-2xx, or a GraphQL
+ * This is *pure transport*: it authenticates with the token the caller hands it
+ * and never throws — a network error, non-2xx, or a GraphQL
  * `errors[]` body comes back as a structured `{ ok: false }` outcome so the cron
  * can log + no-op without a try/catch (an observability outage must never tear
  * down the run). `fetchImpl` is injected (defaults to the global `fetch` at the
  * call site) so tests supply a mock without monkey-patching the global.
  *
- * The token must be scoped to `Zone Analytics: Read` on the target zone — this
- * is a DIFFERENT scope than the `Zone.Cache Purge` `CF_PURGE_API_TOKEN`, so it is
- * a separate secret (`CF_ANALYTICS_API_TOKEN`). The `zoneId` is reused from the
- * existing `CF_ZONE_ID` (the shared `aecintegrations.com` zone).
+ * The token must be scoped to `Zone Analytics: Read` on the target zone — a
+ * narrow, read-only scope (distinct from the retired `Zone.Cache Purge` purge
+ * token), so it is a separate secret (`CF_ANALYTICS_API_TOKEN`). The `zoneId` is
+ * reused from the existing `CF_ZONE_ID` (the shared `aecintegrations.com` zone).
  */
 
 /** Max groups requested per call. Cardinality is low (a handful of rules ×

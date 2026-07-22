@@ -786,9 +786,7 @@ The stack-test probe returned 200 for KV-miss with a 5-minute TTL — a gap it d
 
 For tag vocabulary, TTLs, composition rules, the purge endpoint shape, and the SEO header set (which now permits `Vary: Accept-Language` because URL-prefix locale dispatch already segments the cache), see `docs/CACHE_STRATEGY.md`. The implementation lands in [AECI-56](https://linear.app/aec-integrations/issue/AECI-56) (Phase 2.10). The visitor-state-neutral rule (§9.1a) and the pinned-404 trap (§9.1b) above remain authoritative.
 
-**Cloudflare API token scoping:**
-
-The Cloudflare API token used by the purge endpoint must be scoped to **`Zone.Cache Purge` on `aecintegrations.com` only** — the narrowest possible scope. `CLOUDFLARE_ZONE_ID` identifies the target zone. Reviewers should reject any change that broadens this token scope under deadline pressure; rotate by issuing a new token with the same minimal scope. Validated pattern: the live purge handler `apps/web/src/server/routes/admin-purge.ts:15-18` (`CF_PURGE_API_TOKEN` scoped to `Zone.Cache Purge`; `CF_ZONE_ID` identifies the zone).
+**Cloudflare API token scoping.** **Superseded — see `docs/CACHE_STRATEGY.md` §5.** The purge endpoint no longer presents any Cloudflare API token: `POST /admin/purge` invalidates in-process via native `ctx.cache.purge()` (WC-6 / AECI-320), and cross-Worker purge (promote / moderation / datatool) goes through the `aeci-cache-purge-{env}` Cloudflare Queue (WC-5/7). The old `Zone.Cache Purge` token `CF_PURGE_API_TOKEN` was retired in WC-10 ([AECI-324](https://linear.app/aec-integrations/issue/AECI-324)); `CF_ZONE_ID` is kept solely for the AECI-262 WAF firewall-event poll. Should a narrow-scoped Cloudflare token ever be reintroduced, reviewers should reject any change that broadens it beyond the minimal scope it needs.
 
 ### 9.4 API response caching
 

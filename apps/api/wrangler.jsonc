@@ -16,21 +16,18 @@
   // Secrets (set via `wrangler secret put`):
   //   DD_API_KEY  — Datadog Logs HTTP intake key (AECI-31). `logToDatadog()`
   //                 no-ops when this is unset, so non-DD envs are unaffected.
-  //   CF_PURGE_API_TOKEN — Cloudflare API token `POST /api/promote` presents to
-  //                 Cloudflare's purge-by-tag API after a commit (AECI-105). MUST
-  //                 be scoped to `Zone.Cache Purge` on `aecintegrations.com` only
-  //                 (docs/CACHE_STRATEGY.md §5) — the same minimal scope the web
-  //                 Worker's token uses. Absent (with CF_ZONE_ID) → promote skips
-  //                 the cache purge (graceful no-op).
-  //   CF_ZONE_ID  — Cloudflare zone the purge targets. Public value; provision per
-  //                 env alongside CF_PURGE_API_TOKEN. Also reused (as the GraphQL
-  //                 zoneTag) by the AECI-262 WAF firewall-event poll.
+  //   CF_ZONE_ID  — Cloudflare zone id for aecintegrations.com. Public value;
+  //                 provision per env. Consumed (as the GraphQL zoneTag) by the
+  //                 AECI-262 WAF firewall-event poll, paired with CF_ANALYTICS_API_TOKEN.
+  //                 (Cache purge no longer reads a CF token — promote enqueues onto the
+  //                 queue since WC-5; the zone HTTP purge token CF_PURGE_API_TOKEN was
+  //                 retired in WC-10.)
   //   CF_ANALYTICS_API_TOKEN — Cloudflare API token the hourly WAF firewall-event
   //                 poll presents to the GraphQL Analytics API to read the zone's
   //                 firewallEventsAdaptiveGroups and emit aeci.waf.ratelimit.blocked
   //                 (AECI-262 / §15.1). Scope: `Zone Analytics: Read` on
-  //                 aecintegrations.com — a DIFFERENT scope than CF_PURGE_API_TOKEN
-  //                 (Zone.Cache Purge), so it's its own secret. One un-suffixed GH
+  //                 aecintegrations.com — a narrow, read-only scope (distinct from the
+  //                 retired Zone.Cache Purge purge token), so it's its own secret. One un-suffixed GH
   //                 secret covers the shared zone across all envs; CI pushes it per
   //                 env (deploy.yml / promote-to-demo.yml / promote-to-prod.yml —
   //                 graceful warn-skip, no hard gate). Optional + fail-safe: absent →
@@ -94,14 +91,14 @@
   // the SSR edge cache by ENQUEUEING onto the `aeci-cache-purge-{env}` queue (producer
   // binding CACHE_PURGE_QUEUE, added to each env's `queues.producers` below); the SSR
   // Worker consumes it and issues `ctx.cache.purge()`. This replaced the ADR 0010
-  // direct HTTPS `callCloudflarePurge` — that zone-level purge is INERT against native
+  // direct HTTPS zone purge — that zone-level purge is INERT against native
   // Workers Cache (`ctx.cache.purge()` is entrypoint-scoped, in a different Worker).
   // There is still NO `WEB` service binding back to the SSR Worker; the coupling is
-  // async, via the queue (ADR 0020 §3). The SSR Worker's `POST /admin/purge` remains
-  // the manual/incident + CI surface (still on the HTTP transport until WC-6). When
+  // async, via the queue (ADR 0020 §3). The SSR Worker's `POST /admin/purge` is the
+  // manual/incident + CI surface (native `ctx.cache.purge()` in-process since WC-6). When
   // CACHE_PURGE_QUEUE is unbound (local `pnpm dev:bound`, PR previews) the producers
   // no-op — expected, not a bug (no edge cache there). CF_ZONE_ID is KEPT (the AECI-262
-  // WAF poll still uses it); CF_PURGE_API_TOKEN is retired later in WC-10.
+  // WAF poll still uses it); the CF_PURGE_API_TOKEN HTTP purge token was retired in WC-10.
   // See docs/adr/0020-workers-cache-and-queue-purge.md and docs/CACHE_STRATEGY.md §5.
   "workers_dev": false,
   // Smart Placement is intentionally NOT enabled. The app DB is Cloudflare D1,
@@ -207,8 +204,8 @@
     "staging": {
       "name": "aeci-api-staging",
       "workers_dev": false,
-      // AECI-105 / Option B: promote purges the edge cache by calling Cloudflare
-      // directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
+      // WC-5 (AECI-319): promote invalidates the SSR edge cache by enqueueing onto the
+      // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
       "vars": {
         "ENV": "staging",
         "DD_SITE": "us5.datadoghq.com",
@@ -341,8 +338,8 @@
       "workers_dev": false,
       // The public showcase tier. Shares the single shared Supabase auth project
       // (ADR 0017) + the prod zone, but has its OWN D1, KV, queues, and Algolia
-      // (`demo_*`) index set. AECI-105 / Option B: promote purges the edge cache by
-      // calling Cloudflare directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
+      // (`demo_*`) index set. WC-5 (AECI-319): promote invalidates the SSR edge cache by
+      // enqueueing onto the CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF token.
       "vars": {
         "ENV": "demo",
         "DD_SITE": "us5.datadoghq.com",
@@ -445,8 +442,8 @@
     "production": {
       "name": "aeci-api-production",
       "workers_dev": false,
-      // AECI-105 / Option B: promote purges the edge cache by calling Cloudflare
-      // directly (CF_PURGE_API_TOKEN + CF_ZONE_ID secrets) — no WEB binding.
+      // WC-5 (AECI-319): promote invalidates the SSR edge cache by enqueueing onto the
+      // CACHE_PURGE_QUEUE (aeci-cache-purge-{env}) — no WEB binding, no CF purge token.
       "vars": {
         "ENV": "production",
         "DD_SITE": "us5.datadoghq.com",

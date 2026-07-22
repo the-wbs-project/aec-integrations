@@ -32,13 +32,14 @@
  *
  * Side-effect credentials (best-effort; missing → warn + print the manual command):
  *   - Algolia:  ALGOLIA_APP_ID + ALGOLIA_ADMIN_KEY (or ALGOLIA_ADMIN_KEY_<ENV>)
- *   - Cache:    CF_PURGE_API_TOKEN + CF_ZONE_ID   (Zone.Cache Purge on the zone)
- * Skip either with --skip-algolia / --skip-cache.
+ * Cache-tag purge is native now (WC-6): the SSR Worker's `POST /admin/purge` invalidates
+ * in-process via `ctx.cache.purge()`. This CLI has no Worker cache context of its own, so
+ * it prints that command for the operator to run rather than calling Cloudflare directly.
+ * Skip either side effect with --skip-algolia / --skip-cache.
  */
 
 import { spawnSync } from 'node:child_process';
 
-import { callCloudflarePurge } from '@aeci/shared/cache-purge';
 import { localizedIndexNamesFor, type AlgoliaEnv } from '@aeci/shared/algolia';
 
 import { createOrphanPurgeClient, resolveAlgoliaCreds } from '../src/lib/algolia-orphan-purge';
@@ -198,18 +199,18 @@ async function deindexAlgolia(target: Target, product: ProductRow): Promise<void
   else console.log(`✓ Algolia: removed ${product.id} from ${indexName}.`);
 }
 
-async function purgeCache(tags: string[]): Promise<void> {
-  const creds = { apiToken: process.env.CF_PURGE_API_TOKEN, zoneId: process.env.CF_ZONE_ID };
-  if (!creds.apiToken || !creds.zoneId) {
-    console.warn(
-      '⚠  Cache: CF_PURGE_API_TOKEN / CF_ZONE_ID unset — edge cache not purged. Purge manually:\n' +
-        `     POST /admin/purge  {"tags": ${JSON.stringify(tags)}}`,
-    );
-    return;
-  }
-  const outcome = await callCloudflarePurge(fetch, creds, tags);
-  if (outcome.ok) console.log(`✓ Cache: purged ${tags.length} tag(s) (HTTP ${outcome.status}).`);
-  else console.error(`✗ Cache: purge failed — ${outcome.message} (HTTP ${outcome.status}).`);
+/**
+ * Cache-tag purge is native (WC-6): the SSR Worker's `POST /admin/purge` invalidates
+ * in-process via `ctx.cache.purge()`. This CLI runs outside any Worker (no cache context
+ * of its own), so it prints the exact purge command for the operator to run —
+ * authenticated with `ADMIN_PURGE_TOKEN` — rather than calling Cloudflare directly. The
+ * old zone HTTP purge (`callCloudflarePurge` / `CF_PURGE_API_TOKEN`) was retired in WC-10.
+ */
+function reportCachePurge(tags: string[]): void {
+  console.warn(
+    '⚠  Cache: purge the edge cache by POSTing to the SSR Worker (auth: ADMIN_PURGE_TOKEN):\n' +
+      `     POST /admin/purge  {"tags": ${JSON.stringify(tags)}}`,
+  );
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
@@ -298,7 +299,7 @@ export async function main(argv: string[]): Promise<number> {
   else console.log('Algolia: skipped (--skip-algolia).');
   console.log('');
 
-  if (!argv.includes('--skip-cache')) await purgeCache(tags);
+  if (!argv.includes('--skip-cache')) reportCachePurge(tags);
   else console.log('Cache: skipped (--skip-cache).');
 
   console.log('');

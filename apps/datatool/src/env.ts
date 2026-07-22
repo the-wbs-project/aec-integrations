@@ -64,14 +64,4 @@ export type Env = {
    *  reindex. One app's admin key reaches every `{env}_*` index, so it's shared.
    *  Absent → reindex is a graceful skip. */
   ALGOLIA_ADMIN_KEY?: string;
-
-  // NOTE: CF_PURGE_API_TOKEN / CF_ZONE_ID are NO LONGER USED by the datatool as of
-  // WC-7 (AECI-321) — the post-write purge now enqueues onto the per-tier
-  // `aeci-cache-purge-{env}` Queue instead of the (now-inert) zone HTTP purge. They
-  // remain declared only so a stale secret doesn't error the deploy; the fields and
-  // the `wrangler secret`s are retired globally in WC-10 (ADR 0020 §4).
-  /** @deprecated Unused since WC-7 — retired in WC-10. */
-  CF_PURGE_API_TOKEN?: string;
-  /** @deprecated Unused since WC-7 — retired in WC-10. */
-  CF_ZONE_ID?: string;
 };

@@ -49,7 +49,7 @@
 # fails the run immediately — nothing is deployed and the DB is never touched.
 # After deploy, `scripts/verify-worker-secrets.sh` asserts the prod API Worker
 # actually carries REVIEW_APP_TOKEN + the Algolia keys. Recommended-but-optional
-# secrets (ADMIN_PURGE_TOKEN, DATADOG_API_KEY, CF_PURGE_API_TOKEN, CF_ZONE_ID)
+# secrets (ADMIN_PURGE_TOKEN, DATADOG_API_KEY, CF_ZONE_ID)
 # only warn. See docs/environments.md §Secrets.
 #
 # Required GH Actions secrets. The app DB is Cloudflare D1 (ADR 0016) and auth is
@@ -167,7 +167,6 @@ jobs:
           CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
           ADMIN_PURGE_TOKEN: ${{ secrets.ADMIN_PURGE_TOKEN }}
           DATADOG_API_KEY: ${{ secrets.DATADOG_API_KEY }}
-          CF_PURGE_API_TOKEN: ${{ secrets.CF_PURGE_API_TOKEN }}
           CF_ZONE_ID: ${{ secrets.CF_ZONE_ID }}
           CF_ANALYTICS_API_TOKEN: ${{ secrets.CF_ANALYTICS_API_TOKEN }}
           # Algolia (AECI-139): REQUIRED on production. Search is a launch-critical
@@ -222,7 +221,7 @@ jobs:
           # (warn-and-skip; absent → PostHog no-ops/fail-open), never blocking a promote.
           # It also feeds the deferred trending PostHog join, so it is the one secret to
           # set for the AECI-280 ~30d follow-up to have data.
-          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_PURGE_API_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_KEY_PRODUCTION'
+          RECOMMENDED_SECRETS: 'ADMIN_PURGE_TOKEN DATADOG_API_KEY DD_APPLICATION_ID DD_CLIENT_TOKEN CF_ZONE_ID SUPABASE_ANON_KEY ANTHROPIC_API_KEY_PRODUCTION RESEND_API_KEY INDEXNOW_KEY_PRODUCTION GOOGLE_INDEXING_SA_EMAIL_PRODUCTION GOOGLE_INDEXING_SA_PRIVATE_KEY_PRODUCTION CF_ANALYTICS_API_TOKEN POSTHOG_KEY_PRODUCTION'
         run: bash scripts/require-secrets.sh
 
       # -----------------------------------------------------------------------
