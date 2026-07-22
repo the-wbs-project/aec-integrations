@@ -33,12 +33,10 @@
  *   DD_SITE             public; defaults to datadoghq.com when unset
  *
  * Cache purge (AECI-56 / Phase 2.10; native Workers Cache since WC-6 / AECI-320):
- *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents
- *   CF_PURGE_API_TOKEN  secret; legacy CF API token (Zone.Cache Purge on
- *                       aecintegrations.com ONLY). No longer read by /admin/purge
- *                       after WC-6; pruned in WC-10 (AECI-324)
- *   CF_ZONE_ID          public var; formerly the purge target zone. Unused on
- *                       this Worker after WC-6; pruned in WC-10 (AECI-324)
+ *   ADMIN_PURGE_TOKEN   secret; bearer the caller of POST /admin/purge presents.
+ *                       /admin/purge invalidates in-process via ctx.cache.purge()
+ *                       (WC-6) — no Cloudflare API token (the old CF_PURGE_API_TOKEN
+ *                       / CF_ZONE_ID purge secrets were retired in WC-10 / AECI-324)
  *
  * Algolia search (AECI-134) — secrets, NOT vars (values stay out of git). Both
  * are client-exposed (rendered into HTML by injectAlgoliaBootstrap), but the
@@ -62,8 +60,7 @@
  *                       with `Invalid API key`. The service-role key is NEVER set
  *                       on any Worker (AUTH_AND_RLS.md §3).
  *
- * Push secrets per env (`wrangler secret put`). (`CF_ZONE_ID` / `CF_PURGE_API_TOKEN`
- * are unused on this Worker after WC-6 and are pruned in WC-10 (AECI-324).)
+ * Push secrets per env (`wrangler secret put`).
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",

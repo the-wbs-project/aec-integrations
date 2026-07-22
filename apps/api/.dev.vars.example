@@ -79,26 +79,23 @@ REVIEW_APP_TOKEN=
 #   printf '%s' "$BODY" | openssl dgst -sha256 -hmac "$SECRET"   # → Linear-Signature
 LINEAR_WEBHOOK_SIGNING_SECRET=
 
-# ─── Cache-tag purge after promote (AECI-105 / ADR 0010) ───────────────────
-# The promote handler purges the affected edge cache tags by calling Cloudflare's
-# purge-by-tag API DIRECTLY (no web↔api service binding — see ADR 0010). The
-# WORKER reads both at runtime, so set them as Wrangler secrets/vars in deployed
-# envs (staging + production):
-#   wrangler secret put CF_PURGE_API_TOKEN --env staging|production
-#   wrangler secret put CF_ZONE_ID         --env staging|production   # or a wrangler var
-# CF_PURGE_API_TOKEN MUST be scoped to `Zone.Cache Purge` on aecintegrations.com
-# only (docs/CACHE_STRATEGY.md §5) — same minimal scope as the web Worker's token.
-# Absent (local `pnpm dev:bound`, PR previews) → promote skips the purge as a
-# graceful no-op; pages fall back to the TTL (≤15 min).
-CF_PURGE_API_TOKEN=
+# ─── Cloudflare zone id (AECI-262 WAF poll) ────────────────────────────────
+# CF_ZONE_ID is the zone id for aecintegrations.com. Public value — set as a
+# Wrangler secret/var in deployed envs (staging + production):
+#   wrangler secret put CF_ZONE_ID --env staging|production   # or a wrangler var
+# Consumed by the hourly WAF firewall-event poll below (as the GraphQL zoneTag),
+# paired with CF_ANALYTICS_API_TOKEN. Absent → the poll no-ops.
+# (Cache-tag purge no longer reads a CF token: promote enqueues onto the
+# aeci-cache-purge-{env} Queue since WC-5, and the old CF_PURGE_API_TOKEN HTTP
+# purge was retired in WC-10.)
 CF_ZONE_ID=
 
 # ─── WAF firewall-event poll → Datadog (AECI-262 / §15.1) ──────────────────
 # The hourly WAF poll reads the zone's firewallEventsAdaptiveGroups over the
 # Cloudflare GraphQL Analytics API and emits aeci.waf.ratelimit.blocked (the free
 # Pro-plan alternative to Enterprise Logpush). Reuses CF_ZONE_ID above as the
-# zoneTag; needs its OWN token scoped to `Zone Analytics: Read` (a DIFFERENT scope
-# than CF_PURGE_API_TOKEN's Zone.Cache Purge). In DEPLOYED envs CI pushes it from the
+# zoneTag; needs its OWN token scoped to `Zone Analytics: Read` (read-only — a
+# narrower scope than the retired purge token's Zone.Cache Purge). In DEPLOYED envs CI pushes it from the
 # single shared `CF_ANALYTICS_API_TOKEN` GH secret (deploy.yml / promote-to-demo.yml /
 # promote-to-prod.yml — graceful warn-skip); set it locally only if you want to
 # exercise the poll against the real zone. Absent → the poll logs

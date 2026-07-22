@@ -8,7 +8,7 @@
  * then POST each affected URL to `urlNotifications:publish` as a `URL_UPDATED`
  * notification.
  *
- * Shaped like `callIndexNow` / `callCloudflarePurge`: *pure transport*, never
+ * Shaped like `callIndexNow`: *pure transport*, never
  * throws — a signing error, a token-exchange failure, or a per-URL publish error
  * is folded into a structured outcome so the post-promote caller can record it
  * without a try/catch and the committed write is never blocked (§20.2 acceptance

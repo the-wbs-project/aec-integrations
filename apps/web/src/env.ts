@@ -20,14 +20,10 @@
  *
  *   - ADMIN_PURGE_TOKEN — caller-facing bearer for `POST /admin/purge`.
  *     Wrangler secret. Phase 6 replaces this with Cloudflare Access.
- *   - CF_PURGE_API_TOKEN — legacy Cloudflare API token for the HTTP
- *     purge-by-tag API. No longer read by `POST /admin/purge` since it migrated
- *     to native `ctx.cache.purge()` (WC-6 / AECI-320); its secret is pruned in
- *     WC-10 (AECI-324). When used it must be scoped to `Zone.Cache Purge` on
- *     `aecintegrations.com` only (`docs/CACHE_STRATEGY.md` §5).
- *   - CF_ZONE_ID — public `vars` entry; formerly the Cloudflare zone the purge
- *     call targeted. Unused on this Worker after WC-6 (AECI-320); pruned in
- *     WC-10 (AECI-324).
+ *     `/admin/purge` invalidates in-process via native `ctx.cache.purge()`
+ *     (WC-6 / AECI-320) — it reads no Cloudflare API token (the old
+ *     `CF_PURGE_API_TOKEN` / `CF_ZONE_ID` purge secrets were retired in
+ *     WC-10 / AECI-324).
  *
  * Algolia search surface (AECI-134 / Phase 3.1):
  *
@@ -134,8 +130,6 @@ export type WebEnv = {
   DD_API_KEY?: string;
   DD_SITE?: string;
   ADMIN_PURGE_TOKEN?: string;
-  CF_PURGE_API_TOKEN?: string;
-  CF_ZONE_ID?: string;
   /**
    * IndexNow verification key (AECI-236 / §20.2). The plaintext key served as the
    * body of the `{INDEXNOW_KEY}.txt` file at the site root

@@ -25,16 +25,10 @@ DD_SITE=datadoghq.com
 # ADMIN_PURGE_TOKEN: bearer the caller of POST /admin/purge must present.
 #   Locally pick anything (e.g. `dev-admin-token`). In deployed envs push via
 #   `wrangler secret put ADMIN_PURGE_TOKEN --env <preview|production>`.
-# CF_PURGE_API_TOKEN: Cloudflare API token the purge handler uses to call
-#   CF's purge-by-tag API. Must be scoped to `Zone.Cache Purge` on
-#   `aecintegrations.com` ONLY (docs/CACHE_STRATEGY.md §5 line 109).
-# CF_ZONE_ID: Cloudflare zone the purge call targets. Public; can move into
-#   `wrangler.jsonc` `vars` per env once known.
-# All three are optional locally — the endpoint will 401 / return
-# `cf_credentials_missing` until configured. Don't commit real values.
+# /admin/purge invalidates natively via ctx.cache.purge() (WC-6) — it no longer
+# reads a Cloudflare API token (CF_PURGE_API_TOKEN was retired in WC-10).
+# Optional locally — the endpoint 401s until the token is set. Don't commit real values.
 ADMIN_PURGE_TOKEN=
-CF_PURGE_API_TOKEN=
-CF_ZONE_ID=
 
 # ─── Algolia search (AECI-134) ─────────────────────────────────────────────
 # ALGOLIA_APP_ID + ALGOLIA_SEARCH_KEY are explicitly client-exposed: the SSR

@@ -18,7 +18,6 @@ TOOL_TOKEN="choose-a-long-random-string"
 ALGOLIA_APP_ID=""
 ALGOLIA_ADMIN_KEY=""
 
-# Cloudflare edge-cache purge (post-write). SINGLE shared token + zone id —
-# staging/demo/production all live on the one aecintegrations.com zone.
-CF_PURGE_API_TOKEN=""
-CF_ZONE_ID=""
+# Cache-tag purge is enqueued onto the per-tier aeci-cache-purge-{env} Queue after a
+# copy/seed/reindex (WC-7). The datatool no longer reads a Cloudflare purge token or
+# zone id (CF_PURGE_API_TOKEN / CF_ZONE_ID retired in WC-10).

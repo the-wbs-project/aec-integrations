@@ -6,7 +6,7 @@
  * `{ requests: [{ action, body }] }` payload. Used by the daily incremental sync
  * (`scheduled`) and the post-promote index hook (`apps/api/src/lib/algolia-sync.ts`).
  *
- * This deliberately mirrors `./cache-purge.ts` (`callCloudflarePurge`):
+ * This deliberately follows the same pure-transport pattern:
  *   - **Pure transport.** It performs no auth of its own caller; it only presents
  *     the Algolia application id + a write-capable API key. Callers decide
  *     *whether* to write (do they hold credentials?) and *what* to send.
