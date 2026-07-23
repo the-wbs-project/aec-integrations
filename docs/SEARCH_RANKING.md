@@ -214,6 +214,8 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 
 **Roll out.** Every change is code: edit `INDEX_SETTINGS` / `MECHANISM_RANK` in `packages/shared/src/algolia.ts`, update the matching section of this doc in the same PR, and let `applyIndexSettings()` (CI / sync pipeline) push it. `algolia.spec.ts` must be updated to assert the new settings. Prefer Algolia A/B testing (two index configurations) to validate a ranking change against live metrics before making it the default, rather than flipping production ranking blind.
 
+**Evaluating a lever before there is enough data.** The full loop above runs on real query data — that is [AECI-283](https://linear.app/aec-integrations/issue/AECI-283), unblocked since go-live ([AECI-247](https://linear.app/aec-integrations/issue/AECI-247), 2026-07-03) but only actionable once launch traffic has accumulated meaningful Algolia analytics. Until then, the dev-only **`/preview/search-relevance`** harness ([AECI-286](https://linear.app/aec-integrations/issue/AECI-286)) ranks a curated AEC fixture set under the candidate levers above (Baseline, Ratings-forward, Coverage-weighted, and a tunable Balanced blend) so the trade-offs can be *seen and felt* before any `INDEX_SETTINGS` change. It is a **client-side model** of `customRanking`, not Algolia: a deterministic token-overlap text score stands in for Algolia's textual ranking, the lexicographic strategies mirror the real "signals only break textual ties" model, and the weighted strategies illustrate a best-match alternative where signals can override text. The pure logic lives in `apps/web/src/app/preview/search-relevance/ranking-strategies.ts` (unit-tested); the surface itself is covered by `apps/web/e2e/preview-search-relevance.spec.ts` (reorder behavior + axe). It touches no production setting and is production-blocked by `isPreviewPath`.
+
 ---
 
 ## 8. Cross-references
@@ -229,5 +231,7 @@ Search quality is a continuous concern, not a launch-day deliverable. This is th
 - [AECI-137](https://linear.app/aec-integrations/issue/AECI-137) — index settings + record shapes as code (Phase 3.2).
 - [AECI-175](https://linear.app/aec-integrations/issue/AECI-175) — per-tab sort dropdown via replica indexes (§5a); deferred from [AECI-142](https://linear.app/aec-integrations/issue/AECI-142) (Phase 3.9).
 - [AECI-86](https://linear.app/aec-integrations/issue/AECI-86) — re-enable integration seeding in `POST /api/promote` (populates the integrations index).
+- [AECI-283](https://linear.app/aec-integrations/issue/AECI-283) — run this §7 tuning loop on real query data (unblocked at go-live 2026-07-03; needs accumulated launch traffic).
+- [AECI-286](https://linear.app/aec-integrations/issue/AECI-286) — `/preview/search-relevance`, the fixtures-based lab for evaluating the §7 levers before the query data exists (see §7).
 - [AECI-49](https://linear.app/aec-integrations/issue/AECI-49) — the `CACHE_STRATEGY.md` precedent for lifting a spec section into a canonical doc.
 - [AECI-298](https://linear.app/aec-integrations/issue/AECI-298) — Stage 1.5 search/SEO follow-through: deferral of per-pair Algolia records (§3.4) + the future `{prefix}_pairs` shape.

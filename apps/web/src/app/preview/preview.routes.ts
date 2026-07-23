@@ -59,4 +59,12 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./integration-pair/integration-pair-preview').then((m) => m.IntegrationPairPreview),
   },
+  // AECI-286 — search relevance lab: compare candidate `customRanking` levers
+  // (SEARCH_RANKING.md §7) over curated fixtures while real query data is still
+  // too thin to tune against (the real-data run is AECI-283). No Algolia.
+  {
+    path: 'search-relevance',
+    loadComponent: () =>
+      import('./search-relevance/search-relevance-preview').then((m) => m.SearchRelevancePreview),
+  },
 ];
