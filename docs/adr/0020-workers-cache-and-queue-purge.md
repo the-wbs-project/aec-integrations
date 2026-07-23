@@ -6,7 +6,7 @@
 **Epic:** AECI-314 (Workers Cache Migration) · this ADR is WC-1 / AECI-315
 **Amends:** ADR 0004 (Pro plan + purge-by-Cache-Tag) — Cache-Tag purge is **retained**; only the transport changes.
 **Reverses (mechanism only):** ADR 0010 (promote purges Cloudflare directly) — cross-Worker purge moves from a direct HTTP call to a **Cloudflare Queue** consumed by the SSR Worker (ADR 0010's own deferred "Option C").
-**Supersedes:** the design rationale in the transitional `docs/workers-cache-migration-plan.md` (that file keeps only shared reference material until the WC-11 docs sweep retires it).
+**Supersedes:** the design rationale formerly in the transitional `docs/workers-cache-migration-plan.md` — that file was reduced to a stub by the WC-11 docs sweep (AECI-325) and now points here; the rationale, pinned Cloudflare facts, and resolved open questions live in this ADR.
 
 ---
 

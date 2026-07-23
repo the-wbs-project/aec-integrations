@@ -728,37 +728,9 @@ Schema already supports `vendor_admin` role and `vendor_id` foreign key. Stage 2
 
 ### 9.1 SSR output caching at Cloudflare edge
 
-Implemented in the SSR Worker. Two non-obvious rules apply (see §9.1a and §9.1b below):
+**Superseded (implementation) by `docs/CACHE_STRATEGY.md`.** The original hand-rolled pipeline this section described — the SSR Worker doing an explicit `caches.default.match()` / `.put()` against a hand-normalized `Request` key — was retired by the AECI-314 **Workers Cache migration** (ADR 0020). The SSR Worker now sits behind **native Cloudflare Workers Cache**: the platform stores and serves each response from its `Cache-Control` (a HIT skips the Worker), key normalization runs in a two-entrypoint gateway (`cacheKeyFor()` → `cf.cacheKey` on the cached `Renderer` entrypoint), and there is no `caches.default` match/put. See `CACHE_STRATEGY.md` §4a (key normalization) and §5 (invalidation) for the current model, and `apps/web/src/server-runtime.ts` for the gateway/`Renderer` split.
 
-```typescript
-async function handleRequest(request: Request, env: Env, ctx: ExecutionContext) {
-  const url = new URL(request.url);
-
-  // Skip cache for authenticated, user-specific, or write routes
-  if (isUserSpecific(url) || isWriteRequest(request)) {
-    return renderAngular(request, env);
-  }
-
-  const cache = caches.default;
-  const cacheKey = new Request(url.toString(), request);
-  let response = await cache.match(cacheKey);
-
-  if (!response) {
-    // Strip visitor-state cookies (theme, etc.) before SSR — see §9.1a
-    const sanitized = stripVisitorStateCookies(request);
-    response = await renderAngular(sanitized, env);
-    response.headers.set('Cache-Control', cacheControlForRoute(url));
-    // Only cache 2xx — see §9.1b
-    if (response.status >= 200 && response.status < 300) {
-      ctx.waitUntil(cache.put(cacheKey, response.clone()));
-    }
-  }
-
-  return response;
-}
-```
-
-Reference implementation: `apps/web/src/server-runtime.ts` — `stripVisitorStateCookies` (131-153), route classification (`cacheControlForRoute` + `ROUTE_CACHE_PATTERNS`, 187-245), and the cache-write pipeline (`withCacheHeaders` 300-328, `handleSsr` 406-504).
+The two non-obvious rules below — **§9.1a** (visitor-state-neutral HTML) and **§9.1b** (the pinned-404 trap) — **remain authoritative** and carry over unchanged to native Workers Cache.
 
 ### 9.1a Cached SSR routes must render visitor-state-neutral HTML
 

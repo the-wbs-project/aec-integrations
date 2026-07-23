@@ -596,7 +596,7 @@ For very small PRs (e.g. doc-only changes), skip downstream jobs via `paths-igno
 - GitHub Actions usage tracked monthly to stay under free-tier minutes
 - Failed builds notify Slack
 - Long-running jobs (>15 min) flagged for investigation
-- Cache hit rates monitored — low hit rate signals cache misconfiguration
+- Edge cache HIT-rate observed via `Cf-Cache-Status` on the Cloudflare Workers observability dashboard — the Datadog `cache hit rate < 70%` monitor was retired in WC-8 (a HIT skips the SSR Worker, so it's unmeasurable from render metrics). See `docs/CACHE_STRATEGY.md` §9.
 
 ---
 
