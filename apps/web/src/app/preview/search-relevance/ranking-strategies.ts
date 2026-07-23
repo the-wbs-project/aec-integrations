@@ -157,8 +157,8 @@ const COMPARATORS: Record<StrategyId, (a: Scored, b: Scored) => number> = {
  * Rank a product set for a query under one strategy. Pure and deterministic.
  *
  * Candidate set mirrors Algolia: a non-empty query keeps only text matches; an
- * empty query keeps everything (browse). Signals are min-/max-normalized across
- * that candidate set, then each strategy's comparator orders them.
+ * empty query keeps everything (browse). Signals are max-normalized (divide-by-max)
+ * across that candidate set, then each strategy's comparator orders them.
  */
 export function rankProducts(
   query: string,
