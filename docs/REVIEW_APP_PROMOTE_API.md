@@ -362,13 +362,18 @@ round-trip rather than waiting out the cache TTL.
 
 **Failure semantics (deliberate):** the purge is **best-effort and runs after the
 write commits**. It is fired asynchronously and **never affects your response** —
-a promote that succeeds returns `200` even if the subsequent purge call fails.
-On the AECi side, every purge is observable in Datadog as
-`aeci.cache.purge{source:promote,outcome:ok|cf_failed}`, plus a `warn` log if the
-Cloudflare purge-by-tag call fails. If a purge does fail, the only consequence is that
-the affected pages fall back to their normal edge TTL (≤15 min on detail pages) —
-the same staleness window that existed before this behavior was added, so there is
-no correctness regression. No retry or action is required from the review app.
+a promote that succeeds returns `200` even if the subsequent purge fails. Under the
+hood the API Worker **enqueues** a tag-purge message onto the AECi cache-purge queue
+(`aeci-cache-purge-{env}`); the SSR Worker's consumer does the actual eviction via
+native Cloudflare Workers Cache (`ctx.cache.purge()`). The old direct HTTP
+purge-by-tag API call was retired in the Workers Cache migration. On the AECi side
+every purge is observable in Datadog as
+`aeci.cache.purge{source:promote,outcome:ok|purge_failed|no_cache}`, plus a `warn`
+log if the eviction fails (the queue consumer retries it). If a purge ultimately
+fails, the only consequence is that the affected pages fall back to their normal
+edge TTL (≤15 min on detail pages) — the same staleness window that existed before
+this behavior was added, so there is no correctness regression. No retry or action
+is required from the review app.
 
 **Known bounded gaps (tracked, out of scope here):**
 

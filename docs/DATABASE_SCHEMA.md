@@ -1016,13 +1016,14 @@ await db.batch([
 
 Each helper returns a Drizzle insert *statement* the caller pushes into its batch array; `db.batch()` commits them as a single unit. The best-effort Datadog forward (§26.5) is decoupled — call `forwardAuditLog` from `@aeci/shared` **after** the batch commits, via `ctx.waitUntil`.
 
-**Cache invalidation runs after commit.** `invalidateForEntity()` must run *after* `db.batch()` resolves, never inside it. Wrap the call in `ctx.waitUntil()` so the response is not blocked on the purge:
+**Cache invalidation runs after commit.** A state-changing write that affects cached SSR pages purges by **`Cache-Tag`** *after* `db.batch()` resolves, never inside it. On the API Worker (and datatool) that means **enqueuing** a typed `CachePurgeMessage` onto the `aeci-cache-purge-{env}` Cloudflare Queue; the SSR consumer issues the native `ctx.cache.purge()` (the SSR Worker's own `/admin/purge` purges in-process instead). Wrap the enqueue in `ctx.waitUntil()` so the response is not blocked on it:
 
 ```ts
-ctx.waitUntil(invalidateForEntity(env, "product", id));
+// after db.batch() commits — tags derived from the mutated entity (see promote-cache-tags.ts)
+ctx.waitUntil(env.CACHE_PURGE_QUEUE?.send({ tags: [`product:${slug}`], source: "moderation" }));
 return json({ row: updated });
 ```
 
-A failed purge must not roll back the write. Log it; surface it via Datadog.
+The enqueue is best-effort: a failed or absent purge must never roll back the write — the queue binding is unset on local dev / PR previews, where `?.send` is a graceful no-op. Log failures; surface via the `aeci.cache.purge` metric. The URL-map `invalidateForEntity()` helper this section once showed was **never built and is superseded** — see `docs/CACHE_STRATEGY.md` §5 for the full native-Workers-Cache invalidation model (ADR 0020).
 
 **Reviewers:** see `CODE_REVIEW_CHECKLIST.md` "Data integrity and audit" for the corresponding check.

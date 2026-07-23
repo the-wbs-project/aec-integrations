@@ -96,8 +96,10 @@
       // `Cache-Control` and serves future HITs without running the render. Set
       // per-env, NEVER at top level (so a bare `wrangler dev` stays uncached).
       // Caching is live on preview + staging only; `demo`/`production` ship the
-      // same two-entrypoint code but stay UNCACHED (no `cache`/`exports` block)
-      // until WC-8 (noindex-on-HIT) lands (ADR 0020 §1). WC-5 (queue purge, AECI-319)
+      // same two-entrypoint code but stay UNCACHED (no `cache`/`exports` block).
+      // The prod-enable gate (WC-4/5/6/8) is fully merged; flipping demo/prod on
+      // (add this `exports` block there) is a deliberate future step (ADR 0020 §1).
+      // WC-5 (queue purge, AECI-319)
       // + WC-6 (native /admin/purge, AECI-320) are DONE: the cross-Worker purge queue
       // consumer is wired per-env on staging/demo/production below (`queues.consumers`;
       // none on preview) and, because the cache lives on `Renderer`, delegates the
@@ -153,8 +155,9 @@
       // WC-3 (AECI-317) + WC-4 (AECI-318) — native Workers Cache via the gateway
       // (`default`, cache off) + cached `Renderer` entrypoint pair. See the preview
       // env note above; staging is the pre-prod validation tier for the "preview →
-      // staging first" rollout (ADR 0020 §1). demo/production remain uncached until
-      // WC-8. The WC-5 purge queue consumer is wired just below (`queues.consumers`).
+      // staging first" rollout (ADR 0020 §1). demo/production remain uncached pending
+      // the deliberate prod-enable flip (gate WC-4/5/6/8 all merged). The WC-5 purge
+      // queue consumer is wired just below (`queues.consumers`).
       "exports": {
         "default": { "type": "worker", "cache": { "enabled": false } },
         "Renderer": { "type": "worker", "cache": { "enabled": true } },
@@ -198,9 +201,9 @@
       "observability": { "enabled": true },
       // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code like
       // every env, but caching stays OFF here (no `cache`/`exports` block) — the
-      // gateway still forwards to `Renderer`, just uncached. WC-4/5/6 are in; enable
-      // (add the preview-style `exports` block) only once WC-8 (noindex-on-HIT) lands
-      // (ADR 0020 §1).
+      // gateway still forwards to `Renderer`, just uncached. The prod-enable gate
+      // (WC-4/5/6/8) is fully merged; enabling caching here (add the preview-style
+      // `exports` block) is a deliberate future step (ADR 0020 §1).
       // The public showcase tier. `custom_domain: true` makes wrangler reconcile
       // the demo.aecintegrations.com DNS record + cert on deploy — on the first
       // demo deploy it REASSIGNS that hostname off the old production Worker, so
@@ -213,10 +216,10 @@
       ],
       "services": [{ "binding": "API", "service": "aeci-api-demo" }],
       // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
-      // note). Registered here ahead of `cache.enabled` (still gated on WC-8): with
-      // no cache yet, the `Renderer.purgeCache()` delegate returns null so the consumer
-      // no-ops each message (`outcome:no_cache`) and acks — fully wired for when WC-8
-      // flips the cache on. Provisioned by promote-to-demo.yml.
+      // note). Registered here ahead of `cache.enabled` (demo is currently uncached):
+      // with no cache yet, the `Renderer.purgeCache()` delegate returns null so the
+      // consumer no-ops each message (`outcome:no_cache`) and acks — fully wired for
+      // when demo/prod caching is enabled. Provisioned by promote-to-demo.yml.
       "queues": {
         "consumers": [
           {
@@ -248,8 +251,9 @@
       },
       "observability": { "enabled": true },
       // WC-4 (AECI-318): ships the gateway + `Renderer` two-entrypoint code, but
-      // caching stays OFF here (no `cache`/`exports` block) until WC-8 lands (WC-4/5/6
-      // are in) (ADR 0020 §1) — see the preview env note.
+      // caching stays OFF here (no `cache`/`exports` block). The prod-enable gate
+      // (WC-4/5/6/8) is fully merged; enabling it (add the preview-style `exports`
+      // block) is a deliberate future step (ADR 0020 §1) — see the preview env note.
       // AECI-247/277 apex cutover. Web prod now serves the public apex
       // `aecintegrations.com` + `www.` AND the Access-gated internal
       // `prod.aecintegrations.com`. `custom_domain: true` makes wrangler reconcile
@@ -275,9 +279,9 @@
       ],
       "services": [{ "binding": "API", "service": "aeci-api-production" }],
       // WC-5 (AECI-319): consume the cross-Worker cache-purge queue (see the staging
-      // note). Registered ahead of `cache.enabled` (still gated on WC-8): with no
-      // cache yet, the `Renderer.purgeCache()` delegate returns null so the consumer
-      // no-ops each message (`outcome:no_cache`) and acks. Provisioned by promote-to-prod.yml.
+      // note). Registered ahead of `cache.enabled` (production is currently uncached):
+      // with no cache yet, the `Renderer.purgeCache()` delegate returns null so the
+      // consumer no-ops each message (`outcome:no_cache`) and acks. Provisioned by promote-to-prod.yml.
       "queues": {
         "consumers": [
           {

@@ -357,6 +357,8 @@ Per AECI-43, API responses themselves remain `private, no-store`. Only SSR HTML 
 
 ### 8.4 Invalidation mechanism
 
+> **Superseded — see `docs/CACHE_STRATEGY.md` §5 / [ADR 0020](adr/0020-workers-cache-and-queue-purge.md).** This describes Phase 2's original transport: `POST /admin/purge` calling Cloudflare's zone **purge-by-tag API**. The AECI-314 Workers Cache migration replaced that transport — `/admin/purge` now purges **in-process** via native `ctx.cache.purge()`, and cross-Worker producers (promote / moderation / datatool) enqueue onto the `aeci-cache-purge-{env}` Cloudflare Queue whose SSR consumer purges. The zone HTTP purge is inert against native Workers Cache. The `Cache-Tag` vocabulary and the endpoint's auth (`ADMIN_PURGE_TOKEN`) carry over unchanged. The rest of this section is kept as the historical Phase 2 record.
+
 A `POST /admin/purge` endpoint on the SSR Worker:
 
 - Authenticates via a long-lived admin token (Wrangler secret named `ADMIN_PURGE_TOKEN`)
