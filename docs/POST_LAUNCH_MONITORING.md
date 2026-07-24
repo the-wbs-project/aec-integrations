@@ -48,7 +48,7 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 | 3 | **Render latency** | Phase 2 — Traffic (p95 render per `route_class`) | p95 detail (MISS) < 1.5s | `AECi — Detail render slow` (>1.5s/10m, `cache_status:miss`) |
 | 4 | **Algolia query latency / errors** | Phase 3 — Search (browser RUM `aeci.search.query`: latency p50/p95/p99, error rate) | error rate ~0; p95 within norm | *(no monitor — dashboard-only; add if noisy)* |
 | 5 | **Algolia sync + drift** | Phase 3 — Search; `aeci.algolia.sync`, `aeci.algolia.index_drift` | drift 0; daily sync `outcome:ok` | drift/sync-failed/sync-not-running/orphan-cap monitors |
-| 6 | **Scheduled-job health (7 crons)** | the liveness/no-data monitors (see §1a) | every cron emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
+| 6 | **Scheduled-job health (8 crons)** | the liveness/no-data monitors (see §1a) | every cron emitted its heartbeat in window | the per-cron `… not running` / `… failed` monitors |
 | 7 | **Request → Linear pipeline** | Phase 6 — Requests / Moderation; `aeci.linear.issue`/`.sync`/`.reconcile.*`, `aeci.webhooks.linear.hmac_failure` | failure rate < 50%; no persistent stuck; no HMAC burst | pipeline-failure / reconcile-stuck / reconcile-no-data / hmac monitors |
 | 8 | **Moderation queue** | Phase 5 & 6 dashboards; `aeci.moderation.queue_depth` / `queue_oldest_age_hours`; `GET /api/admin/summary` (`pending_reviews`), `GET /api/admin/requests` | oldest pending < 48h (target 24h, §17) | `AECi — Moderation queue backlog` (>48h) |
 | 9 | **RUM Core Web Vitals** *(gated on §0)* | Datadog **RUM → Optimize Vitals**, `aeci` app, `env:production` (p75 LCP / CLS / INP) | LCP ≤ 2.5s · CLS ≤ 0.1 · INP ≤ 200ms (`STAGE_1_PHASE_2_SPEC.md` §12) | *(no monitor — read manually; see §2)* |
@@ -57,10 +57,10 @@ healthy day — the point is to catch a regression before a monitor's sustained-
 > defaults to the wrong one — select **`aeci`** (us5). CWV live under RUM → Optimize Vitals, not the
 > Phase-2 dashboard (that tracks SSR `aeci.page.render.duration_ms`, not field CWV).
 
-### 1a. The 7 scheduled crons (row 6 detail)
+### 1a. The 8 scheduled crons (row 6 detail)
 
 Each cron emits an always-on heartbeat; the "not running" monitor's no-data is the liveness signal.
-A green board here means all seven fired on schedule.
+A green board here means all eight fired on schedule.
 
 | Cron (UTC) | Job | Liveness / failure monitors |
 |---|---|---|
@@ -69,6 +69,7 @@ A green board here means all seven fired on schedule.
 | `0 7 * * *` | Home-stats compute | stats-compute-failed / stats-not-running |
 | `0 8 * * *` | Algolia incremental sync | sync-failed / sync-not-running |
 | `0 9 * * *` | Algolia drift + orphan sweep | index-drift / orphan-sweep-capped |
+| `0 12 * * *` | Operator analytics digest (AECI-526) | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | reconcile-stuck / reconcile-no-data |
 | `0 * * * *` | WAF firewall-event poll | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) |
 

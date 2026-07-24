@@ -14,7 +14,9 @@
  * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
  * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
  * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
- * read) and always runs inline.
+ * read) and always runs inline. `analytics` is the daily 12:00 UTC operator
+ * analytics digest (AECI-526): like `moderation`/`waf` it is queue-less (a cheap
+ * read-only aggregation + one email) and always runs inline.
  */
 export type ScheduledJob =
   | 'sync'
@@ -23,7 +25,8 @@ export type ScheduledJob =
   | 'moderation'
   | 'reconcile'
   | 'data_quality'
-  | 'waf';
+  | 'waf'
+  | 'analytics';
 
 /**
  * Body of a message on a scheduled-job queue. Producer: the cron `scheduled()`
@@ -336,4 +339,16 @@ export type Env = {
    */
   DATA_QUALITY_EMAIL_FROM?: string;
   DATA_QUALITY_EMAIL_TO?: string;
+  /**
+   * Recipient(s) for the daily operator analytics digest (AECI-526). A
+   * comma/whitespace-separated list parsed by `parseRecipients` (`lib/email.ts`);
+   * the sender is the shared `EMAIL_FROM` (no separate `_FROM` — one verified
+   * sender). Plain wrangler var. Set on **production only** — staging/demo run the
+   * cron (for liveness) but intentionally leave this unset, so only prod's real
+   * numbers are emailed; every other env (incl. local/preview) is `skipped`.
+   * Absent → the digest send is a `skipped` no-op, so the cron still runs and
+   * emits its outcome metric. See `scheduled.ts` `runAnalyticsDigestJob` +
+   * `docs/email.md`.
+   */
+  ANALYTICS_DIGEST_EMAIL_TO?: string;
 };

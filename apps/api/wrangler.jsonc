@@ -229,6 +229,10 @@
         // parseRecipients). Staging sends to Chris only.
         "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
+        // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
+        // intentionally unset, so the send fail-open skips (staging's D1 is synthetic
+        // test data; only prod's numbers are real). See the production block.
       },
       "kv_namespaces": [
         {
@@ -260,8 +264,10 @@
       // :00 — the WAF firewall-event poll (AECI-262 / §15.1, queue-less): reads the previous
       // clock hour of firewallEventsAdaptiveGroups via Cloudflare's GraphQL Analytics API and
       // emits aeci.waf.ratelimit.blocked (needs the CF_ANALYTICS_API_TOKEN secret; absent →
-      // skipped no-op). UTC is DST-unaware (accepted). Strings MUST match the constants in
-      // `src/scheduled.ts`.
+      // skipped no-op). "0 12 * * *" runs daily at 12:00 UTC (= 07:00 EST) — the operator
+      // analytics digest (AECI-526, queue-less): the prior UTC day's page views, top products,
+      // new/total sign-ins + pending-moderation depth, emailed to ANALYTICS_DIGEST_EMAIL_TO.
+      // UTC is DST-unaware (accepted). Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
         "crons": [
           "0 4 * * *",
@@ -271,6 +277,7 @@
           "0 9 * * *",
           "*/15 * * * *",
           "0 * * * *",
+          "0 12 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -351,6 +358,10 @@
         "ADMIN_ALERT_EMAIL": "chrisw@thewbsproject.com",
         "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // AECI-526: the daily operator analytics digest is PRODUCTION-ONLY — the cron
+        // still runs here (emits its liveness metric) but ANALYTICS_DIGEST_EMAIL_TO is
+        // intentionally unset, so the send fail-open skips (demo's D1 is not real
+        // traffic; only prod's numbers are real). See the production block.
       },
       "kv_namespaces": [
         {
@@ -368,9 +379,10 @@
           "migrations_dir": "migrations",
         },
       ],
-      // Same seven crons as staging/production (see staging note — incl. the hourly
-      // "0 * * * *" WAF firewall-event poll, AECI-262). Dispatched by
-      // `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
+      // Same eight crons as staging/production (see staging note — incl. the hourly
+      // "0 * * * *" WAF firewall-event poll, AECI-262, and the daily "0 12 * * *"
+      // operator analytics digest, AECI-526). Dispatched by `controller.cron`.
+      // Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
         "crons": [
           "0 4 * * *",
@@ -380,6 +392,7 @@
           "0 9 * * *",
           "*/15 * * * *",
           "0 * * * *",
+          "0 12 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -459,6 +472,13 @@
         // parseRecipients). TODO: append Bill's address alongside Chris?
         "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
+        // AECI-526: recipient(s) for the daily operator analytics digest (12:00 UTC
+        // = 07:00 EST — page views, top products, new/total sign-ins, pending-moderation
+        // depth). Sender is the shared EMAIL_FROM (no separate _FROM). Comma-separated
+        // (parseRecipients). PRODUCTION-ONLY on purpose: staging/demo leave this unset
+        // so only prod's real numbers get emailed (the cron still runs in every env for
+        // liveness, but those sends fail-open skip).
+        "ANALYTICS_DIGEST_EMAIL_TO": "chrisw@thewbsproject.com",
         // PUBLIC_SITE_URL is the canonical launch domain — SHARED by transactional
         // email (absolute links in the approved/rejected emails, AECI-240) AND the
         // post-promote IndexNow submission (the origin its URLs are built against,
@@ -496,7 +516,8 @@
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
       // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
       // reconciliation sweep (AECI-214 / Phase 6.7); "0 * * * *" every hour — WAF firewall-event
-      // poll (AECI-262 / §15.1, queue-less). Dispatched by `controller.cron`.
+      // poll (AECI-262 / §15.1, queue-less); "0 12 * * *" daily (= 07:00 EST) — operator
+      // analytics digest (AECI-526, queue-less). Dispatched by `controller.cron`.
       "triggers": {
         "crons": [
           "0 4 * * *",
@@ -506,6 +527,7 @@
           "0 9 * * *",
           "*/15 * * * *",
           "0 * * * *",
+          "0 12 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

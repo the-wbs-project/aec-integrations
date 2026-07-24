@@ -10,7 +10,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { products, reviews } from './db/schema';
+import { pageViews, products, reviews } from './db/schema';
 import type { ScheduledJob, ScheduledJobMessageInput, Env } from './env';
 import { makeTestDb, type TestDb } from './test/d1';
 
@@ -55,6 +55,7 @@ const DRIFT_CRON = '0 9 * * *';
 const RECONCILE_CRON = '*/15 * * * *';
 const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
+const ANALYTICS_CRON = '0 12 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -358,6 +359,35 @@ describe('scheduled (cron producer)', () => {
       'aeci.waf.ratelimit.blocked',
       expect.anything(),
       expect.anything(),
+    );
+  });
+
+  it('runs the analytics digest inline on the 12:00 cron (queue-less) and emits its email metric (AECI-526)', async () => {
+    // Seed a product + views so the real Drizzle aggregation runs against the harness.
+    await t.db.insert(products).values({ id: 'p1', slug: 'p1', name: 'P1' });
+    await t.db.insert(pageViews).values([
+      { path: '/products/p1', productId: 'p1', createdAt: '2026-07-23T10:00:00.000Z' },
+      { path: '/', createdAt: '2026-07-23T11:00:00.000Z' },
+    ]);
+
+    // Even with every queue bound, analytics has no producer → always inline; and with
+    // no RESEND_API_KEY / ANALYTICS_DIGEST_EMAIL_TO the fail-open send resolves 'skipped'.
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env = makeEnv({
+      ALGOLIA_SYNC_QUEUE: { send } as never,
+      DATA_QUALITY_QUEUE: { send } as never,
+    });
+
+    await scheduled(cronController(ANALYTICS_CRON), env, ctx);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(submitCount).toHaveBeenCalledWith(
+      ctx,
+      expect.anything(),
+      expect.anything(),
+      'aeci.analytics_digest.email',
+      1,
+      ['outcome:skipped'],
     );
   });
 });

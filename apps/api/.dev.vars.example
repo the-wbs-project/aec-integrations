@@ -155,6 +155,11 @@ RESEND_API_KEY=
 EMAIL_FROM=
 # Optional. Recipient of the reconcile-sweep stuck-request admin alert (§6.2).
 ADMIN_ALERT_EMAIL=
+# Optional. Recipient(s) for the daily operator analytics digest (AECI-526) — the
+# 12:00 UTC cron's page-views / top-product / sign-in summary. Comma-separated;
+# sender is the shared EMAIL_FROM above. Absent → the digest send is a 'skipped'
+# no-op (set a RESEND_API_KEY + EMAIL_FROM + this to exercise it locally).
+ANALYTICS_DIGEST_EMAIL_TO=
 
 # ─── IndexNow notification after promote (AECI-236 / §20.2) ─────────────────
 # On promote, the WORKER submits the affected public URLs to IndexNow (Bing /
