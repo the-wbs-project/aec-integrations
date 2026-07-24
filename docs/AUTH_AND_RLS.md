@@ -85,7 +85,7 @@ Three roles exist in `profiles.role`. All are set server-side — no client can 
 |---|---|---|
 | `reviewer` | Any authenticated user | Default role of the **D1** profile created by `POST /api/auth/profile/ensure` on first sign-in (the authoritative path under ADR 0016). The Postgres `handle_new_user()` trigger on `auth.users` still exists in the auth-only baseline but is **vestigial** — the app reads `profiles.role` from D1, not Postgres. See §8.1. |
 | `admin` | Chris and Bill | Manual `UPDATE profiles SET role='admin'` against the per-environment **D1** database |
-| `vendor_admin` | Stage 2+ vendor contacts | Reserved — schema ready, not yet used |
+| `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement (the `vendor_admin` guard branch + `vendor_id` query-scoping, §9) ships with **AECI-520** — reserved/unused in code until then. |
 
 Banned users retain their role but have `profiles.banned_at` set; the Worker (`apps/api/src/lib/authz.ts`) checks both identity and ban status against D1. (The Postgres `public.is_active_user()` helper is part of the historical RLS surface and no longer governs app-table access.)
 
@@ -100,7 +100,10 @@ This is where authorization is actually enforced. The patterns here are not opti
 Every authenticated endpoint verifies the JWT and rejects anything malformed, expired, or unverifiable with `401 Unauthorized`. A missing JWT on an authenticated route is `401`, not anonymous treatment.
 
 ```ts
-// apps/api/src/middleware/auth.ts
+// Illustrative shape — the real entry points are verifySupabaseJwt() in
+// apps/api/src/lib/user-auth.ts (jose + Supabase JWKS), invoked by the Hono guard
+// createAuthzMiddleware in apps/api/src/lib/authz.ts (which also accepts the
+// sb-<ref>-auth-token session cookie, not just a Bearer header).
 import { jwtVerify, createRemoteJWKSet } from 'jose';
 
 const jwks = createRemoteJWKSet(
@@ -469,14 +472,14 @@ with the D1 app DB is part of the AECI-256/257 Supabase-Postgres decommission.)
 
 ## 9. Stage 2 forward compatibility
 
-When Stage 2 introduces the vendor portal:
+Stage 2 introduces the **vendor portal** (`vendor_admin`). Its authorization is the **3-layer Worker model above — not Postgres RLS/GRANTs** (there are none on app tables under ADR 0016). The full plan is `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`; the shape:
 
-- **`vendor_admin` role** — already in the `profiles.role` CHECK constraint. New policies will grant vendor admins scoped read/write on `vendors` and `products` rows linked to `profiles.vendor_id`.
-- **`profiles.vendor_id`** — foreign key already exists.
-- **New tables created in Stage 2** — will inherit the no-default-grants policy from `ALTER DEFAULT PRIVILEGES`. Each new table will need explicit GRANT statements in its migration to be exposed via PostgREST. This is intentional.
-- **If vendor writes also go through the API Worker** (likely), the Stage 2 RLS layer is purely defense in depth, same as Stage 1.
+- **`vendor_admin` role** — already in the `profiles.role` CHECK constraint. Granted **app-side on vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254), audited and reversible. There are no "vendor policies" to write.
+- **`vendorId` on the session** — the Layer-1 guard (`createAuthzMiddleware`, §4.2) gains a `requireVendor()` branch and adds `profiles.vendor_id` to the profile re-fetch, so it rides on `AuthenticatedSession`.
+- **`vendor_id`-scoped queries** — every `/api/vendor/*` read and write filters by the session's `vendor_id` in the **Drizzle query** (`WHERE vendor_id = :sessionVendorId`). This is the D1/Drizzle replacement for the row filter the retired RLS design would have applied; the Worker never trusts a client-supplied vendor/target id. Every write emits its `audit_log` row in the same `db.batch()` (§4.3).
+- **Ban gate** — `profiles.banned_at` already gates vendor seats through the existing §4.2 / §7 check; portal abuse is a ban path (per-seat — it never touches `vendors.verified`).
 
-No schema migrations required for Stage 2 authorization. New policies layer on.
+**No schema migration is required for Stage 2 authorization** — the hooks (`profiles.role` `vendor_admin`, `profiles.vendor_id`, `vendors.verified`, `profiles.banned_at`) already exist. The endpoint-by-endpoint `vendor_admin` rows land in §4.4 when AECI-520 ships (AECI-525).
 
 ---
 

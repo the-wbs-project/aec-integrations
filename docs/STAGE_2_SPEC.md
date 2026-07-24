@@ -44,6 +44,8 @@ The three §18 pillars, plus the two carried-over surfaces (integration attestat
 
 ### 2.1 Vendor Portal & Self-Serve Claiming — *the anchor*
 
+> **Build contract:** this pillar is decomposed and specified in **`docs/STAGE_2_VENDOR_PORTAL_SPEC.md`** (the AECI-513 epic). The subsections below remain the scope outline; that doc is what each sub-issue anchors to.
+
 The foundation everything else layers on. A vendor authenticates, proves association with a vendor record, and gains scoped write access to their own product/vendor data.
 
 - **Claim flow — concierge / manual at launch (§8.1).** A vendor requests ownership of a `vendors` row (and its products). Builds on the Stage 1 Phase 6 request pipeline (`docs/STAGE_1_PHASE_6_SPEC.md`) and the domain-match hint, but escalates it from a correction request to a **verified account grant that AECi approves by hand**: on approval, a `profiles.role = 'vendor_admin'` row is linked to the `vendors` row via `profiles.vendor_id`, and `vendors.verified` flips true. **Verification is a paid gate** (§8.1(3)) arranged by **offline invoice/PO** (§8.1(5)) — the same admin action records the payment arrangement and toggles entitlement.
@@ -104,7 +106,7 @@ Stage 1 shipped **light-only** (AECI-226), which deferred dark to "the Stage 2 v
 | attestation `introduced_at` / `deprecated_at` version stamps | ✅ `schema.ts` — additive, dormant |
 | `translations` table (localized vendor-managed content) | ✅ `schema.ts` — present |
 | `profiles.theme_preference` (dark-theme persistence) | ✅ `schema.ts` — `'system' \| 'light' \| 'dark'` |
-| `computeAgreement` (computed-not-stored agreement) | ✅ `apps/api/src/lib/drizzle-helpers.ts` — unit-tested |
+| `computeAgreement` (computed-not-stored agreement) | ✅ defined in `packages/shared/src/agreement.ts` (imported/used in `apps/api/src/lib/drizzle-helpers.ts`) — unit-tested |
 
 ---
 
@@ -150,7 +152,7 @@ Stage 2 feature work branches from and merges to `stage-2` (post-launch branch m
 
 ## 7. Epic map → Linear ("Stage 2 Build" project)
 
-The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed from `Stage 2 Planning`), following the AECI-314 "(epic)" parent-issue convention. Each epic opens with `**Spec section:** docs/STAGE_2_SPEC.md §X` and `**Base branch:** stage-2`. The anchor epic (Vendor Portal, AECI-513) is decomposed into buildable sub-issues **AECI-519…525**.
+The initial epics seeded by AECI-282 (in the `Stage 2 Build` project — renamed from `Stage 2 Planning`), following the AECI-314 "(epic)" parent-issue convention. Each epic opens with `**Spec section:** docs/STAGE_2_SPEC.md §X` and `**Base branch:** stage-2`. The anchor epic (Vendor Portal, AECI-513) is decomposed into buildable sub-issues **AECI-519…525 plus 527, 528, 529** (the +3 from the 2026-07-24 epic review), specified in **`docs/STAGE_2_VENDOR_PORTAL_SPEC.md`**.
 
 | Epic | Spec | Notes |
 |---|---|---|
@@ -181,7 +183,17 @@ Resolved **2026-07-12** (AECI-282 kickoff, Chris). The Stage-2-launch model is *
 
 - **Tier ladder above the entry Verified fee** — whether there are richness sub-tiers and what they cost. *Direction is set* (there **is** a verification fee; vendors pay); the structure is TBD.
 - **Offline-invoicing mechanics** — the exact PO/invoice workflow, who toggles entitlement, renewal/expiry/dunning. Start with the minimum (admin toggle + status) and grow it.
-- **Real-time transport** (§2.3) — Durable-Object WebSockets vs SSE vs revalidation. **Deferred** — decide when the build reaches AECI-516; the portal ships without persistent sockets until a concrete latency need proves one.
+- **Real-time transport** (§2.3) — Durable-Object WebSockets vs SSE vs revalidation. **Deferred** — decide when the build reaches AECI-516; the portal ships without persistent sockets until a concrete latency need proves one. (Search-index freshness *within* the portal is separately **decided** — §8.3(5): nightly ≤24h + immediate SSR — and does not wait on this transport choice.)
+
+### 8.3 Decided at build kickoff (2026-07-24 epic review — AECI-513)
+
+Resolved when the Vendor Portal epic was decomposed. These **promote the epic's working decisions into the spec** and are the contract carried in `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`; they refine §8.1 without contradicting it.
+
+1. **Entitlement launch shape.** `vendors.verified` **is** the launch entitlement bit (per §8.1(5)); the PO/invoice arrangement is recorded in `audit_log` metadata. **No new schema** in this epic — the Paid Tiers epic (AECI-515) formalizes the entitlement model later. (Breaks the 513↔515 coordination knot.)
+2. **Seat semantics.** Revoke and ban are **per-seat** and **never** touch `vendors.verified` (vendor-level paid state). Un-verifying a vendor is a **separate entitlement action**, not a ban.
+3. **Role exclusivity.** `role` / `vendor_id` are **single-valued** — no `vendor_admin` grant to `admin` accounts; **one vendor per account** at launch; conflicts are **explicit errors** (a `vendors.parent_company` multi-vendor admin uses separate accounts).
+4. **Enrichment at launch.** Reviewer-assist signals are **domain-match + a pre-built LinkedIn/person search link only**; real person-lookup providers are a **deferred DPA/GDPR decision**.
+5. **Search freshness.** Vendor edits + badge flips reach **Algolia on the nightly watermark sync (≤24h)**; **SSR is immediate** via Cache-Tag purge. Accepted for launch — **UI copy must not promise instant search**.
 
 ---
 
