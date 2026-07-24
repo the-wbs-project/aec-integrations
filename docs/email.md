@@ -58,6 +58,26 @@ decision record; no separate ADR.
 Copy is en-US plain text + minimal HTML, built inline in `lib/email.ts` (emails are
 not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` templates).
 
+### Cron digests (the low-level `sendEmail` layer)
+
+The table above is the **transactional** layer (`sendTransactionalEmail`, one `template`
+id each, on the `aeci.email.send` metric). Two **scheduled digests** ride the separate
+low-level `sendEmail` transport (`lib/email.ts`, AECI-241) instead — multi-recipient,
+their own metric, no `template` tag — so they don't appear above:
+
+| Digest | Cron (UTC) | Builder | Recipient var | Metric |
+|---|---|---|---|---|
+| Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` |
+| Operator analytics digest (AECI-526) | `0 12 * * *` (= 07:00 EST) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` |
+
+The analytics digest summarizes the **prior complete UTC day**: page views + top
+products (`page_views`), new sign-ins (`profiles` created) + total registered users,
+and the live pending-moderation depth (`reviews` where `status='pending'`), with
+day-over-day deltas. Report-only reads; fail-open (absent key/recipient → `skipped`).
+The cron runs in **every** deploy env (staging/demo/production) for liveness, but
+`ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** — staging/demo carry
+synthetic D1 data, so their sends intentionally `skip` (the var is left unset).
+
 ## Secrets & vars
 
 | Name | Kind | Where | Notes |

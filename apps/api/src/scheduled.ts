@@ -83,6 +83,11 @@ import {
   type EntityOrphanResult,
   type PromotedIdProvider,
 } from './lib/algolia-orphans';
+import {
+  buildAnalyticsDigest,
+  collectAnalyticsMetrics,
+  dailyWindows,
+} from './lib/analytics-digest';
 import { hasErrors, runDataQualityChecks, type DataQualityCheckResult } from './lib/data-quality';
 import { buildDataQualityDigest } from './lib/data-quality-email';
 import { parseRecipients, sendEmail } from './lib/email';
@@ -159,6 +164,14 @@ const DATA_QUALITY_CRON = '0 4 * * *';
  *  `wrangler.jsonc`. */
 const WAF_CRON = '0 * * * *';
 
+/** Cron expression for the daily operator analytics digest (`wrangler.jsonc`,
+ *  AECI-526). 12:00 UTC = 07:00 EST — a morning read of the prior *complete* UTC
+ *  day (page views, top products, new + total users, pending-moderation depth).
+ *  Queue-less like `moderation`/`waf` (a cheap read-only aggregation + one email),
+ *  so `queueForJob` returns `undefined` and it always runs inline. MUST stay
+ *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
+const ANALYTICS_CRON = '0 12 * * *';
+
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';
 
@@ -177,6 +190,11 @@ const DQ_JOB_METRIC = 'aeci.data_quality.job';
 const DQ_DURATION_METRIC = 'aeci.data_quality.job.duration_ms';
 const DQ_CHECK_METRIC = 'aeci.data_quality.check';
 const DQ_EMAIL_METRIC = 'aeci.data_quality.email';
+
+/** Metric for the daily analytics digest (AECI-526). One count per run tagged
+ *  `outcome:sent|skipped|failed`; the always-emitted count doubles as the cron
+ *  liveness signal (see docs/OBSERVABILITY.md). */
+const ANALYTICS_EMAIL_METRIC = 'aeci.analytics_digest.email';
 
 /** Per-run heartbeat for the WAF firewall-event poll (AECI-262). One count per
  *  run with `outcome:ok|failed|skipped_no_creds` — the always-emitted `outcome:ok`
@@ -677,6 +695,54 @@ async function runDataQualityJob(env: Env, ctx: ExecutionContext): Promise<void>
   });
 }
 
+/** Build + email the daily operator analytics digest (AECI-526): the prior *complete*
+ *  UTC day's page views, top products, new + total users, and the live
+ *  pending-moderation depth (with day-over-day deltas). Report-only reads — no audit
+ *  row, no mutation. The Resend transport is fail-open: an absent `RESEND_API_KEY` /
+ *  `EMAIL_FROM` / `ANALYTICS_DIGEST_EMAIL_TO` yields `outcome:skipped` (the expected
+ *  local/preview state), and the `aeci.analytics_digest.email` metric is the delivery
+ *  signal. Queue-less (like `moderation`/`waf`), so it always runs inline. Never throws:
+ *  a read/format crash is logged and counted `outcome:failed` (so the metric still
+ *  fires as a liveness heartbeat), never rethrown — a failed cron must not tear down
+ *  the invocation. */
+async function runAnalyticsDigestJob(env: Env, ctx: ExecutionContext): Promise<void> {
+  const req = cronRequest('/cron/analytics-digest');
+  try {
+    const { db } = cronDb(env);
+    const window = dailyWindows(new Date());
+    const metrics = await collectAnalyticsMetrics(db, window);
+    const digest = buildAnalyticsDigest(metrics, {
+      env: env.ENV ?? 'development',
+      dayLabel: window.dayLabel,
+      generatedAt: new Date(),
+    });
+    const recipients = parseRecipients(env.ANALYTICS_DIGEST_EMAIL_TO);
+    const outcome = await sendEmail(env, {
+      // Shares the transactional sender (`EMAIL_FROM`) — one verified Resend sender,
+      // no separate `_FROM` var. Absent → `sendEmail` skips (fail-open).
+      from: env.EMAIL_FROM ?? '',
+      to: recipients,
+      subject: digest.subject,
+      text: digest.text,
+      html: digest.html,
+    });
+    submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, [`outcome:${outcome}`]);
+    logToDatadog(ctx, env, req, {
+      level: outcome === 'failed' ? 'error' : 'info',
+      message: `aeci.analytics_digest.email outcome=${outcome} recipients=${recipients.length}: ${digest.subject}`,
+      source: 'analytics-digest-cron',
+    });
+  } catch (error) {
+    submitCount(ctx, env, req, ANALYTICS_EMAIL_METRIC, 1, ['outcome:failed']);
+    logToDatadog(ctx, env, req, {
+      level: 'error',
+      message: 'aeci.analytics_digest.crashed',
+      source: 'analytics-digest-cron',
+      reason: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /** The host portion of a URL, or `undefined` if it's missing/unparseable. The
  *  WAF poll scopes its query to the env's own host so a shared zone isn't
  *  triple-counted across `env:` tags. */
@@ -773,6 +839,11 @@ function queueForJob(env: Env, job: ScheduledJob): Queue<ScheduledJobMessage> | 
       // GraphQL read needs no retry — the next hour re-polls the next window. No
       // `WAF_QUEUE` binding exists, so it always runs inline.
       return undefined;
+    case 'analytics':
+      // Queue-less like `moderation`/`waf` (AECI-526): a cheap read-only aggregation
+      // + one fail-open email needs no retry — the next day re-runs. No
+      // `ANALYTICS_QUEUE` binding exists, so it always runs inline.
+      return undefined;
   }
 }
 
@@ -812,6 +883,15 @@ function enqueueFailureLog(job: ScheduledJob): { path: string; message: string; 
       path: '/cron/waf-metrics',
       message: 'aeci.waf.poll.enqueue_failed',
       source: 'waf-metrics-cron',
+    };
+  }
+  if (job === 'analytics') {
+    // Unreachable in practice (analytics is queue-less, so `queue.send` is never
+    // called) — kept so the mapping is total over `ScheduledJob`.
+    return {
+      path: '/cron/analytics-digest',
+      message: 'aeci.analytics_digest.enqueue_failed',
+      source: 'analytics-digest-cron',
     };
   }
   return {
@@ -881,6 +961,9 @@ async function runScheduledJob(env: Env, ctx: ExecutionContext, job: ScheduledJo
     case 'waf':
       await runWafMetricsJob(env, ctx);
       return;
+    case 'analytics':
+      await runAnalyticsDigestJob(env, ctx);
+      return;
   }
 }
 
@@ -912,6 +995,9 @@ export const scheduled: ExportedHandlerScheduledHandler<Env> = async (controller
       return;
     case WAF_CRON:
       await enqueueOrRun(env, ctx, 'waf');
+      return;
+    case ANALYTICS_CRON:
+      await enqueueOrRun(env, ctx, 'analytics');
       return;
     default:
       // A trigger fired with no matching case — surface it rather than silently
