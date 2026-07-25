@@ -217,6 +217,18 @@ describe('GET /api/vendor/me', () => {
     expect(body.requests[0]).not.toHaveProperty('body');
   });
 
+  it('counts only real seats — a reviewer carrying a vendor_id is not one', async () => {
+    // seat_count and GET /seats must use the same predicate, or the dashboard
+    // claims a seat the roster can't account for.
+    await t.db.insert(profiles).values({ id: uuid(102), role: 'reviewer', vendorId: VENDOR });
+
+    const me = await call('/api/vendor/me');
+    const seats = await call('/api/vendor/seats');
+    expect(me.body.seat_count).toBe(2);
+    expect(seats.body.seats).toHaveLength(2);
+    expect(me.body.seat_count).toBe(seats.body.seats.length);
+  });
+
   it('handles a vendor that owns nothing', async () => {
     const lonely: AuthzVariables['auth'] = { ...AUTH, vendorId: OTHER_VENDOR };
     await t.db.delete(productVendors).where(eq(productVendors.vendorId, OTHER_VENDOR));

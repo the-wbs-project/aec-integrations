@@ -77,6 +77,7 @@ import { ApiError, notFoundError } from '../errors';
 import { json } from '../http';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
 import { auditActorType, type AuthzVariables } from '../lib/authz';
+import { VENDOR_ADMIN_ROLE } from '../lib/claimed-vendors';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import { fetchAuthUserEmails } from '../lib/supabase-admin';
 
@@ -101,6 +102,16 @@ const AUDIT_SOURCE = 'vendor-portal';
 /** The session's vendor id. `requireVendor()` guarantees it is non-null, so a
  *  miss here means the guard was not mounted — fail loudly rather than fall
  *  back to something that would read another vendor's rows. */
+/**
+ * "The seats on this vendor" — a granted vendor-portal seat is a `profiles` row
+ * with BOTH `vendor_id = <vendor>` and `role = 'vendor_admin'`. Shared by the
+ * dashboard's `seat_count` and the roster so the two can never disagree: a
+ * `reviewer` profile that happens to carry a `vendor_id` is not a seat.
+ */
+function seatsOf(vendorId: string) {
+  return and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE));
+}
+
 function sessionVendorId(c: VendorContext): string {
   const vendorId = c.get('auth').vendorId;
   if (!vendorId) {
@@ -344,7 +355,10 @@ export function createVendorMeHandler(
           })
         : Promise.resolve([]),
       loadTaxonomySlugs(db, productIds),
-      db.select({ id: profiles.id }).from(profiles).where(eq(profiles.vendorId, vendorId)),
+      // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
+      // reports a seat count the roster can't account for — a `reviewer` profile
+      // pointing at this vendor is not a seat.
+      db.select({ id: profiles.id }).from(profiles).where(seatsOf(vendorId)),
       // The vendor's own claim/correction requests: those targeting the vendor
       // itself, plus those targeting any product it owns.
       db.query.vendorRequests.findMany({
@@ -398,7 +412,7 @@ export function createVendorSeatsHandler(
 
     const rows = await db.query.profiles.findMany({
       columns: { id: true, displayName: true, bannedAt: true, createdAt: true },
-      where: and(eq(profiles.vendorId, vendorId), eq(profiles.role, 'vendor_admin')),
+      where: seatsOf(vendorId),
       orderBy: [asc(profiles.createdAt)],
     });
 
