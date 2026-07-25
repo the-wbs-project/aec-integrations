@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import { AdminVendorRequestSchema } from './admin-requests';
+import { PageQuerySchema, paginatedResponseSchema } from './common';
 
 /**
  * Admin claim → verified-account grant contracts (AECI-519 /
@@ -77,3 +78,74 @@ export const ModerateClaimResponseSchema = z.object({
   grant: ClaimGrantSummarySchema.nullable(),
 });
 export type ModerateClaimResponse = z.infer<typeof ModerateClaimResponseSchema>;
+
+// ─── Claim-review LIST (AECI-521 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §5) ─────────
+//
+// The reviewer-assist queue: `GET /api/admin/claims` returns the pending vendor
+// CLAIMS enriched with the verification signals a human weighs before granting
+// (`STAGE_2_SPEC.md` §8.1(1) — no auto-grant). It clones the requests LIST
+// envelope (`ListVendorRequestsResponse`) but adds three claim-only signals to
+// each row. The `domain_match` + `has_auth_account` reviewer signals already ride
+// on `AdminVendorRequest`; the LinkedIn/person search link is built client-side
+// from `submitter_*` (a link only — real enrichment providers are a deferred
+// DPA/GDPR decision, §8.3(4) / §11).
+
+/**
+ * A currently-active seat on the claimed vendor (§5 "existing seats" signal): a
+ * `profiles` row with `role='vendor_admin'`, a matching `vendor_id`, and no ban.
+ * Lets the reviewer tell a SECOND-SEAT request (the vendor already has admins)
+ * from a FIRST claim (empty roster). No email — a seat belongs to the claimed
+ * vendor, so `display_name` + when-granted + work-email-verified is the useful
+ * signal without exposing a second party's address.
+ */
+export const AdminVendorSeatSchema = z.object({
+  display_name: z.string().nullable(),
+  work_email_verified: z.boolean(),
+  created_at: z.string(),
+});
+export type AdminVendorSeat = z.infer<typeof AdminVendorSeatSchema>;
+
+/**
+ * A prior/sibling request from the claim's `submitter_email` (§5 "duplicate/
+ * prior-request context"), excluding the claim itself. Any kind/status — a prior
+ * correction or a rejected earlier claim is exactly the context the reviewer
+ * wants. Pairs with `duplicate_of_request_id` (the explicit Phase-6 chain) and
+ * the read-time `is_duplicate` flag.
+ */
+export const RelatedRequestRefSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['claim', 'correction']),
+  status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
+  target_type: z.enum(['product', 'vendor']),
+  created_at: z.string(),
+});
+export type RelatedRequestRef = z.infer<typeof RelatedRequestRefSchema>;
+
+/**
+ * A claim row on the review queue: the full `AdminVendorRequest` (so the surface
+ * reuses the requests-queue rendering for the shared fields) plus the three
+ * claim-only signals. The two enrichment arrays are **nullable on purpose**:
+ *  - `null` — the signal was UNAVAILABLE (its query failed / degraded); the UI
+ *    renders "unavailable" and the review still proceeds (AC: graceful degrade).
+ *  - `[]`  — the signal was COMPUTED and empty (a genuine first claim / no priors).
+ */
+export const AdminClaimSchema = AdminVendorRequestSchema.extend({
+  /** The Phase-6 duplicate chain (`vendor_requests.duplicate_of_request_id`) —
+   *  the earliest matching open request this one was flagged against, or null. */
+  duplicate_of_request_id: z.string().uuid().nullable(),
+  existing_seats: AdminVendorSeatSchema.array().nullable(),
+  related_requests: RelatedRequestRefSchema.array().nullable(),
+});
+export type AdminClaim = z.infer<typeof AdminClaimSchema>;
+
+/** Claim-review queue filter. Mirrors `ListVendorRequestsQuerySchema` but has no
+ *  `kind` — the endpoint is claims-only. `status` defaults to `open` (the working
+ *  queue); the `open|resolved|rejected` enum matches the requests contract. */
+export const ListVendorClaimsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['open', 'resolved', 'rejected']).default('open'),
+});
+export type ListVendorClaimsQuery = z.infer<typeof ListVendorClaimsQuerySchema>;
+
+/** Paginated envelope for `GET /api/admin/claims`. */
+export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
+export type ListVendorClaimsResponse = z.infer<typeof ListVendorClaimsResponseSchema>;

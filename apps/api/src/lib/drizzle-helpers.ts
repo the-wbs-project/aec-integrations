@@ -31,8 +31,10 @@ import {
 } from '@aeci/shared';
 import type {
   AccountReview,
+  AdminClaim,
   AdminReview,
   AdminVendorRequest,
+  AdminVendorSeat,
   ClaimDirection,
   IntegrationDetail,
   IntegrationListItem,
@@ -49,6 +51,7 @@ import type {
   ProductRole,
   ProductUsefulness,
   PublicReview,
+  RelatedRequestRef,
   ReviewStatus,
   TaxonomyTermWithCount,
   VendorDetail,
@@ -916,6 +919,9 @@ export const adminVendorRequestConfig = {
     sourceUrl: true,
     linearIssueId: true,
     linearIssueUrl: true,
+    // AECI-521: the Phase-6 duplicate chain, surfaced only by the claims LIST
+    // (`toAdminClaim`); harmless to the requests path, which never reads it.
+    duplicateOfRequestId: true,
     createdAt: true,
     resolvedAt: true,
     resolvedById: true,
@@ -936,6 +942,7 @@ export interface RawAdminVendorRequestRow {
   sourceUrl: string | null;
   linearIssueId: string | null;
   linearIssueUrl: string | null;
+  duplicateOfRequestId: string | null;
   createdAt: string;
   resolvedAt: string | null;
   resolvedById: string | null;
@@ -1025,6 +1032,27 @@ export function toAdminVendorRequest(
     created_at: raw.createdAt,
     resolved_at: raw.resolvedAt,
     resolved_by: raw.resolvedById,
+  };
+}
+
+/** Map a raw `vendor_requests` claim row → `AdminClaim` (AECI-521): the shared
+ *  `AdminVendorRequest` (delegated to `toAdminVendorRequest`, so the two never
+ *  drift) plus the three claim-only reviewer signals. `existingSeats` /
+ *  `relatedRequests` are supplied by the LIST handler's fail-soft enrichment —
+ *  `null` = signal unavailable (degraded), `[]` = computed-and-empty. */
+export function toAdminClaim(
+  raw: RawAdminVendorRequestRow,
+  isDuplicate: boolean,
+  target: LinkRef | null,
+  authAccountByEmail: ReadonlyMap<string, boolean>,
+  existingSeats: AdminVendorSeat[] | null,
+  relatedRequests: RelatedRequestRef[] | null,
+): AdminClaim {
+  return {
+    ...toAdminVendorRequest(raw, isDuplicate, target, authAccountByEmail),
+    duplicate_of_request_id: raw.duplicateOfRequestId,
+    existing_seats: existingSeats,
+    related_requests: relatedRequests,
   };
 }
 

@@ -22,7 +22,7 @@ import {
   createUpdateAccountHandler,
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
-import { createModerateClaimHandler } from './routes/admin-claims';
+import { createAdminClaimsListHandler, createModerateClaimHandler } from './routes/admin-claims';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -251,6 +251,10 @@ app.route('/', authAccount);
 //   - PATCH /api/admin/reviews/:id  (5.13) — approve/reject a review.
 //   - GET   /api/admin/requests     (6.9)  — paginated vendor-requests queue.
 //   - PATCH /api/admin/requests/:id (6.9)  — resolve/reject a vendor request.
+//   - GET   /api/admin/claims       (S2 §5, AECI-521) — the claim-review queue:
+//     pending vendor CLAIMS enriched with the §5 reviewer-assist signals (existing
+//     seats, prior requests) on top of the shared `domain_match` / `has_auth_account`.
+//     Read-only; the reviewer decides (no auto-grant).
 //   - PATCH /api/admin/claims/:id   (S2 §3, AECI-519) — approve (grant a verified
 //     vendor account) / reject a vendor CLAIM. Sibling of the requests PATCH: a
 //     claim grants a `vendor_admin` seat + flips `vendors.verified` in one batch,
@@ -271,6 +275,9 @@ authAdmin.patch(
   requireAdmin(),
   createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
 );
+// Stage 2 / AECI-521: the claim-review LIST (reviewer-assist signals). Read-only,
+// clones the requests LIST; the reviewer decides on the assembled evidence.
+authAdmin.get('/api/admin/claims', requireAdmin(), createAdminClaimsListHandler());
 // Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
 // reports `unavailable` (→503) until `SUPABASE_SERVICE_ROLE_KEY` is bound (AECI-530).
 // AECI-528 injects the real claim-decision email sender (`sendClaimDecisionEmail`,

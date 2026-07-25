@@ -16,7 +16,7 @@
  * untouched.
  */
 
-import { ApiErrorCode } from '@aeci/shared';
+import { ApiErrorCode, ListVendorClaimsResponseSchema } from '@aeci/shared';
 import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -37,10 +37,15 @@ import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
 import { type BatchTuple } from '../lib/audit';
 import type { resolveClaimantIdentity } from '../lib/claimant-identity';
+import type { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { revokeSeatStatements } from '../lib/vendor-grant';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
-import { createModerateClaimHandler, type SendClaimDecisionEmail } from './admin-claims';
+import {
+  createAdminClaimsListHandler,
+  createModerateClaimHandler,
+  type SendClaimDecisionEmail,
+} from './admin-claims';
 
 // The moderation metric rides the shared transport; mock it so we can assert the
 // per-action count. The handler also imports `logToDatadog`.
@@ -593,5 +598,224 @@ describe('revokeSeatStatements', () => {
     expect(audits).toHaveLength(1);
     expect(audits[0]!.action).toBe('vendor_claim.seat_revoked');
     expect(audits[0]!.metadata).toMatchObject({ verified_untouched: true, vendor_id: VENDOR_ID });
+  });
+});
+
+// ─── GET /api/admin/claims — the reviewer-assist LIST (AECI-521 / §5) ─────────
+
+/** Stub-middleware app for the claims LIST (the `requireAdmin()` guard is covered
+ *  in `authz.spec.ts`). `fetchAuthAccounts` (the GoTrue signal seam) and `dbFor`
+ *  (to exercise the fail-soft enrichment) are injectable. */
+function claimsListApp(
+  opts: {
+    fetchAuthAccounts?: typeof fetchAuthAccountsByEmail;
+    dbFor?: typeof t.factory;
+  } = {},
+) {
+  const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+  app.onError(errorHandler());
+  app.use('/api/admin/claims', async (c, next) => {
+    c.set('auth', ADMIN_AUTH);
+    await next();
+  });
+  app.get(
+    '/api/admin/claims',
+    createAdminClaimsListHandler(opts.dbFor ?? t.factory, opts.fetchAuthAccounts),
+  );
+  return app;
+}
+
+const getClaims = (opts: Parameters<typeof claimsListApp>[0] = {}, qs = '') =>
+  claimsListApp(opts).request(`/api/admin/claims${qs}`, {}, TEST_ENV, fakeExecutionContext());
+
+/** Parse a LIST response against the real Zod schema (validates the whole envelope
+ *  incl. the three claim-only signal fields). */
+async function parseClaims(res: Response) {
+  return ListVendorClaimsResponseSchema.parse(await res.json());
+}
+
+/** A `DbFactory` whose `select().from(profiles)` throws, to exercise the LIST's
+ *  fail-soft seat enrichment (everything else delegates to the real test db). */
+function factoryFailingProfilesSelect(): typeof t.factory {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const real: any = t.db;
+  const dbProxy = new Proxy(real, {
+    get(target, prop, receiver) {
+      if (prop === 'query') return target.query; // real relational builder (bound to real db)
+      if (prop === 'select') {
+        return (...args: any[]) => {
+          const builder = target.select(...args);
+          return new Proxy(builder, {
+            get(b, bProp) {
+              if (bProp === 'from') {
+                return (tbl: unknown) => {
+                  if (tbl === profiles) throw new Error('seat lookup boom');
+                  return b.from(tbl);
+                };
+              }
+              const v = Reflect.get(b, bProp);
+              return typeof v === 'function' ? v.bind(b) : v;
+            },
+          });
+        };
+      }
+      const v = Reflect.get(target, prop, receiver);
+      return typeof v === 'function' ? v.bind(target) : v;
+    },
+  });
+  return (() => ({ db: dbProxy })) as unknown as typeof t.factory;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
+
+describe('GET /api/admin/claims — reviewer-assist LIST', () => {
+  it('returns only claims (not corrections), newest-first, in the paginated envelope', async () => {
+    await seedVendor();
+    await seedRequest({
+      id: REQUEST_ID,
+      domainMatch: 'match',
+      createdAt: '2026-06-02T00:00:00.000Z',
+    });
+    await seedRequest({
+      id: REQUEST2_ID,
+      kind: 'correction',
+      submitterEmail: 'corr@example.com',
+      createdAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const res = await getClaims();
+    expect(res.status).toBe(200);
+    const body = await parseClaims(res);
+    expect(body).toMatchObject({ page: 1, perPage: 24, total: 1 });
+    expect(body.data.map((d) => d.id)).toEqual([REQUEST_ID]);
+    expect(body.data[0]!.kind).toBe('claim');
+    // `domain_match` is surfaced verbatim from the stored column.
+    expect(body.data[0]!.domain_match).toBe('match');
+  });
+
+  it('surfaces the claimed vendor’s active seats, excluding banned ones', async () => {
+    await seedVendor();
+    await seedRequest();
+    await t.db.insert(profiles).values([
+      {
+        id: CLAIMANT_ID,
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        displayName: 'Existing Admin',
+        workEmailVerified: true,
+        createdAt: '2026-05-01T00:00:00.000Z',
+      },
+      {
+        id: CLAIMANT2_ID,
+        role: 'vendor_admin',
+        vendorId: VENDOR_ID,
+        displayName: 'Banned Admin',
+        bannedAt: '2026-05-02T00:00:00.000Z',
+        createdAt: '2026-05-02T00:00:00.000Z',
+      },
+    ]);
+
+    const body = await parseClaims(await getClaims());
+    const seats = body.data[0]!.existing_seats!;
+    expect(seats).toHaveLength(1);
+    expect(seats[0]).toMatchObject({ display_name: 'Existing Admin', work_email_verified: true });
+  });
+
+  it('reports an empty seat roster (not null) for a first claim', async () => {
+    await seedVendor();
+    await seedRequest();
+    const body = await parseClaims(await getClaims());
+    expect(body.data[0]!.existing_seats).toEqual([]);
+  });
+
+  it('surfaces prior requests from the same email + the duplicate chain, excluding self', async () => {
+    await seedVendor();
+    // An earlier resolved correction from the SAME email — must appear in related.
+    await seedRequest({
+      id: REQUEST2_ID,
+      kind: 'correction',
+      status: 'resolved',
+      createdAt: '2026-05-01T00:00:00.000Z',
+    });
+    // The open claim, flagged as a duplicate of that earlier request.
+    await seedRequest({
+      id: REQUEST_ID,
+      duplicateOfRequestId: REQUEST2_ID,
+      createdAt: '2026-06-01T00:00:00.000Z',
+    });
+
+    const body = await parseClaims(await getClaims());
+    const claim = body.data.find((d) => d.id === REQUEST_ID)!;
+    expect(claim.duplicate_of_request_id).toBe(REQUEST2_ID);
+    const relatedIds = claim.related_requests!.map((r) => r.id);
+    expect(relatedIds).toContain(REQUEST2_ID);
+    expect(relatedIds).not.toContain(REQUEST_ID); // self excluded
+  });
+
+  it('computes has_auth_account from the injected GoTrue seam, null without creds', async () => {
+    await seedVendor();
+    await seedRequest();
+
+    const fetchAuthAccounts = vi.fn(
+      async () => new Map([[CLAIMANT_EMAIL, true]]),
+    ) as unknown as typeof fetchAuthAccountsByEmail;
+    const withSeam = await parseClaims(await getClaims({ fetchAuthAccounts }));
+    expect(withSeam.data[0]!.has_auth_account).toBe(true);
+    expect(fetchAuthAccounts).toHaveBeenCalledWith(TEST_ENV, [CLAIMANT_EMAIL]);
+
+    // Default seam + no Supabase creds in TEST_ENV → empty map → null (unknown).
+    const noSeam = await parseClaims(await getClaims());
+    expect(noSeam.data[0]!.has_auth_account).toBeNull();
+  });
+
+  it('resolves a target_type=product claim to its primary vendor for the seat roster', async () => {
+    await seedVendor(); // VENDOR_ID (the primary)
+    await t.db
+      .insert(vendors)
+      .values({ id: OTHER_VENDOR_ID, slug: 'other', companyName: 'Other Co' });
+    await t.db.insert(products).values({ id: PRODUCT_ID, slug: 'revit', name: 'Revit' });
+    await t.db.insert(productVendors).values([
+      { productId: PRODUCT_ID, vendorId: OTHER_VENDOR_ID, isPrimary: false },
+      { productId: PRODUCT_ID, vendorId: VENDOR_ID, isPrimary: true },
+    ]);
+    await seedRequest({ targetType: 'product', targetId: PRODUCT_ID });
+    await t.db.insert(profiles).values({
+      id: CLAIMANT_ID,
+      role: 'vendor_admin',
+      vendorId: VENDOR_ID,
+      displayName: 'Primary Seat',
+    });
+
+    const body = await parseClaims(await getClaims());
+    // Seats came from the PRIMARY vendor, not the product id or the non-primary vendor.
+    expect(body.data[0]!.existing_seats!.map((s) => s.display_name)).toEqual(['Primary Seat']);
+  });
+
+  it('degrades a failed seat lookup to null without failing the list (graceful degrade)', async () => {
+    await seedVendor();
+    await seedRequest();
+    await t.db
+      .insert(profiles)
+      .values({ id: CLAIMANT_ID, role: 'vendor_admin', vendorId: VENDOR_ID, displayName: 'A' });
+
+    const res = await getClaims({ dbFor: factoryFailingProfilesSelect() });
+    expect(res.status).toBe(200);
+    const body = await parseClaims(res);
+    // The seat query threw → `existing_seats` is null (UI renders "unavailable")…
+    expect(body.data[0]!.existing_seats).toBeNull();
+    // …but the row itself, and the independent related-requests signal, still return.
+    expect(body.data[0]!.id).toBe(REQUEST_ID);
+    expect(body.data[0]!.related_requests).not.toBeNull();
+  });
+
+  it('paginates with a stable order', async () => {
+    await seedVendor();
+    await seedRequest({ id: REQUEST_ID, createdAt: '2026-06-02T00:00:00.000Z' });
+    await seedRequest({ id: REQUEST2_ID, createdAt: '2026-06-01T00:00:00.000Z' });
+
+    const page1 = await parseClaims(await getClaims({}, '?page=1&perPage=1'));
+    expect(page1.total).toBe(2);
+    expect(page1.data.map((d) => d.id)).toEqual([REQUEST_ID]); // newest first
+    const page2 = await parseClaims(await getClaims({}, '?page=2&perPage=1'));
+    expect(page2.data.map((d) => d.id)).toEqual([REQUEST2_ID]);
   });
 });

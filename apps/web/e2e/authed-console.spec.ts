@@ -88,6 +88,16 @@ test.describe('authed console health — Phase 5 gated pages (AECI-235)', () => 
     expectConsoleClean(capture, 'GET /admin/reviews');
   });
 
+  test('/admin/claims hydrates with no console errors', async ({ page }) => {
+    const capture = attachConsoleCapture(page);
+    const res = await page.goto('/admin/claims');
+    expect(res?.status()).toBe(200);
+    await expect(page.locator('aec-admin-shell')).toBeAttached();
+    await expect(page.locator('aec-claim-queue')).toBeAttached();
+    await waitForHydrationSettle(page);
+    expectConsoleClean(capture, 'GET /admin/claims');
+  });
+
   test('/products/:slug/review hydrates with no console errors', async ({ page }) => {
     test.skip(
       !reviewFixturePresent,
