@@ -204,6 +204,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 | `REVIEW_DUPLICATE` | 409 | User already reviewed this product |
 | `REVIEW_BANNED` | 403 | User is banned and cannot submit reviews |
 | `SLUG_CONFLICT` | 409 | Slug collision detected on entity creation |
+| `GRANT_CONFLICT` | 409 | Vendor-claim grant would violate role/vendor exclusivity — the claimant account is a site `admin`, or is already linked to a different vendor (AECI-519; `details.reason` ∈ `already_admin` \| `other_vendor`) |
 | `INVALID_STATE_TRANSITION` | 422 | Attempted workflow transition is not allowed from current state |
 | `RATE_LIMITED` | 429 | Rate limit exceeded |
 | `DEPENDENCY_FAILURE` | 503 | Upstream dependency (Supabase, Algolia, Linear) failed |
@@ -215,7 +216,7 @@ Machine-readable codes are stable identifiers. Messages are localized.
 - `401` — not authenticated
 - `403` — authenticated but not authorized, or banned
 - `404` — resource doesn't exist or is not visible to caller
-- `409` — conflict (duplicate, slug collision)
+- `409` — conflict (duplicate, slug collision, vendor-claim grant exclusivity)
 - `422` — semantically valid but business rule violation
 - `429` — rate limited (with `Retry-After` header)
 - `500` — unexpected server error (auto-alerts Datadog)
@@ -1097,6 +1098,73 @@ and (post-commit, best-effort) push the change to the linked Linear issue (§6.5
 
 Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` if the request is
 not `open`/`in_review` (already terminal, or a concurrent action moved it).
+
+#### `PATCH /api/admin/claims/:id` (Stage 2 — AECI-519)
+
+Approve (grant a verified vendor account) or reject a vendor **claim**. A sibling
+of `PATCH /api/admin/requests/:id`, not a replacement: a claim moderates here so
+`approve` runs the grant batch (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3) instead of a
+plain resolve. **Corrections still moderate through `/api/admin/requests/:id`** —
+this endpoint 422s a non-claim request. Behind `requireAdmin()`. Source of truth:
+`packages/shared/src/api/admin-claims.ts`, `apps/api/src/routes/admin-claims.ts`.
+The `/admin/claims` LIST + reviewer UI is AECI-521; the claim-decision email
+*sender* is AECI-528 (an injected no-op seam here).
+
+```typescript
+export const ClaimEntitlementSchema = z.object({
+  // The offline PO/invoice arrangement — the launch entitlement record. Stored in
+  // the grant's audit_log metadata, NEVER a new column (AECI-515 formalizes the
+  // real model later). `amount` is free-form (currency-agnostic).
+  payer: z.string().max(200).optional(),
+  amount: z.string().max(100).optional(),
+  terms: z.string().max(500).optional(),
+  arranged_by: z.string().max(200).optional(),
+  notes: z.string().max(1000).optional(),
+});
+
+export const ModerateClaimSchema = z.object({
+  action: z.enum(['approve', 'reject']),
+  reason: z.string().max(500).optional(),     // recorded in transition + audit only
+  entitlement: ClaimEntitlementSchema.optional(), // approve only
+});
+
+export const ModerateClaimResponseSchema = z.object({
+  request: AdminVendorRequestSchema,          // the moderated claim row
+  grant: z.object({                           // null on reject
+    user_id: z.string().uuid(),
+    vendor_id: z.string().uuid(),
+    verified: z.boolean(),
+    identity_outcome: z.enum(['linked', 'invited']), // linked existing vs provisioned
+    seat_created: z.boolean(),                // a new profiles row was written
+  }).nullable(),
+});
+```
+
+`approve`: resolve the claimant's auth-user id (link or provision — AECI-527), then
+in one atomic `db.batch` upsert the `profiles` seat (`role='vendor_admin'`,
+`vendor_id`; no-clobber), flip `vendors.verified=true` (+ `updated_at`; guarded so a
+second seat doesn't re-flip), resolve the request, advance the `vendor_claim`
+workflow, and audit (`vendor_claim.granted`, with the entitlement in metadata).
+Post-commit (best-effort): enqueue a Cache-Tag purge for the vendor **and its
+products** (`{ tags: ['vendor:<slug>', 'product:<slug>'…, 'index:products'], source:
+'moderation' }`) and fire the claim-approved email. A `target_type='product'` claim
+grants the product's **primary** vendor. Re-granting an already-granted claim is a
+**200 no-op** (no duplicate audit).
+
+`reject`: resolve the request to `rejected`, advance the workflow, audit
+(`vendor_claim.rejected`); no vendor mutation, no purge, no identity resolution;
+fire the claim-rejected email.
+
+Errors:
+- `GRANT_CONFLICT` (409) — the claimant account is a site `admin`, or already
+  linked to a **different** vendor; `details.reason` ∈ `already_admin` | `other_vendor`;
+  nothing is written. (A second seat on the **same** vendor is allowed, not a conflict.)
+- `DEPENDENCY_FAILURE` (503) — claimant identity resolution is unavailable
+  (`SUPABASE_SERVICE_ROLE_KEY` absent — AECI-530) or upstream GoTrue errored; the
+  grant refuses rather than half-grant.
+- `INVALID_STATE_TRANSITION` (422) — the request is not a claim, is already terminal
+  (and not an exact re-grant), or a claimed product has no vendor.
+- `NOT_FOUND` (404) — unknown request id, or the resolved vendor is missing.
 
 #### `GET /api/admin/reviewers`
 

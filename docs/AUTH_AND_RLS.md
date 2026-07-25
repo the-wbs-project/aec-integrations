@@ -240,6 +240,7 @@ await db.batch([
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
+| `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint yet, AECI-524) |
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
 | `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
 | `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership** | `product.updated` (`metadata.source: 'vendor-portal'`) |

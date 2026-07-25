@@ -20,6 +20,7 @@ import {
   createUpdateAccountHandler,
 } from './routes/account';
 import { createGetAccountReviewsHandler } from './routes/account-reviews';
+import { createModerateClaimHandler } from './routes/admin-claims';
 import {
   createAdminRequestsListHandler,
   createModerateRequestHandler,
@@ -248,6 +249,10 @@ app.route('/', authAccount);
 //   - PATCH /api/admin/reviews/:id  (5.13) — approve/reject a review.
 //   - GET   /api/admin/requests     (6.9)  — paginated vendor-requests queue.
 //   - PATCH /api/admin/requests/:id (6.9)  — resolve/reject a vendor request.
+//   - PATCH /api/admin/claims/:id   (S2 §3, AECI-519) — approve (grant a verified
+//     vendor account) / reject a vendor CLAIM. Sibling of the requests PATCH: a
+//     claim grants a `vendor_admin` seat + flips `vendors.verified` in one batch,
+//     rather than a plain resolve. The `/admin/claims` LIST is AECI-521.
 //   - GET   /api/admin/reviewers    (6.11) — paginated currently-banned reviewers.
 //   - PATCH /api/admin/reviewers/:id(6.11) — ban/unban a reviewer.
 const authAdmin = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
@@ -264,6 +269,10 @@ authAdmin.patch(
   requireAdmin(),
   createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
 );
+// Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
+// (default) reports `unavailable` (→503) until `SUPABASE_SERVICE_ROLE_KEY` is bound
+// (AECI-530); the claim-decision email sender is AECI-528 (default no-op seam here).
+authAdmin.patch('/api/admin/claims/:id', requireAdmin(), createModerateClaimHandler());
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 app.route('/', authAdmin);
