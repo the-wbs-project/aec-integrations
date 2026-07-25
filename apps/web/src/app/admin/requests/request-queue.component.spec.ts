@@ -39,6 +39,8 @@ function makeRequest(over: Partial<AdminVendorRequest> & { id: string }): AdminV
     body: over.body ?? 'We build this product and would like to claim the listing.',
     source_url: over.source_url ?? null,
     is_duplicate: over.is_duplicate ?? false,
+    // AECI-527 reviewer signal; unrendered here — AECI-521's /admin/claims owns it.
+    has_auth_account: over.has_auth_account ?? null,
     linear_issue_id: over.linear_issue_id ?? null,
     linear_issue_url: over.linear_issue_url ?? null,
     created_at: over.created_at ?? '2026-06-01T00:00:00.000Z',

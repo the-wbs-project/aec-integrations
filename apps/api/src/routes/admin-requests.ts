@@ -29,6 +29,14 @@
  * over `status='open'` build the lookup, so there's no per-row N+1. Informational
  * only — never auto-rejects.
  *
+ * `has_auth_account` (AECI-527 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §2) is likewise
+ * computed at read time, on the LIST path only: the batched GoTrue seam
+ * (`fetchAuthAccountsByEmail`, injectable) answers "does an auth user already
+ * exist for this claim's `submitter_email`?", so the reviewer knows whether
+ * approving will LINK an existing account or PROVISION one. Claim rows only; a
+ * tri-state, where `null` means unknown (absent Supabase creds, a failed lookup,
+ * or a correction row) — never a decision gate.
+ *
  * No cache invalidation: `vendor_requests` are admin-only and render on no
  * cacheable SSR page, so there's no `Cache-Tag` to purge.
  */
@@ -78,6 +86,7 @@ import {
 } from '../lib/drizzle-helpers';
 import { validateResponseInDev, writeDb, type DbFactory } from '../lib/handler-utils';
 import type { LinearResolutionInput } from '../lib/linear';
+import { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 
 type AdminContext = Context<{ Bindings: Env; Variables: AuthzVariables }>;
 
@@ -178,6 +187,9 @@ function dupKey(head: string, targetType: string, targetId: string): string {
 /** `GET /api/admin/requests` — the requests queue. */
 export function createAdminRequestsListHandler(
   dbFor: DbFactory = getDb,
+  /** Reviewer signal seam (#4a batched, AECI-527). Default hits the GoTrue Admin
+   *  API; degrades to an empty map → `has_auth_account: null`. */
+  fetchAuthAccounts: typeof fetchAuthAccountsByEmail = fetchAuthAccountsByEmail,
 ): (c: AdminContext) => Promise<Response> {
   return async (c) => {
     const query = ListVendorRequestsQuerySchema.parse(
@@ -250,11 +262,25 @@ export function createAdminRequestsListHandler(
 
     // Hydrate the polymorphic target → `LinkRef` (AECI-217) in one batched lookup
     // per target table over the page's rows; a missing target row → `null`.
-    const targets = await resolveRequestTargets(db, rows);
+    // Alongside it, the AECI-527 reviewer signal: "does an auth user already exist
+    // for this submitter?", so the reviewer knows whether approving will LINK an
+    // account or PROVISION one. Claim rows only — a `?kind=correction` queue makes
+    // zero GoTrue requests — and run in parallel so the fan-out adds no serial
+    // latency. Keep the claim gate in step with `toAdminVendorRequest`.
+    const claimEmails = rows.filter((r) => r.kind === 'claim').map((r) => r.submitterEmail);
+    const [targets, authAccountByEmail] = await Promise.all([
+      resolveRequestTargets(db, rows),
+      fetchAuthAccounts(c.env, claimEmails),
+    ]);
 
     const body: ListVendorRequestsResponse = {
       data: rows.map((row) =>
-        toAdminVendorRequest(row, isDuplicate(row), targets.get(row.targetId) ?? null),
+        toAdminVendorRequest(
+          row,
+          isDuplicate(row),
+          targets.get(row.targetId) ?? null,
+          authAccountByEmail,
+        ),
       ),
       page: query.page,
       perPage: query.perPage,

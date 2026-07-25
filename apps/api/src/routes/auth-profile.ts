@@ -12,6 +12,14 @@
  * → `created=false` → no audit. The audit follows the committed insert (the §26.1
  * atomicity is relaxed only for this idempotent backstop; domain state changes
  * use `db.batch`).
+ *
+ * NO-CLOBBER CONTRACT (AECI-527 / `docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §2). This
+ * insert writes ONLY `id` and never updates on conflict, so a vendor-claim grant
+ * that landed BEFORE the claimant's first sign-in survives it: `role`
+ * (`vendor_admin`), `vendor_id`, `display_name`, and `theme_preference` are all
+ * preserved. That is what lets AECI-519 grant a seat to an account that has never
+ * logged in. Do NOT add columns to `.values()` and do NOT convert this to
+ * `onConflictDoUpdate` — `auth-profile.spec.ts` regression-tests the property.
  */
 
 import {

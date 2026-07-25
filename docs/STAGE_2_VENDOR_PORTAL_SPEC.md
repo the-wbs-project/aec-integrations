@@ -25,7 +25,7 @@ This doc is the contract for the AECI-513 sub-issues. Each opens with `**Spec se
 
 | Anchor | Issue | Surface |
 |---|---|---|
-| §2 | AECI-527 | Claimant identity resolution — GoTrue email→user seam, invite path, profile-ensure no-clobber |
+| §2 | AECI-527 | Claimant identity resolution — GoTrue email→user seam, provisioning path, profile-ensure no-clobber |
 | §3 | AECI-519 | Claim → verified-account grant flow |
 | §4 | AECI-520 | `/api/vendor/*` endpoint surface + vendor authz seam |
 | §5 | AECI-521 | Admin claim-review surface + reviewer-assist verification signals |
@@ -38,13 +38,13 @@ This doc is the contract for the AECI-513 sub-issues. Each opens with `**Spec se
 **Build order.**
 
 ```
-527 (identity) → 519 (grant) ∥ 520 (authz seam + /api/vendor/*)
-              → 521 (admin review) + 522 (dashboard)
-              → 523 (badge SSR) / 524 (ban) / 529 (badge search)
+527 (identity) → 530 (service-role key) → 519 (grant) ∥ 520 (authz seam + /api/vendor/*)
+                                       → 521 (admin review) + 522 (dashboard)
+                                       → 523 (badge SSR) / 524 (ban) / 529 (badge search)
 525 (authz doc) + 528 (claim emails) run alongside.
 ```
 
-`527` blocks `519` (the grant needs a resolved identity to link). `519` and `520` are parallel (the grant flow and the authz seam share nothing but the schema). The ban gate **check** ships with `520`; `524` owns the ban **action** + policy. `528` (emails) and `525` (authz doc) have no code dependency and run whenever.
+`527` blocks `519` (the grant needs a resolved identity to link). **`530` also blocks `519`** — it provisions `SUPABASE_SERVICE_ROLE_KEY` on the API Worker, without which resolution can only ever report `unavailable` in a deployed environment (§2, "Graceful degrade"); `527` itself is *not* blocked by it, since degrading is by design and the unit lane needs no key. `519` and `520` are parallel (the grant flow and the authz seam share nothing but the schema). The ban gate **check** ships with `520`; `524` owns the ban **action** + policy. `528` (emails) and `525` (authz doc) have no code dependency and run whenever.
 
 ### 1.2 Schema readiness — no migration required
 
@@ -82,14 +82,45 @@ The Stage 1 Phase 6 request pipeline already ships the front half of the claim f
 
 **Resolution paths.** When AECi approves a claim (§3), resolve `submitter_email` to an auth user:
 
-1. **Existing user** — look the email up via the GoTrue Admin API and reuse its id. (Net-new: the current `apps/api/src/lib/supabase-admin.ts` fetches users **by id** only — add an email→user lookup helper reusing the existing `adminConfig` / `adminHeaders` scaffolding.)
-2. **New user (invite path)** — if no auth user exists for the email, invite/create one through the GoTrue Admin API so the claimant receives a set-password / magic-link onboarding. (Net-new: no `inviteUserByEmail` / `generateLink` / `admin.createUser` exists today.)
+1. **Existing user** — look the email up via the GoTrue Admin API and reuse its id. Shipped as `findAuthUserByEmail` (seam #4a, `apps/api/src/lib/supabase-admin.ts`), reusing the existing `adminConfig` / `adminHeaders` scaffolding.
+2. **New user (invite path)** — if no auth user exists for the email, provision one through the GoTrue Admin API. Shipped as `createAuthUser` (seam #4b).
 
 Either way, the resolved auth-user id is the id used to write the `profiles` row in the §3 grant batch.
 
+> **⚠️ `?filter=` is a substring match, so the exact-match guard is load-bearing.** GoTrue has **no** by-email endpoint. `GET /admin/users?filter=q` runs
+> `WHERE (email LIKE '%q%' OR raw_user_meta_data->>'full_name' ILIKE '%q%')` — case-**sensitive** on email, and it also matches display names. So the lookup queries with the **lowercased** address (GoTrue stores lowercase) and then requires an exact, case-insensitive equality on `users[].email` client-side. Without that second step `jane@acme.com` matches `jane@acme.com.evil.io`, and any account whose `full_name` contains the string — i.e. a claim granted against the **wrong** auth user. Treat the two guard tests in `supabase-admin.spec.ts` as non-negotiable.
+
+**Provisioning does NOT send a GoTrue invite email — a deliberate deviation (AECI-527).** The original AC said `POST /auth/v1/invite`; the seam uses `POST /auth/v1/admin/users` with `email_confirm: true` instead, because:
+
+- **The invite link dead-ends today.** GoTrue's invite email links to `/auth/v1/verify?type=invite&redirect_to=…`, which redirects with the session in a URL **fragment**. `apps/web`'s `/auth/callback` requires a PKCE `?code=` and 302s to `/auth/login?error=missing_code` otherwise (`apps/web/src/server/routes/auth-callback.ts`). Sending a broken link is worse than sending none.
+- **It would need dashboard ops on the production auth project.** The GoTrue "Invite user" template and a `redirect_to` allow-list entry live on the **one shared** project (ADR 0017), so editing them changes prod. `environments.md` documents the silent fallback to Site URL when a `redirect_to` isn't allow-listed.
+- **We already own a better channel.** `email_confirm: true` makes the account immediately usable through the existing, proven magic-link login, and onboarding comms are the `claim-approved` Resend email (§9 / AECI-528) — copy we control, with a metric. The launch claim flow is concierge (`STAGE_2_SPEC.md` §8.1), so a human is already in the loop.
+
+Adopting the GoTrue invite later is a change to `createAuthUser` **only** — the resolution contract and its `invited` outcome are unaffected. Its prerequisites (a real Invite-user template, the allow-list entry, and a landing page that consumes a fragment session) are recorded in `docs/email.md`. **The invite email is not an `apps/api` send**: it would be dispatched by GoTrue over the project's Resend SMTP, emits no `aeci.email.send` metric, and therefore is **not** part of §9's template set — AECI-528 must not add it to `lib/email.ts`.
+
+**Resolution contract.** `resolveClaimantIdentity(db, env, { email, vendorId })` (`apps/api/src/lib/claimant-identity.ts`) composes the two seams with a single D1 `profiles` read and returns a discriminated union — it never throws, and it never maps HTTP (this is a `lib/` seam; §3 owns the endpoint):
+
+| `outcome` | Meaning | Carries |
+|---|---|---|
+| `linked` | An `auth.users` row already owned `submitter_email`; reuse its id. | `userId`, `email`, `profile` (the D1 snapshot, or `null` if the account has never signed in) |
+| `invited` | No auth user existed; one was provisioned. | `userId`, `email`, `profile: null` |
+| `conflict` | Exclusivity violation — an explicit error, never a silent overwrite. | `reason: 'already_admin' \| 'other_vendor'`, `userId`, `email`, `profile` |
+| `unavailable` | `SUPABASE_SERVICE_ROLE_KEY` absent (local, PR preview). Resolution is **impossible**, not negative — the grant must refuse rather than half-grant. | — |
+| `error` | GoTrue reachable but errored. | `stage: 'lookup' \| 'create'`, `status?`, `message?` |
+
+- **A second seat on the same vendor is `linked`, not `conflict`.** This is the branch most likely to be got wrong: `role`/`vendor_id` are single-valued, but multi-seat is schema-native (no uniqueness on `profiles.vendor_id`), so only a *different* `vendor_id` conflicts. An `admin` account conflicts regardless of its `vendor_id`.
+- **A conflict is decided before any account is created.** The order is lookup → create-if-absent → profile read → classify; since a conflict requires an existing auth user, no provisioning is ever spent on a claim that is then rejected.
+- **Idempotency.** Re-running resolution for the same email is stable: once provisioned, a re-run returns `linked`, never a second create. GoTrue's create is *not* idempotent — it answers `422 email_exists` — so the resolver treats that as a lookup miss, re-resolves **once**, and surfaces an explicit `error` if the second lookup still misses (rather than guessing at an account).
+- **`vendorId` must be a VENDOR id.** For a `target_type='product'` claim, §3 resolves the product's vendor before calling; passing a product id compares against a value `profiles.vendor_id` can never hold, so exclusivity would silently never fire.
+- **HTTP mapping is AECI-519's** (it owns the endpoint and the `API_CONTRACTS.md` §4 error-table edit). Intended: `linked`/`invited` → 200 and the grant proceeds; `conflict` → **409** with a new `GRANT_CONFLICT` code and `details.reason` (§4.1 assigns 409 to state conflicts with an existing record, cf. `SLUG_CONFLICT` — not 422, which is for business-rule violations); `unavailable`/`error` → **503 `DEPENDENCY_FAILURE`**, already documented as "upstream dependency (Supabase, Algolia, Linear) failed". One new code is the minimum; resist a second.
+
+**Reviewer signal (feeds §5).** `has_auth_account` on `AdminVendorRequest` answers "does an auth user already exist for this submitter?", so the reviewer knows before approving whether the grant will **link** or **provision**. Computed on the LIST path only, via the batched `fetchAuthAccountsByEmail` (one deduped GoTrue lookup per distinct claim email, run in parallel with the target hydration). Tri-state: `null` means **unknown** — a correction row, absent creds, or a failed lookup — and must never be rendered as "no account".
+
 **Profile-ensure no-clobber contract.** The `profiles` row is created idempotently and **never clobbered**. Reuse the pattern in `POST /api/auth/profile/ensure` (`apps/api/src/routes/auth-profile.ts` ~:50-79): `INSERT … ON CONFLICT DO NOTHING … RETURNING`, so a grant that lands after the claimant has already signed in (and self-created a default `reviewer` profile) **updates** the existing row's `role`/`vendor_id` rather than replacing it. The grant must not reset `display_name`, `theme_preference`, or any field it does not own.
 
-**Graceful degrade.** `SUPABASE_SERVICE_ROLE_KEY` is optional (absent in local/PR-preview). The identity-resolution helpers must **degrade gracefully** when creds are absent (the pattern `deleteAuthUser` / `fetchAuthUserEmails` already follow — return a skipped/empty result, never throw), so the grant path is testable without a live Supabase.
+**Graceful degrade.** `SUPABASE_SERVICE_ROLE_KEY` is optional (absent in local/PR-preview). The identity-resolution helpers **degrade gracefully** when creds are absent (the pattern `deleteAuthUser` / `fetchAuthUserEmails` already follow — return a skipped/empty result, never throw), so the grant path is testable without a live Supabase. The single-shot seams flag that case as `skipped: true`, which callers MUST distinguish from a successful "no such user" — conflating them would provision a duplicate account.
+
+> **⚠️ The key is currently pushed to NO Worker, so seams #2/#3/#4 are inert in every deployed environment** — `environments.md` and `CICD_PLAN.md` still carry the pre-ADR-0016 "never on a Worker" posture, which ADR 0016 §6 superseded without updating them. §2 is unblocked (degrade is by design and the unit lane needs no key), but **§3 is not**: a claim approval that can only report `unavailable` is a dead feature. Provisioning the key as an optional, warn-and-skip API-Worker secret is **AECI-530**, which must land before §3 ships. The related GDPR consequence — seam #3's skip is silent, so erasure leaves orphaned `auth.users` rows undetectably — is **AECI-531**.
 
 **Role/vendor exclusivity (`STAGE_2_SPEC.md` §8.3).** `role` and `vendor_id` are single-valued. Resolution must surface explicit errors, not silent overwrites, when: the resolved account is already an `admin` (no `vendor_admin` grant to admin accounts), or is already `vendor_admin` for a **different** vendor (one vendor per account at launch — a `vendors.parent_company` multi-vendor admin uses separate accounts). A **second seat on the same vendor** is the expected, allowed case.
 
@@ -271,6 +302,7 @@ Explicitly **not** in this epic (tracked elsewhere or later):
 | Topic | Doc |
 |---|---|
 | Layer-1 Worker authz (JWT → role/ban → scope) | `AUTH_AND_RLS.md` (extended by §4/§7/§10) |
+| Split-identity seams / service-role operations register | `AUTH_AND_RLS.md` §3.1 (seam #4 added by §2); original numbering in `adr/0016` §3 |
 | `/api/vendor/*` request/response Zod shapes | `API_CONTRACTS.md` (added by AECI-520) |
 | D1 schema | `apps/api/src/db/schema.ts` + `DATABASE_SCHEMA.md` (§1.2 — no migration) |
 | Transactional email | `email.md` (§9) |
