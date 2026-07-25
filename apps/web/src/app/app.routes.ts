@@ -17,6 +17,7 @@ import {
   audiencesIndexResolver,
   phasesIndexResolver,
 } from './taxonomy/taxonomy-index.resolver';
+import { vendorMeResolver } from './vendor/vendor-me.resolver';
 import { vendorDetailResolver } from './vendors/vendor-detail.resolver';
 
 export const routes: Routes = [
@@ -240,6 +241,19 @@ export const routes: Routes = [
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),
       },
     ],
+  },
+  // AECI-522 — Phase 2 (Stage 2) vendor portal. The signed-in vendor's dashboard
+  // over `/api/vendor/*` (AECI-520). `vendorMeResolver` calls `GET /api/vendor/me`
+  // (gated by `requireVendor()`): a 401/403/404 → 404 render (don't reveal the
+  // surface); a 200 → the tabbed dashboard. A logged-out visitor is bounced to
+  // login by the worker-level `isVendorPath` gate before SSR. Non-cacheable +
+  // Cache-Tag-free by the fail-closed classifier (no change needed). Registered
+  // before the `**` wildcard so it matches. NOTE the singular `/vendor` — the
+  // public `/vendors/:slug` detail is a different, cacheable route.
+  {
+    path: 'vendor',
+    loadComponent: () => import('./vendor/vendor-page').then((m) => m.VendorPage),
+    resolve: { me: vendorMeResolver },
   },
   // AECI-238 — Phase 7.3 static content pages (About + Contact). No resolver:
   // the copy is static, so meta (title/description/canonical/OG) is set in each

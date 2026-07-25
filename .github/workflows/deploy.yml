@@ -287,13 +287,22 @@ jobs:
           # ADR 0017). The test user is the admin account (test@thewbsproject.com),
           # and its `role='admin'` D1 profile is seeded by `dev:bound` ->
           # `db:seed:local` (apps/api/seed/auth-fixtures.sql).
+          # AECI-522: `vendor-dashboard.spec.ts` mints a real `vendor_admin` session
+          # from SUPABASE_VENDOR_TEST_USER_*, likewise warn-and-skip when unset. Its
+          # `role='vendor_admin'` D1 profile (with a non-null vendor_id) is seeded
+          # alongside the admin one (apps/api/seed/auth-fixtures.sql).
           SUPABASE_URL: https://ktuhnlypztujpsseujzx.supabase.co
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           SUPABASE_TEST_USER_EMAIL: ${{ secrets.SUPABASE_TEST_USER_EMAIL }}
           SUPABASE_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_TEST_USER_PASSWORD }}
+          SUPABASE_VENDOR_TEST_USER_EMAIL: ${{ secrets.SUPABASE_VENDOR_TEST_USER_EMAIL }}
+          SUPABASE_VENDOR_TEST_USER_PASSWORD: ${{ secrets.SUPABASE_VENDOR_TEST_USER_PASSWORD }}
         run: |
           if [ -z "$SUPABASE_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_TEST_USER_PASSWORD" ]; then
             echo "::warning::SUPABASE_TEST_USER_EMAIL/PASSWORD not set — authed-console.spec.ts (AECI-235) will skip its 4 authed-page console checks."
+          fi
+          if [ -z "$SUPABASE_VENDOR_TEST_USER_EMAIL" ] || [ -z "$SUPABASE_VENDOR_TEST_USER_PASSWORD" ]; then
+            echo "::warning::SUPABASE_VENDOR_TEST_USER_EMAIL/PASSWORD not set — vendor-dashboard.spec.ts (AECI-522) will skip its authed vendor-portal checks."
           fi
           pnpm --filter @aeci/web run test:e2e
       # Edge-cache assertions against the same server. `!cancelled()` so it still

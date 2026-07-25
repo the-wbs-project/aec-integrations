@@ -32,6 +32,7 @@ import { AdminStatus } from '../admin/admin-status';
 import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { AuthService } from '../auth/auth.service';
 import { signOutAndGoHome } from '../auth/sign-out';
+import { VendorStatus } from '../vendor/vendor-status';
 
 @Component({
   selector: 'aec-user-menu',
@@ -87,6 +88,19 @@ import { signOutAndGoHome } from '../auth/sign-out';
             Account
           </a>
 
+          @if (vendorStatus.isVendor()) {
+            <div class="mt-1 border-t border-(--border-default) pt-1">
+              <a
+                routerLink="/vendor"
+                (click)="menu.close()"
+                class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                i18n="@@app.header.vendorDashboard"
+              >
+                Vendor dashboard
+              </a>
+            </div>
+          }
+
           @if (adminStatus.isAdmin()) {
             <div class="mt-1 border-t border-(--border-default) pt-1">
               <p
@@ -141,6 +155,7 @@ import { signOutAndGoHome } from '../auth/sign-out';
 })
 export class UserMenu {
   protected readonly adminStatus = inject(AdminStatus);
+  protected readonly vendorStatus = inject(VendorStatus);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly auth = inject(AuthService);
 

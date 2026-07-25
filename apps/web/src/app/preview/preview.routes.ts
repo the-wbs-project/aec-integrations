@@ -59,4 +59,14 @@ export const previewRoutes: Routes = [
     loadComponent: () =>
       import('./integration-pair/integration-pair-preview').then((m) => m.IntegrationPairPreview),
   },
+  // AECI-522 — the Stage 2 vendor dashboard, rendered as two live-toggleable
+  // information-architecture concepts (tabbed vs single-page) so the PO chooses
+  // one before it's wired into the real gated `/vendor` route. The real dashboard
+  // components are used verbatim, fed synthetic fixtures with the `VendorApi`
+  // shadowed by a fixture-backed fake.
+  {
+    path: 'vendor-dashboard',
+    loadComponent: () =>
+      import('./vendor-dashboard/vendor-dashboard-preview').then((m) => m.VendorDashboardPreview),
+  },
 ];
