@@ -25,6 +25,7 @@ const fixtureResponse: ProductsListResponse = {
         name: 'Procore Technologies',
         slug: 'procore',
         logo_url: null,
+        verified: false,
       },
       primary_category: {
         id: '00000000-0000-4000-8000-000000030001',

@@ -17,6 +17,7 @@ import { LogoOrInitial } from '../shared/logo-or-initial/logo-or-initial';
 import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-signup';
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
+import { VerifiedBadge } from '../shared/verified-badge/verified-badge';
 
 import { ProductIntegrationRow } from './product-integration-row';
 import { ProductReviews } from './product-reviews';
@@ -73,6 +74,7 @@ import { ProductUsefulnessSection } from './product-usefulness';
     RouterLink,
     SectionNav,
     TaxonomyBadge,
+    VerifiedBadge,
   ],
   template: `
     @let p = product();
@@ -218,9 +220,12 @@ import { ProductUsefulnessSection } from './product-usefulness';
                   hover:border-(--border-strong)"
               >
                 <aec-logo-or-initial [src]="v.logo_url" [name]="v.name" alt="" size="sm" />
-                <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
-                  v.name
-                }}</span>
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <span class="min-w-0 break-words font-medium text-(--text-primary)">{{
+                    v.name
+                  }}</span>
+                  <aec-verified-badge [verified]="v.verified" variant="compact" />
+                </span>
               </a>
             } @else {
               <p

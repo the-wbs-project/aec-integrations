@@ -18,6 +18,7 @@ const validVendorLink = {
   name: 'Procore',
   slug: 'procore',
   logo_url: 'https://cdn.example.com/procore.png',
+  verified: true,
 };
 
 const validPrimaryCategory = {

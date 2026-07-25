@@ -112,8 +112,10 @@ describe('VendorLinkSchema / ProductLinkSchema', () => {
       name: 'Procore',
       slug: 'procore',
       logo_url: 'https://cdn.brandfetch.io/procore.png',
+      verified: true,
     });
     expect(parsed.logo_url).toBe('https://cdn.brandfetch.io/procore.png');
+    expect(parsed.verified).toBe(true);
   });
 
   it('accepts a null logo URL', () => {
@@ -132,6 +134,17 @@ describe('VendorLinkSchema / ProductLinkSchema', () => {
       name: 'Procore',
       slug: 'procore',
       logo_url: 'not a url',
+      verified: false,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('requires the verified bit on a vendor link', () => {
+    const result = VendorLinkSchema.safeParse({
+      id: validUuid,
+      name: 'Procore',
+      slug: 'procore',
+      logo_url: null,
     });
     expect(result.success).toBe(false);
   });

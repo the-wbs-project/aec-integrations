@@ -71,7 +71,13 @@ import {
 // Leaf column sets (reused by several parents)
 // ---------------------------------------------------------------------------
 
-const vendorLinkColumns = { id: true, companyName: true, slug: true, logoUrl: true } as const;
+const vendorLinkColumns = {
+  id: true,
+  companyName: true,
+  slug: true,
+  logoUrl: true,
+  verified: true,
+} as const;
 const productLinkColumns = { id: true, name: true, slug: true, logoUrl: true } as const;
 const taxonomyLinkColumns = { id: true, name: true, slug: true } as const;
 const taxonomyLinkWithOrderColumns = { ...taxonomyLinkColumns, displayOrder: true } as const;
@@ -387,6 +393,7 @@ interface RawVendorLink {
   companyName: string;
   slug: string;
   logoUrl: string | null;
+  verified: boolean;
 }
 interface RawProductLink {
   id: string;
@@ -614,7 +621,13 @@ function toProductLink(raw: RawProductLink): ProductLink {
   return { id: raw.id, name: raw.name, slug: raw.slug, logo_url: raw.logoUrl };
 }
 function toVendorLink(raw: RawVendorLink): VendorLink {
-  return { id: raw.id, name: raw.companyName, slug: raw.slug, logo_url: raw.logoUrl };
+  return {
+    id: raw.id,
+    name: raw.companyName,
+    slug: raw.slug,
+    logo_url: raw.logoUrl,
+    verified: raw.verified,
+  };
 }
 function synthesizeIntegrationName(
   rawName: string | null,
