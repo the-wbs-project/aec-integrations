@@ -40,6 +40,7 @@ import { AdminSummaryStore } from '../admin/admin-summary.store';
 import { AuthService } from '../auth/auth.service';
 import { SessionStatus } from '../auth/session-status';
 import { signOutAndGoHome } from '../auth/sign-out';
+import { VendorStatus } from '../vendor/vendor-status';
 import { TaxonomyNavStore } from '../core/taxonomy/taxonomy-nav.store';
 import { SearchAutocomplete } from '../search/search-autocomplete';
 import type { AutocompleteSuggestion } from '../search/autocomplete-mapping';
@@ -200,6 +201,17 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
                 Account
               </a>
 
+              @if (vendorStatus.isVendor()) {
+                <a
+                  routerLink="/vendor"
+                  (click)="menu.close()"
+                  class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+                  i18n="@@app.header.vendorDashboard"
+                >
+                  Vendor dashboard
+                </a>
+              }
+
               @if (adminStatus.isAdmin()) {
                 <p
                   class="aec-overline px-3 pt-1 text-(--text-secondary)"
@@ -265,6 +277,7 @@ export class NavMenu {
   private readonly taxonomy = inject(TaxonomyNavStore);
   protected readonly session = inject(SessionStatus);
   protected readonly adminStatus = inject(AdminStatus);
+  protected readonly vendorStatus = inject(VendorStatus);
   private readonly summaryStore = inject(AdminSummaryStore);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
