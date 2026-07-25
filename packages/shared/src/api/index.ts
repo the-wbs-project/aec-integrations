@@ -14,6 +14,7 @@ export * from './requests';
 export * from './reviews';
 export * from './stats';
 export * from './taxonomy';
+export * from './vendor';
 export * from './vendors';
 export * from './version';
 export * from './webhooks';

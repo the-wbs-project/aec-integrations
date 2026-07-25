@@ -9,7 +9,7 @@ import { Hono } from 'hono';
 import { getDb } from './db/client';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
-import { requireAdmin, requireAuth, type AuthzVariables } from './lib/authz';
+import { requireAdmin, requireAuth, requireVendor, type AuthzVariables } from './lib/authz';
 import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
@@ -53,6 +53,12 @@ import { createLinearWebhookHandler } from './routes/webhooks';
 import { createTaxonomyHandler } from './routes/taxonomy';
 import { createTaxonomyDetailHandler } from './routes/taxonomy-detail';
 import { createTaxonomyListHandler } from './routes/taxonomy-list';
+import {
+  createUpdateVendorProductHandler,
+  createUpdateVendorProfileHandler,
+  createVendorMeHandler,
+  createVendorSeatsHandler,
+} from './routes/vendor';
 import { createVendorDetailHandler, createVendorsListHandler } from './routes/vendors';
 import { createVersionHandler } from './routes/version';
 import { queue, scheduled } from './scheduled';
@@ -261,6 +267,27 @@ authAdmin.patch(
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 app.route('/', authAdmin);
+
+// Stage 2 vendor-portal sub-router (AECI-520, `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+// Same shape as `authAdmin` but gated by `requireVendor()`: valid JWT, not banned,
+// `role === 'vendor_admin'`, non-null `vendor_id`. A site `admin` is rejected here
+// on purpose — there is no impersonation at launch, admins act via `/api/admin/*`.
+//
+// The guard only establishes WHICH vendor is calling; there is no RLS behind it,
+// so every handler additionally scopes its queries by `c.get('auth').vendorId` and
+// proves ownership of any client-supplied id before writing.
+//   - GET   /api/vendor/me           — dashboard payload (vendor + products +
+//     request status + seat count).
+//   - GET   /api/vendor/seats        — the vendor's seat roster (read-only).
+//   - PATCH /api/vendor/profile      — edit the caller's own vendor row.
+//   - PATCH /api/vendor/products/:id — edit an owned product (cross-vendor → 404).
+const authVendor = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
+authVendor.onError(errorHandler());
+authVendor.get('/api/vendor/me', requireVendor(), createVendorMeHandler());
+authVendor.get('/api/vendor/seats', requireVendor(), createVendorSeatsHandler());
+authVendor.patch('/api/vendor/profile', requireVendor(), createUpdateVendorProfileHandler());
+authVendor.patch('/api/vendor/products/:id', requireVendor(), createUpdateVendorProductHandler());
+app.route('/', authVendor);
 
 // Catch-alls throw so the root `onError` renders the canonical §3.3 envelope
 // (AECI-101) — an unmatched `/api/*` route parses with `ApiErrorSchema` too.
