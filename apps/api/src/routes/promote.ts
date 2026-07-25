@@ -697,9 +697,17 @@ export function createPromoteHandler(
     // ── Claimed-vendor guard (AECI-520) ──────────────────────────────────────
     // Once AECi grants a vendor-portal seat, that vendor's row — and every
     // product it owns — is vendor-owned: the vendor edits it through
-    // `/api/vendor/*`, and this endpoint writes exactly the same columns. So the
-    // review app is blocked from overwriting them (STAGE_2_VENDOR_PORTAL_SPEC.md
-    // §4; the AECI-520 decision). Everything else in the payload still promotes.
+    // `/api/vendor/*`, which writes an overlapping set of columns (description,
+    // links, logo, taxonomy). So the review app is blocked from overwriting it
+    // (STAGE_2_VENDOR_PORTAL_SPEC.md §4). Everything else still promotes.
+    //
+    // The block is deliberately WHOLESALE, not column-by-column: a claimed
+    // vendor's row/products are skipped entirely. That means AECi's own curation
+    // columns on those rows (`name`, `promotion_status`, `research_*`,
+    // `priority_*`, `admin_notes`) also stop updating through promote — accepted
+    // at launch because vendor volume is low and the concierge model has a human
+    // in the loop, but it is the cost of the simple rule. An admin-side edit
+    // surface for claimed rows is the follow-up if that bites.
     //
     // Both reads run BEFORE the first `stmts.push`, because the decision has to
     // be available to the taxonomy resolution ~100 lines below — that step mints
@@ -1169,6 +1177,15 @@ export function createPromoteHandler(
     // promoted, and it only covers the `ref` form. `PromotePayloadSchema`'s
     // superRefine constrains only `ref` endpoints, so `{ supabaseId: <the blocked
     // product> }` is a legal payload that would otherwise slip straight through.
+    //
+    // SCOPE, precisely: this cascades off THIS payload's blocked product only. A
+    // payload promoting some other product may still write an integration whose
+    // far endpoint is a claimed vendor's product. That is intentional —
+    // integrations are AECi-curated and are NOT vendor-editable (nothing in
+    // `/api/vendor/*` writes them), so no vendor-owned content is overwritten;
+    // only the far product's denormalized `integration_count` moves, which is
+    // AECi-owned aggregate state. Checking ownership of every endpoint would
+    // block legitimate curation for no ownership reason.
     const touchesBlockedProduct = (ref: EntityRef): boolean =>
       productBlocked &&
       ((ref.ref !== undefined && ref.ref === p?.ref) ||

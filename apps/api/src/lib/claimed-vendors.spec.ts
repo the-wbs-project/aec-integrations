@@ -68,6 +68,31 @@ describe('loadClaimedVendorIds', () => {
     expect(await loadClaimedVendorIds(t.db, [V1, V2, V3])).toEqual(new Set());
   });
 
+  it('does not count a banned seat — moderation must not lock the record', async () => {
+    // A banned seat fails requireVendor() on every /api/vendor/* call. If it
+    // still marked the vendor as claimed, a vendor whose only seat was banned
+    // would have no writer at all: locked out of the portal AND immune to the
+    // review app. Control has to come back to AECi.
+    await t.db.insert(profiles).values({
+      id: 'u-banned',
+      role: VENDOR_ADMIN_ROLE,
+      vendorId: V1,
+      bannedAt: '2026-07-01T00:00:00.000Z',
+    });
+    expect(await loadClaimedVendorIds(t.db, [V1])).toEqual(new Set());
+  });
+
+  it('stays claimed when one of several seats is banned (ban is per-seat)', async () => {
+    await seat('u-active', VENDOR_ADMIN_ROLE, V1);
+    await t.db.insert(profiles).values({
+      id: 'u-banned',
+      role: VENDOR_ADMIN_ROLE,
+      vendorId: V1,
+      bannedAt: '2026-07-01T00:00:00.000Z',
+    });
+    expect(await loadClaimedVendorIds(t.db, [V1])).toEqual(new Set([V1]));
+  });
+
   it('collapses multiple seats on one vendor (multi-seat, flat)', async () => {
     await seat('u1', VENDOR_ADMIN_ROLE, V1);
     await seat('u2', VENDOR_ADMIN_ROLE, V1);

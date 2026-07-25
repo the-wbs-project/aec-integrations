@@ -40,6 +40,7 @@ import {
   UpdateVendorProfileSchema,
   VendorMeResponseSchema,
   type ListVendorSeatsResponse,
+  type UpdateVendorProductInput,
   type UpdateVendorProductResponse,
   type UpdateVendorProfileResponse,
   type VendorAccount,
@@ -53,7 +54,7 @@ import {
   type AuditLogEntry,
   type AuditLogForwarder,
 } from '@aeci/shared/audit-log';
-import { and, asc, eq, inArray, or } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, or } from 'drizzle-orm';
 import type { Context } from 'hono';
 import type { ZodType } from 'zod';
 
@@ -99,9 +100,6 @@ const AUDIT_SOURCE = 'vendor-portal';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** The session's vendor id. `requireVendor()` guarantees it is non-null, so a
- *  miss here means the guard was not mounted — fail loudly rather than fall
- *  back to something that would read another vendor's rows. */
 /**
  * "The seats on this vendor" — a granted vendor-portal seat is a `profiles` row
  * with BOTH `vendor_id = <vendor>` and `role = 'vendor_admin'`. Shared by the
@@ -112,6 +110,9 @@ function seatsOf(vendorId: string) {
   return and(eq(profiles.vendorId, vendorId), eq(profiles.role, VENDOR_ADMIN_ROLE));
 }
 
+/** The session's vendor id. `requireVendor()` guarantees it is non-null, so a
+ *  miss here means the guard was not mounted — fail loudly rather than fall
+ *  back to something that would read another vendor's rows. */
 function sessionVendorId(c: VendorContext): string {
   const vendorId = c.get('auth').vendorId;
   if (!vendorId) {
@@ -149,25 +150,49 @@ async function parseJsonBody<T>(c: VendorContext, schema: ZodType<T>): Promise<T
  * consumer issues the actual `ctx.cache.purge()`. Best-effort by design: no-ops
  * without the queue binding (local / PR preview) and a `queue.send` rejection is
  * logged and swallowed — a cache miss must never fail a committed edit.
- *
- * One tag is enough in both cases because of the `CACHE_STRATEGY.md` §3 embedded
- * -entity rule: browse and index pages tag every product they list, so a taxonomy
- * re-assignment is covered by `product:{slug}` on both the old and the new browse
- * page; and a product detail page tags its vendor, so `vendor:{slug}` repaints
- * every page showing that vendor.
  */
-async function purgeTag(c: VendorContext, tag: string): Promise<void> {
+async function purgeTags(c: VendorContext, tags: readonly string[]): Promise<void> {
   const queue = c.env.CACHE_PURGE_QUEUE;
-  if (!queue) return;
+  if (!queue || tags.length === 0) return;
   try {
-    await queue.send({ tags: [tag], source: 'vendor' });
+    await queue.send({ tags: [...tags], source: 'vendor' });
   } catch (error) {
     logToDatadog(c.executionCtx, c.env, c.req.raw, {
       level: 'warn',
-      message: `Cache purge enqueue failed for ${tag}`,
+      message: `Cache purge enqueue failed for ${tags.join(',')}`,
       outcome: error instanceof Error ? error.message : String(error),
     });
   }
+}
+
+/**
+ * Tags a product edit invalidates.
+ *
+ * `product:{slug}` covers the detail page and every browse/index page that
+ * ALREADY lists the product (`CACHE_STRATEGY.md` §3 rule 2 — a browse page tags
+ * each product it lists). It does NOT cover a browse page the product has just
+ * been added to: that page never listed it, so it never carried the tag. So the
+ * taxonomy tags are emitted for the UNION of the facet membership before and
+ * after the edit — the page it left and the page it joined both repaint. Same
+ * rule the promote deriver follows (`promote-cache-tags.ts` — "created *and*
+ * reused … the product's facet membership changed either way").
+ *
+ * `taxonomy` is deliberately NOT emitted: that tag is for a change to the term
+ * SET, and a vendor can only assign existing terms, never mint one.
+ */
+function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlugs): string[] {
+  const tags = new Set<string>([`product:${slug}`]);
+  const facets: ReadonlyArray<[string, keyof TaxonomySlugs]> = [
+    ['category', 'categories'],
+    ['audience', 'audiences'],
+    ['phase', 'phases'],
+  ];
+  for (const [prefix, bucket] of facets) {
+    for (const termSlug of [...before[bucket], ...after[bucket]]) {
+      tags.add(`${prefix}:${termSlug}`);
+    }
+  }
+  return [...tags];
 }
 
 // ─── Row → wire mappers ──────────────────────────────────────────────────────
@@ -271,6 +296,51 @@ async function loadTaxonomySlugs(
 const NO_TAXONOMY: TaxonomySlugs = { categories: [], audiences: [], phases: [] };
 
 /**
+ * The three taxonomy facets, as data.
+ *
+ * Each facet has to be handled in four places on a product edit — term
+ * resolution, the before/after audit state, and the batch's delete+reinsert.
+ * Written out longhand that is twelve near-identical fragments that must agree
+ * about "did the caller send this facet?", and a fourth facet (Stage 2 has
+ * `data_object` waiting) would mean twelve correct edits. Driving them off one
+ * table makes the agreement structural instead of remembered.
+ */
+const FACETS = [
+  {
+    field: 'category_slugs',
+    bucket: 'categories',
+    terms: taxonomyCategories,
+    join: productCategories,
+    row: (productId: string, categoryId: string) => ({ productId, categoryId }),
+  },
+  {
+    field: 'audience_slugs',
+    bucket: 'audiences',
+    terms: taxonomyAudiences,
+    join: productAudiences,
+    row: (productId: string, audienceId: string) => ({ productId, audienceId }),
+  },
+  {
+    field: 'phase_slugs',
+    bucket: 'phases',
+    terms: taxonomyPhases,
+    join: productPhases,
+    row: (productId: string, phaseId: string) => ({ productId, phaseId }),
+  },
+] as const satisfies ReadonlyArray<{
+  field: keyof UpdateVendorProductInput & `${string}_slugs`;
+  bucket: keyof TaxonomySlugs;
+  terms: typeof taxonomyCategories | typeof taxonomyAudiences | typeof taxonomyPhases;
+  join: typeof productCategories | typeof productAudiences | typeof productPhases;
+  row: (productId: string, termId: string) => Record<string, string>;
+}>;
+
+/** Narrow a Drizzle row to the given property names — the `beforeState` shape. */
+function pickColumns(row: object, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.map((key) => [key, (row as Record<string, unknown>)[key]]));
+}
+
+/**
  * Resolve requested term slugs to ids, rejecting any that don't exist.
  *
  * Vendors ASSIGN taxonomy; they don't MINT it (`STAGE_2_VENDOR_PORTAL_SPEC.md`
@@ -357,8 +427,9 @@ export function createVendorMeHandler(
       loadTaxonomySlugs(db, productIds),
       // Must use the SAME predicate as `GET /api/vendor/seats`, or the dashboard
       // reports a seat count the roster can't account for — a `reviewer` profile
-      // pointing at this vendor is not a seat.
-      db.select({ id: profiles.id }).from(profiles).where(seatsOf(vendorId)),
+      // pointing at this vendor is not a seat. Only the count is consumed, so
+      // count it in SQL rather than shipping every row back.
+      db.select({ value: count() }).from(profiles).where(seatsOf(vendorId)),
       // The vendor's own claim/correction requests: those targeting the vendor
       // itself, plus those targeting any product it owns.
       db.query.vendorRequests.findMany({
@@ -392,7 +463,7 @@ export function createVendorMeHandler(
         }),
       ),
       // The caller is a seat, so this is ≥ 1 by construction.
-      seat_count: Math.max(seatRows.length, 1),
+      seat_count: Math.max(seatRows[0]?.value ?? 0, 1),
     };
 
     validateResponseInDev(c.env, () => VendorMeResponseSchema.parse(body));
@@ -476,7 +547,12 @@ export function createUpdateVendorProfileHandler(
     const before = await db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) });
     if (!before) throw notFoundError('vendor', { id: vendorId });
 
-    const { columns, provided } = splitPatch(payload, VENDOR_COLUMN_MAP);
+    const { columns } = splitPatch(payload, VENDOR_COLUMN_MAP);
+    // `updatedAt` is stamped rather than left to `$onUpdate` so the response can
+    // be built from data already in hand (see the product handler). It is kept
+    // OUT of `columns` so the audit row records the vendor's edit and not a
+    // system column they never touched.
+    const writeColumns = { ...columns, updatedAt: new Date().toISOString() };
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -484,24 +560,28 @@ export function createUpdateVendorProfileHandler(
       action: 'vendor.updated',
       entityType: 'vendor',
       entityId: vendorId,
-      beforeState: Object.fromEntries(
-        Object.keys(columns).map((column) => [column, (before as Record<string, unknown>)[column]]),
-      ),
+      beforeState: pickColumns(before, Object.keys(columns)),
       afterState: columns,
-      metadata: { source: AUDIT_SOURCE, vendorId, fields: provided },
+      // Zod strips unknown keys and omits absent optionals, so the payload's own
+      // keys ARE the list of fields the vendor sent.
+      metadata: { source: AUDIT_SOURCE, vendorId, fields: Object.keys(payload) },
     };
 
     await db.batch([
-      db.update(vendors).set(columns).where(eq(vendors.id, vendorId)),
+      db.update(vendors).set(writeColumns).where(eq(vendors.id, vendorId)),
       auditInsert(db, auditEntry),
     ] as BatchTuple);
 
-    const after = await db.query.vendors.findFirst({ where: eq(vendors.id, vendorId) });
-    if (!after) throw notFoundError('vendor', { id: vendorId });
+    // The batch committed exactly `writeColumns`, so re-reading the row would
+    // only cost a round-trip — and could 404 a write that actually succeeded.
+    const after = { ...before, ...writeColumns } as VendorRow;
 
     c.executionCtx.waitUntil(
       Promise.all([
-        purgeTag(c, `vendor:${after.slug}`),
+        // `vendor:{slug}` is enough here: a product detail page embeds its
+        // vendor and therefore carries this tag (`CACHE_STRATEGY.md` §3 rule 2),
+        // so every page showing the vendor repaints.
+        purgeTags(c, [`vendor:${after.slug}`]),
         forwardAuditLog(auditEntry, makeForwarder(c)),
       ]),
     );
@@ -537,34 +617,49 @@ export function createUpdateVendorProductHandler(
     const payload = await parseJsonBody(c, UpdateVendorProductSchema);
     const { db } = writeDb(c, dbFor);
 
-    // Ownership FIRST, and a miss is a 404 — a vendor must not be able to probe
-    // for the existence of another vendor's product. This single check is what
-    // stands in for the RLS row filter.
-    const ownership = await db.query.productVendors.findFirst({
-      where: and(eq(productVendors.productId, productId), eq(productVendors.vendorId, vendorId)),
-    });
-    if (!ownership) throw notFoundError('product', { id: productId });
-
-    const before = await db.query.products.findFirst({ where: eq(products.id, productId) });
-    if (!before) throw notFoundError('product', { id: productId });
-
-    const { columns, provided } = splitPatch(payload, PRODUCT_COLUMN_MAP);
-
-    // Resolve every requested term before opening the batch, so an unknown slug
-    // is a 400 and not a half-applied edit.
-    const [categoryIds, audienceIds, phaseIds] = await Promise.all([
-      payload.category_slugs
-        ? resolveTermIds(db, taxonomyCategories, payload.category_slugs, 'category_slugs')
-        : Promise.resolve(null),
-      payload.audience_slugs
-        ? resolveTermIds(db, taxonomyAudiences, payload.audience_slugs, 'audience_slugs')
-        : Promise.resolve(null),
-      payload.phase_slugs
-        ? resolveTermIds(db, taxonomyPhases, payload.phase_slugs, 'phase_slugs')
-        : Promise.resolve(null),
+    // One read wave. Everything below is keyed off `productId` / `vendorId`,
+    // both known already, so nothing here has to wait on anything else; on a
+    // write session (`first-primary`, no replica) each serial round-trip lands
+    // straight in the vendor's save spinner.
+    const [ownership, before, beforeTaxonomy, ...facetIds] = await Promise.all([
+      // Ownership FIRST in intent: a vendor must not be able to probe for the
+      // existence of another vendor's product, so a miss is a 404. This check is
+      // what stands in for the RLS row filter.
+      db.query.productVendors.findFirst({
+        where: and(eq(productVendors.productId, productId), eq(productVendors.vendorId, vendorId)),
+      }),
+      db.query.products.findFirst({ where: eq(products.id, productId) }),
+      loadTaxonomySlugs(db, [productId]).then((m) => m.get(productId) ?? NO_TAXONOMY),
+      // Resolve every requested term BEFORE the batch opens, so an unknown slug
+      // is a 400 rather than a half-applied edit.
+      ...FACETS.map((facet) => {
+        const slugs = payload[facet.field];
+        return slugs ? resolveTermIds(db, facet.terms, slugs, facet.field) : Promise.resolve(null);
+      }),
     ]);
+    if (!ownership || !before) throw notFoundError('product', { id: productId });
 
-    const beforeTaxonomy = (await loadTaxonomySlugs(db, [productId])).get(productId) ?? NO_TAXONOMY;
+    const { columns } = splitPatch(payload, PRODUCT_COLUMN_MAP);
+    // ALWAYS stamp `updated_at`, even for a taxonomy-only edit that touches no
+    // `products` column. Two things depend on it and both fail silently and
+    // permanently otherwise: the nightly Algolia sync selects rows by
+    // `updated_at` in the last window (`lib/algolia-sync.ts`) and the product
+    // record embeds its facet names, so a taxonomy-only edit would otherwise
+    // never reach search at all — not "within 24h", ever. Kept out of `columns`
+    // so the audit row records the vendor's edit, not a system column.
+    const writeColumns = { ...columns, updatedAt: new Date().toISOString() };
+
+    // Set replacement per facet: absent → untouched, `[]` → cleared.
+    const afterTaxonomy: TaxonomySlugs = { ...beforeTaxonomy };
+    const beforeFacets: Record<string, unknown> = {};
+    const afterFacets: Record<string, unknown> = {};
+    FACETS.forEach((facet, i) => {
+      if (facetIds[i] === null) return;
+      const slugs = [...new Set(payload[facet.field])].sort();
+      beforeFacets[facet.field] = beforeTaxonomy[facet.bucket];
+      afterFacets[facet.field] = slugs;
+      afterTaxonomy[facet.bucket] = slugs;
+    });
 
     const auditEntry: AuditLogEntry = {
       actorId: session.userId,
@@ -572,80 +667,38 @@ export function createUpdateVendorProductHandler(
       action: 'product.updated',
       entityType: 'product',
       entityId: productId,
-      beforeState: {
-        ...Object.fromEntries(
-          Object.keys(columns).map((column) => [
-            column,
-            (before as Record<string, unknown>)[column],
-          ]),
-        ),
-        ...(categoryIds ? { category_slugs: beforeTaxonomy.categories } : {}),
-        ...(audienceIds ? { audience_slugs: beforeTaxonomy.audiences } : {}),
-        ...(phaseIds ? { phase_slugs: beforeTaxonomy.phases } : {}),
-      },
-      afterState: {
-        ...columns,
-        ...(payload.category_slugs ? { category_slugs: payload.category_slugs } : {}),
-        ...(payload.audience_slugs ? { audience_slugs: payload.audience_slugs } : {}),
-        ...(payload.phase_slugs ? { phase_slugs: payload.phase_slugs } : {}),
-      },
-      metadata: {
-        source: AUDIT_SOURCE,
-        vendorId,
-        fields: [
-          ...provided,
-          ...(payload.category_slugs ? ['category_slugs'] : []),
-          ...(payload.audience_slugs ? ['audience_slugs'] : []),
-          ...(payload.phase_slugs ? ['phase_slugs'] : []),
-        ],
-      },
+      beforeState: { ...pickColumns(before, Object.keys(columns)), ...beforeFacets },
+      afterState: { ...columns, ...afterFacets },
+      // Zod strips unknown keys and omits absent optionals, so the payload's own
+      // keys ARE the list of fields the vendor sent.
+      metadata: { source: AUDIT_SOURCE, vendorId, fields: Object.keys(payload) },
     };
 
-    // One atomic unit: the column patch, each taxonomy facet's delete+reinsert
-    // (set replacement, so a facet the caller didn't send is untouched), and the
-    // audit row.
-    const stmts: BatchStmt[] = [];
-    if (Object.keys(columns).length > 0) {
-      stmts.push(db.update(products).set(columns).where(eq(products.id, productId)));
-    }
-    if (categoryIds) {
-      stmts.push(db.delete(productCategories).where(eq(productCategories.productId, productId)));
-      if (categoryIds.length) {
-        stmts.push(
-          db
-            .insert(productCategories)
-            .values(categoryIds.map((id) => ({ productId, categoryId: id }))),
-        );
+    // One atomic unit: the column patch, each sent facet's delete+reinsert, and
+    // the audit row (§26.1).
+    const stmts: BatchStmt[] = [
+      db.update(products).set(writeColumns).where(eq(products.id, productId)),
+    ];
+    FACETS.forEach((facet, i) => {
+      const ids = facetIds[i];
+      if (ids === null) return;
+      stmts.push(db.delete(facet.join).where(eq(facet.join.productId, productId)));
+      if (ids.length) {
+        stmts.push(db.insert(facet.join).values(ids.map((id) => facet.row(productId, id))));
       }
-    }
-    if (audienceIds) {
-      stmts.push(db.delete(productAudiences).where(eq(productAudiences.productId, productId)));
-      if (audienceIds.length) {
-        stmts.push(
-          db
-            .insert(productAudiences)
-            .values(audienceIds.map((id) => ({ productId, audienceId: id }))),
-        );
-      }
-    }
-    if (phaseIds) {
-      stmts.push(db.delete(productPhases).where(eq(productPhases.productId, productId)));
-      if (phaseIds.length) {
-        stmts.push(
-          db.insert(productPhases).values(phaseIds.map((id) => ({ productId, phaseId: id }))),
-        );
-      }
-    }
+    });
     stmts.push(auditInsert(db, auditEntry));
     await db.batch(stmts as BatchTuple);
 
-    const after = await db.query.products.findFirst({ where: eq(products.id, productId) });
-    if (!after) throw notFoundError('product', { id: productId });
-    const afterTaxonomy = (await loadTaxonomySlugs(db, [productId])).get(productId) ?? NO_TAXONOMY;
+    // The batch committed exactly `writeColumns` and exactly the facets above,
+    // so the post-write state is known without reading it back. Re-reading would
+    // cost four more statements AND could 404 a write that actually succeeded,
+    // if the row vanished between the batch and the read.
+    const after = { ...before, ...writeColumns } as ProductRow;
 
     c.executionCtx.waitUntil(
       Promise.all([
-        purgeTag(c, `product:${after.slug}`),
+        purgeTags(c, productEditTags(after.slug, beforeTaxonomy, afterTaxonomy)),
         forwardAuditLog(auditEntry, makeForwarder(c)),
       ]),
     );

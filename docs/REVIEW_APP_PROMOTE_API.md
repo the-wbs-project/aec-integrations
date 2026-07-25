@@ -324,7 +324,7 @@ What that looks like in a response:
 |---|---|
 | You update a **claimed vendor** | The vendor is **absent** from `vendors[]`; `skipped[]` gains `{ ref, kind: "vendor", reason: "vendor is claimed by a vendor admin; …" }`. Its columns are unchanged. |
 | You update an **existing product a claimed vendor owns** — or a product this payload would attach to one | `product` is `null`; `skipped[]` gains `{ ref, kind: "product", reason: "product belongs to a claimed vendor; …" }`. Nothing about the product changes, including its vendor/taxonomy/extension links. |
-| An integration has an endpoint on that blocked product | Skipped with `kind: "integration"` and a reason mentioning the claimed vendor. |
+| An integration in that same payload has an endpoint on the blocked product | Skipped with `kind: "integration"` and a reason mentioning the claimed vendor. |
 | You **create** a new vendor or product | Never blocked — nothing vendor-owned exists yet. |
 | Anything else in the same payload | Promotes normally. |
 
@@ -334,6 +334,23 @@ vendor (through their portal) or with an AECi admin, not with a re-push.
 
 The taxonomy facets on a blocked product are not resolved at all, so
 `taxonomy` comes back empty for that push and no new term is created.
+
+**Two scope notes, so the behaviour isn't surprising:**
+
+- The block is **wholesale**, not column-by-column. A claimed vendor's row and
+  its products are skipped entirely, so AECi's own curation fields on those rows
+  (`name`, `promotionStatus`, `researchStatus`, `priorityTier`, `adminNotes`, …)
+  also stop updating through promote. That is the cost of the simple rule; raise
+  it with AECi if a claimed vendor's product needs a curation change.
+- The integration cascade covers **the product in this payload**. An integration
+  whose *far* endpoint happens to be a claimed vendor's product still writes,
+  because integrations are AECi-curated and are not vendor-editable — no
+  vendor-owned content is at stake there.
+
+A vendor is **claimed** only while it has at least one **active** portal seat. If
+AECi bans a vendor's only admin, the vendor is no longer claimed and promote can
+write to it again — that is deliberate, so moderation hands control back to AECi
+rather than freezing the record.
 
 ---
 

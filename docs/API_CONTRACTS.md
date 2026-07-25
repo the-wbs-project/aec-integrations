@@ -1267,11 +1267,23 @@ routine push would silently revert their work. Therefore:
 - An existing product that a claimed vendor owns today, **or** that this payload
   would join to one, is blocked **wholesale** (all columns, plus its
   `product_vendors` / taxonomy / extension join rewrites and its `usefulness`) —
-  reported as `skipped[] { kind: 'product' }`.
-- Integrations with an endpoint on the blocked product cascade-skip (matched by
-  both `ref` and `supabaseId`).
+  reported as `skipped[] { kind: 'product' }`. Wholesale means AECi's own
+  curation columns on that row (`name`, `promotion_status`, `research_*`,
+  `priority_*`, `admin_notes`) also stop updating through promote — accepted at
+  launch given the concierge model's low volume and human in the loop.
+- Integrations in the same payload with an endpoint on **that** blocked product
+  cascade-skip (matched by both `ref` and `supabaseId` — the payload's
+  `superRefine` only constrains the `ref` form). The cascade is scoped to this
+  payload's product: an integration whose *far* endpoint is some other claimed
+  vendor's product still writes, because integrations are AECi-curated and are
+  not vendor-editable, so no vendor-owned content is at stake.
 - **Creation is never blocked** — nothing vendor-owned exists yet.
 - Unrelated vendors and integrations in the same payload still promote.
+- "Claimed" requires an **active** seat. Banning a vendor's only admin un-claims
+  it, so promote can write again — moderation returns control to AECi instead of
+  freezing a record nobody can then correct (the banned seat also fails every
+  `/api/vendor/*` call). Ban is per-seat, so a vendor with another active seat
+  stays claimed.
 
 Blocked entities are **omitted** from `vendors[]` / `product` rather than marked
 with a new `operation`, which is what keeps them out of the cache purge, IndexNow,

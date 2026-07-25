@@ -335,6 +335,37 @@ describe('PATCH /api/vendor/profile', () => {
     expect(row?.vqsTotal).toBeNull();
   });
 
+  // The Zod schema is the allow-list on the PARSE side; VENDOR_COLUMN_MAP is the
+  // allow-list on the WRITE side. If a field is added to one and not the other,
+  // the request either silently no-ops or 500s on `set({})`. Driving every field
+  // end-to-end is what keeps the two honest.
+  const VENDOR_FIELDS: ReadonlyArray<[string, unknown, keyof typeof vendors.$inferSelect]> = [
+    ['description', 'A description', 'description'],
+    ['website', 'https://autodesk.com', 'website'],
+    ['headquarters', 'San Francisco, CA', 'headquarters'],
+    ['founded_year', 1982, 'foundedYear'],
+    ['public_private', 'public', 'publicPrivate'],
+    ['parent_company', 'Autodesk Holdings', 'parentCompany'],
+    ['contact_email', 'ops@autodesk.com', 'contactEmail'],
+    ['phone_number', '+1 415 555 0100', 'phoneNumber'],
+    ['logo_url', 'https://cdn.autodesk.com/logo.png', 'logoUrl'],
+    ['linkedin_url', 'https://linkedin.com/company/autodesk', 'linkedinUrl'],
+    ['x_url', 'https://x.com/autodesk', 'xUrl'],
+    ['facebook_url', 'https://facebook.com/autodesk', 'facebookUrl'],
+    ['instagram_url', 'https://instagram.com/autodesk', 'instagramUrl'],
+    ['youtube_url', 'https://youtube.com/@autodesk', 'youtubeUrl'],
+    ['crunchbase_url', 'https://crunchbase.com/organization/autodesk', 'crunchbaseUrl'],
+    ['wiki_url', 'https://en.wikipedia.org/wiki/Autodesk', 'wikiUrl'],
+    ['github_org', 'autodesk', 'githubOrg'],
+  ];
+
+  it.each(VENDOR_FIELDS)('writes %s through to the column', async (field, value, column) => {
+    const { status } = await patchJson('/api/vendor/profile', { [field]: value });
+    expect(status).toBe(200);
+    const [row] = await t.db.select().from(vendors).where(eq(vendors.id, VENDOR));
+    expect(row?.[column]).toBe(value);
+  });
+
   it('rejects an empty body with 400 VALIDATION_FAILED', async () => {
     const { status, body } = await patchJson('/api/vendor/profile', {});
     expect(status).toBe(400);
@@ -423,6 +454,22 @@ describe('PATCH /api/vendor/products/:id', () => {
       api_docs_url: 'https://aps.autodesk.com/revit',
       is_primary: true,
     });
+  });
+
+  // Same drift guard as the vendor allow-list above.
+  const PRODUCT_FIELDS: ReadonlyArray<[string, string, keyof typeof products.$inferSelect]> = [
+    ['description', 'A product description', 'description'],
+    ['website', 'https://autodesk.com/revit', 'website'],
+    ['tool_integrations_url', 'https://autodesk.com/revit/integrations', 'toolIntegrationsUrl'],
+    ['api_docs_url', 'https://aps.autodesk.com/revit', 'apiDocsUrl'],
+    ['logo_url', 'https://cdn.autodesk.com/revit.png', 'logoUrl'],
+  ];
+
+  it.each(PRODUCT_FIELDS)('writes %s through to the column', async (field, value, column) => {
+    const { status } = await patchJson(`/api/vendor/products/${PRODUCT}`, { [field]: value });
+    expect(status).toBe(200);
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row?.[column]).toBe(value);
   });
 
   it('404s a product owned by another vendor without mutating it', async () => {
@@ -543,10 +590,44 @@ describe('PATCH /api/vendor/products/:id', () => {
 
   it('enqueues a product:<slug> purge with source:vendor', async () => {
     const { send } = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'New' });
-    expect(send.mock.calls[0][0] as CachePurgeMessage).toEqual({
-      tags: ['product:revit'],
-      source: 'vendor',
+    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    expect(msg.source).toBe('vendor');
+    // The product's current facet pages repaint too — its card copy changed.
+    expect(msg.tags?.sort()).toEqual(['category:bim', 'product:revit']);
+  });
+
+  it('purges the browse page a product JOINS, not just the one it leaves', async () => {
+    // `product:{slug}` only covers pages that already list the product
+    // (CACHE_STRATEGY.md §3 rule 2) — the page it was just added to never
+    // carried that tag, so without the union it stays stale for a full TTL and
+    // the vendor sees their product missing from its new category.
+    const { send } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+      category_slugs: ['cost-management'],
+      audience_slugs: ['architects'],
     });
+    const msg = send.mock.calls[0][0] as CachePurgeMessage;
+    expect(msg.tags?.sort()).toEqual([
+      'audience:architects', // joined
+      'category:bim', // left
+      'category:cost-management', // joined
+      'product:revit',
+    ]);
+  });
+
+  it('bumps updated_at even for a taxonomy-only edit (or it never reaches search)', async () => {
+    // The nightly Algolia sync selects by `updated_at`, and the product record
+    // embeds facet names. A taxonomy-only edit that skipped the UPDATE would
+    // never be picked up — permanently, not just for 24h.
+    const [seed] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    const { status, body } = await patchJson(`/api/vendor/products/${PRODUCT}`, {
+      category_slugs: ['cost-management'],
+    });
+    expect(status).toBe(200);
+
+    const [row] = await t.db.select().from(products).where(eq(products.id, PRODUCT));
+    expect(row?.updatedAt).not.toBe(seed?.updatedAt);
+    // …and the response reports the value that was actually written.
+    expect(body.product.updated_at).toBe(row?.updatedAt);
   });
 
   it('rolls the whole edit back when the audit row cannot be written (§26.1)', async () => {

@@ -1281,10 +1281,13 @@ export function createApp(options: {
     // SSR, the `/admin` resolver calls `GET /api/admin/summary`, and a 403 is
     // mapped to a 404 render (don't reveal the surface). GET-only so it can't
     // intercept the API Worker's earlier-registered `POST /admin/purge`.
-    // AECI-520 extends the same gate to the Stage 2 vendor portal `/vendor*`. An
-    // AUTHENTICATED non-vendor is likewise NOT handled here — it falls through to
-    // SSR, whose resolver calls `GET /api/vendor/me` and maps the 403 to a 404
-    // render, exactly like `/admin`.
+    // AECI-520 extends the same gate to the Stage 2 vendor portal `/vendor*`.
+    // The gate ships ahead of the surface it guards: there is no `/vendor` route
+    // in `app.routes.ts` yet (AECI-522 adds it), so an authenticated visitor
+    // currently falls through to the Angular wildcard 404. When that route lands
+    // it MUST carry the `/admin` resolver pattern — call `GET /api/vendor/me`
+    // and map a 403 to a 404 render — because this gate only stops ANONYMOUS
+    // visitors; an authenticated non-vendor reaches SSR either way.
     if (c.req.method === 'GET') {
       const url = new URL(c.req.url);
       const { path } = stripLocalePrefix(url.pathname);

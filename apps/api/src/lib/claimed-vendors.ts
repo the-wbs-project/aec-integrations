@@ -16,7 +16,7 @@
  * they share this helper rather than re-deriving it.
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 
 import type { Db } from '../db/client';
 import { profiles } from '../db/schema';
@@ -25,7 +25,19 @@ import { profiles } from '../db/schema';
 export const VENDOR_ADMIN_ROLE = 'vendor_admin';
 
 /**
- * Narrow `candidateIds` to those that have at least one `vendor_admin` seat.
+ * Narrow `candidateIds` to those that have at least one ACTIVE `vendor_admin`
+ * seat — banned seats don't count.
+ *
+ * The ban exclusion is what keeps moderation from locking a record. A banned
+ * seat fails the `requireVendor()` guard on every `/api/vendor/*` call (the §7
+ * gate), so if a banned seat still marked the vendor as claimed, a vendor whose
+ * only seat was banned would have NO writer at all: the vendor is locked out and
+ * the review app is refused. The content AECi banned them over would be the one
+ * thing nobody could correct. Excluding banned seats hands control back to AECi
+ * exactly when AECi takes it away from the vendor.
+ *
+ * Multi-seat vendors are unaffected: ban is per-seat (§7), so a vendor with
+ * another active seat stays claimed and its remaining admins keep working.
  *
  * Returns an empty set for an empty candidate list without touching D1 — the
  * caller decides the candidate list, and a promote that only creates rows has
@@ -41,7 +53,11 @@ export async function loadClaimedVendorIds(
 
   const rows = await db.query.profiles.findMany({
     columns: { vendorId: true },
-    where: and(eq(profiles.role, VENDOR_ADMIN_ROLE), inArray(profiles.vendorId, unique)),
+    where: and(
+      eq(profiles.role, VENDOR_ADMIN_ROLE),
+      isNull(profiles.bannedAt),
+      inArray(profiles.vendorId, unique),
+    ),
   });
 
   const claimed = new Set<string>();
