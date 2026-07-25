@@ -85,9 +85,63 @@ Three roles exist in `profiles.role`. All are set server-side — no client can 
 |---|---|---|
 | `reviewer` | Any authenticated user | Default role of the **D1** profile created by `POST /api/auth/profile/ensure` on first sign-in (the authoritative path under ADR 0016). The Postgres `handle_new_user()` trigger on `auth.users` still exists in the auth-only baseline but is **vestigial** — the app reads `profiles.role` from D1, not Postgres. See §8.1. |
 | `admin` | Chris and Bill | Manual `UPDATE profiles SET role='admin'` against the per-environment **D1** database |
-| `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement (the `vendor_admin` guard branch + `vendor_id` query-scoping, §9) ships with **AECI-520** — reserved/unused in code until then. |
+| `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). The claim form is anonymous, so the *identity* the grant links is resolved from `vendor_requests.submitter_email` by **seam #4** (§3.1) — either linking an existing `auth.users` row or provisioning one. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement (the `vendor_admin` guard branch + `vendor_id` query-scoping, §9) ships with **AECI-520** — reserved/unused in code until then. |
 
 Banned users retain their role but have `profiles.banned_at` set; the Worker (`apps/api/src/lib/authz.ts`) checks both identity and ban status against D1. (The Postgres `public.is_active_user()` helper is part of the historical RLS surface and no longer governs app-table access.)
+
+### 3.1 The split-identity seams (service-role operations)
+
+Under [ADR 0016](./adr/0016-d1-over-supabase-postgres.md) the application store (D1) and
+Supabase Auth are **separate systems**, so every `auth.users` coupling that used to be a
+privileged Postgres query is now app code crossing a system boundary. The original
+rationale and the numbering are ADR 0016 §3; **this table is the live register**, and it
+is the canonical list of **operations that legitimately require the service-role key** —
+the register [`CODE_REVIEW_CHECKLIST.md`](./CODE_REVIEW_CHECKLIST.md) refers to. Anything
+outside it must use a JWT-scoped path.
+
+| Seam | Operation | Code | GoTrue endpoint | Degrade when creds absent |
+|---|---|---|---|---|
+| **#1** provisioning | Idempotent D1 `profiles` create on the first authenticated request. The **primary** creator under D1 (no `handle_new_user` trigger). | `routes/auth-profile.ts` | *none — D1 only, no service role* | n/a |
+| **#2** `auth.users` email reads | Reviewer emails for the admin moderation queue. | `lib/supabase-admin.ts` → `fetchAuthUserEmails` | `GET /auth/v1/admin/users/:id` | `reviewer_email: null`; the queue stays usable |
+| **#3** GDPR erasure | Delete the `auth.users` row **after** the D1 erasure batch commits (§8). | `lib/supabase-admin.ts` → `deleteAuthUser` | `DELETE /auth/v1/admin/users/:id` | **Skipped** — the D1 erasure already completed, but the `auth.users` row **survives** and needs manual cleanup (§8 step 4) |
+| **#4a** claimant lookup | Resolve a vendor claim's `submitter_email` → an `auth.users` id so the grant can link a `profiles` row. Also batched for the admin claim queue's `has_auth_account` reviewer signal. | `lib/supabase-admin.ts` → `findAuthUserByEmail`, `fetchAuthAccountsByEmail` | `GET /auth/v1/admin/users?filter=` | Resolution reports `unavailable` and the grant refuses rather than half-granting; the reviewer signal reports `null` (unknown) |
+| **#4b** claimant provisioning | Create an `auth.users` row when the claimant has no account yet. | `lib/supabase-admin.ts` → `createAuthUser` | `POST /auth/v1/admin/users` | as #4a |
+
+Seams **#4a/#4b** are composed with a single D1 `profiles` read in
+`lib/claimant-identity.ts` (`resolveClaimantIdentity`), which returns the
+`linked | invited | conflict | unavailable | error` contract AECI-519's grant switches on —
+including the role/vendor exclusivity check (§3 above, `STAGE_2_SPEC.md` §8.3(3)). Seam #1
+carries no service-role call at all; it is listed so the register is complete and nobody
+"adds" one to profile-ensure later. Full contract:
+[`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2.
+
+**Where the key lives.** `SUPABASE_SERVICE_ROLE_KEY` is read by the **API Worker only** —
+never the web Worker (which verifies tokens with public JWKS material, §4.1). It is
+declared optional in `apps/api/src/env.ts`, so every seam above **degrades gracefully**
+rather than failing closed. See [`environments.md`](./environments.md) §Secrets for which
+environments actually carry it. **Today it is pushed to no Worker, so seams #2/#3/#4 are
+inert in every deployed environment** — reviewer emails read `null`, the erasure
+`auth.users` delete is skipped, and claim resolution reports `unavailable`. ADR 0016 §6
+already decided the key belongs on the API Worker; the `environments.md` /
+`CICD_PLAN.md` "never on a Worker" rows are doc lag from the Prisma/Postgres era, when
+the Worker reached `auth.*` over SQL. Reconciling them + the CI push is **AECI-530**.
+
+**The single-module invariant.** `env.SUPABASE_SERVICE_ROLE_KEY` is read in exactly one
+place — `apps/api/src/lib/supabase-admin.ts`, via its private `adminConfig()` /
+`adminHeaders()` helpers. Keep it that way: the register above is only auditable if there
+is one door. That module is also deliberately DB-free, so any composition with D1 lives in
+a caller (e.g. `lib/claimant-identity.ts`).
+
+**Accepted risk.** The GoTrue service-role key is the **project-wide auth key**, and under
+[ADR 0017](./adr/0017-single-supabase-auth-project-across-environments.md) one project
+backs *every* environment including production. Holding it lets code enumerate every user,
+mint a session for any address, and delete identities — and GoTrue offers **no scoped
+admin credential** (no read-only or per-endpoint admin key), so narrowing is not
+available. ADR 0016 accepted this exposure as the cost of Option A (auth stays Supabase,
+app data moves to D1); Option B (self-hosted auth) was explicitly deferred. The
+mitigations are the ones above — one module, API Worker only, optional-and-degrading —
+plus keeping the key off ephemeral per-PR preview Workers. Note the asymmetry: #2/#4a are
+reads, but **#3 destroys** identities and **#4b creates** them.
 
 ---
 
@@ -384,13 +438,23 @@ and no `apps/api/src/prisma.ts`:
    would either block the profile delete (written before) or FK-reject (written
    after). The user id is recorded in `entity_id` + PII-free `metadata` (no email /
    display name).
-4. **The `auth.users` row is deleted via the Supabase Admin API** —
-   `deleteAuthUser(env, userId)` (`apps/api/src/lib/supabase-admin.ts`) issues a
-   `DELETE /auth/v1/admin/users/:id` with the service-role key. It runs **after** the
-   D1 batch commits; it never throws (a 404 / absent-creds path counts as success),
-   so a transient Admin-API failure does not undo the already-completed D1 erasure
-   (it is logged for retry). gotrue's own child tables
+4. **The `auth.users` row is deleted via the Supabase Admin API** — split-identity
+   **seam #3** (§3.1): `deleteAuthUser(env, userId)`
+   (`apps/api/src/lib/supabase-admin.ts`) issues a `DELETE /auth/v1/admin/users/:id`
+   with the service-role key. It runs **after** the D1 batch commits and never
+   throws, so a transient Admin-API failure does not undo the already-completed D1
+   erasure (a `!ok` result is logged for retry). A 404 counts as success — the row
+   is already gone. gotrue's own child tables
    (`sessions`/`refresh_tokens`/`identities`) cascade off `auth.users` on its side.
+
+   ⚠️ **Absent creds are NOT equivalent to success.** With no
+   `SUPABASE_SERVICE_ROLE_KEY` the call is skipped (`{ ok: true, skipped: true }`)
+   and **the `auth.users` row survives** — the D1 erasure is complete, but the auth
+   identity is not. Because the skip is reported as `ok`, the current call site logs
+   nothing, so orphaned rows are today **undetectable**. The key is presently pushed
+   to no Worker (§3.1), which means this is the live behaviour in every deployed
+   environment. Tracked as **AECI-531** (warn on the skip + a cleanup runbook + a
+   one-time reconciliation of the historical orphans).
 5. **Confirmation email is sent via Resend** (AECI-240 / Phase 7.5, `docs/email.md`)
    — fire-and-forget and fail-open, captured from the session before erasure;
    deletion never blocks on email.
@@ -411,6 +475,13 @@ that remain have NULL where the user ID used to be.
 > (`supabase/migrations/20260626000000_auth_only_baseline.sql`) but the app does not depend
 > on the Postgres `public.profiles` they maintain. Kept for the historical pattern and in
 > case the retained Auth project's own `public.profiles` mirror is ever reused.
+>
+> **Seam #4b creates `auth.users` rows from the app side** (§3.1), so
+> `on_auth_user_created` *will* fire and insert a row into the Postgres
+> `public.profiles` mirror the app never reads. That mirror row is inert: the
+> authoritative profile — and the `vendor_admin` / `vendor_id` the grant writes — lives
+> in D1. Don't chase it, and don't design the claim flow assuming a trigger provisions
+> the D1 profile.
 
 `public.profiles.id` carries the same UUID as the corresponding
 `auth.users.id`, but there is **no cross-schema FK between them**.
@@ -475,6 +546,7 @@ with the D1 app DB is part of the AECI-256/257 Supabase-Postgres decommission.)
 Stage 2 introduces the **vendor portal** (`vendor_admin`). Its authorization is the **3-layer Worker model above — not Postgres RLS/GRANTs** (there are none on app tables under ADR 0016). The full plan is `docs/STAGE_2_VENDOR_PORTAL_SPEC.md`; the shape:
 
 - **`vendor_admin` role** — already in the `profiles.role` CHECK constraint. Granted **app-side on vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254), audited and reversible. There are no "vendor policies" to write.
+- **Who the grant is granted to** — the claim form is anonymous, so the subject comes from **seam #4** (§3.1): `resolveClaimantIdentity` turns `vendor_requests.submitter_email` into an auth-user id, reporting `linked` (an account already existed) or `invited` (one was provisioned). Role/vendor exclusivity is enforced there — an account that is already `admin`, or already `vendor_admin` for a *different* vendor, yields an explicit `conflict` rather than a silent overwrite; a second seat on the *same* vendor is the allowed case. Contract: `STAGE_2_VENDOR_PORTAL_SPEC.md` §2.
 - **`vendorId` on the session** — the Layer-1 guard (`createAuthzMiddleware`, §4.2) gains a `requireVendor()` branch and adds `profiles.vendor_id` to the profile re-fetch, so it rides on `AuthenticatedSession`.
 - **`vendor_id`-scoped queries** — every `/api/vendor/*` read and write filters by the session's `vendor_id` in the **Drizzle query** (`WHERE vendor_id = :sessionVendorId`). This is the D1/Drizzle replacement for the row filter the retired RLS design would have applied; the Worker never trusts a client-supplied vendor/target id. Every write emits its `audit_log` row in the same `db.batch()` (§4.3).
 - **Ban gate** — `profiles.banned_at` already gates vendor seats through the existing §4.2 / §7 check; portal abuse is a ban path (per-seat — it never touches `vendors.verified`).

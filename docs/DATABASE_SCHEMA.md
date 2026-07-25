@@ -498,6 +498,15 @@ create index product_extensions_host_idx on product_extensions(host_product_id);
 
 ### 7.1 `profiles`
 
+> **Stale on lifecycle — read this first.** Under [ADR 0016](./adr/0016-d1-over-supabase-postgres.md)
+> the authoritative `profiles` row lives in **D1**, so the triggers described below are
+> **vestigial** (`AUTH_AND_RLS.md` §8.1): they maintain the Supabase Postgres
+> `public.profiles` mirror, which the app never reads. The **primary** creator is
+> `POST /api/auth/profile/ensure` (split-identity seam #1, `AUTH_AND_RLS.md` §3.1), and
+> erasure deletes the D1 row in the Worker plus the `auth.users` row via the Admin API
+> (seam #3). The DDL below is Postgres notation; the source of truth is
+> `apps/api/src/db/schema.ts`.
+
 Extends `auth.users`. Lifecycle is kept in sync by two triggers on
 `auth.users` (not a cross-schema FK — see `docs/AUTH_AND_RLS.md` §8.1
 for the rationale): `on_auth_user_created` inserts a profile on signup,

@@ -35,6 +35,7 @@ import { submitCount } from '../datadog';
 import type { Env } from '../env';
 import { errorHandler } from '../errors';
 import type { AuthzVariables } from '../lib/authz';
+import type { fetchAuthAccountsByEmail } from '../lib/supabase-admin';
 import { makeTestDb, type TestDb } from '../test/d1';
 import { fakeExecutionContext, TEST_ENV } from '../test/helpers';
 import {
@@ -110,19 +111,36 @@ const seed = (...rows: Array<typeof vendorRequests.$inferInsert>) =>
 
 // ─── GET /api/admin/requests ─────────────────────────────────────────────────
 
-function listApp(auth: AuthzVariables['auth'] = ADMIN_AUTH) {
+function listApp(
+  auth: AuthzVariables['auth'] = ADMIN_AUTH,
+  fetchAuthAccounts?: typeof fetchAuthAccountsByEmail,
+) {
   const app = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   app.onError(errorHandler());
   app.use('/api/admin/requests', async (c, next) => {
     c.set('auth', auth);
     await next();
   });
-  app.get('/api/admin/requests', createAdminRequestsListHandler(t.factory));
+  app.get(
+    '/api/admin/requests',
+    fetchAuthAccounts
+      ? createAdminRequestsListHandler(t.factory, fetchAuthAccounts)
+      : createAdminRequestsListHandler(t.factory),
+  );
   return app;
 }
 
 const getList = (qs = '') =>
   listApp().request(`/api/admin/requests${qs}`, {}, TEST_ENV, fakeExecutionContext());
+
+/** As `getList`, with the AECI-527 GoTrue reviewer-signal seam injected. */
+const getListWithSignal = (fetchAuthAccounts: typeof fetchAuthAccountsByEmail, qs = '') =>
+  listApp(ADMIN_AUTH, fetchAuthAccounts).request(
+    `/api/admin/requests${qs}`,
+    {},
+    TEST_ENV,
+    fakeExecutionContext(),
+  );
 
 describe('GET /api/admin/requests', () => {
   it('defaults to status=open, newest-first, page 1, perPage 24', async () => {
@@ -301,6 +319,65 @@ describe('GET /api/admin/requests', () => {
     const parsed = ListVendorRequestsResponseSchema.parse(await res.json());
     expect(parsed.data).toEqual([]);
     expect(parsed.total).toBe(0);
+  });
+
+  // ── has_auth_account: the AECI-527 reviewer signal ──────────────────────────
+
+  it('surfaces has_auth_account: true for a claim whose submitter has an auth account', async () => {
+    await seed(reqRow({ submitterEmail: 'jane@acme.com' }));
+    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', true]]));
+
+    const parsed = ListVendorRequestsResponseSchema.parse(
+      await (await getListWithSignal(fetchAuthAccounts)).json(),
+    );
+
+    expect(parsed.data[0]?.has_auth_account).toBe(true);
+    expect(fetchAuthAccounts).toHaveBeenCalledWith(TEST_ENV, ['jane@acme.com']);
+  });
+
+  it('surfaces has_auth_account: false when the submitter has no auth account', async () => {
+    await seed(reqRow({ submitterEmail: 'jane@acme.com' }));
+    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', false]]));
+
+    const parsed = ListVendorRequestsResponseSchema.parse(
+      await (await getListWithSignal(fetchAuthAccounts)).json(),
+    );
+
+    expect(parsed.data[0]?.has_auth_account).toBe(false);
+  });
+
+  it('leaves has_auth_account null for corrections and never looks their emails up', async () => {
+    await seed(
+      reqRow({ kind: 'correction', submitterEmail: 'fixer@acme.com' }),
+      reqRow({
+        id: OTHER_TARGET,
+        kind: 'claim',
+        submitterEmail: 'jane@acme.com',
+        targetId: OTHER_TARGET,
+      }),
+    );
+    const fetchAuthAccounts = vi.fn(async () => new Map([['jane@acme.com', true]]));
+
+    const parsed = ListVendorRequestsResponseSchema.parse(
+      await (await getListWithSignal(fetchAuthAccounts)).json(),
+    );
+
+    // Only the claim's email is sent to GoTrue …
+    expect(fetchAuthAccounts).toHaveBeenCalledWith(TEST_ENV, ['jane@acme.com']);
+    const byKind = new Map(parsed.data.map((r) => [r.kind, r.has_auth_account]));
+    expect(byKind.get('claim')).toBe(true);
+    // … and the correction reports unknown, not the claim's answer.
+    expect(byKind.get('correction')).toBeNull();
+  });
+
+  it('leaves has_auth_account null when the seam degrades to an empty map', async () => {
+    // TEST_ENV carries no Supabase creds, so the REAL seam short-circuits to an
+    // empty map with no fetch — the local/PR-preview posture.
+    await seed(reqRow({ submitterEmail: 'jane@acme.com' }));
+
+    const parsed = ListVendorRequestsResponseSchema.parse(await (await getList()).json());
+
+    expect(parsed.data[0]?.has_auth_account).toBeNull();
   });
 });
 

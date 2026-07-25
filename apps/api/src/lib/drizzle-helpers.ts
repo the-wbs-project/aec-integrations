@@ -995,6 +995,11 @@ export function toAdminVendorRequest(
   raw: RawAdminVendorRequestRow,
   isDuplicate: boolean,
   target: LinkRef | null = null,
+  /** AECI-527 reviewer signal, keyed by `submitter_email` VERBATIM (see
+   *  `fetchAuthAccountsByEmail`) so there is no normalization here. Defaulted to
+   *  empty so the single-row PATCH confirmation — which does not fan out to
+   *  GoTrue — reports `null` without needing to pass anything. */
+  authAccountByEmail: ReadonlyMap<string, boolean> = new Map(),
 ): AdminVendorRequest {
   return {
     id: raw.id,
@@ -1010,6 +1015,11 @@ export function toAdminVendorRequest(
     body: raw.body,
     source_url: raw.sourceUrl,
     is_duplicate: isDuplicate,
+    // Claim-only: a correction never links an account, so it must not inherit the
+    // signal from a claim row that happens to share a submitter email on the same
+    // page. Keep this gate in step with the fetch-side gate in `admin-requests.ts`.
+    has_auth_account:
+      raw.kind === 'claim' ? (authAccountByEmail.get(raw.submitterEmail) ?? null) : null,
     linear_issue_id: raw.linearIssueId,
     linear_issue_url: raw.linearIssueUrl,
     created_at: raw.createdAt,
