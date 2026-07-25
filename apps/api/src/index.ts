@@ -169,13 +169,23 @@ phase28.post('/api/subscribe', createSubscribeHandler());
 // service binding like every other route. See `routes/webhooks.ts`.
 phase28.post('/api/webhooks/linear', createLinearWebhookHandler());
 
-// Review-app push endpoint (promotion). Bearer-auth middleware runs first so an
-// unauthenticated request never reaches the DB; both it and the handler throw
-// `ApiError`/`ZodError`, which `errorHandler()` renders as the canonical
-// envelope. See `docs/REVIEW_APP_PROMOTE_API.md`.
-phase28.post('/api/promote', requireReviewAppAuth(), createPromoteHandler());
-
 app.route('/', phase28);
+
+// Review-app push endpoint (promotion). Own sub-router so its `onError` opts
+// into `logClientErrors` — every rejected promote (400 malformed/validation,
+// 401 bad token, 409 slug conflict, 500 fault) emits a detailed Datadog log
+// under `source:review-app-promote` with the same `trace_id` the caller gets,
+// so the review app's operator can diagnose a failed push from Datadog alone
+// (docs/REVIEW_APP_PROMOTE_API.md §6) rather than the HTTP response body. The
+// bearer-auth middleware runs first so an unauthenticated request never reaches
+// the DB; both it and the handler throw `ApiError`/`ZodError`, which
+// `errorHandler()` renders as the canonical envelope. Registered before the
+// `/api/*` 404 catch-all (below) so it matches; reached only over the service
+// binding like every other route.
+const reviewPromote = new Hono<{ Bindings: Env }>();
+reviewPromote.onError(errorHandler({ logClientErrors: true, source: 'review-app-promote' }));
+reviewPromote.post('/api/promote', requireReviewAppAuth(), createPromoteHandler());
+app.route('/', reviewPromote);
 
 // AECI-193 auth-spike sub-router. Own router because `requireUserAuth()`
 // extends `Variables` (`c.get('user')`), which the `phase28` type doesn't

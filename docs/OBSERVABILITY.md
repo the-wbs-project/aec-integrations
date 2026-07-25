@@ -30,6 +30,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.page.render.duration_ms` | distribution | `apps/web/src/server-runtime.ts` (`handleSsr`, HIT + MISS branches) | `route_class` (detail/index/browse), `cache_status` (HIT/MISS), `status_code`, `status_class` (2xx/4xx/5xx) |
 | `aeci.ssr.render` | count | `apps/web/src/server-runtime.ts` (`handleSsr`, **all** branches) | `cache_status` (hit/miss/non_cacheable), `status_class` (2xx/4xx/5xx) |
 | `aeci.api.query.duration_ms` | distribution | `apps/api/src/metrics-middleware.ts` (top-level Hono middleware) | `endpoint` (matched route pattern, e.g. `/api/products/:slug`), `status`, `status_class` |
+| `aeci.api.promote.skipped` | count | `apps/api/src/routes/promote.ts` (`logPromoteSkips`) | `source` (`promote`), `kind` (`integration` / `extension` / `usefulness` / `claim`) — **value = per-kind skip count, query with `sum:`** |
 | `aeci.cache.purge` | count | `apps/web/src/server/routes/admin-purge.ts` | `source` (manual / future webhook), `outcome` (ok / cf_failed) |
 | `aeci.api.data_gap` | count | `apps/api/src/lib/handler-utils.ts` (`reportMissingVendors`, called by the product-list-producing handlers) | `gap_type` (currently `missing_vendor`) |
 | `aeci.algolia.sync` | count | `apps/api/src/scheduled.ts` (daily cron) + `apps/api/src/routes/promote.ts` (`syncAlgoliaAfterPromote`) | `trigger` (cron / promote), `entity` (products / vendors / integrations / all), `outcome` (ok / failed / skipped_no_creds) |
@@ -299,6 +300,24 @@ monitor alerts on a sustained `aeci.waf.ratelimit.blocked` spike (no `notify_no_
 no committed dashboard widget yet (this is a post-launch shim — add one if the signal proves
 worth a panel).
 
+**Review-app promote observability** (`POST /api/promote`, `docs/REVIEW_APP_PROMOTE_API.md`
+§6.1–6.2) makes Datadog the authoritative record of a promotion push's problems, so the AECi
+operator diagnoses a failed push without the review app plumbing the HTTP response body anywhere.
+The promote endpoint runs on its own Hono sub-router whose `errorHandler({ logClientErrors: true,
+source: 'review-app-promote' })` (`apps/api/src/index.ts` / `apps/api/src/errors.ts`) logs **every**
+rejection — not just the unknown-500 branch every other route logs — under `source:review-app-promote`:
+one log per 4xx/409 (level `warn`) and 5xx (level `error`), carrying the HTTP status (as
+`http_status` — Datadog reserves `status` for the log level), error `code`, `field`, full
+`details` (the Zod `issues[]` for a `VALIDATION_FAILED`, the slug `target` for a
+`SLUG_CONFLICT`), `path`/`method`, and the **same `trace_id`** returned in the response envelope
+(so a caller-reported `trace_id` pivots straight to the log). Separately, a **partial** promote — a
+`200` with a non-empty `skipped[]`, which `aeci.api.query.duration_ms` sees as a clean success —
+emits a `warn` log `aeci.api.promote.partial_skipped` (detailing every `{ref, kind, reason}` + per-kind
+counts) plus the `aeci.api.promote.skipped` count above, so a curator's silently-dropped entity is
+visible. All of it is fire-and-forget over the shared transport (no-op without `DD_API_KEY`) and never
+affects the response. This is deliberately scoped to promote — the high-traffic public read endpoints
+stay silent on 4xx to keep log volume down.
+
 ### Three gotchas when querying
 
 1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as
@@ -315,8 +334,9 @@ worth a panel).
 3. **Count metrics whose value isn't 1 need `sum:`, not `count:`.** `count:` counts the
    number of submitted points; `sum:` sums their values. Most count metrics here submit
    `value 1` (so the two coincide — e.g. `count:aeci.cache.purge`), but
-   `aeci.algolia.sync.records` submits the actual record count, so it must be queried as
-   `sum:aeci.algolia.sync.records` (and `sum:…{}.as_count()` in monitors).
+   `aeci.algolia.sync.records` and `aeci.api.promote.skipped` submit the actual record /
+   skip count and must be queried as `sum:aeci.algolia.sync.records` /
+   `sum:aeci.api.promote.skipped` (and `sum:…{}.as_count()` in monitors).
 
 ### Known coverage limitation
 

@@ -93,6 +93,32 @@ function firstFieldFromZodError(error: ZodError): string | undefined {
 }
 
 /**
+ * Options for {@link errorHandler}.
+ */
+export type ErrorHandlerOptions = {
+  /**
+   * Log EVERY error — including the 4xx/409 *client* errors (validation,
+   * malformed body, auth, slug conflict) — to Datadog, not just the unknown-500
+   * branch. Off by default so the high-traffic public read endpoints don't emit
+   * a log line per bot 404 or per validation 400.
+   *
+   * Set it for endpoints where Datadog must be the **authoritative, standalone
+   * error record** — the review-app promote push (`POST /api/promote`,
+   * `docs/REVIEW_APP_PROMOTE_API.md` §6): the operator needs to diagnose a
+   * rejected promote from Datadog alone, without the HTTP response body. The log
+   * carries the same `trace_id` returned in the envelope, so a caller-reported
+   * `trace_id` pivots straight to the log line.
+   */
+  logClientErrors?: boolean;
+  /**
+   * `source` attribute stamped on every emitted log — the Datadog facet callers
+   * filter on (e.g. `review-app-promote`). Threaded onto both the client-error
+   * log (when `logClientErrors` is set) and the always-on unknown-500 log.
+   */
+  source?: string;
+};
+
+/**
  * Hono `onError` handler producing the `ApiErrorSchema` envelope for any
  * error thrown inside a handler. Three branches:
  *
@@ -106,6 +132,14 @@ function firstFieldFromZodError(error: ZodError): string | undefined {
  *      message returned to the caller is deliberately generic — never leak
  *      internal error strings to the wire.
  *
+ * Branches 1 & 2 (the client 4xx/409 errors) are **silent** by default — only
+ * branch 3's unknown-500 logs to Datadog — so the high-traffic public read
+ * endpoints don't emit a log line per bot 404 / validation 400. Pass
+ * `errorHandler({ logClientErrors: true, source })` and branches 1 & 2 log too
+ * (via `logRequestError`), for an endpoint where Datadog must be the
+ * authoritative, standalone error record (the review-app promote push — see
+ * {@link ErrorHandlerOptions}).
+ *
  * Hono catches errors thrown by handlers and routes them here (rather than
  * propagating back through middleware `try/catch`). Each sub-router that
  * wants the canonical envelope registers this via `app.onError(errorHandler())`.
@@ -117,11 +151,15 @@ function firstFieldFromZodError(error: ZodError): string | undefined {
  * AECI-193 auth-spike router, whose middleware sets `c.get('user')`) can reuse
  * the same handler — the implementation only touches `Bindings`.
  */
-export function errorHandler<E extends { Bindings: Env }>(): ErrorHandler<E> {
+export function errorHandler<E extends { Bindings: Env }>(
+  options: ErrorHandlerOptions = {},
+): ErrorHandler<E> {
+  const { logClientErrors = false, source } = options;
   return (error, c) => {
     const traceId = crypto.randomUUID();
 
     if (error instanceof ApiError) {
+      if (logClientErrors) logRequestError(c, error, traceId, source);
       return renderApiError(c, error, traceId);
     }
 
@@ -133,6 +171,7 @@ export function errorHandler<E extends { Bindings: Env }>(): ErrorHandler<E> {
         'Request failed validation',
         { field, details: { issues: error.issues } },
       );
+      if (logClientErrors) logRequestError(c, validationError, traceId, source);
       return renderApiError(c, validationError, traceId);
     }
 
@@ -144,6 +183,7 @@ export function errorHandler<E extends { Bindings: Env }>(): ErrorHandler<E> {
     logToDatadog(c.executionCtx, c.env, c.req.raw, {
       level: 'error',
       message: `Unhandled error: ${message}`,
+      ...(source ? { source } : {}),
       path: c.req.path,
       method: c.req.method,
       trace_id: traceId,
@@ -153,6 +193,40 @@ export function errorHandler<E extends { Bindings: Env }>(): ErrorHandler<E> {
     const internalError = new ApiError(500, ApiErrorCode.INTERNAL_ERROR, 'Internal server error');
     return renderApiError(c, internalError, traceId);
   };
+}
+
+/**
+ * Emit a Datadog log for a handled `ApiError` (the 4xx/409 client errors, or an
+ * ApiError-carried 5xx) so the failure — and its full structured detail — is
+ * queryable in Datadog under the SAME `trace_id` the caller receives in the
+ * response envelope. Level scales with status: 5xx → `error`, everything else →
+ * `warn` (a client-fixable 4xx isn't a server fault, but must still be findable).
+ * No-op without `DD_API_KEY` (the transport self-gates). Only reached when the
+ * router opts in via `errorHandler({ logClientErrors: true })`.
+ */
+function logRequestError<E extends { Bindings: Env }>(
+  c: Context<E>,
+  error: ApiError,
+  traceId: string,
+  source: string | undefined,
+): void {
+  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    level: error.status >= 500 ? 'error' : 'warn',
+    message: `Request error ${error.status} ${error.code}: ${error.message}`,
+    ...(source ? { source } : {}),
+    code: error.code,
+    // `http_status`, not `status`: the transport reserves the `status` key for the
+    // Datadog log level (it becomes `warn`/`error`), so a numeric `status` here
+    // would be silently overwritten before it reaches the intake.
+    http_status: error.status,
+    ...(error.field !== undefined ? { field: error.field } : {}),
+    // The full detail the caller would otherwise only see in the response body —
+    // e.g. the Zod `issues[]` for a VALIDATION_FAILED, or the slug-conflict target.
+    ...(error.details !== undefined ? { details: error.details } : {}),
+    path: c.req.path,
+    method: c.req.method,
+    trace_id: traceId,
+  });
 }
 
 function renderApiError<E extends { Bindings: Env }>(

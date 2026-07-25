@@ -347,6 +347,43 @@ idempotent. A `409 SLUG_CONFLICT` is the conflict-specific, caller-resolvable
 case — distinct from a `500` server fault — and resolves on retry because slug
 generation re-reads the current set and disambiguates.
 
+### 6.1 Every rejection is logged in Datadog
+
+You don't have to keep the HTTP response body to diagnose a failed push. **Every
+non-2xx promote emits a detailed Datadog log** under `source:review-app-promote`,
+so the AECi operator can find and triage a rejection from Datadog alone:
+
+- **Where:** service `aeci-api`, filter `source:review-app-promote`.
+- **What each log carries:** the HTTP status (as `http_status` — Datadog reserves
+  the `status` attribute for the log level), the error `code`, the `field` (when
+  set), the full `details` (for a `VALIDATION_FAILED`, the entire Zod `issues[]`;
+  for a `SLUG_CONFLICT`, the conflicting `target`), the request `path`/`method`,
+  and the **same `trace_id`** returned in the response envelope — so a
+  curator-reported `trace_id` pivots straight to its log line.
+- **Level:** 4xx / 409 client errors log at `warn`; 500 server faults at `error`
+  (and additionally carry the server stack).
+
+This is promote-specific — the public read endpoints stay silent on 4xx to avoid
+log noise. So "look in Datadog" is the authoritative way to see why a promote was
+rejected; you don't need to plumb the response body anywhere else.
+
+### 6.2 Partial promotes (`skipped[]`) are logged too
+
+A `200` with a non-empty `skipped[]` (§4) is a **partial** promote — some
+entities couldn't be linked (an integration/extension whose far endpoint isn't
+promoted yet, a usefulness group or claim `dataObject` that didn't resolve). Those
+never fail the request, so they're easy to miss. They are surfaced in Datadog as:
+
+- a single `warn` log `aeci.api.promote.partial_skipped` (`source:review-app-promote`)
+  detailing every `{ ref, kind, reason }` plus per-kind counts, and
+- an `aeci.api.promote.skipped` count metric tagged by `kind`
+  (`integration` / `extension` / `usefulness` / `claim`), for a monitor.
+
+So a curator's silently-dropped push is visible in Datadog even though the API
+returned `200`. (You should still inspect `skipped[]` in the response and re-push
+once the blocking condition clears — the log is the operator's backstop, not a
+substitute for handling `skipped[]`.)
+
 ---
 
 ## 6a. Edge-cache freshness after a promote (AECI-105)
