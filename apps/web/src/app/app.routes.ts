@@ -236,6 +236,12 @@ export const routes: Routes = [
         path: 'requests',
         loadComponent: () => import('./admin/requests/request-queue').then((m) => m.RequestQueue),
       },
+      // AECI-521 — the claim-review queue (reviewer-assist signals). Clones the
+      // requests child; claims moderate via the AECI-519 grant/reject PATCH.
+      {
+        path: 'claims',
+        loadComponent: () => import('./admin/claims/claim-queue').then((m) => m.ClaimQueue),
+      },
       {
         path: 'reviewers',
         loadComponent: () => import('./admin/reviewers/reviewer-bans').then((m) => m.ReviewerBans),

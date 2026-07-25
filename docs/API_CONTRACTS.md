@@ -1099,6 +1099,53 @@ and (post-commit, best-effort) push the change to the linked Linear issue (§6.5
 Errors: `NOT_FOUND` (unknown id); `INVALID_STATE_TRANSITION` if the request is
 not `open`/`in_review` (already terminal, or a concurrent action moved it).
 
+#### `GET /api/admin/claims` (Stage 2 — AECI-521)
+
+The **claim-review queue**: pending vendor **claims** enriched with the reviewer-assist
+verification signals a human weighs before granting (`STAGE_2_VENDOR_PORTAL_SPEC.md` §5 —
+**no auto-grant**). Clones `GET /api/admin/requests` (same paginated envelope, same read-time
+`is_duplicate` + `has_auth_account` computation) but is **claims-only** and **read-only** (no
+audit). Behind `requireAdmin()`. Source of truth: `packages/shared/src/api/admin-claims.ts`,
+`apps/api/src/routes/admin-claims.ts`.
+
+```typescript
+export const ListVendorClaimsQuerySchema = PageQuerySchema.extend({
+  status: z.enum(['open', 'resolved', 'rejected']).default('open'), // no `kind` — claims only
+});
+
+// Each item is an `AdminClaim` = `AdminVendorRequest` (§6.7 shape: id, kind, status,
+// target_type/target_id/target, submitter_*, domain_match, body, source_url, is_duplicate,
+// has_auth_account, linear_*, created_at, resolved_*) PLUS three claim-only signals:
+export const AdminClaimSchema = AdminVendorRequestSchema.extend({
+  duplicate_of_request_id: z.string().uuid().nullable(), // the Phase-6 duplicate chain
+  existing_seats: z.array(z.object({                     // active vendor_admin seats on the vendor
+    display_name: z.string().nullable(),
+    work_email_verified: z.boolean(),
+    created_at: z.string(),
+  })).nullable(),                                         // null = signal unavailable, [] = none
+  related_requests: z.array(z.object({                   // prior requests from the same email
+    id: z.string().uuid(),
+    kind: z.enum(['claim', 'correction']),
+    status: z.enum(['open', 'in_review', 'resolved', 'rejected']),
+    target_type: z.enum(['product', 'vendor']),
+    created_at: z.string(),
+  })).nullable(),                                         // null = signal unavailable, [] = none
+});
+
+export const ListVendorClaimsResponseSchema = paginatedResponseSchema(AdminClaimSchema);
+// { data: AdminClaim[], page, perPage, total }
+```
+
+Signals: `domain_match` (stored verbatim), `has_auth_account` (tri-state via the GoTrue
+`fetchAuthAccountsByEmail` seam — `null` when creds absent / lookup fails), `existing_seats`
+(one grouped `profiles` scan over the page's target vendors; a `product` claim resolves to its
+primary vendor), `related_requests` (other `vendor_requests` sharing the `submitter_email`,
+excluding self) + `duplicate_of_request_id`. The LinkedIn/person search link is **built
+client-side** (a link only — no claimant data leaves AECi; real enrichment is deferred, §11).
+**Graceful degrade:** the two enrichment queries are fail-soft — a failure sets that field to
+`null` ("unavailable") while the row and the rest of the signals still return. No errors beyond
+the shared `requireAdmin()` 401/403.
+
 #### `PATCH /api/admin/claims/:id` (Stage 2 — AECI-519)
 
 Approve (grant a verified vendor account) or reject a vendor **claim**. A sibling
