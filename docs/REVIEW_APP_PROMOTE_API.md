@@ -143,7 +143,7 @@ Every vendor in this array becomes a vendor **of the product** (a
 | `description`, `website`, `headquarters`, `parentCompany`, `linkedinUrl`, `xUrl`, `facebookUrl`, `instagramUrl`, `youtubeUrl`, `crunchbaseUrl`, `wikiUrl`, `sourceUrl`, `githubOrg`, `phoneNumber`, `contactEmail`, `logoUrl` | string \| null | — | Free-form. `xUrl` / `facebookUrl` / `instagramUrl` / `youtubeUrl` are full canonical URLs persisted verbatim to `vendors.{x,facebook,instagram,youtube}_url` and rendered as icons in the public vendor hero; `githubOrg` is persisted as a bare handle but is not surfaced in the public vendor contract. |
 | `foundedYear` | int \| null | — | |
 | `publicPrivate` | `"public"` \| `"private"` \| null | — | |
-| `verified` | boolean | — | Defaults to `false`. |
+| `verified` | boolean | — | **Accepted and ignored (AECI-520).** `vendors.verified` is the paid vendor-portal entitlement bit: it is set when AECi approves a vendor claim and cleared only by a deliberate entitlement action, so a routine push must not move it (previously a push carrying `verified: false` could silently un-verify a paying vendor). Still accepted so your existing build keeps validating; send it or don't, the server drops it. A newly created vendor is always `verified: false`. |
 
 ### 3.3 `product` (optional, singular)
 
@@ -286,7 +286,10 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
 ```
 
 - `product` is `null` when you didn't send one (a vendor-only / integration-only
-  push); otherwise it carries the product's `id`, `slug`, and `operation`.
+  push) **or when the product was blocked** because a claimed vendor owns it
+  (§4a); otherwise it carries the product's `id`, `slug`, and `operation`. Tell
+  the two apart by looking for a `skipped[]` entry with `kind: "product"` and
+  your product's `ref`.
 - Map each returned `id` back to your record by its `ref` (or, for taxonomy, by
   `slug`) and store it.
 - `operation`: `created` | `updated` for vendors/product/integrations;
@@ -303,6 +306,34 @@ see [§2.1](#21-x-d1-bookmark--read-your-writes-across-calls-optional-aeci-250).
   integration's `ref`). It is not an error: re-push after promoting the other
   product, after the referenced taxonomy term exists, or with a recognized
   `dataObject` value.
+- Two `skipped[]` kinds mean something different from all the others — see §4a.
+
+---
+
+## 4a. Claimed vendors are not writable from the review app (AECI-520)
+
+Stage 2 gives vendors their own portal. Once AECi grants a vendor a portal seat,
+that vendor is **claimed**, and from then on it edits its own content directly —
+description, links, logo, taxonomy. Those are the same columns a promote writes,
+so if the review app kept pushing them it would silently revert the vendor's
+work every time. AECi therefore refuses those specific writes.
+
+What that looks like in a response:
+
+| Situation | Result |
+|---|---|
+| You update a **claimed vendor** | The vendor is **absent** from `vendors[]`; `skipped[]` gains `{ ref, kind: "vendor", reason: "vendor is claimed by a vendor admin; …" }`. Its columns are unchanged. |
+| You update an **existing product a claimed vendor owns** — or a product this payload would attach to one | `product` is `null`; `skipped[]` gains `{ ref, kind: "product", reason: "product belongs to a claimed vendor; …" }`. Nothing about the product changes, including its vendor/taxonomy/extension links. |
+| An integration has an endpoint on that blocked product | Skipped with `kind: "integration"` and a reason mentioning the claimed vendor. |
+| You **create** a new vendor or product | Never blocked — nothing vendor-owned exists yet. |
+| Anything else in the same payload | Promotes normally. |
+
+This is **not an error** — the response is still `200`, and re-pushing will not
+help. If the content genuinely needs to change, the change belongs with the
+vendor (through their portal) or with an AECi admin, not with a re-push.
+
+The taxonomy facets on a blocked product are not resolved at all, so
+`taxonomy` comes back empty for that push and no new term is created.
 
 ---
 
@@ -565,4 +596,6 @@ Every `operation` comes back `updated`; the slugs are unchanged.
 - [ ] Persist every returned `id` against your record, durably.
 - [ ] Only include integrations whose far endpoint is already promoted (reference it by `supabaseId`); inspect `skipped[]`.
 - [ ] Nest each integration's data-object `claims[]` under it (`dataObject` slug/name, `direction` `a_to_b`/`b_to_a`/`both` relative to source→target, `attestations[]` with `source: "aeci"`); a claim rides with its integration and an unrecognized `dataObject` comes back in `skipped[]` as `kind: "claim"`.
+- [ ] Handle `skipped[]` kinds `"vendor"` / `"product"` (§4a): show the curator that the entity is **vendor-claimed and not writable from here** — don't retry, and don't treat `product: null` as "no product sent" without checking.
+- [ ] Don't rely on `verified` — it is accepted and ignored (§3.2).
 - [ ] On 4xx, surface `error.message` / `error.field` to the curator; on 5xx, retry then escalate `trace_id`.
