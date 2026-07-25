@@ -94,6 +94,7 @@ import { json } from '../http';
 import { syncPromoteTargets } from '../lib/algolia-sync';
 import { emitAlgoliaSyncMetrics, type SyncMetricSink } from '../lib/algolia-sync-metrics';
 import { auditInsert, type BatchStmt, type BatchTuple } from '../lib/audit';
+import { loadClaimedVendorIds } from '../lib/claimed-vendors';
 import { callGoogleIndexing } from '../lib/google-indexing';
 import { writeDb, type DbFactory } from '../lib/handler-utils';
 import { runHomeStats, type HomeStatsResult } from '../lib/home-stats';
@@ -102,6 +103,17 @@ import { callIndexNow } from '../lib/indexnow';
 import { recomputeProductCounts } from '../lib/recompute-counts';
 import { cacheTagsForPromote } from './promote-cache-tags';
 import { affectedUrlsForPromote } from './promote-indexnow-urls';
+
+// ─── Claimed-vendor block reasons (AECI-520) ─────────────────────────────────
+// Constants, not interpolated strings: the review app surfaces `skipped[].reason`
+// verbatim, and the causal vendor ids belong in the `promote.blocked` audit row,
+// not in a message specs and operators have to pattern-match.
+const BLOCKED_VENDOR_REASON =
+  'vendor is claimed by a vendor admin; review-app writes to claimed vendors are blocked';
+const BLOCKED_PRODUCT_REASON =
+  'product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
+const BLOCKED_INTEGRATION_REASON =
+  'an endpoint product belongs to a claimed vendor; review-app writes to claimed vendors are blocked';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 /** Drop keys whose value is `undefined` so the column is left untouched. */
@@ -179,6 +191,16 @@ function slugConflictTarget(err: unknown): string[] {
     .filter(Boolean);
 }
 
+/**
+ * The vendor columns a promote may write.
+ *
+ * `verified` is deliberately ABSENT (AECI-520). It is the paid-entitlement bit
+ * — set by the claim→account grant (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3) and
+ * cleared only by a deliberate entitlement action. Letting the review app write
+ * it meant an ordinary Airtable push could silently un-verify a paying vendor.
+ * The field stays accepted-and-ignored in `PromoteVendorSchema` so this needed
+ * no lockstep review-app deploy.
+ */
 function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
   return compact({
     description: v.description,
@@ -199,7 +221,6 @@ function vendorEditableData(v: PromoteVendor): Record<string, unknown> {
     phoneNumber: v.phoneNumber,
     contactEmail: v.contactEmail,
     logoUrl: v.logoUrl,
-    verified: v.verified,
   });
 }
 
@@ -673,11 +694,62 @@ export function createPromoteHandler(
       for (const r of rows) vendorSlugById.set(r.id, r.slug);
     }
 
+    // ── Claimed-vendor guard (AECI-520) ──────────────────────────────────────
+    // Once AECi grants a vendor-portal seat, that vendor's row — and every
+    // product it owns — is vendor-owned: the vendor edits it through
+    // `/api/vendor/*`, and this endpoint writes exactly the same columns. So the
+    // review app is blocked from overwriting them (STAGE_2_VENDOR_PORTAL_SPEC.md
+    // §4; the AECI-520 decision). Everything else in the payload still promotes.
+    //
+    // Both reads run BEFORE the first `stmts.push`, because the decision has to
+    // be available to the taxonomy resolution ~100 lines below — that step mints
+    // terms and would otherwise leave orphans behind for a product we never write.
+    const existingProductVendorIds = payload.product?.supabaseId
+      ? (
+          await db.query.productVendors.findMany({
+            columns: { vendorId: true },
+            where: eq(productVendors.productId, payload.product.supabaseId),
+          })
+        ).map((r) => r.vendorId)
+      : [];
+
+    // A vendor with no `supabaseId` is being created, so it cannot be claimed —
+    // a payload that only creates pays no extra read at all.
+    const claimedVendorIds = await loadClaimedVendorIds(db, [
+      ...updatedVendorIds,
+      ...existingProductVendorIds,
+    ]);
+
+    // An EXISTING product is blocked when a claimed vendor owns it today, or
+    // when this payload would hand it to one. Creation is never blocked: nothing
+    // vendor-owned exists yet, and blocking it would stall catalog growth for
+    // every vendor that has signed up.
+    const productBlocked =
+      Boolean(payload.product?.supabaseId) &&
+      [...existingProductVendorIds, ...updatedVendorIds].some((id) => claimedVendorIds.has(id));
+
     // ── Vendors ──────────────────────────────────────────────────────────────
     const vendorIdByRef = new Map<string, string>();
     const vendorResults: PromoteEntityResult[] = [];
     let firstVendorSlug: string | undefined;
     for (const v of payload.vendors) {
+      if (v.supabaseId && claimedVendorIds.has(v.supabaseId)) {
+        const slug = vendorSlugById.get(v.supabaseId) ?? '';
+        // Still register the id: blocking means "don't overwrite this vendor's
+        // own row", not "pretend it doesn't exist". An unrelated integration may
+        // legitimately point `built_by_vendor_id` at it, and a NEW product in
+        // this payload still needs the join row (and the slug suffix below).
+        vendorIdByRef.set(v.ref, v.supabaseId);
+        firstVendorSlug ??= slug;
+        skipped.push({ ref: v.ref, kind: 'vendor', reason: BLOCKED_VENDOR_REASON });
+        audit({
+          actorType: 'system',
+          action: 'promote.blocked',
+          entityType: 'vendor',
+          entityId: v.supabaseId,
+        });
+        continue;
+      }
       if (v.supabaseId) {
         const slug = vendorSlugById.get(v.supabaseId) ?? '';
         stmts.push(
@@ -776,47 +848,56 @@ export function createPromoteHandler(
     };
 
     const p = payload.product;
+    // `writesProduct` gates every step that plans a write for the payload's
+    // product (AECI-520). It has to gate taxonomy resolution too, not just the
+    // product block below: `resolveTaxonomy` MINTS missing terms, so a blocked
+    // promote would otherwise create orphan terms in the nav and purge every
+    // browse page it merely mentioned.
+    const writesProduct = Boolean(p) && !productBlocked;
     const emptyTax = {
       ids: [] as string[],
       results: [] as PromoteTaxonomyResult[],
       termBySlug: new Map<string, { slug: string; name: string }>(),
     };
-    const categories = p
-      ? await resolveTaxonomy(
-          p.categories,
-          {
-            table: taxonomyCategories,
-            idCol: taxonomyCategories.id,
-            slugCol: taxonomyCategories.slug,
-            nameCol: taxonomyCategories.name,
-          },
-          'category',
-        )
-      : emptyTax;
-    const audiences = p
-      ? await resolveTaxonomy(
-          p.audiences,
-          {
-            table: taxonomyAudiences,
-            idCol: taxonomyAudiences.id,
-            slugCol: taxonomyAudiences.slug,
-            nameCol: taxonomyAudiences.name,
-          },
-          'audience',
-        )
-      : emptyTax;
-    const phases = p
-      ? await resolveTaxonomy(
-          p.phases,
-          {
-            table: taxonomyPhases,
-            idCol: taxonomyPhases.id,
-            slugCol: taxonomyPhases.slug,
-            nameCol: taxonomyPhases.name,
-          },
-          'phase',
-        )
-      : emptyTax;
+    const categories =
+      writesProduct && p
+        ? await resolveTaxonomy(
+            p.categories,
+            {
+              table: taxonomyCategories,
+              idCol: taxonomyCategories.id,
+              slugCol: taxonomyCategories.slug,
+              nameCol: taxonomyCategories.name,
+            },
+            'category',
+          )
+        : emptyTax;
+    const audiences =
+      writesProduct && p
+        ? await resolveTaxonomy(
+            p.audiences,
+            {
+              table: taxonomyAudiences,
+              idCol: taxonomyAudiences.id,
+              slugCol: taxonomyAudiences.slug,
+              nameCol: taxonomyAudiences.name,
+            },
+            'audience',
+          )
+        : emptyTax;
+    const phases =
+      writesProduct && p
+        ? await resolveTaxonomy(
+            p.phases,
+            {
+              table: taxonomyPhases,
+              idCol: taxonomyPhases.id,
+              slugCol: taxonomyPhases.slug,
+              nameCol: taxonomyPhases.name,
+            },
+            'phase',
+          )
+        : emptyTax;
 
     // ── Usefulness (find-only resolution against existing+new terms) ───────────
     const resolveUsefulnessFacet = (
@@ -854,7 +935,7 @@ export function createPromoteHandler(
       | { audiences: UsefulnessGroup[]; phases: UsefulnessGroup[] }
       | null
       | undefined;
-    if (p) {
+    if (writesProduct && p) {
       if (p.usefulness === null) {
         usefulnessData = null;
       } else if (p.usefulness) {
@@ -892,7 +973,13 @@ export function createPromoteHandler(
     };
 
     // ── Product (+ join rows + extensions) ────────────────────────────────────
-    if (p) {
+    // Gating the whole block is what suppresses every product write at once: the
+    // column UPDATE, the `product_vendors` delete+reinsert (which would otherwise
+    // ORPHAN THE CLAIM by re-parenting the product away from the claimed vendor),
+    // all three taxonomy join rewrites, extensions, and their audit rows.
+    // `productBlocked` implies `p.supabaseId`, so the create branch below stays
+    // reachable — a new product is never blocked.
+    if (writesProduct && p) {
       if (p.supabaseId) {
         const existing = await db.query.products.findFirst({
           columns: { slug: true },
@@ -1019,6 +1106,17 @@ export function createPromoteHandler(
           entityId: pid,
         });
       }
+    } else if (p && productBlocked) {
+      // `productId`/`productResult` stay unset, so the product is OMITTED from
+      // the response — which is what keeps it out of the cache purge, IndexNow,
+      // Google Indexing, and the Algolia sync without touching any of them.
+      skipped.push({ ref: p.ref, kind: 'product', reason: BLOCKED_PRODUCT_REASON });
+      audit({
+        actorType: 'system',
+        action: 'promote.blocked',
+        entityType: 'product',
+        entityId: p.supabaseId as string,
+      });
     }
 
     // ── Data-object resolver (find-only, for claims — §6.2) ───────────────────
@@ -1063,7 +1161,24 @@ export function createPromoteHandler(
     }> = [];
     const affectedProducts = new Set<string>();
     if (productId) affectedProducts.add(productId);
+    // An integration IS a relationship on both of its endpoints, so one that
+    // touches the blocked product changes that product's integration surface (and
+    // its `integration_count`) — it cascades. Checked explicitly rather than left
+    // to `resolveProduct` returning null, for two reasons: the implicit path would
+    // report the misleading "not promoted yet" reason for a product that is fully
+    // promoted, and it only covers the `ref` form. `PromotePayloadSchema`'s
+    // superRefine constrains only `ref` endpoints, so `{ supabaseId: <the blocked
+    // product> }` is a legal payload that would otherwise slip straight through.
+    const touchesBlockedProduct = (ref: EntityRef): boolean =>
+      productBlocked &&
+      ((ref.ref !== undefined && ref.ref === p?.ref) ||
+        (ref.supabaseId != null && ref.supabaseId === p?.supabaseId));
+
     for (const intg of payload.integrations) {
+      if (touchesBlockedProduct(intg.sourceProduct) || touchesBlockedProduct(intg.targetProduct)) {
+        skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_INTEGRATION_REASON });
+        continue;
+      }
       const sourceId = await resolveProduct(intg.sourceProduct);
       const targetId = await resolveProduct(intg.targetProduct);
       if (!sourceId || !targetId) {
@@ -1231,6 +1346,14 @@ export function createPromoteHandler(
       }
     }
 
+    // Snapshot BEFORE the audit rows are appended: this is "did catalog state
+    // actually change?", which is what the home-stats refresh below gates on. A
+    // fully-blocked promote (AECI-520) writes only `promote.blocked` audit rows,
+    // so counting `stmts` after the append would schedule a refresh for a promote
+    // that changed nothing. Identical to the previous behaviour for every other
+    // case — until now no audit row existed without an accompanying write.
+    const catalogWrites = stmts.length;
+
     // ── Audit rows (appended last; same atomic batch as the writes above) ─────
     for (const entry of auditEntries) stmts.push(auditInsert(db, entry));
 
@@ -1292,7 +1415,7 @@ export function createPromoteHandler(
     // banner lags the catalog until the daily cron. Gate on an actual write (an
     // all-skipped promote changed nothing); best-effort, post-commit — the seam
     // never throws and self-gates the purge on CF creds.
-    if (stmts.length) {
+    if (catalogWrites) {
       c.executionCtx.waitUntil(refreshHomeStats(c));
     }
 

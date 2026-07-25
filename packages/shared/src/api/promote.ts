@@ -106,6 +106,15 @@ export const PromoteVendorSchema = z.object({
   phoneNumber: z.string().nullish(),
   contactEmail: z.string().nullish(),
   logoUrl: z.string().nullish(),
+  /**
+   * ACCEPTED AND IGNORED since AECI-520. `vendors.verified` is the paid
+   * entitlement bit: it is set by the claim→account grant
+   * (`STAGE_2_VENDOR_PORTAL_SPEC.md` §3) and cleared only by a deliberate
+   * entitlement action, so a routine Airtable push must not be able to flip it
+   * (which previously could silently un-verify a paying vendor). Kept in the
+   * schema rather than removed so an existing review-app build keeps validating
+   * — the server simply drops it.
+   */
   verified: z.boolean().optional(),
 });
 
@@ -378,21 +387,38 @@ export interface PromoteTaxonomyResult {
   operation: PromoteTaxonomyOperation;
 }
 
+/**
+ * Something in the payload that was accepted but not written.
+ *
+ * `vendor` / `product` are the AECI-520 claimed-vendor block: once a vendor has
+ * a granted `vendor_admin` seat, its row and every product it owns are
+ * vendor-owned and the review app may not overwrite them. These are the only
+ * kinds that mean "this WOULD have been written but policy said no" — the other
+ * four mean "this could not be resolved".
+ */
 export interface PromoteSkipped {
   ref: string;
-  kind: 'integration' | 'extension' | 'usefulness' | 'claim';
+  kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'vendor' | 'product';
   reason: string;
 }
 
 /**
  * The ID map the review app persists. `product` is `null` for a vendor-only or
- * integration-only push (no `product` was sent); otherwise it's the single
- * promoted product. `skipped` lists integrations/extensions that couldn't be
- * linked because an endpoint wasn't resolvable (e.g. the other product isn't
- * promoted yet), usefulness groups that didn't resolve to an existing
- * audience/phase term, and claims whose `dataObject` failed find-only resolution
- * against the seeded vocabulary (`kind: 'claim'`) — surfaced rather than silently
- * dropped.
+ * integration-only push (no `product` was sent) — and, since AECI-520, also when
+ * the product was BLOCKED because a claimed vendor owns it; the two are told
+ * apart by a `{ ref: <product.ref>, kind: 'product' }` entry in `skipped`, whose
+ * `ref` only ever appears when a product was actually sent. A blocked vendor is
+ * likewise absent from `vendors[]`. Omission (rather than an `operation:
+ * 'blocked'`) is deliberate: every post-commit deriver — cache-tag purge,
+ * IndexNow, Google Indexing, Algolia — iterates these arrays unconditionally, so
+ * omitting the entity excludes it from all of them by default rather than by
+ * remembering to guard six call sites.
+ *
+ * `skipped` also lists integrations/extensions that couldn't be linked because an
+ * endpoint wasn't resolvable (e.g. the other product isn't promoted yet),
+ * usefulness groups that didn't resolve to an existing audience/phase term, and
+ * claims whose `dataObject` failed find-only resolution against the seeded
+ * vocabulary (`kind: 'claim'`) — surfaced rather than silently dropped.
  */
 export interface PromoteResponse {
   vendors: PromoteEntityResult[];

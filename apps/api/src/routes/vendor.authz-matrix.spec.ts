@@ -143,7 +143,7 @@ async function call(path: string, method: string, sub?: string, body?: unknown):
     ENV,
     fakeExecutionContext(),
   );
-  return { status: res.status, body: await res.json().catch(() => null) };
+  return { status: res.status, body: (await res.json().catch(() => ({}))) as JsonBody };
 }
 
 /** Every route on the surface, with a minimal valid body for the writes. */

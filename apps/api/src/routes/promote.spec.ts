@@ -24,6 +24,7 @@ import {
   productCategories,
   products,
   productVendors,
+  profiles,
   statsCache,
   taxonomyAudiences,
   taxonomyCategories,
@@ -1376,5 +1377,269 @@ describe('requireReviewAppAuth (on /api/promote)', () => {
       fakeExecutionContext(),
     );
     expect(res.status).toBe(401);
+  });
+});
+
+// ─── Claimed-vendor guard (AECI-520) ──────────────────────────────────────────
+
+/**
+ * Once AECi grants a vendor-portal seat, that vendor's row and every product it
+ * owns become vendor-owned — the vendor edits them through `/api/vendor/*`, and
+ * this endpoint writes the very same columns. So a promote must not overwrite
+ * them (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+ *
+ * The failure modes are asymmetric, so both directions are pinned: under-blocking
+ * silently reverts a vendor's edits (they'd report "AECi keeps undoing our
+ * changes"), and over-blocking freezes a vendor out of AECi curation entirely.
+ */
+describe('createPromoteHandler — claimed-vendor block', () => {
+  const V_CLAIMED = uuid(50);
+  const V_FREE = uuid(51);
+  const P_OWNED = uuid(60); // owned by the claimed vendor
+  const P_FREE = uuid(61); // owned by nobody in particular
+  const P_OTHER = uuid(62); // an unrelated integration endpoint
+
+  /** Grant a seat — the ONLY thing that marks a vendor as claimed. */
+  const seedSeat = (id: string, vendorId: string | null, role = 'vendor_admin') =>
+    t.db.insert(profiles).values({ id, role, vendorId });
+  const seedOwnership = (productId: string, vendorId: string) =>
+    t.db.insert(productVendors).values({ productId, vendorId, isPrimary: true });
+
+  const skippedKinds = (body: PromoteResponse) => body.skipped.map((s) => s.kind);
+
+  beforeEach(async () => {
+    await seedVendor(V_CLAIMED, 'autodesk', 'Autodesk');
+    await seedVendor(V_FREE, 'bentley', 'Bentley');
+    await seedProduct(P_OWNED, 'revit', 'Revit', { description: 'Vendor-owned copy' });
+    await seedProduct(P_FREE, 'microstation', 'MicroStation');
+    await seedProduct(P_OTHER, 'navisworks', 'Navisworks');
+    await seedOwnership(P_OWNED, V_CLAIMED);
+    await seedSeat(uuid(70), V_CLAIMED);
+  });
+
+  it('skips the claimed vendor while a sibling vendor still promotes', async () => {
+    const res = await promote({
+      vendors: [
+        { ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk', website: 'https://new' },
+        { ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley', website: 'https://bentley.new' },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
+
+    // Blocked entities are OMITTED from the results, not marked — that is what
+    // keeps them out of the purge / IndexNow / Algolia derivers for free.
+    expect(body.vendors.map((v) => v.ref)).toEqual(['v2']);
+    expect(body.skipped).toContainEqual(expect.objectContaining({ ref: 'v1', kind: 'vendor' }));
+
+    const [claimed] = await t.db.select().from(vendors).where(eq(vendors.id, V_CLAIMED));
+    const [free] = await t.db.select().from(vendors).where(eq(vendors.id, V_FREE));
+    expect(claimed?.website).toBeNull(); // untouched
+    expect(free?.website).toBe('https://bentley.new');
+
+    const actions = await auditActions();
+    expect(actions).toContain('promote.blocked');
+    expect(actions.filter((a) => a === 'vendor.updated')).toHaveLength(1);
+  });
+
+  it('blocks an existing product owned by a claimed vendor, wholesale', async () => {
+    const res = await promote({
+      product: {
+        ref: 'p1',
+        supabaseId: P_OWNED,
+        name: 'Revit 2027',
+        description: 'review-app copy',
+        categories: ['Brand New Category'],
+      },
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as PromoteResponse;
+
+    expect(body.product).toBeNull();
+    expect(skippedKinds(body)).toEqual(['product']);
+
+    const [row] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
+    expect(row?.name).toBe('Revit');
+    expect(row?.description).toBe('Vendor-owned copy');
+    expect(row?.promotionStatus).toBe('promoted'); // seeded value, not re-set
+
+    // Taxonomy resolution is gated too: no orphan term is minted for a product
+    // that was never written, and the response reports no taxonomy work.
+    expect(await t.db.select().from(taxonomyCategories)).toHaveLength(0);
+    expect(body.taxonomy.categories).toEqual([]);
+    expect(await auditActions()).not.toContain('product.updated');
+  });
+
+  it('never wipes the ownership join rows of a blocked product', async () => {
+    // The delete+reinsert of `product_vendors` is the destructive statement: a
+    // payload that omits the claimed vendor would otherwise orphan the claim.
+    await promote({
+      vendors: [{ ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley' }],
+      product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+    });
+    const rows = await t.db
+      .select()
+      .from(productVendors)
+      .where(eq(productVendors.productId, P_OWNED));
+    expect(rows.map((r) => r.vendorId)).toEqual([V_CLAIMED]);
+  });
+
+  it('blocks a product this payload would hand to a claimed vendor', async () => {
+    const res = await promote({
+      vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
+      product: { ref: 'p1', supabaseId: P_FREE, name: 'MicroStation Renamed' },
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.product).toBeNull();
+    expect(skippedKinds(body).sort()).toEqual(['product', 'vendor']);
+
+    const [row] = await t.db.select().from(products).where(eq(products.id, P_FREE));
+    expect(row?.name).toBe('MicroStation');
+  });
+
+  it('never blocks a CREATE, and the vendor slug suffix still resolves', async () => {
+    // Creation is always allowed: nothing vendor-owned exists yet. This also
+    // pins that the blocked-vendor branch still contributes `firstVendorSlug`,
+    // which `generateSlug` uses to disambiguate a colliding product slug.
+    const res = await promote({
+      vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
+      product: { ref: 'p1', name: 'Revit' }, // collides with the seeded 'revit'
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.product?.operation).toBe('created');
+    expect(body.product?.slug).toBe('revit-autodesk');
+
+    const joins = await t.db
+      .select()
+      .from(productVendors)
+      .where(eq(productVendors.vendorId, V_CLAIMED));
+    // The new product is still joined to the claimed vendor.
+    expect(joins.map((r) => r.productId)).toContain(body.product?.id);
+  });
+
+  it('cascades to integrations referencing the blocked product by ref AND by id', async () => {
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+      integrations: [
+        { ref: 'i1', sourceProduct: { ref: 'p1' }, targetProduct: { supabaseId: P_OTHER } },
+        // The superRefine only constrains `ref` endpoints, so this id-form
+        // reference to the same blocked product must be caught explicitly.
+        {
+          ref: 'i2',
+          sourceProduct: { supabaseId: P_OWNED },
+          targetProduct: { supabaseId: P_OTHER },
+        },
+        // Unrelated: neither endpoint is the blocked product, so it promotes.
+        {
+          ref: 'i3',
+          sourceProduct: { supabaseId: P_FREE },
+          targetProduct: { supabaseId: P_OTHER },
+        },
+      ],
+    });
+    const body = (await res.json()) as PromoteResponse;
+
+    expect(body.integrations.map((i) => i.ref)).toEqual(['i3']);
+    const blocked = body.skipped.filter((s) => s.kind === 'integration');
+    expect(blocked.map((s) => s.ref).sort()).toEqual(['i1', 'i2']);
+    // The reason must name the real cause, not the misleading "not promoted yet".
+    for (const entry of blocked) expect(entry.reason).toMatch(/claimed vendor/i);
+
+    // The blocked product's own integration count is left alone.
+    const [owned] = await t.db.select().from(products).where(eq(products.id, P_OWNED));
+    expect(owned?.integrationCount).toBe(0);
+    const [free] = await t.db.select().from(products).where(eq(products.id, P_FREE));
+    expect(free?.integrationCount).toBe(1);
+  });
+
+  it('treats only role=vendor_admin WITH a vendor_id as a claim', async () => {
+    // A reviewer pointed at the vendor, and a vendor_admin with no vendor_id:
+    // neither claims anything. Over-blocking would freeze curation.
+    await seedSeat(uuid(71), V_FREE, 'reviewer');
+    await seedSeat(uuid(72), null, 'vendor_admin');
+
+    const res = await promote({
+      vendors: [
+        { ref: 'v2', supabaseId: V_FREE, companyName: 'Bentley', website: 'https://b.new' },
+      ],
+    });
+    const body = (await res.json()) as PromoteResponse;
+    expect(body.vendors.map((v) => v.ref)).toEqual(['v2']);
+    expect(body.skipped).toEqual([]);
+
+    const [row] = await t.db.select().from(vendors).where(eq(vendors.id, V_FREE));
+    expect(row?.website).toBe('https://b.new');
+  });
+
+  it('does not schedule the home-stats refresh for a fully blocked promote', async () => {
+    // A blocked promote writes only `promote.blocked` audit rows. The refresh
+    // gate must count catalog writes, not statement count, or it fires for a
+    // promote that changed nothing.
+    const refreshHomeStats = vi.fn<PromoteHomeStatsRefresh>(async () => {});
+    const execCtx = fakeExecutionContext();
+    const res = await buildApp({ refreshHomeStats }).request(
+      '/api/promote',
+      post({
+        vendors: [{ ref: 'v1', supabaseId: V_CLAIMED, companyName: 'Autodesk' }],
+        product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+      }),
+      baseEnv,
+      execCtx,
+    );
+    expect(res.status).toBe(200);
+    expect(refreshHomeStats).not.toHaveBeenCalled();
+    expect(await auditActions()).toEqual(['promote.blocked', 'promote.blocked']);
+  });
+
+  it('enqueues no cache purge for a fully blocked promote', async () => {
+    const send = vi.fn().mockResolvedValue(undefined);
+    const env: Env = {
+      ...baseEnv,
+      CACHE_PURGE_QUEUE: { send } as unknown as Env['CACHE_PURGE_QUEUE'],
+    };
+    const execCtx = fakeExecutionContext();
+    await buildApp().request(
+      '/api/promote',
+      post({ product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' } }),
+      env,
+      execCtx,
+    );
+    await Promise.all(vi.mocked(execCtx.waitUntil).mock.calls.map((c) => c[0]));
+    expect(send).not.toHaveBeenCalled();
+  });
+});
+
+// ─── `verified` is grant-only (AECI-520) ──────────────────────────────────────
+
+describe('createPromoteHandler — verified is not review-app writable', () => {
+  it('ignores `verified` on an update instead of flipping the entitlement bit', async () => {
+    // The regression this guards: a routine Airtable push carrying
+    // `verified: false` used to silently un-verify a paying vendor.
+    await t.db
+      .insert(vendors)
+      .values({ id: uuid(80), slug: 'autodesk', companyName: 'Autodesk', verified: true });
+
+    const res = await promote({
+      vendors: [{ ref: 'v1', supabaseId: uuid(80), companyName: 'Autodesk', verified: false }],
+    });
+    expect(res.status).toBe(200);
+
+    const [row] = await t.db
+      .select()
+      .from(vendors)
+      .where(eq(vendors.id, uuid(80)));
+    expect(row?.verified).toBe(true);
+  });
+
+  it('ignores `verified` on a create — the grant flow is the only way in', async () => {
+    const res = await promote({
+      vendors: [{ ref: 'v1', companyName: 'Newco', verified: true }],
+    });
+    const body = (await res.json()) as PromoteResponse;
+    const [row] = await t.db
+      .select()
+      .from(vendors)
+      .where(eq(vendors.id, body.vendors[0]?.id as string));
+    expect(row?.verified).toBe(false);
   });
 });
