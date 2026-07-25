@@ -167,6 +167,34 @@ Callers of `/admin/purge`:
 
 **(b) `POST /api/promote` + review moderation on the API Worker** — since WC-5, these **enqueue** onto `aeci-cache-purge-{env}` (producer binding `CACHE_PURGE_QUEUE`) after the write commits; the SSR consumer issues the `ctx.cache.purge()`. Best-effort, post-commit (`ctx.waitUntil`), a graceful no-op when the queue binding is unset (local dev, PR previews), and never fails the committed write (a `queue.send` rejection is logged and swallowed). The promote's entity/index/pair/taxonomy tags are derived by `cacheTagsForPromote` (`promote-cache-tags.ts`); moderation enqueues `product:{slug}`. One message per ≤1000-tag batch (`CACHE_PURGE_QUEUE_MAX_TAGS`, vs. the HTTP transport's 30). This supersedes the ADR-0010 direct HTTP purge (which is inert against Workers Cache); the message is async, so there is still no api→web service binding.
 
+**(b2) `PATCH /api/vendor/*` on the API Worker (Stage 2, AECI-520)** — the vendor
+portal's self-service edits use the same producer path with a distinct
+`source: 'vendor'`, so the `aeci.cache.purge{source}` metric separates
+vendor-initiated invalidation from AECi-initiated `moderation`.
+
+- **Profile edit** → `vendor:{slug}`. One tag suffices by the §3 embedded-entity
+  rule: a product detail page tags the vendor it displays, so every page showing
+  that vendor repaints.
+- **Product edit** → `product:{slug}` **plus** `category:{slug}` /
+  `audience:{slug}` / `phase:{slug}` for the **union of the product's facet
+  membership before and after the edit**. The union is load-bearing and is the
+  easy thing to get wrong: `product:{slug}` only covers browse pages that
+  **already list** the product, so a page the product has just been *added to*
+  never carried that tag and would stay stale for a full browse TTL — the vendor
+  reloads the category they just joined and their product isn't there. Purging
+  the page it left *and* the page it joined fixes both directions. This mirrors
+  the promote deriver, which tags created **and** reused terms for the same
+  reason (`promote-cache-tags.ts`). The `taxonomy` tag is deliberately **not**
+  emitted: that one is for a change to the term *set*, and a vendor can only
+  assign existing terms, never mint one.
+
+Same best-effort contract — no-op without the binding, `queue.send` rejection
+logged and swallowed, never fails the committed edit. Note the asymmetry with
+search: the purge makes SSR immediate, while Algolia only catches up on the
+nightly watermark sync (≤24h — `STAGE_2_SPEC.md` §8.3(5)); a vendor write always
+stamps `products.updated_at` so that sync actually sees it, including a
+taxonomy-only edit that touches no other column.
+
 The home page's `index:home` tag is the one deliberate exception: it is **not** in `cacheTagsForPromote`, because the home banner reads `home.*` `stats_cache` counts that the promote must **recompute first** (via `runHomeStats`). So the home refresh+enqueue is its own ordered post-commit task (`refreshHomeStatsAfterPromote` in `promote.ts`, AECI-305): recompute `stats_cache`, **then** enqueue the `index:home` purge. Enqueueing `index:home` in the concurrent set would let the purge race ahead of the recompute and re-cache stale HTML for another edge TTL. The `stats_cache` recompute runs in every environment; only the `index:home` enqueue is queue-binding-gated.
 
 **The SSR consumer** (`apps/web/src/server/cache-purge-queue.ts`) reads each `CachePurgeMessage` and — because it runs on the SSR Worker's **`default`** export, which has no cache of its own — **delegates** its `tags`/`pathPrefixes`/`purgeEverything` into **`Renderer.purgeCache()`** over the `ctx.exports` loopback (that method calls `ctx.cache.purge()` inside the cached `Renderer` entrypoint, the only place the eviction is correctly scoped — ADR 0020 §2). It emits `aeci.cache.purge{source,outcome}` — `outcome:ok` on `{ success: true }`, `outcome:purge_failed` on `{ success: false }` or a thrown error (the message is `retry()`-ed, up to the consumer's `max_retries`), `outcome:no_cache` when the env's cache is off (the currently-uncached demo/production tiers, where `Renderer.purgeCache()` returns `null`, so the consumer no-ops and acks), `outcome:noop` for an empty message. The metric **moved here off the producers** in WC-5.

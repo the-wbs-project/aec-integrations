@@ -48,7 +48,8 @@ packages/shared/
 │   │   ├── reviews.ts         # (Phase 5)
 │   │   ├── requests.ts        # (Phase 6 — claim and correction)
 │   │   ├── stats.ts           # (Phase 4)
-│   │   └── admin.ts           # (Phase 6+)
+│   │   ├── admin.ts           # (Phase 6+)
+│   │   └── vendor.ts          # (Stage 2 — vendor portal, /api/vendor/*)
 │   └── errors/
 │       └── codes.ts           # Machine-readable error code constants
 └── package.json
@@ -1252,7 +1253,11 @@ export interface PromoteResponse {
     audiences: { slug: string; id: string; operation: 'created' | 'reused' }[];
     phases: { slug: string; id: string; operation: 'created' | 'reused' }[];
   };
-  skipped: { ref: string; kind: 'integration' | 'extension' | 'usefulness' | 'claim'; reason: string }[];
+  skipped: {
+    ref: string;
+    kind: 'integration' | 'extension' | 'usefulness' | 'claim' | 'vendor' | 'product';
+    reason: string;
+  }[];
 }
 ```
 
@@ -1261,6 +1266,51 @@ only when both endpoints resolve — one is the product in this bundle (`ref`), 
 other must already be promoted (`supabaseId`). Integrations whose other endpoint
 isn't promoted yet land in `skipped[]` rather than failing the request. Every
 create/update writes an `audit_log` row in the same transaction (§26).
+
+**Claimed-vendor block (Stage 2, AECI-520).** A vendor is **claimed** once AECi
+has granted it a vendor-portal seat — at least one `profiles` row with
+`role = 'vendor_admin'` AND `vendor_id = <vendor>`. From that point its row and
+every product it owns are vendor-owned: the vendor edits them through
+`/api/vendor/*` (§6.14), and this endpoint writes the very same columns, so a
+routine push would silently revert their work. Therefore:
+
+- A claimed vendor's row is **not updated** — reported as `skipped[] { kind: 'vendor' }`.
+- An existing product that a claimed vendor owns today, **or** that this payload
+  would join to one, is blocked **wholesale** (all columns, plus its
+  `product_vendors` / taxonomy / extension join rewrites and its `usefulness`) —
+  reported as `skipped[] { kind: 'product' }`. Wholesale means AECi's own
+  curation columns on that row (`name`, `promotion_status`, `research_*`,
+  `priority_*`, `admin_notes`) also stop updating through promote — accepted at
+  launch given the concierge model's low volume and human in the loop.
+- Integrations in the same payload with an endpoint on **that** blocked product
+  cascade-skip (matched by both `ref` and `supabaseId` — the payload's
+  `superRefine` only constrains the `ref` form). The cascade is scoped to this
+  payload's product: an integration whose *far* endpoint is some other claimed
+  vendor's product still writes, because integrations are AECi-curated and are
+  not vendor-editable, so no vendor-owned content is at stake.
+- **Creation is never blocked** — nothing vendor-owned exists yet.
+- Unrelated vendors and integrations in the same payload still promote.
+- "Claimed" requires an **active** seat. Banning a vendor's only admin un-claims
+  it, so promote can write again — moderation returns control to AECi instead of
+  freezing a record nobody can then correct (the banned seat also fails every
+  `/api/vendor/*` call). Ban is per-seat, so a vendor with another active seat
+  stays claimed.
+
+Blocked entities are **omitted** from `vendors[]` / `product` rather than marked
+with a new `operation`, which is what keeps them out of the cache purge, IndexNow,
+Google Indexing, and the Algolia sync (all four iterate the result arrays). So
+`product: null` now means either "no product was sent" or "the product was
+blocked"; the two are told apart by a `skipped[]` entry whose `ref` matches the
+product's, which only ever appears when a product *was* sent. Seat existence is
+the signal (rather than `vendors.verified`) precisely because it cannot be set
+from Airtable.
+
+**`verified` is accepted and ignored (AECI-520).** `vendors.verified` is the paid
+entitlement bit: it is set by the claim→account grant
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §3) and cleared only by a deliberate entitlement
+action. It stays in `PromoteVendorSchema` so an existing review-app build keeps
+validating, but the server no longer writes it — previously an ordinary push
+could silently un-verify a paying vendor.
 
 **Claims (Stage 1.5, AECI-291 contract / AECI-297 ingest):** each integration may
 carry a nested `claims[]` of data-object assertions (`STAGE_1_5_SPEC.md` §5/§6.2). A
@@ -1327,6 +1377,112 @@ export const FeedbackSubmitSchema = z
 ```
 
 **Response (both):** `LandingSubmitResult` — `{ created: boolean }`. `created` is `false` only for a subscribe no-op on an already-listed email; feedback always returns `true`.
+
+---
+
+### 6.14 Vendor portal endpoints
+
+Stage 2 (AECI-520). All require `role === 'vendor_admin'` **and** a non-null `profiles.vendor_id`, enforced by the `requireVendor()` Worker middleware (`apps/api/src/lib/authz.ts`) — verifies the JWT, loads the D1 profile, and rejects in this order: missing token/profile `401`; `banned_at` set `403`; wrong role `403`; null `vendor_id` `403`. A site **`admin` is rejected too** — there is no impersonation at launch, admins act on vendor data through `/api/admin/*` so the audit trail names the real actor.
+
+Source of truth: `packages/shared/src/api/vendor.ts` (Zod), `apps/api/src/routes/vendor.ts` (handlers), `STAGE_2_VENDOR_PORTAL_SPEC.md` §4.
+
+**Two invariants govern this whole surface.**
+
+1. **Scoping.** There is no RLS on app tables (ADR 0016), so the guard plus a `WHERE vendor_id = <session vendor>` filter in every query *is* the authorization. No vendor id crosses the wire; the only client-supplied id (`PATCH /api/vendor/products/:id`) has its ownership proven against `product_vendors` **before** anything is read or written, and a miss returns **`404`, not `403`** — a non-owner must not learn the product exists.
+2. **The allow-list is the guard-rail.** Zod strips unknown keys, so any column absent from an `Update*Schema` is unwritable by a vendor: `slug`, `name` / `company_name`, `verified`, `promotion_status`, `admin_notes`, `research_*`, `priority_*`, `score_*`, the VQS fields, `usefulness`, `source_url`, and every denormalized count/average stay AECi-owned. Adding a field there grants a write.
+
+Every editable field is `.nullable().optional()`: an **absent** key leaves the column untouched, an explicit **`null`** clears it. Taxonomy arrays are set-replacement — absent leaves the facet alone, `[]` clears it. URLs must be `http://` or `https://` (§7.1); a plain `.url()` would accept `javascript:`.
+
+Writes go through one `db.batch([...])` carrying the `UPDATE`, any taxonomy join rewrite, and the `audit_log` row (§26.1). Audit rows use `action: 'vendor.updated'` / `'product.updated'` with `actor_type: 'user'` (a `vendor_admin` maps to `user` — the `audit_log_actor_type_check` CHECK has no `vendor` value and this epic ships no migration) and are distinguished by `metadata.source = 'vendor-portal'`. Post-commit, the write enqueues a `vendor:{slug}` / `product:{slug}` Cache-Tag purge with `source: 'vendor'`.
+
+**Search freshness.** Vendor edits do **not** trigger a per-write Algolia reindex. They reach search on the nightly watermark sync (≤24h) while SSR repaints immediately via the purge (`STAGE_2_SPEC.md` §8.3(5)). Dashboard copy must not promise "live in search".
+
+#### `GET /api/vendor/me`
+
+The dashboard payload — one round-trip renders the surface: the caller's vendor, the products it owns (via `product_vendors`, with their taxonomy assignment), the `vendor_requests` targeting the vendor or any of those products, and how many seats share the account. The seat **roster** is a separate call because it needs the Supabase email lookup.
+
+```typescript
+export const VendorMeResponseSchema = z.object({
+  vendor: VendorAccountSchema,          // incl. `verified` as READ-ONLY state
+  products: z.array(VendorProductSchema),
+  requests: z.array(VendorRequestSummarySchema),
+  seat_count: z.number().int().min(1),
+});
+```
+
+`VendorRequestSummary` deliberately omits `submitter_email` and the free-text `body` — a correction may be filed by a member of the public.
+
+Errors: `NOT_FOUND` if the granted seat's vendor row has since been deleted.
+
+#### `GET /api/vendor/seats`
+
+The vendor's seat roster. A bare object, never paginated — seats are granted by hand, so the list is bounded. Multi-seat is **flat**: every seat is equal, there is no owner/admin distinction, and self-serve invite/revoke is deferred (`STAGE_2_VENDOR_PORTAL_SPEC.md` §11), so this is read-only.
+
+```typescript
+export const VendorSeatSchema = z.object({
+  user_id: z.string().uuid(),
+  display_name: z.string().nullable(),
+  email: z.string().nullable(),   // from Supabase auth.users; null without the
+                                  // service-role key (local dev / PR preview)
+  banned: z.boolean(),            // per-seat ban never touches vendors.verified
+  created_at: z.string().datetime(),
+});
+export const ListVendorSeatsResponseSchema = z.object({ seats: z.array(VendorSeatSchema) });
+```
+
+#### `PATCH /api/vendor/profile`
+
+Edits the caller's own vendor row. The path carries **no** vendor id, so cross-vendor access is structurally impossible.
+
+```typescript
+export const UpdateVendorProfileSchema = z
+  .object({
+    description: longText.nullable().optional(),
+    website: editableUrl.nullable().optional(),
+    headquarters: shortText.nullable().optional(),
+    founded_year: z.number().int().min(1800).max(2100).nullable().optional(),
+    public_private: z.enum(['public', 'private']).nullable().optional(),
+    parent_company: shortText.nullable().optional(),
+    contact_email: z.string().trim().toLowerCase().email().max(200).nullable().optional(),
+    phone_number: shortText.nullable().optional(),
+    logo_url: editableUrl.nullable().optional(),
+    // profile URLs: linkedin_url, x_url, facebook_url, instagram_url,
+    // youtube_url, crunchbase_url, wiki_url  ·  plus github_org (shortText)
+  })
+  .superRefine(/* at least one field must be present */);
+
+export const UpdateVendorProfileResponseSchema = z.object({ vendor: VendorAccountSchema });
+```
+
+`source_url` is excluded on purpose: it records where AECi's own research came from, so letting the subject of that research rewrite it would defeat it.
+
+Errors: `VALIDATION_FAILED` (empty body, or a body whose only keys are non-allow-listed — Zod strips them, so the vendor gets a clear 400 rather than a silent no-op 200), `MALFORMED_REQUEST`, `NOT_FOUND`.
+
+#### `PATCH /api/vendor/products/:id`
+
+Edits one product the caller's vendor owns. `name`/`slug` are **not** editable — a rename breaks the URL, the Algolia record, and every inbound link, so it stays a correction request.
+
+```typescript
+export const UpdateVendorProductSchema = z
+  .object({
+    description: longText.nullable().optional(),
+    website: editableUrl.nullable().optional(),
+    tool_integrations_url: editableUrl.nullable().optional(),
+    api_docs_url: editableUrl.nullable().optional(),
+    logo_url: editableUrl.nullable().optional(),
+
+    category_slugs: termSlugList.optional(),   // max 10, [a-z0-9-]+
+    audience_slugs: termSlugList.optional(),
+    phase_slugs: termSlugList.optional(),
+  })
+  .superRefine(/* at least one field must be present */);
+
+export const UpdateVendorProductResponseSchema = z.object({ product: VendorProductSchema });
+```
+
+**Taxonomy guard-rail:** a vendor may only **assign terms that already exist**. Minting a term is an AECi curation act, so an unknown slug is a `VALIDATION_FAILED` keyed to the field rather than a silent drop — and nothing is partially applied, because terms are resolved before the batch opens.
+
+Errors: `NOT_FOUND` (unknown id **or** a product owned by another vendor — deliberately indistinguishable), `VALIDATION_FAILED` (empty body, unknown taxonomy slug, malformed URL/slug), `MALFORMED_REQUEST`.
 
 ---
 

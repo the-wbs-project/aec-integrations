@@ -71,6 +71,7 @@ const ADMIN_AUTH: AuthzVariables['auth'] = {
   userId: ADMIN_ID,
   email: 'admin@aeci.test',
   role: 'admin',
+  vendorId: null,
 };
 
 let t: TestDb;

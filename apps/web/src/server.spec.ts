@@ -12,6 +12,7 @@ import {
   createApp,
   hasSessionCookie,
   isAdminPath,
+  isVendorPath,
   isCacheableRoute,
   isPreviewPath,
   isReviewPath,
@@ -1688,6 +1689,85 @@ describe('createApp admin-surface anon gate (AECI-203)', () => {
     const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
 
     expect(res.status).not.toBe(303);
+  });
+});
+
+describe('isVendorPath (AECI-520)', () => {
+  it('matches /vendor and everything under it', () => {
+    expect(isVendorPath('/vendor')).toBe(true);
+    expect(isVendorPath('/vendor/products')).toBe(true);
+    expect(isVendorPath('/vendor/products/revit/edit')).toBe(true);
+  });
+
+  it('does NOT match the public /vendors detail surface', () => {
+    // The whole reason the portal prefix is singular. `/vendors/:slug` is a
+    // cacheable public page; gating it would put a login wall on the catalog.
+    expect(isVendorPath('/vendors')).toBe(false);
+    expect(isVendorPath('/vendors/autodesk')).toBe(false);
+  });
+
+  it('does not match look-alike paths', () => {
+    expect(isVendorPath('/vendor-portal')).toBe(false);
+    expect(isVendorPath('/products/vendor')).toBe(false);
+    expect(isVendorPath('/')).toBe(false);
+  });
+});
+
+describe('createApp vendor-portal anon gate + cacheability (AECI-520)', () => {
+  it('redirects a logged-out visitor to /auth/login with a sanitized return path', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('SSR shouldn’t run for a logged-out visitor')),
+    });
+
+    const req = new Request('https://www.aecintegrations.com/vendor', {
+      headers: { cookie: 'theme=dark' }, // no session cookie
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(303);
+    expect(res.headers.get('location')).toBe('/auth/login?return=%2Fvendor');
+    expect(res.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('falls through to SSR when a session cookie is present (role check is the resolver’s)', async () => {
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
+
+    const req = new Request('https://www.aecintegrations.com/vendor/products', {
+      headers: { cookie: 'sb-proj-auth-token=session' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('SSR-OK');
+  });
+
+  it('never edge-caches a /vendor page and emits no Cache-Tag', async () => {
+    // The portal renders one vendor's private data. The native cache is keyed by
+    // URL, not cookie, so a cached /vendor page would serve the first vendor's
+    // dashboard to the next one. It is non-cacheable by fail-closed default —
+    // this pins that nobody adds it to ROUTE_CACHE_PATTERNS by accident.
+    expect(isCacheableRoute(new URL('https://www.aecintegrations.com/vendor'))).toBe(false);
+    expect(isCacheableRoute(new URL('https://www.aecintegrations.com/vendor/products'))).toBe(
+      false,
+    );
+
+    const { binding } = recordingApiBinding();
+    const app = createApp({ ssrRenderer: fixedRenderer(new Response('SSR-OK', { status: 200 })) });
+    const req = new Request('https://www.aecintegrations.com/vendor', {
+      headers: { cookie: 'sb-proj-auth-token=session' },
+    });
+    const res = await app.fetch(req, binding as unknown as Bindings, fakeExecutionContext());
+
+    expect(res.headers.get('cache-tag')).toBeNull();
+    expect(res.headers.get('cache-control')).toContain('no-store');
+  });
+
+  it('leaves the PUBLIC /vendors/:slug page cacheable', async () => {
+    expect(isCacheableRoute(new URL('https://www.aecintegrations.com/vendors/autodesk'))).toBe(
+      true,
+    );
   });
 });
 

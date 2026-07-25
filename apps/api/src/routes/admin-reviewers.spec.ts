@@ -31,7 +31,7 @@ function listApp() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
+    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin', vendorId: null });
     await next();
   });
   a.get('/api/admin/reviewers', createBannedReviewersListHandler(t.factory, emails));
@@ -41,7 +41,7 @@ function patchApp() {
   const a = new Hono<{ Bindings: Env; Variables: AuthzVariables }>();
   a.onError(errorHandler());
   a.use('*', async (c, next) => {
-    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin' });
+    c.set('auth', { userId: ADMIN, email: undefined, role: 'admin', vendorId: null });
     await next();
   });
   a.patch('/api/admin/reviewers/:id', createBanReviewerHandler(t.factory));

@@ -85,7 +85,7 @@ Three roles exist in `profiles.role`. All are set server-side — no client can 
 |---|---|---|
 | `reviewer` | Any authenticated user | Default role of the **D1** profile created by `POST /api/auth/profile/ensure` on first sign-in (the authoritative path under ADR 0016). The Postgres `handle_new_user()` trigger on `auth.users` still exists in the auth-only baseline but is **vestigial** — the app reads `profiles.role` from D1, not Postgres. See §8.1. |
 | `admin` | Chris and Bill | Manual `UPDATE profiles SET role='admin'` against the per-environment **D1** database |
-| `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). The claim form is anonymous, so the *identity* the grant links is resolved from `vendor_requests.submitter_email` by **seam #4** (§3.1) — either linking an existing `auth.users` row or provisioning one. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement (the `vendor_admin` guard branch + `vendor_id` query-scoping, §9) ships with **AECI-520** — reserved/unused in code until then. |
+| `vendor_admin` | Stage 2 vendor contacts | Granted app-side on **vendor-claim approval** — the same app-layer seam as `admin` (no `auth.users`↔`profiles` FK, AECI-254). The claim form is anonymous, so the *identity* the grant links is resolved from `vendor_requests.submitter_email` by **seam #4** (§3.1) — either linking an existing `auth.users` row or provisioning one. See `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§3. Enforcement **shipped in AECI-520**: `requireVendor()` (`apps/api/src/lib/authz.ts`) requires `role = 'vendor_admin'` **and** a non-null `profiles.vendor_id`, and every `/api/vendor/*` query is scoped by that `vendor_id` (§4.4). Many `profiles` → one `vendor_id`: multi-seat is **flat**, and every seat is granted by hand. |
 
 Banned users retain their role but have `profiles.banned_at` set; the Worker (`apps/api/src/lib/authz.ts`) checks both identity and ban status against D1. (The Postgres `public.is_active_user()` helper is part of the historical RLS surface and no longer governs app-table access.)
 
@@ -240,7 +240,43 @@ await db.batch([
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
+| `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
+| `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
+| `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership** | `product.updated` (`metadata.source: 'vendor-portal'`) |
 | `POST /api/webhooks/linear` | HMAC-verified | N/A | `workflow.transitioned` |
+
+**The `/api/vendor/*` rows carry two extra obligations** (AECI-520,
+`STAGE_2_VENDOR_PORTAL_SPEC.md` §4). They are the D1/Drizzle replacement for the
+row filter RLS would have provided, and they are not optional:
+
+1. **`vendor_id` scoping.** Passing `requireVendor()` only proves *which* vendor
+   is calling. Every read and write must additionally filter on
+   `c.get('auth').vendorId`. No `/api/vendor/*` contract carries a vendor id, so
+   the Worker never has a client-supplied one to be tempted by.
+2. **Ownership before writing a client-supplied id.** `PATCH
+   /api/vendor/products/:id` proves the product belongs to the session's vendor
+   (a `product_vendors` read) *before* anything is written, and a miss returns
+   **`404`, not `403`** — a non-owner must not learn the product exists. Same
+   "don't reveal the surface" posture as the `/admin` gate.
+
+Two rejection cells are deliberate and easy to get wrong:
+
+- A site **`admin` is rejected with 403** on `/api/vendor/*`. There is no
+  impersonation at launch; admins act on vendor data through `/api/admin/*` so
+  the audit trail names the real actor.
+- A **`vendor_admin` with a null `vendor_id`** is rejected — a half-granted seat
+  has nothing to scope by, so it is authorized for nothing.
+
+The ban check runs **before** the role check, which is the moderation gate: a
+banned seat fails every `/api/vendor/*` call while the vendor stays verified and
+its other seats keep working. Ban and revoke are per-seat and never touch
+`vendors.verified`.
+
+Vendor writes use `actor_type: 'user'` (a `vendor_admin` is not an `admin`, and
+the `audit_log_actor_type_check` CHECK has no `vendor` value — the Stage 2 portal
+ships no migration). `metadata.source = 'vendor-portal'` is what distinguishes a
+vendor's self-service edit from the AECi-side `vendor.updated` / `product.updated`
+that `POST /api/promote` emits.
 
 ### 4.5 Things the Worker never does
 

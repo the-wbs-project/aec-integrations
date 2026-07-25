@@ -20,8 +20,11 @@
 
 /** Which producer enqueued a purge — carried on the message so the SSR consumer can
  *  tag its `aeci.cache.purge{source:…}` metric (the metric moved off the producers to
- *  the consumer in WC-5). `manual` = SSR `/admin/purge` (WC-6), `datatool` = WC-7. */
-export type CachePurgeSource = 'promote' | 'moderation' | 'manual' | 'datatool';
+ *  the consumer in WC-5). `manual` = SSR `/admin/purge` (WC-6), `datatool` = WC-7,
+ *  `vendor` = a vendor-portal self-service edit (`/api/vendor/*`, AECI-520) — kept
+ *  distinct from `moderation` so the metric separates AECi-initiated invalidation
+ *  from vendor-initiated. */
+export type CachePurgeSource = 'promote' | 'moderation' | 'manual' | 'datatool' | 'vendor';
 
 /**
  * The typed payload on the `aeci-cache-purge-{env}` Cloudflare Queue. Its purge

@@ -4,11 +4,14 @@
  * authorization is actually enforced: the privileged D1 binding has no RLS
  * (ADR 0016 / AECI-254), so this Worker is the real enforcement point).
  *
- * Two guards, both built on the AECI-193 JWT verification
+ * Three guards, all built on the AECI-193 JWT verification
  * (`lib/user-auth.ts`, jose + Supabase JWKS — no DB round-trip to verify):
  *
- *   - `requireAuth()`  — valid JWT + profile exists + not banned.
- *   - `requireAdmin()` — all of the above + `profiles.role = 'admin'`.
+ *   - `requireAuth()`   — valid JWT + profile exists + not banned.
+ *   - `requireAdmin()`  — all of the above + `profiles.role = 'admin'`.
+ *   - `requireVendor()` — all of `requireAuth()` + `profiles.role =
+ *     'vendor_admin'` + a non-null `profiles.vendor_id` (AECI-520 / Stage 2;
+ *     `STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
  *
  * Order of checks (AUTH_AND_RLS.md §4.1–4.2), all BEFORE the handler runs —
  * i.e. before any D1 write:
@@ -22,19 +25,22 @@
  *      cookie is trusted.
  *   2. Verify or hard-fail `401 UNAUTHENTICATED` (§4.1 — a missing token on
  *      an authenticated route is 401, never anonymous treatment).
- *   3. Re-fetch `profiles.role` + `banned_at` from the DB on every request
- *      (§4.5 — never trust client-side claims about role). Missing profile →
- *      401; banned → `403` (`REVIEW_BANNED` on review writes via
- *      `bannedCode`, else `FORBIDDEN`); non-admin on an admin route → `403
+ *   3. Re-fetch `profiles.role` + `vendor_id` + `banned_at` from the DB on
+ *      every request (§4.5 — never trust client-side claims about role).
+ *      Missing profile → 401; banned → `403` (`REVIEW_BANNED` on review writes
+ *      via `bannedCode`, else `FORBIDDEN`); wrong role for the route → `403
  *      FORBIDDEN`.
  *
- * On success the handler gets `c.get('auth')` = `{ userId, email?, role }`.
- * `userId` is the verified token `sub` (the `auth.users` UUID) — handlers
- * MUST server-set `reviewer_id` / actor columns from it; the client can never
- * supply it. For the §4.3 audit-log pattern, `auditActorType()` maps the
- * verified role onto the `audit_log.actor_type` value, and every
- * state-changing write emits an `auditInsert()` (`lib/audit.ts`) inside its
- * atomic `db.batch()` (ADR 0016 / AECI-249).
+ * On success the handler gets `c.get('auth')` = `{ userId, email?, role,
+ * vendorId }`. `userId` is the verified token `sub` (the `auth.users` UUID) —
+ * handlers MUST server-set `reviewer_id` / actor columns from it; the client
+ * can never supply it. `vendorId` is likewise server-derived and is the ONLY
+ * source a `/api/vendor/*` handler may scope by — the Worker never trusts a
+ * client-supplied vendor id (the D1/Drizzle replacement for the RLS row filter,
+ * `STAGE_2_VENDOR_PORTAL_SPEC.md` §4). For the §4.3 audit-log pattern,
+ * `auditActorType()` maps the verified role onto the `audit_log.actor_type`
+ * value, and every state-changing write emits an `auditInsert()`
+ * (`lib/audit.ts`) inside its atomic `db.batch()` (ADR 0016 / AECI-249).
  *
  * The guarded endpoints themselves land in Phase 5.6 / 5.11 / 5.13.
  */
@@ -61,6 +67,13 @@ export type AuthenticatedSession = {
   email?: string;
   /** `profiles.role`, re-fetched from the DB this request. */
   role: string;
+  /**
+   * `profiles.vendor_id`, re-fetched from the DB this request (AECI-520).
+   * Non-null for every `vendor_admin` that passes `requireVendor()`; null for
+   * `reviewer`/`admin` sessions. Handlers scope `/api/vendor/*` reads AND
+   * writes by this value — never by anything the client sent.
+   */
+  vendorId: string | null;
 };
 
 /** Hono `Variables` contributed by `requireAuth()` / `requireAdmin()`. */
@@ -149,13 +162,21 @@ export function extractSessionCookieToken(cookies: Record<string, string>): stri
   return null;
 }
 
-/** Map the verified role onto the `audit_log.actor_type` value (§4.3). */
+/**
+ * Map the verified role onto the `audit_log.actor_type` value (§4.3).
+ *
+ * `vendor_admin` deliberately maps to `'user'`: the `audit_log_actor_type_check`
+ * CHECK is `('user','admin','system','workflow')` and the Stage 2 vendor-portal
+ * epic ships no migration (`STAGE_2_VENDOR_PORTAL_SPEC.md` §1.2). Vendor writes
+ * are identified by their `actorId` plus `metadata.source = 'vendor-portal'`,
+ * the same way admin moderation and the Linear sync distinguish themselves.
+ */
 export function auditActorType(session: Pick<AuthenticatedSession, 'role'>): AuditLogActorType {
   return session.role === 'admin' ? 'admin' : 'user';
 }
 
 function createAuthzMiddleware(
-  requiredRole: 'admin' | null,
+  requiredRole: 'admin' | 'vendor_admin' | null,
   options: AuthzOptions,
 ): MiddlewareHandler<{ Bindings: Env; Variables: AuthzVariables }> {
   return async (c, next) => {
@@ -173,7 +194,7 @@ function createAuthzMiddleware(
     // authorization source of truth. Only reached AFTER the JWT verifies.
     const { db } = (options.dbFor ?? getDb)(c.env);
     const profile = await db.query.profiles.findFirst({
-      columns: { role: true, bannedAt: true, banReason: true },
+      columns: { role: true, vendorId: true, bannedAt: true, banReason: true },
       where: eq(profiles.id, user.userId),
     });
     // A verified token with no profiles row is an identity we can't authorize
@@ -189,8 +210,27 @@ function createAuthzMiddleware(
     if (requiredRole === 'admin' && profile.role !== 'admin') {
       throw new ApiError(403, ApiErrorCode.FORBIDDEN, 'Admin role required');
     }
+    if (requiredRole === 'vendor_admin') {
+      // A site `admin` is NOT a vendor: there is no impersonation at launch
+      // (STAGE_2_VENDOR_PORTAL_SPEC.md §4 / the AECI-520 AC). Admins act on
+      // vendor data through `/api/admin/*`, which keeps the audit trail honest
+      // about who wrote what.
+      if (profile.role !== 'vendor_admin') {
+        throw new ApiError(403, ApiErrorCode.FORBIDDEN, 'Vendor admin role required');
+      }
+      // A `vendor_admin` with no `vendor_id` is a half-granted seat — there is
+      // nothing to scope its queries by, so it is not authorized for anything.
+      if (!profile.vendorId) {
+        throw new ApiError(403, ApiErrorCode.FORBIDDEN, 'Vendor account is not linked to a vendor');
+      }
+    }
 
-    c.set('auth', { userId: user.userId, email: user.email, role: profile.role });
+    c.set('auth', {
+      userId: user.userId,
+      email: user.email,
+      role: profile.role,
+      vendorId: profile.vendorId,
+    });
 
     await next();
   };
@@ -216,4 +256,26 @@ export function requireAdmin(
   options: AuthzOptions = {},
 ): MiddlewareHandler<{ Bindings: Env; Variables: AuthzVariables }> {
   return createAuthzMiddleware('admin', options);
+}
+
+/**
+ * Guard for the vendor portal (`/api/vendor/*`, AECI-520): everything
+ * `requireAuth()` checks, plus `profiles.role = 'vendor_admin'` AND a non-null
+ * `profiles.vendor_id` — enforced before the handler, and therefore before any
+ * D1 write (`STAGE_2_VENDOR_PORTAL_SPEC.md` §4).
+ *
+ * The ban check runs FIRST (inherited from `createAuthzMiddleware`), which is
+ * the §7 / AECI-524 moderation gate: a banned seat fails every `/api/vendor/*`
+ * call with a 403 while the vendor itself stays verified and its other seats
+ * keep working.
+ *
+ * Passing the guard only proves *which* vendor the caller is. It does NOT scope
+ * any query — handlers must still filter every read and write by
+ * `c.get('auth').vendorId`. There is no RLS behind this (ADR 0016); the guard
+ * plus that filter IS the enforcement.
+ */
+export function requireVendor(
+  options: AuthzOptions = {},
+): MiddlewareHandler<{ Bindings: Env; Variables: AuthzVariables }> {
+  return createAuthzMiddleware('vendor_admin', options);
 }
