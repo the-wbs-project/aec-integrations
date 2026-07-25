@@ -37,6 +37,7 @@ const validProductListItem = {
     name: 'Procore Technologies',
     slug: 'procore',
     logo_url: null,
+    verified: false,
   },
   primary_category: null,
   integration_count: 12,

@@ -37,9 +37,17 @@ export type LinkRef = z.infer<typeof LinkRefSchema>;
  * Hydration shape used wherever a product detail or integration detail needs
  * to render its vendor (id + display fields + logo). Extends LinkRef so all
  * consumers can rely on `id`, `name`, `slug` being present.
+ *
+ * `verified` mirrors `vendors.verified` (the AECi-verified-vendor-account bit,
+ * flipped by the AECI-519 claim grant) so the SSR trust surfaces can render the
+ * verified badge (AECI-523) wherever a product/integration shows its built-by
+ * vendor. Required — the DB column is `NOT NULL DEFAULT false`, so the mapper
+ * always emits a real boolean (matching the required `verified` on
+ * `VendorListItem` / `VendorDetail`).
  */
 export const VendorLinkSchema = LinkRefSchema.extend({
   logo_url: z.string().url().nullable(),
+  verified: z.boolean(),
 });
 
 export type VendorLink = z.infer<typeof VendorLinkSchema>;

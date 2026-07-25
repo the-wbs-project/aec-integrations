@@ -34,7 +34,17 @@ import { coerceDirection, pickPrimaryVendor, toMechanismKind } from './drizzle-h
 // Leaf column sets
 // ---------------------------------------------------------------------------
 
-const vendorLinkColumns = { id: true, companyName: true, slug: true, logoUrl: true } as const;
+// Mirrors `drizzle-helpers`'s `vendorLinkColumns` so the imported `pickPrimaryVendor`
+// can build a full `VendorLink`. `verified` is selected only to satisfy that shared
+// contract — it is intentionally NOT mapped into the Algolia *product* record here;
+// the `verified` facet lives on the Algolia *vendor* record (AECI-529).
+const vendorLinkColumns = {
+  id: true,
+  companyName: true,
+  slug: true,
+  logoUrl: true,
+  verified: true,
+} as const;
 const taxonomyNameColumns = { name: true } as const;
 
 // ---------------------------------------------------------------------------
@@ -139,7 +149,13 @@ export interface RawAlgoliaProductRow {
   updatedAt: string;
   productVendors: Array<{
     isPrimary: boolean;
-    vendor: { id: string; companyName: string; slug: string; logoUrl: string | null };
+    vendor: {
+      id: string;
+      companyName: string;
+      slug: string;
+      logoUrl: string | null;
+      verified: boolean;
+    };
   }>;
   productCategories: Array<{ category: { name: string } }>;
   productAudiences: Array<{ audience: { name: string } }>;

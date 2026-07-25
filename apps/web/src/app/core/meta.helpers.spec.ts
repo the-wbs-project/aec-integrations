@@ -205,6 +205,7 @@ describe('buildProductJsonLd', () => {
         slug: 'autodesk',
         name: 'Autodesk',
         logo_url: 'https://cdn.example/autodesk.png',
+        verified: false,
       },
       integration_count: 12,
       review_count: 4,

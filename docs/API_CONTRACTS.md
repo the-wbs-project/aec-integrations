@@ -160,9 +160,13 @@ export const LinkRefSchema = z.object({
   slug: z.string().min(1),
 });
 
-// VendorLink and ProductLink extend LinkRef with logo_url.
+// VendorLink extends LinkRef with logo_url + verified (the AECi-verified-vendor-
+// account bit, mirrored from vendors.verified — required, since the column is
+// NOT NULL DEFAULT false; powers the AECI-523 verified badge on the detail
+// surfaces). ProductLink extends LinkRef with logo_url only.
 export const VendorLinkSchema = LinkRefSchema.extend({
   logo_url: z.string().url().nullable(),
+  verified: z.boolean(),
 });
 
 export const ProductLinkSchema = LinkRefSchema.extend({

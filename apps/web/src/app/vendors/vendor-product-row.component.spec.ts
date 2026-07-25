@@ -18,6 +18,7 @@ const baseProduct: ProductListItem = {
     slug: 'procore',
     name: 'Procore Technologies',
     logo_url: null,
+    verified: false,
   },
   primary_category: {
     id: '00000000-0000-4000-8000-000000030001',
