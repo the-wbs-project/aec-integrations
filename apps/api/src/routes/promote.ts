@@ -616,6 +616,52 @@ export async function refreshHomeStatsAfterPromote(
   }
 }
 
+// ─── Skipped-entity observability ────────────────────────────────────────────
+
+/**
+ * Surface a promote's `skipped[]` (§4) in Datadog. A promote returns `200` even
+ * when it could not link some entities — an integration/extension whose far
+ * endpoint isn't promoted yet, a usefulness group or a claim `dataObject` that
+ * didn't resolve — so the response looks like a clean success and the metrics
+ * layer (`aeci.api.query.duration_ms{status_class:2xx}`) is blind to the partial
+ * data loss. Without this the only record of a curator's silently-dropped push
+ * lives in the HTTP response body, which the review app must itself inspect.
+ *
+ * Emits a single `warn` log detailing every `{ ref, kind, reason }` plus per-kind
+ * counts, and an `aeci.api.promote.skipped` count (value = per-kind skip count,
+ * so query with `sum:`; `kind` tag ∈ integration/extension/usefulness/claim) as
+ * the alertable signal. Best-effort + fire-and-forget: the transport self-gates
+ * on `DD_API_KEY` and dispatches via `ctx.waitUntil`, so this never affects the
+ * committed promote. No-op when nothing was skipped.
+ */
+function logPromoteSkips(c: Context<{ Bindings: Env }>, skipped: PromoteSkipped[]): void {
+  if (skipped.length === 0) return;
+
+  const countByKind = skipped.reduce<Record<string, number>>((acc, s) => {
+    acc[s.kind] = (acc[s.kind] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  logToDatadog(c.executionCtx, c.env, c.req.raw, {
+    level: 'warn',
+    message: 'aeci.api.promote.partial_skipped',
+    source: 'review-app-promote',
+    outcome: 'partial',
+    skipped_count: skipped.length,
+    // Per-kind counts as flat scalars for faceting, plus the full detail array so
+    // Datadog alone answers "what didn't land and why" (each `{ref, kind, reason}`).
+    ...Object.fromEntries(Object.entries(countByKind).map(([k, n]) => [`skipped_${k}`, n])),
+    skipped,
+  });
+
+  for (const [kind, n] of Object.entries(countByKind)) {
+    submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.api.promote.skipped', n, [
+      'source:promote',
+      `kind:${kind}`,
+    ]);
+  }
+}
+
 // ─── Handler ─────────────────────────────────────────────────────────────────
 
 /** A taxonomy facet model (table + the columns the find-or-create reads). The
@@ -1322,6 +1368,11 @@ export function createPromoteHandler(
     ) {
       c.executionCtx.waitUntil(notifyGoogleIndexing(c, response));
     }
+
+    // Surface any `skipped[]` entries (§4) in Datadog: a 200 with skips is a
+    // partial promote — entities the push couldn't link — that the metrics layer
+    // (which only sees the 2xx status) can't otherwise reveal.
+    logPromoteSkips(c, response.skipped);
 
     return json(response);
   };
