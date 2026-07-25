@@ -1552,6 +1552,44 @@ describe('createPromoteHandler — claimed-vendor block', () => {
     expect(free?.integrationCount).toBe(1);
   });
 
+  it('skips an integration whose poweredByProduct is the blocked product', async () => {
+    // Without this the integration writes, `resolveProduct` degrades the unknown
+    // ref to null, and `powered_by_product_id` is CLEARED on a promote whose
+    // whole purpose was to leave the blocked product alone — silently, with
+    // nothing in skipped[] to show for it.
+    await t.db.insert(integrations).values({
+      id: uuid(90),
+      sourceProductId: P_FREE,
+      targetProductId: P_OTHER,
+      poweredByProductId: P_OWNED,
+    });
+
+    const res = await promote({
+      product: { ref: 'p1', supabaseId: P_OWNED, name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          supabaseId: uuid(90),
+          sourceProduct: { supabaseId: P_FREE },
+          targetProduct: { supabaseId: P_OTHER },
+          poweredByProduct: { ref: 'p1' },
+        },
+      ],
+    });
+    const body = (await res.json()) as PromoteResponse;
+
+    expect(body.integrations).toEqual([]);
+    expect(body.skipped).toContainEqual(
+      expect.objectContaining({ ref: 'i1', kind: 'integration' }),
+    );
+
+    const [row] = await t.db
+      .select()
+      .from(integrations)
+      .where(eq(integrations.id, uuid(90)));
+    expect(row?.poweredByProductId).toBe(P_OWNED); // link intact
+  });
+
   it('treats only role=vendor_admin WITH a vendor_id as a claim', async () => {
     // A reviewer pointed at the vendor, and a vendor_admin with no vendor_id:
     // neither claims anything. Over-blocking would freeze curation.

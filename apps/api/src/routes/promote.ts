@@ -1192,7 +1192,18 @@ export function createPromoteHandler(
         (ref.supabaseId != null && ref.supabaseId === p?.supabaseId));
 
     for (const intg of payload.integrations) {
-      if (touchesBlockedProduct(intg.sourceProduct) || touchesBlockedProduct(intg.targetProduct)) {
+      // `poweredByProduct` is checked alongside the two endpoints, not left to
+      // `resolveProduct`'s degrade-to-null: for a BLOCKED product that null is
+      // silent data loss. `resolveProduct` returns null for a `ref` pointing at a
+      // product that was never planned, and `linkData` then writes
+      // `powered_by_product_id = null` — wiping an existing link on a promote
+      // whose entire purpose was to leave that product alone, with nothing in
+      // `skipped[]` to show for it.
+      if (
+        touchesBlockedProduct(intg.sourceProduct) ||
+        touchesBlockedProduct(intg.targetProduct) ||
+        (intg.poweredByProduct != null && touchesBlockedProduct(intg.poweredByProduct))
+      ) {
         skipped.push({ ref: intg.ref, kind: 'integration', reason: BLOCKED_INTEGRATION_REASON });
         continue;
       }

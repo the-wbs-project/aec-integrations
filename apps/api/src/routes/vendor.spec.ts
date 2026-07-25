@@ -485,6 +485,17 @@ describe('PATCH /api/vendor/products/:id', () => {
     expect(await auditRows()).toHaveLength(0);
   });
 
+  it('404s a foreign product even when the body would also fail validation', async () => {
+    // Ownership must settle BEFORE anything else runs. If the term lookup were
+    // raced against it, the 400 would win and the response would distinguish
+    // "bad slug" from "no such product" — leaking that the product exists.
+    const { status, body } = await patchJson(`/api/vendor/products/${OTHER_PRODUCT}`, {
+      category_slugs: ['not-a-real-term'],
+    });
+    expect(status).toBe(404);
+    expect(body.error.code).toBe('NOT_FOUND');
+  });
+
   it('404s an unknown product id', async () => {
     expect(
       (await patchJson(`/api/vendor/products/${uuid(999)}`, { description: 'x' })).status,
@@ -592,8 +603,10 @@ describe('PATCH /api/vendor/products/:id', () => {
     const { send } = await patchJson(`/api/vendor/products/${PRODUCT}`, { description: 'New' });
     const msg = send.mock.calls[0][0] as CachePurgeMessage;
     expect(msg.source).toBe('vendor');
-    // The product's current facet pages repaint too — its card copy changed.
-    expect(msg.tags?.sort()).toEqual(['category:bim', 'product:revit']);
+    // `index:products` is NOT covered by `product:revit` — the /products catalog
+    // has no resolver pushing embedded product tags, so its only handle is its
+    // own index tag. The product's current facet pages repaint too.
+    expect(msg.tags?.sort()).toEqual(['category:bim', 'index:products', 'product:revit']);
   });
 
   it('purges the browse page a product JOINS, not just the one it leaves', async () => {
@@ -610,6 +623,7 @@ describe('PATCH /api/vendor/products/:id', () => {
       'audience:architects', // joined
       'category:bim', // left
       'category:cost-management', // joined
+      'index:products',
       'product:revit',
     ]);
   });

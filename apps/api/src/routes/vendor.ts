@@ -168,20 +168,27 @@ async function purgeTags(c: VendorContext, tags: readonly string[]): Promise<voi
 /**
  * Tags a product edit invalidates.
  *
- * `product:{slug}` covers the detail page and every browse/index page that
- * ALREADY lists the product (`CACHE_STRATEGY.md` §3 rule 2 — a browse page tags
- * each product it lists). It does NOT cover a browse page the product has just
- * been added to: that page never listed it, so it never carried the tag. So the
- * taxonomy tags are emitted for the UNION of the facet membership before and
- * after the edit — the page it left and the page it joined both repaint. Same
- * rule the promote deriver follows (`promote-cache-tags.ts` — "created *and*
- * reused … the product's facet membership changed either way").
+ * Three groups, and the last two are the ones that are easy to miss — this
+ * mirrors `cacheTagsForPromote` (`promote-cache-tags.ts`), which purges the same
+ * set for a byte-identical write:
+ *
+ * 1. `product:{slug}` — the detail page.
+ * 2. `index:products` — the `/products` catalog. NOT covered by (1): only the
+ *    detail, vendor-detail and pair resolvers push embedded `product:` tags, so
+ *    the index's only handle is its own `index:{slug}` tag. Without this the
+ *    vendor's edit shows on the detail page instantly and on the catalog they
+ *    clicked through from up to 300s later.
+ * 3. `category:{slug}` / `audience:{slug}` / `phase:{slug}` for the UNION of the
+ *    product's facet membership before and after. The union matters: a browse
+ *    page tags each product it lists, so the page the product has just been
+ *    ADDED to never carried `product:{slug}` and would otherwise stay stale.
+ *    Purging both sides repaints the page it left and the page it joined.
  *
  * `taxonomy` is deliberately NOT emitted: that tag is for a change to the term
  * SET, and a vendor can only assign existing terms, never mint one.
  */
 function productEditTags(slug: string, before: TaxonomySlugs, after: TaxonomySlugs): string[] {
-  const tags = new Set<string>([`product:${slug}`]);
+  const tags = new Set<string>([`product:${slug}`, 'index:products']);
   const facets: ReadonlyArray<[string, keyof TaxonomySlugs]> = [
     ['category', 'categories'],
     ['audience', 'audiences'],
@@ -617,27 +624,30 @@ export function createUpdateVendorProductHandler(
     const payload = await parseJsonBody(c, UpdateVendorProductSchema);
     const { db } = writeDb(c, dbFor);
 
-    // One read wave. Everything below is keyed off `productId` / `vendorId`,
-    // both known already, so nothing here has to wait on anything else; on a
-    // write session (`first-primary`, no replica) each serial round-trip lands
-    // straight in the vendor's save spinner.
-    const [ownership, before, beforeTaxonomy, ...facetIds] = await Promise.all([
-      // Ownership FIRST in intent: a vendor must not be able to probe for the
-      // existence of another vendor's product, so a miss is a 404. This check is
-      // what stands in for the RLS row filter.
+    // Ownership is proven FIRST, in its own wave, and a miss is a 404 — a vendor
+    // must not be able to probe for the existence of another vendor's product.
+    // This check is what stands in for the RLS row filter, so it has to settle
+    // before any other query runs: folding it into the wave below would let a
+    // rejected term lookup (400 VALIDATION_FAILED, naming the bad slug) win the
+    // `Promise.all` race and answer a request that should have been a flat 404.
+    const [ownership, before] = await Promise.all([
       db.query.productVendors.findFirst({
         where: and(eq(productVendors.productId, productId), eq(productVendors.vendorId, vendorId)),
       }),
       db.query.products.findFirst({ where: eq(products.id, productId) }),
+    ]);
+    if (!ownership || !before) throw notFoundError('product', { id: productId });
+
+    // Now that the caller is known to own the row, the rest goes in one wave.
+    // Term resolution happens BEFORE the batch opens, so an unknown slug is a
+    // 400 rather than a half-applied edit.
+    const [beforeTaxonomy, ...facetIds] = await Promise.all([
       loadTaxonomySlugs(db, [productId]).then((m) => m.get(productId) ?? NO_TAXONOMY),
-      // Resolve every requested term BEFORE the batch opens, so an unknown slug
-      // is a 400 rather than a half-applied edit.
       ...FACETS.map((facet) => {
         const slugs = payload[facet.field];
         return slugs ? resolveTermIds(db, facet.terms, slugs, facet.field) : Promise.resolve(null);
       }),
     ]);
-    if (!ownership || !before) throw notFoundError('product', { id: productId });
 
     const { columns } = splitPatch(payload, PRODUCT_COLUMN_MAP);
     // ALWAYS stamp `updated_at`, even for a taxonomy-only edit that touches no
