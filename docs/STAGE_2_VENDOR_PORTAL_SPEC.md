@@ -118,6 +118,8 @@ The approval action that turns an `open` vendor claim into a live verified vendo
 
 **Reversibility.** Grants are app-side and reversible — a later revoke (§7) is a separate audited write; it removes the seat but does **not** by itself un-verify the vendor (see §7 seat semantics).
 
+> **This flow is now the ONLY writer of `vendors.verified`.** AECI-520 removed the column from the promote payload's writable set (§4.2) because a routine Airtable push could otherwise silently un-verify a paying vendor. Until this section ships there is no code path that sets or clears the bit, so any row already `verified = true` from a historical push is frozen at that value. Two things follow for whoever builds this: step 2's `UPDATE vendors SET verified = true` is load-bearing, and the **un-verify** half (the "separate entitlement action" §7 defers) has no owner yet — if it is needed before the Paid Tiers epic, it needs an issue. Today the bit is read by the public vendor API shapes and the `GET /api/vendors?verified=` filter, but **nothing renders it** (the badge is AECI-523) and it is **not in the Algolia record** (AECI-529), so the freeze is currently invisible to readers.
+
 ---
 
 ## 4. Vendor authorization seam & `/api/vendor/*` (AECI-520)
@@ -136,12 +138,30 @@ The approval action that turns an `open` vendor claim into a live verified vendo
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/vendor/me` | The signed-in vendor's dashboard payload (vendor + owned products + claim/correction status + seats) |
+| `GET /api/vendor/me` | The signed-in vendor's dashboard payload (vendor + owned products + claim/correction status + seat count) |
 | `PATCH /api/vendor/products/:id` | Edit owned product content within guard-rails (see §6) |
 | `PATCH /api/vendor/profile` | Edit owned vendor content within guard-rails |
 | `GET /api/vendor/seats` | List the seats on this vendor (read-only at launch) |
 
-Guard-rails, exact field allow-lists, and the taxonomy-edit constraints are defined in §6 and pinned as Zod in `API_CONTRACTS.md` at build. **Not in scope for the kickoff — this section defines the surface + the authz seam, not the request schemas.**
+Guard-rails, exact field allow-lists, and the taxonomy-edit constraints are defined in §6 and pinned as Zod in `API_CONTRACTS.md`.
+
+### 4.1 As built (AECI-520 — 2026-07-25)
+
+All four endpoints shipped with pinned Zod, **no migration**. Contracts live in `packages/shared/src/api/vendor.ts`, handlers in `apps/api/src/routes/vendor.ts`, full documentation in `API_CONTRACTS.md` §6.14. Decisions taken at build that this section did not pre-specify:
+
+- **Editable allow-list = content + links + taxonomy.** Product: `description`, `website`, `tool_integrations_url`, `api_docs_url`, `logo_url`, plus category/audience/phase assignment. Vendor: `description`, `website`, `headquarters`, `founded_year`, `public_private`, `parent_company`, `contact_email`, `phone_number`, `logo_url`, profile URLs. **Vendors assign existing taxonomy terms only** — minting a term stays an AECi curation act, so an unknown slug is a `400`, not a silent drop. `name`/`slug` are not vendor-editable (a rename breaks the URL, the Algolia record, and every inbound link — it stays a correction request).
+- **Cross-vendor access returns `404`, not `403`.** A non-owner must not learn that another vendor's product exists. Ownership is proven against `product_vendors` in its own read wave, before anything else runs.
+- **A site `admin` is rejected with `403`.** No impersonation at launch; admins act through `/api/admin/*` so the audit trail names the real actor. A `vendor_admin` with a null `vendor_id` is likewise rejected.
+- **Audit rows use `actor_type: 'user'`** — the `audit_log_actor_type_check` CHECK has no `vendor` value and this epic ships no migration — and are distinguished by `metadata.source = 'vendor-portal'`.
+- **Purge tags.** Profile edit → `vendor:{slug}`. Product edit → `product:{slug}` + `index:products` + the taxonomy tags for the **union** of facet membership before and after (the browse page a product *joins* never carried its `product:` tag, so the union is what stops it going stale). Every vendor write stamps `products.updated_at`, including a taxonomy-only edit, or the nightly Algolia watermark would never see it.
+
+### 4.2 Review-app counterpart: claimed vendors are not promote-writable
+
+A conflict §4 did not anticipate: `POST /api/promote` writes an overlapping column set, so an ordinary Airtable push would silently revert a vendor's edits. AECI-520 therefore blocks the review app from writing to a **claimed** vendor or any product it owns — wholesale, all columns — while everything else in the payload still promotes. Creates are never blocked. Blocked entities are omitted from the response and reported in `skipped[]` (new kinds `vendor` / `product`). See `API_CONTRACTS.md` §6.12 and `REVIEW_APP_PROMOTE_API.md` §4a.
+
+**"Claimed" means at least one ACTIVE seat** — a `profiles` row with `role = 'vendor_admin'`, a matching `vendor_id`, and `banned_at IS NULL`. Seat existence is the signal rather than `vendors.verified` precisely because it cannot be set from Airtable. The ban exclusion is what keeps §7 moderation from locking a record: banning a vendor's only admin fails their portal calls **and**, without it, would leave promote refused too — so the content AECi banned them over would be the one thing nobody could correct. Ban stays per-seat (§7), so a vendor with another active seat is unaffected.
+
+`verified` was also **dropped from promote's vendor update** — it is the paid entitlement bit, set by the §3 grant and cleared only by a deliberate entitlement action, so a routine push must not move it (it previously could silently un-verify a paying vendor). It stays accepted-and-ignored in `PromoteVendorSchema`, so no lockstep review-app deploy was needed. **Consequence: until §3 (AECI-519) lands there is no writer for `vendors.verified` at all** — see §3.
 
 ---
 
