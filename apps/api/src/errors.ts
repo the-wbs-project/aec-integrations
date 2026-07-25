@@ -81,6 +81,27 @@ export function notFoundError(
 }
 
 /**
+ * Flatten an error's `cause` chain into a single readable string. D1/SQLite
+ * (and `fetch`/other wrappers) attach the underlying failure as `err.cause`,
+ * which `err.message` alone drops — so a `db.batch` rejection surfaces here as a
+ * generic "D1_ERROR" with the actual reason (`SQLITE_CONSTRAINT`, a failing
+ * statement, "too many SQL variables", …) one link down. Walks up to 4 links
+ * defensively (cyclic/rogue `cause` chains can't hang the error path) and
+ * returns `undefined` when there is no cause so callers can omit the field.
+ */
+function causeChain(error: unknown): string | undefined {
+  const parts: string[] = [];
+  let current: unknown = (error as { cause?: unknown } | null)?.cause;
+  let depth = 0;
+  while (current != null && depth < 4) {
+    parts.push(current instanceof Error ? (current.stack ?? current.message) : String(current));
+    current = (current as { cause?: unknown } | null)?.cause;
+    depth += 1;
+  }
+  return parts.length ? parts.join('\n  caused by: ') : undefined;
+}
+
+/**
  * Extract the most useful field path from a `ZodError`. Returns `undefined` if
  * no issue has a path (top-level error) so the canonical envelope omits the
  * field entirely rather than emitting an empty string.
@@ -179,7 +200,13 @@ export function errorHandler<E extends { Bindings: Env }>(
     // include the original message in the response body.
     const unknownError: unknown = error;
     const message = unknownError instanceof Error ? unknownError.message : String(unknownError);
-    console.error(`Unhandled error in ${c.req.path}:`, unknownError);
+    // D1/SQLite bury the real reason (UNIQUE/FK/CHECK violation, "too many SQL
+    // variables", a failing statement) in `err.cause`, which the bare `err.message`
+    // omits — so a `db.batch` 500 logged with only message+stack is undiagnosable
+    // (the promote `_sendOrThrow` case). Flatten the cause chain into both the CF
+    // console line and the Datadog log so the actual failure is visible.
+    const cause = causeChain(unknownError);
+    console.error(`Unhandled error in ${c.req.path}:`, unknownError, cause ? { cause } : '');
     logToDatadog(c.executionCtx, c.env, c.req.raw, {
       level: 'error',
       message: `Unhandled error: ${message}`,
@@ -188,6 +215,7 @@ export function errorHandler<E extends { Bindings: Env }>(
       method: c.req.method,
       trace_id: traceId,
       stack: unknownError instanceof Error ? unknownError.stack : undefined,
+      ...(cause ? { cause } : {}),
     });
 
     const internalError = new ApiError(500, ApiErrorCode.INTERNAL_ERROR, 'Internal server error');
