@@ -318,6 +318,37 @@ visible. All of it is fire-and-forget over the shared transport (no-op without `
 affects the response. This is deliberately scoped to promote — the high-traffic public read endpoints
 stay silent on 4xx to keep log volume down.
 
+For a `500` (an unhandled throw — e.g. a `db.batch` rejection in promote), the log now also carries a
+`cause` attribute: the flattened `err.cause` chain. D1/SQLite put the real reason
+(`SQLITE_CONSTRAINT: UNIQUE constraint failed …`, a failing statement, "too many SQL variables") one
+link down in `err.cause`, which the bare `err.message` drops — so before this the 500 logged as a
+generic "D1_ERROR" with no diagnosable detail (`apps/api/src/errors.ts` → `causeChain`). The same
+`cause` is written to the Cloudflare Workers-Observability `console.error`, so `wrangler tail
+aeci-api-production` surfaces it live even before Datadog is consulted.
+
+### Troubleshooting: `DD_API_KEY` is set but no Worker logs/metrics appear
+
+The shared transport (`packages/shared/src/datadog.ts`) fires each log/metric via `ctx.waitUntil(fetch(intake))`
+and previously only caught a *thrown* fetch. A Datadog intake that **rejects** the request — a `403`
+from an invalid/mis-scoped `DD_API_KEY`, a `413` (payload too large), a plan/exclusion drop — resolves
+the `fetch` with a non-2xx status, so the throw-only `catch` never fired and **every log and metric was
+discarded silently**. That is the "the secret is clearly set (see the Worker's Variables & Secrets) but
+nothing reaches Datadog" failure. The transport now checks `res.ok` and, on a non-2xx, emits
+`console.warn('<label>: intake rejected <status>', <body snippet>)` (still swallowed — observability must
+never break the request path). So when a Worker's logs go missing despite `DD_API_KEY` being present:
+
+```bash
+# Watch the live Worker log stream and re-trigger the endpoint (e.g. a promote):
+wrangler tail aeci-api-production --format pretty
+# then look for:  logToDatadog: intake rejected 403   /   submitMetric: intake rejected 403
+```
+
+A `403` there means the key value is wrong for the `DD_SITE` org (rotate/replace the `DD_API_KEY`
+Worker secret — it is NOT CI-pushed; set it manually per `docs/environments.md` §6). No `intake
+rejected` / `forward failed` line means the intake accepted the payload and the gap is Datadog-side
+(wrong index/service filter, an exclusion filter, or the RUM-vs-Logs view) — broaden the query to
+`service:aeci-api` / `service:aeci-web`.
+
 ### Three gotchas when querying
 
 1. **Datadog lowercases tag values.** `cache_status:HIT` is stored and queried as

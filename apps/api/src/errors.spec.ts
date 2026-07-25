@@ -69,6 +69,30 @@ describe('errorHandler — default (client errors are silent)', () => {
     expect(logToDatadog).toHaveBeenCalledTimes(1);
     expect(lastLogEvent()).toMatchObject({ level: 'error', message: 'Unhandled error: kaboom' });
   });
+
+  it("surfaces a D1-style error's `cause` chain in the 500 log (the real SQLite reason)", async () => {
+    // A D1 batch rejection wraps the underlying SQLite failure as `err.cause`; the
+    // bare `.message` drops it, so the log must flatten the chain to be diagnosable.
+    const d1Err = new Error('D1_ERROR: batch failed', {
+      cause: new Error('SQLITE_CONSTRAINT: UNIQUE constraint failed: products.slug'),
+    });
+    const res = await request(appThatThrows(d1Err));
+
+    expect(res.status).toBe(500);
+    const event = lastLogEvent();
+    expect(event).toMatchObject({
+      level: 'error',
+      message: 'Unhandled error: D1_ERROR: batch failed',
+    });
+    expect(String(event.cause)).toContain(
+      'SQLITE_CONSTRAINT: UNIQUE constraint failed: products.slug',
+    );
+  });
+
+  it('omits `cause` when the error has none', async () => {
+    await request(appThatThrows(new Error('plain')));
+    expect(lastLogEvent()).not.toHaveProperty('cause');
+  });
 });
 
 describe('errorHandler — logClientErrors (review-app-promote observability)', () => {

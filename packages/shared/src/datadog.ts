@@ -127,11 +127,33 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
     ];
   }
 
-  function postMetric(ctx: WaitUntilContext, apiKey: string, url: string, payload: unknown): void {
+  /**
+   * POST a JSON payload to a Datadog intake, dispatched via `ctx.waitUntil` so it
+   * never blocks the response. BOTH failure modes are swallowed (observability
+   * MUST NOT break the request path) but BOTH are surfaced to `console.warn` — so
+   * a silent outage is at least visible in Cloudflare Workers Observability
+   * (`wrangler tail` / the dashboard):
+   *
+   *   - **network/throw** → `<label>: forward failed`.
+   *   - **non-2xx** (e.g. `403` invalid/mis-scoped `DD_API_KEY`, `413` payload too
+   *     large, a plan/exclusion drop) → `<label>: intake rejected <status>` plus a
+   *     bounded response-body snippet. This is the load-bearing case: the intake
+   *     `fetch` *resolves* on a 4xx/5xx, so the throw-only `catch` never fired and
+   *     a rejected key dropped every log/metric with no indication at all. Without
+   *     the `res.ok` check "the secret is set but nothing reaches Datadog" is
+   *     undiagnosable.
+   */
+  function postToIntake(
+    ctx: WaitUntilContext,
+    apiKey: string,
+    url: string,
+    payload: unknown,
+    label: string,
+  ): void {
     ctx.waitUntil(
       (async () => {
         try {
-          await fetch(url, {
+          const res = await fetch(url, {
             method: 'POST',
             headers: {
               'content-type': 'application/json',
@@ -139,12 +161,25 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
             },
             body: JSON.stringify(payload),
           });
+          if (!res.ok) {
+            let snippet = '';
+            try {
+              snippet = (await res.text()).slice(0, 512);
+            } catch {
+              // Body already consumed / unreadable — the status alone still names it.
+            }
+            console.warn(`${label}: intake rejected ${res.status}`, snippet);
+          }
         } catch (error) {
           // Swallow — observability MUST NOT break the request path.
-          console.warn('submitMetric: forward failed', error);
+          console.warn(`${label}: forward failed`, error);
         }
       })(),
     );
+  }
+
+  function postMetric(ctx: WaitUntilContext, apiKey: string, url: string, payload: unknown): void {
+    postToIntake(ctx, apiKey, url, payload, 'submitMetric');
   }
 
   function logToDatadog(
@@ -171,23 +206,7 @@ export function createDatadogClient(config: DatadogClientConfig): DatadogClient 
     const site = env.DD_SITE || DEFAULT_SITE;
     const url = `https://http-intake.logs.${site}/api/v2/logs`;
 
-    ctx.waitUntil(
-      (async () => {
-        try {
-          await fetch(url, {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'dd-api-key': apiKey,
-            },
-            body: JSON.stringify(payload),
-          });
-        } catch (error) {
-          // Swallow — observability MUST NOT break the request path.
-          console.warn('logToDatadog: forward failed', error);
-        }
-      })(),
-    );
+    postToIntake(ctx, apiKey, url, payload, 'logToDatadog');
   }
 
   /**
