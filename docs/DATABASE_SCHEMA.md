@@ -155,7 +155,7 @@ create table vendors (
   logo_url text,
 
   -- Operational
-  verified boolean not null default false, -- true after vendor claims (Stage 2+)
+  verified boolean not null default false, -- Stage 2 paid-entitlement bit; SOLE writer is the claim→account grant (PATCH /api/admin/claims/:id, AECI-519 / STAGE_2_VENDOR_PORTAL_SPEC §3). Promote dropped it (AECI-520); no un-verify writer yet.
   promotion_status text not null default 'pending' check (promotion_status in ('pending', 'ready', 'promoted', 'retracted', 'rejected')),
   admin_notes text,
 

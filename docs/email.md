@@ -114,6 +114,12 @@ email is sent. Onboarding is the `claim-approved` template above (§9 of
 `STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528) plus the ordinary magic-link login, both
 of which we control and instrument.
 
+**Call site (AECI-519).** The `claim-approved` / `claim-rejected` sends fire
+post-commit from `PATCH /api/admin/claims/:id` (`routes/admin-claims.ts`) — approve
+and reject respectively. That handler shipped with the sender wired as an
+**injectable no-op seam** (`SendClaimDecisionEmail`); AECI-528 replaces the no-op
+with the real `lib/email.ts` templates and adds their rows to the catalogue above.
+
 **Why not `POST /auth/v1/invite`:** its email links to
 `/auth/v1/verify?type=invite&redirect_to=…`, which hands back the session in a URL
 **fragment**, and `apps/web`'s `/auth/callback` requires a PKCE `?code=` — so the link
