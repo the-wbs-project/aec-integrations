@@ -70,7 +70,7 @@ The Stage 1 Phase 6 request pipeline already ships the front half of the claim f
 - **Admin moderation template** — `createModerateRequestHandler` (`apps/api/src/routes/admin-requests.ts` ~:274-440) is the batch-shaped approve/reject handler to clone (guarded `WHERE status IN (...)`, find-or-create `workflow_instances`, `TERMINAL_OUTCOME` map, injectable Linear-sync seam, `422 INVALID_STATE_TRANSITION` preload gate).
 - **Audit / workflow batch builders** — `auditInsert` / `workflowTransitionInsert` (`apps/api/src/lib/audit.ts` ~:42-68) return the batch statements every write pushes into `db.batch`.
 
-**What does NOT exist yet** (the net-new work of this epic; shipped items struck through as sub-issues land): ~~the GoTrue **invite** + **email→user lookup** path~~ (AECI-527, shipped: `lib/supabase-admin.ts` + `lib/claimant-identity.ts`), ~~the `vendor_admin` guard branch + `vendorId` on the session + the `/api/vendor/*` surface~~ (AECI-520, shipped), ~~the account-grant / role-grant code~~ (AECI-519, shipped: `PATCH /api/admin/claims/:id`, `lib/vendor-grant.ts` — see §3 "As built"), the `/admin/claims` UI (AECI-521), the claim-decision email *sender* (AECI-528; the grant/reject send-site is wired as a no-op seam), and the `verified` field on the Algolia index (AECI-529).
+**What does NOT exist yet** (the net-new work of this epic; shipped items struck through as sub-issues land): ~~the GoTrue **invite** + **email→user lookup** path~~ (AECI-527, shipped: `lib/supabase-admin.ts` + `lib/claimant-identity.ts`), ~~the `vendor_admin` guard branch + `vendorId` on the session + the `/api/vendor/*` surface~~ (AECI-520, shipped), ~~the account-grant / role-grant code~~ (AECI-519, shipped: `PATCH /api/admin/claims/:id`, `lib/vendor-grant.ts` — see §3 "As built"), the `/admin/claims` UI (AECI-521), ~~the claim-decision email *sender*~~ (AECI-528, shipped: `lib/email.ts` `sendClaimApprovedEmail`/`sendClaimRejectedEmail` + the `sendClaimDecisionEmail` adapter, injected at `index.ts` into the grant/reject seam), and the `verified` field on the Algolia index (AECI-529).
 
 ---
 
@@ -294,6 +294,13 @@ Claim approved / rejected notifications over **Resend** (`apps/api/src/lib/email
 - Update the template catalogue in `docs/email.md`.
 
 Billing/invoice notices are a Paid-Tiers concern (`STAGE_2_SPEC.md` §2.2 / AECI-515), not this issue.
+
+### As built (AECI-528 — 2026-07-25)
+
+- `EmailTemplate` gained `'claim-approved'` / `'claim-rejected'`; `sendClaimApprovedEmail` / `sendClaimRejectedEmail` land in `apps/api/src/lib/email.ts` next to the review helpers (same fail-open transport + `template:` metric tag), plus a `portalUrl(env)` = `${PUBLIC_SITE_URL}/vendor` link builder.
+- The §3 handler's `SendClaimDecisionEmail` seam was **widened** to carry `targetName` (the claimed vendor's `companyName` or the product's `name`, resolved via `resolveRequestTargets`) and — on approve — the `identityOutcome` (`invited` vs `linked`). The real sender (`lib/email.ts` `sendClaimDecisionEmail` adapter) is injected at the route registration in `index.ts`; the in-handler default stays a no-op for standalone tests.
+- **Approved copy** names the vendor, lists the account's new capabilities (edit profile, submit data corrections, add integration attestations), links to `/vendor` when `PUBLIC_SITE_URL` is set, and tailors sign-in guidance: `invited` explains the just-provisioned account + one-time sign-in link (no GoTrue invite email is sent, §2); `linked` points at the existing account. Verification is framed as an **account status**, never ranking/placement (no pay-for-placement) and with no instant-search promise.
+- **Rejected copy** is neutral, echoes the claimant-facing decision `reason` when present (never internal notes), and invites a fresh claim. Note: `ModerateClaimSchema` currently has only a single `reason` field (no separate private reviewer-notes field for rejections) — `reason` is treated as claimant-facing; a distinct internal-notes field is a possible AECI-521 follow-up.
 
 ---
 

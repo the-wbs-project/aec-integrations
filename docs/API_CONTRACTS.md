@@ -1108,7 +1108,9 @@ plain resolve. **Corrections still moderate through `/api/admin/requests/:id`** 
 this endpoint 422s a non-claim request. Behind `requireAdmin()`. Source of truth:
 `packages/shared/src/api/admin-claims.ts`, `apps/api/src/routes/admin-claims.ts`.
 The `/admin/claims` LIST + reviewer UI is AECI-521; the claim-decision email
-*sender* is AECI-528 (an injected no-op seam here).
+*sender* shipped in AECI-528 — the real `lib/email.ts` `sendClaimDecisionEmail`
+is injected into the post-commit seam at the route registration (`index.ts`),
+fail-open like every send.
 
 ```typescript
 export const ClaimEntitlementSchema = z.object({
@@ -1124,7 +1126,7 @@ export const ClaimEntitlementSchema = z.object({
 
 export const ModerateClaimSchema = z.object({
   action: z.enum(['approve', 'reject']),
-  reason: z.string().max(500).optional(),     // recorded in transition + audit only
+  reason: z.string().max(500).optional(),     // transition + audit; on reject also echoed to the claimant (claim-rejected email, AECI-528)
   entitlement: ClaimEntitlementSchema.optional(), // approve only
 });
 

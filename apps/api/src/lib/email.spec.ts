@@ -20,6 +20,8 @@ import type { Env } from '../env';
 import {
   parseRecipients,
   sendAccountDeletionEmail,
+  sendClaimApprovedEmail,
+  sendClaimRejectedEmail,
   sendEmail,
   sendMailingListWelcomeEmail,
   sendReviewApprovedEmail,
@@ -224,6 +226,121 @@ describe('sendReviewRejectedEmail', () => {
     const body = lastBody(fetchSpy);
     expect(body.subject).toBe('Your review of Bluebeam needs revision');
     expect(String(body.text)).toContain('Please remove the profanity.');
+  });
+});
+
+describe('sendClaimApprovedEmail', () => {
+  it('names the vendor, lists capabilities, and links to the dashboard when PUBLIC_SITE_URL is set', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimApprovedEmail(
+      fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }),
+      { to: 'owner@vendor.com', vendorName: 'Autodesk, Inc.', invited: false },
+    );
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.to).toBe('owner@vendor.com');
+    expect(body.subject).toBe('Your claim for Autodesk, Inc. is approved');
+    const text = String(body.text);
+    expect(text).toContain('now verified');
+    expect(text).toContain('data corrections');
+    expect(text).toContain('https://aecintegrations.com/vendor');
+    expect(String(body.html)).toContain('https://aecintegrations.com/vendor');
+    // Account-state framing, not a product endorsement (no pay-for-placement).
+    expect(text).toContain("doesn't affect search ranking or placement");
+    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-approved']]);
+    // Voice guard: no em dash beyond the shared house signature.
+    const authored = text.replace('— The AEC Integrations team', '');
+    expect(authored).not.toContain('—');
+  });
+
+  it('tailors the sign-in copy for an invited (just-provisioned) claimant', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext({ PUBLIC_SITE_URL: 'https://aecintegrations.com' }), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: true,
+    });
+    expect(String(lastBody(fetchSpy).text)).toContain('We created an account');
+  });
+
+  it('reads as an existing-account sign-in for a linked claimant', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext(), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: false,
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain('existing account');
+    expect(text).not.toContain('We created an account');
+  });
+
+  it('omits the dashboard link (no dead host) when PUBLIC_SITE_URL is absent', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimApprovedEmail(fakeContext(), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      invited: true,
+    });
+    expect(String(lastBody(fetchSpy).text)).not.toContain('/vendor');
+  });
+
+  it('skips when the recipient is undefined', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(
+      await sendClaimApprovedEmail(fakeContext(), {
+        to: undefined,
+        vendorName: 'Globex',
+        invited: false,
+      }),
+    ).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('sendClaimRejectedEmail', () => {
+  it('echoes the shared reason under a neutral subject', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    const outcome = await sendClaimRejectedEmail(fakeContext(), {
+      to: 'owner@vendor.com',
+      vendorName: 'Autodesk, Inc.',
+      reason: 'We could not confirm your association with this vendor.',
+    });
+
+    expect(outcome).toBe('sent');
+    const body = lastBody(fetchSpy);
+    expect(body.subject).toBe('Your claim for Autodesk, Inc. was not approved');
+    const text = String(body.text);
+    expect(text).toContain('We could not confirm your association with this vendor.');
+    expect(text).toContain('submit a new claim');
+    expect(sendTags()).toEqual([['outcome:sent', 'template:claim-rejected']]);
+    const authored = text.replace('— The AEC Integrations team', '');
+    expect(authored).not.toContain('—');
+  });
+
+  it('stays neutral when no reason is supplied', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(ok());
+    await sendClaimRejectedEmail(fakeContext(), {
+      to: 'owner@vendor.com',
+      vendorName: 'Globex',
+      reason: null,
+    });
+    const text = String(lastBody(fetchSpy).text);
+    expect(text).toContain("weren't able to approve it");
+    expect(text).toContain('submit a new claim');
+  });
+
+  it('skips when the recipient is undefined', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+    expect(
+      await sendClaimRejectedEmail(fakeContext(), {
+        to: undefined,
+        vendorName: 'Globex',
+        reason: 'x',
+      }),
+    ).toBe('skipped');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });
 
