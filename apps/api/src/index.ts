@@ -10,6 +10,8 @@ import { getDb } from './db/client';
 import type { Env } from './env';
 import { ApiError, errorHandler } from './errors';
 import { requireAdmin, requireAuth, requireVendor, type AuthzVariables } from './lib/authz';
+import { resolveClaimantIdentity } from './lib/claimant-identity';
+import { sendClaimDecisionEmail } from './lib/email';
 import { pushRequestResolutionToLinear } from './lib/linear';
 import { requireReviewAppAuth } from './lib/review-auth';
 import { requireUserAuth } from './lib/user-auth';
@@ -270,9 +272,15 @@ authAdmin.patch(
   createModerateRequestHandler(getDb, pushRequestResolutionToLinear),
 );
 // Stage 2 / AECI-519: the claim → verified-account grant. `resolveClaimantIdentity`
-// (default) reports `unavailable` (→503) until `SUPABASE_SERVICE_ROLE_KEY` is bound
-// (AECI-530); the claim-decision email sender is AECI-528 (default no-op seam here).
-authAdmin.patch('/api/admin/claims/:id', requireAdmin(), createModerateClaimHandler());
+// reports `unavailable` (→503) until `SUPABASE_SERVICE_ROLE_KEY` is bound (AECI-530).
+// AECI-528 injects the real claim-decision email sender (`sendClaimDecisionEmail`,
+// `lib/email.ts`) into the post-commit seam; it fail-opens to `'skipped'` without
+// `RESEND_API_KEY`/`EMAIL_FROM`.
+authAdmin.patch(
+  '/api/admin/claims/:id',
+  requireAdmin(),
+  createModerateClaimHandler(getDb, resolveClaimantIdentity, sendClaimDecisionEmail),
+);
 authAdmin.get('/api/admin/reviewers', requireAdmin(), createBannedReviewersListHandler());
 authAdmin.patch('/api/admin/reviewers/:id', requireAdmin(), createBanReviewerHandler());
 app.route('/', authAdmin);

@@ -280,9 +280,15 @@ describe('PATCH /api/admin/claims/:id — grant', () => {
 
     // Post-commit: vendor + product purge enqueued (no products here → vendor tag only).
     expect(send).toHaveBeenCalledWith({ tags: ['vendor:autodesk'], source: 'moderation' });
-    // Claim-approved email fired to the resolved address.
+    // Claim-approved email fired to the resolved address, carrying the vendor name
+    // + identity outcome the template branches on (AECI-528).
     expect(email).toHaveBeenCalledTimes(1);
-    expect(email.mock.calls[0]![1]).toMatchObject({ decision: 'approved', to: CLAIMANT_EMAIL });
+    expect(email.mock.calls[0]![1]).toMatchObject({
+      decision: 'approved',
+      to: CLAIMANT_EMAIL,
+      targetName: 'Autodesk, Inc.',
+      identityOutcome: 'linked',
+    });
 
     expect(claimModerationActions()).toEqual([['action:approve', 'outcome:ok']]);
   });
@@ -534,9 +540,13 @@ describe('PATCH /api/admin/claims/:id — reject', () => {
       .where(eq(workflowInstances.entityId, REQUEST_ID));
     expect(wf!.finalOutcome).toBe('rejected');
 
-    // No purge on reject; email fired.
+    // No purge on reject; email fired with the claimed vendor's name (AECI-528).
     expect(send).not.toHaveBeenCalled();
-    expect(email.mock.calls[0]![1]).toMatchObject({ decision: 'rejected', to: CLAIMANT_EMAIL });
+    expect(email.mock.calls[0]![1]).toMatchObject({
+      decision: 'rejected',
+      to: CLAIMANT_EMAIL,
+      targetName: 'Autodesk, Inc.',
+    });
     expect(claimModerationActions()).toEqual([['action:reject', 'outcome:ok']]);
   });
 

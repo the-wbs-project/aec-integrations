@@ -16,9 +16,10 @@
  * the post-commit cache purge + claim-decision email seam.
  *
  * The `/admin/claims` LIST + reviewer UI is AECI-521. The claim-decision email
- * SENDER is AECI-528 — wired here as an injectable no-op seam (cf.
- * `noopSyncToLinear` in `admin-requests.ts`), so this endpoint ships standalone
- * and the send-site is already in place.
+ * SENDER is AECI-528: the send-site is an injectable seam (cf. `noopSyncToLinear`
+ * in `admin-requests.ts`) whose default here is a no-op, so this endpoint ships +
+ * tests standalone; the real Resend templates (`lib/email.ts` `sendClaim*Email`)
+ * are injected at the route registration in `index.ts`.
  *
  * Cache: unlike request-moderation (which purges nothing — a `vendor_request`
  * renders on no cacheable page), a grant flips `vendors.verified` and creates a
@@ -73,9 +74,14 @@ interface TargetVendor {
  * Claim-decision email seam (§9 / AECI-528). Fired post-commit after an
  * approve/reject so the claimant learns the outcome (and, on approve, how to sign
  * in — no GoTrue invite email is sent, see `createAuthUser`). The Resend template
- * internals are owned by AECI-528; the default here is a safe no-op so this
- * endpoint ships standalone and tests can inject a spy. Best-effort — a send
- * failure is logged, never surfaced to the admin.
+ * internals are owned by AECI-528 (`lib/email.ts` `sendClaimDecisionEmail`); the
+ * default here is a safe no-op so this endpoint ships standalone and tests can
+ * inject a spy. Best-effort — a send failure is logged, never surfaced to the admin.
+ *
+ * `targetName` is the claimed target's display name (the vendor's `companyName`, or
+ * the product's `name` for a product claim) — resolved via `resolveRequestTargets`.
+ * `identityOutcome` is set only on approve (`invited` → account just provisioned,
+ * so the copy explains first-time sign-in; `linked` → an existing account).
  */
 export type SendClaimDecisionEmail = (
   c: ClaimContext,
@@ -85,6 +91,8 @@ export type SendClaimDecisionEmail = (
     requestId: string;
     vendorId: string;
     vendorSlug: string;
+    targetName: string;
+    identityOutcome?: 'linked' | 'invited';
     reason: string | null;
   },
 ) => Promise<void>;
@@ -424,6 +432,11 @@ async function approveClaim(
   await db.batch(stmts as BatchTuple);
   emitClaimModeration(c, 'approve', 'ok');
 
+  // Resolve the claimed target's display name up front — reused by the email
+  // (AECI-528) and the response body.
+  const targets = await resolveRequestTargets(db, [existing]);
+  const targetName = targets.get(existing.targetId)?.name ?? '';
+
   // Post-commit, best-effort (§3): purge the vendor + its products, send the
   // claim-approved email (AECI-528 seam), forward audit + workflow to Datadog.
   const purgeTags = await grantPurgeTags(db, vendor);
@@ -435,6 +448,8 @@ async function approveClaim(
       requestId: existing.id,
       vendorId: vendor.id,
       vendorSlug: vendor.slug,
+      targetName,
+      identityOutcome,
       reason,
     }).catch((error) => {
       try {
@@ -455,7 +470,6 @@ async function approveClaim(
     ]),
   );
 
-  const targets = await resolveRequestTargets(db, [existing]);
   const body = claimResponse(
     existing,
     { status: 'resolved', resolvedById: actorId, resolvedAt },
@@ -515,6 +529,11 @@ async function rejectClaim(
   await db.batch(stmts as BatchTuple);
   emitClaimModeration(c, 'reject', 'ok');
 
+  // Resolve the claimed target's display name up front — reused by the email
+  // (AECI-528) and the response body.
+  const targets = await resolveRequestTargets(db, [existing]);
+  const targetName = targets.get(existing.targetId)?.name ?? '';
+
   c.executionCtx.waitUntil(
     sendClaimDecisionEmail(c, {
       decision: 'rejected',
@@ -522,6 +541,7 @@ async function rejectClaim(
       requestId: existing.id,
       vendorId: existing.targetType === 'vendor' ? existing.targetId : '',
       vendorSlug: '',
+      targetName,
       reason,
     }).catch((error) => {
       try {
@@ -542,7 +562,6 @@ async function rejectClaim(
     ]),
   );
 
-  const targets = await resolveRequestTargets(db, [existing]);
   const body = claimResponse(
     existing,
     { status: 'rejected', resolvedById: actorId, resolvedAt },

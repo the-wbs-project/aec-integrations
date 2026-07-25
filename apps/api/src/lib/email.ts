@@ -69,7 +69,13 @@ export type EmailTemplate =
   // Operator lead-capture notifications — retire the `apps/landing` Worker's own
   // Resend send (AECI-247/277). Recipient is `ADMIN_ALERT_EMAIL`.
   | 'landing-signup'
-  | 'landing-feedback';
+  | 'landing-feedback'
+  // Stage 2 vendor-portal claim decisions (AECI-528 /
+  // `STAGE_2_VENDOR_PORTAL_SPEC.md` §9). Recipient is the claim's `submitter_email`;
+  // sent post-commit from `PATCH /api/admin/claims/:id` (approve → approved,
+  // reject → rejected).
+  | 'claim-approved'
+  | 'claim-rejected';
 
 const RESEND_URL = 'https://api.resend.com/emails';
 
@@ -217,6 +223,131 @@ export function sendReviewRejectedEmail(
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
   });
+}
+
+/**
+ * §9 "Claim approved" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). The claimant's
+ * vendor claim was granted — their account is now a verified `vendor_admin`. For an
+ * `invited` claimant the account was provisioned silently (no GoTrue invite email, see
+ * `createAuthUser`), so this IS the onboarding touch and the sign-in copy explains a
+ * first login; a `linked` claimant already has an account. Links to the `/vendor`
+ * dashboard when `PUBLIC_SITE_URL` is set. Recipient is the claim's `submitter_email`;
+ * absent → silent skip. Copy stays account-scoped: verification is a status, not a
+ * product endorsement, and never touches ranking (no pay-for-placement).
+ */
+export function sendClaimApprovedEmail(
+  c: EmailContext,
+  opts: { to: string | undefined; vendorName: string; invited: boolean },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'this vendor';
+  const dashboard = portalUrl(c.env);
+
+  const signInText = opts.invited
+    ? dashboard
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at ${dashboard}.`
+      : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
+    : dashboard
+      ? `Sign in with your existing account to get started: ${dashboard}.`
+      : 'Sign in with your existing account to get started.';
+  const signInHtml = opts.invited
+    ? dashboard
+      ? `We created an account for your email address. To sign in, request a one-time sign-in link at <a href="${escapeHtml(dashboard)}">your vendor dashboard</a>.`
+      : 'We created an account for your email address. To sign in, request a one-time sign-in link from the AEC Integrations sign-in page.'
+    : dashboard
+      ? `<a href="${escapeHtml(dashboard)}">Sign in with your existing account</a> to get started.`
+      : 'Sign in with your existing account to get started.';
+
+  const verification =
+    "Verification confirms your account represents this vendor. It's an account status, not an endorsement of the product, and it doesn't affect search ranking or placement.";
+  const capabilities =
+    'You can now edit the vendor profile, submit data corrections, and add integration attestations from your vendor dashboard.';
+
+  const textParagraphs = [
+    `Your claim for ${name} has been approved, and your account is now verified on AEC Integrations.`,
+    capabilities,
+    signInText,
+    verification,
+  ];
+  const htmlParagraphs = [
+    `Your claim for <strong>${escapeHtml(name)}</strong> has been approved, and your account is now verified on AEC Integrations.`,
+    capabilities,
+    signInHtml,
+    verification,
+  ];
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'claim-approved',
+    subject: `Your claim for ${name} is approved`,
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * §9 "Claim rejected" (`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528). Neutral, no
+ * vendor mutation happened. `reason` is the claimant-facing decision reason (echoed
+ * when present, like `review-rejected`); internal reviewer notes live elsewhere and
+ * are never passed here. Recipient is the claim's `submitter_email`; absent → skip.
+ */
+export function sendClaimRejectedEmail(
+  c: EmailContext,
+  opts: { to: string | undefined; vendorName: string; reason: string | null },
+): Promise<EmailOutcome> {
+  const name = opts.vendorName.trim() || 'this vendor';
+  const reason = opts.reason?.trim() ? opts.reason.trim() : null;
+  const resubmit =
+    "If you represent this vendor, you're welcome to submit a new claim with more detail.";
+
+  const textParagraphs = [
+    `Thank you for your claim for ${name}. After review, we weren't able to approve it.`,
+    ...(reason ? [reason] : []),
+    resubmit,
+  ];
+  const htmlParagraphs = [
+    `Thank you for your claim for <strong>${escapeHtml(name)}</strong>. After review, we weren't able to approve it.`,
+    ...(reason ? [`<em>${escapeHtml(reason)}</em>`] : []),
+    resubmit,
+  ];
+  return sendTransactionalEmail(c, {
+    to: opts.to ?? '',
+    template: 'claim-rejected',
+    subject: `Your claim for ${name} was not approved`,
+    text: toText(textParagraphs),
+    html: toHtml(htmlParagraphs),
+  });
+}
+
+/**
+ * Adapter for the `PATCH /api/admin/claims/:id` decision-email seam
+ * (`SendClaimDecisionEmail` in `routes/admin-claims.ts`, AECI-519/528). Routes a
+ * committed decision to the right template and drops the `EmailOutcome` (the handler
+ * fires this via `waitUntil` and never reads the result). Typed structurally so this
+ * file doesn't import the route's seam type; the assignability to that type is
+ * enforced where it's wired (`index.ts`).
+ */
+export async function sendClaimDecisionEmail(
+  c: EmailContext,
+  input: {
+    decision: 'approved' | 'rejected';
+    to: string;
+    targetName: string;
+    identityOutcome?: 'linked' | 'invited';
+    reason: string | null;
+  },
+): Promise<void> {
+  if (input.decision === 'approved') {
+    await sendClaimApprovedEmail(c, {
+      to: input.to,
+      vendorName: input.targetName,
+      invited: input.identityOutcome === 'invited',
+    });
+  } else {
+    await sendClaimRejectedEmail(c, {
+      to: input.to,
+      vendorName: input.targetName,
+      reason: input.reason,
+    });
+  }
 }
 
 /** §11.1 "Account deletion confirmation" (deferred from AECI-202). The recipient is
@@ -497,6 +628,13 @@ function siteUrl(env: Env): string | null {
 function productUrl(env: Env, slug: string): string | null {
   const base = siteUrl(env);
   return base ? `${base}/products/${slug}` : null;
+}
+
+/** The vendor portal entry point (`/vendor` dashboard, AECI-522) or `null` when
+ *  `PUBLIC_SITE_URL` is unset — the claim-approved email then omits the link. */
+function portalUrl(env: Env): string | null {
+  const base = siteUrl(env);
+  return base ? `${base}/vendor` : null;
 }
 
 function toText(paragraphs: string[]): string {

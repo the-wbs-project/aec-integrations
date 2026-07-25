@@ -56,6 +56,8 @@ decision record; no separate ADR.
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
 | `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. |
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). |
+| `claim-approved` | `PATCH /api/admin/claims/:id` approve (`routes/admin-claims.ts`, AECI-528) | claimant (`submitter_email`) | Names the claimed vendor/product, lists what the account can now do, links to the `/vendor` dashboard when `PUBLIC_SITE_URL` set. Sign-in copy branches on the `invited` (just-provisioned) vs `linked` identity outcome. Verification framed as an account status, never ranking/placement. |
+| `claim-rejected` | `PATCH /api/admin/claims/:id` reject | claimant (`submitter_email`) | Neutral; echoes the shared decision `reason` when present (never internal notes) + a resubmit invitation. |
 
 Copy is en-US plain text + minimal HTML, built inline in `lib/email.ts` (emails are
 not i18n'd at launch — the CLAUDE.md i18n rule is for rendered `apps/web` templates).
@@ -114,11 +116,16 @@ email is sent. Onboarding is the `claim-approved` template above (§9 of
 `STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528) plus the ordinary magic-link login, both
 of which we control and instrument.
 
-**Call site (AECI-519).** The `claim-approved` / `claim-rejected` sends fire
-post-commit from `PATCH /api/admin/claims/:id` (`routes/admin-claims.ts`) — approve
-and reject respectively. That handler shipped with the sender wired as an
-**injectable no-op seam** (`SendClaimDecisionEmail`); AECI-528 replaces the no-op
-with the real `lib/email.ts` templates and adds their rows to the catalogue above.
+**Call site (AECI-519 / AECI-528).** The `claim-approved` / `claim-rejected` sends
+fire post-commit (`waitUntil`) from `PATCH /api/admin/claims/:id`
+(`routes/admin-claims.ts`) — approve and reject respectively, to the claim's
+`submitter_email`. AECI-519 shipped the send as an **injectable seam**
+(`SendClaimDecisionEmail`) defaulting to a no-op; **AECI-528 injects the real
+`lib/email.ts` `sendClaimDecisionEmail`** at the route registration (`index.ts`) and
+widened the seam to carry the claimed target's display name (`targetName`, resolved via
+`resolveRequestTargets`) + the `invited`/`linked` `identityOutcome` the approved
+template branches on. Fail-open like every send: absent `RESEND_API_KEY`/`EMAIL_FROM`
+→ `'skipped'`.
 
 **Why not `POST /auth/v1/invite`:** its email links to
 `/auth/v1/verify?type=invite&redirect_to=…`, which hands back the session in a URL
