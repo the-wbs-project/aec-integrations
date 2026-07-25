@@ -40,7 +40,9 @@ decision record; no separate ADR.
   (`lib/supabase-admin.ts`, the GoTrue Admin API) — D1 has no `auth.users` (ADR
   0016). The submission email uses the verified `session.email` directly; the
   account-deletion email captures `session.email` **before** the `auth.users` row
-  is erased.
+  is erased. Note this lookup needs `SUPABASE_SERVICE_ROLE_KEY`, which is currently
+  on no Worker, so it resolves to `null` in every deployed environment
+  (`AUTH_AND_RLS.md` §3.1).
 
 ## Template catalogue
 
@@ -98,6 +100,42 @@ configured **once**, on that project (ref `ktuhnlypztujpsseujzx`):
 
 `supabase/config.toml` is **local-only** (magic links land in Inbucket at
 `:54324` during `supabase start`); deployed SMTP lives in the dashboard.
+
+Custom SMTP is configured at the **project** level, so it carries *every*
+GoTrue-originated mail (magic link, confirm signup, recovery, invite) — not just magic
+links. Today magic link is the only one AECi actually triggers.
+
+### The vendor-claim account is provisioned WITHOUT a GoTrue email (AECI-527)
+
+When a vendor claim is approved for a claimant who has no account, seam #4b
+(`AUTH_AND_RLS.md` §3.1) creates the `auth.users` row with
+`POST /auth/v1/admin/users` + `email_confirm: true` — **silently**. No GoTrue invite
+email is sent. Onboarding is the `claim-approved` template above (§9 of
+`STAGE_2_VENDOR_PORTAL_SPEC.md` / AECI-528) plus the ordinary magic-link login, both
+of which we control and instrument.
+
+**Why not `POST /auth/v1/invite`:** its email links to
+`/auth/v1/verify?type=invite&redirect_to=…`, which hands back the session in a URL
+**fragment**, and `apps/web`'s `/auth/callback` requires a PKCE `?code=` — so the link
+dead-ends. It would also emit **no** `aeci.email.send` metric (GoTrue sends it, not
+`lib/email.ts`), so a failure would be invisible. Reconsidering it means clearing all
+four of these first:
+
+1. **Customize the "Invite user" template** (Authentication → Emails → Invite user).
+   The Supabase default mentions neither AECi nor the vendor being claimed.
+2. **Allow-list the `redirect_to`.** Supabase only honours it if it matches the
+   project's Redirect-URLs list; otherwise it **silently** falls back to the Site URL
+   (see `environments.md`) — so a staging invite would land the claimant on
+   demo/prod.
+3. **One shared project ⇒ one template and one Site URL for every environment**
+   (ADR 0017). Editing the template edits production.
+4. **A landing page that consumes a fragment session** (or an `/auth/callback` that
+   accepts `token_hash`) — otherwise see the dead-end above.
+
+Also note **DMARC is `p=quarantine` on a young domain** (below): for an *invite* that
+is materially worse than for a receipt, because spam-filing blocks onboarding
+outright and there'd be no metric to notice. Locally, GoTrue mail lands in Inbucket at
+`:54324` during `supabase start`.
 
 ## Deliverability
 

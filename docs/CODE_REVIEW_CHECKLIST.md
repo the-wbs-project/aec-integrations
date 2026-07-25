@@ -66,7 +66,7 @@ If the spec is wrong, that's also a defect — flag it. Do not silently work aro
 - Worker code using the Supabase service role key without justification (defeats RLS)
 - Role check missing or wrong (`role === 'admin'` vs `role === 'vendor_admin'` mix-up)
 - Vendor-scoped operations not checking `vendor_id` matches the authenticated user
-- Worker route writes to a table that has a permissive RLS policy for the calling user but the code uses the Supabase service-role key instead of the user's JWT (defeats RLS, masks auth-model violations). See `AUTH_AND_RLS.md` §6 for the operations that legitimately require service role — anything outside that list should use a JWT-scoped client.
+- Worker route writes to a table that has a permissive RLS policy for the calling user but the code uses the Supabase service-role key instead of the user's JWT (defeats RLS, masks auth-model violations). See `AUTH_AND_RLS.md` §3.1 (the split-identity seam register) for the operations that legitimately require service role — anything outside that list should use a JWT-scoped client, and a new service-role call should be added to that register in the same PR.
 
 ### Performance
 

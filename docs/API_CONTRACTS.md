@@ -890,7 +890,11 @@ Errors: `UNAUTHENTICATED`.
 
 #### `POST /api/auth/profile/ensure`
 
-Defensive/idempotent profile-ensure called by the SSR `/auth/callback` handler after the PKCE code exchange (AECI-195, `STAGE_1_PHASE_5_SPEC.md` §4.2). Requires a verified Supabase user JWT (`Authorization: Bearer`); the profile id is always the token's `sub` — no request body. Inserts the `profiles` row only if the `handle_new_user` trigger somehow missed it (`INSERT … ON CONFLICT DO NOTHING`; all other columns take schema defaults, including `role='reviewer'`). Writes an audit row (`profile.created`) only when a row was actually created.
+Idempotent profile-ensure called by the SSR `/auth/callback` handler after the PKCE code exchange (AECI-195, `STAGE_1_PHASE_5_SPEC.md` §4.2). Requires a verified Supabase user JWT (`Authorization: Bearer`); the profile id is always the token's `sub` — no request body.
+
+Under ADR 0016 the authoritative `profiles` row lives in **D1** and there is **no** `handle_new_user` trigger, so this endpoint is the **primary** profile creator (split-identity seam #1 — `AUTH_AND_RLS.md` §3.1), not a backstop. `INSERT … ON CONFLICT DO NOTHING … RETURNING` makes it idempotent and race-correct: only the insert that actually created the row returns an id (`created: true`) and writes the `profile.created` audit row; a concurrent loser or a re-run returns `created: false` with no audit. All other columns take schema defaults, including `role='reviewer'`.
+
+**The conflict path never overwrites an existing row** — the insert supplies only `id`. That is the no-clobber guarantee the vendor-claim grant depends on (AECI-527/AECI-519, `STAGE_2_VENDOR_PORTAL_SPEC.md` §2): a grant that lands *before* the claimant's first sign-in survives it, so `role='vendor_admin'`, `vendor_id`, `display_name`, and `theme_preference` are all preserved.
 
 ```typescript
 export type EnsureProfileResponse = {
@@ -1043,6 +1047,13 @@ export const AdminVendorRequestSchema = z.object({
   // `(kind, target_type, target_id)` or `(submitter_email, target_type,
   // target_id)` (Phase 6 Spec §7.2). Informational only.
   is_duplicate: z.boolean(),
+  // COMPUTED at read time on the LIST path only (AECI-527): does a Supabase
+  // `auth.users` row already exist for `submitter_email`? `true` → approving the
+  // claim LINKS that account; `false` → it PROVISIONS one. `null` = unknown —
+  // `kind='correction'`, absent Supabase admin creds, a failed GoTrue lookup, or
+  // the single-row PATCH confirmation. Informational; never gates a decision.
+  // See STAGE_2_VENDOR_PORTAL_SPEC.md §2.
+  has_auth_account: z.boolean().nullable(),
   linear_issue_id: z.string().nullable(),
   // AECI-261: the linked Linear issue's web permalink (`issue.url`), persisted on
   // creation and the inbound webhook so /admin/requests renders a real link. Null

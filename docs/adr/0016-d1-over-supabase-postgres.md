@@ -161,6 +161,14 @@ batch commits via `ctx.waitUntil`.
 
 ### 3. The split-identity seam (auth stays Supabase)
 
+> **Update — a fourth seam (AECI-527, 2026-07-25).** The Stage 2 vendor portal added
+> **seam #4 — claimant identity resolution**: an email→`auth.users` lookup plus
+> account provisioning, so an anonymous vendor claim's `submitter_email` can be
+> resolved to the id the `profiles` grant is keyed to
+> (`docs/STAGE_2_VENDOR_PORTAL_SPEC.md` §2). The three seams below are the set as of
+> this decision (2026-06); the **live register of all four**, with each one's GoTrue
+> endpoint and degrade behaviour, is `docs/AUTH_AND_RLS.md` §3.1.
+
 - **Seam #1 — provisioning.** The existing `POST /api/auth/profile/ensure`
   backstop (`auth-profile.ts`) becomes the **primary** profile creator: an
   idempotent D1 upsert on first authenticated request, optionally fronted by a

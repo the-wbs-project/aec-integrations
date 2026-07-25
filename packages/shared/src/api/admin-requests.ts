@@ -69,6 +69,16 @@ export const AdminVendorRequestSchema = z.object({
   body: z.string(),
   source_url: z.string().nullable(),
   is_duplicate: z.boolean(),
+  /** Reviewer signal (AECI-527 / `STAGE_2_VENDOR_PORTAL_SPEC.md` §2): does a
+   *  Supabase `auth.users` row already exist for `submitter_email`? `true` →
+   *  approving this claim LINKS that account; `false` → it PROVISIONS a new one.
+   *  `null` means unknown, and unknown is common by design: always null for
+   *  `kind='correction'` (a correction has no account to link), null when the
+   *  Supabase admin creds are absent or the GoTrue lookup failed, and null on the
+   *  single-row PATCH confirmation (which does not fan out — the same posture as
+   *  `is_duplicate: false` there). Informational only; it never gates a decision.
+   *  Rendered by AECI-521's `/admin/claims` surface. */
+  has_auth_account: z.boolean().nullable(),
   linear_issue_id: z.string().nullable(),
   /** AECI-261: the linked Linear issue's web permalink (`issue.url`), or null when
    *  unlinked or persisted before this column existed. Drives the /admin/requests link. */
