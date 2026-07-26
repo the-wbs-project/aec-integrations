@@ -128,6 +128,16 @@ import { facetNavLabel, facetViewAllLabel } from './taxonomy-nav-copy';
           >
             Products
           </a>
+          <!-- AECI-536: mailing-list signup destination for external links. -->
+          <a
+            routerLink="/updates"
+            routerLinkActive="text-(--accent-primary)"
+            (click)="menu.close()"
+            class="block rounded-md px-3 py-2 text-sm font-medium text-(--text-primary) hover:bg-(--surface-sunken) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.nav.updates"
+          >
+            Updates
+          </a>
 
           @for (section of sections(); track section.kind) {
             <div>

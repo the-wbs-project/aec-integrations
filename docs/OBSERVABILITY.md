@@ -661,7 +661,7 @@ is stable when dark returns.
 | `claim_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
 | `correction_requested` | `requests/request-form-body.ts` (submit success) | `target_type`, `slug`, `request_id` |
 | `external_link_clicked` | `[aecTrackExternalLink]` directive on detail-page outbound anchors | `destination`, `source` |
-| `mailing_list_signup` | `home/home-closing-cta.ts` (subscribe success, `created` only — re-submitting an existing email is not tracked) | `source` (`home_closing_cta`) |
+| `mailing_list_signup` | the shared signup band (`home/home-closing-cta.ts` + directory/detail mounts, AECI-327) and the `/updates` page (`updates/updates.ts`, AECI-536), on subscribe success (`created` only — re-submitting an existing email is not tracked) | `source` (`home_closing_cta` / `mailing_list_band` / `updates_page`) |
 
 **Consent caveat — signups (AECI-326).** `mailing_list_signup` is consent-gated like every
 other event, so PostHog records only the **consented** signup funnel. The authoritative,

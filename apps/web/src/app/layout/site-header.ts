@@ -73,6 +73,15 @@ import { UserMenu } from './user-menu';
           >
             Products
           </a>
+          <!-- AECI-536: mailing-list signup destination for external links. -->
+          <a
+            routerLink="/updates"
+            routerLinkActive="text-(--accent-primary)"
+            class="text-(--text-primary) hover:text-(--accent-primary) focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-(--accent-primary)"
+            i18n="@@app.nav.updates"
+          >
+            Updates
+          </a>
           <aec-nav-flyout-trigger kind="category" [items]="taxonomy.categoriesTop10()" />
           <aec-nav-flyout-trigger kind="audience" [items]="taxonomy.audiencesTop10()" />
           <aec-nav-flyout-trigger kind="phase" [items]="taxonomy.phasesAll()" />

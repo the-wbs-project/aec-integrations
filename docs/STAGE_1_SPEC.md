@@ -200,6 +200,7 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/phases/:slug` | Browse by project phase | 30 min edge |
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |
+| `/updates` | Mailing-list signup page (AECI-536) — focused first-party subscribe destination for external links | 24 hr edge |
 | `/contact` | Contact form | No cache |
 | `/legal/terms` | Terms of Service | 24 hr edge |
 | `/legal/privacy` | Privacy Policy | 24 hr edge |
