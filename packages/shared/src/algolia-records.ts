@@ -60,6 +60,12 @@ export const AlgoliaVendorRecordSchema = z.object({
   objectID: z.string().uuid(),
   company_name: z.string().min(1),
   slug: z.string().min(1),
+  // AECI-529: the owning `vendors.verified` bit, denormalized so the `/search`
+  // Vendors-tab card can render `aec-verified-badge`. Display-only — never a
+  // searchable attribute or custom-ranking signal (no pay-for-placement).
+  // `.default(false)` keeps parsing resilient to records indexed before this
+  // field existed; they read as the unverified baseline.
+  verified: z.boolean().default(false),
   description: z.string().nullable(),
   headquarters: z.string().nullable(),
   founded_year: z.number().int().nullable(),

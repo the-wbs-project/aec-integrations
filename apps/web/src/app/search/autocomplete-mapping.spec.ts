@@ -33,6 +33,7 @@ function vendor(overrides: Partial<AlgoliaVendorRecord> = {}): AlgoliaVendorReco
     objectID: '22222222-2222-2222-2222-222222222222',
     company_name: 'Autodesk',
     slug: 'autodesk',
+    verified: false,
     description: null,
     headquarters: null,
     founded_year: null,
