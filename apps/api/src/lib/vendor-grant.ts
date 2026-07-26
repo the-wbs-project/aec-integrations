@@ -313,8 +313,11 @@ export function rejectClaimStatements(db: Db, p: RejectClaimParams): ClaimBatch 
  * today. The `WHERE` is scoped to an ACTIVE `vendor_admin` seat on this vendor, so
  * revoking a non-seat is a safe no-op that still records its audit row.
  *
- * A mechanic only in this issue — AECI-524 (moderation surface) wires the HTTP
- * endpoint. Exported + tested so the batch shape is pinned now.
+ * A mechanic with **no HTTP endpoint** at launch. AECI-524 (moderation) scoped
+ * revoke OUT — it wired the ban gate only (`STAGE_2_VENDOR_PORTAL_SPEC.md` §7);
+ * un-granting stays the separate, explicit revoke action, and self-serve
+ * invite/revoke is deferred (`STAGE_2_SPEC.md` §8.2 / §11). Exported + tested so
+ * the batch shape is pinned now for whichever issue eventually wires it.
  */
 export function revokeSeatStatements(db: Db, p: RevokeSeatParams): RevokeBatch {
   const metadata = {

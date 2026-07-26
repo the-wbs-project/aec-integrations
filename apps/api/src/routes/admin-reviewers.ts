@@ -10,6 +10,14 @@
  * workflow is REVERSIBLE, so it only toggles `current_state` (`active ↔ banned`)
  * — never `completed_at`/`final_outcome`. `reviewer_email` comes from the GoTrue
  * Admin API (seam #2). Admins (and the acting admin) can't be banned here.
+ *
+ * AECI-524 (Stage 2 moderation escalation, `STAGE_2_VENDOR_PORTAL_SPEC.md` §7):
+ * the ban mechanism is role-agnostic, so this same action bans a `vendor_admin`
+ * SEAT (a `profiles` row) — a banned seat then fails every `/api/vendor/*` call
+ * via the §4 guard's per-request ban check. The audit action + `aeci.moderation.ban`
+ * metric are role-aware (`vendor_admin.banned` vs `reviewer.banned`). Ban is
+ * per-seat: it touches one `profiles` row and never `vendors.verified` (§8.3(2)).
+ * Unbanning restores portal access without re-granting the seat.
  */
 
 import {
@@ -98,10 +106,12 @@ async function parseJsonBody<T>(c: AdminContext, schema: ZodType<T>): Promise<T>
 function emitBanAction(
   c: AdminContext,
   action: 'ban' | 'unban',
+  role: 'reviewer' | 'vendor_admin',
   outcome: 'ok' | 'invalid_state' | 'forbidden',
 ): void {
   submitCount(c.executionCtx, c.env, c.req.raw, 'aeci.moderation.ban', 1, [
     `action:${action}`,
+    `role:${role}`,
     `outcome:${outcome}`,
   ]);
 }
@@ -182,9 +192,18 @@ export function createBanReviewerHandler(
     });
     if (!existing) throw notFoundError('profile', { id });
 
+    // The moderated seat's role drives the audit action + metric so a
+    // `vendor_admin` ban is recorded as `vendor_admin.banned`, not
+    // `reviewer.banned` (AECI-524 / STAGE_2_VENDOR_PORTAL_SPEC.md §7). The ban
+    // MECHANISM is role-agnostic — this endpoint bans any non-admin `profiles`
+    // row (the guardrail below only blocks admins + self); only the labeling is
+    // role-aware. A banned `vendor_admin` then fails every `/api/vendor/*` call
+    // via the §4 guard's per-request ban check (AECI-520).
+    const seatRole = existing.role === 'vendor_admin' ? 'vendor_admin' : 'reviewer';
+
     // Guardrail: never ban an admin or the acting admin themselves.
     if (ban && (existing.role === 'admin' || id === userId)) {
-      emitBanAction(c, payload.action, 'forbidden');
+      emitBanAction(c, payload.action, seatRole, 'forbidden');
       throw new ApiError(
         403,
         ApiErrorCode.FORBIDDEN,
@@ -195,7 +214,7 @@ export function createBanReviewerHandler(
     // Toggle guard (preload): ban needs an un-banned target; unban a banned one.
     const alreadyInTargetState = ban ? existing.bannedAt !== null : existing.bannedAt === null;
     if (alreadyInTargetState) {
-      emitBanAction(c, payload.action, 'invalid_state');
+      emitBanAction(c, payload.action, seatRole, 'invalid_state');
       throw new ApiError(
         422,
         ApiErrorCode.INVALID_STATE_TRANSITION,
@@ -221,7 +240,7 @@ export function createBanReviewerHandler(
     const auditEntry: AuditLogEntry = {
       actorId: userId,
       actorType: auditActorType(session),
-      action: ban ? 'reviewer.banned' : 'reviewer.unbanned',
+      action: ban ? `${seatRole}.banned` : `${seatRole}.unbanned`,
       entityType: 'profile',
       entityId: id,
       beforeState: { banned_at: existing.bannedAt ?? null, ban_reason: existing.banReason },
@@ -262,7 +281,7 @@ export function createBanReviewerHandler(
     ];
     await db.batch(stmts as BatchTuple);
 
-    emitBanAction(c, payload.action, 'ok');
+    emitBanAction(c, payload.action, seatRole, 'ok');
     c.executionCtx.waitUntil(
       Promise.all([
         forwardAuditLog(auditEntry, makeForwarder(c)),
