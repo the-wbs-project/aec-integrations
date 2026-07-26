@@ -27,6 +27,7 @@ const VENDOR = {
   objectID: '22222222-2222-4222-8222-222222222222',
   company_name: 'Procore Technologies',
   slug: 'procore-technologies',
+  verified: true,
   description: null,
   headquarters: 'Carpinteria, CA',
   founded_year: 2003,
@@ -87,6 +88,15 @@ describe('AlgoliaVendorRecordSchema', () => {
   it('rejects a missing company_name', () => {
     const { company_name: _omit, ...rest } = VENDOR;
     expect(() => AlgoliaVendorRecordSchema.parse(rest)).toThrow();
+  });
+
+  it('carries the verified flag through (AECI-529)', () => {
+    expect(AlgoliaVendorRecordSchema.parse(VENDOR).verified).toBe(true);
+  });
+
+  it('defaults verified to false when omitted (records indexed before AECI-529)', () => {
+    const { verified: _omit, ...rest } = VENDOR;
+    expect(AlgoliaVendorRecordSchema.parse(rest).verified).toBe(false);
   });
 });
 

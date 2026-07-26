@@ -193,7 +193,13 @@ logged and swallowed, never fails the committed edit. Note the asymmetry with
 search: the purge makes SSR immediate, while Algolia only catches up on the
 nightly watermark sync (≤24h — `STAGE_2_SPEC.md` §8.3(5)); a vendor write always
 stamps `products.updated_at` so that sync actually sees it, including a
-taxonomy-only edit that touches no other column.
+taxonomy-only edit that touches no other column. The same asymmetry governs the
+**verified-badge flip** (AECI-529): the §5(b) claim→grant stamps `vendors.updated_at`
+alongside `verified = true`, so the `vendors` index re-indexes the flip on the next
+nightly window while the grant's `vendor:{slug}` + `product:{slug}` purge repaints the
+SSR pages immediately. The badge therefore appears on the vendor's SSR detail/product
+pages at once but on the `/search` Vendors-tab card only after the next sync
+(`SEARCH_RANKING.md` §6).
 
 The home page's `index:home` tag is the one deliberate exception: it is **not** in `cacheTagsForPromote`, because the home banner reads `home.*` `stats_cache` counts that the promote must **recompute first** (via `runHomeStats`). So the home refresh+enqueue is its own ordered post-commit task (`refreshHomeStatsAfterPromote` in `promote.ts`, AECI-305): recompute `stats_cache`, **then** enqueue the `index:home` purge. Enqueueing `index:home` in the concurrent set would let the purge race ahead of the recompute and re-cache stale HTML for another edge TTL. The `stats_cache` recompute runs in every environment; only the `index:home` enqueue is queue-binding-gated.
 

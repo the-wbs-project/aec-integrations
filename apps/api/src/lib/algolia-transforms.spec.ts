@@ -181,6 +181,7 @@ describe('toAlgoliaVendor', () => {
       headquarters: 'Carpinteria, CA',
       foundedYear: 2003,
       logoUrl: null,
+      verified: true,
     });
     // product_count: 2 product_vendors rows for this vendor.
     await t.db.insert(products).values([
@@ -203,6 +204,7 @@ describe('toAlgoliaVendor', () => {
       objectID: u(1),
       company_name: 'Procore Technologies',
       slug: 'procore-technologies',
+      verified: true,
       description: null,
       headquarters: 'Carpinteria, CA',
       founded_year: 2003,
@@ -211,6 +213,13 @@ describe('toAlgoliaVendor', () => {
       logo_url: null,
     });
     expect(() => AlgoliaVendorRecordSchema.parse(record)).not.toThrow();
+  });
+
+  it('maps the verified flag from the vendor row, defaulting to false (AECI-529)', async () => {
+    // A vendor not yet granted a verified account carries the schema default.
+    await t.db.insert(vendors).values({ id: u(1), slug: 'unclaimed', companyName: 'Unclaimed Co' });
+    const record = toAlgoliaVendor((await vendorById(u(1)))!);
+    expect(record.verified).toBe(false);
   });
 
   it('reports zero counts for a vendor with no products / integrations', async () => {
