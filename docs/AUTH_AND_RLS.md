@@ -1,8 +1,15 @@
 # AEC Integrations — Authorization Model, GRANTs & RLS Policies
 
-**Referenced by:** `STAGE_1_SPEC.md` §8 (Authentication), §15 (Security), §22 (Content Moderation), §26 (Audit Trail), `DATABASE_SCHEMA.md` §12
-**Version:** 3.0
-**Date:** May 2026
+**Referenced by:** `STAGE_1_SPEC.md` §8 (Authentication), §15 (Security), §22 (Content Moderation), §26 (Audit Trail), `DATABASE_SCHEMA.md` §12, `STAGE_2_VENDOR_PORTAL_SPEC.md` §2–§4/§7/§10
+**Version:** 3.1
+**Date:** July 2026
+
+> **v3.1 (AECI-525, 2026-07) — vendor-authz completion pass.** Documents the Stage 2
+> `vendor_admin` surface end-to-end: the role-exclusivity & grant/revoke/ban rules (§3.2), the
+> split-identity claimant **seam #4** (§3.1), the `/api/vendor/*` `vendor_id`-scoping seam +
+> endpoint rows (§4.4), and the GDPR **last-seat edge** (§8.2). All of it is the **Worker
+> (Layer-1) model — there is no RLS on app tables** (ADR 0016); the sibling `DATABASE_SCHEMA.md`
+> §12 was reconciled to the same reality.
 
 ---
 
@@ -110,10 +117,20 @@ outside it must use a JWT-scoped path.
 Seams **#4a/#4b** are composed with a single D1 `profiles` read in
 `lib/claimant-identity.ts` (`resolveClaimantIdentity`), which returns the
 `linked | invited | conflict | unavailable | error` contract AECI-519's grant switches on —
-including the role/vendor exclusivity check (§3 above, `STAGE_2_SPEC.md` §8.3(3)). Seam #1
+including the role/vendor exclusivity check (§3.2, `STAGE_2_SPEC.md` §8.3(3)). Seam #1
 carries no service-role call at all; it is listed so the register is complete and nobody
 "adds" one to profile-ensure later. Full contract:
 [`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2.
+
+Seam **#4b provisions rather than invites.** It creates the account already-confirmed via
+`POST /auth/v1/admin/users` (`email_confirm: true`), **not** a GoTrue invite email — the
+invite lands on a URL fragment the web app's PKCE `/auth/callback` rejects, and sending it
+would require editing the shared prod Supabase project (ADR 0017). Claimant onboarding is
+instead the `claim-approved` Resend email (AECI-528). The lookup (#4a,
+`findAuthUserByEmail`) also can't trust GoTrue's `?filter=` — it is a case-sensitive
+substring match over email **and** display name, so the resolver re-checks for an **exact**
+lowercased email match client-side before linking a seat (else `jane@acme.com` would match
+`jane@acme.com.evil.io`).
 
 **Where the key lives.** `SUPABASE_SERVICE_ROLE_KEY` is read by the **API Worker only** —
 never the web Worker (which verifies tokens with public JWKS material, §4.1). It is
@@ -142,6 +159,51 @@ app data moves to D1); Option B (self-hosted auth) was explicitly deferred. The
 mitigations are the ones above — one module, API Worker only, optional-and-degrading —
 plus keeping the key off ephemeral per-PR preview Workers. Note the asymmetry: #2/#4a are
 reads, but **#3 destroys** identities and **#4b creates** them.
+
+### 3.2 Role exclusivity & the vendor grant
+
+`vendor_admin` is granted **app-side on vendor-claim approval** — the same app-layer seam as
+`admin` (no `auth.users`↔`profiles` FK, AECI-254). The grant is a single atomic
+`db.batch([...])` (`lib/vendor-grant.ts` → `grantSeatStatements`, driven by
+`PATCH /api/admin/claims/:id`, AECI-519): it upserts the `profiles` seat, flips
+`vendors.verified = true` (guarded on `verified = false` — the claim→grant is the **sole
+writer** of `vendors.verified`), resolves the request, advances the `vendor_claim` workflow,
+and writes the `audit_log` row — all in one batch (§4.3). The PO/invoice arrangement is
+recorded in that audit row's metadata; **`vendors.verified` *is* the launch entitlement bit**
+(there is no `entitlements` table — `STAGE_2_SPEC.md` §8.3(1)).
+
+**Exclusivity rules (`STAGE_2_SPEC.md` §8.3(3)).** `role` and `vendor_id` are
+**single-valued** — single columns on `profiles`, with no multi-role or multi-vendor
+structure. The grant therefore refuses, with an **explicit error rather than a silent
+overwrite**, when:
+
+- the resolved account is already an **`admin`** — no `vendor_admin` grant to admin accounts
+  (conflict reason `already_admin`); or
+- the account is already `vendor_admin` for a **different** vendor — **one vendor per account
+  at launch** (conflict reason `other_vendor`).
+
+A **second seat on the *same* vendor is the allowed case** — multi-seat is flat (many
+`profiles` → one `vendor_id`), so this resolves as `linked`, not a conflict. Exclusivity is
+enforced in `classifyClaimantConflict()` (`lib/claimant-identity.ts`), **not** by RLS.
+Conflicts surface as **`409 GRANT_CONFLICT`** (with `details.reason`); when the GoTrue
+service-role creds are absent, identity resolution reports `unavailable`/`error` and the grant
+returns **`503 DEPENDENCY_FAILURE`** — it refuses to half-grant. The seat upsert is
+**no-clobber**: on conflict it sets only `role` / `vendor_id` / `updated_at`, never touching
+`display_name`, `theme_preference`, trust tier, or the ban columns.
+
+**Revoke & ban are per-seat and never un-verify.** Revoke (`revokeSeatStatements`,
+`lib/vendor-grant.ts`) drops the seat back to `role = 'reviewer'` and nulls `vendor_id`,
+scoped to one active seat; the batch builder ships (AECI-519) but **no HTTP endpoint is wired
+yet** — un-granting is the separate, explicit revoke action that stays with **AECI-519**,
+deliberately kept **out** of AECI-524's scope (the 2026-07-24 epic re-scope: AECI-524 is the
+ban/unban action only). A **ban** sets `profiles.banned_at` / `ban_reason` on the seat
+and is checked **before** the role check in the Layer-1 guard (§4.2 / §4.4). Both are
+per-seat — they touch one `profiles` row and **never** touch `vendors.verified`, which is a
+vendor-level paid state (un-verifying is a separate, currently-unowned entitlement action,
+AECI-515; `STAGE_2_SPEC.md` §8.3(2)). Banning or revoking one abusive seat leaves the vendor
+verified and its other seats working. Grant and revoke each emit their `audit_log` row in the
+same batch (§4.3) and are fully reversible. Full contract:
+[`STAGE_2_VENDOR_PORTAL_SPEC.md`](./STAGE_2_VENDOR_PORTAL_SPEC.md) §2, §3.1, §7.
 
 ---
 
@@ -240,7 +302,7 @@ await db.batch([
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
-| `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint — AECI-524 wired the ban gate only, not revoke) |
+| `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint — AECI-524 wired the ban gate only; revoke stays the separate un-grant action, AECI-519) |
 | `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified` |
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
 | `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
@@ -577,6 +639,27 @@ sync trigger should land with its own dual-path test (Supabase admin-API delete
 + a direct `DELETE FROM auth.users`). (Reconciling this section's trigger model
 with the D1 app DB is part of the AECI-256/257 Supabase-Postgres decommission.)
 
+### 8.2 Vendor seats & the last-seat edge
+
+A `vendor_admin` **seat *is* a `profiles` row** — it carries `role = 'vendor_admin'` plus a
+non-null `vendor_id`. `DELETE /api/account` (`routes/account.ts`, the §8 flow) deletes that
+`profiles` row and **never touches the `vendors` table**: there is no `vendors.verified = false`
+flip anywhere in the handler, and there is **no inbound FK from `vendors` to `profiles`**, so
+the erasure batch's seven-FK trap (§8, above) is unaffected and nothing cascades to the vendor.
+
+**The last-seat edge (2026-07-24 epic review, AECI-513).** Deleting a vendor's **only**
+`vendor_admin` seat removes the last seat but leaves **`vendors.verified = true`**. This is a
+**legitimate state, not a bug**: `verified` is vendor-level paid state, **decoupled** from
+seats — the same §8.3(2) decoupling under which revoke and ban never un-verify
+(`STAGE_2_SPEC.md` §8.3(2); §3.2 above). No un-verify writer exists today (deferred to the Paid
+Tiers epic, AECI-515), so nothing is available to flip it, and account-deletion deliberately
+does not add one. The vendor is therefore **verified-but-unclaimed**: it diverges from the
+"claimed = ≥1 *active* `vendor_admin` seat" predicate (`loadClaimedVendorIds`,
+`lib/claimed-vendors.ts`) — the same divergence a fully-banned vendor exhibits. AECi re-grants
+a seat through the normal claim→grant flow (§3.2) when a new contact is verified. (Erasure's
+own `auth.users` orphan — seam #3 skipping when creds are absent — is the separate AECI-531
+thread, §8 step 4.)
+
 ---
 
 ## 9. Stage 2 forward compatibility
@@ -589,7 +672,7 @@ Stage 2 introduces the **vendor portal** (`vendor_admin`). Its authorization is 
 - **`vendor_id`-scoped queries** — every `/api/vendor/*` read and write filters by the session's `vendor_id` in the **Drizzle query** (`WHERE vendor_id = :sessionVendorId`). This is the D1/Drizzle replacement for the row filter the retired RLS design would have applied; the Worker never trusts a client-supplied vendor/target id. Every write emits its `audit_log` row in the same `db.batch()` (§4.3).
 - **Ban gate** — `profiles.banned_at` already gates vendor seats through the existing §4.2 / §7 check; portal abuse is a ban path (per-seat — it never touches `vendors.verified`).
 
-**No schema migration is required for Stage 2 authorization** — the hooks (`profiles.role` `vendor_admin`, `profiles.vendor_id`, `vendors.verified`, `profiles.banned_at`) already exist. The endpoint-by-endpoint `vendor_admin` rows land in §4.4 when AECI-520 ships (AECI-525).
+**No schema migration is required for Stage 2 authorization** — the hooks (`profiles.role` `vendor_admin`, `profiles.vendor_id`, `vendors.verified`, `profiles.banned_at`) already exist. The `vendor_admin` surface is now **fully documented above** (AECI-525): role-exclusivity & the grant/revoke/ban mechanics in **§3.2**, the split-identity claimant seam #4 in **§3.1**, the endpoint-by-endpoint rows + `vendor_id`-scoping obligations in **§4.4**, and the GDPR last-seat edge in **§8.2**. The bullets above are the summary; those sections are the contract.
 
 ---
 

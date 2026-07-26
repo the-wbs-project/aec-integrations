@@ -876,15 +876,24 @@ Slugs are generated at insert time by application code, not at the database leve
 
 ---
 
-## 12. RLS policies
+## 12. Authorization (no RLS on app tables)
 
-Row-level security is enabled on every table. Policy definitions live in **`AUTH_AND_RLS.md`** — that document is the source of truth for who can read and write what.
+> **Updated for ADR 0016 (D1).** The application database is **Cloudflare D1 (SQLite)**, which
+> has **no row-level security and no PostgREST**. Authorization is enforced **in the API
+> Worker** — the 3-layer model collapsed to **Layer 1 only** for app tables: verify the
+> Supabase JWT → re-fetch `role` / `vendor_id` / `banned_at` from D1 → **scope every Drizzle
+> query** with its own ownership/visibility filter (vendor-portal reads/writes are
+> `WHERE vendor_id = :sessionVendorId`). There is **no DB backstop** if a handler forgets a
+> filter. **`AUTH_AND_RLS.md` is the source of truth** for who can read and write what (it also
+> retains the historical Supabase-Postgres GRANT/RLS design for context). The earlier "RLS is
+> enabled on every table" wording described that retired Postgres surface, not D1.
 
-High-level intent:
+High-level intent (now **Worker-enforced**, not RLS-enforced):
 - Public read on directory tables (products, vendors, integrations, taxonomy, approved reviews)
 - Authenticated insert on reviews
 - Owners update own pending reviews
 - Admin-only access to moderation, audit log, workflow, page_views, vendor_requests
+- Vendor-portal reads/writes scoped to the caller's `vendor_id` (`vendor_admin`; `AUTH_AND_RLS.md` §3.2 / §4.4)
 
 ---
 
