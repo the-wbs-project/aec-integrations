@@ -1265,11 +1265,21 @@ export type BanReviewerResponse = z.infer<typeof BanReviewerResponseSchema>;
 ```
 
 `ban` sets `banned_at = now()` + `ban_reason`; `unban` clears both. Both append an
-`audit_log` (`reviewer.banned` / `reviewer.unbanned`, with before/after state) + a
+`audit_log` (`reviewer.banned` / `reviewer.unbanned` — or `vendor_admin.banned` /
+`.unbanned` for a vendor seat, see below — with before/after state) + a
 `workflow_transitions` row on a long-lived **reversible** `reviewer_ban` workflow
 (`active ↔ banned`; no terminal `final_outcome`). No cache invalidation — a ban
 changes no cacheable page (a banned reviewer's approved reviews stay visible, flagged
 internally only, §22.3).
+
+**Stage 2 (AECI-524):** the ban `UPDATE` is role-agnostic (the `FORBIDDEN` guardrail
+exempts only admin accounts and self), so this same endpoint bans a **`vendor_admin`
+seat** — a banned seat then fails every `/api/vendor/*` call via the per-request ban
+check (`AUTH_AND_RLS.md` §4.2). The request/response contract is unchanged; only the
+audit `action` and the `aeci.moderation.ban` `role:` tag become role-aware. The ban is
+**per-seat** — it never touches the vendor's other seats or `vendors.verified`
+(`STAGE_2_VENDOR_PORTAL_SPEC.md` §7). The `reviewer_id` field name is retained; for a
+vendor seat it is simply the seat's profile id.
 
 Errors: `NOT_FOUND` (unknown profile id); `INVALID_STATE_TRANSITION` (422) when
 banning an already-banned reviewer, unbanning one who isn't banned, or a concurrent

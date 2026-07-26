@@ -240,7 +240,8 @@ await db.batch([
 | `POST /api/track/pageview` | Optional | None | Logged to `page_views` |
 | `GET /api/admin/*` | Hard-required | `admin` | No (reads only) |
 | `PATCH /api/admin/reviews/:id` | Hard-required | `admin` | `review.approved` / `.rejected` |
-| `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint yet, AECI-524) |
+| `PATCH /api/admin/claims/:id` (AECI-519) | Hard-required | `admin` | `vendor_claim.granted` / `.rejected` — grant links a `vendor_admin` seat + flips `vendors.verified` (the seat-revoke mechanic `vendor_claim.seat_revoked` has no endpoint — AECI-524 wired the ban gate only, not revoke) |
+| `PATCH /api/admin/reviewers/:id` (AECI-218 / AECI-524) | Hard-required | `admin` | `reviewer.banned` / `vendor_admin.banned` / `.unbanned` — bans/unbans any non-admin `profiles` row (reviewer **or** `vendor_admin` seat); role-agnostic UPDATE, role-aware audit, per-seat, never touches `vendors.verified` |
 | `GET /api/vendor/me`, `/seats` | Hard-required | `vendor_admin` + non-null `vendor_id`, not banned | No (reads only) |
 | `PATCH /api/vendor/profile` | Hard-required | same | `vendor.updated` (`metadata.source: 'vendor-portal'`) |
 | `PATCH /api/vendor/products/:id` | Hard-required | same **+ ownership** | `product.updated` (`metadata.source: 'vendor-portal'`) |
@@ -420,7 +421,7 @@ Enforced at the **Worker layer** (Layer 1) — the only authorization layer for 
 
 **RLS (historical defense in depth, dead for app tables):** the former `public.is_active_user()` helper returned false for banned users, and the `reviews: owner read own` policy used it so a banned user couldn't read their own pending reviews via PostgREST. That policy lived on Postgres; under D1 the equivalent visibility is enforced in the Worker's review-read handler. Approved reviews stay readable — banning does not retroactively hide past content.
 
-Bans are applied manually by an admin via SQL against the per-environment **D1** database until a Stage 2 admin UI exists.
+Bans are applied by an admin through `PATCH /api/admin/reviewers/:id` (the `/admin/reviewers` UI, AECI-218) — which since AECI-524 covers `vendor_admin` seats as well as reviewers: the `UPDATE` is role-agnostic (only admins and self are exempt) and the audit action is role-aware (`reviewer.banned` / `vendor_admin.banned` / `.unbanned`). A banned `vendor_admin` seat then fails every `/api/vendor/*` call via the §4.2 per-request ban check; the ban is per-seat and never touches `vendors.verified`. Direct SQL against the per-environment **D1** database remains a fallback.
 
 ---
 

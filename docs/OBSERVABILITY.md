@@ -71,7 +71,7 @@ below. The bounded render-volume signal is the `aeci.ssr.render` count metric.
 | `aeci.data_quality.email` | count | `apps/api/src/scheduled.ts` (`runDataQualityJob` → `lib/email.ts` `sendEmail`, AECI-241) | `outcome` (sent / failed / skipped) — **`skipped`** when `RESEND_API_KEY` / `DATA_QUALITY_EMAIL_{FROM,TO}` are unset (fail-open; the Datadog monitors are the delivery backstop) |
 | `aeci.waf.ratelimit.blocked` | count | `apps/api/src/lib/waf-metrics.ts` (`emitWafEventMetrics`, from the hourly WAF poll in `apps/api/src/scheduled.ts` `runWafMetricsJob`, AECI-262) | `rule` (CF rule id), `action` (block / managed_challenge / …), `host`, `source` (ratelimit / firewallcustom) — **value is the event count, so query with `sum:`** (gotcha 3); only mitigation actions counted |
 | `aeci.waf.poll` | count | `apps/api/src/scheduled.ts` (`runWafMetricsJob`, hourly cron, AECI-262) | `trigger` (cron), `outcome` (ok / failed / skipped_no_creds) — one heartbeat per run; the always-emitted `outcome:ok` series is the cron-liveness signal |
-| `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
+| `aeci.moderation.ban` | count | `apps/api/src/routes/admin-reviewers.ts` (`emitBanAction`, **AECI-218 / Phase 6.11**; `role` tag added **AECI-524** — the `PATCH /api/admin/reviewers/:id` ban/unban write-path) | `action` (`ban` / `unban`), `role` (`reviewer` / `vendor_admin` — the moderated seat's role), `outcome` (`ok` / `invalid_state` / `forbidden`) — one count per ban/unban attempt, alongside the §9 `appendAuditLog()` + `reviewer_ban` `workflow_transition` |
 
 `aeci.ssr.render` (AECI-103) is one count per SSR render, fired on **every** branch the
 Worker runs — the cacheable render (a native-cache MISS) and the non-cacheable branch, which
@@ -272,8 +272,8 @@ the throughput signal (and, paired against a sudden zero, the "secret rotated bu
 deliveries bouncing" tell); `…hmac_failure` is the security/mis-config signal behind the
 `monitor-webhook-hmac-failure.json` alert. The full dashboard + alert land in 6.12 (AECI-219, below).
 
-`aeci.moderation.ban` (count, `action:ban|unban` × `outcome:ok|invalid_state|forbidden`) **shipped with
-AECI-218 / Phase 6.11**: the reviewer-**ban management** write-path (`PATCH /api/admin/reviewers/:id`,
+`aeci.moderation.ban` (count, `action:ban|unban` × `role:reviewer|vendor_admin` × `outcome:ok|invalid_state|forbidden`) **shipped with
+AECI-218 / Phase 6.11** (the `role` tag added AECI-524 so a `vendor_admin`-seat ban is distinguishable): the reviewer-**ban management** write-path (`PATCH /api/admin/reviewers/:id`,
 admin sets/clears `profiles.banned_at` + `ban_reason`) emits one count per ban/unban attempt via
 `emitBanAction` in `apps/api/src/routes/admin-reviewers.ts`, alongside the §9 `appendAuditLog()` + the
 reversible `reviewer_ban` `workflow_transition`. Phase 5 (AECI-197) only *enforces* an existing ban on
