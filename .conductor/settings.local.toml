@@ -21,6 +21,6 @@ setup = "pnpm install\npnpm run build:web"
 
 [tasks.Run]
 available_in = "local"
-command = "pnpm run dev"
+command = "pnpm run dev:agent"
 default = true
 icon = "play"
