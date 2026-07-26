@@ -470,7 +470,7 @@
         // vars (not secrets — only RESEND_API_KEY is). `_FROM` must be on a Resend-
         // verified domain (thewbsproject.com). `_TO` is comma-separated (read by
         // parseRecipients). TODO: append Bill's address alongside Chris?
-        "DATA_QUALITY_EMAIL_FROM": "AECi Data Quality <support@thewbsproject.com>",
+        "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
         // AECI-526: recipient(s) for the daily operator analytics digest (12:00 UTC
         // = 07:00 EST — page views, top products, new/total sign-ins, pending-moderation
