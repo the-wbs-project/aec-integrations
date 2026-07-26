@@ -161,7 +161,7 @@ Shipped with **no migration**. Contracts: `packages/shared/src/api/admin-claims.
 - **Entitlement shape.** The optional `entitlement` body object (`payer` / `amount` / `terms` / `arranged_by` / `notes`) is recorded verbatim in the grant `audit_log` metadata (§8.3(1)) — no `vendors.admin_notes` mirror, no new column.
 - **Product claims resolve the primary vendor.** A `target_type='product'` claim grants the product's `is_primary` vendor (any `product_vendors` row is the fallback), so `resolveClaimantIdentity` always receives a vendor id (§2).
 - **Purge = vendor + its products.** Post-commit enqueues `{ tags: ['vendor:<slug>', 'product:<slug>'…, 'index:products'], source: 'moderation' }` — the vendor page plus every product page that embeds it.
-- **Revoke is a mechanic, not an endpoint.** `revokeSeatStatements` (in `vendor-grant.ts`, exported + unit-tested) drops a seat to `reviewer` + unlinks `vendor_id`, audited (`vendor_claim.seat_revoked`), and **never touches `vendors.verified`** (§8.3(2)). No HTTP surface this issue — AECI-524 (moderation) wires it.
+- **Revoke is a mechanic, not an endpoint.** `revokeSeatStatements` (in `vendor-grant.ts`, exported + unit-tested) drops a seat to `reviewer` + unlinks `vendor_id`, audited (`vendor_claim.seat_revoked`), and **never touches `vendors.verified`** (§8.3(2)). **Still no HTTP surface:** AECI-524 wired the ban gate only (§7) and deliberately left revoke unwired (its AC scopes un-granting out); self-serve invite/revoke is deferred (§11). The batch shape stays pinned for whichever issue wires it.
 - **503 until AECI-530.** With `SUPABASE_SERVICE_ROLE_KEY` bound on no Worker yet, `approve` reports `DEPENDENCY_FAILURE` (503) in every deployed env; the code is fully unit-tested via the injected `resolveClaimantIdentity` seam. `reject` needs no resolution and works regardless.
 
 ---
@@ -275,6 +275,16 @@ Shipped as the Angular `/vendor` surface (singular — the public `/vendors/:slu
 - **Ban action** — an admin sets `profiles.banned_at` / `ban_reason` on a `vendor_admin` seat (reusing the existing Layer-1 ban mechanism, `AUTH_AND_RLS.md` §7). Audited like any state change.
 - **Seat semantics (§8.3(2)).** Ban and revoke are **per-seat** — they touch one `profiles` row and **never** touch `vendors.verified` (that is vendor-level, paid entitlement state). Banning one abusive seat leaves the vendor verified and its other seats working. **Un-verifying** a vendor is a **separate entitlement action** (not a ban).
 - **Effect.** A banned seat fails the §4 guard on every `/api/vendor/*` call (403) — portal abuse is a ban path, not a delete.
+
+### 7.1 As built (AECI-524 — 2026-07-25)
+
+Shipped as **tests + role-aware auditing on the existing ban action** — **no new endpoint, no migration**. Most of §7 was already satisfied: AECI-520 shipped the guard's per-request `banned_at` → 403 check, and AECI-218 shipped the reviewer-ban admin action whose UPDATE is role-agnostic. Decisions taken at build:
+
+- **The ban action is the existing `PATCH /api/admin/reviewers/:id`.** Its `UPDATE profiles SET banned_at/ban_reason` carries **no `role='reviewer'` filter** — only a guardrail blocking `role='admin'` and self — so it already bans a `vendor_admin` seat. This issue added **no parallel endpoint**; the reviewer-named route/contract (`reviewer_id`, `reviewer_email`) and the `reviewer_ban` workflow type are unchanged (a rename would break the `/admin/reviewers` UI for no functional gain).
+- **Role-aware audit + metric.** `admin-reviewers.ts` now derives the audit `action` and the `aeci.moderation.ban` `role:` tag from the moderated seat's role, so a vendor-seat ban records `vendor_admin.banned` / `vendor_admin.unbanned` (not `reviewer.banned`). Everything else in the atomic batch (guarded UPDATE, `workflow_transitions`, post-commit forwards) is unchanged.
+- **Immediate effect is inherited from AECI-520, not re-implemented.** `createAuthzMiddleware` re-fetches `banned_at` from D1 on **every** request, so a ban blocks the next `/api/vendor/*` call with the same already-issued token — no cached-token bypass. `moderation-ban-gate.spec.ts` proves it end-to-end (real ban handler + real `requireVendor` over one D1: seat 200 → admin bans → same token 403 `'Portal abuse'` → unban → same token 200).
+- **Per-seat, reversible.** `admin-reviewers.spec.ts` covers: banning one of two seats on a `verified` vendor leaves the other seat **and** `vendors.verified` untouched (§8.3(2)); unban clears `banned_at` without touching `role`/`vendor_id` — access restored **without re-granting** the seat.
+- **Revoke stays out.** The AC scoped un-granting to the separate revoke path, so `revokeSeatStatements` keeps **no HTTP surface**. The earlier "AECI-524 wires it" notes (§3, `AUTH_AND_RLS.md` §4.4, `vendor-grant.ts`) were corrected. Ban gates access reversibly; revoke un-grants — two different actions.
 
 ---
 
