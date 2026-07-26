@@ -50,7 +50,7 @@ decision record; no separate ADR.
 | `review-approved` | `PATCH /api/admin/reviews/:id` approve (`routes/admin-reviews.ts`) | reviewer | links to `/products/{slug}` when `PUBLIC_SITE_URL` set |
 | `review-rejected` | `PATCH /api/admin/reviews/:id` reject | reviewer | includes the moderator's reason + a guidelines link |
 | `account-deleted` | `DELETE /api/account` (`routes/account.ts`) | the deleted user (captured pre-erasure) | GDPR confirmation |
-| `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the idempotent already-listed no-op. Sibling of the operator `landing-signup` alert. Carries a `List-Unsubscribe` mailto header (`unsubscribe@<EMAIL_FROM domain>`) + a matching in-body opt-out line for deliverability. |
+| `mailing-list-welcome` | `POST /api/subscribe` on a fresh insert or reactivation (`routes/landing-forms.ts`) | the new subscriber (`payload.email`) | Subscriber welcome / first touch (AECI-327). Links to `/products` when `PUBLIC_SITE_URL` set. Not sent on the still-active already-listed no-op. Sibling of the operator `landing-signup` alert. Unsubscribe (AECI-537): with a public host + the subscriber's token, the in-body link and `List-Unsubscribe` header point at the tokenized `/unsubscribe` flow and set RFC 8058 one-click (`List-Unsubscribe-Post`); without them it degrades to the `unsubscribe@<EMAIL_FROM domain>` mailto (see List-Unsubscribe section below). |
 | `stuck-request-alert` | reconciliation sweep (`lib/admin-alert.ts` → `lib/reconciliation-sweep.ts`) | `ADMIN_ALERT_EMAIL` | §6.2 persistent-failure digest |
 | `landing-signup` | `POST /api/subscribe` on a fresh insert (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new mailing-list signup" (AECI-247/277 — replaces the retired `apps/landing` Worker's own send). Not sent on the idempotent already-listed no-op. |
 | `landing-feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | `ADMIN_ALERT_EMAIL` | Operator "new feedback submitted" (AECI-247/277). |
@@ -131,7 +131,14 @@ The sending domain (`aecintegrations.com`) must have, in DNS (Resend sends via A
 
 **Gmail vs. Microsoft 365 placement.** With `p=quarantine` and a brand-new sending domain (no reputation), Gmail will often route mail to **spam** while M365 tenants inbox it — even when SPF/DKIM/DMARC all pass. This is reputation/warm-up, not an auth failure. Levers: consistent low volume + recipient engagement (mark "not spam"), a `List-Unsubscribe` header (below), and DMARC `rua` reports to watch pass/fail per receiver.
 
-**List-Unsubscribe.** The `mailing-list-welcome` template sets `List-Unsubscribe: <mailto:unsubscribe@<sender-domain>?subject=unsubscribe>` (RFC 2369), derived from the `EMAIL_FROM` domain. For it to be actionable, route `unsubscribe@aecintegrations.com` (Cloudflare Email Routing) to an inbox that processes opt-outs. One-click POST (RFC 8058 `List-Unsubscribe-Post`) is intentionally **not** set: it needs a public unsubscribe endpoint + token and is only required of bulk senders (5000+/day). Add it if/when volume warrants.
+**List-Unsubscribe (AECI-537).** The `mailing-list-welcome` template now sets a true one-click opt-out when it has both a public host (`PUBLIC_SITE_URL`) and the subscriber's `unsubscribe_token`:
+
+```
+List-Unsubscribe: <https://<host>/api/unsubscribe?token=…>, <mailto:unsubscribe@<sender-domain>?subject=unsubscribe>
+List-Unsubscribe-Post: List-Unsubscribe=One-Click
+```
+
+The https target is the public SSR host, which forwards `POST /api/unsubscribe` to the private API Worker via the `/api/*` passthrough; the mailto (RFC 2369, derived from the `EMAIL_FROM` domain) is retained as a secondary value. The in-body opt-out link points at the human-facing `/unsubscribe?token=…` page (which confirms, then POSTs the same endpoint). When the host or token is missing, both the header and the in-body link **degrade to the mailto only** — for that path to be actionable, route `unsubscribe@aecintegrations.com` (Cloudflare Email Routing) to an inbox that processes opt-outs. See `POST /api/unsubscribe` in `docs/API_CONTRACTS.md` §6.13 and the `/unsubscribe` page (`apps/web/src/app/unsubscribe/`).
 
 ## Testing
 

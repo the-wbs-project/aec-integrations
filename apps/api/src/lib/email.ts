@@ -249,16 +249,23 @@ function unsubscribeMailto(env: Env): string | null {
 }
 
 /** Mailing-list welcome (AECI-327) — the subscriber's first touch, sent by
- *  `POST /api/subscribe` on a real insert (not the idempotent already-listed
- *  no-op). Recipient is the new subscriber. Links to the directory when
- *  `PUBLIC_SITE_URL` is configured, otherwise the link is omitted (never a dead
- *  host). Carries a `List-Unsubscribe` mailto header (deliverability + one-click
- *  opt-out UI in Gmail/Apple Mail; keeps this "updates" list off the spam path).
+ *  `POST /api/subscribe` on a real insert / reactivation (not the idempotent
+ *  already-listed no-op). Recipient is the new subscriber. Links to the directory
+ *  when `PUBLIC_SITE_URL` is configured, otherwise the link is omitted (never a
+ *  dead host).
+ *
+ *  Unsubscribe (AECI-537): when we have a public host AND the subscriber's
+ *  `token`, the in-body link points at the `/unsubscribe?token=…` page and the
+ *  headers carry a true RFC 8058 one-click opt-out (`List-Unsubscribe-Post` +
+ *  an https `List-Unsubscribe` target that hits `POST /api/unsubscribe?token=…`
+ *  through the SSR passthrough), with the RFC 2369 `mailto:` as a secondary
+ *  value. Without a host/token we fall back to the mailto-only header + link.
+ *
  *  Voice per PRODUCT.md: sentence case, no em dashes, no "verification is live"
  *  claim, no pricing. Draft copy — marketing owns final wording. */
 export function sendMailingListWelcomeEmail(
   c: EmailContext,
-  opts: { to: string | undefined },
+  opts: { to: string | undefined; token?: string | null },
 ): Promise<EmailOutcome> {
   const base = siteUrl(c.env);
   const browseUrl = base ? `${base}/products` : null;
@@ -269,13 +276,37 @@ export function sendMailingListWelcomeEmail(
   const browseLead =
     "The best next step is to browse the directory: see how tools connect, and where they don't, before you commit.";
   const fallback = "We'll also email you as new tools and reviews land in the directory.";
-  const unsub = unsubscribeMailto(c.env);
-  const unsubText = unsub
-    ? `To stop these updates, email ${unsub} with the subject unsubscribe.`
-    : null;
-  const unsubHtml = unsub
-    ? `To stop these updates, <a href="mailto:${escapeHtml(unsub)}?subject=unsubscribe">unsubscribe</a>.`
-    : null;
+
+  // Tokenized page link + one-click endpoint (preferred), else the mailto opt-out.
+  const mailto = unsubscribeMailto(c.env);
+  const token = opts.token ?? null;
+  const pageUrl = base && token ? `${base}/unsubscribe?token=${encodeURIComponent(token)}` : null;
+  const oneClickUrl =
+    base && token ? `${base}/api/unsubscribe?token=${encodeURIComponent(token)}` : null;
+
+  const unsubText = pageUrl
+    ? `To stop these updates, unsubscribe here: ${pageUrl}`
+    : mailto
+      ? `To stop these updates, email ${mailto} with the subject unsubscribe.`
+      : null;
+  const unsubHtml = pageUrl
+    ? `To stop these updates, <a href="${escapeHtml(pageUrl)}">unsubscribe</a>.`
+    : mailto
+      ? `To stop these updates, <a href="mailto:${escapeHtml(mailto)}?subject=unsubscribe">unsubscribe</a>.`
+      : null;
+
+  // List-Unsubscribe: https one-click (RFC 8058) with the mailto as a secondary
+  // value when both are available; otherwise whichever single value we have.
+  const mailtoValue = mailto ? `<mailto:${mailto}?subject=unsubscribe>` : null;
+  const listUnsub = oneClickUrl
+    ? mailtoValue
+      ? `<${oneClickUrl}>, ${mailtoValue}`
+      : `<${oneClickUrl}>`
+    : mailtoValue;
+  const unsubHeaders: Record<string, string> = {};
+  if (listUnsub) unsubHeaders['List-Unsubscribe'] = listUnsub;
+  if (oneClickUrl) unsubHeaders['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+
   const textParagraphs = [
     intro,
     what,
@@ -296,10 +327,7 @@ export function sendMailingListWelcomeEmail(
     subject: 'Welcome to AEC Integrations',
     text: toText(textParagraphs),
     html: toHtml(htmlParagraphs),
-    // RFC 2369 List-Unsubscribe (mailto). One-click POST (RFC 8058) is intentionally
-    // omitted: it needs a public unsubscribe endpoint + token and is only required
-    // of bulk senders (5000+/day), which this pre-launch list is not.
-    ...(unsub ? { headers: { 'List-Unsubscribe': `<mailto:${unsub}?subject=unsubscribe>` } } : {}),
+    ...(Object.keys(unsubHeaders).length ? { headers: unsubHeaders } : {}),
   });
 }
 

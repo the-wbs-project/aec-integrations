@@ -842,9 +842,21 @@ export const mailingList = sqliteTable(
     utmMedium: text('utm_medium'),
     utmCampaign: text('utm_campaign'),
     referrer: text('referrer'),
+    // Opaque per-subscriber unsubscribe token (AECI-537). Set on insert
+    // (`crypto.randomUUID()`); backfilled for pre-existing rows via the 0006
+    // migration. Powers the `/unsubscribe?token=…` page link + the RFC 8058
+    // one-click `List-Unsubscribe-Post` header on the welcome email.
+    unsubscribeToken: text('unsubscribe_token'),
+    // Soft-delete / suppression (AECI-537). Null = active subscriber; an
+    // ISO-8601 timestamp = opted out (never re-emailed). A resubscribe clears
+    // this back to null (`createSubscribeHandler` reactivation path).
+    unsubscribedAt: text('unsubscribed_at'),
     createdAt: createdAt(),
   },
-  (t) => [uniqueIndex('mailing_list_email_key').on(t.email)],
+  (t) => [
+    uniqueIndex('mailing_list_email_key').on(t.email),
+    uniqueIndex('mailing_list_unsubscribe_token_key').on(t.unsubscribeToken),
+  ],
 );
 
 // ===========================================================================
