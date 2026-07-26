@@ -62,7 +62,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/updates`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -115,7 +115,7 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 | Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
 | Product-PAIR page (`/products/:context/integrations/:other`) | `view` — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). |
 | Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
-| Home (`/`), `/about`, `/legal/*` | none — strip all |
+| Home (`/`), `/about`, `/updates`, `/legal/*` | none — strip all |
 
 The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the three `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* two facet ids ever appear in its query — but listing all three keeps the const uniform (over-including is harmless).
 

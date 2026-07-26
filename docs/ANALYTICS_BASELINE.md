@@ -12,7 +12,7 @@ marketing produces **before** we produce it.
 | Signal | Source | Status | Notes |
 |---|---|---|---|
 | **Pageviews** (client) | PostHog `capture_pageview: 'history_change'` (`apps/web/src/app/analytics/`) | Built; **live once `POSTHOG_KEY` is set** | Auto-captures initial load + SPA navigations, consent-gated. |
-| **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired from `home/home-closing-cta.ts` on a genuine new subscribe (AECI-326) | Built (this change); live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source: home_closing_cta`. |
+| **Mailing-list signup** (client) | PostHog `mailing_list_signup` event, fired on a genuine new subscribe (AECI-326) from the shared band (`home/home-closing-cta.ts` + the directory/detail mounts, AECI-327) and the `/updates` page (AECI-536) | Built; live once `POSTHOG_KEY` is set | Consent-gated → *consented funnel only*. `source`: `home_closing_cta` / `mailing_list_band` / `updates_page`. |
 | **Mailing-list signup** (server, authoritative) | `mailing_list` D1 table via `POST /api/subscribe`; mirrored to Datadog `aeci.email.send{template:landing-signup}` on each new insert | **Live** (consent-independent) | The true signup count. Read this for the number; read PostHog for funnel/attribution. |
 | **Core Web Vitals** (field) | Datadog RUM `@datadog/browser-rum` (`apps/web/src/app/datadog.provider.ts`) | Built; **live once `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` are set** | RUM collects LCP/CLS/INP/FCP/TTFB automatically on init. `aeci` RUM app, us5. |
 | **Server pageviews / entry pages** | `page_views` D1 table via `POST /api/page-views` | **Live** (consent-independent) | Write-only today (no reporting endpoint); query D1 directly for entry-page counts. The 2026-07-12 AECI-280 pull found 4,917 rows (3,237 in 7d) — but `cf_bot_score` is null on every row (CF Pro exposes no bot score), so the human/bot/synthetic split is **unclassified**. |
@@ -73,7 +73,8 @@ Once the secrets are provisioned (config injected — verify with
 
 1. **Signup fires as a tracked event** — ✅ code: `home-closing-cta.ts` calls
    `Analytics.mailingListSignup({ source: 'home_closing_cta' })` on `created`; covered by the
-   analytics + closing-CTA specs.
+   analytics + closing-CTA specs. (AECI-536 adds the `/updates` page firing the same event with
+   `source: 'updates_page'`, covered by `updates.component.spec.ts`.)
 2. **PostHog captures pageviews + signup** — gated on `POSTHOG_KEY` (CI-wired; set the GH secret,
    then confirm `__AECI_POSTHOG__` in the HTML and the event in the PostHog UI).
 3. **Datadog RUM reports CWV** — gated on `DD_APPLICATION_ID` + `DD_CLIENT_TOKEN` (now CI-wired; set

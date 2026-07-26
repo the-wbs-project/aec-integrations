@@ -324,6 +324,11 @@ const LISTING_CACHE_KEY_PARAMS: readonly string[] = [
 const ROUTE_CACHE_PATTERNS: readonly RoutePattern[] = [
   { match: (p) => p === '/', ttl: { edge: 900, browser: 300 } },
   { match: (p) => p === '/about', ttl: { edge: 86_400, browser: 3_600 } },
+  // AECI-536 — /updates signup page: static + visitor-state-neutral, same static-
+  // page TTL as /about. No `cacheKeyParams`, so the whole query string (incl. UTM)
+  // is dropped from the cache key; UTM still survives in the real browser URL for
+  // `buildAttribution` at submit time (same as every other lead-capture surface).
+  { match: (p) => p === '/updates', ttl: { edge: 86_400, browser: 3_600 } },
   {
     match: (p) => p === '/legal' || p.startsWith('/legal/'),
     ttl: { edge: 86_400, browser: 3_600 },

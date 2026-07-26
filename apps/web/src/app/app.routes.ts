@@ -255,6 +255,15 @@ export const routes: Routes = [
     path: 'about',
     loadComponent: () => import('./about/about').then((m) => m.AboutPage),
   },
+  // AECI-536 — focused first-party mailing-list signup page for external links
+  // (LinkedIn etc.). Static + indexable + CACHEABLE (24h edge / 1h browser,
+  // `Cache-Tag: route:index`) like /about — pre-wired in `ROUTE_CACHE_PATTERNS`
+  // + `cacheTagInputsForPath`. Meta set in the component constructor. No resolver
+  // (the signup POSTs to the non-cached `/api/subscribe` only on a user action).
+  {
+    path: 'updates',
+    loadComponent: () => import('./updates/updates').then((m) => m.UpdatesPage),
+  },
   {
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),
