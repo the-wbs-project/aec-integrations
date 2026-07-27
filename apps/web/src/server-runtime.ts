@@ -669,9 +669,10 @@ export function withForwardedLandingCf(request: Request): Request {
  *
  * Errors are swallowed — the page render must not fail because analytics did.
  * The payload shape is pinned in `@aeci/shared` (`PageViewPayloadSchema`).
- * `sourceRequest` is the inbound eyeball request: its `request.cf` and
- * `user-agent` are forwarded so the API Worker enriches this write the same way
- * it enriches the browser's proxied POST.
+ * `sourceRequest` is the inbound eyeball request: its `request.cf`,
+ * `user-agent`, and `Referer` are forwarded so the API Worker enriches this write
+ * (CF context, UA hash, bot classification, traffic source) the same way it
+ * enriches the browser's proxied POST.
  *
  * Cacheable routes fire on BOTH cache HIT and MISS so the SSR-side signal counts
  * visitor arrivals rather than SSR misses. On HIT the resolver never runs, so
@@ -689,6 +690,11 @@ function firePageView(
   applyCfContextHeaders(headers, sourceRequest);
   const userAgent = sourceRequest.headers.get('user-agent');
   if (userAgent) headers.set('user-agent', userAgent);
+  // Forward the eyeball's `Referer` so the API can classify the traffic source
+  // (LinkedIn / Google / …). Only meaningful on full-document arrivals, which is
+  // exactly what fires this write. AECI-526.
+  const referer = sourceRequest.headers.get('referer');
+  if (referer) headers.set('referer', referer);
   execCtx.waitUntil(
     env.API.fetch(
       new Request('https://api/api/page-views', {

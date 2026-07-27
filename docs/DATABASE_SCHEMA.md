@@ -750,7 +750,7 @@ create table page_views (
   vendor_id uuid references vendors(id),
   user_id uuid references profiles(id),
   session_id text,
-  referrer text,
+  referrer text, -- external referrer HOST only, no path/query (AECI-526); null for Direct/same-origin
 
   -- Campaign attribution (AECI-243 / §11.2) — populated only on tagged arrivals
   -- (e.g. the waitlist launch email's ?ref=waitlist&token=xyz); null otherwise
@@ -767,6 +767,23 @@ create table page_views (
   user_agent_hash text, -- SHA-256 hash, NOT raw
   locale text,
 
+  -- Traffic classification (AECI-526 follow-up). Written at ingest from the raw UA +
+  -- ASN (apps/api/src/lib/bot-classification.ts) so the daily analytics digest reports
+  -- human-only metrics and a crawler breakdown. Nullable: rows captured before the
+  -- column existed read as human (is_bot IS NOT 1) until the one-time ASN backfill
+  -- (scripts/ops/backfill-page-view-bots.sql). Because cf_bot_score is always null on
+  -- the CF Pro plan and user_id is never captured, UA + ASN are the only signals.
+  is_bot integer,  -- 1 = bot/crawler, 0 = human, null = unclassified (treated as human)
+  bot_name text,   -- crawler name ("Googlebot") or datacenter org ("Datacenter (AWS)"); null for humans
+
+  -- Traffic source (AECI-526 follow-up). Coarse label derived at ingest from the
+  -- forwarded eyeball Referer (apps/api/src/lib/referrer-classification.ts) so the
+  -- digest breaks arrivals down by source. Values: "Direct" (no/self referrer),
+  -- named sites ("LinkedIn"/"Google"/"Bing"/…), or "Other". Best-effort: browser
+  -- Referrer-Policy strips the header, so external sources are under-counted. Null on
+  -- rows captured before this shipped (the Referer was never stored → not backfillable).
+  referrer_source text,
+
   -- Profile-derived (denormalized)
   profile_role text,
 
@@ -777,6 +794,7 @@ create index page_views_path_idx on page_views(path, created_at);
 create index page_views_product_idx on page_views(product_id, created_at) where product_id is not null;
 create index page_views_country_idx on page_views(cf_country, created_at);
 create index page_views_user_idx on page_views(user_id, created_at) where user_id is not null;
+create index page_views_bot_idx on page_views(is_bot, created_at); -- digest human/bot split + crawler grouping
 ```
 
 ### 9.2 `stats_cache`

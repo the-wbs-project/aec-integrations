@@ -50,6 +50,20 @@
       "when": 1785081302758,
       "tag": "0006_crazy_lockheed",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1785182769895,
+      "tag": "0007_classy_quasar",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1785183545312,
+      "tag": "0008_polite_professor_monster",
+      "breakpoints": true
     }
   ]
 }

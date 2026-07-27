@@ -69,7 +69,7 @@ A green board here means all eight fired on schedule.
 | `0 7 * * *` | Home-stats compute | stats-compute-failed / stats-not-running |
 | `0 8 * * *` | Algolia incremental sync | sync-failed / sync-not-running |
 | `0 9 * * *` | Algolia drift + orphan sweep | index-drift / orphan-sweep-capped |
-| `0 12 * * *` | Operator analytics digest (AECI-526) | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
+| `0 12 * * *` | Operator analytics digest (AECI-526) — **human** page views + top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | reconcile-stuck / reconcile-no-data |
 | `0 * * * *` | WAF firewall-event poll | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) |
 
@@ -127,7 +127,7 @@ once the PostHog join lands.
 |---|---|---|
 | `TRENDING_WINDOW_DAYS` | 7 | validated (7d had 646 product-page views across 124 products); widen only if trending routinely under-fills at steady state |
 | `TRENDING_LIMIT` | 5 | validated (top-5 well-separated: 17/17/17/12/12); raising it also requires bumping the `home.trending_products` Zod `.max(5)` cap in `@aeci/shared` **and** the web fallback `.slice(0, 5)` |
-| `TRENDING_MIN_VIEWS` | 3 | the honesty floor + the **only** bot guard (CF Pro has no bot score, so `PAGE_VIEWS_MIN_BOT_SCORE` is inert). Inert at healthy traffic; raise if bots/self-views inflate low-traffic windows, lower if legit low-traffic products get over-suppressed |
+| `TRENDING_MIN_VIEWS` | 3 | the honesty floor + the only bot guard **on trending** (CF Pro has no bot score, so `PAGE_VIEWS_MIN_BOT_SCORE` is inert). Note: `page_views` now carries an ingest-time `is_bot` flag (UA+ASN, AECI-526) that the digest filters on, but `home.trending_products` does **not** yet — it still counts all views, so this floor remains trending's only guard until trending adopts `is_bot IS NOT 1`. Inert at healthy traffic; raise if bots/self-views inflate low-traffic windows, lower if legit low-traffic products get over-suppressed |
 
 Deferred to the AECI-280 ~30d follow-up: the PostHog-join weighting + recency decay, and the
 card-resonance/swap review once PostHog + RUM have real volume.

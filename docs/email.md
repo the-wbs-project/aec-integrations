@@ -70,13 +70,23 @@ their own metric, no `template` tag — so they don't appear above:
 | Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` |
 | Operator analytics digest (AECI-526) | `0 12 * * *` (= 07:00 EST) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` |
 
-The analytics digest summarizes the **prior complete UTC day**: page views + top
-products (`page_views`), new sign-ins (`profiles` created) + total registered users,
-and the live pending-moderation depth (`reviews` where `status='pending'`), with
-day-over-day deltas. Report-only reads; fail-open (absent key/recipient → `skipped`).
-The cron runs in **every** deploy env (staging/demo/production) for liveness, but
-`ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** — staging/demo carry
-synthetic D1 data, so their sends intentionally `skip` (the var is left unset).
+The analytics digest summarizes the **prior complete UTC day** as a styled HTML email
+(with a plain-text fallback): **human** page views + top products (`page_views` where
+`is_bot IS NOT 1`), a **Traffic sources** breakdown (human arrivals grouped by
+`referrer_source` — LinkedIn / Twitter/X / Google / other search engines / Direct /
+Other), new sign-ins (`profiles` created) + total registered users, the live
+pending-moderation depth (`reviews` where `status='pending'`), and a **Crawler
+activity** section listing every bot/crawler and its crawl count for the day
+(`is_bot = 1`, grouped by `bot_name`) — all with day-over-day deltas. The human/bot
+split is classified at ingest from the raw User-Agent + Cloudflare ASN
+(`lib/bot-classification.ts`), because the CF Pro plan yields no `cf_bot_score` and
+`user_id` is never captured; the traffic source is classified from the forwarded
+eyeball `Referer` (`lib/referrer-classification.ts`, best-effort — Referrer-Policy
+strips it, so external sources under-count) (AECI-526 follow-up). Report-only reads; fail-open (absent
+key/recipient → `skipped`). The cron runs in **every** deploy env (staging/demo/production)
+for liveness, but `ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** —
+staging/demo carry synthetic D1 data, so their sends intentionally `skip` (the var is
+left unset).
 
 ## Secrets & vars
 

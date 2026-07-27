@@ -1725,6 +1725,25 @@ describe('createApp page-view capture (AECI-58)', () => {
     expect(pv[0]!.headers.get('user-agent')).toBe('Mozilla/5.0 (AECI test)');
     expect(await pv[0]!.clone().json()).toEqual({ route: '/products' });
   });
+
+  it('forwards the Referer header so the API can classify the traffic source (AECI-526)', async () => {
+    const { binding, calls } = recordingApiBinding(new Response(null, { status: 204 }));
+    const app = createApp({
+      ssrRenderer: fixedRenderer(new Response('<html>index</html>', { status: 200 })),
+    });
+
+    await app.fetch(
+      new Request('https://www.aecintegrations.com/products', {
+        headers: { referer: 'https://www.linkedin.com/feed/' },
+      }),
+      binding as unknown as Bindings,
+      fakeExecutionContext(),
+    );
+
+    const pv = pageViewCalls(calls);
+    expect(pv).toHaveLength(1);
+    expect(pv[0]!.headers.get('referer')).toBe('https://www.linkedin.com/feed/');
+  });
 });
 
 // ─── AECI-177: CF request-context forwarding across the SSR→API binding ──────

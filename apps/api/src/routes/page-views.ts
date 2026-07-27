@@ -6,6 +6,8 @@ import { getDb } from '../db/client';
 import type { Db } from '../db/client';
 import { pageViews, products, vendors } from '../db/schema';
 import { logToDatadog, submitCount } from '../datadog';
+import { classifyTraffic } from '../lib/bot-classification';
+import { classifyReferrer } from '../lib/referrer-classification';
 import type { Env } from '../env';
 import { ApiError } from '../errors';
 import { noContent } from '../http';
@@ -66,6 +68,19 @@ function localeFromRoute(_route: string): string {
   return DEFAULT_LOCALE;
 }
 
+/** The site's own hostnames — a `Referer` from any of these is same-origin in-app
+ *  navigation, not an external traffic source. Derived from `PUBLIC_SITE_URL` plus the
+ *  known apex + workers.dev preview suffix. */
+function selfHosts(env: Env): string[] {
+  const hosts = ['aecintegrations.com', 'aec-integrations.workers.dev'];
+  try {
+    if (env.PUBLIC_SITE_URL) hosts.push(new URL(env.PUBLIC_SITE_URL).hostname.toLowerCase());
+  } catch {
+    // Malformed PUBLIC_SITE_URL — fall back to the hardcoded self-hosts.
+  }
+  return hosts;
+}
+
 /** Map `(entity_type, entity_id)` onto product_id / vendor_id, confirming the row
  *  exists (cheap PK lookup) so a stale/spoofed id is stored as null. */
 async function resolveEntity(
@@ -113,6 +128,15 @@ async function capturePageView(
 
     const ua = req.headers.get('user-agent');
     const userAgentHash = ua ? await sha256Hex(ua) : null;
+    // Classify human vs. bot NOW, while the raw UA is still available (only its hash
+    // is persisted). ASN unmasks headless scrapers that spoof a browser UA. AECI-526.
+    const { isBot, botName } = classifyTraffic(ua, cf.asn);
+    // Traffic source from the forwarded eyeball `Referer` (SSR `firePageView`). Store
+    // the host only (privacy) + a coarse source label the digest groups on. AECI-526.
+    const { source: referrerSource, host: referrerHost } = classifyReferrer(
+      req.headers.get('referer'),
+      selfHosts(c.env),
+    );
 
     // Fire-and-forget analytics (runs in `waitUntil`, never read back, returns
     // 204 regardless) — stays on the `'first-unconstrained'` read default; a
@@ -130,12 +154,19 @@ async function capturePageView(
       cfBotScore: cf.botScore,
       userAgentHash,
       locale: localeFromRoute(payload.route),
+      isBot,
+      botName,
+      referrer: referrerHost,
+      referrerSource,
       // Campaign attribution (AECI-243 / §11.2) — set only on tagged arrivals
       // (e.g. the waitlist welcome banner); null for ordinary views.
       refSource: payload.ref_source ?? null,
       refToken: payload.ref_token ?? null,
     });
-    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:ok']);
+    submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, [
+      'outcome:ok',
+      `bot:${isBot}`,
+    ]);
   } catch (error) {
     submitCount(c.executionCtx, c.env, req, 'aeci.pageviews.write', 1, ['outcome:failed']);
     logToDatadog(c.executionCtx, c.env, req, {
