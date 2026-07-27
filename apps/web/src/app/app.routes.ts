@@ -268,6 +268,17 @@ export const routes: Routes = [
     path: 'contact',
     loadComponent: () => import('./contact/contact').then((m) => m.ContactPage),
   },
+  // AECI-537 — mailing-list opt-out, the destination for the welcome email's
+  // tokenized `/unsubscribe?token=…` link. Deliberately NOT cacheable and NOT
+  // indexed: the URL carries a per-subscriber token, so it is absent from
+  // `ROUTE_CACHE_PATTERNS` + `cacheTagInputsForPath` (fail-closed `private,
+  // no-store`) and the component sets `robots: noindex`. RenderMode.Server (the
+  // `**` default). No resolver — the opt-out POSTs to `/api/unsubscribe` only on
+  // the confirm click (a GET must never mutate). Not linked from site nav.
+  {
+    path: 'unsubscribe',
+    loadComponent: () => import('./unsubscribe/unsubscribe').then((m) => m.UnsubscribePage),
+  },
   // AECI-237 — Phase 7.2 legal pages. Four counsel-tracked documents
   // (`STAGE_1_SPEC.md` §13/§27) rendered from Markdown (`src/content/legal/`) by
   // one `LegalPage`, selected by the route's `data.slug` (short public slug →

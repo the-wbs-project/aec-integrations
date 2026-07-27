@@ -1277,11 +1277,11 @@ The handlers read a header when present and fall back to the body value otherwis
 
 **Operator notification (AECI-247/277).** Retiring `apps/landing` moved its operator "new signup / new feedback" Resend email into these handlers: `POST /api/subscribe` (on a real insert — never the idempotent no-op) and `POST /api/feedback` fire a fire-and-forget notification to `ADMIN_ALERT_EMAIL` via `ctx.waitUntil` (`sendLandingSignupNotification` / `sendLandingFeedbackNotification`, `apps/api/src/lib/email.ts`). Fail-open: an absent `RESEND_API_KEY` / `EMAIL_FROM` / `ADMIN_ALERT_EMAIL` is a silent skip and never affects the response.
 
-**Subscriber welcome (AECI-327).** On the same real insert, `POST /api/subscribe` also fires a second fire-and-forget send — the subscriber's `mailing-list-welcome` first-touch email to `payload.email` (`sendMailingListWelcomeEmail`, `apps/api/src/lib/email.ts`) — so a fresh signup schedules two `ctx.waitUntil` sends (operator alert + subscriber welcome), the idempotent no-op none. Same fail-open contract: an absent `RESEND_API_KEY` / `EMAIL_FROM`, or an unresolved recipient, is a silent skip.
+**Subscriber welcome (AECI-327).** On the same real insert **or reactivation**, `POST /api/subscribe` also fires a second fire-and-forget send — the subscriber's `mailing-list-welcome` first-touch email to `payload.email` (`sendMailingListWelcomeEmail`, `apps/api/src/lib/email.ts`) — so a fresh signup (or a resubscribe after opt-out) schedules two `ctx.waitUntil` sends (operator alert + subscriber welcome), the still-active idempotent no-op none. The welcome email carries the subscriber's `unsubscribe_token`, which builds its tokenized `/unsubscribe?token=…` in-body link and RFC 8058 one-click `List-Unsubscribe-Post` header (AECI-537; see `POST /api/unsubscribe` below and `docs/email.md`). Same fail-open contract: an absent `RESEND_API_KEY` / `EMAIL_FROM`, or an unresolved recipient, is a silent skip.
 
 #### `POST /api/subscribe`
 
-Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list (`ON CONFLICT DO NOTHING` no-op).
+Mailing-list signup. `email` is required and unique (`mailing_list_email_key`); the rest is best-effort attribution. Idempotent: returns `created: false` when the email is already on the list **and still active**. A fresh row is assigned an opaque `unsubscribe_token` (`crypto.randomUUID()`) used by the welcome-email opt-out link (AECI-537). If the email is on the list but previously **unsubscribed** (`unsubscribed_at` set), the handler **reactivates** it — clears `unsubscribed_at`, keeps the existing token, and re-welcomes — returning `created: true` (status `200`, since no new row was created). Only a genuine new insert returns `201`.
 
 ```typescript
 export const SubscribeSubmitSchema = z.object({
@@ -1315,7 +1315,22 @@ export const FeedbackSubmitSchema = z
   });
 ```
 
-**Response (both):** `LandingSubmitResult` — `{ created: boolean }`. `created` is `false` only for a subscribe no-op on an already-listed email; feedback always returns `true`.
+**Response (both):** `LandingSubmitResult` — `{ created: boolean }`. `created` is `false` only for a subscribe no-op on an already-listed, still-active email; feedback always returns `true`.
+
+#### `POST /api/unsubscribe` (AECI-537)
+
+Mailing-list opt-out, keyed on the opaque per-subscriber `unsubscribe_token`. **Soft-delete**: the matched `mailing_list` row's `unsubscribed_at` is set (a suppression record, so the subscriber is never re-emailed) rather than deleted. Idempotent — `unsubscribed_at = COALESCE(unsubscribed_at, now)` preserves the first opt-out time on a repeat. Like subscribe / feedback / `page_views`, it is **write-once lead-capture** and exempt from the §26.1 audit-in-batch invariant (no `audit_log` row); reached only over the service binding (no public ingress; the SSR `/api/*` passthrough forwards it byte-for-byte, no geo needed).
+
+**Two callers, one handler.** The token is read from the **`?token=` query first, then the JSON body**:
+
+- the `/unsubscribe` page POSTs `{ token }` as JSON;
+- the RFC 8058 one-click header (`List-Unsubscribe-Post: List-Unsubscribe=One-Click`) makes the mail client POST a form body to `…/api/unsubscribe?token=…` — we read the query token and ignore the body.
+
+```typescript
+export const UnsubscribeSubmitSchema = z.object({ token: z.string().trim().min(1).max(100) });
+```
+
+**Response:** `UnsubscribeResult` — `{ ok: boolean }`, always HTTP `200`. `ok: true` = the token matched a subscriber who is now suppressed (idempotent — already-unsubscribed also returns `true`). `ok: false` = the token matched no one (an invalid or expired link). Tokens are unguessable, so `false` leaks no membership. A best-effort `aeci.mailing_list.unsubscribe` count is emitted on success.
 
 ---
 

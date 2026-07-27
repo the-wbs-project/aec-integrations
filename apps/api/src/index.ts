@@ -39,7 +39,11 @@ import {
   createIntegrationsListHandler,
   createProductPairHandler,
 } from './routes/integrations';
-import { createFeedbackHandler, createSubscribeHandler } from './routes/landing-forms';
+import {
+  createFeedbackHandler,
+  createSubscribeHandler,
+  createUnsubscribeHandler,
+} from './routes/landing-forms';
 import { createPageViewsHandler } from './routes/page-views';
 import { createProductFacetsHandler } from './routes/product-facets';
 import { createAdminReviewsListHandler, createModerateReviewHandler } from './routes/admin-reviews';
@@ -160,6 +164,11 @@ phase28.post('/api/requests/claim', createClaimSubmitHandler());
 // route — no new public ingress.
 phase28.post('/api/feedback', createFeedbackHandler());
 phase28.post('/api/subscribe', createSubscribeHandler());
+// Mailing-list opt-out (AECI-537). Token-keyed soft-delete; serves both the
+// `/unsubscribe` page (JSON body) and the welcome email's RFC 8058 one-click
+// header (`?token=` query). No public ingress — reached via the SSR `/api/*`
+// passthrough (byte-for-byte; no geo forwarding needed).
+phase28.post('/api/unsubscribe', createUnsubscribeHandler());
 
 // Inbound Linear webhook (AECI-212 / Phase 6.5) — the Linear → Site half of the
 // moderation sync. Public URL; auth is the `Linear-Signature` HMAC verified

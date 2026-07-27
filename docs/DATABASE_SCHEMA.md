@@ -71,7 +71,9 @@ The two lead-capture tables — `feedback` and `mailing_list` — were cut over 
 | Table | Written by | Purpose |
 | --- | --- | --- |
 | `feedback` | `POST /api/feedback` (`routes/landing-forms.ts`) | Lead-capture feedback form. |
-| `mailing_list` | `POST /api/subscribe` (`routes/landing-forms.ts`) | Mailing-list signups (idempotent on `email`). |
+| `mailing_list` | `POST /api/subscribe` + `POST /api/unsubscribe` (`routes/landing-forms.ts`) | Mailing-list signups (idempotent on `email`). |
+
+**`mailing_list` opt-out columns (AECI-537).** Two columns support unsubscribe: `unsubscribe_token` (TEXT, unique — `mailing_list_unsubscribe_token_key`) is an opaque per-subscriber token set on insert (`crypto.randomUUID()`; backfilled for pre-existing rows in migration `0006` via `hex(randomblob(16))`) and embedded in the welcome email's `/unsubscribe?token=…` link; `unsubscribed_at` (TEXT, nullable ISO-8601) is the **soft-delete / suppression** marker — `null` = active, a timestamp = opted out. `POST /api/unsubscribe` sets it (keyed on the token); a resubscribe (`POST /api/subscribe`) clears it back to active.
 
 The **pre-launch `apps/landing` Worker** was the original caller of both endpoints; it was **retired at the apex cutover (AECI-247/277)**, so the caller is now the shared mailing-list signup band (`apps/web/.../shared/mailing-list-signup`, mounted on the home closing-CTA plus the directory + detail pages — AECI-327, extracted from the home closing-CTA island of AECI-275). These tables are defined in the D1 schema (`apps/api/src/db/schema.ts`) and reproduce on a fresh local D1 via `pnpm db:setup:local`. The original `supabase/migrations/20260101000000_landing_baseline.sql` is retained only as an archived record (`supabase/archive/migrations/`) — the app DB no longer runs on Postgres (ADR 0016 / AECI-278). No AECI Stage 1 directory code reads or writes them; treat them as the lead-capture surface within the shared D1 database.
 
