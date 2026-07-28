@@ -112,6 +112,62 @@ describe('POST /api/page-views', () => {
     expect(rows[0]!.refToken).toBeNull();
   });
 
+  it('classifies a crawler User-Agent as a bot at ingest (AECI-526)', async () => {
+    const { res, settle } = post(
+      { route: '/' },
+      { 'user-agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)' },
+    );
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.isBot).toBe(true);
+    expect(rows[0]!.botName).toBe('Googlebot');
+  });
+
+  it('classifies an ordinary browser view as human at ingest (AECI-526)', async () => {
+    const { res, settle } = post(
+      { route: '/' },
+      {
+        'user-agent':
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15',
+      },
+    );
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.isBot).toBe(false);
+    expect(rows[0]!.botName).toBeNull();
+  });
+
+  it('classifies the traffic source + stores the referrer host from the Referer header (AECI-526)', async () => {
+    const { res, settle } = post({ route: '/' }, { referer: 'https://www.linkedin.com/feed/' });
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.referrerSource).toBe('LinkedIn');
+    expect(rows[0]!.referrer).toBe('www.linkedin.com');
+  });
+
+  it('classifies a same-origin Referer as Direct (AECI-526)', async () => {
+    const { res, settle } = post(
+      { route: '/products/revit' },
+      { referer: 'https://www.aecintegrations.com/products' },
+    );
+    expect((await res).status).toBe(204);
+    await settle();
+
+    const rows = await t.db.select().from(pageViews);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.referrerSource).toBe('Direct');
+    expect(rows[0]!.referrer).toBeNull();
+  });
+
   it('400s a malformed body and inserts nothing', async () => {
     const { res } = post('not json');
     expect((await res).status).toBe(400);

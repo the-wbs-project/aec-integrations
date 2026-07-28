@@ -747,6 +747,23 @@ export const pageViews = sqliteTable(
     userAgentHash: text('user_agent_hash'),
     locale: text('locale'),
 
+    // Traffic classification (AECI-526 follow-up). Set at ingest from the raw UA +
+    // ASN (`lib/bot-classification.ts`) so the daily digest can report human-only
+    // metrics and a crawler breakdown grouped by `bot_name`. Nullable: rows written
+    // before the column existed read as human (`is_bot IS NOT 1`) until the one-time
+    // ASN backfill (`scripts/ops/backfill-page-view-bots.sql`) classifies them.
+    isBot: integer('is_bot', { mode: 'boolean' }),
+    botName: text('bot_name'),
+
+    // Traffic source (AECI-526 follow-up). Derived at ingest from the eyeball's
+    // `Referer` (`lib/referrer-classification.ts`) so the digest can break arrivals
+    // down by LinkedIn / Twitter/X / Google / other search engines / Direct / Other.
+    // `referrer` (declared above) now stores the external referrer host (privacy: host
+    // only, no path/query); `referrer_source` is the coarse label the digest groups on.
+    // Null on rows captured before this shipped — not backfillable (the header was
+    // never stored) — so those are excluded from the digest's Traffic-sources table.
+    referrerSource: text('referrer_source'),
+
     profileRole: text('profile_role'),
 
     createdAt: createdAt(),
@@ -760,6 +777,8 @@ export const pageViews = sqliteTable(
     index('page_views_user_idx')
       .on(t.userId, t.createdAt)
       .where(sql`"user_id" IS NOT NULL`),
+    // Serves the digest's human/bot split + crawler grouping over a day window.
+    index('page_views_bot_idx').on(t.isBot, t.createdAt),
   ],
 );
 

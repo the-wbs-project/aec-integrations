@@ -86,7 +86,12 @@ describe('collectAnalyticsMetrics', () => {
 
     const m = await collectAnalyticsMetrics(t.db, window);
 
+    // Rows seeded without `is_bot` are NULL → count as human (`is_bot IS NOT 1`).
     expect(m.pageViews).toEqual({ day: 4, prior: 2 });
+    expect(m.botPageViews).toEqual({ day: 0, prior: 0 });
+    expect(m.botActivity).toEqual([]);
+    // Rows seeded without `referrer_source` are NULL → excluded from the breakdown.
+    expect(m.referrers).toEqual([]);
     expect(m.newUsers).toEqual({ day: 2, prior: 1 });
     expect(m.totalUsers).toBe(4);
     expect(m.pendingModeration).toBe(2);
@@ -96,25 +101,121 @@ describe('collectAnalyticsMetrics', () => {
     ]);
   });
 
-  it('returns zeroes and an empty top-products list on an empty database', async () => {
+  it('splits human vs bot page views and groups crawler activity by bot_name', async () => {
+    await t.db.insert(products).values([{ id: 'p1', slug: 'p1', name: 'P1' }]);
+    await t.db.insert(pageViews).values([
+      // reported day (07-23): 2 human views (one on p1), 3 bot views (two Googlebot on p1, one Bingbot)
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        isBot: false,
+        createdAt: '2026-07-23T10:00:00.000Z',
+      },
+      { path: '/', isBot: false, createdAt: '2026-07-23T11:00:00.000Z' },
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        isBot: true,
+        botName: 'Googlebot',
+        createdAt: '2026-07-23T12:00:00.000Z',
+      },
+      {
+        path: '/products/p1',
+        productId: 'p1',
+        isBot: true,
+        botName: 'Googlebot',
+        createdAt: '2026-07-23T12:05:00.000Z',
+      },
+      { path: '/', isBot: true, botName: 'Bingbot', createdAt: '2026-07-23T13:00:00.000Z' },
+      // prior day (07-22): 1 human, 1 bot
+      { path: '/', isBot: false, createdAt: '2026-07-22T10:00:00.000Z' },
+      { path: '/', isBot: true, botName: 'Bingbot', createdAt: '2026-07-22T11:00:00.000Z' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    expect(m.pageViews).toEqual({ day: 2, prior: 1 });
+    expect(m.botPageViews).toEqual({ day: 3, prior: 1 });
+    // Bot views on p1 are excluded from "most viewed products" → p1 has 1 human view.
+    expect(m.topProducts).toEqual([{ name: 'P1', slug: 'p1', views: 1 }]);
+    expect(m.botActivity).toEqual([
+      { name: 'Googlebot', crawls: 2 },
+      { name: 'Bingbot', crawls: 1 },
+    ]);
+  });
+
+  it('breaks down HUMAN traffic sources by referrer_source, excluding bots and nulls', async () => {
+    await t.db.insert(pageViews).values([
+      // reported day humans with a source
+      {
+        path: '/',
+        isBot: false,
+        referrerSource: 'LinkedIn',
+        createdAt: '2026-07-23T10:00:00.000Z',
+      },
+      {
+        path: '/',
+        isBot: false,
+        referrerSource: 'LinkedIn',
+        createdAt: '2026-07-23T10:05:00.000Z',
+      },
+      { path: '/', isBot: false, referrerSource: 'Google', createdAt: '2026-07-23T11:00:00.000Z' },
+      { path: '/', isBot: false, referrerSource: 'Direct', createdAt: '2026-07-23T12:00:00.000Z' },
+      // a bot with a source — excluded from the human breakdown
+      {
+        path: '/',
+        isBot: true,
+        botName: 'Googlebot',
+        referrerSource: 'Google',
+        createdAt: '2026-07-23T12:30:00.000Z',
+      },
+      // a human without a source (pre-classifier row) — excluded (null)
+      { path: '/', isBot: false, createdAt: '2026-07-23T13:00:00.000Z' },
+    ]);
+
+    const m = await collectAnalyticsMetrics(t.db, window);
+
+    expect(m.referrers).toEqual([
+      { source: 'LinkedIn', views: 2 },
+      { source: 'Google', views: 1 },
+      { source: 'Direct', views: 1 },
+    ]);
+  });
+
+  it('returns zeroes and empty lists on an empty database', async () => {
     const m = await collectAnalyticsMetrics(t.db, window);
     expect(m.pageViews).toEqual({ day: 0, prior: 0 });
+    expect(m.botPageViews).toEqual({ day: 0, prior: 0 });
     expect(m.newUsers).toEqual({ day: 0, prior: 0 });
     expect(m.totalUsers).toBe(0);
     expect(m.pendingModeration).toBe(0);
     expect(m.topProducts).toEqual([]);
+    expect(m.referrers).toEqual([]);
+    expect(m.botActivity).toEqual([]);
   });
 });
 
 describe('buildAnalyticsDigest', () => {
   const base: AnalyticsMetrics = {
     pageViews: { day: 512, prior: 400 },
+    botPageViews: { day: 260, prior: 300 },
     newUsers: { day: 8, prior: 5 },
     totalUsers: 143,
     pendingModeration: 3,
     topProducts: [
       { name: 'Revit', slug: 'revit', views: 120 },
       { name: 'AutoCAD', slug: 'autocad', views: 90 },
+    ],
+    referrers: [
+      { source: 'Direct', views: 300 },
+      { source: 'Google', views: 120 },
+      { source: 'LinkedIn', views: 60 },
+      { source: 'Twitter/X', views: 32 },
+    ],
+    botActivity: [
+      { name: 'Bingbot', crawls: 150 },
+      { name: 'Googlebot', crawls: 80 },
+      { name: 'Datacenter (AWS)', crawls: 30 },
     ],
   };
   const opts = {
@@ -123,21 +224,56 @@ describe('buildAnalyticsDigest', () => {
     generatedAt: new Date('2026-07-24T12:00:05.000Z'),
   };
 
-  it('summarizes the day in the subject, including the top product', () => {
+  it('summarizes humans + top product + crawl count in the subject', () => {
     const d = buildAnalyticsDigest(base, opts);
     expect(d.subject).toBe(
-      'AECi daily digest (production) — 2026-07-23: 512 views, 8 new users · top: Revit',
+      'AECi daily digest (production) — 2026-07-23: 512 human views, 8 new users · top: Revit · 260 crawls',
     );
   });
 
-  it('renders counts, day-over-day deltas, and the top-product list in the text body', () => {
+  it('renders human counts, deltas, and the human top-product list in the text body', () => {
     const { text } = buildAnalyticsDigest(base, opts);
+    expect(text).toContain('== Traffic (humans) ==');
     expect(text).toContain('Page views: 512 (+112 (+28%) vs 400 prior day)');
+    expect(text).toContain('(260 bot/crawler views excluded — see Crawler activity)');
     expect(text).toContain('New sign-ins (new accounts): 8 (+3 (+60%) vs 5 prior day)');
     expect(text).toContain('Total sign-ins (registered users): 143');
     expect(text).toContain('1. Revit — 120 views (/revit)');
     expect(text).toContain('2. AutoCAD — 90 views (/autocad)');
     expect(text).toContain('Reviews awaiting moderation: 3 — see /admin/reviews');
+  });
+
+  it('lists human traffic sources in the Traffic sources section', () => {
+    const { text, html } = buildAnalyticsDigest(base, opts);
+    expect(text).toContain('== Traffic sources (humans) ==');
+    expect(text).toContain('1. Direct — 300 views');
+    expect(text).toContain('2. Google — 120 views');
+    expect(text).toContain('3. LinkedIn — 60 views');
+    expect(text).toContain('4. Twitter/X — 32 views');
+    expect(html).toContain('Traffic sources (humans)');
+    expect(html).toContain('LinkedIn');
+    expect(html).toContain('Twitter/X');
+  });
+
+  it('lists every crawler and its crawl count in the Crawler activity section', () => {
+    const { text } = buildAnalyticsDigest(base, opts);
+    expect(text).toContain('== Crawler activity ==');
+    expect(text).toContain(
+      'Bot/crawler page views: 260 (-40 (-13%) vs 300 prior day) from 3 sources',
+    );
+    expect(text).toContain('1. Bingbot — 150 crawls');
+    expect(text).toContain('2. Googlebot — 80 crawls');
+    expect(text).toContain('3. Datacenter (AWS) — 30 crawls');
+  });
+
+  it('renders a full HTML document with the crawler section and named bots', () => {
+    const { html } = buildAnalyticsDigest(base, opts);
+    expect(html.startsWith('<!doctype html>')).toBe(true);
+    expect(html).toContain('AECi daily analytics digest');
+    expect(html).toContain('Traffic (humans)');
+    expect(html).toContain('Crawler activity');
+    expect(html).toContain('Bingbot');
+    expect(html).toContain('Datacenter (AWS)');
   });
 
   it('handles a zero-prior day (omits the percentage) and a downward delta', () => {
@@ -149,20 +285,30 @@ describe('buildAnalyticsDigest', () => {
     expect(text).toContain('New sign-ins (new accounts): 3 (-7 (-70%) vs 10 prior day)');
   });
 
-  it('reports "no change" and the empty / clean states', () => {
-    const { subject, text } = buildAnalyticsDigest(
+  it('reports "no change" and the empty / clean states (no humans, no bots)', () => {
+    const { subject, text, html } = buildAnalyticsDigest(
       {
         pageViews: { day: 40, prior: 40 },
+        botPageViews: { day: 0, prior: 0 },
         newUsers: { day: 0, prior: 0 },
         totalUsers: 0,
         pendingModeration: 0,
         topProducts: [],
+        referrers: [],
+        botActivity: [],
       },
       opts,
     );
-    expect(subject).toBe('AECi daily digest (production) — 2026-07-23: 40 views, 0 new users');
+    expect(subject).toBe(
+      'AECi daily digest (production) — 2026-07-23: 40 human views, 0 new users',
+    );
     expect(text).toContain('Page views: 40 (no change vs prior day)');
-    expect(text).toContain('Most viewed product: (no product page views)');
+    expect(text).not.toContain('bot/crawler views excluded');
+    expect(text).toContain('Most viewed product: (no human product page views)');
+    expect(text).toContain('(no referrer data yet)');
     expect(text).toContain('Reviews awaiting moderation: 0');
+    expect(text).toContain('No bot/crawler activity.');
+    expect(html).toContain('No referrer data yet.');
+    expect(html).toContain('No bot/crawler activity.');
   });
 });
