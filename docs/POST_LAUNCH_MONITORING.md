@@ -65,11 +65,11 @@ A green board here means all eight fired on schedule.
 | Cron (UTC) | Job | Liveness / failure monitors |
 |---|---|---|
 | `0 4 * * *` | Data-quality suite (10 §23.1 checks) + email digest | check-error / check-warn / failed / not-running |
+| `0 5 * * *` | Operator analytics digest (AECI-526) — **human** page views + top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
 | `0 6 * * *` | Moderation queue snapshot | moderation-queue-age (threshold + no-data) |
 | `0 7 * * *` | Home-stats compute | stats-compute-failed / stats-not-running |
 | `0 8 * * *` | Algolia incremental sync | sync-failed / sync-not-running |
 | `0 9 * * *` | Algolia drift + orphan sweep | index-drift / orphan-sweep-capped |
-| `0 12 * * *` | Operator analytics digest (AECI-526) — **human** page views + top products, sign-ins, moderation depth, and a Crawler-activity breakdown (human/bot split classified at ingest by UA + ASN) | `aeci.analytics_digest.email` heartbeat (no dedicated monitor yet) |
 | `*/15 * * * *` | Request→Linear reconciliation sweep | reconcile-stuck / reconcile-no-data |
 | `0 * * * *` | WAF firewall-event poll | waf-ratelimit-spike / **waf-poll-not-running** (AECI-279) |
 

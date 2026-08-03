@@ -68,7 +68,7 @@ their own metric, no `template` tag — so they don't appear above:
 | Digest | Cron (UTC) | Builder | Recipient var | Metric |
 |---|---|---|---|---|
 | Data-quality report | `0 4 * * *` | `lib/data-quality-email.ts` (`scheduled.ts` `runDataQualityJob`) | `DATA_QUALITY_EMAIL_{FROM,TO}` | `aeci.data_quality.email` |
-| Operator analytics digest (AECI-526) | `0 12 * * *` (= 07:00 EST) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` |
+| Operator analytics digest (AECI-526) | `0 5 * * *` (05:00 UTC = 12:00 WIB, noon Jakarta) | `lib/analytics-digest.ts` (`scheduled.ts` `runAnalyticsDigestJob`) | `ANALYTICS_DIGEST_EMAIL_TO` — **production only** (sender = shared `EMAIL_FROM`) | `aeci.analytics_digest.email` |
 
 The analytics digest summarizes the **prior complete UTC day** as a styled HTML email
 (with a plain-text fallback): **human** page views + top products (`page_views` where

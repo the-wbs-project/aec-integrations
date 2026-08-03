@@ -165,12 +165,12 @@ const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
 
 /** Cron expression for the daily operator analytics digest (`wrangler.jsonc`,
- *  AECI-526). 12:00 UTC = 07:00 EST — a morning read of the prior *complete* UTC
- *  day (page views, top products, new + total users, pending-moderation depth).
+ *  AECI-526). 05:00 UTC = 12:00 WIB (noon Jakarta) — a read of the prior *complete*
+ *  UTC day (page views, top products, new + total users, pending-moderation depth).
  *  Queue-less like `moderation`/`waf` (a cheap read-only aggregation + one email),
  *  so `queueForJob` returns `undefined` and it always runs inline. MUST stay
  *  byte-equal to the `triggers.crons` entry in `wrangler.jsonc`. */
-const ANALYTICS_CRON = '0 12 * * *';
+const ANALYTICS_CRON = '0 5 * * *';
 
 /** The gauge a Datadog monitor alerts on (see docs/OBSERVABILITY.md). */
 const DRIFT_METRIC = 'aeci.algolia.index_drift';

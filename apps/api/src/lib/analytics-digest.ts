@@ -48,7 +48,7 @@ export interface DigestWindow {
 
 /**
  * The prior *complete* UTC day relative to `now`, plus the day before it (delta
- * baseline). Run at ~12:00 UTC, this reports a full, already-closed calendar day —
+ * baseline). Run at ~05:00 UTC (noon Jakarta), this reports a full, already-closed calendar day —
  * never a partial one. ISO-8601 `text` timestamps sort lexicographically the same as
  * chronologically, so the `gte`/`lt` string range on `created_at` is exact.
  */

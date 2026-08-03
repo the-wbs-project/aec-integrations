@@ -264,20 +264,21 @@
       // :00 — the WAF firewall-event poll (AECI-262 / §15.1, queue-less): reads the previous
       // clock hour of firewallEventsAdaptiveGroups via Cloudflare's GraphQL Analytics API and
       // emits aeci.waf.ratelimit.blocked (needs the CF_ANALYTICS_API_TOKEN secret; absent →
-      // skipped no-op). "0 12 * * *" runs daily at 12:00 UTC (= 07:00 EST) — the operator
-      // analytics digest (AECI-526, queue-less): the prior UTC day's page views, top products,
-      // new/total sign-ins + pending-moderation depth, emailed to ANALYTICS_DIGEST_EMAIL_TO.
-      // UTC is DST-unaware (accepted). Strings MUST match the constants in `src/scheduled.ts`.
+      // skipped no-op). "0 5 * * *" runs daily at 05:00 UTC (= 12:00 WIB, noon Jakarta) — the
+      // operator analytics digest (AECI-526, queue-less): the prior UTC day's page views, top
+      // products, new/total sign-ins + pending-moderation depth, emailed to ANALYTICS_DIGEST_EMAIL_TO.
+      // UTC is DST-unaware; WIB (UTC+7) has no DST, so noon Jakarta is fixed at 05:00 UTC
+      // year-round. Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
         "crons": [
           "0 4 * * *",
+          "0 5 * * *",
           "0 6 * * *",
           "0 7 * * *",
           "0 8 * * *",
           "0 9 * * *",
           "*/15 * * * *",
           "0 * * * *",
-          "0 12 * * *",
         ],
       },
       // ADR 0013: the cron `scheduled` handler enqueues onto these queues; the
@@ -380,19 +381,19 @@
         },
       ],
       // Same eight crons as staging/production (see staging note — incl. the hourly
-      // "0 * * * *" WAF firewall-event poll, AECI-262, and the daily "0 12 * * *"
-      // operator analytics digest, AECI-526). Dispatched by `controller.cron`.
-      // Strings MUST match the constants in `src/scheduled.ts`.
+      // "0 * * * *" WAF firewall-event poll, AECI-262, and the daily "0 5 * * *"
+      // operator analytics digest, AECI-526, at 05:00 UTC = noon Jakarta). Dispatched
+      // by `controller.cron`. Strings MUST match the constants in `src/scheduled.ts`.
       "triggers": {
         "crons": [
           "0 4 * * *",
+          "0 5 * * *",
           "0 6 * * *",
           "0 7 * * *",
           "0 8 * * *",
           "0 9 * * *",
           "*/15 * * * *",
           "0 * * * *",
-          "0 12 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.
@@ -472,9 +473,9 @@
         // parseRecipients). TODO: append Bill's address alongside Chris?
         "DATA_QUALITY_EMAIL_FROM": "AEC Integrations <notifications@aecintegrations.com>",
         "DATA_QUALITY_EMAIL_TO": "chrisw@thewbsproject.com",
-        // AECI-526: recipient(s) for the daily operator analytics digest (12:00 UTC
-        // = 07:00 EST — page views, top products, new/total sign-ins, pending-moderation
-        // depth). Sender is the shared EMAIL_FROM (no separate _FROM). Comma-separated
+        // AECI-526: recipient(s) for the daily operator analytics digest (05:00 UTC
+        // = 12:00 WIB, noon Jakarta — page views, top products, new/total sign-ins,
+        // pending-moderation depth). Sender is the shared EMAIL_FROM (no separate _FROM). Comma-separated
         // (parseRecipients). PRODUCTION-ONLY on purpose: staging/demo leave this unset
         // so only prod's real numbers get emailed (the cron still runs in every env for
         // liveness, but those sends fail-open skip).
@@ -516,18 +517,18 @@
       // 08:00 UTC (= 03:00 EST) incremental Algolia sync (AECI-139); 09:00 UTC (= 04:00 EST)
       // index-drift reconciliation (AECI-140); "*/15 * * * *" every 15 min — request→Linear
       // reconciliation sweep (AECI-214 / Phase 6.7); "0 * * * *" every hour — WAF firewall-event
-      // poll (AECI-262 / §15.1, queue-less); "0 12 * * *" daily (= 07:00 EST) — operator
+      // poll (AECI-262 / §15.1, queue-less); "0 5 * * *" daily (= 12:00 WIB, noon Jakarta) — operator
       // analytics digest (AECI-526, queue-less). Dispatched by `controller.cron`.
       "triggers": {
         "crons": [
           "0 4 * * *",
+          "0 5 * * *",
           "0 6 * * *",
           "0 7 * * *",
           "0 8 * * *",
           "0 9 * * *",
           "*/15 * * * *",
           "0 * * * *",
-          "0 12 * * *",
         ],
       },
       // ADR 0013 (see staging note): cron enqueues → `queue` consumer runs the job.

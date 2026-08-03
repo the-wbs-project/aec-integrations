@@ -55,7 +55,7 @@ const DRIFT_CRON = '0 9 * * *';
 const RECONCILE_CRON = '*/15 * * * *';
 const DATA_QUALITY_CRON = '0 4 * * *';
 const WAF_CRON = '0 * * * *';
-const ANALYTICS_CRON = '0 12 * * *';
+const ANALYTICS_CRON = '0 5 * * *';
 
 const ctx = { waitUntil: vi.fn(), passThroughOnException: vi.fn() } as unknown as ExecutionContext;
 
@@ -362,7 +362,7 @@ describe('scheduled (cron producer)', () => {
     );
   });
 
-  it('runs the analytics digest inline on the 12:00 cron (queue-less) and emits its email metric (AECI-526)', async () => {
+  it('runs the analytics digest inline on the 05:00 (noon Jakarta) cron (queue-less) and emits its email metric (AECI-526)', async () => {
     // Seed a product + views so the real Drizzle aggregation runs against the harness.
     await t.db.insert(products).values({ id: 'p1', slug: 'p1', name: 'P1' });
     await t.db.insert(pageViews).values([

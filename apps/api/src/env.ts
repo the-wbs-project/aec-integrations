@@ -14,7 +14,7 @@
  * (AECI-241 / Phase 7.6): ten read-only integrity checks + an email digest.
  * `waf` is the hourly WAF firewall-event poll (AECI-262 / §15.1): like
  * `moderation` it is queue-less (a cheap read-only Cloudflare GraphQL Analytics
- * read) and always runs inline. `analytics` is the daily 12:00 UTC operator
+ * read) and always runs inline. `analytics` is the daily 05:00 UTC (noon Jakarta) operator
  * analytics digest (AECI-526): like `moderation`/`waf` it is queue-less (a cheap
  * read-only aggregation + one email) and always runs inline.
  */
