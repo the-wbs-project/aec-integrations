@@ -26,8 +26,9 @@ Cache-Tag purge is available on **all Cloudflare plans as of April 2025**. The P
 | `category:{slug}` | Category browse page |
 | `audience:{slug}` | Audience browse page |
 | `phase:{slug}` | Project phase browse page |
-| `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
-| `index:products` / `index:categories` / `index:audiences` / `index:phases` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
+| `trade:{slug}` | Trade browse page (`/trades/:slug`, AECI-538). Emitted for **every** trade, published or not — the publication gate (`STAGE_1_SPEC.md` §5.5a) controls indexability, not cacheability, and an unpublished page still renders and still needs purging when its product set changes. **Purge caveat:** because the `/trades` index and the facet sidebar list *published* terms only, a promote that pushes a term across (or back under) the `TRADE_PUBLISH_MIN_PRODUCTS` floor changes those surfaces too — so a promote touching any trade must purge `index:trades`, `taxonomy`, and `sitemap` alongside `trade:{slug}` (AECI-542/546). |
+| `taxonomy` | Any page whose cached HTML renders the full taxonomy term set — home (`/`) and the flat taxonomy index pages (`/categories`, `/audiences`, `/phases`, `/trades`). The primary-nav flyouts read the term set client-side from `/api/taxonomy`, so they do **not** bake it into page HTML and don't carry this tag. |
+| `index:products` / `index:categories` / `index:audiences` / `index:phases` / `index:trades` | The respective index pages. (AECI-165 removed the `/vendors` and `/integrations` index pages — they 301-redirect to `/products` — so `index:vendors` / `index:integrations` are no longer emitted.) |
 | `index:home` | The home page (`/`). Its credibility strip + stats cards render the `home.*` `stats_cache` counts, which are refreshed on every successful promote (AECI-305) — so a promote purges `index:home` to repaint them. Distinct from `taxonomy` (which the home page also carries but only fires on a term-set change) and from `route:index` (incident-only, §3.3). |
 | `sitemap` | `sitemap.xml` |
 | `route:detail` / `route:index` / `route:browse` | Coarse-grained tags for bulk invalidation in incidents |
@@ -63,7 +64,7 @@ buildCacheTags(opts: {
 }): string;
 ```
 
-`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases` index pages). Static pages with no §2 vocabulary entry (`/about`, `/updates`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
+`entity.type` is the tag prefix (`product`, `vendor`, `pair`, `integration`, `category`, `audience`, `phase`, `trade`, or `index` for index pages); `slug` or `id` is the suffix (slug for slug-keyed entities — the pair page passes the composite `{min}__{max}` as its `slug` — id for `integration:<id>`). `taxonomy: true` appends the global `taxonomy` tag — set on routes whose HTML renders the full taxonomy term set (home `/` and the flat `/categories`, `/audiences`, `/phases`, `/trades` index pages). Static pages with no §2 vocabulary entry (`/about`, `/updates`, `/legal/*`) pass `entity` as `undefined`, yielding just the route-class tag.
 
 The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) returns the helper's input shape for every cacheable URL the SSR Worker handles, mirroring `ROUTE_CACHE_PATTERNS` in `server-runtime.ts`. Adding a new cacheable URL means extending both that table and `cacheTagInputsForPath` in the same change — and, if the URL takes content-affecting query params, its `cacheKeyParams` allowlist (see §4a). Callers never construct `Cache-Tag` strings by hand.
 
@@ -76,7 +77,7 @@ The companion helper `cacheTagInputsForPath(localeStrippedPath)` (same module) r
 | Route class | `max-age` (browser) | `s-maxage` (edge) |
 |---|---|---|
 | Detail pages | 0 | 900 (15 min) |
-| Browse pages (category / audience / phase) | 0 | 300 (5 min) |
+| Browse pages (category / audience / phase / trade) | 0 | 300 (5 min) |
 | Index pages | 0 | 300 (5 min) |
 | `/api/taxonomy` fetch (nav flyouts) | 0 | not edge-cached — `private, no-store` (see below); KV read-through, 5 min, in the API Worker |
 | `sitemap.xml` | 0 | 3600 |
@@ -111,14 +112,14 @@ The per-route allowlist lives on each `ROUTE_CACHE_PATTERNS` entry as `cacheKeyP
 
 | Route | `cacheKeyParams` (kept in the key) |
 |---|---|
-| `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
-| Browse (`/categories\|audiences\|phases/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id` |
+| `/products` (index) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
+| Browse (`/categories\|audiences\|phases\|trades/:slug`) | `page`, `perPage`, `sort`, `category_id`, `audience_id`, `phase_id`, `trade_id` |
 | Detail (`/products/:slug`, `/vendors/:slug`) | none — strip all |
 | Product-PAIR page (`/products/:context/integrations/:other`) | `view` — the Basic/Detailed disclosure toggle SSR-renders different content (Basic drops the claim lanes), so `?view=basic` and the `detailed` default MUST get distinct keys. Same rationale as `/products ?view=table` (AECI-190). The companion `aeci_pair_view` cookie (remembers the reader's choice) is **NOT** a cache-key input and is **NOT** in `VISITOR_STATE_COOKIES` — it is read only post-hydration in the browser, never by SSR (see §6.1). |
-| Taxonomy index (`/categories`, `/audiences`, `/phases`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
+| Taxonomy index (`/categories`, `/audiences`, `/phases`, `/trades`) | inherits the listing allowlist (combined `match`); these pages read none of it — harmless over-include |
 | Home (`/`), `/about`, `/updates`, `/legal/*` | none — strip all |
 
-The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the three `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* two facet ids ever appear in its query — but listing all three keeps the const uniform (over-including is harmless).
+The listing/browse rows share one `LISTING_CACHE_KEY_PARAMS` const in `server-runtime.ts` (AECI-143): `/products` and the four `:slug` browse pages all read `page` / `sort` and the taxonomy facet ids the `aec-facet-sidebar` writes to the URL (`category_id` / `audience_id` / `phase_id` / `trade_id`). On a browse page the page's own dimension rides the path (`/categories/:slug`), so only the *other* three facet ids ever appear in its query — but listing all four keeps the const uniform (over-including is harmless).
 
 **Maintenance rule (load-bearing).** The allowlist must be a **superset** of every query param the page component reads from the URL. Under-including is a correctness bug, not just a perf one: it collapses two distinct renders onto one key and serves the wrong HTML. So when a Phase 3+ change adds a content-affecting query param to an index/browse page (a new facet, `search`, a filter), add it to that route's `cacheKeyParams` in the same change — AECI-143 did exactly this when it added the facet sidebar. Over-including is merely wasteful (a harmless extra entry), so when in doubt, include. `perPage` is listed today for forward-safety even though the index components currently hardcode the default and don't read it from the URL.
 

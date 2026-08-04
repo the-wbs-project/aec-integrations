@@ -430,15 +430,18 @@ export type ReviewerRef = {
 
 List products with filters. Default sort `created` (DESC) per §3.2 / Phase 2 Spec §7.4.
 
+The **four** taxonomy dimensions (`category_id` / `audience_id` / `phase_id` / `trade_id`) accept a **comma-separated UUID list** for multi-select faceting (AECI-223) — **OR within a dimension, AND across dimensions** — decoded to `string[]` by `uuidList`. The param names are unchanged, so a single id (a detail-page taxonomy chip link, or a browse page's locked `{kind}_id`) is just a one-element list. `vendor_id` stays a single UUID (a non-faceted scope).
+
 ```typescript
 export const ProductsListQuerySchema = PageQuerySchema.extend({
   sort: ProductSortSchema,                         // default 'created'
   search: z.string().optional(),
-  category_id: z.string().uuid().optional(),
-  audience_id: z.string().uuid().optional(),
-  phase_id: z.string().uuid().optional(),
+  category_id: uuidList.optional(),
+  audience_id: uuidList.optional(),
+  phase_id: uuidList.optional(),
+  trade_id: uuidList.optional(),                   // AECI-541 (trades facet, §5.5a)
   vendor_id: z.string().uuid().optional(),
-  product_role: z.enum(['application', 'connector', 'hybrid']).optional(),
+  product_role: ProductRoleSchema.optional(),
   has_api_docs: z.coerce.boolean().optional(),
 });
 
@@ -449,7 +452,7 @@ export type ProductsListResponse = z.infer<typeof ProductsListResponseSchema>;
 
 #### `GET /api/products/facets`
 
-Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
+Scoped facet counts for the API-backed filter sidebar (AECI-143) on `/products` and the taxonomy browse pages — driven by the existing `/api` filter params, not Algolia, so these pages stay edge-cacheable. Takes the **same filter params** as `GET /api/products` minus the pagination/sort triple (`page`, `perPage`, `sort`); deriving the query with `.omit(...)` keeps the two shapes from drifting. For each taxonomy dimension (category / audience / phase / trade) it returns the product count per term under the *other* active filters (disjunctive faceting — a dimension's own filter is excluded from its own counts). Server-side Drizzle/D1 aggregation. `Cache-Control: private, no-store` like the list/detail siblings.
 
 ```typescript
 export const ProductFacetsQuerySchema = ProductsListQuerySchema.omit({
@@ -466,6 +469,7 @@ export const ProductFacetsResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
+  trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
 });
 export type ProductFacetsResponse = z.infer<typeof ProductFacetsResponseSchema>;
 ```
@@ -615,7 +619,7 @@ export type ProductPairResponse = z.infer<typeof ProductPairResponseSchema>;
 
 ### 6.4 Taxonomy
 
-#### `GET /api/categories`, `/api/audiences`, `/api/phases`
+#### `GET /api/categories`, `/api/audiences`, `/api/phases`, `/api/trades`
 
 ```typescript
 export const CategoriesListResponseSchema = z.object({
@@ -625,7 +629,9 @@ export const CategoriesListResponseSchema = z.object({
 
 Not paginated — the taxonomy is small by design (Phase 2 Spec §3.1).
 
-#### `GET /api/categories/:slug`, `/api/audiences/:slug`, `/api/phases/:slug`
+**`/api/trades` is not publication-gated.** Every term is returned with its `product_count`, including terms below the `TRADE_PUBLISH_MIN_PRODUCTS = 3` floor; the gate is applied per-surface by the consumer (`STAGE_1_SPEC.md` §5.5a, `TRADES_VOCABULARY.md` §6). Keeping the gate out of the API avoids splitting the vocabulary into two response shapes.
+
+#### `GET /api/categories/:slug`, `/api/audiences/:slug`, `/api/phases/:slug`, `/api/trades/:slug`
 
 ```typescript
 export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
@@ -639,7 +645,7 @@ export const TaxonomyTermWithCountSchema = LinkRefSchema.extend({
 export const CategoryDetailSchema = TaxonomyTermWithCountSchema.extend({
   products: z.array(ProductListItemSchema),
 });
-// `AudienceDetailSchema` / `PhaseDetailSchema` follow the same shape.
+// `AudienceDetailSchema` / `PhaseDetailSchema` / `TradeDetailSchema` follow the same shape.
 ```
 
 #### `GET /api/taxonomy`
@@ -649,6 +655,7 @@ export const TaxonomyResponseSchema = z.object({
   categories: z.array(TaxonomyTermWithCountSchema),
   audiences: z.array(TaxonomyTermWithCountSchema),
   phases: z.array(TaxonomyTermWithCountSchema),
+  trades: z.array(TaxonomyTermWithCountSchema),    // AECI-541
 });
 ```
 

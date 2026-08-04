@@ -1,6 +1,6 @@
 # `trade` Controlled Vocabulary
 
-**Status:** Proposed (AECI-539 — the decision gate for the AECI-538 epic). **Source of truth** for the `trade` term list once accepted.
+**Status:** Proposed (AECI-539 — the decision gate for the AECI-538 epic). **Source of truth** for the `trade` term list once accepted. Every AECI-539 open question is answered as a **decision** — see the decision log in §10; the term list itself (Q2) is the one that still wants a human yes, and §5.3 tabulates exactly how it diverges from the issue's draft.
 **Issue:** AECI-539. **Epic:** AECI-538 — Trades taxonomy facet. **Ships before Stage 2** (ADR 0019: production-destined, branches from and merges to `main`).
 **Machine-readable mirror:** [`trades-vocabulary.json`](./trades-vocabulary.json).
 **Spec:** `docs/STAGE_1_SPEC.md` §5.5 (amended by this issue to define the fourth facet).
@@ -103,16 +103,25 @@ See §7 for the full seam.
 The list is **closed**. This is a deliberate constraint, and it is a *stronger* constraint than the
 one the original three facets carry:
 
-- **Promote resolves it find-only.** During promotion a free-text trade value is matched against the
-  canonical `slug` set (directly or via an alias, case-insensitively). An **unmatched term is
-  rejected** and reported back in the promote response — it is **not** auto-created. This
-  deliberately diverges from `categories` / `audiences` / `phases`, which promote resolves
-  **find-or-create** (`apps/api/src/routes/promote.ts` — `resolveTaxonomy`). Trades follow the
-  Stage 1.5 `data_object` model instead (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator
-  minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's
-  products across two URLs and quietly destroy the SEO asset the facet exists to build.
-- **Adding, removing, or renaming a term is a deliberate vocabulary change** — a PR that edits this
-  file, regenerates the JSON mirror (§8), and re-seeds **both** apps (main D1 + Review Airtable).
+- **Promote resolves it find-only.** During promotion a free-text trade value is matched
+  case-insensitively against the canonical set by **`slug` → `name` → `alias`**. An unmatched value
+  is **dropped from the stored set and reported in `skipped[]`** (`kind: "trade"`) — it is **not**
+  auto-created, and it is **not** a promote failure (the same shape as `usefulness` groups and
+  claim `dataObject`s — `REVIEW_APP_PROMOTE_API.md` §3.3). This deliberately diverges from
+  `categories` / `audiences` / `phases`, which promote resolves **find-or-create**
+  (`apps/api/src/routes/promote.ts` — `resolveTaxonomy`). Trades follow the Stage 1.5 `data_object`
+  model instead (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator minting
+  `paving-contractors` alongside `paving-asphalt` would silently split a trade page's products
+  across two permanent URLs and quietly destroy the SEO asset the facet exists to build.
+- **Adding, removing, or renaming a term is a deliberate vocabulary change.** The change process is
+  **manual and four-step**, and all four must land together or the two apps drift:
+  1. Edit the §5 table in this file (the human-canonical source).
+  2. Regenerate the JSON mirror (§9).
+  3. Update `apps/api/seed/trades.sql` and merge — the seed re-applies on every deploy (ADR 0008).
+  4. **Airtable option parity** — add the matching option to the Review-app `Trades` field
+     (AECI-543). There is no sync job: an option that exists in Airtable but not in the seed
+     resolves to nothing and lands in `skipped[]`; an option in the seed but not in Airtable is
+     simply untaggable. Reviewers should treat step 4 as part of the same change, not a follow-up.
 - **`slug` is the immutable identity key.** Once a term ships, its `slug` never changes — the slug is
   a permanent public URL (`/trades/electrical`) and an SEO landing page (ADR 0008). `name`,
   `description`, and `aliases` **may** be edited freely; they are presentation/matching metadata,
@@ -135,10 +144,18 @@ Matching is **case-insensitive**; the `slug`, the `name`, and every `alias` all 
 and colloquial naming diverges hardest (*sitework* / *dirt work* / *earthmoving*; *glazier* /
 *curtain wall* / *fenestration*).
 
-Whether the D1 `taxonomy_trades` table materialises an `aliases` column or keeps the map alongside
-the seeder is an **AECI-540** decision; `taxonomy_data_objects` materialises it as a JSON-mode
-`TEXT` column (`docs/DATABASE_SCHEMA.md` §379) and matching that precedent is the recommendation.
-Either way this file is the source of the mapping.
+**Decision: `aliases` is a real column on `taxonomy_trades`** (JSON-mode `TEXT` in D1, matching
+`taxonomy_data_objects` — `DATABASE_SCHEMA.md` §5.3a), not a map that lives only in the seeder.
+The deciding reason is search, not resolution: because the column exists, AECI-545 can flatten a
+product's trade aliases into a `trade_aliases` attribute on the Algolia product record, so a query
+for "blacktop" or "glazier" reaches the right products (`SEARCH_RANKING.md` §3.1). `trade_aliases`
+is **searchable only** — never faceted, never displayed.
+
+So `aliases` is **dual-purpose** here, a deliberate divergence from `taxonomy_data_objects` where it
+is resolver-only:
+
+1. **Promote resolution** — find-only matching, `slug` → `name` → `alias` (§3).
+2. **Search recall** — indexed as searchable content in Algolia (never as a ranking signal).
 
 ---
 
@@ -218,6 +235,48 @@ These were evaluated and left out of the initial set. Each must clear the §3 ba
 | **Signage**, **Pools & Aquatics**, **Well Drilling**, **Septic** | Real trades, but no meaningful population of trade-specific software in an AEC directory. Revisit if the catalog grows into them. |
 | **General Contracting**, **Construction Management** | Not trades — these are delivery roles, already on the Audience axis (`general-contracting`, `construction-management`). Tagging them would re-create the horizontal-platform problem §1.1 forbids. |
 | **Architecture**, **Structural Engineering**, **MEP Engineering** | Design disciplines, already Audience terms. A firm that *designs* mechanical systems is not in the mechanical trade. |
+
+### 5.3 How this list differs from the AECI-539 draft
+
+The issue carried a ~28-term draft. This list is **34 terms** and diverges in three ways. The
+splits and additions are the substantive part of the proposal; **this is the one open question that
+still wants a human decision** (AECI-539 Q2).
+
+**Split — one draft term became two**, because each half has its own software population and a
+combined page would fail the §1.1 trade-page test:
+
+| Draft term | Became | Why |
+|---|---|---|
+| Sitework & Earthwork · Utilities | `earthwork-excavation` + `sitework-utilities` | Mass-haul/grading software (Agtek, InSite) and underground-utility estimating are different buyers. The draft's separate "Utilities" term folds in here. |
+| Insulation & Waterproofing | `insulation` + `restoration-waterproofing` | Mechanical insulation ≠ envelope restoration; the latter is a distinct restoration/sealant market. |
+| Demolition & Abatement | `demolition` + `environmental-abatement` | Abatement is licensed, regulated, and served by its own compliance software. |
+| Mechanical / HVAC | `hvac-mechanical` + `sheet-metal` | The draft made "sheet metal" an *alias* of Mechanical/HVAC. Duct fabrication is its own trade with its own software (fab-shop/CAM, SMACNA) and often its own company. Kept as a term; "sheet metal" is **not** an alias of `hvac-mechanical`. |
+
+**Added — nine terms not in the draft**, each with a real trade-specific software population:
+`crane-rigging`, `deep-foundations`, `doors-frames-hardware`, `fireproofing-firestopping`,
+`precast-concrete`, `rebar-reinforcing`, `scaffolding-access`, `sheet-metal`, `tile-stone`.
+
+**Dropped — five draft terms**, all for reasons in §5.2:
+
+| Draft term | Disposition |
+|---|---|
+| Bridges & Structures · Marine & Waterfront · Rail | **Out.** These are the heavy-civil umbrellas Q2 asks about explicitly. They answer *what kind of project* (market sector), not *what work you sell* — and market sector is a named AECI-538 out-of-scope follow-up. Launching without them keeps the facet's question coherent. |
+| Fencing | **Out.** A real trade, but no meaningful population of trade-specific AEC software. |
+| Pools & Aquatics | **Out.** Same — residential-leaning and outside the catalog's centre of gravity. |
+
+If you want the heavy-civil umbrellas in v1 anyway, they can be added without disturbing anything
+else — but they should then be named as sectors, and §7's distinguishability test says they will
+read oddly next to `electrical` and `roofing`.
+
+### 5.4 Which products may carry trades
+
+**Any `product_role` may carry trade tags — connectors included.** A connector purpose-built to sync
+a trade ERP (an electrical-contractor accounting system, a roofing CRM) is exactly as trade-specific
+as an application, and hiding it from the trade page would lose the most useful result for a buyer
+already running that ERP. In practice tags concentrate on `application`-role products; that is an
+expectation about the catalog, not a rule enforced anywhere.
+
+The §1.1 rule is the only gate. `product_role` never is.
 
 ---
 
@@ -310,3 +369,25 @@ the table, then regenerate the JSON**, never the reverse. A row in §5 ⇔ an ob
 This is the same arrangement as `docs/DATA_OBJECT_VOCABULARY.md` ⇔
 `docs/data-object-vocabulary.json`. Neither pair has an automated generator or a CI drift gate
 today; keeping them in sync is a review-time responsibility.
+
+---
+
+## 10. Decision log — the AECI-539 open questions
+
+Recorded as decisions, not options, per the issue's acceptance criteria. Each links to the section
+that carries the reasoning.
+
+| # | Question | Decision | Where |
+|---|---|---|---|
+| 1 | Facet name + URL namespace (permanent): **Trades** (`/trades`) or **Work Types** (`/work-types`)? | **Trades** / `/trades`. Matches the issue's recommendation. "Work Types" is not language anyone in the field uses; the awkwardness for heavy-civil primes is accepted and recorded. | §2 |
+| 2 | Approve/trim the draft list. Heavy-civil umbrellas (Bridges & Structures, Marine & Waterfront, Rail) in v1? | **34 terms; heavy-civil umbrellas excluded** — they are market sectors, which is a named out-of-scope follow-up. Fencing and Pools & Aquatics also dropped (no software population). Four draft terms split, nine added. **This is the one decision still wanting a human yes.** | §5, §5.2, §5.3 |
+| 3 | Promote semantics: find-or-create (like categories/audiences) or resolve-only? | **Resolve-only.** Unmatched value → dropped + reported in `skipped[]` with `kind: "trade"`; never auto-created, never a promote failure. Matches the issue's recommendation and the `usefulness` / `dataObject` precedent. | §3 |
+| 4 | `aliases` **column** on `taxonomy_trades` so Algolia can index aliases as searchable content? | **Yes.** JSON-mode `TEXT` in D1, mirroring `taxonomy_data_objects`. Dual-purpose here: promote resolution **and** a `trade_aliases` searchable attribute on the Algolia product record (searchable only — never faceted, never displayed, never a ranking signal). | §4, `DATABASE_SCHEMA.md` §5.3a, `SEARCH_RANKING.md` §3.1 |
+| 5 | Publication gate **N**? | **`TRADE_PUBLISH_MIN_PRODUCTS = 3`**, launch-tunable. Gates the `/trades` index, facet sidebar, sitemap, and indexability — **not** the API, and not the URL (an unpublished trade still resolves, so crossing the floor needs no redirect). | §6 |
+| 6 | May connector-role products carry trade tags, or apps only? | **All roles, connectors included.** A connector built for a trade ERP is as trade-specific as an app. `product_role` is never a gate; the §1.1 trade-specific-value rule is the only one. | §5.4 |
+
+**One item deferred to AECI-540, deliberately.** The UUIDv5 namespace + name form behind the existing
+`taxonomy_*` / `taxonomy_data_objects` ids is recorded nowhere in the repo, and the shipped ids do
+not match UUIDv5 over the bare slug under any of the five standard namespaces (checked). Since
+`taxonomy_trades` is a new table with no rows to stay compatible with, AECI-540 picks the derivation
+and states it verbatim in the `trades.sql` header — see §8.

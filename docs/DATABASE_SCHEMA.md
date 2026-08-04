@@ -90,6 +90,7 @@ Tables grouped by domain:
 - `taxonomy_categories` — closed vocabulary: product categories (e.g. "BIM Authoring")
 - `taxonomy_audiences` — closed vocabulary: AEC audiences (e.g. "Architecture")
 - `taxonomy_phases` — closed vocabulary: project phases (e.g. "Design Development")
+- `taxonomy_trades` — closed vocabulary: the work a company sells (e.g. "Electrical", "Paving & Asphalt") — AECI-538
 - `taxonomy_data_objects` — closed vocabulary: data objects that flow through integrations (e.g. "RFIs", "Models") — Stage 1.5
 
 **Claims & attestations** (Stage 1.5 — the integration claim spine):
@@ -100,6 +101,7 @@ Tables grouped by domain:
 - `product_categories` — product ↔ category many-to-many
 - `product_audiences` — product ↔ audience many-to-many
 - `product_phases` — product ↔ phase many-to-many
+- `product_trades` — product ↔ trade many-to-many (sparse by design — see §5.3a)
 - `product_vendors` — product ↔ vendor many-to-many (typically 1:1, but supports white-label cases)
 - `product_extensions` — product ↔ host product (for plugins/add-ons)
 
@@ -357,7 +359,31 @@ create table taxonomy_phases (
 create index taxonomy_phases_slug_idx on taxonomy_phases(slug);
 ```
 
-### 5.4 `taxonomy_data_objects`
+### 5.3a `taxonomy_trades`
+
+AECI-538 / AECI-540. The **fourth taxonomy facet** — the closed `trade` vocabulary answering *"what work does your company sell?"* (`STAGE_1_SPEC.md` §5.5a). Mirrors `taxonomy_categories` and adds `aliases`, exactly like `taxonomy_data_objects` below.
+
+```sql
+create table taxonomy_trades (
+  id uuid primary key default gen_random_uuid(),
+  slug text unique not null,
+  name text not null,
+  description text not null,   -- non-null: /trades/:slug is an SEO landing page
+  display_order integer,
+  aliases jsonb,               -- resolver + search metadata: alternate/colloquial names
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index taxonomy_trades_slug_idx on taxonomy_trades(slug);
+```
+
+- **D1 specifics.** `id` is `TEXT` (deterministic UUIDv5 of the `slug`); `aliases` is `TEXT` in JSON mode (a JSON array of strings). Seeded from `apps/api/seed/trades.sql` (idempotent `ON CONFLICT(slug) DO UPDATE`, applied to every env — ADR 0008).
+- **Source of truth** for the vocabulary is `docs/TRADES_VOCABULARY.md` (§5) / its generated mirror `docs/trades-vocabulary.json` — a closed, governed 34-term list.
+- **`description` is `not null`** — the one column that differs from the sibling taxonomy tables, which seed `description` as `NULL` (ADR 0008 "Follow-ups"). Trade browse pages ship as SEO landing pages, so copy is part of the contract, not a later addition.
+- **`aliases`** is dual-purpose (a deliberate divergence from `taxonomy_data_objects`, where it is resolver-only): the promote ingest resolves an incoming trade **find-only** by slug → name → alias (`REVIEW_APP_PROMOTE_API.md`), **and** the aliases are indexed as searchable content in Algolia so colloquial queries ("blacktop", "glazier") reach the right products (`SEARCH_RANKING.md` §2). It never drives ranking.
+
+---
 
 Stage 1.5 (AECI-293). The closed `data_object` vocabulary — the kinds of information that flow through an integration (e.g. RFIs, Models, Budgets). Mirrors `taxonomy_categories` and adds one column, `aliases`.
 
@@ -473,6 +499,24 @@ create table product_phases (
 
 create index product_phases_phase_idx on product_phases(phase_id);
 ```
+
+### 6.3a `product_trades`
+
+AECI-538 / AECI-540. Clone of `product_phases`. **Sparse by design** — a product is tagged only when it has *trade-specific* value (trade-specific features, cost databases, templates, takeoff logic, or integrations). Horizontal platforms (Procore, Autodesk Build, Bluebeam) carry **zero** rows here; most of the catalog will. The tagging rule is the load-bearing constraint of the whole facet — `TRADES_VOCABULARY.md` §1.1.
+
+```sql
+create table product_trades (
+  product_id uuid not null references products(id) on delete cascade,
+  trade_id uuid not null references taxonomy_trades(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (product_id, trade_id)
+);
+
+create index product_trades_trade_idx on product_trades(trade_id);
+```
+
+- Rows are written **only** by the promote flow (`POST /api/promote`, AECI-542), which replaces a product's full trade set on each promote — never by the taxonomy seed (ADR 0008).
+- **Any `product_role` may carry trade tags**, connectors included — a connector purpose-built to sync a trade ERP is exactly as trade-specific as an app. In practice tags concentrate on `application`-role products.
 
 ### 6.4 `product_vendors`
 

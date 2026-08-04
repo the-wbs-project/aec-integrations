@@ -50,11 +50,15 @@ The values below are quoted from `INDEX_SETTINGS` in `packages/shared/src/algoli
   3. `categories`
   4. `audiences`
   5. `phases`
-  6. `unordered(description)` — `unordered` so word position within the long description doesn't affect relevance
-- **Faceting:** `searchable(categories)`, `searchable(audiences)`, `searchable(phases)`, `searchable(vendor_name)`, `has_api_docs`, `integration_count`
+  6. `trades` — AECI-545; ranked above `trade_aliases` and `description` because a canonical trade name is a strong intent signal ("roofing software")
+  7. `trade_aliases` — AECI-545; the flattened alias strings of the product's trades (`taxonomy_trades.aliases`), so colloquial queries ("blacktop", "glazier", "dirt work") reach the right products. **Searchable but never faceted and never displayed** — it is matching metadata, not a label.
+  8. `unordered(description)` — `unordered` so word position within the long description doesn't affect relevance
+- **Faceting:** `searchable(categories)`, `searchable(audiences)`, `searchable(phases)`, `searchable(trades)`, `searchable(vendor_name)`, `has_api_docs`, `integration_count`
   (the §7.2 range buckets `0 / 1–10 / 11–50 / 51+` are an `ais-numeric-menu` over the bare numeric `integration_count`, not a stored field)
 - **Custom ranking:** `desc(integration_count)`, then `desc(review_count)`
   - *Rationale:* a product wired into more integrations is more useful in a directory whose value proposition is integration coverage; reviews break the next tie once they exist (§6).
+  - **Trades add no custom-ranking signal.** The `trades` facet changes what is *findable* and *filterable*, never what ranks higher. Carrying a trade tag is a factual claim about a product's scope, not a quality or commercial signal, and boosting on it would be a placement lever — which AECi does not have (`STAGE_1_SPEC.md` §1, no pay-for-placement).
+  - **Trades are sparse on purpose.** Most products carry `trades: []` (`TRADES_VOCABULARY.md` §1.1 — horizontal platforms get no tags), so an empty array is normal and must not be treated as missing data in relevance tuning.
 
 ### 3.2 `vendors`
 
