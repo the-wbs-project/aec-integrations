@@ -82,7 +82,11 @@ split is classified at ingest from the raw User-Agent + Cloudflare ASN
 (`lib/bot-classification.ts`), because the CF Pro plan yields no `cf_bot_score` and
 `user_id` is never captured; the traffic source is classified from the forwarded
 eyeball `Referer` (`lib/referrer-classification.ts`, best-effort — Referrer-Policy
-strips it, so external sources under-count) (AECI-526 follow-up). Report-only reads; fail-open (absent
+strips it, so external sources under-count) (AECI-526 follow-up). **Read the human count as an upper
+bound**: the ASN half of the classifier is a hand-maintained list, and pre-classifier rows (`is_bot IS
+NULL`) count as human until the one-time backfill runs — see
+[`POST_LAUNCH_MONITORING.md`](./POST_LAUNCH_MONITORING.md#3b-traffic-classification--auditing-the-digests-humans-aeci-526-follow-up)
+§3b for the weekly audit and the widen/backfill procedure. Report-only reads; fail-open (absent
 key/recipient → `skipped`). The cron runs in **every** deploy env (staging/demo/production)
 for liveness, but `ANALYTICS_DIGEST_EMAIL_TO` is set on **production only** —
 staging/demo carry synthetic D1 data, so their sends intentionally `skip` (the var is

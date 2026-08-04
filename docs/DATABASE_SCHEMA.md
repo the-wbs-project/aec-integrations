@@ -784,7 +784,9 @@ create table page_views (
   -- human-only metrics and a crawler breakdown. Nullable: rows captured before the
   -- column existed read as human (is_bot IS NOT 1) until the one-time ASN backfill
   -- (scripts/ops/backfill-page-view-bots.sql). Because cf_bot_score is always null on
-  -- the CF Pro plan and user_id is never captured, UA + ASN are the only signals.
+  -- the CF Pro plan and user_id is never captured, UA + ASN are the only signals — and
+  -- the ASN half is a hand-maintained list, so is_bot = 0 means "not known to be a bot",
+  -- not "human". Audit + widen it weekly (POST_LAUNCH_MONITORING.md §3b).
   is_bot integer,  -- 1 = bot/crawler, 0 = human, null = unclassified (treated as human)
   bot_name text,   -- crawler name ("Googlebot") or datacenter org ("Datacenter (AWS)"); null for humans
 

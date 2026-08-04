@@ -89,7 +89,9 @@ A green board here means all eight fired on schedule.
    ([`PERFORMANCE_AUDIT.md`](./PERFORMANCE_AUDIT.md)) flagged **CLS on detail/browse/taxonomy (0.145–0.326)**
    and **detail-page JS ~227 KB** as the likely field offenders — confirm whether the lab headroom (owned
    by **AECI-221**) actually surfaces in the field before acting.
-4. **Append a health-report entry** to [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
+4. **Audit the digest's human/bot split** (§3b) — the "Traffic (humans)" number is only as good as the
+   ASN table behind it. One query, and widen the list when it turns up hosting networks reading as human.
+5. **Append a health-report entry** to [`POST_LAUNCH_HEALTH_REPORT.md`](./POST_LAUNCH_HEALTH_REPORT.md)
    (weekly through the first month, then at the one-month mark).
 
 ---
@@ -131,6 +133,48 @@ once the PostHog join lands.
 
 Deferred to the AECI-280 ~30d follow-up: the PostHog-join weighting + recency decay, and the
 card-resonance/swap review once PostHog + RUM have real volume.
+
+### 3b. Traffic classification — auditing the digest's "humans" (AECI-526 follow-up)
+
+The digest's headline **Traffic (humans)** filters on `page_views.is_bot IS NOT 1`, written at ingest by
+`classifyTraffic(ua, asn)` (`apps/api/src/lib/bot-classification.ts`). The UA half is reliable — crawlers
+self-name. The **ASN half is a hand-maintained list** and is the weak point: CF Pro yields no bot score, so
+a headless browser on a hosting IP with a spoofed Chrome UA reads as human until its ASN is on the list.
+This is not hypothetical — the 2026-08-03 digest reported **166 "humans" of which ≥149 were
+datacenter/VPN/scanner networks**, 107 from one unlisted colocation provider (AS47007).
+
+**Weekly audit** — census the ASNs that came through as human, and name them:
+
+```bash
+cd apps/api && pnpm exec wrangler d1 execute aeci-app-production --env production --remote \
+  --command "SELECT cf_asn, COUNT(*) n, COUNT(DISTINCT user_agent_hash) uas, COUNT(DISTINCT path) paths
+             FROM page_views WHERE created_at >= date('now','-7 days') AND is_bot = 0
+             GROUP BY 1 ORDER BY n DESC LIMIT 40"
+# then, per suspicious ASN:
+curl -s "https://stat.ripe.net/data/as-overview/data.json?resource=AS47007" | jq -r .data.holder
+```
+
+Tells that an "ASN" is really automation: one ASN dominating the day; a handful of UA hashes covering
+dozens of paths; many single `/` hits from many countries inside one short window (a residential-proxy
+sweep); a holder name containing hosting / cloud / server / VPS / colo / datacenter.
+
+**Widening the list** (the fix): add `[asn, 'Datacenter (Holder)']` to `DATACENTER_ASNS`, then regenerate
+`scripts/ops/backfill-page-view-bots.sql` to match — `bot-classification.spec.ts` parses that SQL and fails
+CI on drift. The membership rule and the deliberate exclusions (Apple/Private Relay, Zscaler and other
+corporate proxies, Tor, mixed consumer/IDC networks, tier-1 transit) are documented at the top of the map;
+**a false positive silently deletes a real visitor, which is worse than counting a crawler** — verify the
+holder before adding.
+
+**Backfilling history**: rows captured before the classifier shipped have `is_bot IS NULL` and read as
+**human**, so every historical day and every day-over-day delta over-counts humans until
+`scripts/ops/backfill-page-view-bots.sql` runs against that environment (idempotent; prod had 17,784 such
+rows as of 2026-08-04). It only touches `is_bot IS NULL`, so after a *later* widening the newly-listed ASNs
+also need `UPDATE page_views SET is_bot = 1, bot_name = '…' WHERE is_bot = 0 AND cf_asn IN (…)`.
+
+**Known ceiling**: the durable fix is not a longer list — it is capturing Cloudflare's `asOrganization`
+(available on all plans, unlike the bot score) at ingest and matching on the holder name, plus the PostHog
+join (AECI-239) as the human source of truth. Until then, treat the digest's human count as an
+**upper bound**.
 
 ---
 
