@@ -59,18 +59,21 @@ Rules:
   as idempotent `INSERT … ON CONFLICT(slug) DO UPDATE` with deterministic
   UUIDv5 ids. The Stage 1.5 `data_object` vocabulary follows the same pattern in
   `apps/api/seed/data-objects.sql` (AECI-293; source of truth
-  `docs/DATA_OBJECT_VOCABULARY.md`). The local catalog fixture is
+  `docs/DATA_OBJECT_VOCABULARY.md`), as does the `trade` vocabulary in
+  `apps/api/seed/trades.sql` (AECI-540; source of truth
+  `docs/TRADES_VOCABULARY.md`, whose §8 states the UUIDv5 namespace verbatim).
+  The local catalog fixture is
   `apps/api/seed/catalog.sql` (local-dev only; staging/prod re-promote from
   Airtable via `POST /api/promote`).
 - **Per-env apply** (staging/demo/production) is wired into CI in Phase 5
   (AECI-256): the deploy lanes (`deploy.yml`, `promote-to-demo.yml`,
   `promote-to-prod.yml`) run `scripts/d1-apply-migrations.sh <db> <env>`, which
   applies `wrangler d1 migrations apply aeci-app-<env> --env <env> --remote` and
-  reconciles the two reference-data seeds. The helper **retries each remote D1
+  reconciles the three reference-data seeds. The helper **retries each remote D1
   command** on a transient Cloudflare D1 API internal error (`[code: 7500]`) —
   a single such blip otherwise aborts the whole deploy (seen on promote-to-demo
   run 28671935011); retrying is safe because every command is idempotent
-  (`migrations apply` is a tracked no-op once applied; both seeds are UPSERTs on
+  (`migrations apply` is a tracked no-op once applied; all three seeds are UPSERTs on
   deterministic UUIDv5 ids).
 - **No RLS / GRANTs / triggers.** D1/SQLite has none; authorization is app-layer
   (ADR 0016 §4, `docs/AUTH_AND_RLS.md`), and `updated_at` is refreshed app-side
@@ -244,7 +247,7 @@ PR review verifies these are all aligned. CI applies the migration to staging at
 ## 7. What does not belong in a migration
 
 - **Seed data**: for the app DB, the local D1 seed SQL under `apps/api/seed/` (applied via `pnpm db:seed:local`). (`supabase/seed.sql` is now Supabase-Auth-project-local only.)
-- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql` and the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql` (both idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local`, in deploy/promote via `wrangler d1 execute … --file=seed/taxonomy.sql` and `… --file=seed/data-objects.sql`. See ADR 0008.
+- **Reference data** (applied to *all* environments): the taxonomy vocabulary lives in `apps/api/seed/taxonomy.sql`, the Stage 1.5 `data_object` vocabulary in `apps/api/seed/data-objects.sql`, and the `trade` vocabulary in `apps/api/seed/trades.sql` (all idempotent upserts), applied to D1 via `wrangler d1 execute` — locally via `pnpm db:seed:taxonomy:local` / `pnpm db:seed:data-objects:local` / `pnpm db:seed:trades:local`, in deploy/promote via the matching `wrangler d1 execute … --file=seed/<name>.sql` steps in `scripts/d1-apply-migrations.sh`. See ADR 0008.
 - **Curator-managed data**: vendors, products, integrations, reviews come in via `POST /api/promote` (`docs/DATABASE_SCHEMA.md` §13).
 - **One-off backfills**: write a script (`apps/api/scripts/<name>.ts`), run it explicitly per environment. Keep migrations declarative.
 - **RLS policies**: see §5.
