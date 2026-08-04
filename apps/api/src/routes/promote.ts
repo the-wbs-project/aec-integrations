@@ -1102,10 +1102,14 @@ export function createPromoteHandler(
     const integrationResults: PromoteIntegrationResult[] = [];
     // Endpoint product ids per integration result (parallel to `integrationResults`),
     // used to backfill `sourceSlug`/`targetSlug` after the loop (§6.2 → pair derivers).
+    // `poweredById` rides along so the connector product's own page can be purged
+    // too (Stage 1.5 Addendum B) — it is NOT added to `affectedProducts`, because
+    // `integration_count` stays endpoint-only (count semantics is an open decision).
     const integrationEndpoints: Array<{
       result: PromoteIntegrationResult;
       sourceId: string;
       targetId: string;
+      poweredById: string | null;
     }> = [];
     const affectedProducts = new Set<string>();
     if (productId) affectedProducts.add(productId);
@@ -1183,7 +1187,7 @@ export function createPromoteHandler(
         });
       }
       integrationResults.push(result);
-      integrationEndpoints.push({ result, sourceId, targetId });
+      integrationEndpoints.push({ result, sourceId, targetId, poweredById: poweredByProductId });
 
       // ── Claims (replace-by-integration — §6.2) ──────────────────────────────
       // Claims attach to THIS mechanism row and are replaced to exactly match the
@@ -1260,9 +1264,10 @@ export function createPromoteHandler(
       const slugByProductId = new Map<string, string>();
       if (productId && productResult) slugByProductId.set(productId, productResult.slug);
       const needSlugs = new Set<string>();
-      for (const { sourceId, targetId } of integrationEndpoints) {
+      for (const { sourceId, targetId, poweredById } of integrationEndpoints) {
         if (!slugByProductId.has(sourceId)) needSlugs.add(sourceId);
         if (!slugByProductId.has(targetId)) needSlugs.add(targetId);
+        if (poweredById && !slugByProductId.has(poweredById)) needSlugs.add(poweredById);
       }
       if (needSlugs.size) {
         const rows = await db.query.products.findMany({
@@ -1271,9 +1276,10 @@ export function createPromoteHandler(
         });
         for (const row of rows) slugByProductId.set(row.id, row.slug);
       }
-      for (const { result, sourceId, targetId } of integrationEndpoints) {
+      for (const { result, sourceId, targetId, poweredById } of integrationEndpoints) {
         result.sourceSlug = slugByProductId.get(sourceId);
         result.targetSlug = slugByProductId.get(targetId);
+        if (poweredById) result.poweredBySlug = slugByProductId.get(poweredById);
       }
     }
 

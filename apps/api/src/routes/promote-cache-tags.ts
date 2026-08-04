@@ -26,6 +26,11 @@
  *     alphabetically (`promote-pair.ts`). Emitted per integration result that
  *     carries `sourceSlug`/`targetSlug` (the claims ingest, AECI-297); the pair page
  *     (AECI-294) emits the identical tag, so purge and render stay in lockstep.
+ *   - `product:{poweredBySlug}` (Stage 1.5 Addendum B) invalidates the *connector*
+ *     product's detail page for an integration it powers. The connector is neither
+ *     endpoint, so no other rule reaches it, yet its "Powers these integrations"
+ *     hub view renders that edge. Emitted per integration result that carries
+ *     `poweredBySlug`.
  *   - **No `route:*` tags.** §3.3 reserves the coarse `route:detail|index|browse`
  *     tags for incident bulk-invalidation and explicitly forbids them on routine
  *     writes (they would nuke every detail/index/browse page site-wide).
@@ -43,6 +48,11 @@
  *     `promote.ts`, this deriver must also emit `integration:{id}` and re-purge
  *     the affected source/target `product:{slug}` (tie it to the `affectedProducts`
  *     set the commented integration block maintains).
+ *   - An integration whose powered-by product MOVES (re-pointed to a different
+ *     connector, or cleared) only purges the NEW connector — the response carries
+ *     the post-update `poweredBySlug`, not the pre-update one — so the previous
+ *     connector's page falls back to the TTL. Same bounded shape as the endpoint
+ *     move above; widen it here if connector re-pointing becomes common.
  */
 
 import type { PromoteResponse } from '@aeci/shared';
@@ -101,6 +111,11 @@ export function cacheTagsForPromote(response: PromoteResponse): string[] {
     if (integration.sourceSlug && integration.targetSlug) {
       tags.add(pairCacheTag(integration.sourceSlug, integration.targetSlug));
     }
+    // The connector product that POWERS the edge renders it in its own
+    // "Powers these integrations" hub view (Stage 1.5 Addendum B), so its detail
+    // page must repaint too. Absent for edges with no powered-by product (and on
+    // older responses) — guard.
+    if (integration.poweredBySlug) tags.add(`product:${integration.poweredBySlug}`);
   }
 
   return [...tags];

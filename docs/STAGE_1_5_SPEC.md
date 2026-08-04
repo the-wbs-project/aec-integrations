@@ -63,6 +63,7 @@ Every Stage 1.5 issue opens with `**Spec section:** §X.Y (docs/STAGE_1_5_SPEC.m
 | §11.4 | AECI-342 | "Meaningful no" pair pages — scoring / template / tiered indexing |
 | §11.5 | AECI-343 | Per-pair "report a missing integration" CTA |
 | §11.6 | AECI-344 | GSC measurement loop — gate + quarterly tier review |
+| §12 | — | Addendum B — connector-role product detail: powered integrations (`integrations_as_connector` + hub view) |
 
 Prototypes (AECI-289) gate §7/§8 — build the production pair page and claim rendering **against the approved I3 prototype**. The §11 rows are **post-launch Addendum A** work (project "Pair-Page Search Intent (pSEO)"), not part of the original 1.5 critical path.
 
@@ -392,3 +393,113 @@ The searcher whose true answer is *no* currently gets nothing from us; a good "n
 - Demand-chosen canonical (rejected — §11.1(3)).
 - Per-visitor reframing of one URL (rejected — §11.1(6)).
 - Per-pair Algolia records (still deferred to Stage 2 per §9).
+
+---
+
+## 12. Addendum B — Connector-role product detail: powered integrations (2026-08-04)
+
+**Status:** Shipped. **Extends** §7.5 / the product-detail contract of §3.1 — §7.1's product-detail
+framing is endpoint-only and never specified what a **connector-role** product's own page shows.
+Nothing in §3–§11 is superseded.
+
+**The defect this closes.** `/products/agave-erp-sync` — a `product_role: 'connector'` whose entire
+purpose is linking PM platforms to ~14 ERPs — rendered **"Integrations (0) — No integrations
+recorded yet."** The product-detail pipeline surfaces only edges where the product is a **source or
+target endpoint**; edges where it is the **mechanism** (`integrations.powered_by_product_id`) were
+unreachable end to end: no inverse Drizzle relation, no API field, no UI section. The page asserted
+the exact opposite of the truth about the most-connected class of product in the catalog.
+
+### 12.1 Why the data model did not change
+
+The obvious "industry standard" fix is to model the connector as an **endpoint** — hub-and-spoke
+edges (`agave ↔ procore`, `agave ↔ acumatica`) instead of a pair edge carrying a `powered_by`
+pointer. Rejected, deliberately:
+
+- **Pair-level truth.** The user-facing question is *"does Procore integrate with Acumatica?"* The
+  pair edge answers it directly; hub-spoke edges only imply it transitively and can never express
+  what actually syncs **between the two endpoints**.
+- **Claims anchoring.** `claims` / `attestations` (§3) hang off the pair edge and are asserted about
+  the two endpoints' `data_object` flow. A hub-spoke edge has no coherent claim subject.
+- So the model was already right; it was simply **never surfaced**. Addendum B is a read/presentation
+  change plus one relation — **no migration**.
+
+### 12.2 Contract: `ProductDetail.integrations_as_connector`
+
+- **Field:** `integrations_as_connector: IntegrationListItem[]` on `ProductDetailSchema`
+  (`packages/shared/src/api/products.ts`), beside `integrations_as_source` / `_as_target`.
+- **Row shape is the bare `IntegrationListItem`, deliberately** — *not*
+  `ProductIntegrationItem`. `context_direction` (§3.2) is meaningless here: the page product is
+  **neither endpoint**, so there is no context frame to translate a direction into. The row's
+  `direction` remains between `source` and `target`.
+- **Hydration:** `products` gains the inverse relation
+  `poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' })`
+  (`apps/api/src/db/schema.ts`). Relations file only — the FK column and its partial index already
+  existed, so **no migration**. `productDetailConfig.with` reuses the plain `integrationListConfig`
+  (no claims join — the pair page owns claim depth).
+- **The API stays a flat edge list.** Grouping is a presentation concern (§12.3), so no shape churn
+  if the presentation changes.
+
+### 12.3 Presentation: the grouped hub view
+
+`apps/web/src/app/products/product-powered-hub.ts` (+ the pure heuristic in
+`powered-hub-grouping.ts`), rendered from `product-detail.ts` as `id="powered-integrations"`,
+between `#integrations` and `#reviews`, with a matching "Powers integrations" section-nav entry.
+
+- **Grouping heuristic (orientation-agnostic).** Source/target orientation on a powered edge is
+  arbitrary — it records how the row was authored, not a hub/spoke truth. So: count each product's
+  frequency across the whole powered set, file every edge under its **more frequent** endpoint
+  (the hub), and make the other endpoint a chip. Ties break on slug (alphabetical), matching
+  `defaultIntegrationContext`. Groups sort by chip count desc then hub name; chips sort by name;
+  multiple edges for the same pair (differing mechanism kinds) collapse to **one** chip.
+- **Reads like the buying question.** "Connects **Procore** with: Acumatica · Sage Intacct ·
+  Viewpoint Spectrum · Viewpoint Vista" — instead of a flat table repeating the same platform on
+  every row. Chips link the **canonical pair page** (`defaultIntegrationContext` picks the context
+  slug), where the mechanism cards — including this connector's own "Powered by" byline — live.
+- **A full compatibility-matrix page archetype** (platforms × ERPs grid) was considered and is
+  noted as a possible **Stage 2** evolution; the hub view is the Stage 1.5 answer.
+- **Render condition:** `product_role !== 'application' || integrations_as_connector.length > 0`.
+  Connector/hybrid always show the section (empty state included — "none recorded yet" is
+  information, and Agave's own edges are un-backfilled today); an application shows it only when
+  it actually powers edges, a data-driven safety net for a mis-roled product.
+- **Empty state** mirrors the endpoint one, with connector wording and the same `aecRequestTrigger`
+  suggest-a-correction link (`@@products.detail.body.powers.empty`).
+- **Heading** counts **edges**, not groups: "Powers these integrations (N)"
+  (`@@products.detail.body.powers.heading`).
+- **`RoleBadge` in the hero**, beside the "Product" eyebrow. It self-hides for `application`, so
+  only connectors/hybrids are flagged. The endpoint "Integrations (0)" section is left as-is — for
+  a pure connector that number is factually correct.
+- **Pair page (Stage 1 §4.4).** The mechanism card's "Built by {vendor} · Powered by {product}"
+  byline is now **linked** (it rendered as plain text), so a via-connector mechanism navigates to
+  the connector's own page — the return path into this surface.
+
+### 12.4 Cache-tag composition
+
+- **SSR (resolver, `product-detail.resolver.ts`):** each powered edge contributes
+  `integration:{id}` **plus both** endpoint `product:{slug}` tags — this product is the connector,
+  so neither endpoint is "self" and both are rendered (hub heading + chip).
+- **Promote (`promote-cache-tags.ts`):** `PromoteIntegrationResult` gains optional
+  `poweredBySlug`, and the deriver emits `product:{poweredBySlug}`. Without it, a promote touching
+  an Agave-powered edge left `/products/agave-erp-sync` stale until TTL — the connector is neither
+  endpoint, so no other rule reached it. **Bounded gap:** a re-pointed powered product purges only
+  the new connector (the response carries the post-update slug), same shape as the existing
+  endpoint-move gap.
+
+### 12.5 Open decision — count semantics
+
+`integration_count` remains **endpoint-only** (`recompute-counts.ts`), so a connector's browse card
+still reads "0 integrations" while its page lists ~13, and connectors rank low on a signal they
+should dominate. Three options — (A) keep endpoint-only, (B) count powered edges too, (C) a separate
+`powered_integration_count` — are recorded with pros/cons in the implementation plan.
+**Recommendation: B, as its own follow-up after the data backfill**, so the numbers change once and
+the Algolia products reindex (custom ranking + numeric facet buckets + sort replica, see
+`docs/SEARCH_RANKING.md`) happens once. `affectedProducts` in `promote.ts` is deliberately
+**unchanged** here.
+
+### 12.6 Known data state
+
+At time of writing only **5 of 421** prod integrations carry `powered_by_product_id`; all ~13 Agave
+edges have it NULL, with "via Agave ERP Sync" living only in free-text `mechanism_name`. The code
+path is complete; Agave's hub view fills in when the FK is backfilled in **Airtable + re-promote**
+(the durable path — no D1 stopgap). Separately tracked follow-ups: 22 exact-duplicate integration
+rows; connector discovery in search/browse (`product_role` on Algolia records, a Connectors facet,
+`RoleBadge` on search cards).

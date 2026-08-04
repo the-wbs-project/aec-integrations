@@ -5,9 +5,11 @@ import { map } from 'rxjs';
 
 import type {
   ContextDirection,
+  ProductLink,
   ProductPairClaim,
   ProductPairMechanism,
   ProductPairResponse,
+  VendorLink,
 } from '@aeci/shared';
 
 import { ExternalLinkTracker } from '../analytics/external-link-tracker';
@@ -102,6 +104,11 @@ interface MechanismView {
   /** Data-object claim lanes (§8). Empty when the mechanism has no claims yet. */
   readonly claimGroups: readonly ClaimGroup[];
   readonly hasClaims: boolean;
+  /** Stage 1 §4.4 "Built by (vendor) / Powered by (product)" — rendered as a
+   *  linked byline so a via-connector mechanism (e.g. "via Agave ERP Sync")
+   *  navigates to the connector's own pages instead of being dead text. */
+  readonly builtByVendor: VendorLink | null;
+  readonly poweredByProduct: ProductLink | null;
 }
 
 interface PairView {
@@ -384,6 +391,40 @@ function writePairViewCookie(mode: PairViewMode): void {
                   }
                 </header>
 
+                <!-- Linked provenance byline (Stage 1 §4.4: "Built by" / "Powered
+                     by"). Mechanism identity, not detail, so it renders in Basic too.
+                     Until the connector FK is backfilled, via-connector rows fall
+                     back to the vendor-only "Built by" segment. -->
+                @if (m.builtByVendor || m.poweredByProduct) {
+                  <p
+                    class="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-(--text-secondary)"
+                  >
+                    @if (m.builtByVendor; as bv) {
+                      <span>
+                        <ng-container i18n="@@pair.mechanism.builtBy">Built by</ng-container>
+                        <a
+                          [routerLink]="['/vendors', bv.slug]"
+                          class="text-(--accent-primary) underline underline-offset-2"
+                          >{{ bv.name }}</a
+                        >
+                      </span>
+                    }
+                    @if (m.builtByVendor && m.poweredByProduct) {
+                      <span aria-hidden="true" class="text-(--text-tertiary)">·</span>
+                    }
+                    @if (m.poweredByProduct; as pb) {
+                      <span>
+                        <ng-container i18n="@@pair.mechanism.poweredBy">Powered by</ng-container>
+                        <a
+                          [routerLink]="['/products', pb.slug]"
+                          class="text-(--accent-primary) underline underline-offset-2"
+                          >{{ pb.name }}</a
+                        >
+                      </span>
+                    }
+                  </p>
+                }
+
                 <!-- Layer-A mechanism arrow: a Detailed-view detail, shown only when
                      this mechanism has no claims. When claims exist the per-lane
                      arrows below carry the direction, so the standalone arrow would
@@ -581,6 +622,8 @@ export class ProductsPairPage {
       directionAria: m.direction ? directionAria(m.direction, otherName) : '',
       claimGroups: buildClaimGroups(m.claims, otherName),
       hasClaims: m.claims.length > 0,
+      builtByVendor: m.built_by_vendor,
+      poweredByProduct: m.powered_by_product,
     };
   }
 

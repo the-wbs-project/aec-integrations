@@ -23,7 +23,7 @@ import { ActivatedRoute, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { ProductDetail } from '@aeci/shared';
+import type { IntegrationListItem, ProductDetail, ProductLink } from '@aeci/shared';
 
 import { AccountApi } from '../account/account-api';
 import { Analytics } from '../analytics/analytics';
@@ -62,6 +62,7 @@ function buildProduct(overrides: Partial<ProductDetail> = {}): ProductDetail {
     usefulness: null,
     integrations_as_source: [],
     integrations_as_target: [],
+    integrations_as_connector: [],
     related_products: [],
     reviews: [],
     ...overrides,
@@ -150,5 +151,116 @@ describe('ProductDetailPage hero rating', () => {
     expect(hero!.querySelector('a[href$="#reviews"]')).toBeNull();
     // The CTA still renders — the action row shows even without a website.
     expect(hero!.querySelector('aec-review-cta')).toBeTruthy();
+  });
+});
+
+/**
+ * Stage 1.5 Addendum B — the "Powers these integrations" hub section that makes
+ * a connector product's page intelligible (its endpoint table is legitimately
+ * empty because it is the mechanism, not an endpoint).
+ */
+describe('ProductDetailPage powered-integrations hub', () => {
+  beforeEach(() => TestBed.resetTestingModule());
+
+  const link = (slug: string, name: string): ProductLink => ({
+    id: `id-${slug}`,
+    slug,
+    name,
+    logo_url: null,
+  });
+
+  let seq = 0;
+  const edge = (source: ProductLink, target: ProductLink): IntegrationListItem => ({
+    id: `00000000-0000-4000-8000-${String(++seq).padStart(12, '0')}`,
+    name: `${source.name} ↔ ${target.name}`,
+    mechanism_kind: 'iPaaS',
+    mechanism_name: 'via Agave ERP Sync',
+    direction: null,
+    source,
+    target,
+    created_at: '2024-06-01T00:00:00.000Z',
+    updated_at: '2024-06-01T00:00:00.000Z',
+  });
+
+  const procore = link('procore', 'Procore');
+  const acumatica = link('acumatica', 'Acumatica');
+  const sage = link('sage-intacct', 'Sage Intacct');
+
+  const connector = (overrides: Partial<ProductDetail> = {}) =>
+    buildProduct({
+      slug: 'agave-erp-sync',
+      name: 'Agave ERP Sync',
+      product_role: 'connector',
+      ...overrides,
+    });
+
+  it('renders hub groups with a linked hub heading and pair-page chips', () => {
+    const { el } = setup(
+      connector({
+        integrations_as_connector: [edge(procore, acumatica), edge(sage, procore)],
+      }),
+    );
+
+    const section = el.querySelector('#powered-integrations');
+    expect(section).toBeTruthy();
+    // Heading counts EDGES, not groups.
+    expect(section!.querySelector('h2')!.textContent).toContain('Powers these integrations (2)');
+
+    const groups = section!.querySelectorAll('aec-product-powered-hub section');
+    expect(groups).toHaveLength(1);
+    // Procore is the more frequent endpoint on both edges → it is the hub, no
+    // matter which side of the row it was authored on.
+    const heading = groups[0]!.querySelector('h3')!;
+    expect(heading.textContent).toContain('Connects');
+    expect(heading.textContent).toContain('Procore');
+    expect(heading.querySelector('a')!.getAttribute('href')).toBe('/products/procore');
+
+    const chips = groups[0]!.querySelectorAll<HTMLAnchorElement>('ul a');
+    expect([...chips].map((a) => a.textContent!.trim())).toEqual(['Acumatica', 'Sage Intacct']);
+    // Chips link the CANONICAL pair page (context = alphabetically-first slug).
+    expect(chips[0]!.getAttribute('href')).toBe('/products/acumatica/integrations/procore');
+    expect(chips[1]!.getAttribute('href')).toBe('/products/procore/integrations/sage-intacct');
+  });
+
+  it('shows the empty state (with a correction link) for a connector with no powered edges', () => {
+    const { el } = setup(connector());
+
+    const section = el.querySelector('#powered-integrations');
+    expect(section).toBeTruthy();
+    expect(section!.querySelector('h2')!.textContent).toContain('Powers these integrations (0)');
+    expect(section!.querySelector('aec-product-powered-hub')).toBeNull();
+    expect(section!.textContent).toContain('No integrations are recorded as running');
+    expect(
+      section!.querySelector<HTMLAnchorElement>('a[href="/products/agave-erp-sync/correction"]'),
+    ).toBeTruthy();
+  });
+
+  it('omits the section and its nav entry for an application with no powered edges', () => {
+    const { el } = setup(buildProduct({ description: 'Construction management platform.' }));
+
+    expect(el.querySelector('#powered-integrations')).toBeNull();
+    const nav = el.querySelector('aec-section-nav');
+    expect(nav).toBeTruthy();
+    expect(nav!.textContent).not.toContain('Powers integrations');
+  });
+
+  it('still renders the section for an application that powers edges (data-driven safety net)', () => {
+    const { el } = setup(buildProduct({ integrations_as_connector: [edge(procore, acumatica)] }));
+
+    expect(el.querySelector('#powered-integrations')).toBeTruthy();
+    expect(el.querySelector('aec-section-nav')!.textContent).toContain('Powers integrations');
+  });
+
+  it('badges the hero with the product role for a connector, and not for an application', () => {
+    const { el } = setup(connector());
+    const hero = el.querySelector('[slot="hero"]')!;
+    expect(hero.querySelector('aec-role-badge')!.textContent).toContain('Connector');
+
+    TestBed.resetTestingModule();
+    const plain = setup(buildProduct());
+    // The badge component self-hides for `application` — it renders no chip.
+    expect(
+      plain.el.querySelector('[slot="hero"]')!.querySelector('aec-role-badge')!.textContent!.trim(),
+    ).toBe('');
   });
 });

@@ -124,6 +124,7 @@ describe('ProductDetailSchema', () => {
       usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
+      integrations_as_connector: [],
       related_products: [],
       reviews: [],
     });
@@ -156,6 +157,7 @@ describe('ProductDetailSchema', () => {
       },
       integrations_as_source: [],
       integrations_as_target: [],
+      integrations_as_connector: [],
       related_products: [validListItem],
       reviews: [
         {
@@ -192,6 +194,7 @@ describe('ProductDetailSchema', () => {
       usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
+      integrations_as_connector: [],
       related_products: [],
     });
     expect(result.success).toBe(false);
