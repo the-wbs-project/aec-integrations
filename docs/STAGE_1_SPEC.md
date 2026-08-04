@@ -38,6 +38,7 @@ This spec is the master document. Detailed content for the following areas lives
 | `UNIT_TESTING_GUIDE.md` | Unit-test conventions, fixture patterns, mocking guidance | Complete |
 | `STAGE_1_5_SPEC.md` | **Stage 1.5 — Integration Redesign**: product-PAIR page + claim/attestation model (supersedes the integration portions of §3.1 / §4.4 / §7.5) | Complete |
 | `DATA_OBJECT_VOCABULARY.md` | The frozen, closed `data_object` controlled vocabulary (+ generated `data-object-vocabulary.json` mirror) both apps seed from | Complete |
+| `TRADES_VOCABULARY.md` | The closed `trade` controlled vocabulary — the fourth taxonomy facet (§5.5a) — plus its tagging rule, publication gate, and generated `trades-vocabulary.json` mirror | Proposed (AECI-539) |
 | `CODE_REVIEW_CHECKLIST.md` | Pre-merge review categories and severity rubric for humans and LLMs | Complete |
 | `BRAND_GUIDELINES.md` | Canonical brand colors (light; dark variants documented but not shipped in Stage 1 — AECI-226), Bone reclassification, Clay restriction, visual principles | Complete |
 | `SEARCH_RANKING.md` | Algolia ranking customization, tuning, feedback loops | Pending |
@@ -198,6 +199,8 @@ A Figma file ("AEC Integrations — Design System") maintains canonical color st
 | `/audiences/:slug` | Browse by audience | 30 min edge |
 | `/phases` | All project phases (flat taxonomy index) | 5 min edge |
 | `/phases/:slug` | Browse by project phase | 30 min edge |
+| `/trades` | All trades (flat taxonomy index) — **published terms only** (§5.5a) _(AECI-538 epic; ships in AECI-544)_ | 5 min edge |
+| `/trades/:slug` | Browse by trade — `noindex,follow` until the term is published (§5.5a) _(AECI-538 epic; ships in AECI-544)_ | 30 min edge |
 | `/search` | Algolia-powered search results | No cache |
 | `/about` | About AEC Integrations | 24 hr edge |
 | `/updates` | Mailing-list signup page (AECI-536) — focused first-party subscribe destination for external links | 24 hr edge |
@@ -415,8 +418,8 @@ The schema is organized into seven domains, all defined in `DATABASE_SCHEMA.md`:
 | Domain | Tables |
 |---|---|
 | Core entities | `vendors`, `products`, `integrations` |
-| Taxonomy | `taxonomy_categories`, `taxonomy_audiences`, `taxonomy_phases` |
-| Joins | `product_categories`, `product_audiences`, `product_phases`, `product_vendors`, `product_extensions` |
+| Taxonomy | `taxonomy_categories`, `taxonomy_audiences`, `taxonomy_phases`, `taxonomy_trades` _(§5.5a — AECI-538 epic; ships in AECI-540)_ |
+| Joins | `product_categories`, `product_audiences`, `product_phases`, `product_trades` _(AECI-540)_, `product_vendors`, `product_extensions` |
 | User and content | `profiles`, `reviews` |
 | Operations and workflow | `vendor_requests`, `workflow_instances`, `workflow_transitions`, `audit_log` |
 | Analytics and caching | `page_views`, `stats_cache` |
@@ -447,17 +450,18 @@ High-level intent:
 
 This satisfies right-to-erasure while preserving the directory's content integrity.
 
-### 5.5 Taxonomy facets (Categories, Audiences, Phases)
+### 5.5 Taxonomy facets (Categories, Audiences, Phases, Trades)
 
-The directory has **three independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `apps/api/seed/taxonomy.sql`, applied to every environment via idempotent upserts to D1 with `wrangler d1 execute` (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
+The directory has **four independent taxonomy facets**. Each is a small, closed vocabulary with a stable `slug` (a permanent public URL), a display `name`, and a `display_order`. Tables and DDL: `DATABASE_SCHEMA.md` §5–§6. The vocabularies are **code-managed reference data** — `apps/api/seed/taxonomy.sql` (and `apps/api/seed/trades.sql`), applied to every environment via idempotent upserts to D1 with `wrangler d1 execute` (ADR `docs/adr/0008-taxonomy-reference-data.md`), **not** Airtable content.
 
 | Facet | Question it answers | Table | Browse route | Examples |
 |---|---|---|---|---|
 | **Category** | *What does this software do?* | `taxonomy_categories` | `/categories/:slug` | BIM Authoring, Estimating & Takeoff |
 | **Audience** | *Who is this for?* | `taxonomy_audiences` | `/audiences/:slug` | Architecture, MEP Engineering, Project Manager, Estimator |
 | **Phase** | *Which project-lifecycle stage?* | `taxonomy_phases` | `/phases/:slug` | Design, Pre-Construction, Closeout & Operations |
+| **Trade** | *What work does the company sell?* | `taxonomy_trades` | `/trades/:slug` | Electrical, Roofing, Paving & Asphalt, Glazing & Curtain Wall |
 
-A product carries any number of terms from each facet (the `product_categories` / `product_audiences` / `product_phases` join tables). The aggregate vocabulary is exposed at `GET /api/taxonomy → { categories, audiences, phases }` and per-term browse pages at `GET /api/{categories|audiences|phases}/:slug`.
+A product carries any number of terms from each facet (the `product_categories` / `product_audiences` / `product_phases` / `product_trades` join tables). The aggregate vocabulary is exposed at `GET /api/taxonomy → { categories, audiences, phases, trades }` and per-term browse pages at `GET /api/{categories|audiences|phases|trades}/:slug`.
 
 **The Audience facet (AECI-121).** Audience answers "who is this for?" and deliberately holds **two kinds of term on one axis**:
 
@@ -466,7 +470,35 @@ A product carries any number of terms from each facet (the `product_categories` 
 
 A separate "Roles" facet was evaluated and **rejected**: ~55% of the proposed roles duplicated existing domains and others duplicated Categories, so a separate facet would have been a half-populated filter that confuses users and curators. Folding personas into a single "who is this for?" axis keeps one vocabulary to curate and no overlap to police.
 
-**History & compatibility.** This facet was named **Discipline** through Phase 2 and was renamed to **Audience** in AECI-121 (tables `taxonomy_disciplines → taxonomy_audiences`, `product_disciplines → product_audiences`; the promote payload/response key `disciplines → audiences`). The 21 original slugs are unchanged, so existing URLs keep resolving via a permanent **301 redirect `/disciplines/:slug → /audiences/:slug`** (and `/disciplines → /audiences`); the `disciplines` slug namespace stays reserved. The review-app promote contract cuts over atomically — see `docs/REVIEW_APP_PROMOTE_API.md` and the cross-repo handoff in `docs/handoffs/AECI-121-review-app-audience-rename.md`.
+**History & compatibility (Audience).** This facet was named **Discipline** through Phase 2 and was renamed to **Audience** in AECI-121 (tables `taxonomy_disciplines → taxonomy_audiences`, `product_disciplines → product_audiences`; the promote payload/response key `disciplines → audiences`). The 21 original slugs are unchanged, so existing URLs keep resolving via a permanent **301 redirect `/disciplines/:slug → /audiences/:slug`** (and `/disciplines → /audiences`); the `disciplines` slug namespace stays reserved. The review-app promote contract cuts over atomically — see `docs/REVIEW_APP_PROMOTE_API.md` and the cross-repo handoff in `docs/handoffs/AECI-121-review-app-audience-rename.md`.
+
+### 5.5a The Trade facet (AECI-538 / AECI-539)
+
+> **Status: contract accepted, implementation in flight.** The vocabulary itself lives in **`docs/TRADES_VOCABULARY.md`** — that document (not this section) is the source of truth for the term list, the aliases, and the tagging rule. This section defines the facet's *behaviour*, which is what the rest of the system builds against. Built alongside Stage 2 but **ships before it**: per ADR 0019 every non-REVIEW sub-issue branches from and merges to `main`.
+
+**Why a fourth facet.** The first three answer *what the software does*, *who it is for*, and *when*. None answers **what work the buyer's company sells**. A paving sub, a glazier, and an electrical contractor all collapse into the single Audience term **Specialty Contracting**, so a paving contractor cannot ask AECi "what tools understand pavement?" Trade-first discovery is how contractors self-identify, it is low-competition long-tail SEO, and it is the most AEC-native dimension available to us.
+
+**The tagging rule — this is the load-bearing constraint.** A product gets a trade tag **only when it has trade-specific value**: trade-specific features, cost databases, templates, takeoff logic, or integrations. **Horizontal platforms (Procore, Autodesk Build, Bluebeam) get no trade tags.** Trades are *sparse by design* — most of the catalog carries zero trade tags, and that is the correct outcome. A `/trades/:slug` page must answer "what understands MY work"; if it reads as a copy of the all-products list, the tagging is wrong. Full rule and the trade-page test: `TRADES_VOCABULARY.md` §1.1.
+
+**Closed and find-only.** Unlike Categories / Audiences / Phases — which the promote flow resolves **find-or-create** (`apps/api/src/routes/promote.ts`, `resolveTaxonomy`) — the promote `trades` key resolves **find-only** against the canonical slug/name/alias set, following the Stage 1.5 `data_object` model. An unmatched term is **rejected and reported**, never auto-created: a curator minting `paving-contractors` alongside `paving-asphalt` would split a trade page's products across two URLs and destroy the SEO asset the facet exists to build. `slug` is immutable identity; `name` / `description` / `aliases` are editable metadata. Governance: `TRADES_VOCABULARY.md` §3.
+
+**Publication gating.** A trade is **published** when at least `TRADE_PUBLISH_MIN_PRODUCTS = 3` promoted products carry it (launch-tunable). Unpublished terms are hidden from the `/trades` index, the facet sidebar, and the sitemap, and their page renders `noindex,follow`; the URL still resolves, so crossing the floor needs no redirect. The API is **not** gated — `product_count` travels on every term and each surface applies the floor. Full matrix: `TRADES_VOCABULARY.md` §6.
+
+**Surface inventory** (the epic's build order — see AECI-538):
+
+| Surface | Contract | Sub-issue |
+|---|---|---|
+| `taxonomy_trades` + `product_trades` in D1, seeded from `apps/api/seed/trades.sql` | ADR 0008 reference-data pattern; UUIDv5-by-slug, idempotent upsert, never deletes | AECI-540 |
+| `GET /api/taxonomy` gains `trades`; new `GET /api/trades` + `GET /api/trades/:slug`; `trade_id` multi-select listing param (AECI-223 comma-separated-UUID semantics) | `API_CONTRACTS.md`; shapes mirror the existing three facets | AECI-541 |
+| Promote contract gains an optional `trades` key (find-only) | `REVIEW_APP_PROMOTE_API.md` — cross-repo | AECI-542 (+ REVIEW: AECI-543) |
+| `/trades` + `/trades/:slug` browse pages, facet-sidebar dimension, product-detail chips | §3.1; mirrors `/phases` | AECI-544 |
+| Algolia `trades` facet + one-time full product reindex | `SEARCH_RANKING.md` §7.2 faceting; lockstep edit across the record schema, index settings, transform, and reindex | AECI-545 |
+| Sitemap section + publication gating | §20.1 | AECI-546 |
+| Catalog backfill + re-promote so trades reach search records | Cross-repo | REVIEW: AECI-547 |
+
+**The Audience seam is documented, not resolved.** The Audience facet does **not** change — `specialty-contracting` stays. Audience `specialty-contracting` is a statement about *the software's positioning*; Trade `electrical` is a statement about *the work*. A product may carry both, one, or neither. The near-duplicate pairs a curator must keep apart (`hvac-mechanical` vs. `mep-engineering`, `structural-steel` vs. `structural-engineering`, `solar-renewables` vs. `energy-sustainability`) are tabulated in `TRADES_VOCABULARY.md` §7. Terms that fail that distinguishability test are excluded from the vocabulary (§5.2 there) — the same discipline that got the proposed "Roles" facet rejected in AECI-121.
+
+**Explicitly out of scope** (follow-ups; do not scope-creep): a **market-sector** axis (healthcare, roads & highways, data centers); an **outcome/JTBD** editorial layer; **vendor attestation** of trade tags (Stage 2 vendor portal); per-trade `usefulness` narrative groups (the promote `usefulness` object stays audiences + phases only); a "general platforms contractors in this trade also use" band on trade pages; any Audience-facet restructure.
 
 ---
 
@@ -491,6 +523,7 @@ Cloudflare Worker at `apps/api/`, exposed via service binding to the SSR worker.
 - `GET /api/vendors`, `GET /api/vendors/:slug`
 - `GET /api/integrations`, `GET /api/integrations/:id` _(Stage 1.5 adds the pair-page + claims read paths — `STAGE_1_5_SPEC.md` §6, §8; shapes in `API_CONTRACTS.md`)_
 - `GET /api/taxonomy/categories`, `/audiences`, `/phases`
+- `GET /api/trades`, `GET /api/trades/:slug` _(§5.5a — AECI-538 epic; ships in AECI-541)_
 - `GET /api/stats/home`
 
 **Authenticated write:**

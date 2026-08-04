@@ -1,0 +1,312 @@
+# `trade` Controlled Vocabulary
+
+**Status:** Proposed (AECI-539 — the decision gate for the AECI-538 epic). **Source of truth** for the `trade` term list once accepted.
+**Issue:** AECI-539. **Epic:** AECI-538 — Trades taxonomy facet. **Ships before Stage 2** (ADR 0019: production-destined, branches from and merges to `main`).
+**Machine-readable mirror:** [`trades-vocabulary.json`](./trades-vocabulary.json).
+**Spec:** `docs/STAGE_1_SPEC.md` §5.5 (amended by this issue to define the fourth facet).
+
+This document is the single canonical artifact for the `trade` controlled vocabulary.
+Everything downstream seeds from it:
+
+- **AECI-540** — the main app's D1 `taxonomy_trades` table + `apps/api/seed/trades.sql` are seeded
+  from §5.
+- **AECI-541** — `packages/shared` contracts, `GET /api/taxonomy → trades`, `GET /api/trades`,
+  `GET /api/trades/:slug`, and the `trade_id` listing param.
+- **AECI-542 / AECI-543** — the promote `trades` key and the Review-app (bamako) Airtable `Trades`
+  field are seeded from this list; the promote resolver matches against §5 **find-only** (§3).
+- **AECI-546** — the publication gate in §6 governs which trade pages are indexable.
+
+---
+
+## 1. What a `trade` is
+
+A `trade` is **the work a company sells** — the scope of work it is hired to perform. It answers the
+buyer's own question:
+
+> *"What does my company actually do?"* → *"What software understands **my** work?"*
+
+The three existing facets answer different questions, and none of them answers this one:
+
+| Facet | Question | Example |
+|---|---|---|
+| **Category** | What does the *software* do? | Estimating & Takeoff |
+| **Audience** | Who is the software *for*? | Specialty Contracting, Estimator |
+| **Phase** | *When* in the project lifecycle? | Pre-Construction |
+| **Trade** (new) | What work does the *company sell*? | Electrical, Roofing, Paving & Asphalt |
+
+The gap this closes (industry feedback, Aug 2026): a paving sub, a glazier, and an electrical
+contractor all collapse into the single Audience term **Specialty Contracting**. A paving contractor
+cannot ask AECi "what tools understand pavement?" Trade-first discovery is how contractors
+self-identify, it is low-competition long-tail SEO ("software for paving contractors") that
+horizontal directories serve badly, and it is the most AEC-native dimension we could add.
+
+The vocabulary mirrors the existing taxonomy vocabularies (`taxonomy_categories`,
+`taxonomy_audiences`, `taxonomy_phases`) in shape — `slug` / `name` / `description` /
+`display_order` — and adds `aliases`, following the Stage 1.5 `data_object` precedent
+(`docs/DATA_OBJECT_VOCABULARY.md` §3).
+
+### 1.1 The core tagging rule
+
+**A product gets a trade tag only when it has *trade-specific* value.** Trade-specific means at
+least one of:
+
+- trade-specific **features** (sprinkler hydraulic calculations, duct fabrication, roof measurement)
+- trade-specific **cost databases or assemblies** (NECA labor units, MCAA labor factors, RSMeans by trade)
+- trade-specific **templates, forms, or reports** (a trade's standard submittal/inspection set)
+- trade-specific **takeoff or layout logic** (rebar bending schedules, mass-haul balancing, panel schedules)
+- trade-specific **integrations** (to a fabrication machine, a trade ERP, a trade supplier catalog)
+
+**Horizontal platforms get no trade tags.** Procore, Autodesk Build, Bluebeam, Microsoft Project and
+their peers are used by every trade and are therefore diagnostic of none. Tagging them would make
+every trade page a copy of the all-products list, which is exactly the failure mode this facet
+exists to avoid.
+
+> **The trade-page test.** A `/trades/:slug` page must answer *"what understands MY work"*. If a
+> reviewer reading the page cannot tell which trade it belongs to from the products alone, the
+> tagging is wrong — not the page.
+
+The rule is deliberately asymmetric with the other three facets, which are permissive (a product can
+plausibly carry many categories/audiences/phases). Trades are **sparse by design**: most products in
+the catalog will carry **zero** trade tags, and that is the correct outcome.
+
+---
+
+## 2. Naming decision — why "Trades"
+
+The epic carried **Trades** as a working name and this issue confirms it. Route namespace `/trades`,
+tables `taxonomy_trades` / `product_trades`, listing param `trade_id`, promote key `trades`, Algolia
+facet `trades`.
+
+Alternatives considered and rejected:
+
+| Candidate | Rejected because |
+|---|---|
+| **Services** | Horizontal and generic — every SaaS directory has a "services" filter. No SEO differentiation, and it collides with "professional services" (the A/E side). |
+| **Scopes** / **Scopes of Work** | A scope is a *per-project* artifact; a trade is a *company identity*. Buyers do not search "scope of work software". |
+| **Specialties** | Collides with the existing Audience term **Specialty Contracting**, and reads clinical. |
+| **Disciplines** | Burned: the `disciplines` slug namespace is reserved by the permanent `/disciplines/:slug → /audiences/:slug` 301 from AECI-121. Reusing it would be a URL trap. |
+| **Work Types** | Not language anyone in the field uses. |
+
+**Trades** wins on all three axes that matter: it is how contractors self-identify ("we're a
+mechanical contractor", "the electrical trade"), it is the head term in the SEO phrases we want
+("roofing contractor software", "software for electrical contractors"), and it is AEC-native rather
+than borrowed from horizontal software directories.
+
+**Recorded caveat.** "Trades" reads contractor-first. Design- and engineering-side work
+(architecture, structural engineering, surveying) is **not** a trade and stays on the Audience axis.
+See §7 for the full seam.
+
+---
+
+## 3. Governance — the vocabulary is closed and find-only
+
+The list is **closed**. This is a deliberate constraint, and it is a *stronger* constraint than the
+one the original three facets carry:
+
+- **Promote resolves it find-only.** During promotion a free-text trade value is matched against the
+  canonical `slug` set (directly or via an alias, case-insensitively). An **unmatched term is
+  rejected** and reported back in the promote response — it is **not** auto-created. This
+  deliberately diverges from `categories` / `audiences` / `phases`, which promote resolves
+  **find-or-create** (`apps/api/src/routes/promote.ts` — `resolveTaxonomy`). Trades follow the
+  Stage 1.5 `data_object` model instead (`docs/DATA_OBJECT_VOCABULARY.md` §2), because a curator
+  minting `paving-contractors` alongside `paving-asphalt` would silently split a trade page's
+  products across two URLs and quietly destroy the SEO asset the facet exists to build.
+- **Adding, removing, or renaming a term is a deliberate vocabulary change** — a PR that edits this
+  file, regenerates the JSON mirror (§8), and re-seeds **both** apps (main D1 + Review Airtable).
+- **`slug` is the immutable identity key.** Once a term ships, its `slug` never changes — the slug is
+  a permanent public URL (`/trades/electrical`) and an SEO landing page (ADR 0008). `name`,
+  `description`, and `aliases` **may** be edited freely; they are presentation/matching metadata,
+  not identity.
+- **Seeding is upsert-only and never deletes** (a delete would cascade to `product_trades`).
+  Retiring a term goes through an explicit, reviewed migration.
+- **The vocabulary is code-managed reference data**, per ADR 0008 — `apps/api/seed/trades.sql`,
+  applied to every environment with `wrangler d1 execute`, never Airtable content.
+
+---
+
+## 4. How `aliases` is used
+
+`aliases` is a list of synonyms the **seeding process** and the **promote resolver** map onto a
+closed term — the same mechanism as `data_object` (`docs/DATA_OBJECT_VOCABULARY.md` §3). "HVAC" and
+"Mechanical" both resolve to `hvac-mechanical`; "Sprinkler" resolves to `fire-protection`.
+
+Matching is **case-insensitive**; the `slug`, the `name`, and every `alias` all resolve to the same
+`slug`. Aliases carry real weight here because the trades vocabulary is the one facet where regional
+and colloquial naming diverges hardest (*sitework* / *dirt work* / *earthmoving*; *glazier* /
+*curtain wall* / *fenestration*).
+
+Whether the D1 `taxonomy_trades` table materialises an `aliases` column or keeps the map alongside
+the seeder is an **AECI-540** decision; `taxonomy_data_objects` materialises it as a JSON-mode
+`TEXT` column (`docs/DATABASE_SCHEMA.md` §379) and matching that precedent is the recommendation.
+Either way this file is the source of the mapping.
+
+---
+
+## 5. The vocabulary (34 terms)
+
+Ordered **alphabetically by slug**, matching the `taxonomy_categories` / `taxonomy_audiences`
+convention. `display_order` increments by 10; slugs are kebab-case; names are Title Case with `&`
+for combined terms.
+
+**Descriptions ship populated.** Unlike the original three facets — seeded `description = NULL`
+(ADR 0008 "Follow-ups") — every trade ships with copy, because `/trades/:slug` is an SEO landing
+page from day one and an empty page is the SEO junk the publication gate (§6) exists to prevent.
+
+| display_order | slug | name | description | aliases |
+|---:|------|------|-------------|---------|
+| 10 | `concrete` | Concrete | Cast-in-place concrete: formwork, placing, finishing, and flatwork. | Cast-in-Place, Cast in Place Concrete, Formwork, Flatwork, Poured Concrete, Concrete Contracting, Tilt-Up |
+| 20 | `crane-rigging` | Crane & Rigging | Crane operations, lift planning, hoisting, and heavy rigging. | Crane, Cranes, Rigging, Lift Planning, Hoisting, Heavy Haul, Crane & Hoisting |
+| 30 | `deep-foundations` | Deep Foundations & Piling | Piles, drilled shafts, caissons, ground improvement, and earth retention. | Piling, Piles, Pile Driving, Drilled Shafts, Caissons, Earth Retention, Shoring & Piling, Ground Improvement |
+| 40 | `demolition` | Demolition | Structural and selective interior demolition, including deconstruction. | Demo, Selective Demolition, Interior Demolition, Deconstruction, Wrecking |
+| 50 | `doors-frames-hardware` | Doors, Frames & Hardware | Door and frame supply, finish hardware scheduling, and openings installation. | Doors & Hardware, Door Hardware, Finish Hardware, Openings, Hollow Metal, DHI |
+| 60 | `drywall-interior-framing` | Drywall & Interior Framing | Metal stud framing, gypsum board, taping, finishing, and acoustical ceilings. | Drywall, Gypsum, Interior Framing, Metal Stud Framing, Taping, Wall & Ceiling, Acoustical Ceilings, ACT |
+| 70 | `earthwork-excavation` | Earthwork & Excavation | Excavation, grading, mass haul, and soil work on the site. | Excavation, Grading, Earthmoving, Dirt Work, Mass Haul, Site Grading, Excavating |
+| 80 | `electrical` | Electrical | Power distribution, lighting, and electrical systems installation. | Electric, Electrical Contracting, Electrician, Power, Lighting Installation, Electrical Trade |
+| 90 | `elevators-conveying` | Elevators & Conveying | Elevators, escalators, lifts, and other vertical transportation systems. | Elevator, Elevators, Vertical Transportation, Escalators, Lifts, Conveying Systems |
+| 100 | `environmental-abatement` | Environmental & Abatement | Asbestos, lead, and mold abatement plus environmental remediation. | Abatement, Asbestos Abatement, Asbestos, Lead Abatement, Mold Remediation, Remediation, Hazmat, Environmental |
+| 110 | `fire-protection` | Fire Protection | Fire sprinkler, standpipe, and suppression system design and installation. | Fire Sprinkler, Sprinkler, Sprinklers, Fire Suppression, Suppression, Fire Life Safety, Fire Protection Contracting |
+| 120 | `fireproofing-firestopping` | Fireproofing & Firestopping | Applied fireproofing and through-penetration firestopping. | Fireproofing, Firestopping, Spray Fireproofing, Intumescent, Penetration Firestop |
+| 130 | `flooring` | Flooring | Resilient, carpet, wood, and polished-concrete floor covering. | Floor Covering, Floorcovering, Carpet, Resilient Flooring, Hardwood, Polished Concrete, Flooring Contracting |
+| 140 | `framing-carpentry` | Framing & Carpentry | Wood and light-gauge structural framing plus rough and finish carpentry. | Carpentry, Wood Framing, Light Gauge Steel Framing, LGS, Rough Carpentry, Finish Carpentry, Trusses, Framing |
+| 150 | `glazing-curtain-wall` | Glazing & Curtain Wall | Glass, storefront, curtain wall, and window-wall fabrication and installation. | Glass, Glazing, Glazier, Curtain Wall, Storefront, Window Wall, Fenestration, Glass & Glazing |
+| 160 | `hvac-mechanical` | HVAC & Mechanical | Heating, ventilation, air conditioning, hydronics, and process piping. | HVAC, Mechanical, Mechanical Contracting, Air Conditioning, Heating & Cooling, Hydronics, Process Piping, Mechanical Trade |
+| 170 | `insulation` | Insulation | Building-envelope and mechanical insulation, including spray foam. | Mechanical Insulation, Thermal Insulation, Building Insulation, Spray Foam, Pipe Insulation |
+| 180 | `landscaping-irrigation` | Landscaping & Irrigation | Planting, hardscape, irrigation, and grounds maintenance. | Landscape, Landscaping, Irrigation, Hardscape, Grounds Maintenance, Green Industry, Lawn Care |
+| 190 | `low-voltage-security` | Low Voltage & Security | Structured cabling, access control, surveillance, AV, and building networks. | Low Voltage, Security Systems, Access Control, Surveillance, AV, Audio Visual, Structured Cabling, Systems Integration, Alarm, Fire Alarm |
+| 200 | `masonry` | Masonry | Brick, block, stone, and cast-stone construction. | Brick, Bricklaying, Block, CMU, Stone, Cast Stone, Masonry Contracting |
+| 210 | `millwork-casework` | Millwork & Casework | Architectural woodwork, casework, cabinetry, and countertops. | Millwork, Casework, Cabinetry, Cabinets, Architectural Woodwork, Cabinet Shop, Countertops, AWI |
+| 220 | `painting-coatings` | Painting & Coatings | Architectural painting, industrial coatings, and wall covering. | Painting, Painter, Coatings, Industrial Coatings, Wallcovering, Wall Covering, Painting & Decorating |
+| 230 | `paving-asphalt` | Paving & Asphalt | Asphalt and concrete paving, striping, sealcoating, and pavement maintenance. | Paving, Asphalt, Pavement, Blacktop, Striping, Sealcoating, Pavement Maintenance, Asphalt Paving |
+| 240 | `plumbing` | Plumbing | Domestic water, sanitary, medical gas, and fuel-gas piping systems. | Plumber, Plumbing Contracting, Sanitary, Domestic Water, Med Gas, Medical Gas, Plumbing Trade |
+| 250 | `precast-concrete` | Precast Concrete | Plant-cast structural and architectural precast, including erection. | Precast, Architectural Precast, Structural Precast, Hollowcore, Double Tee |
+| 260 | `rebar-reinforcing` | Rebar & Reinforcing Steel | Reinforcing steel detailing, fabrication, and placement, including post-tensioning. | Rebar, Reinforcing Steel, Reinforcement, Rebar Detailing, Post-Tensioning, PT, Rod Busting |
+| 270 | `restoration-waterproofing` | Restoration & Waterproofing | Building-envelope restoration, waterproofing, sealants, and caulking. | Waterproofing, Sealants, Caulking, Building Envelope, Facade Restoration, Tuckpointing, Concrete Restoration |
+| 280 | `roofing` | Roofing | Low-slope and steep-slope roof systems, repair, and replacement. | Roofer, Roof, Roofing Contracting, Commercial Roofing, Residential Roofing, Re-Roofing, Roof Replacement, Sheet Roofing |
+| 290 | `scaffolding-access` | Scaffolding & Access | Scaffold, shoring, swing stage, and temporary access systems. | Scaffold, Scaffolding, Shoring, Swing Stage, Suspended Access, Access Equipment, Formwork & Shoring |
+| 300 | `sheet-metal` | Sheet Metal | Duct fabrication and installation plus architectural sheet metal. | Ductwork, Duct, Duct Fabrication, HVAC Sheet Metal, Architectural Sheet Metal, Fab Shop, SMACNA |
+| 310 | `sitework-utilities` | Sitework & Underground Utilities | Wet and dry underground utilities, storm, sewer, and site infrastructure. | Underground Utilities, Utilities, Site Utilities, Wet Utilities, Dry Utilities, Storm Drain, Sewer, Underground |
+| 320 | `solar-renewables` | Solar & Renewables | Solar PV, battery storage, EV charging, and renewable-energy installation. | Solar, PV, Photovoltaic, Solar Installation, Renewable Energy, Battery Storage, Energy Storage, EV Charging |
+| 330 | `structural-steel` | Structural Steel & Metals | Structural steel detailing, fabrication, erection, and miscellaneous metals. | Structural Steel, Steel, Steel Erection, Steel Fabrication, Ironworker, Misc Metals, Miscellaneous Metals, Ornamental Metals, Metal Fabrication |
+| 340 | `tile-stone` | Tile & Stone | Ceramic tile, natural stone, and terrazzo setting. | Tile, Tile Setting, Ceramic Tile, Stone Setting, Terrazzo, Tilework |
+
+### 5.1 Why these 34
+
+Each term had to clear three bars:
+
+1. **Contractors self-identify with it.** The term is what a company would put on its own website
+   ("we're a glazing contractor"), not an internal work-breakdown label.
+2. **Trade-specific software plausibly exists.** A trade page with no candidate products is a page
+   that fails the §1.1 trade-page test on day one. Every term above has a recognisable population of
+   trade-specific estimating, takeoff, fabrication, or service software.
+3. **It does not duplicate an existing Category or Audience term.** See §7.
+
+`display_order` is alphabetical rather than grouped-by-system (site → structure → envelope → MEP →
+interiors). With 34 terms the browse list is long enough that users **scan for their own trade**, and
+alphabetical is the only ordering that supports scanning. It also matches how
+`taxonomy_categories` and `taxonomy_audiences` are already ordered.
+
+### 5.2 Considered and deliberately excluded
+
+These were evaluated and left out of the initial set. Each must clear the §3 bar to be added later.
+
+| Candidate | Why it is out |
+|---|---|
+| **Surveying & Layout** | Duplicates **two** existing terms: the Category `surveying-gis` and the Audience `surveying-geomatics`. This is exactly the ~55%-overlap failure that got the proposed "Roles" facet rejected in AECI-121. |
+| **Heavy Civil / Highway**, **Bridge**, **Water & Wastewater** | These are **market sectors** (what kind of project), not trades (what work you sell). The market-sector axis is an explicit AECI-538 out-of-scope follow-up. |
+| **HVAC Service**, **Plumbing Service**, **Mechanical Service** | Service vs. new-construction is a **delivery-model** axis cutting across every trade, not a trade of its own. Splitting it would double the vocabulary. Service-first products tag the base trade (`hvac-mechanical`, `plumbing`). |
+| **Metal Buildings / Pre-Engineered** | Folds into `structural-steel`; a separate term would fragment a thin page. |
+| **Signage**, **Pools & Aquatics**, **Well Drilling**, **Septic** | Real trades, but no meaningful population of trade-specific software in an AEC directory. Revisit if the catalog grows into them. |
+| **General Contracting**, **Construction Management** | Not trades — these are delivery roles, already on the Audience axis (`general-contracting`, `construction-management`). Tagging them would re-create the horizontal-platform problem §1.1 forbids. |
+| **Architecture**, **Structural Engineering**, **MEP Engineering** | Design disciplines, already Audience terms. A firm that *designs* mechanical systems is not in the mechanical trade. |
+
+---
+
+## 6. Publication gating
+
+Thin trade pages are SEO junk and dilute the whole `/trades` namespace. A trade term is
+**published** only when it clears a product floor.
+
+- **`TRADE_PUBLISH_MIN_PRODUCTS = 3`** — a trade is published when at least 3 promoted products
+  carry it. Launch-tunable (`docs/POST_LAUNCH_MONITORING.md` threshold table); 3 is low enough to
+  publish early and high enough that the page is never a single-item stub.
+
+| Surface | Published trade | Unpublished trade (`product_count < 3`) |
+|---|---|---|
+| `/trades` index | Listed | **Hidden** |
+| `/trades/:slug` page | 200, indexable | 200, `noindex,follow` |
+| XML sitemap | Included | **Excluded** |
+| Facet sidebar / nav | Offered as a filter | **Hidden** |
+| Product-detail trade chips | Rendered + linked | Rendered + linked (the tag is true; the *page* is just not promoted) |
+| `GET /api/trades`, `GET /api/taxonomy` | Returned | Returned (with `product_count`; gating is a presentation decision, not a data one) |
+
+Two consequences worth stating explicitly:
+
+- **URLs are stable across the gate.** An unpublished trade still resolves at its permanent slug, so
+  a trade crossing the floor becomes indexable with no redirect and no URL churn.
+- **The API is not gated.** `product_count` travels on every term
+  (`TaxonomyTermWithCountSchema`), and each consuming surface applies the floor. This keeps the gate
+  in one presentational place instead of splitting the vocabulary into two API shapes.
+
+Implementation is **AECI-546**; this section is the governing policy.
+
+---
+
+## 7. The seam with Audience — documented, not resolved
+
+**The Audience facet does not change.** `specialty-contracting` stays exactly as it is (AECI-538
+out-of-scope: "Any audience-facet restructure"). Trades and Audiences overlap on purpose:
+
+- **Audience `specialty-contracting`** = *"this software is aimed at specialty subcontractors"* — a
+  positioning statement about the software.
+- **Trade `electrical`** = *"this software understands electrical work"* — a statement about the
+  work.
+
+A product can carry both, one, or neither. The near-duplicate pairs to be aware of when tagging:
+
+| Trade | Nearest existing term | How they differ |
+|---|---|---|
+| `hvac-mechanical`, `plumbing` | Category `mep-design`, Audience `mep-engineering` | Design/analysis software for engineers vs. software for the contractor who installs it. |
+| `solar-renewables` | Category `energy-sustainability` | Whole-building energy analysis vs. PV system design and installation. |
+| `structural-steel`, `precast-concrete` | Audience `structural-engineering` | Detailing/fabrication/erection vs. structural analysis and design. |
+| `low-voltage-security` | Category `safety-compliance` | Systems the low-voltage trade installs vs. safety-program software. |
+
+If a future term cannot be distinguished from an existing Category or Audience term by that test, it
+does not belong in this vocabulary (§5.2).
+
+---
+
+## 8. Seeding conventions (for the downstream consumers)
+
+When **AECI-540** materialises this list, mirror the existing taxonomy pattern
+(`apps/api/seed/taxonomy.sql`, `apps/api/seed/data-objects.sql`):
+
+- **`id`** — deterministic **UUIDv5 derived from the `slug`**, so ids are stable across re-runs and
+  across environments (the convention `taxonomy.sql` already uses). Ids are therefore **not** stored
+  in this file or the JSON mirror — they are derived from the `slug`.
+  > **Open item for AECI-540.** The namespace + name form used to derive the existing
+  > `taxonomy_*` / `taxonomy_data_objects` ids is **not recorded anywhere in the repo**, and the
+  > shipped ids do not match UUIDv5 over the bare slug under any of the five standard namespaces.
+  > Because `taxonomy_trades` is a brand-new table with no rows to stay compatible with, AECI-540
+  > should **pick the derivation, state it verbatim in the `trades.sql` header** (namespace UUID +
+  > exact name string), and — separately — backfill the same note into `taxonomy.sql` /
+  > `data-objects.sql` if the original convention can be recovered.
+- **Idempotent UPSERT keyed on `slug`** (`ON CONFLICT(slug) DO UPDATE`) — re-seeding updates
+  `name` / `description` / `display_order` / `aliases` in place; it **never deletes**.
+- **`display_order`** carried through verbatim (10, 20, … 340).
+- **`description` is seeded non-null** for every term (§5).
+- The seed writes **`taxonomy_trades` only**, never `product_trades` (those links come from the
+  promote flow — AECI-542).
+
+---
+
+## 9. Keeping the mirror in sync
+
+[`trades-vocabulary.json`](./trades-vocabulary.json) is a **generated mirror** of the table in §5. It
+is an object carrying `vocabulary` / `stage` / `closed` metadata plus a `terms` array — one object
+per row, in `display_order` order. The markdown table is the human-edited canonical source; **edit
+the table, then regenerate the JSON**, never the reverse. A row in §5 ⇔ an object in `terms`: same
+`slug`, `name`, `description`, `display_order`, and `aliases`.
+
+This is the same arrangement as `docs/DATA_OBJECT_VOCABULARY.md` ⇔
+`docs/data-object-vocabulary.json`. Neither pair has an automated generator or a CI drift gate
+today; keeping them in sync is a review-time responsibility.
