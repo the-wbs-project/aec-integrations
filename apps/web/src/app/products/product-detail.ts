@@ -18,6 +18,7 @@ import { MailingListSignup } from '../shared/mailing-list-signup/mailing-list-si
 import { SectionNav, type SectionNavItem } from '../shared/section-nav/section-nav';
 import { TaxonomyBadge } from '../shared/taxonomy-badge/taxonomy-badge';
 
+import { groupPoweredIntegrations } from './powered-hub-grouping';
 import { ProductIntegrationRow } from './product-integration-row';
 import { ProductPoweredHub } from './product-powered-hub';
 import { ProductReviews } from './product-reviews';
@@ -553,7 +554,7 @@ import { RoleBadge } from './role-badge';
                   >.
                 </p>
               } @else {
-                <aec-product-powered-hub [integrations]="p.integrations_as_connector" />
+                <aec-product-powered-hub [view]="poweredView()" />
               }
             </section>
           }
@@ -665,7 +666,7 @@ export class ProductDetailPage {
   });
 
   /**
-   * Whether the "Powers these integrations" section renders (Stage 1.5
+   * Whether the "Integrations it powers" section renders (Stage 1.5
    * Addendum B). Connector / hybrid products always show it — their whole value
    * proposition is the edges they power, so an empty state there is information
    * ("none recorded yet"), not clutter. Applications show it only when they
@@ -678,12 +679,39 @@ export class ProductDetailPage {
     return p.product_role !== 'application' || p.integrations_as_connector.length > 0;
   });
 
-  /** "Powers these integrations (N)" — N counts EDGES, not hub groups, so it
-   *  matches the connector's real reach rather than how the chips happen to
-   *  bucket. Same inline-count treatment as the endpoint heading above. */
+  /**
+   * The Addendum B hub view, computed HERE rather than inside
+   * `ProductPoweredHub` so the heading count and the rendered rows are
+   * provably the same set (see `poweredHeading`).
+   */
+  protected readonly poweredView = computed(() =>
+    groupPoweredIntegrations(this.product()?.integrations_as_connector ?? []),
+  );
+
+  /**
+   * "Integrations it powers (N)".
+   *
+   * The copy is a noun phrase, parallel to the endpoint "Integrations (N)"
+   * heading directly above it, because on a connector page **both sections can
+   * be populated at once** — live data has a connector carrying its own
+   * endpoint integrations *and* powered edges (NetSuite Connector by
+   * Appficiency), so the two headings have to be told apart. The former
+   * "Powers these integrations" failed at that: verb-first (breaking the
+   * `About` / `How teams use it` / `Integrations` / `Reviews` heading grammar),
+   * "these" pointed forward at nothing, and "powers" is vendor marketing voice
+   * rather than the neutral catalog voice PRODUCT.md asks for. The pronoun in
+   * "it powers" does the disambiguating work "these" was not doing.
+   *
+   * N counts the distinct product PAIRS the section renders, not raw edges.
+   * Counting edges made the heading lie: live data carries duplicate rows for a
+   * pair (that same NetSuite connector has 4 edges over 2 pairs) and several
+   * mechanisms between one pair collapse to a single row, so a reader counting
+   * rows found fewer than the heading promised. Same inline-count treatment as
+   * the endpoint heading above.
+   */
   protected readonly poweredHeading = computed(() => {
-    const count = this.product()?.integrations_as_connector.length ?? 0;
-    return $localize`:@@products.detail.body.powers.heading:Powers these integrations (${count}:count:)`;
+    const count = this.poweredView().pairCount;
+    return $localize`:@@products.detail.body.powers.heading:Integrations it powers (${count}:count:)`;
   });
 
   /**
@@ -725,11 +753,14 @@ export class ProductDetailPage {
       label: $localize`:@@products.detail.nav.integrations:Integrations`,
     });
     // Gated on the same condition as the section itself, or the nav would link
-    // to an anchor that isn't on the page.
+    // to an anchor that isn't on the page. Label matches the section heading
+    // verbatim (minus the count) so the two never read as different sections —
+    // it sits directly under "Integrations", which is exactly the pair the
+    // pronoun is there to separate.
     if (this.showPowered()) {
       items.push({
         id: 'powered-integrations',
-        label: $localize`:@@products.detail.nav.powers:Powers integrations`,
+        label: $localize`:@@products.detail.nav.powers:Integrations it powers`,
       });
     }
     // Reviews always renders (its empty state still does), so it is always in

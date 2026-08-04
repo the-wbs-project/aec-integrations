@@ -374,7 +374,7 @@ export interface PromoteIntegrationResult {
    * Slug of the connector product that POWERS the promoted integration
    * (`integrations.powered_by_product_id`), when the payload named one. Present
    * so the cache-tag deriver can purge the connector's own product detail page —
-   * its "Powers these integrations" hub view (Stage 1.5 Addendum B) renders this
+   * its "Integrations it powers" hub view (Stage 1.5 Addendum B) renders this
    * edge, and without the tag it would sit stale until the TTL. Absent when the
    * integration has no powered-by product, and older responses omit it entirely,
    * so consumers must tolerate its absence.
