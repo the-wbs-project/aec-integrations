@@ -378,7 +378,7 @@ create table taxonomy_trades (
 create index taxonomy_trades_slug_idx on taxonomy_trades(slug);
 ```
 
-- **D1 specifics.** `id` is `TEXT` (deterministic UUIDv5 of the `slug`); `aliases` is `TEXT` in JSON mode (a JSON array of strings). Seeded from `apps/api/seed/trades.sql` (idempotent `ON CONFLICT(slug) DO UPDATE`, applied to every env — ADR 0008).
+- **D1 specifics.** Shipped in migration `apps/api/migrations/0009_watery_tinkerer.sql`. `id` is `TEXT` (deterministic UUIDv5 of the `slug` — `TRADES_VOCABULARY.md` §8 states the namespace verbatim); `aliases` is `TEXT` in JSON mode (a JSON array of strings). The `slug` uniqueness above is implemented as the unique index `taxonomy_trades_slug_key`, matching every sibling taxonomy table, so no separate `_slug_idx` is created. Seeded from `apps/api/seed/trades.sql` (idempotent `ON CONFLICT(slug) DO UPDATE`, applied to every env — ADR 0008).
 - **Source of truth** for the vocabulary is `docs/TRADES_VOCABULARY.md` (§5) / its generated mirror `docs/trades-vocabulary.json` — a closed, governed 34-term list.
 - **`description` is `not null`** — the one column that differs from the sibling taxonomy tables, which seed `description` as `NULL` (ADR 0008 "Follow-ups"). Trade browse pages ship as SEO landing pages, so copy is part of the contract, not a later addition.
 - **`aliases`** is dual-purpose (a deliberate divergence from `taxonomy_data_objects`, where it is resolver-only): the promote ingest resolves an incoming trade **find-only** by slug → name → alias (`REVIEW_APP_PROMOTE_API.md`), **and** the aliases are indexed as searchable content in Algolia so colloquial queries ("blacktop", "glazier") reach the right products (`SEARCH_RANKING.md` §2). It never drives ranking.
@@ -515,6 +515,7 @@ create table product_trades (
 create index product_trades_trade_idx on product_trades(trade_id);
 ```
 
+- Shipped in migration `apps/api/migrations/0009_watery_tinkerer.sql`, alongside `taxonomy_trades`.
 - Rows are written **only** by the promote flow (`POST /api/promote`, AECI-542), which replaces a product's full trade set on each promote — never by the taxonomy seed (ADR 0008).
 - **Any `product_role` may carry trade tags**, connectors included — a connector purpose-built to sync a trade ERP is exactly as trade-specific as an app. In practice tags concentrate on `application`-role products.
 

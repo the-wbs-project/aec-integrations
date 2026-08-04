@@ -8,8 +8,8 @@
 This document is the single canonical artifact for the `trade` controlled vocabulary.
 Everything downstream seeds from it:
 
-- **AECI-540** — the main app's D1 `taxonomy_trades` table + `apps/api/seed/trades.sql` are seeded
-  from §5.
+- **AECI-540** _(shipped)_ — the main app's D1 `taxonomy_trades` + `product_trades` tables, and
+  `apps/api/seed/trades.sql` seeded from §5 under the id convention in §8.
 - **AECI-541** — `packages/shared` contracts, `GET /api/taxonomy → trades`, `GET /api/trades`,
   `GET /api/trades/:slug`, and the `trade_id` listing param.
 - **AECI-542 / AECI-543** — the promote `trades` key and the Review-app (bamako) Airtable `Trades`
@@ -334,27 +334,45 @@ does not belong in this vocabulary (§5.2).
 
 ---
 
-## 8. Seeding conventions (for the downstream consumers)
+## 8. Seeding conventions
 
-When **AECI-540** materialises this list, mirror the existing taxonomy pattern
+**Shipped in AECI-540** as `apps/api/seed/trades.sql`, mirroring the existing taxonomy pattern
 (`apps/api/seed/taxonomy.sql`, `apps/api/seed/data-objects.sql`):
 
 - **`id`** — deterministic **UUIDv5 derived from the `slug`**, so ids are stable across re-runs and
-  across environments (the convention `taxonomy.sql` already uses). Ids are therefore **not** stored
-  in this file or the JSON mirror — they are derived from the `slug`.
-  > **Open item for AECI-540.** The namespace + name form used to derive the existing
-  > `taxonomy_*` / `taxonomy_data_objects` ids is **not recorded anywhere in the repo**, and the
-  > shipped ids do not match UUIDv5 over the bare slug under any of the five standard namespaces.
-  > Because `taxonomy_trades` is a brand-new table with no rows to stay compatible with, AECI-540
-  > should **pick the derivation, state it verbatim in the `trades.sql` header** (namespace UUID +
-  > exact name string), and — separately — backfill the same note into `taxonomy.sql` /
-  > `data-objects.sql` if the original convention can be recovered.
+  across environments. Ids are therefore **not** stored in this file or the JSON mirror — they are
+  derived from the `slug`:
+
+  ```
+  TRADE_NAMESPACE = UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/trade')
+                  = af0d33bc-5814-524f-9c6c-cac49b84d5f0
+  id              = UUIDv5(TRADE_NAMESPACE, slug)
+  ```
+
+  where `URL_NS = 6ba7b811-9dad-11d1-80b4-00c04fd430c8` (RFC 9562 §6.6). The executable reference
+  is `uuidv5()` in `apps/api/src/test/d1.spec.ts`, which re-derives all 34 ids and asserts they
+  match the seed file.
+  > **Resolution of the AECI-539 open item.** That issue recorded the derivation as "not recorded
+  > anywhere in the repo" and deferred the choice to AECI-540. Half of that was wrong: the
+  > convention **is** recorded — in the header of `apps/api/seed/data-objects.sql`, as
+  > `UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/data_object')` =
+  > `4a9d061b-fec7-596f-be52-8db72334eb59`, verified to reproduce the shipped `taxonomy_data_objects`
+  > ids exactly. AECI-540 therefore **followed that precedent** (same construction, one vocabulary
+  > path along) rather than inventing a derivation. The other half stands: the ids in
+  > `taxonomy.sql` (categories / audiences / phases) match **neither** this scheme nor UUIDv5 over
+  > the bare slug under any standard namespace, and their derivation remains unrecovered. Those ids
+  > are already shipped and immutable, so this is a documentation gap, not a defect — a note to that
+  > effect is carried in the `taxonomy.sql` header.
 - **Idempotent UPSERT keyed on `slug`** (`ON CONFLICT(slug) DO UPDATE`) — re-seeding updates
   `name` / `description` / `display_order` / `aliases` in place; it **never deletes**.
 - **`display_order`** carried through verbatim (10, 20, … 340).
-- **`description` is seeded non-null** for every term (§5).
+- **`description` is seeded non-null** for every term (§5) — the column is `not null`.
 - The seed writes **`taxonomy_trades` only**, never `product_trades` (those links come from the
   promote flow — AECI-542).
+- **Application** is uniform across environments (ADR 0008): locally via
+  `pnpm --filter @aeci/api db:seed:trades:local` (folded into `db:seed:local` / `db:setup:local`),
+  and per-env via the `--remote` step in `scripts/d1-apply-migrations.sh`, which every deploy lane
+  runs after `wrangler d1 migrations apply`.
 
 ---
 
@@ -386,8 +404,11 @@ that carries the reasoning.
 | 5 | Publication gate **N**? | **`TRADE_PUBLISH_MIN_PRODUCTS = 3`**, launch-tunable. Gates the `/trades` index, facet sidebar, sitemap, and indexability — **not** the API, and not the URL (an unpublished trade still resolves, so crossing the floor needs no redirect). | §6 |
 | 6 | May connector-role products carry trade tags, or apps only? | **All roles, connectors included.** A connector built for a trade ERP is as trade-specific as an app. `product_role` is never a gate; the §1.1 trade-specific-value rule is the only one. | §5.4 |
 
-**One item deferred to AECI-540, deliberately.** The UUIDv5 namespace + name form behind the existing
-`taxonomy_*` / `taxonomy_data_objects` ids is recorded nowhere in the repo, and the shipped ids do
-not match UUIDv5 over the bare slug under any of the five standard namespaces (checked). Since
-`taxonomy_trades` is a new table with no rows to stay compatible with, AECI-540 picks the derivation
-and states it verbatim in the `trades.sql` header — see §8.
+**The one item deferred to AECI-540 is now closed.** This issue deferred the UUIDv5 namespace +
+name form, believing it was recorded nowhere in the repo. It **is** recorded — in the
+`apps/api/seed/data-objects.sql` header — so AECI-540 followed that precedent instead of inventing
+one: `TRADE_NAMESPACE = UUIDv5(URL_NS, 'https://aecintegrations.com/vocabulary/trade')` =
+`af0d33bc-5814-524f-9c6c-cac49b84d5f0`, and `id = UUIDv5(TRADE_NAMESPACE, slug)`. The derivation
+behind the *original three* facets in `taxonomy.sql` is still unrecovered (checked again in
+AECI-540: it matches neither this scheme nor the bare slug under any standard namespace); those ids
+are shipped and immutable, so it stays a documentation gap. Full detail: §8.
