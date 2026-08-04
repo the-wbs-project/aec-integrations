@@ -176,6 +176,7 @@ Per-detail hydration rules:
 | `ProductDetail` | `vendor` | `VendorLink` |
 | `ProductDetail` | `categories` / `audiences` / `phases` | `LinkRef[]` |
 | `ProductDetail` | `integrations_as_source` / `integrations_as_target` | `ProductIntegrationItem[]` (= `IntegrationListItem` + `context_direction`) |
+| `ProductDetail` | `integrations_as_connector` | `IntegrationListItem[]` — edges this product **powers** as the mechanism (`powered_by_product_id`), not as an endpoint (Stage 1.5 Addendum B). Bare list item **by design**: the page product is neither endpoint, so `context_direction` has no frame to be relative to. |
 | `ProductDetail` | `related_products` | `ProductListItem[]` |
 | `VendorDetail` | `products` | `ProductListItem[]` |
 | `IntegrationDetail` | `source` / `target` | `ProductLink` |
@@ -309,6 +310,11 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   // ProductIntegrationItem = IntegrationListItem + `context_direction` (see §5.3).
   integrations_as_source: z.array(ProductIntegrationItemSchema),
   integrations_as_target: z.array(ProductIntegrationItemSchema),
+  // Edges this product POWERS as the connector/mechanism, not as an endpoint
+  // (Stage 1.5 Addendum B, §12). Bare IntegrationListItem — no `context_direction`,
+  // because the page product is neither `source` nor `target`. Flat list; the hub
+  // grouping ("Connects Procore with: …") is a client-side presentation concern.
+  integrations_as_connector: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),
 });
 ```
@@ -1229,12 +1235,16 @@ export interface PromoteResponse {
   product: { ref: string; id: string; slug: string; operation: 'created' | 'updated' } | null;
   // sourceSlug/targetSlug (the two products' slugs) are optional — populated by the
   // claims ingest (AECI-297) so pair-page purge needs no DB read.
+  // poweredBySlug is the connector product that powers the edge, when the payload
+  // named one (Stage 1.5 Addendum B) — it purges the connector's own product page,
+  // which no other tag rule reaches. All three are optional; tolerate absence.
   integrations: {
     ref: string;
     id: string;
     operation: 'created' | 'updated';
     sourceSlug?: string;
     targetSlug?: string;
+    poweredBySlug?: string;
   }[];
   taxonomy: {
     categories: { slug: string; id: string; operation: 'created' | 'reused' }[];

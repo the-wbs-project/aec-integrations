@@ -899,6 +899,10 @@ export const productsRelations = relations(products, ({ many }) => ({
   reviews: many(reviews),
   sourceIntegrations: many(integrations, { relationName: 'IntegrationSource' }),
   targetIntegrations: many(integrations, { relationName: 'IntegrationTarget' }),
+  // Integrations this product POWERS as the connector/mechanism (Stage 1.5
+  // Addendum B) — the inverse of `integrations.poweredByProduct`, so the
+  // product detail query can hydrate a connector's edges.
+  poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' }),
 }));
 
 export const integrationsRelations = relations(integrations, ({ one, many }) => ({

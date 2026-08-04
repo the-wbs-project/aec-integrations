@@ -7,7 +7,7 @@ import {
   uuidList,
   VendorLinkSchema,
 } from './common';
-import { ProductIntegrationItemSchema } from './integrations';
+import { IntegrationListItemSchema, ProductIntegrationItemSchema } from './integrations';
 import { PublicReviewSchema } from './reviews';
 
 /**
@@ -110,6 +110,13 @@ export const ProductDetailSchema = ProductListItemSchema.extend({
   usefulness: ProductUsefulnessSchema.nullable(),
   integrations_as_source: z.array(ProductIntegrationItemSchema),
   integrations_as_target: z.array(ProductIntegrationItemSchema),
+  // Integrations this product POWERS as the connector/mechanism
+  // (`integrations.powered_by_product_id`), not as an endpoint — the edges a
+  // connector-role product exists to provide (Stage 1.5 Addendum B). Row shape
+  // is the bare IntegrationListItem: both endpoints are "other" products here,
+  // so there is no `context_direction` — the row's `direction` is between
+  // `source` and `target`, and grouping/presentation is a client concern.
+  integrations_as_connector: z.array(IntegrationListItemSchema),
   related_products: z.array(ProductListItemSchema),
   // First page of approved reviews, newest-first, SSR'd into the cached product
   // page so the reviews section renders without a client round-trip (AECI-199 /

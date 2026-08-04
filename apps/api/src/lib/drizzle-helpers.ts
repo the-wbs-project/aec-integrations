@@ -228,6 +228,11 @@ export const productDetailConfig = {
     productPhases: { columns: {}, with: { phase: { columns: taxonomyLinkColumns } } },
     sourceIntegrations: productDetailIntegrationConfig,
     targetIntegrations: productDetailIntegrationConfig,
+    // Edges this product powers as the connector/mechanism (Stage 1.5
+    // Addendum B). The bare list config, not `productDetailIntegrationConfig`:
+    // the page product is neither endpoint, so there is no context_direction
+    // and no claims join to pay for.
+    poweredIntegrations: integrationListConfig,
   },
 } as const;
 
@@ -488,6 +493,7 @@ export interface RawProductDetailRow extends RawProductListRow {
   productPhases: Array<{ phase: RawTaxonomyLink }>;
   sourceIntegrations: RawProductIntegrationRow[];
   targetIntegrations: RawProductIntegrationRow[];
+  poweredIntegrations: RawIntegrationListRow[];
 }
 
 export interface RawPublicReviewRow {
@@ -1045,6 +1051,9 @@ export function toProductDetail(
     // true → outbound flows read outbound); target bucket is the mirror.
     integrations_as_source: raw.sourceIntegrations.map((r) => toProductIntegrationItem(r, true)),
     integrations_as_target: raw.targetIntegrations.map((r) => toProductIntegrationItem(r, false)),
+    // Connector bucket: this product is the mechanism, not an endpoint — bare
+    // list items (no context_direction; direction is between source and target).
+    integrations_as_connector: raw.poweredIntegrations.map(toIntegrationListItem),
     related_products: relatedProducts.map(toProductListItem),
     reviews: reviews.map(toPublicReview),
   };

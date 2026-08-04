@@ -250,6 +250,39 @@ describe('GET /api/products/:slug', () => {
     expect(detail.reviews.map((r) => r.id)).toEqual([u(61)]);
   });
 
+  it('hydrates integrations_as_connector for a powered-by product (Stage 1.5 Addendum B)', async () => {
+    await seedProduct(u(1), 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+    await seedProduct(u(2), 'procore', 'Procore');
+    await seedProduct(u(3), 'sage-intacct', 'Sage Intacct');
+    // The connector is the mechanism, NOT an endpoint of the edge.
+    await t.db.insert(integrations).values({
+      id: u(51),
+      sourceProductId: u(2),
+      targetProductId: u(3),
+      mechanismKind: 'marketplace-app',
+      poweredByProductId: u(1),
+    });
+
+    const connector = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/agave-erp-sync')).json(),
+    );
+    // The powered edge lands in the connector bucket with both endpoints hydrated…
+    expect(connector.integrations_as_connector.map((i) => i.id)).toEqual([u(51)]);
+    expect(connector.integrations_as_connector[0]?.source.slug).toBe('procore');
+    expect(connector.integrations_as_connector[0]?.target.slug).toBe('sage-intacct');
+    // …and NOT in the endpoint buckets (the connector terminates neither side).
+    expect(connector.integrations_as_source).toEqual([]);
+    expect(connector.integrations_as_target).toEqual([]);
+
+    // The endpoints see the edge only as an endpoint edge — their connector
+    // bucket stays empty.
+    const endpoint = ProductDetailSchema.parse(
+      await (await get(detailApp(), '/api/products/procore')).json(),
+    );
+    expect(endpoint.integrations_as_source.map((i) => i.id)).toEqual([u(51)]);
+    expect(endpoint.integrations_as_connector).toEqual([]);
+  });
+
   it('derives the table Direction from claims when the row direction is null (§3.2 — regression: table matched "–" while the pair page said "Syncs both ways")', async () => {
     await seedProduct(u(1), 'egnyte', 'Egnyte'); // context product (integration source)
     await seedProduct(u(2), 'procore', 'Procore'); // the other endpoint (target)

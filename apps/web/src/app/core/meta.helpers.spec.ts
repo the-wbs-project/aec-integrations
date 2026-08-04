@@ -226,6 +226,7 @@ describe('buildProductJsonLd', () => {
       usefulness: null,
       integrations_as_source: [],
       integrations_as_target: [],
+      integrations_as_connector: [],
       related_products: [],
       reviews: [],
     };

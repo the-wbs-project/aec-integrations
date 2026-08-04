@@ -658,6 +658,58 @@ describe('createPromoteHandler — claims ingest (AECI-297)', () => {
     );
   });
 
+  it('returns poweredBySlug for an integration powered by a connector product (Addendum B)', async () => {
+    const target = uuid(1);
+    const connector = uuid(2);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+    await seedProduct(connector, 'agave-erp-sync', 'Agave ERP Sync', { productRole: 'connector' });
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          poweredByProduct: { supabaseId: connector },
+          claims: [],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as {
+      integrations: { ref: string; poweredBySlug?: string }[];
+    };
+    // The connector's slug rides back so the cache-tag deriver can purge its own
+    // product page — it is neither endpoint, so no other tag reaches it.
+    expect(b.integrations[0]).toMatchObject({ poweredBySlug: 'agave-erp-sync' });
+
+    const rows = await t.db.select().from(integrations);
+    expect(rows[0]).toMatchObject({ poweredByProductId: connector });
+  });
+
+  it('omits poweredBySlug when the integration names no powered-by product', async () => {
+    const target = uuid(1);
+    await seedProduct(target, 'navisworks', 'Navisworks');
+
+    const res = await promote({
+      product: { ref: 'p1', name: 'Revit' },
+      integrations: [
+        {
+          ref: 'i1',
+          sourceProduct: { ref: 'p1' },
+          targetProduct: { supabaseId: target },
+          claims: [],
+        },
+      ],
+    });
+
+    expect(res.status).toBe(200);
+    const b = (await res.json()) as { integrations: { poweredBySlug?: string }[] };
+    expect(b.integrations[0]?.poweredBySlug).toBeUndefined();
+  });
+
   it('reports an unresolved dataObject in skipped[] (kind: claim), never a 500', async () => {
     const target = uuid(1);
     await seedProduct(target, 'navisworks', 'Navisworks');
@@ -1339,6 +1391,47 @@ describe('cacheTagsForPromote (AECI-105)', () => {
       skipped: [],
     };
     expect(cacheTagsForPromote(response)).toEqual([]);
+  });
+
+  it('a powered integration → the connector product tag alongside the pair tag', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [
+        {
+          ref: 'i1',
+          id: 'id-i1',
+          operation: 'updated',
+          sourceSlug: 'revit',
+          targetSlug: 'navisworks',
+          poweredBySlug: 'agave-erp-sync',
+        },
+      ],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(new Set(cacheTagsForPromote(response))).toEqual(
+      new Set(['pair:navisworks__revit', 'product:agave-erp-sync']),
+    );
+  });
+
+  it('an integration with no powered-by product emits no connector tag', () => {
+    const response: PromoteResponse = {
+      vendors: [],
+      product: null,
+      integrations: [
+        {
+          ref: 'i1',
+          id: 'id-i1',
+          operation: 'updated',
+          sourceSlug: 'revit',
+          targetSlug: 'navisworks',
+        },
+      ],
+      taxonomy: emptyTaxonomy,
+      skipped: [],
+    };
+    expect(cacheTagsForPromote(response)).toEqual(['pair:navisworks__revit']);
   });
 
   it('never emits coarse route-class tags', () => {

@@ -291,6 +291,18 @@ create index integrations_built_by_idx on integrations(built_by_vendor_id) where
 create index integrations_powered_by_idx on integrations(powered_by_product_id) where powered_by_product_id is not null;
 ```
 
+**Inverse relation on `products` (Stage 1.5 Addendum B — no schema change).** The
+Drizzle relations file declares
+`poweredIntegrations: many(integrations, { relationName: 'IntegrationPoweredByProduct' })`
+on `productsRelations` (`apps/api/src/db/schema.ts`), the read side of
+`powered_by_product_id`. It hydrates `ProductDetail.integrations_as_connector` — the
+edges a **connector-role** product provides as the mechanism rather than as an
+endpoint (`STAGE_1_5_SPEC.md` §12). The column and its partial index above already
+existed, so this is a relations-file declaration only: **no migration**, no DDL. The
+named `relationName` is required because `products` ↔ `integrations` already has two
+other relations (source and target endpoints) and Drizzle cannot otherwise
+disambiguate a third.
+
 ---
 
 ## 5. Taxonomy tables
